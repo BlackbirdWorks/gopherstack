@@ -295,3 +295,73 @@ The other two branches (response marshal/CBOR-encode failure) are fixed
 defensively for consistency with the same helper but not independently
 proven by a client -- `response` is backend-constructed and `json.Marshal`
 essentially cannot fail on it.
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- one live bug fixed, rest confirmed clean
+
+Campaign-wide hunt for the class distinct from wrapper-key/nesting sweeps:
+what a client sees when a request *fails* -- HTTP status, AWS error code, and
+whether the operation actually models that code, checked against each op's
+own `awsAwsjson10_deserializeOpError<Op>` switch in `deserializers.go`
+(dynamodb@v1.63.1), not the shared `types/errors.go` list.
+
+**Error path**: every backend method returns a Go error, either a typed
+`*Error{Type, Message}` (errors.go's `New*Exception` constructors, `Type`
+holding the full `com.amazonaws.dynamodb.v20120810#<Name>` shape) or a plain
+`errors.New`. `Handler.classifyError` (handler.go) maps a typed `*Error` to
+HTTP 500 only for `InternalServerError`, HTTP 400 for every other type --
+confirmed correct against the SDK: DynamoDB's JSON-RPC (awsjson10) protocol
+never varies HTTP status per exception type on the real service either; the
+client determines the concrete exception type purely from the body's
+`__type`/`X-Amzn-ErrorType`, so a uniform 400 for all client-fault codes is
+not a bug.
+
+**58 ops' declared code sets extracted and spot-checked** against the
+sentinels each backend method actually raises (BatchGetItem/BatchWriteItem/
+Get/Put/Update/DeleteItem/Query/Scan/Transact*/Execute*/Create*/Delete*/
+Describe*/List*/Update* families). No wrong-code or wrong-status findings
+this pass; `NewDuplicateItemException` (`ExecuteStatement`'s own switch
+models `DuplicateItemException`) and the Backup/Export/Import/GlobalTable
+`Not*Found` constructors all match their respective op's own declared set.
+
+**One real bug found and fixed**: `TransactWriteItems`' `ClientRequestToken`
+idempotency tracking (`transact_ops.go`'s `txnTokens`) recorded only an
+expiry, no record of what request actually committed under a token. AWS
+raises `IdempotentParameterMismatchException` (confirmed modeled on this
+op's own `awsAwsjson10_deserializeOpErrorTransactWriteItems` switch,
+`deserializers.go`) when a caller reuses a `ClientRequestToken` with a
+*different* request; gopherstack instead treated any second call with a
+matching token as a matching replay and returned a bare empty success --
+even when `TransactItems` was entirely different. This is the "AWS models
+an error, gopherstack returns a bare success" direction of the class.
+
+Fixed: `txnTokens` now stores a `txnTokenRecord{expiry, hash}` (`store.go`),
+where `hash` is a SHA-256 of the JSON-encoded `TransactItems`
+(`hashTransactWriteItems`, `transact_ops.go`) -- JSON's built-in map-key
+sorting makes this deterministic regardless of item ordering. A token reused
+with a mismatched hash now returns the new
+`NewIdempotentParameterMismatchException` (`errors.go`). `janitor.go`'s
+sweep/eviction logic (`evictOldestTokens`, `scanExpiredTxnTokensRLocked`)
+updated for the new value type; `txnTokens` is not part of `persistence.go`'s
+snapshot (idempotency tokens are process-local and short-TTL by design), so
+no snapshot/restore format changed.
+
+`ExecuteTransaction` (PartiQL) also models `IdempotentParameterMismatchException`
+but its `ClientRequestToken` wire field is parsed
+(`handler_execute_transaction.go`) and then never passed to the backend at
+all -- **disclosed, not fixed**: this op has zero idempotency-token
+plumbing to extend (unlike `TransactWriteItems`, which already had a
+commit/pending token store this pass could add a hash to), and building
+that from scratch is a larger, separate change than this pass's scope.
+
+Proof: `TestTransactWriteItems_ReusedTokenDifferentPayload_IdempotentParameterMismatch`
+(`transact_ops_wire_test.go`) drives the real `aws-sdk-go-v2` client through
+two `TransactWriteItems` calls sharing one `ClientRequestToken` but different
+items, asserts `errors.As` against `*types.IdempotentParameterMismatchException`,
+and asserts the mismatched item was never written. Confirmed failing
+(bare success, no error) against the pre-fix code by reverting `store.go`/
+`janitor.go`/`transact_ops.go`/`errors.go` and re-running.
+
+Gates: `go build`, `go vet ./...` (repo-wide, per this session's
+signature-change caveat -- clean except an unrelated concurrently-edited
+`services/apigateway` package), `go test -race -count=1 ./services/dynamodb/...`
+(pass), `golangci-lint run --fix ./services/dynamodb/...` (0 issues).

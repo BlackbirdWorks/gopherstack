@@ -138,7 +138,7 @@ func (b *InMemoryBackend) DeleteAccountAlias(alias string) error {
 		}
 	}
 
-	return fmt.Errorf("%w: account alias %q not found", ErrInvalidAction, alias)
+	return fmt.Errorf("%w: account alias %q not found", ErrAccountAliasNotFound, alias)
 }
 
 // defaultMinPasswordLength is the default minimum password length for the account password policy.

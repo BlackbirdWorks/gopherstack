@@ -42,7 +42,7 @@ func TestUploadSigningCertificate(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("grace", "/", "")
 			},
-			wantErr: iam.ErrMalformedPolicyDocument,
+			wantErr: iam.ErrMalformedCertificate,
 		},
 	}
 

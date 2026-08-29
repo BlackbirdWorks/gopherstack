@@ -208,3 +208,107 @@ existing `writeError(c, http.StatusMethodNotAllowed, "InvalidParameterValue",
 "Method not allowed")` helper and the same `"InvalidParameterValue"` code
 already used elsewhere in `Handler()` for malformed input -- not proven by
 a real SDK client, since none can reach it.
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- 9 wrong/unmodelled codes fixed
+
+Campaign-wide hunt for the class distinct from the order-bug pass above:
+what a client sees when a request *fails* -- HTTP status, AWS error code, and
+whether the operation actually models that code, checked against each op's
+own `awsAwsquery_deserializeOpError<Op>` switch in `deserializers.go`
+(iam@v1.58.1, AWS Query/XML protocol), not the shared `types/errors.go` list.
+All 176 ops' declared code sets extracted from the pinned SDK.
+
+**Error path**: single global lookup table (`handler.go`'s `iamErrorMappings`,
+`[]{err, code, status}`), matched by `errors.Is` in `handleError` -- same
+shared-helper shape as s3/sts, so a wrong entry is service-wide, but a wrong
+*call site* (right table entry, wrong sentinel chosen for that operation)
+is scattered per-op and was the actual defect class found here.
+
+**Root cause of every fix below**: `ErrInvalidAction` (wire code
+`"InvalidAction"`) is correctly used exactly once, at `handler.go`'s
+`dispatch()`, for a genuinely unrecognized `Action=` value -- the one case
+that matches AWS Query protocol's real "InvalidAction" semantics (an
+unregistered *operation name*, confirmed absent from all 176 per-op
+switches since no well-behaved SDK client can ever trigger it against a
+known operation). It had also been reused, incorrectly, as a catch-all for
+unrelated validation and not-found failures *inside* several known,
+well-formed operations -- where the operation's own switch models a
+completely different code.
+
+**Fixed (9 call sites, each cross-checked against its own op's declared
+set)**:
+- `UpdateAccessKey` (`access_keys.go`): invalid `Status` value now
+  `ErrInvalidInput` (`InvalidInput`, modeled; was `InvalidAction`, not).
+- `DeleteAccountAlias` (`account.go`): alias not found now the new
+  `ErrAccountAliasNotFound` (`NoSuchEntity`, modeled; was `InvalidAction`).
+- `CreateServiceLinkedRole` / `GetServiceLinkedRoleDeletionStatus`
+  (`service_linked_roles.go`): empty `AWSServiceName` / `DeletionTaskId` now
+  `ErrInvalidInput` (both ops model `InvalidInput`; `DeleteServiceLinkedRole`
+  does not, so its own empty-`RoleName` `InvalidAction` case is left
+  disclosed, not fixed -- no modeled alternative).
+- `AddClientIDToOpenIDConnectProvider` (`providers.go`): empty `ClientID`
+  now `ErrInvalidInput` (modeled).
+- `EnableMFADevice` (`mfa.go`): device-not-found now the new
+  `ErrMFADeviceNotFound` (`NoSuchEntity`, modeled), already-enabled now the
+  new `ErrMFADeviceAlreadyEnabled` (`EntityAlreadyExists`, modeled) --
+  `DeactivateMFADevice`'s device-not-found case shares the same fix
+  (`ErrMFADeviceNotFound`, also modeled there); its "not currently enabled"
+  case is left disclosed, no modeled fit in
+  `{ConcurrentModification,EntityTemporarilyUnmodifiable,LimitExceeded,NoSuchEntity,ServiceFailure}`.
+- `CreateVirtualMFADevice`/`CreateVirtualMFADeviceFull` (`mfa.go`): empty
+  `VirtualMFADeviceName` now `ErrInvalidInput` (modeled).
+- `SimulateCustomPolicy` (`policies.go`): empty `ActionNames` now
+  `ErrInvalidInput` (modeled).
+- `UploadServerCertificate`/`UploadSigningCertificate`
+  (`server_certificates.go`/`signing_certificates.go`): both previously used
+  `ErrMalformedPolicyDocument` (`MalformedPolicyDocument`) for empty
+  `ServerCertificateName`/`CertificateBody` -- a code *neither* op models at
+  all. Now `ErrInvalidInput` for the name (modeled on
+  `UploadServerCertificate`) and `ErrMalformedCertificate` for the body
+  (modeled on both).
+
+**Reverse-direction bug fixed**: `RemoveClientIDFromOpenIDConnectProvider`
+(`providers.go`) raised `ErrInvalidAction` when the client ID wasn't
+registered on the provider. `api_op_RemoveClientIDFromOpenIDConnectProvider.go`'s
+own doc comment: *"This operation is idempotent; it does not fail or return
+an error if you try to remove a client ID that does not exist."* Now returns
+success for that case (the provider-not-found case is untouched --
+that failure mode isn't covered by the idempotency doc, and `NoSuchEntity`
+is separately confirmed modeled on this op).
+
+**Left disclosed, not fixed** (no modeled code exists for the condition,
+so no replacement can be established from the SDK): `CreateServiceSpecificCredential`'s
+empty `ServiceName` (models only `LimitExceeded`/`NoSuchEntity`/`NotSupportedService`);
+`DeleteServiceLinkedRole`'s empty `RoleName`; `CreateAccountAlias`'s empty
+alias (models only `ConcurrentModification`/`EntityAlreadyExists`/`LimitExceeded`/`ServiceFailure`);
+`DeactivateMFADevice`'s "not currently enabled" state.
+
+**Noted but out of scope** (different bug class -- a fabricated wire field,
+not a wrong error code): `UpdateRole`'s handler (`handler_users.go`) rejects
+a non-empty `Path` form value with `InvalidAction`, but the real
+`UpdateRoleInput` (`api_op_UpdateRole.go`) has no `Path` member at all --
+no real SDK client can ever send it, so this whole branch is only reachable
+by a raw/non-SDK caller. Not touched this pass.
+
+**Two stale tests found asserting the old wrong codes** (same pattern this
+campaign has repeatedly found): `access_keys_test.go`'s `invalid_status`
+case asserted `wantErrMsg: "InvalidAction"`; `mfa_test.go`'s
+`TestEnableMFADevice_RejectsDoubleEnable` asserted `iam.ErrInvalidAction`.
+Both corrected to assert the new, SDK-confirmed sentinels.
+
+Proof: three new real-SDK-client tests in `errors_test.go`
+(`TestDeleteAccountAlias_NotFound_NoSuchEntity`,
+`TestEnableMFADevice_AlreadyEnabled_EntityAlreadyExists`,
+`TestRemoveClientIDFromOpenIDConnectProvider_UnknownClientID_Idempotent`)
+plus three for the certificate fixes
+(`TestUploadServerCertificate_EmptyCertificateBody_MalformedCertificate`,
+`TestUploadServerCertificate_EmptyName_InvalidInput`,
+`TestUploadSigningCertificate_EmptyCertificateBody_MalformedCertificate`),
+each asserting `errors.As` against the real typed SDK exception. All six
+hand-confirmed failing against the pre-fix code (reverted the relevant
+source lines, re-ran, restored) before the fix landed.
+
+Gates: `go build`, `go vet ./...` (repo-wide -- clean except an unrelated
+concurrently-edited `services/apigateway` package elsewhere in this shared
+working tree), `go test -race -count=1 ./services/iam/...` (pass),
+`golangci-lint run --fix ./services/iam/...` (0 issues).

@@ -451,7 +451,7 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 	ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	if len(actionNames) == 0 {
-		return nil, fmt.Errorf("%w: at least one action name is required", ErrInvalidAction)
+		return nil, fmt.Errorf("%w: at least one action name is required", ErrInvalidInput)
 	}
 
 	b.mu.RLock("SimulateCustomPolicy")

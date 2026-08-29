@@ -24,13 +24,13 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 	}
 
 	if !deviceExists {
-		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
+		return fmt.Errorf("%w: virtual MFA device %q not found", ErrMFADeviceNotFound, serialNumber)
 	}
 
 	if dev.Status == MFAStatusEnabled {
 		return fmt.Errorf(
 			"%w: virtual MFA device %q is already enabled",
-			ErrInvalidAction, serialNumber,
+			ErrMFADeviceAlreadyEnabled, serialNumber,
 		)
 	}
 
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) DeactivateMFADevice(userName, serialNumber string) err
 	}
 
 	if !deviceExists {
-		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
+		return fmt.Errorf("%w: virtual MFA device %q not found", ErrMFADeviceNotFound, serialNumber)
 	}
 
 	if dev.Status != MFAStatusEnabled {
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) CreateVirtualMFADeviceFull(
 	virtualMFADeviceName, path string,
 ) (*VirtualMFADevice, error) {
 	if virtualMFADeviceName == "" {
-		return nil, fmt.Errorf("%w: VirtualMFADeviceName must not be empty", ErrInvalidAction)
+		return nil, fmt.Errorf("%w: VirtualMFADeviceName must not be empty", ErrInvalidInput)
 	}
 
 	p := normPath(path)
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) setMFADeviceStatus(serialNumber, status string) error 
 
 	dev, exists := b.virtualMFADevices.Get(serialNumber)
 	if !exists {
-		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
+		return fmt.Errorf("%w: virtual MFA device %q not found", ErrMFADeviceNotFound, serialNumber)
 	}
 
 	dev.Status = status
@@ -291,7 +291,7 @@ func (b *InMemoryBackend) setMFADeviceStatus(serialNumber, status string) error 
 // CreateVirtualMFADevice creates a virtual MFA device.
 func (b *InMemoryBackend) CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error) {
 	if virtualMFADeviceName == "" {
-		return nil, fmt.Errorf("%w: VirtualMFADeviceName must not be empty", ErrInvalidAction)
+		return nil, fmt.Errorf("%w: VirtualMFADeviceName must not be empty", ErrInvalidInput)
 	}
 
 	p := normPath(path)

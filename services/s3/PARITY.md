@@ -784,3 +784,49 @@ var block and swapping a raw `errors.As`+`require.True` for
 `require.ErrorAs` per testifylint), `go test ./pkgs/persistence/...` (no
 persisted struct changed — pass anyway per standing rule), `make
 build-check` (0 external call sites), banned-nolint grep (0 hits, unchanged).
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- no live bugs found
+
+Hunt for the class distinct from the wrapper-key/nesting sweeps above: HTTP
+status, AWS error code, and whether a given operation's own
+`awsRestxml_deserializeOpError<Op>` (s3@v1.106.5, `deserializers.go`) models
+that code -- most S3 ops declare *zero* typed exceptions (fall through to
+`smithy.GenericAPIError` with whatever `Code`/status the server actually
+sent), so the load-bearing check for this service is mostly "is the exact
+code string and HTTP status correct", not "is a specific Go type produced".
+
+**Error path**: single centralized `errorTable()`/`WriteError()`
+(`errors.go`) mapping typed Go sentinels to `{code, message, status}` via
+`errors.Is`, used uniformly by every handler -- same shared-helper shape as
+sts/iam. Spot-checked the handful of ops that *do* declare typed exceptions:
+`GetObject` (`NoSuchKey`, `InvalidObjectState`), `CreateBucket`
+(`BucketAlreadyExists`/`BucketAlreadyOwnedByYou`), `AbortMultipartUpload`
+(`NoSuchUpload`), `CopyObject` (`ObjectNotInActiveTierError`) -- all confirmed
+correct code+404/409/404/403-class status in `errorTable()`.
+
+**HeadObject/HeadBucket confirmed not a bug**: both ops' own deserializers
+pass `UseStatusCode: true` to `s3shared.GetErrorResponseComponents`, which
+only synthesizes a code from the HTTP status when the body carries no
+`Code`/`Message` at all -- irrelevant here since Go's own `net/http` server
+already suppresses the response body on `HEAD` requests
+(`net/http/server.go`'s `chunkWriter`, `req.Method == "HEAD"` check), so
+gopherstack's XML error body is never actually sent for these two ops
+regardless of what `WriteError` writes; only the status code (already 404
+for both `NoSuchBucket`/`NoSuchKey`) reaches the client. No gopherstack-side
+special case is needed or missing.
+
+**Structural gap disclosed, not fixed**: `CopyObject` never checks a source
+object's storage class before copying -- real S3 raises
+`ObjectNotInActiveTierError` (403, modeled on this op) when the source is in
+GLACIER/DEEP_ARCHIVE and hasn't been restored. This emulator has no
+archival-tier/restore-state model at all (`StorageClass` is stored as a
+label with no enforcement), so implementing this one error code alone would
+mean building the entire Glacier restore state machine as a side effect --
+out of scope for an error-code-shape pass; genuinely unimplementable without
+that larger feature.
+
+No live bugs found this pass; no code changes made to this service.
+
+Gates: `go build`, `go vet ./services/s3/...`, `go test -race -count=1
+./services/s3/...` (pass, unchanged), `golangci-lint run ./services/s3/...`
+(0 issues, unchanged).

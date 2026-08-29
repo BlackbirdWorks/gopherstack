@@ -2,6 +2,9 @@ package dynamodb
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"maps"
 	"sort"
@@ -49,7 +52,7 @@ func (db *InMemoryDB) TransactWriteItems(
 	}
 
 	token := aws.ToString(input.ClientRequestToken)
-	done, out, cleanupToken, err := db.checkTransactToken(token)
+	done, out, cleanupToken, err := db.checkTransactToken(token, hashTransactWriteItems(input.TransactItems))
 	if done {
 		return out, err
 	}
@@ -155,19 +158,35 @@ func (db *InMemoryDB) executeTransactWrite(
 	releaseTables()
 
 	if token != "" {
-		commitTransactTokenLocked(db, token)
+		commitTransactTokenLocked(db, token, hashTransactWriteItems(input.TransactItems))
 	}
 
 	return payloads, itemMetrics, nil
 }
 
-// commitTransactTokenLocked records token as committed (with its TTL expiry)
-// under a defer-protected db.mu.Lock.
-func commitTransactTokenLocked(db *InMemoryDB, token string) {
+// commitTransactTokenLocked records token as committed (with its TTL expiry
+// and request hash) under a defer-protected db.mu.Lock.
+func commitTransactTokenLocked(db *InMemoryDB, token, hash string) {
 	db.mu.Lock("TransactWriteItems.tokenCommit")
 	defer db.mu.Unlock()
 
-	db.txnTokens[token] = time.Now().Add(txnTokenTTL)
+	db.txnTokens[token] = txnTokenRecord{expiry: time.Now().Add(txnTokenTTL), hash: hash}
+}
+
+// hashTransactWriteItems returns a stable fingerprint of a TransactWriteItems
+// request, used to detect ClientRequestToken reuse with a different request
+// (AWS DynamoDB's IdempotentParameterMismatchException). JSON-encoding
+// preserves TransactItems' slice order and each Go struct's fixed field
+// order, so the same request always hashes the same way.
+func hashTransactWriteItems(items []types.TransactWriteItem) string {
+	b, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+
+	sum := sha256.Sum256(b)
+
+	return hex.EncodeToString(sum[:])
 }
 
 // transactReplicationPayload holds the data needed to replicate a single committed
@@ -251,22 +270,29 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 	return payloads
 }
 
-// checkTransactToken checks idempotency token state.
+// checkTransactToken checks idempotency token state. hash is the caller's
+// request fingerprint (see hashTransactWriteItems) -- reusing a committed
+// token with a different hash is a real AWS DynamoDB error
+// (IdempotentParameterMismatchException), not a matching replay.
 // Returns (true, output, cleanup, err) if the caller should return immediately,
 // or (false, nil, cleanup, nil) if the transaction should proceed.
 // When proceeding, the cleanup func removes the token from the pending map and
 // must be called via defer in the caller.
 func (db *InMemoryDB) checkTransactToken(
-	token string,
+	token, hash string,
 ) (bool, *dynamodb.TransactWriteItemsOutput, func(), error) {
 	noop := func() {}
 	if token == "" {
 		return false, nil, noop, nil
 	}
 
-	committed, inProgress := checkAndMarkTransactTokenLocked(db, token)
+	committed, mismatched, inProgress := checkAndMarkTransactTokenLocked(db, token, hash)
 
 	switch {
+	case mismatched:
+		return true, nil, noop, NewIdempotentParameterMismatchException(
+			"the request parameters do not match a previous request with the given ClientRequestToken",
+		)
 	case committed:
 		return true, &dynamodb.TransactWriteItemsOutput{}, noop, nil
 	case inProgress:
@@ -282,22 +308,24 @@ func (db *InMemoryDB) checkTransactToken(
 	return false, nil, cleanup, nil
 }
 
-// checkAndMarkTransactTokenLocked checks whether token is already committed or
-// in-progress and, if neither, marks it in-progress, all under a single
+// checkAndMarkTransactTokenLocked checks whether token is already committed
+// (and if so, whether hash matches the request that committed it) or
+// in-progress, and if neither, marks it in-progress, all under a single
 // defer-protected db.mu.Lock (so the check-then-mark stays atomic).
-func checkAndMarkTransactTokenLocked(db *InMemoryDB, token string) (bool, bool) {
+func checkAndMarkTransactTokenLocked(db *InMemoryDB, token, hash string) (bool, bool, bool) {
 	db.mu.Lock("TransactWriteItems.tokenCheck")
 	defer db.mu.Unlock()
 
-	expiry, exists := db.txnTokens[token]
-	committed := exists && time.Now().Before(expiry)
+	rec, exists := db.txnTokens[token]
+	committed := exists && time.Now().Before(rec.expiry)
+	mismatched := committed && rec.hash != hash
 	_, inProgress := db.txnPending[token]
 
 	if !committed && !inProgress {
 		db.txnPending[token] = time.Now()
 	}
 
-	return committed, inProgress
+	return committed && !mismatched, mismatched, inProgress
 }
 
 // deleteTransactPendingLocked removes token from db.txnPending under a

@@ -192,7 +192,7 @@ func TestEnableMFADevice_RejectsDoubleEnable(t *testing.T) {
 	// Second enable on same device must fail.
 	err := b.EnableMFADevice("mike", dev.SerialNumber, "333333", "444444")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrInvalidAction)
+	assert.ErrorIs(t, err, iam.ErrMFADeviceAlreadyEnabled)
 }
 
 func TestDeactivateMFADevice_SetsDeactivatedStatus(t *testing.T) {

@@ -545,3 +545,21 @@ request's HTTP method to PUT post-signing, keeping the form-encoded body
 and Content-Type intact. Hand-reverted `handler.go` to `git show HEAD`,
 confirmed the test fails with `apiErr.ErrorCode() == "UnknownError"`,
 restored the fix, `md5sum`-confirmed byte-identical.
+
+## 2026-08-29: error-path re-verification (failure-side wire shape) -- no new findings
+
+Independent re-run of this session's error-path campaign (HTTP status / AWS
+error code / whether an operation actually models that code, per its own
+`awsAwsquery_deserializeOpError<Op>` switch in `deserializers.go`,
+sts@v1.45.4). This class was already fully audited by the 2026-08-20
+wrapper-key/nested-shape sweep above ("cross-checked the full per-op
+typed-error switch list in each `deserializeOpError<Op>` function against
+`handler.go`'s `mapErrorToCode`"); `git log --since=2026-08-20 -- services/sts/`
+shows no commits touching error-path logic since. Independently re-extracted
+all 11 ops' declared code sets from the pinned SDK and re-diffed against
+`handler.go`'s `mapValidationErrorToCode`/`mapNamedExceptionToCode` --
+confirms the prior finding: zero live bugs, and the one previously-disclosed
+gap (`ErrIDPRejectedClaim` coalesced into `AccessDenied` in
+`mapNamedExceptionToCode`, `handler.go:310`) remains dead code -- still
+never constructed anywhere in `services/sts/*.go` (grep-confirmed), so
+there is no live wire response for it to be a bug in yet. No changes made.
