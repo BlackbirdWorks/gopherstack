@@ -121,9 +121,8 @@ type listLocationsInput struct {
 }
 
 type locationListEntryOutput struct {
-	LocationArn  string `json:"LocationArn"`
-	LocationURI  string `json:"LocationUri"`
-	CreationTime int64  `json:"CreationTime"`
+	LocationArn string `json:"LocationArn"`
+	LocationURI string `json:"LocationUri"`
 }
 
 type listLocationsOutput struct {
@@ -140,9 +139,8 @@ func (h *Handler) handleListLocations(_ context.Context, in *listLocationsInput)
 	out := make([]locationListEntryOutput, 0, len(locations))
 	for _, l := range locations {
 		out = append(out, locationListEntryOutput{
-			LocationArn:  l.LocationArn,
-			LocationURI:  l.LocationURI,
-			CreationTime: l.CreationTime.Unix(),
+			LocationArn: l.LocationArn,
+			LocationURI: l.LocationURI,
 		})
 	}
 

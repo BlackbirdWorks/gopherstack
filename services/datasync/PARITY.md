@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: datasync
 sdk_module: aws-sdk-go-v2/service/datasync@v1.61.4
-last_audit_commit: 5eee2c54
-last_audit_date: 2026-08-10
+last_audit_commit: 58b3ad76d
+last_audit_date: 2026-08-28
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed
 ops:
   CreateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -15,7 +15,7 @@ ops:
   DescribeLocationS3: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented S3BucketArn/Subdirectory fields (not on real wire), added AgentArns -- FIXED this sweep"}
   UpdateLocationS3: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLocation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListLocations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListLocations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented 'CreationTime' field from each LocationListEntry -- real types.LocationListEntry (datasync@v1.61.4 api_op_ListLocations.go) has exactly two members, LocationArn and LocationUri; harmless to a typed client (unknown JSON keys ignored) but not on the real wire -- FIXED this sweep (2026-08-28, gopherstack-wrapper-key-sweep)"}
   CreateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added required AuthenticationType field + validation; added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationAzureBlob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ContainerUrl field (not on real wire; LocationUri IS the container URL), added AuthenticationType; added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AuthenticationType; added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}

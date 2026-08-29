@@ -312,7 +312,6 @@ func (h *Handler) handleListExecutions(
 	for i, e := range pageItems {
 		out[i] = map[string]any{
 			"ExecutionId": e.ExecutionID,
-			keyWorkflowID: e.WorkflowID,
 			keyStatus:     e.Status,
 		}
 	}
@@ -345,7 +344,6 @@ func (h *Handler) handleDescribeExecution(
 	return &map[string]any{
 		"Execution": map[string]any{
 			"ExecutionId": e.ExecutionID,
-			keyWorkflowID: e.WorkflowID,
 			keyStatus:     e.Status,
 		},
 		keyWorkflowID: in.WorkflowID,
