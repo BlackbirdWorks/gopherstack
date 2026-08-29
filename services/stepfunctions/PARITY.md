@@ -312,6 +312,29 @@ families:
   json_1_0_protocol:
     status: ok
     note: "Unchanged this pass."
+  timestamps:
+    status: ok
+    note: >
+      Pattern-hunt pass (timestamp encoding class, 2026-08-29): protocol
+      confirmed JSON-RPC 1.0 (awsAwsjson10_* serializer prefix, sfn@v1.45.4)
+      and every *time.Time deserializer call in deserializers.go is
+      smithytime.ParseEpochSeconds -- 30 occurrences across
+      types/types.go + api_op_*.go, 6 distinct member names (CreationDate,
+      StartDate, RedriveDate, StopDate, Timestamp, UpdateDate), no per-field
+      trait override. gopherstack already stores every one of these as a
+      raw float64 (Unix epoch seconds) end to end -- models.go's own header
+      comment documents this explicitly -- and every write site uses
+      float64(time.Now().Unix()) or an equivalent, never a time.Time
+      marshalled through encoding/json. 0 new wrong-format bugs found. This
+      class was already the subject of a prior fix (Test_SDKRoundTrip_
+      StateMachineAlias_UpdateDate / Test_SDKRoundTrip_
+      DescribeStateMachineForExecution_UpdateDate in
+      wire_updatedate_test.go, gopherstack-1ai8): DescribeStateMachineAlias/
+      UpdateStateMachineAlias/DescribeStateMachineForExecution's UpdateDate
+      wire tag was wrong and decoded nil through the real SDK client; both
+      tests still pass against current code, reconfirming the fix holds.
+      No Input struct in this SDK carries a *time.Time member, so there is
+      no request-side parse direction to check for this service.
 gaps:
   - "Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records omit ExecutionArn/Name/StartDate/StopDate since gopherstack Map iterations aren't backed by real child executions (bd: gopherstack-8j8, implemented this pass -- see asl_map_and_distributed_map notes)"
   - "Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)"
