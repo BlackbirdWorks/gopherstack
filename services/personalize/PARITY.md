@@ -316,3 +316,21 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
   `persistence_test.go`'s table-driven per-resource-type coverage (updated
   this pass to seed real parent chains for the FK-validated Create ops
   instead of dangling made-up ARNs). No gaps found here.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Audited every discarded-error/discarded-return-value assignment
+(`x, _ := ...`, bare `_ = ...`) in non-test `.go` files -- 141 sites --
+looking for the sesv2 `SendBulkEmail` class of bug: a call whose failure had
+a designated place to be reported and wasn't.
+
+Every site is a JSON-body type assertion (`input["field"].(string)` etc.)
+extracting a request field where a missing/wrong-typed value legitimately
+becomes the zero value. This service has no `Batch*`/`Bulk*` operation that
+returns a per-item status list: `CreateBatchInferenceJob` and
+`CreateBatchSegmentJob` (batch_jobs.go) each create one job and return one
+ARN, not a batch of items with individual outcomes -- the "Batch" in the
+name refers to offline/bulk inference mode, not a multi-item request.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.

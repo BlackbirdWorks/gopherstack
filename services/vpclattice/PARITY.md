@@ -250,3 +250,22 @@ validation call sites that neither of those two prior fixes touched.
 `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: vpclattice moved from
 the ranked table into "Already examined" (settled-services count now 27,
 2043 required output fields read end to end).
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Audited every discarded-error/discarded-return-value assignment
+(`x, _ := ...`, bare `_ = ...`) in non-test `.go` files -- 107 sites --
+looking for the sesv2 `SendBulkEmail` class of bug: a call whose failure had
+a designated place to be reported and wasn't.
+
+The non-type-assertion sites are exclusively `x, _ := b.<store>.Get(id)`
+calls, every one of them immediately preceded in the same function by a
+`resolve<X>ID`/`Has` existence check whose miss branch already returns
+`ErrNotFound` -- the discarded `ok` is provably always true by the time
+`Get` runs. `BatchUpdateRule` (rules.go:218, handler_rules.go:90) -- the one
+per-item-status operation in this service -- is fully wired: both
+`successes` and `failures` flow into the response's `successful`/
+`unsuccessful` keys.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.

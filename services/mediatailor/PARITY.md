@@ -603,3 +603,18 @@ recognise). Both confirmed failing against the unfixed `handler.go`
 (md5sum-verified). Same bug class as the sibling medialive service
 (gopherstack-wlo1, this session) and the s3control/iot instances that
 opened gopherstack-wlo1.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Audited every discarded-error/discarded-return-value assignment
+(`x, _ := ...`, bare `_ = ...`) in non-test `.go` files -- 51 sites --
+looking for the sesv2 `SendBulkEmail` class of bug: a call whose failure had
+a designated place to be reported and wasn't.
+
+Every site is a JSON-body type assertion (`body["Field"].(string)` etc.)
+extracting a request field where a missing/wrong-typed value legitimately
+becomes the zero value. This service has no `Batch*`/`Bulk*` operation at
+all -- no per-item-status seam exists to check.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.

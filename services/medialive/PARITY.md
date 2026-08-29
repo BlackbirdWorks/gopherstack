@@ -1116,3 +1116,29 @@ new `wire_field_fixes_test.go` and the three corrected pre-existing tests, each 
 assertion hand-verified to fail against the pre-fix literals then restored),
 `golangci-lint run --fix ./services/medialive/...` (0 issues). Work left uncommitted per this
 pass's instructions.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Audited every discarded-error/discarded-return-value assignment
+(`x, _ := ...`, bare `_ = ...`) in non-test `.go` files -- ~149 sites --
+looking for the sesv2 `SendBulkEmail` class of bug: a call whose failure had
+a designated place to be reported and wasn't.
+
+`BatchStart`, `BatchStop`, `BatchDelete` (batch.go, handler_batch.go) and
+`BatchUpdateSchedule` (schedules.go, handler_schedules.go) are the only
+per-item-status/batch-shaped operations in this service; all four check
+their backend call's `err` return via `respondErr` and thread
+`Successful`/`Failed` (or `Creates`/`Deletes`) fully into the response --
+none silently drop a per-item failure.
+
+The rest of the non-type-assertion discards are the `extractX(body) (T,
+bool)` optional-field helpers feeding `extractChannelCreateExtras`/
+`extractChannelUpdateExtras` (handler_channels.go, handler_clusters.go,
+handler_reservations.go, handler_channels_encoder.go) -- discarding the
+presence bool is correct: an absent field should leave the extra at its
+zero value, which is what happens. `classifyPath`'s unused return values
+(handler.go:423) are routing outputs already consumed elsewhere in the same
+call.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.

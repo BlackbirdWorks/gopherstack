@@ -711,3 +711,53 @@ it is reported here rather than fixed under this sweep's narrower scope.
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class, matching several other services in this campaign.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Distinct class from the error-path sweep above: not which sentinel a call
+site picks, but whether a call's own return value carrying failure
+information is thrown away (`x, _ := b.Something(...)`). ~195 `, _ :=`/
+`, _ =`/bare `_ = ` sites across all non-test `.go` files, triaged
+individually.
+
+The large majority are legitimate: JSON-body type assertions
+(`body["Field"].(string)`) where a missing/wrong-typed value correctly
+becomes the zero value; `x, _ := b.<store>.Get(id)` calls that follow a
+`resolve*`/existence check in the same function (the miss case already
+returned); and `strconv.Atoi(v)` best-effort query-param parses that fall
+back to 0 ("use default").
+
+All 12 `Batch*` operations checked against their backend implementations --
+`BatchImportFindings`, `BatchUpdateFindings`, `BatchUpdateFindingsV2`,
+`BatchGetSecurityControls`, `BatchGetAutomationRules`,
+`BatchDeleteAutomationRules`, `BatchUpdateAutomationRules`,
+`BatchEnableStandards`, `BatchDisableStandards`,
+`BatchGetStandardsControlAssociations`,
+`BatchUpdateStandardsControlAssociations`,
+`BatchGetConfigurationPolicyAssociations` -- each correctly threads its
+per-item unprocessed/failed list (or an `err` return) into the response.
+
+Two things worth recording, neither a bug:
+
+- `handleBatchEnableStandards`/`handleBatchDisableStandards`
+  (handler_standards.go:57,76) discard `BatchEnableStandards`/
+  `BatchDisableStandards`'s second return (a `[]map[string]any` of
+  failures). Left as-is: `BatchEnableStandardsOutput`/
+  `BatchDisableStandardsOutput` (securityhub@v1.75.4
+  api_op_BatchEnableStandards.go / api_op_BatchDisableStandards.go) carry
+  only `StandardsSubscriptions` -- there is no per-item failure field on the
+  real wire shape to put it in. `BatchEnableStandards`'s own failure branch
+  (empty `StandardsArn`) is additionally unreachable via a real typed
+  client: `StandardsArn` is `// This member is required` on
+  `types.StandardsSubscriptionRequest` and enforced by
+  `validateStandardsSubscriptionRequest`/`validateOpBatchEnableStandardsInput`
+  (validators.go) before the request leaves the client.
+- `handleCreateAggregatorV2`'s `_ = h.Backend.TagResource(...)`
+  (handler_aggregators_v2.go:46): `TagResource` (tags.go:5) unconditionally
+  returns nil, so no real error is being suppressed.
+- `handleCreateMembers`'s `_ = created` (handler_members.go:74): correct per
+  wire shape -- `CreateMembersOutput` (api_op_CreateMembers.go) has only
+  `UnprocessedAccounts`, no created-members field to populate.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.
