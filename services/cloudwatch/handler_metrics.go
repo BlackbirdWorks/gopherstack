@@ -205,9 +205,10 @@ func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-// putMetricDataErrorCode maps a PutMetricData validation error to its AWS error
-// code. Order matters: more specific sentinels must be checked before the
-// generic ErrValidation they may also match via errors.Is chains.
+// putMetricDataErrorCode maps a PutMetricData validation error to its
+// Query-protocol (XML, handlePutMetricData) AWS error code. Order matters:
+// more specific sentinels must be checked before the generic ErrValidation
+// they may also match via errors.Is chains.
 func putMetricDataErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrValueAndStatisticSet):
@@ -219,6 +220,31 @@ func putMetricDataErrorCode(err error) string {
 		errors.Is(err, ErrInvalidMetricValue),
 		errors.Is(err, ErrValidation):
 		return "InvalidParameterValue"
+	default:
+		return errCodeInternalFailure
+	}
+}
+
+// putMetricDataCBORErrorCode maps a PutMetricData validation error to its
+// rpc-v2-cbor exception shape name (cborPutMetricData). "InvalidParameterCombination",
+// "LimitExceeded", and "InvalidParameterValue" are the AWSQueryError
+// compatibility aliases cloudwatch's schemas.go embeds on
+// InvalidParameterCombinationException/LimitExceededFault/InvalidParameterValueException
+// for query-compatible callers; a non-query-compatible rpc-v2-cbor client
+// (aws-sdk-go-v2's NewCBOR protocol, which cloudwatch uses exclusively)
+// resolves the __type body field against the shape's own name instead, so
+// this must return the Exception/Fault-suffixed names, not the aliases.
+func putMetricDataCBORErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrValueAndStatisticSet):
+		return "InvalidParameterCombinationException"
+	case errors.Is(err, ErrMetricSeriesLimitExceeded):
+		return "LimitExceededFault"
+	case errors.Is(err, ErrValuesCountsLengthMismatch),
+		errors.Is(err, ErrTooManyValues),
+		errors.Is(err, ErrInvalidMetricValue),
+		errors.Is(err, ErrValidation):
+		return "InvalidParameterValueException"
 	default:
 		return errCodeInternalFailure
 	}

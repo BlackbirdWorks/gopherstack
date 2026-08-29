@@ -48,7 +48,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 		}
 
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

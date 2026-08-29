@@ -10,13 +10,30 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// datasetErrorStatus maps a dataset backend error to its HTTP status/code.
+// datasetErrorStatus maps a dataset backend error to its Query-protocol
+// (XML, handleGetDataset et al.) HTTP status/code.
 func datasetErrorStatus(err error) (int, string) {
 	switch {
 	case errors.Is(err, ErrDatasetNotFound):
 		return http.StatusBadRequest, errResourceNotFoundException
 	case errors.Is(err, ErrValidation):
 		return http.StatusBadRequest, "InvalidParameterValue"
+	default:
+		return http.StatusInternalServerError, "InternalFailure"
+	}
+}
+
+// datasetCBORErrorStatus is datasetErrorStatus for the rpc-v2-cbor path
+// (cborGetDataset et al.): "InvalidParameterValue" is the AWSQueryError
+// compatibility alias InvalidParameterValueException carries in
+// schemas.go, not the shape name a non-query-compatible rpc-v2-cbor client
+// resolves the __type body field against.
+func datasetCBORErrorStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, ErrDatasetNotFound):
+		return http.StatusBadRequest, errResourceNotFoundException
+	case errors.Is(err, ErrValidation):
+		return http.StatusBadRequest, "InvalidParameterValueException"
 	default:
 		return http.StatusInternalServerError, "InternalFailure"
 	}

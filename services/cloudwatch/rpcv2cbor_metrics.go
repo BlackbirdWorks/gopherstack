@@ -124,7 +124,7 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricData(namespace, data); err != nil {
-		return h.cborError(c, putMetricDataErrorStatus(err), putMetricDataErrorCode(err), err.Error())
+		return h.cborError(c, putMetricDataErrorStatus(err), putMetricDataCBORErrorCode(err), err.Error())
 	}
 
 	// PutMetricDataOutput has no members besides the request ID: CloudWatch has
@@ -361,7 +361,7 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
 		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 		}
 
 		return h.cborError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())
