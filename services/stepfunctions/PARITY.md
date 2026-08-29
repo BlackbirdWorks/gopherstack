@@ -59,7 +59,7 @@ ops:
       UpdateStateMachine's signature to (updateDate, revisionID, error), and
       wired both new output fields + the same versionDescription/publish
       ValidationException as CreateStateMachine.
-  DeleteStateMachine: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteStateMachine: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineDoesNotExist for a missing state machine; DeleteStateMachine's own deserializeOpError models only InvalidArn/ValidationException, so it is now idempotent on a missing state machine, matching AWS."}
   DescribeStateMachine:
     wire: fixed
     errors: ok
@@ -78,14 +78,14 @@ ops:
   ListStateMachines: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachine struct per item, leaking definition/roleArn/status/revisionId/updatedDate/encryptionConfiguration/tracingConfiguration/loggingConfiguration -- real StateMachineListItem (types.go, sfn@v1.45.4) declares only creationDate/name/stateMachineArn/type. Prior 'wire: ok' verified required-field presence, not absence of extras. Now marshals a new stateMachineListItem view; page.Page[T] pagination unchanged."}
   DescribeStateMachineForExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   PublishStateMachineVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteStateMachineVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListStateMachineVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachineVersion struct per item, leaking stateMachineArn/name/definition/roleArn/type/status/description/revisionId -- real StateMachineVersionListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineVersionArn. Now marshals a new stateMachineVersionListItem view."}
-  CreateStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "routingConfiguration weighted versions validated"}
-  UpdateStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteStateMachineVersion: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineVersionDoesNotExist (names no type anywhere in this SDK) for a missing version; DeleteStateMachineVersion's own deserializeOpError models only ConflictException/InvalidArn/ValidationException, so it is now idempotent on a missing version."}
+  ListStateMachineVersions: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachineVersion struct per item, leaking stateMachineArn/name/definition/roleArn/type/status/description/revisionId -- real StateMachineVersionListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineVersionArn. Now marshals a new stateMachineVersionListItem view. ERRORS FIXED (error-path sweep, 2026-08-29): unlike its ListExecutions/ListStateMachineAliases siblings, this op's own deserializeOpError models no StateMachineDoesNotExist -- it now returns an empty page for an unknown stateMachineArn instead of raising."}
+  CreateStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "routingConfiguration weighted versions validated. ERRORS FIXED (error-path sweep, 2026-08-29): raised fabricated StateMachineDoesNotExist/StateMachineAliasAlreadyExists codes naming no type in this SDK; now emits the modelled ResourceNotFound/ConflictException. NOTE: CreateStateMachineAliasInput has no stateMachineArn field on the real wire (AWS derives the target state machine from routingConfiguration's version ARNs) -- this backend still requires stateMachineArn explicitly, so a real typed client can never populate it and this op 404s through any conformant SDK client today. Pre-existing, unrelated to the error-code fix, left for a future pass (see Test_SDKRoundTrip_StateMachineAlias_UpdateDate's comment)."}
+  UpdateStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
+  DeleteStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
+  DescribeStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
   ListStateMachineAliases: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response reused stateMachineAliasEntry (the Describe/Create/Update shape), leaking name/description/routingConfiguration/updateDate -- real StateMachineAliasListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineAliasArn. Now marshals a new, distinct stateMachineAliasListItem view; stateMachineAliasEntry stays as-is for Describe/Create/Update, which do carry all those fields."}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  TagResource: {wire: gap, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): the too-many-tags branch of validateTags raised a fabricated TagPolicyViolation; now emits the modelled TooManyTags. The key-too-long/empty-key/value-too-long branches still emit TagPolicyViolation, which also names no type in this SDK -- TagResource's own deserializeOpError models only InvalidArn/ResourceNotFound/TooManyTags, no exception matching a key/value length violation, so no replacement code is confirmed; left as-is per this sweep's restraint rule (report, don't invent). WIRE BUG (found, NOT fixed, out of this sweep's scope): sfnTagResourceInput.Tags is typed *tags.Tags (JSON object), but the real TagResourceInput.Tags field is an array of {key,value} objects -- driving TagResource through the real SDK client always 500s (\"cannot unmarshal array into ... map[string]string\") and the SDK retries it three times regardless of tag count. This is a request-deserialization bug, not a response error-code selection bug; flagged for a follow-up pass."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ValidateStateMachineDefinition:
@@ -164,7 +164,7 @@ ops:
       always {truncated:false} in practice) remain absent.
   ListExecutions:
     wire: fixed
-    errors: ok
+    errors: fixed
     state: ok
     persist: ok
     note: >
@@ -175,6 +175,12 @@ ops:
       declares itemCount/mapRunArn, which the domain Execution struct here
       does not track at all -- a separate missing-field gap (not
       over-wide), left for a future pass.
+
+      ERRORS FIXED (error-path sweep, 2026-08-29): ListExecutions models
+      StateMachineDoesNotExist but the backend never checked stateMachineArn
+      existence at all -- an unknown ARN silently returned an empty page
+      (missing-error: success where AWS raises). Now raises
+      StateMachineDoesNotExist for an unknown stateMachineArn.
   GetExecutionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the resource/region/parameters portion of gopherstack-996, open since 2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go: 1311-1339, both required) were never set at all -- RecordTaskScheduled only ever populated Resource/ResourceType. TaskSucceededEventDetails. Resource/ResourceType (types.go:1431-1450, required) and TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307, required) were also never set. All four are reachable on every normal Task-state execution, not an edge case. Fixed by threading state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/ executor.go's HistoryRecorder interface gained a resource param on both) and the resolved post-Parameters-template task input through RecordTaskScheduled for Parameters, with Region derived via the existing regionFromARN(resource, backend.region) helper (same one used for activity ARNs elsewhere in this package). gopherstack-996's remaining scope (TaskSubmitted/TaskStarted events for .sync/ waitForTaskToken integration patterns) is a structural gap, not a dropped-field bug -- this emulator never models those event kinds at all, so no HistoryEvent ever claims to be one; left open, see gaps."}
   CreateActivity:
     wire: fixed
@@ -192,7 +198,7 @@ ops:
       call sites) rather than adding required params.
   DeleteActivity:
     wire: fixed
-    errors: ok
+    errors: fixed
     state: ok
     persist: ok
     note: >
@@ -201,6 +207,11 @@ ops:
       for state machines) -- a permanent per-deleted-activity tombstone
       entry in the handler's tags map. Added the same tagsMu-guarded
       cleanup DeleteStateMachine uses.
+
+      ERRORS FIXED (error-path sweep, 2026-08-29): raised a fabricated
+      ActivityDoesNotExist for a missing activity; DeleteActivity's own
+      deserializeOpError models only InvalidArn, so it is now idempotent on
+      a missing activity, matching AWS.
   DescribeActivity: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns EncryptionConfiguration (see CreateActivity)"}
   ListActivities: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full Activity struct per item, leaking encryptionConfiguration -- real ActivityListItem (types.go, sfn@v1.45.4) declares only activityArn/creationDate/name. Now marshals a new activityListItem view."}
   GetActivityTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "long-poll with WaitTimeSeconds; task-token issuance"}
@@ -209,10 +220,15 @@ ops:
   SendTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "States.HeartbeatTimeout enforced against HeartbeatSeconds"}
   DescribeMapRun:
     wire: fixed
-    errors: ok
+    errors: fixed
     state: ok
     persist: ok
     note: >
+      ERRORS FIXED (error-path sweep, 2026-08-29): raised a fabricated
+      MapRunDoesNotExist for a missing map run -- names no type anywhere in
+      this SDK. DescribeMapRun's own deserializeOpError models
+      InvalidArn/ResourceNotFound; now emits the modelled ResourceNotFound.
+
       REVERSED 2026-08-21 (bd gopherstack-r80d, batch 10): a prior pass
       concluded ExecutionCounts having no backing field was "correctly so"
       because this emulator has no distributed-map child-execution model
@@ -235,8 +251,8 @@ ops:
       unaffected, ExecutionCounts.Total staying 0 doesn't imply any
       DISTRIBUTED-mode child-execution tracking exists. ItemCounts (a real,
       distinct field) remains present and populated as before.
-  ListMapRuns: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full MapRun struct per item, leaking status/itemCounts/toleratedFailurePercentage/maxConcurrency/toleratedFailureCount/redriveCount/redriveDate -- real MapRunListItem (types.go, sfn@v1.45.4) declares only executionArn/mapRunArn/startDate/stateMachineArn/stopDate. Now marshals a new mapRunListItem view."}
-  UpdateMapRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass"}
+  ListMapRuns: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full MapRun struct per item, leaking status/itemCounts/toleratedFailurePercentage/maxConcurrency/toleratedFailureCount/redriveCount/redriveDate -- real MapRunListItem (types.go, sfn@v1.45.4) declares only executionArn/mapRunArn/startDate/stateMachineArn/stopDate. Now marshals a new mapRunListItem view. ERRORS FIXED (error-path sweep, 2026-08-29): ListMapRuns models ExecutionDoesNotExist but the backend never checked executionArn existence -- an unknown ARN silently returned an empty page. Now raises ExecutionDoesNotExist for an unknown executionArn, with an OR-check against the mapRunsByExecution index so StartSyncExecution's EXPRESS executions -- never inserted into b.executions by design -- still list correctly."}
+  UpdateMapRun: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass. ERRORS FIXED (error-path sweep, 2026-08-29): raised a fabricated MapRunDoesNotExist for a missing map run -- names no type anywhere in this SDK; now emits the modelled ResourceNotFound."}
   TestState: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
   asl_task:

@@ -55,7 +55,10 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 
 	sm, exists := b.stateMachines.Get(smARN)
 	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+		// AWS: CreateStateMachineAlias's own error switch models ResourceNotFound
+		// for a missing state machine, not StateMachineDoesNotExist -- reuse the
+		// alias family's not-found sentinel, which already maps there.
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, smARN)
 	}
 
 	aARN := b.aliasARN(smARN, sm.Name, name)

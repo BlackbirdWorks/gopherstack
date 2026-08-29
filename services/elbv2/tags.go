@@ -3,6 +3,7 @@ package elbv2
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -56,6 +57,27 @@ func validateTagKVs(kvs []tags.KV) error {
 	return nil
 }
 
+// notFoundErrorForResourceARN returns the resource-type-specific NotFound
+// sentinel for resArn's ARN shape (AWS: AddTags/RemoveTags/DescribeTags each
+// model LoadBalancerNotFound/TargetGroupNotFound/ListenerNotFound/
+// RuleNotFound/TrustStoreNotFound for exactly this condition). Falls back to
+// ErrLoadBalancerNotFound for an unrecognized ARN shape, matching AWS's
+// generic default (LoadBalancerNotFoundException) for this API family.
+func notFoundErrorForResourceARN(resArn string) error {
+	switch {
+	case strings.Contains(resArn, ":targetgroup/"):
+		return ErrTargetGroupNotFound
+	case strings.Contains(resArn, ":listener-rule/"):
+		return ErrRuleNotFound
+	case strings.Contains(resArn, ":listener/"):
+		return ErrListenerNotFound
+	case strings.Contains(resArn, ":truststore/"):
+		return ErrTrustStoreNotFound
+	default:
+		return ErrLoadBalancerNotFound
+	}
+}
+
 // AddTags adds or updates tags on ELBv2 resources.
 func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 	if err := validateTagKVs(kvs); err != nil {
@@ -68,7 +90,7 @@ func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 	for _, resArn := range resourceArns {
 		t := b.findTagsLocked(resArn)
 		if t == nil {
-			continue
+			return notFoundErrorForResourceARN(resArn)
 		}
 
 		if t.Len()+len(kvs) > maxTagsPerRes {
@@ -104,9 +126,11 @@ func (b *InMemoryBackend) RemoveTags(resourceArns []string, keys []string) error
 
 	for _, resArn := range resourceArns {
 		t := b.findTagsLocked(resArn)
-		if t != nil {
-			t.DeleteKeys(keys)
+		if t == nil {
+			return notFoundErrorForResourceARN(resArn)
 		}
+
+		t.DeleteKeys(keys)
 	}
 
 	return nil
@@ -134,11 +158,11 @@ func (b *InMemoryBackend) DescribeTags(resourceArns []string) (map[string][]tags
 
 	for _, resArn := range resourceArns {
 		t := b.findTagsLocked(resArn)
-		if t != nil {
-			result[resArn] = tagsToKVs(t)
-		} else {
-			result[resArn] = []tags.KV{}
+		if t == nil {
+			return nil, notFoundErrorForResourceARN(resArn)
 		}
+
+		result[resArn] = tagsToKVs(t)
 	}
 
 	return result, nil

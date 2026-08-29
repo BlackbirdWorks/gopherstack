@@ -314,7 +314,10 @@ func TestTagResource_MaxTagsExceeded_Error(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "TagPolicyViolation", resp["__type"])
+	// AWS: TagResource's own error switch models TooManyTags for exceeding
+	// the per-resource tag limit -- "TagPolicyViolation" names no type
+	// anywhere in this SDK.
+	assert.Equal(t, "TooManyTags", resp["__type"])
 }
 
 func TestTagResource_ValidTagsAccepted(t *testing.T) {

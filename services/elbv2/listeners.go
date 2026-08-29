@@ -115,6 +115,10 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		return nil, err
 	}
 
+	if err := b.validateForwardTargetGroupsExist(input.DefaultActions); err != nil {
+		return nil, err
+	}
+
 	// Default SSL policy for HTTPS/TLS listeners.
 	if (proto == protoHTTPS || proto == protoTLS) && input.SSLPolicy == "" {
 		input.SSLPolicy = "ELBSecurityPolicy-2016-08"
@@ -324,6 +328,10 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 	}
 
 	if len(input.DefaultActions) > 0 {
+		if err := b.validateForwardTargetGroupsExist(input.DefaultActions); err != nil {
+			return nil, err
+		}
+
 		l.DefaultActions = input.DefaultActions
 		b.syncDefaultRuleActions(input.ListenerArn, input.DefaultActions)
 	}

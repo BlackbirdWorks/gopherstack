@@ -68,6 +68,10 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		return nil, ErrListenerNotFound
 	}
 
+	if err := b.validateForwardTargetGroupsExist(input.Actions); err != nil {
+		return nil, err
+	}
+
 	// Validate and check for duplicate priority.
 	if input.Priority != "" && input.Priority != priorityDefault {
 		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
@@ -234,6 +238,10 @@ func (b *InMemoryBackend) ModifyRule(
 	}
 
 	if len(actions) > 0 {
+		if err := b.validateForwardTargetGroupsExist(actions); err != nil {
+			return nil, err
+		}
+
 		rule.Actions = actions
 	}
 

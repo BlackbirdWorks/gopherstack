@@ -29,7 +29,7 @@ ops:
   SetSubnets: {wire: ok, errors: ok, state: ok, persist: ok}
   SetIpAddressType: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteTargetGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised TargetGroupNotFound for a missing target group, but DeleteTargetGroup's own deserializeOpError models only ResourceInUse -- no TargetGroupNotFound anywhere in its switch (unlike every other resource family's Delete op, which all model their own NotFound). Now idempotent on a missing target group, matching AWS."}
   DescribeTargetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyTargetGroupAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,20 +37,20 @@ ops:
   RegisterTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: omitted Targets.member.N.Port was stored as 0 instead of defaulting to the target group's port (AWS behaviour), corrupting DescribeTargetHealth/Deregister lookups for any caller that omits Port"}
   DeregisterTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Port-defaulting fix as RegisterTargets"}
   DescribeTargetHealth: {wire: ok, errors: ok, state: ok, persist: ok, note: "Targets.member.N filter now also defaults omitted Port before matching against registered targets"}
-  CreateListener: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: AlpnPolicy was modeled/serialized as a bare string; real wire shape is a list (AlpnPolicy.member.N request, <AlpnPolicy><member> response)"}
+  CreateListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "fixed: AlpnPolicy was modeled/serialized as a bare string; real wire shape is a list (AlpnPolicy.member.N request, <AlpnPolicy><member> response). ERRORS FIXED (error-path sweep, 2026-08-29): CreateListener models TargetGroupNotFound, but never validated that DefaultActions' forward target group references actually exist -- a listener could be created pointing at a target group that was never created (missing-error). Now validates via the new validateForwardTargetGroupsExist, shared with ModifyListener/CreateRule/ModifyRule."}
   DeleteListener: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too"}
-  ModifyListener: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too"}
+  ModifyListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too. ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener, now validated when DefaultActions is supplied."}
   ModifyListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "added fallback to the legacy top-level Values.member.N field for host-header/path-pattern conditions when the modern HostHeaderConfig/PathPatternConfig is absent (both are valid on the real wire). NEW 2026-08-07: Transforms (types.RuleTransform, host-header-rewrite/url-rewrite) now parsed/validated/stored/returned -- see families.rule-transforms"}
+  CreateRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener (see below); added fallback to the legacy top-level Values.member.N field for host-header/path-pattern conditions when the modern HostHeaderConfig/PathPatternConfig is absent (both are valid on the real wire). NEW 2026-08-07: Transforms (types.RuleTransform, host-header-rewrite/url-rewrite) now parsed/validated/stored/returned -- see families.rule-transforms"}
   DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "same legacy-Values fallback as CreateRule. NEW 2026-08-07: Transforms/ResetTransforms now handled -- ResetTransforms clears Transforms, a non-empty Transforms replaces it, and specifying both is rejected (InvalidParameter), matching ModifyRuleInput's doc comment"}
+  ModifyRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener; same legacy-Values fallback as CreateRule. NEW 2026-08-07: Transforms/ResetTransforms now handled -- ResetTransforms clears Transforms, a non-empty Transforms replaces it, and specifying both is rejected (InvalidParameter), matching ModifyRuleInput's doc comment"}
   SetRulePriorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: the priority-conflict error code was fabricated (\"DuplicatePriority\"); real AWS code is \"PriorityInUse\" (PriorityInUseException)"}
-  AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): AddTags models LoadBalancerNotFound/TargetGroupNotFound/ListenerNotFound/RuleNotFound/TrustStoreNotFound for an unknown resource ARN, but the backend silently skipped any ARN it couldn't find instead of raising (missing-error). Now raises the resource-type-specific NotFound via the new notFoundErrorForResourceARN, matching AddTags/RemoveTags/DescribeTags' shared not-found set."}
+  RemoveTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing-error as AddTags -- an unknown resource ARN was silently no-op'd instead of raising."}
+  DescribeTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing-error as AddTags -- an unknown resource ARN returned an empty tag list under that key instead of raising."}
   AddListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}

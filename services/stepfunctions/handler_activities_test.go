@@ -76,12 +76,15 @@ func TestHandler_ActivityOperations(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:   "DeleteActivity_not_found",
+			// AWS: DeleteActivity's own error switch models only InvalidArn --
+			// no ActivityDoesNotExist -- so it is idempotent on a missing
+			// activity.
+			name:   "DeleteActivity_not_found_is_idempotent",
 			action: "DeleteActivity",
 			bodyFn: func(_ string) string {
 				return `{"activityArn":"arn:aws:states:us-east-1:123456789012:activity:nosuch"}`
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -849,13 +852,14 @@ func TestActivity_Delete(t *testing.T) {
 	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
 }
 
+// AWS: DeleteActivity's own error switch models only InvalidArn -- no
+// ActivityDoesNotExist -- so it is idempotent on a missing activity.
 func TestActivity_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
 	err := b.DeleteActivity("arn:aws:states:us-east-1:123:activity:ghost")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
+	require.NoError(t, err)
 }
 
 func TestActivity_ListAndPaginate(t *testing.T) {
@@ -1453,14 +1457,15 @@ func TestActivityAlreadyExists(t *testing.T) {
 	assert.ErrorIs(t, err, stepfunctions.ErrActivityAlreadyExists)
 }
 
-// TestRefinement1_DeleteActivityNotFound verifies deleting nonexistent activity returns error.
+// TestDeleteActivityNotFound verifies deleting a nonexistent activity is
+// idempotent. AWS: DeleteActivity's own error switch models only InvalidArn
+// -- no ActivityDoesNotExist.
 func TestDeleteActivityNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
 	err := b.DeleteActivity("arn:aws:states:us-east-1:123:activity:nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
+	require.NoError(t, err)
 }
 
 // TestCreateActivity_EncryptionConfiguration verifies CreateActivity's

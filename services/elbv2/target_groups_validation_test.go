@@ -24,6 +24,8 @@ func TestDeleteTargetGroupMissingARN(t *testing.T) {
 }
 
 // TestDeleteTargetGroupNotFound tests not found for delete.
+// AWS: DeleteTargetGroup's own error switch models only ResourceInUse -- no
+// TargetGroupNotFound -- so it is idempotent on a missing target group.
 func TestDeleteTargetGroupNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -34,7 +36,7 @@ func TestDeleteTargetGroupNotFound(t *testing.T) {
 		"Version":        {"2015-12-01"},
 		"TargetGroupArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/no-such/0"},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestPortValidationCreateTargetGroup tests port validation for CreateTargetGroup.

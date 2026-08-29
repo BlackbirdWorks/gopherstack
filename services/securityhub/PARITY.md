@@ -666,3 +666,48 @@ Confirmed safe, left unchanged, with reason:
 Proof: `go test -race -count=20 ./services/securityhub/...` clean after all
 fixes; `TestSecurityHubV2FeatureDescribeRace` is the new permanent
 regression test for the flagged bug specifically.
+
+## Error-path sweep (2026-08-29): verified clean, no bugs found
+
+Audited securityhub's failure path -- what a real typed `aws-sdk-go-v2`
+client sees when a request fails -- as part of a four-service sweep
+(securityhub, kafka, elbv2, stepfunctions) hunting the class of bug where
+gopherstack's error-handling call site picks a sentinel/wire code the real
+operation's own `deserializeOpError<Op>` switch does not model. All 116
+operations' switches extracted from `deserializers.go` (securityhub@v1.75.4)
+and diffed against every `typedErrorResponse(...)` call site (125 sites
+across all `handler_*.go` files) and the `ErrHubNotEnabled`/`ErrNotFound`/
+`ErrAlreadyExists`/etc. sentinels feeding them.
+
+Every literal `errType` string used at a `typedErrorResponse` call site names
+a real type in this SDK's `types/errors.go` (AccessDeniedException,
+ConflictException, InternalException, InternalServerException,
+InvalidAccessException, InvalidInputException, ResourceConflictException,
+ResourceNotFoundException, ValidationException) -- no fabricated code exists
+anywhere in this service. Every `ResourceNotFoundException`/
+`ResourceConflictException`/`InvalidAccessException`/`ValidationException`/
+`InvalidInputException` call site was cross-checked against its own
+operation's modeled set (not a sibling's) and matches exactly; the classic
+REST vocabulary (InvalidInputException/InternalException/
+ResourceConflictException) and the newer V2-style vocabulary
+(ValidationException/InternalServerException/ConflictException) are never
+crossed at a call site, including the several non-"V2"-suffixed operations
+(Connectors, ConnectorsV2, AutomationRulesV2, AggregatorsV2) that use the
+newer vocabulary -- this distinction was already called out and correctly
+handled by a prior pass (see `typedErrorResponse`'s doc comment,
+handler.go:507-514), and this pass re-verified it rather than trusting the
+comment.
+
+Two call sites (`handleStartConfigurationPolicyDisassociation`,
+`handleUpdateStandardsControl`) have an unreachable 500 fallback: their
+backend methods never actually return an error (both silently accept any
+identifier, including one that was never created, rather than validating
+against a known-resource set) even though their operations model
+`ResourceNotFoundException`. This is a missing-validation / structural gap,
+not a wrong-sentinel-at-a-call-site bug -- fixing it would mean building a
+"does this identifier correspond to a real resource" check neither op has
+today, not swapping which existing sentinel a call site already picks -- so
+it is reported here rather than fixed under this sweep's narrower scope.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class, matching several other services in this campaign.

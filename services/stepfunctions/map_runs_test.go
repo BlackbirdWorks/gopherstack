@@ -32,7 +32,32 @@ func TestDescribeMapRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// AWS: ListMapRuns models ExecutionDoesNotExist for an unknown executionArn,
+// so an existing execution with no Map states -- not a nonexistent one -- is
+// what legitimately returns an empty page.
 func TestListMapRuns_ReturnsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+	smARN := createSM(ctx, t, h, e, "no-maprun-sm")
+	execARN := startExec(ctx, t, h, e, smARN, "no-maprun-exec")
+
+	listBody, err := json.Marshal(map[string]any{"executionArn": execARN})
+	require.NoError(t, err)
+
+	rec := sfnPost(ctx, t, h, e, "ListMapRuns", string(listBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	mapRuns, _ := out["mapRuns"].([]any)
+	assert.Empty(t, mapRuns)
+}
+
+// AWS: ListMapRuns models ExecutionDoesNotExist for an unknown executionArn.
+func TestListMapRuns_UnknownExecution_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -46,13 +71,7 @@ func TestListMapRuns_ReturnsEmptyList(t *testing.T) {
 		"ListMapRuns",
 		`{"executionArn":"arn:aws:states:us-east-1:123:execution:sm:exec"}`,
 	)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-	mapRuns, _ := out["mapRuns"].([]any)
-	assert.Empty(t, mapRuns)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ─── RedriveExecution ─────────────────────────────────────────────────────────

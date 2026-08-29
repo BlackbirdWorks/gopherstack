@@ -707,6 +707,14 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
+	// AWS: CreateTopic/DeleteTopic/UpdateTopic each model these specific
+	// codes in addition to the generic NotFoundException/ConflictException --
+	// check them first since they also satisfy the generic errors.Is checks
+	// below.
+	case errors.Is(err, ErrTopicExists):
+		return h.writeError(c, http.StatusConflict, "TopicExistsException", err.Error())
+	case errors.Is(err, ErrTopicNotFound):
+		return h.writeError(c, http.StatusNotFound, "UnknownTopicOrPartitionException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):

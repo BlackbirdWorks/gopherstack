@@ -71,7 +71,7 @@ func validateTags(existing, newTags map[string]string) error {
 	if merged > maxTagsPerResource {
 		return fmt.Errorf(
 			"%w: resource cannot have more than %d tags",
-			ErrTagPolicyViolation,
+			ErrTooManyTags,
 			maxTagsPerResource,
 		)
 	}

@@ -273,6 +273,23 @@ func collectTGArns(actions []Action, arns map[string]bool) {
 	}
 }
 
+// validateForwardTargetGroupsExist returns ErrTargetGroupNotFound if any
+// action's forward target group reference does not exist. AWS:
+// CreateListener/ModifyListener/CreateRule/ModifyRule each model
+// TargetGroupNotFound for exactly this condition. Caller must hold b.mu.
+func (b *InMemoryBackend) validateForwardTargetGroupsExist(actions []Action) error {
+	arns := make(map[string]bool)
+	collectTGArns(actions, arns)
+
+	for tgArn := range arns {
+		if !b.targetGroups.Has(tgArn) {
+			return ErrTargetGroupNotFound
+		}
+	}
+
+	return nil
+}
+
 func collectLBArnsForTG(lbArn string, actions []Action, result map[string]map[string]bool) {
 	for _, a := range actions {
 		if a.TargetGroupArn != "" {
@@ -482,12 +499,14 @@ func (b *InMemoryBackend) isTGInUseLocked(tgArn string) bool {
 }
 
 // DeleteTargetGroup deletes a target group by ARN.
+// AWS: DeleteTargetGroup's own error switch models only ResourceInUse -- no
+// TargetGroupNotFound -- so it is idempotent on a missing target group.
 func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 	b.mu.Lock("DeleteTargetGroup")
 	defer b.mu.Unlock()
 
 	if _, ok := b.targetGroups.Get(tgArn); !ok {
-		return ErrTargetGroupNotFound
+		return nil
 	}
 
 	if b.isTGInUseLocked(tgArn) {
