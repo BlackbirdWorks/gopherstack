@@ -410,6 +410,19 @@ populated by reading each handler's response-construction code.
 **opensearch is settled for this bug class**: every required output member
 across every op that has one has been read and checked.
 
+**Re-verified 2026-08-28** (gopherstack-r80d, independent re-check after the
+issue's closure reason was found undocumented): re-ran
+`go run ./cmd/requiredoutputfields` (still 21 fields/17 ops, unchanged since
+2026-08-14) and re-read all 17 handlers plus the nested `DomainStatus`
+struct's own 4 required members (`ARN`/`ClusterConfig`/`DomainId`/
+`DomainName`, opensearch@v1.75.4 types/types.go:1377-1401) against
+`toDomainStatusJSON` -- all still correctly populated from real backend
+state. `AuthorizedPrincipal`/`VpcEndpointSummary`/`VpcEndpointError`/
+`DomainConfig` (the other nested response types the 17 ops wrap) carry zero
+required members of their own in the pinned SDK, confirmed by direct read,
+not inferred. 0 new findings; go build/vet/test -race/golangci-lint all
+clean on this service. No regression since the 2026-08-14 pass.
+
 ### Reverse sdkcheck sweep (2026-07-31) -- 8 fabricated serverless policy op names found and renamed
 
 `pkgs/sdkcheck`'s reverse check (gopherstack-vhw2) flagged 22 `serverlessOperations()`
