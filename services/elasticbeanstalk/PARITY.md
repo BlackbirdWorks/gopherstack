@@ -61,6 +61,7 @@ ops:
   SwapEnvironmentCNAMEs: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateEnvironmentOperationsRole: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateEnvironmentOperationsRole: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteEnvironmentConfiguration: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "gopherstack-6flj/21my re-audit (2026-08-28): op was routed and implemented but had NO manifest entry at all -- caught by the routing-table-vs-PARITY.md diff. Verified against elasticbeanstalk@v1.37.4's api_op_DeleteEnvironmentConfiguration.go: real DeleteEnvironmentConfigurationOutput has zero data members, and the handler correctly emits an empty <DeleteEnvironmentConfigurationResponse><ResponseMetadata>...</ResponseMetadata></DeleteEnvironmentConfigurationResponse> with nothing fabricated. Backend method is a documented no-op (no draft-configuration state exists to delete, since this backend applies environment updates synchronously -- same root cause as DeploymentStatus never being 'pending'/'failed'); state: n/a is correct, not a disguised stub."}
 families:
   ARN construction: {status: fixed, note: "Application/Environment/ApplicationVersion/ConfigurationTemplate ARN patterns verified against https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.iam.policies.arn.html (application/{app}, applicationversion/{app}/{ver}, configurationtemplate/{app}/{tmpl}, environment/{app}/{env}, platform/{name}/{version}) -- all correct except CreatePlatformVersion's missing account ID (fixed)"}
   error-code mapping: {status: fixed, note: "handleOpError previously mapped every ErrNotFound to InvalidParameterValue uniformly; ListTagsForResource/UpdateTagsForResource ARN-not-found now maps to the AWS-documented ResourceNotFoundException via new ErrResourceNotFound sentinel"}
@@ -194,3 +195,21 @@ the real read error). Proof: `TestHandler_OversizedBodySurfacesInternalFailure` 
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/elasticbeanstalk/...` (pass), `golangci-lint run ./services/elasticbeanstalk/...`
 (0 issues).
+
+**2026-08-28 (gopherstack-6flj/21my re-audit)**: this service was tasked as "unswept," but
+this manifest's own entries (dated 2026-07-23, extensively labeled gopherstack-6flj) show
+deep per-field work already shipped on main (69bbb940a), well past a wrapper-key-only pass
+-- e.g. `AbortableOperationInProgress`/`HealthStatus` enum fixes, and the
+`PlatformSummary`/`PlatformDescription` shape split. Independently re-verified against
+elasticbeanstalk@v1.37.4's own `awsAwsquery_deserializeDocument*` functions rather than
+trusting the manifest: `EnvironmentDescription` (all 21 real fields, confirmed
+Resources/EnvironmentLinks are the only omissions, both already disclosed gaps),
+`PlatformSummary` (confirmed no `PlatformName` member, matching
+`platformSummaryDescType`'s deliberate split from `platformDescriptionDescType`), and no
+shared struct carries a stray `XMLName` that could shadow an enclosing field tag (the
+route53/gopherstack-m1gl class) -- every `XMLName` in this service is a unique top-level
+`<XxxResponse>` root, used once. Also diffed the handler.go routing table against this
+manifest's `ops:` keys and found one real gap: `DeleteEnvironmentConfiguration` was routed
+and implemented but had no manifest entry at all -- added above (wire verified correct: a
+real, memberless `DeleteEnvironmentConfigurationOutput`). No wire-shape bugs found this
+pass.

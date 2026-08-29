@@ -211,3 +211,15 @@ exactly).
   (`dashDetailToMap`, already its own dedicated converter) never used `dashToMap` and needed no
   change. `edsToMap`/`importToMap` are separate shared helpers (event data stores / imports) —
   not re-verified this pass, left as previously assessed.
+
+**2026-08-28 (gopherstack-6flj/21my re-audit)**: this service was tasked as "unswept" for
+the wrapper-key/per-item bug class, but git history and this manifest's own prior entries
+show it was already thoroughly swept (last_audit_date 2026-08-15, gopherstack-6flj, commit
+d4e234022). Independently re-verified a representative sample at both layers against
+cloudtrail@v1.58.4's own deserializers rather than trusting the manifest: `Trail`
+(trailToMap, all 13 fields incl. SnsTopicARN capitalization), `Channel`/`Destination`
+(GetChannel/ListChannels/CreateChannel/UpdateChannel), `Widget`
+(QueryAlias/QueryParameters/QueryStatement/ViewProperties), and `AdvancedEventSelector`/
+`AdvancedFieldSelector` (all 7 nested field names). All matched the real deserializer's case
+labels exactly; no new bugs found. Op-routing-table-vs-manifest diff: 60/60 ops match, no
+unaudited op. No changes made to this file's `ops:`/`gaps:` this pass.
