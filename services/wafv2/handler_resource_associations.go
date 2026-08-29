@@ -142,12 +142,69 @@ func (h *Handler) handleListResourcesForWebACL(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
+	resourceType := req.ResourceType
+	if resourceType == "" {
+		resourceType = resourceTypeApplicationLoadBalancer
+	}
+
 	resources, err := h.Backend.ListResourcesForWebACL(ctx, req.WebACLArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"ResourceArns": resources})
+	filtered := make([]string, 0, len(resources))
+
+	for _, r := range resources {
+		if resourceTypeForARN(r) == resourceType {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return json.Marshal(map[string]any{"ResourceArns": filtered})
+}
+
+const (
+	resourceTypeApplicationLoadBalancer = "APPLICATION_LOAD_BALANCER"
+	resourceTypeAPIGateway              = "API_GATEWAY"
+	resourceTypeAppsync                 = "APPSYNC"
+	resourceTypeCognitoUserPool         = "COGNITO_USER_POOL"
+	resourceTypeAppRunnerService        = "APP_RUNNER_SERVICE"
+	resourceTypeVerifiedAccessInstance  = "VERIFIED_ACCESS_INSTANCE"
+	resourceTypeAmplify                 = "AMPLIFY"
+	resourceTypeAgentcoreGateway        = "AGENTCORE_GATEWAY"
+)
+
+// resourceTypeForARN classifies a resource ARN into its WAF ResourceType,
+// per AssociateWebACLInput.ResourceArn's doc comment (wafv2@v1.77.3
+// api_op_AssociateWebACL.go), which enumerates the exact ARN format for
+// each of the 8 supported resource types. verified-access-instance is the
+// only type sharing a service segment (ec2) with other resource kinds, so
+// it's matched on its resource-id prefix rather than service alone.
+func resourceTypeForARN(arnStr string) string {
+	switch extractARNService(arnStr) {
+	case "elasticloadbalancing":
+		return resourceTypeApplicationLoadBalancer
+	case "apigateway":
+		return resourceTypeAPIGateway
+	case "appsync":
+		return resourceTypeAppsync
+	case "cognito-idp":
+		return resourceTypeCognitoUserPool
+	case "apprunner":
+		return resourceTypeAppRunnerService
+	case "amplify":
+		return resourceTypeAmplify
+	case "bedrock-agentcore":
+		return resourceTypeAgentcoreGateway
+	case "ec2":
+		if strings.Contains(arnStr, ":verified-access-instance/") {
+			return resourceTypeVerifiedAccessInstance
+		}
+
+		return ""
+	default:
+		return ""
+	}
 }
 
 // resourceAssociationDispatchOps returns the WebACL-resource-association operation

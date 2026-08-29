@@ -176,7 +176,11 @@ func (b *InMemoryBackend) DeleteTask(taskArn string) error {
 }
 
 // ListTasks returns tasks, sorted by ARN.
-func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*TaskListEntry, string, error) {
+func (b *InMemoryBackend) ListTasks(
+	filters []TaskFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*TaskListEntry, string, error) {
 	b.mu.RLock("ListTasks")
 	defer b.mu.RUnlock()
 
@@ -184,6 +188,15 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 
 	all := make([]*TaskListEntry, 0, len(sorted))
 	for _, t := range sorted {
+		matched, err := matchTaskFilters(t, filters)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if !matched {
+			continue
+		}
+
 		all = append(all, &TaskListEntry{
 			TaskArn:  t.TaskArn,
 			Name:     t.Name,
@@ -196,6 +209,45 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	pg := page.New(all, nextToken, limit, defaultMaxResults)
 
 	return pg.Data, pg.Next, nil
+}
+
+// matchTaskFilters reports whether t satisfies every filter (AND across
+// filters, per the shared AWS list-filter convention). LocationId matches
+// against either the task's source or destination location ARN -- AWS's own
+// doc example ("retrieve all tasks on a specific source location") names
+// only source, but a task's location membership is naturally either side.
+func matchTaskFilters(t *storedTask, filters []TaskFilter) (bool, error) {
+	for _, f := range filters {
+		var matched bool
+
+		var err error
+
+		switch f.Name {
+		case "LocationId":
+			var srcMatch, dstMatch bool
+
+			srcMatch, err = matchFilterOperator(f.Operator, t.SourceLocationArn, f.Values)
+			if err == nil {
+				dstMatch, err = matchFilterOperator(f.Operator, t.DestinationLocationArn, f.Values)
+			}
+
+			matched = srcMatch || dstMatch
+		case "CreationTime":
+			matched, err = matchFilterOperator(f.Operator, t.CreationTime.UTC().Format(time.RFC3339), f.Values)
+		default:
+			return false, fmt.Errorf("%w: unrecognized filter Name %q", ErrInvalidParameter, f.Name)
+		}
+
+		if err != nil {
+			return false, err
+		}
+
+		if !matched {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // isTerminalExecutionStatus reports whether a task execution status is a

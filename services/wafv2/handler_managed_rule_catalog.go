@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // defaultManagedRuleGroupVersion is this catalog's single hardcoded version
@@ -289,9 +290,19 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	groups := make([]map[string]any, 0, len(getManagedRuleGroups()))
+	catalog := getManagedRuleGroups()
+	sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
 
-	for _, mrg := range getManagedRuleGroups() {
+	page, nextMarker := paginateByName(
+		catalog,
+		func(mrg managedRuleGroupInfo) string { return mrg.Name },
+		req.NextMarker,
+		req.Limit,
+	)
+
+	groups := make([]map[string]any, 0, len(page))
+
+	for _, mrg := range page {
 		groups = append(groups, map[string]any{
 			keyVendorName:         mrg.VendorName,
 			keyName:               mrg.Name,
@@ -300,7 +311,12 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		})
 	}
 
-	return json.Marshal(map[string]any{"ManagedRuleGroups": groups})
+	resp := map[string]any{"ManagedRuleGroups": groups}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // listMobileSdkReleasesRequest is the request body for ListMobileSdkReleases.

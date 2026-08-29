@@ -115,9 +115,16 @@ func (h *Handler) handleDeleteLocation(_ context.Context, in *deleteLocationInpu
 	return &deleteLocationOutput{}, nil
 }
 
+type locationFilterInput struct {
+	Name     string   `json:"Name"`
+	Operator string   `json:"Operator"`
+	Values   []string `json:"Values"`
+}
+
 type listLocationsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string                `json:"NextToken"`
+	Filters    []locationFilterInput `json:"Filters"`
+	MaxResults int32                 `json:"MaxResults"`
 }
 
 type locationListEntryOutput struct {
@@ -131,7 +138,12 @@ type listLocationsOutput struct {
 }
 
 func (h *Handler) handleListLocations(_ context.Context, in *listLocationsInput) (*listLocationsOutput, error) {
-	locations, nextToken, err := h.Backend.ListLocations(in.MaxResults, in.NextToken)
+	filters := make([]LocationFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, LocationFilter(f))
+	}
+
+	locations, nextToken, err := h.Backend.ListLocations(filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}
