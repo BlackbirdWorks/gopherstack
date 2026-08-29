@@ -49,6 +49,10 @@ func (b *InMemoryBackend) UpdateActionTarget(actionTargetArn, name, description 
 	b.mu.Lock("UpdateActionTarget")
 	defer b.mu.Unlock()
 
+	if !b.hubEnabled {
+		return ErrHubNotEnabled
+	}
+
 	at, ok := b.actionTargets.Get(actionTargetArn)
 	if !ok {
 		return fmt.Errorf("%w: action target %s", ErrNotFound, actionTargetArn)
@@ -68,6 +72,10 @@ func (b *InMemoryBackend) UpdateActionTarget(actionTargetArn, name, description 
 func (b *InMemoryBackend) DeleteActionTarget(actionTargetArn string) (string, error) {
 	b.mu.Lock("DeleteActionTarget")
 	defer b.mu.Unlock()
+
+	if !b.hubEnabled {
+		return "", ErrHubNotEnabled
+	}
 
 	if !b.actionTargets.Delete(actionTargetArn) {
 		return "", fmt.Errorf("%w: action target %s", ErrNotFound, actionTargetArn)

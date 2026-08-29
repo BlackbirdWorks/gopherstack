@@ -141,3 +141,23 @@ no `//nolint` added), `go test ./pkgs/persistence/...` (no persisted struct
 changed) all clean. No exported method signature was changed —
 `StorageBackend.DeleteFunction` is untouched — so `make build-check` was not
 required; `go build ./...` (whole repo) confirmed clean regardless.
+
+
+## 2026-08-28: UpdateAlias didn't validate FunctionVersion, unlike CreateAlias
+
+gopherstack-huyl (Create-vs-Update precondition sweep). `UpdateAlias`
+(versions_aliases.go) set `alias.FunctionVersion = input.FunctionVersion`
+unconditionally, so an alias could be repointed at a version number that was
+never published — `CreateAlias` validates the target version against
+`b.versions[name]` (or accepts `$LATEST`), but `UpdateAlias` had no
+equivalent check. lambda@v1.101.2 deserializers.go's
+`deserializeOpErrorUpdateAlias` models `ResourceNotFoundException` (the same
+code `ErrVersionNotFound` already maps to on the `CreateAlias` path), so the
+fix mirrors `CreateAlias`'s `versionInList` check and reuses the existing
+sentinel error. `handleUpdateAlias` (handler_versions_aliases.go) previously
+had no `ErrVersionNotFound` case at all — added one, matching `handleCreateAlias`'s.
+New real-SDK-client proof: `TestUpdateAlias_UnknownVersionSurfacesResourceNotFoundException`
+(`$LATEST` still exempted, proven by `TestUpdateAlias_LatestVersionSucceeds`)
+in `wire_field_fixes_test.go`; hand-reverted `versions_aliases.go` +
+`handler_versions_aliases.go`, confirmed both tests fail
+(`ResourceNotFoundException` never surfaced), restored.

@@ -36,12 +36,12 @@ ops:
   BatchUpdateStandardsControlAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeActionTargets: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateActionTarget: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: never checked b.hubEnabled, unlike CreateActionTarget/every sibling create/enable path. deserializers.go's deserializeOpErrorUpdateActionTarget (:16987) models InvalidAccessException; added the check and mapped it. See action_targets_hub_enabled_test.go."}
+  DeleteActionTarget: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: same hubEnabled gap as UpdateActionTarget; deserializeOpErrorDeleteActionTarget (:4539) models InvalidAccessException. See action_targets_hub_enabled_test.go."}
   DescribeProducts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-products catalog"}
   ListEnabledProductsForImport: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableImportFindingsForProduct: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableImportFindingsForProduct: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisableImportFindingsForProduct: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: same hubEnabled gap as UpdateActionTarget; deserializeOpErrorDisableImportFindingsForProduct (:7344) models InvalidAccessException. See action_targets_hub_enabled_test.go."}
   GetSecurityControlDefinition: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-controls catalog"}
   ListSecurityControlDefinitions: {wire: ok, errors: ok, state: ok, persist: n/a}
   BatchGetSecurityControls: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- UnprocessedSecurityControl.ErrorCode is types.UnprocessedErrorCode (types.go:19946), an enum whose members are upper-snake-case (enums.go:2086); handler emitted the free-form string \"InvalidInput\" (shared with BatchUpdateFindings' unrelated *string ErrorCode) instead of the enum member \"INVALID_INPUT\". A typed client decoded the wrong value without error. See wire_field_fixes_test.go."}

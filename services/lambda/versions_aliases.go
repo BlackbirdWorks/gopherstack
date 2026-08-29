@@ -232,6 +232,10 @@ func (b *InMemoryBackend) UpdateAlias(
 	}
 
 	if input.FunctionVersion != "" {
+		if input.FunctionVersion != versionLatest && !versionInList(b.versions[name], input.FunctionVersion) {
+			return nil, ErrVersionNotFound
+		}
+
 		alias.FunctionVersion = input.FunctionVersion
 	}
 
