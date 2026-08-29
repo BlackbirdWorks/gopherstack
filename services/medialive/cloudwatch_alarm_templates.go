@@ -65,27 +65,98 @@ func (b *InMemoryBackend) GetCloudWatchAlarmTemplateGroup(
 	return g.toGroup(), nil
 }
 
-// ListCloudWatchAlarmTemplateGroups returns all CW alarm template groups,
-// each annotated with its live templateCount (see
-// CloudWatchAlarmTemplateGroupSummary's doc comment).
+// groupMatchesIdentifierList reports whether g is referenced by
+// identifiers, matching on ID, ARN, or Name -- the same three ways
+// findCWAlarmTemplateGroup/findEBRuleTemplateGroup resolve a caller-supplied
+// identifier, since CreateSignalMap stores each identifier exactly as the
+// client sent it rather than resolving it to a canonical ID.
+func groupMatchesIdentifierList(id, arn, name string, identifiers []string) bool {
+	for _, ident := range identifiers {
+		if ident == id || ident == arn || ident == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// listTemplateGroups filters groups by the signal map signalMapIdentifier
+// resolves to (idsOf selects which of the signal map's two group-ID lists
+// applies; an unresolvable signalMapIdentifier yields an empty result,
+// matching the "no dedicated exception modeled" convention used elsewhere
+// in this op family), sorts by ID, paginates, and builds each summary via
+// toSummary. Shared by ListCloudWatchAlarmTemplateGroups/
+// ListEventBridgeRuleTemplateGroups, which differ only in the stored group
+// type, which SignalMap field carries its group ID list, and the summary
+// shape.
+func listTemplateGroups[G, S any](
+	b *InMemoryBackend,
+	groups []*G,
+	maxResults int,
+	nextToken, signalMapIdentifier string,
+	idsOf func(*storedSignalMap) []string,
+	idOf, arnOf, nameOf func(*G) string,
+	toSummary func(*G) *S,
+) ([]*S, string) {
+	all := groups
+
+	if signalMapIdentifier != "" {
+		sm, ok := b.findSignalMap(signalMapIdentifier)
+		filtered := make([]*G, 0, len(all))
+
+		if ok {
+			for _, g := range all {
+				if groupMatchesIdentifierList(idOf(g), arnOf(g), nameOf(g), idsOf(sm)) {
+					filtered = append(filtered, g)
+				}
+			}
+		}
+
+		all = filtered
+	}
+
+	sort.Slice(all, func(i, j int) bool { return idOf(all[i]) < idOf(all[j]) })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*S, 0, len(pg.Data))
+
+	for _, g := range pg.Data {
+		result = append(result, toSummary(g))
+	}
+
+	return result, pg.Next
+}
+
+// ListCloudWatchAlarmTemplateGroups returns CW alarm template groups
+// referenced by signalMapIdentifier (when set; api_op_
+// ListCloudWatchAlarmTemplateGroups.go's SignalMapIdentifier, matched
+// against the signal map's cloudWatchAlarmTemplateGroupIds), each annotated
+// with its live templateCount (see CloudWatchAlarmTemplateGroupSummary's
+// doc comment).
+//
+//nolint:dupl // mirrors the EventBridge equivalent; logic is shared via listTemplateGroups
 func (b *InMemoryBackend) ListCloudWatchAlarmTemplateGroups(
 	maxResults int,
 	nextToken string,
+	signalMapIdentifier string,
 ) ([]*CloudWatchAlarmTemplateGroupSummary, string, error) {
 	b.mu.RLock("ListCloudWatchAlarmTemplateGroups")
 	defer b.mu.RUnlock()
-	all := b.cwAlarmTemplateGroups.All()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
-	result := make([]*CloudWatchAlarmTemplateGroupSummary, 0, len(pg.Data))
-	for _, g := range pg.Data {
-		result = append(result, &CloudWatchAlarmTemplateGroupSummary{
-			CloudWatchAlarmTemplateGroup: *g.toGroup(),
-			TemplateCount:                b.countCWAlarmTemplatesForGroup(g.ID),
-		})
-	}
 
-	return result, pg.Next, nil
+	result, next := listTemplateGroups(
+		b, b.cwAlarmTemplateGroups.All(), maxResults, nextToken, signalMapIdentifier,
+		func(sm *storedSignalMap) []string { return sm.CloudWatchAlarmTemplateGroupIDs },
+		func(g *storedCloudWatchAlarmTemplateGroup) string { return g.ID },
+		func(g *storedCloudWatchAlarmTemplateGroup) string { return g.Arn },
+		func(g *storedCloudWatchAlarmTemplateGroup) string { return g.Name },
+		func(g *storedCloudWatchAlarmTemplateGroup) *CloudWatchAlarmTemplateGroupSummary {
+			return &CloudWatchAlarmTemplateGroupSummary{
+				CloudWatchAlarmTemplateGroup: *g.toGroup(),
+				TemplateCount:                b.countCWAlarmTemplatesForGroup(g.ID),
+			}
+		},
+	)
+
+	return result, next, nil
 }
 
 // countCWAlarmTemplatesForGroup returns the number of CloudWatch alarm
@@ -220,13 +291,57 @@ func (b *InMemoryBackend) GetCloudWatchAlarmTemplate(
 }
 
 // ListCloudWatchAlarmTemplates returns all CW alarm templates.
+// ListCloudWatchAlarmTemplates returns CW alarm templates constrained by
+// groupIdentifier and/or signalMapIdentifier when set (api_op_
+// ListCloudWatchAlarmTemplates.go's GroupIdentifier/SignalMapIdentifier
+// query params). groupIdentifier is resolved the same way
+// CreateCloudWatchAlarmTemplate resolves it (ID/ARN/name via
+// findCWAlarmTemplateGroup) and compared against each template's own
+// GroupID; signalMapIdentifier is resolved to its
+// cloudWatchAlarmTemplateGroupIds set and a template matches if its group
+// is referenced by any of them. Both filters apply (AND) when both are set.
 func (b *InMemoryBackend) ListCloudWatchAlarmTemplates(
 	maxResults int,
 	nextToken string,
+	groupIdentifier, signalMapIdentifier string,
 ) ([]*CloudWatchAlarmTemplate, string, error) {
 	b.mu.RLock("ListCloudWatchAlarmTemplates")
 	defer b.mu.RUnlock()
 	all := b.cwAlarmTemplates.All()
+
+	if groupIdentifier != "" {
+		groupID := groupIdentifier
+		if g, ok := b.findCWAlarmTemplateGroup(groupIdentifier); ok {
+			groupID = g.ID
+		}
+
+		filtered := make([]*storedCloudWatchAlarmTemplate, 0, len(all))
+
+		for _, t := range all {
+			if t.GroupID == groupID {
+				filtered = append(filtered, t)
+			}
+		}
+
+		all = filtered
+	}
+
+	if signalMapIdentifier != "" {
+		sm, ok := b.findSignalMap(signalMapIdentifier)
+		filtered := make([]*storedCloudWatchAlarmTemplate, 0, len(all))
+
+		if ok {
+			for _, t := range all {
+				g, gok := b.findCWAlarmTemplateGroup(t.GroupID)
+				if gok && groupMatchesIdentifierList(g.ID, g.Arn, g.Name, sm.CloudWatchAlarmTemplateGroupIDs) {
+					filtered = append(filtered, t)
+				}
+			}
+		}
+
+		all = filtered
+	}
+
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*CloudWatchAlarmTemplate, 0, len(pg.Data))

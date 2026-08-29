@@ -771,6 +771,62 @@ gaps:
     SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
     (see the same dated entry) remain open.
 
+  - "Constraining-parameter sweep (wrapper-key campaign, 2026-08-29): six real
+    never-applied-constraint bugs found and fixed, all confirmed with a real
+    aws-sdk-go-v2 client test that failed against the unfixed handler first.
+    (1) ListClusterAlerts never read StateFilter (SET/CLEARED/ALL) -- the
+    synthetic \"cluster-not-ready\" alert (always state SET) was returned for
+    ANY filter value, so a client asking for CLEARED alerts wrongly got the
+    SET one back; now stateFilter==\"CLEARED\" excludes it.
+    (2) ListReservations never read Codec/MaximumBitrate/MaximumFramerate/
+    Resolution/ResourceType/SpecialFeature/VideoQuality -- an account can
+    purchase an unbounded number of reservations (see the pagination test's
+    25-reservation setup), so unlike ListOfferings' fixed 3-item catalog
+    (left unfixed -- see below) this was the \"unbounded counts\" case that
+    must honor its filters, not the \"at most a few values\" restraint case;
+    now filtered via ReservationFilter (reservations.go) against each
+    reservation's inherited ResourceSpecification. ChannelClass is NOT
+    filterable -- neither Offering nor Reservation tracks it anywhere in
+    this backend, a genuine structural gap, disclosed rather than faked.
+    (3) ListCloudWatchAlarmTemplates/ListEventBridgeRuleTemplates never read
+    GroupIdentifier (resolved via the same findCWAlarmTemplateGroup/
+    findEBRuleTemplateGroup ID/ARN/name lookup Create already uses) or
+    SignalMapIdentifier (a signal map's own cloudWatchAlarmTemplateGroupIds/
+    eventBridgeRuleTemplateGroupIds lists, both AND-combinable with
+    GroupIdentifier).
+    (4) ListCloudWatchAlarmTemplateGroups/ListEventBridgeRuleTemplateGroups
+    never read SignalMapIdentifier -- same signal-map-list match, shared via
+    the new generic listTemplateGroups (cloudwatch_alarm_templates.go).
+    (5) ListSignalMaps never read CloudWatchAlarmTemplateGroupIdentifier/
+    EventBridgeRuleTemplateGroupIdentifier -- the reverse direction of (4),
+    filtering signal maps down to those referencing a given group.
+    (6) ListInputDeviceTransfers echoed back whatever transferType
+    (OUTGOING/INCOMING) the client queried on every pending transfer,
+    regardless of its real direction -- TransferInputDevice is the only way
+    this backend ever creates a pending transfer, and it always makes THIS
+    account the source (no path exists for another account to initiate a
+    transfer targeting this one), so every pending transfer is inherently
+    OUTGOING; querying INCOMING now correctly returns empty instead of the
+    same devices relabeled. This also corrected an existing test
+    (TestHandlerListInputDeviceTransfers's \"incoming transfers\" case) that
+    asserted the bug's own wrong output (wantCount: 2) as correct.
+    Left as disclosed restraint, not fixed: ListOfferings' 10 filter params
+    (ChannelClass/ChannelConfiguration/Codec/Duration/MaximumBitrate/
+    MaximumFramerate/Resolution/ResourceType/SpecialFeature/VideoQuality) --
+    seedOfferings is a fixed 3-item catalog (store.go), squarely the \"at
+    most one to three values can ever exist\" case filtering would not
+    meaningfully change; ChannelConfiguration additionally requires deriving
+    compatibility from an existing channel's configuration, a distinct
+    feature with no backing logic here. medialive's Scope filter (LOCAL vs
+    AWS_MANAGED on the CW/EB template-group List ops) was also left
+    unimplemented: it is a plain *string in the pinned SDK with no typed
+    enum anywhere in the module (grepped types/enums.go and the whole SDK
+    package for AWS_MANAGED/LOCAL -- zero hits), so its exact wire values
+    are asserted only in a prose doc comment; implementing a filter against
+    an unverified literal risks the wrong-vocabulary bug class more than
+    leaving it a documented gap, since this backend has zero AWS-managed
+    groups to ever wrongly include regardless."
+
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---

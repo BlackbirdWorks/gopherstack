@@ -128,6 +128,7 @@ type StorageBackend interface {
 		clusterID string,
 		maxResults int,
 		nextToken string,
+		stateFilter string,
 	) ([]map[string]any, string, error)
 
 	// SignalMaps
@@ -137,7 +138,9 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*SignalMap, error)
 	GetSignalMap(identifier string) (*SignalMap, error)
-	ListSignalMaps(maxResults int, nextToken string) ([]*SignalMap, string, error)
+	ListSignalMaps(
+		maxResults int, nextToken string, cwGroupIdentifier, ebGroupIdentifier string,
+	) ([]*SignalMap, string, error)
 	DeleteSignalMap(identifier string) error
 	StartUpdateSignalMap(
 		identifier, name, description string,
@@ -154,6 +157,7 @@ type StorageBackend interface {
 	ListCloudWatchAlarmTemplateGroups(
 		maxResults int,
 		nextToken string,
+		signalMapIdentifier string,
 	) ([]*CloudWatchAlarmTemplateGroupSummary, string, error)
 	UpdateCloudWatchAlarmTemplateGroup(
 		identifier, name, description string,
@@ -179,6 +183,7 @@ type StorageBackend interface {
 	ListCloudWatchAlarmTemplates(
 		maxResults int,
 		nextToken string,
+		groupIdentifier, signalMapIdentifier string,
 	) ([]*CloudWatchAlarmTemplate, string, error)
 	UpdateCloudWatchAlarmTemplate(
 		identifier string,
@@ -205,6 +210,7 @@ type StorageBackend interface {
 	ListEventBridgeRuleTemplateGroups(
 		maxResults int,
 		nextToken string,
+		signalMapIdentifier string,
 	) ([]*EventBridgeRuleTemplateGroupSummary, string, error)
 	UpdateEventBridgeRuleTemplateGroup(
 		identifier, name, description string,
@@ -221,6 +227,7 @@ type StorageBackend interface {
 	ListEventBridgeRuleTemplates(
 		maxResults int,
 		nextToken string,
+		groupIdentifier, signalMapIdentifier string,
 	) ([]*EventBridgeRuleTemplateSummary, string, error)
 	UpdateEventBridgeRuleTemplate(
 		identifier, name, description, groupIdentifier, eventType string,
@@ -239,7 +246,9 @@ type StorageBackend interface {
 		renewalSettings RenewalSettings,
 		tags map[string]string,
 	) (*Reservation, error)
-	ListReservations(maxResults int, nextToken string) ([]*Reservation, string, error)
+	ListReservations(
+		maxResults int, nextToken string, filter ReservationFilter,
+	) ([]*Reservation, string, error)
 	DescribeReservation(reservationID string) (*Reservation, error)
 	DeleteReservation(reservationID string) (*Reservation, error)
 	UpdateReservation(

@@ -165,11 +165,17 @@ func (b *InMemoryBackend) ListClusters(
 	return summaries, pg.Next, nil
 }
 
-// ListClusterAlerts returns alerts for a Cluster.
+// ListClusterAlerts returns alerts for a Cluster. stateFilter mirrors the
+// real ListClusterAlertsInput.StateFilter query param: "SET" returns only
+// SET-state alerts, "CLEARED" only CLEARED-state ones, "ALL" or "" returns
+// every alert (api_op_ListClusterAlerts.go:41-44). The only synthetic alert
+// this backend ever produces is always state SET, so "CLEARED" always
+// excludes it.
 func (b *InMemoryBackend) ListClusterAlerts(
 	clusterID string,
 	_ int,
 	_ string,
+	stateFilter string,
 ) ([]map[string]any, string, error) {
 	b.mu.RLock("ListClusterAlerts")
 	defer b.mu.RUnlock()
@@ -184,8 +190,8 @@ func (b *InMemoryBackend) ListClusterAlerts(
 	// aws-sdk-go-v2/service/medialive's ClusterAlert deserializer); there
 	// is no "AlertCode"/"AlertMessage"/"SetTime"/"ClearedTime" on the real
 	// wire.
-	var alerts []map[string]any
-	if cl.State != clusterStateActive {
+	alerts := []map[string]any{}
+	if cl.State != clusterStateActive && stateFilter != "CLEARED" {
 		alerts = []map[string]any{
 			{
 				keyID:           "cluster-not-ready",
@@ -195,8 +201,6 @@ func (b *InMemoryBackend) ListClusterAlerts(
 				"setTimestamp":  formatISO8601(time.Unix(0, 0).UTC()),
 			},
 		}
-	} else {
-		alerts = []map[string]any{}
 	}
 
 	return alerts, "", nil

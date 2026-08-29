@@ -168,3 +168,37 @@ func TestStartDeleteMonitorDeployment(t *testing.T) {
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/missing/monitor-deployment", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestListSignalMaps_FilterByCloudWatchAlarmTemplateGroupIdentifier verifies
+// ListSignalMapsInput.CloudWatchAlarmTemplateGroupIdentifier (bound as the
+// real "cloudWatchAlarmTemplateGroupIdentifier" query param in
+// serializers.go). The handler previously read only maxResults/nextToken
+// and returned every signal map regardless of which CW alarm template group
+// a caller asked for.
+func TestListSignalMaps_FilterByCloudWatchAlarmTemplateGroupIdentifier(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	groupA := decodeBody(t, doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-template-groups",
+		map[string]any{"name": "sm-filter-group-a"}).Body.Bytes())["id"].(string)
+
+	smA := decodeBody(t, doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
+		"name":                   "sm-filter-a",
+		"discoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:abc123",
+		"cloudWatchAlarmTemplateGroupIdentifiers": []any{groupA},
+	}).Body.Bytes())["id"].(string)
+
+	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
+		"name":                   "sm-filter-b",
+		"discoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:def456",
+	}).Code)
+
+	rec := doRequest(t, h, http.MethodGet,
+		"/prod/signal-maps?cloudWatchAlarmTemplateGroupIdentifier="+groupA, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	items := decodeBody(t, rec.Body.Bytes())["signalMaps"].([]any)
+	require.Len(t, items, 1)
+	assert.Equal(t, smA, items[0].(map[string]any)["id"])
+}

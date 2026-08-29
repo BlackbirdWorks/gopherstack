@@ -142,7 +142,16 @@ func toReservationOutput(r *Reservation) map[string]any {
 
 func (h *Handler) handleListReservations(c *echo.Context) error {
 	maxResults, nextTokenParam := paginationParams(c)
-	items, nextToken, err := h.Backend.ListReservations(maxResults, nextTokenParam)
+	filter := ReservationFilter{
+		Codec:            c.QueryParam("codec"),
+		MaximumBitrate:   c.QueryParam("maximumBitrate"),
+		MaximumFramerate: c.QueryParam("maximumFramerate"),
+		Resolution:       c.QueryParam("resolution"),
+		ResourceType:     c.QueryParam("resourceType"),
+		SpecialFeature:   c.QueryParam("specialFeature"),
+		VideoQuality:     c.QueryParam("videoQuality"),
+	}
+	items, nextToken, err := h.Backend.ListReservations(maxResults, nextTokenParam, filter)
 	if err != nil {
 		return respondErr(c, err)
 	}

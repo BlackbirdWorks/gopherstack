@@ -473,6 +473,87 @@ func TestListFindingsV2_RealClient_FilterByResourceType(t *testing.T) {
 	assert.Equal(t, "AWS::IAM::Role", string(out.Findings[0].ResourceType))
 }
 
+// TestListFindings_RealClient_SortDescending drives ListFindings through the
+// real client with Sort (ListFindingsInput.Sort, *types.SortCriteria) set to
+// sort by resourceType descending. The handler never read the "sort" key
+// from the request body at all, so the backend always returned findings in
+// its own ascending-by-ID order regardless of what the client requested.
+func TestListFindings_RealClient_SortDescending(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("sort-analyzer"),
+		Type:         aatypes.TypeAccount,
+	})
+	require.NoError(t, err)
+
+	_, err = b.AddFinding("sort-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("sort-analyzer", "AWS::IAM::Role", "arn:aws:iam::000000000000:role/r", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("sort-analyzer", "AWS::SQS::Queue", "arn:aws:sqs:::q", nil, nil, nil)
+	require.NoError(t, err)
+
+	out, err := client.ListFindings(t.Context(), &aasdk.ListFindingsInput{
+		AnalyzerArn: analyzer.Arn,
+		Sort: &aatypes.SortCriteria{
+			AttributeName: aws.String("resourceType"),
+			OrderBy:       aatypes.OrderByDesc,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Findings, 3)
+	assert.Equal(t, []string{"AWS::SQS::Queue", "AWS::S3::Bucket", "AWS::IAM::Role"},
+		[]string{
+			string(out.Findings[0].ResourceType),
+			string(out.Findings[1].ResourceType),
+			string(out.Findings[2].ResourceType),
+		})
+}
+
+// TestListFindingsV2_RealClient_SortDescending is the same missing-sort bug
+// as TestListFindings_RealClient_SortDescending, for ListFindingsV2.
+func TestListFindingsV2_RealClient_SortDescending(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("sort-v2-analyzer"),
+		Type:         aatypes.TypeAccount,
+	})
+	require.NoError(t, err)
+
+	_, err = b.AddFinding("sort-v2-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("sort-v2-analyzer", "AWS::IAM::Role", "arn:aws:iam::000000000000:role/r", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("sort-v2-analyzer", "AWS::SQS::Queue", "arn:aws:sqs:::q", nil, nil, nil)
+	require.NoError(t, err)
+
+	out, err := client.ListFindingsV2(t.Context(), &aasdk.ListFindingsV2Input{
+		AnalyzerArn: analyzer.Arn,
+		Sort: &aatypes.SortCriteria{
+			AttributeName: aws.String("resourceType"),
+			OrderBy:       aatypes.OrderByDesc,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Findings, 3)
+	assert.Equal(t, []string{"AWS::SQS::Queue", "AWS::S3::Bucket", "AWS::IAM::Role"},
+		[]string{
+			string(out.Findings[0].ResourceType),
+			string(out.Findings[1].ResourceType),
+			string(out.Findings[2].ResourceType),
+		})
+}
+
 // TestGetFindingsStatistics_RealClient_UnusedAccessUnion drives
 // GetFindingsStatistics through the real aws-sdk-go-v2 client for an
 // ACCOUNT_UNUSED_ACCESS analyzer. types.FindingsStatistics is a union keyed

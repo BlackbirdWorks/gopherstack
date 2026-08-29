@@ -100,6 +100,7 @@ func (h *Handler) handleGetFinding(path, query string) (any, int, error) {
 func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 	var req struct {
 		Filter      map[string]FilterCriterion `json:"filter"`
+		Sort        *FindingSortCriteria       `json:"sort"`
 		AnalyzerArn string                     `json:"analyzerArn"`
 		NextToken   string                     `json:"nextToken"`
 		Status      string                     `json:"status"`
@@ -117,7 +118,7 @@ func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 	analyzerName := analyzerNameFromArn(req.AnalyzerArn)
 
 	findings, nextToken, err := h.Backend.ListFindings(
-		analyzerName, req.Filter, req.Status, req.MaxResults, req.NextToken,
+		analyzerName, req.Filter, req.Status, req.Sort, req.MaxResults, req.NextToken,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -192,6 +193,7 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 	var req struct {
 		Filter      map[string]FilterCriterion `json:"filter"`
+		Sort        *FindingSortCriteria       `json:"sort"`
 		AnalyzerArn string                     `json:"analyzerArn"`
 		NextToken   string                     `json:"nextToken"`
 		Status      string                     `json:"status"`
@@ -201,7 +203,7 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 	_ = json.Unmarshal(body, &req)
 
 	findings, nextToken, err := h.Backend.ListFindingsV2(
-		req.AnalyzerArn, req.Status, req.Filter, req.MaxResults, req.NextToken,
+		req.AnalyzerArn, req.Status, req.Filter, req.Sort, req.MaxResults, req.NextToken,
 	)
 	if err != nil {
 		return nil, 0, err

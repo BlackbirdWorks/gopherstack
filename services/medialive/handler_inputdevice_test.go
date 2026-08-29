@@ -362,6 +362,14 @@ func TestHandlerTransferInputDevice_NoDevice(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestHandlerListInputDeviceTransfers locks in that a device transfer
+// created via TransferInputDevice is always OUTGOING (this backend has no
+// path for another account to initiate a transfer targeting this one, so an
+// INCOMING transfer can never genuinely exist here -- see TransferInputDevice's
+// doc comment). Previously ListInputDeviceTransfers echoed back whatever
+// transferType the query asked for on every pending transfer regardless of
+// its real direction, so "incoming transfers" wrongly returned the same
+// devices as "outgoing transfers" instead of an empty list.
 func TestHandlerListInputDeviceTransfers(t *testing.T) {
 	t.Parallel()
 
@@ -369,19 +377,22 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 		name         string
 		transferType string
 		wantStatus   int
+		setupCount   int
 		wantCount    int
 	}{
 		{
 			name:         "outgoing transfers",
 			transferType: "OUTGOING",
 			wantStatus:   http.StatusOK,
+			setupCount:   2,
 			wantCount:    2,
 		},
 		{
 			name:         "incoming transfers",
 			transferType: "INCOMING",
 			wantStatus:   http.StatusOK,
-			wantCount:    2,
+			setupCount:   2,
+			wantCount:    0,
 		},
 		{
 			name:         "invalid transfer type",
@@ -396,20 +407,18 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.wantCount > 0 {
-				for i := range tt.wantCount {
-					id := fmt.Sprintf("hd-tr%d", i)
-					claimTestDevice(t, h, id)
-					doRequest(
-						t,
-						h,
-						http.MethodPost,
-						"/prod/inputDevices/"+id+"/transfer",
-						map[string]any{
-							"targetCustomerId": "123456789012",
-						},
-					)
-				}
+			for i := range tt.setupCount {
+				id := fmt.Sprintf("hd-tr%d", i)
+				claimTestDevice(t, h, id)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/prod/inputDevices/"+id+"/transfer",
+					map[string]any{
+						"targetCustomerId": "123456789012",
+					},
+				)
 			}
 
 			rec := doRequest(
@@ -421,7 +430,7 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantCount > 0 {
+			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				transfers := resp["inputDeviceTransfers"].([]any)

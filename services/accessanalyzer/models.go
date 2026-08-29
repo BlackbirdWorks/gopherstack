@@ -43,6 +43,15 @@ type FilterCriterion struct {
 	Neq      []string `json:"neq,omitempty"`
 }
 
+// FindingSortCriteria mirrors types.SortCriteria (ListFindings/
+// ListFindingsV2 request member "sort"). AttributeName is matched against
+// the same finding attributes matchesFindingFilter honours ("status",
+// "resourceType", "resource", "id") -- see sortFindings.
+type FindingSortCriteria struct {
+	AttributeName string `json:"attributeName"`
+	OrderBy       string `json:"orderBy"`
+}
+
 // Analyzer represents an IAM Access Analyzer analyzer.
 //
 // Configuration holds the raw wire body of the AnalyzerConfiguration union

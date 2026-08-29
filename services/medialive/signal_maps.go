@@ -68,13 +68,55 @@ func (b *InMemoryBackend) GetSignalMap(identifier string) (*SignalMap, error) {
 }
 
 // ListSignalMaps returns all signal maps.
+// ListSignalMaps returns signal maps referencing cwGroupIdentifier and/or
+// ebGroupIdentifier when set (api_op_ListSignalMaps.go's
+// CloudWatchAlarmTemplateGroupIdentifier/EventBridgeRuleTemplateGroupIdentifier,
+// matched against each signal map's own stored group-identifier lists via
+// groupMatchesIdentifierList, cloudwatch_alarm_templates.go). Both filters
+// apply (AND) when both are set.
 func (b *InMemoryBackend) ListSignalMaps(
 	maxResults int,
 	nextToken string,
+	cwGroupIdentifier, ebGroupIdentifier string,
 ) ([]*SignalMap, string, error) {
 	b.mu.RLock("ListSignalMaps")
 	defer b.mu.RUnlock()
 	all := b.signalMaps.All()
+
+	if cwGroupIdentifier != "" {
+		id, arn, name := cwGroupIdentifier, cwGroupIdentifier, cwGroupIdentifier
+		if g, ok := b.findCWAlarmTemplateGroup(cwGroupIdentifier); ok {
+			id, arn, name = g.ID, g.Arn, g.Name
+		}
+
+		filtered := make([]*storedSignalMap, 0, len(all))
+
+		for _, sm := range all {
+			if groupMatchesIdentifierList(id, arn, name, sm.CloudWatchAlarmTemplateGroupIDs) {
+				filtered = append(filtered, sm)
+			}
+		}
+
+		all = filtered
+	}
+
+	if ebGroupIdentifier != "" {
+		id, arn, name := ebGroupIdentifier, ebGroupIdentifier, ebGroupIdentifier
+		if g, ok := b.findEBRuleTemplateGroup(ebGroupIdentifier); ok {
+			id, arn, name = g.ID, g.Arn, g.Name
+		}
+
+		filtered := make([]*storedSignalMap, 0, len(all))
+
+		for _, sm := range all {
+			if groupMatchesIdentifierList(id, arn, name, sm.EventBridgeRuleTemplateGroupIDs) {
+				filtered = append(filtered, sm)
+			}
+		}
+
+		all = filtered
+	}
+
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*SignalMap, 0, len(pg.Data))

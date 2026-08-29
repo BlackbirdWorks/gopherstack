@@ -167,7 +167,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotFinding, err := fresh.GetFinding("analyzer-1", finding.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:s3:::bucket-1", gotFinding.ResourceArn)
-	findings, _, err := fresh.ListFindings("analyzer-1", nil, "", 0, "")
+	findings, _, err := fresh.ListFindings("analyzer-1", nil, "", nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Equal(t, finding.ID, findings[0].ID)
