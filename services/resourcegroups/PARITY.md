@@ -306,3 +306,14 @@ trusted at face value. Separately, this file's own prose (the route-matcher para
 above) cited SDK version v1.33.22 while the YAML header already said v1.36.4 -- a real,
 if harmless, drift between the two; corrected in place this sweep. `last_audit_commit`
 above is now set to this sweep's actual starting HEAD (`a8a59e42`).
+
+**Per-item-failure sweep (this pass):** re-checked `GroupResources`/`UngroupResources`
+(`Failed []types.FailedResource`) and `ListGroupResources`/`SearchResources`
+(`QueryErrors []types.QueryError`). `GroupResources`/`UngroupResources.Failed` are
+correctly populated (handler-level `INVALID_ARN` for a malformed ARN, backend-level
+`RESOURCE_NOT_FOUND` for an ARN not currently a group member) while the rest of the
+batch still succeeds. `QueryErrors` on both list/search ops remains genuinely
+unreachable in this backend and is already tracked as such (see `gaps:` above,
+`bd: gopherstack-rg-cfn-queryerrors`) -- confirmed the reasoning still holds and left
+alone, consistent with this sweep's scope boundary against touching
+`services/cloudformation`.

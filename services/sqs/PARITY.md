@@ -171,3 +171,14 @@ and confirms `pkgs/service.HandleTarget`'s pre-existing `ReadBody`-failure handl
 leak in the new test file by adding the package's established
 `t.Cleanup(backend.Close)` for the janitor goroutine), `golangci-lint run
 ./services/sqs/...` (0 issues).
+
+**Per-item-failure sweep (this pass):** checked `ChangeMessageVisibilityBatch`,
+`DeleteMessageBatch`, and `SendMessageBatch` -- the three ops whose SDK output models
+a per-item `Failed`/`Successful` pair (`types.BatchResultErrorEntry` alongside each
+op's own `*BatchResultEntry` type). All three correctly populate `Failed` per-entry
+(`message_visibility.go`'s `ChangeMessageVisibilityBatch` for invalid/not-inflight
+receipt handles, `messages.go`'s `processSendMessageBatchEntries` for per-entry send
+failures, `messages.go`'s `DeleteMessageBatch` for per-entry delete failures) while
+still processing every other entry in the batch. No bugs found in this class; this
+sweep targets a different response field than the earlier error-code-selection pass
+noted above.

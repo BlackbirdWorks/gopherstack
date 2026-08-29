@@ -147,7 +147,7 @@ type StorageBackend interface {
 	StartJobRunWithOptions(jobName string, arguments map[string]string, opts StartJobRunOptions) (*JobRun, error)
 	GetJobRun(jobName, runID string) (*JobRun, error)
 	GetJobRuns(jobName string) ([]*JobRun, error)
-	BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError
+	BatchStopJobRun(jobName string, runIDs []string) ([]BatchStopJobRunSuccessfulSubmission, []BatchStopJobRunError)
 	GetJobBookmark(jobName string) (*JobBookmark, error)
 	ResetJobBookmark(jobName string) error
 	ResetJobBookmarkWithResult(jobName string) (*JobBookmark, error)

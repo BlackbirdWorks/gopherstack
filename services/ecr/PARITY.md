@@ -590,3 +590,12 @@ SDK client request that reaches this branch today.
 returns `(http.StatusInternalServerError, "ServerException")`; confirmed it
 fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
 byte-identical restore after).
+
+**Per-item-failure sweep (this pass):** checked `BatchCheckLayerAvailability`,
+`BatchDeleteImage`, `BatchGetImage`, `BatchGetRepositoryScanningConfiguration` --
+the four ops whose SDK output models a per-item `Failures` field
+(`types.LayerFailure`/`types.ImageFailure`/`types.RepositoryScanningConfigurationFailure`).
+All four (`layers.go`, `images.go`, `image_scanning.go`) correctly report a per-item
+failure (missing layer digest, image not found by digest/tag, repository not found)
+while still returning results for every other requested item in the same call. No
+bugs found in this class.

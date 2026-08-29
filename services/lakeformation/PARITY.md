@@ -402,3 +402,15 @@ request's HTTP method to PUT post-signing. Hand-reverted `handler.go` to
 `git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
 character 'M' looking for beginning of value"`, restored the fix,
 `md5sum`-confirmed byte-identical.
+
+**Per-item-failure sweep (this pass):** checked `AddLFTagsToResource`,
+`RemoveLFTagsFromResource` (`Failures []types.LFTagError`) and
+`BatchGrantPermissions`/`BatchRevokePermissions` (`Failures
+[]types.BatchPermissionsFailureEntry`). All four correctly populate their per-item
+`Failures` field: `lf_tags.go`'s `AddLFTagsToResource`/`RemoveLFTagsFromResource`
+report `EntityNotFoundException` for an unknown tag key or a tag value outside the
+tag's allowed values, while still applying every other pair in the same call;
+`permissions.go`'s `BatchGrantPermissions`/`BatchRevokePermissions` surface real
+validation failures from `grantPermissionsLocked`/`revokePermissionsLocked` (nil
+principal/resource, invalid permission enum, grant-option-not-a-subset-of-permissions)
+per entry, continuing to process the rest of the batch. No bugs found in this class.

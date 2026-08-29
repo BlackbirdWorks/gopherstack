@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -183,15 +184,17 @@ func TestFabricatedNotFoundCodes_RealClient(t *testing.T) {
 	t.Run("UpdateContainerInstancesState unknown instance", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := client.UpdateContainerInstancesState(ctx, &ecssdk.UpdateContainerInstancesStateInput{
+		out, err := client.UpdateContainerInstancesState(ctx, &ecssdk.UpdateContainerInstancesStateInput{
 			Cluster:            aws.String("default"),
 			ContainerInstances: []string{"no-such-instance"},
 			Status:             ecstypes.ContainerInstanceStatusDraining,
 		})
-		require.Error(t, err)
+		require.NoError(t, err)
+		require.Empty(t, out.ContainerInstances)
 
-		var ip *ecstypes.InvalidParameterException
-		require.ErrorAs(t, err, &ip)
+		require.Len(t, out.Failures, 1)
+		assert.Equal(t, "no-such-instance", *out.Failures[0].Arn)
+		assert.Equal(t, "MISSING", *out.Failures[0].Reason)
 	})
 
 	t.Run("UpdateContainerAgent unknown instance", func(t *testing.T) {

@@ -52,7 +52,7 @@ type Backend interface {
 		cluster string,
 		containerInstances []string,
 		status string,
-	) ([]ContainerInstance, error)
+	) ([]ContainerInstance, []Failure, error)
 
 	// Task sets
 
@@ -115,7 +115,7 @@ type Backend interface {
 
 	// Task placement
 
-	StartTask(input StartTaskInput) ([]Task, error)
+	StartTask(input StartTaskInput) ([]Task, []Failure, error)
 
 	// Namespace-scoped service listing
 

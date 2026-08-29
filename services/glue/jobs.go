@@ -448,12 +448,16 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 
 // BatchStopJobRun stops multiple job runs by setting their state to STOPPING.
 // Only RUNNING or STARTING runs can be stopped.
-func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError {
+func (b *InMemoryBackend) BatchStopJobRun(
+	jobName string,
+	runIDs []string,
+) ([]BatchStopJobRunSuccessfulSubmission, []BatchStopJobRunError) {
 	b.advanceStates(time.Now())
 
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
 
+	successes := make([]BatchStopJobRunSuccessfulSubmission, 0, len(runIDs))
 	errs := make([]BatchStopJobRunError, 0, len(runIDs))
 
 	for _, id := range runIDs {
@@ -474,6 +478,10 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 				})
 			} else {
 				run.JobRunState = stateStopping
+				successes = append(successes, BatchStopJobRunSuccessfulSubmission{
+					JobName:  jobName,
+					JobRunID: id,
+				})
 			}
 
 			break
@@ -490,7 +498,7 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 		}
 	}
 
-	return errs
+	return successes, errs
 }
 
 // GetJobBookmark returns the bookmark for a job.

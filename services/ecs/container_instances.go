@@ -229,15 +229,17 @@ func (b *InMemoryBackend) ListContainerInstances(cluster, status string) ([]stri
 }
 
 // UpdateContainerInstancesState updates the status of container instances.
+// Unknown ARNs are reported as failures instead of failing the whole batch,
+// matching AWS behaviour for this operation.
 func (b *InMemoryBackend) UpdateContainerInstancesState(
 	cluster string,
 	containerInstances []string,
 	status string,
-) ([]ContainerInstance, error) {
+) ([]ContainerInstance, []Failure, error) {
 	switch status {
 	case "ACTIVE", "DRAINING":
 	default:
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: status must be ACTIVE or DRAINING, got %q",
 			ErrInvalidParameter,
 			status,
@@ -250,15 +252,22 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 	defer b.mu.Unlock()
 
 	if !b.clusters.Has(clusterName) {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	out := make([]ContainerInstance, 0, len(containerInstances))
+	failures := make([]Failure, 0, len(containerInstances))
 
 	for _, ref := range containerInstances {
 		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
 		if !found {
-			return nil, fmt.Errorf("%w: container instance %s not found", ErrInvalidParameter, ref)
+			failures = append(failures, Failure{
+				Arn:    ref,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("container instance %s not found", ref),
+			})
+
+			continue
 		}
 
 		ci.Status = status
@@ -268,7 +277,7 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 		out = append(out, cp)
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // UpdateContainerAgent initiates an update of the container agent on the given instance.

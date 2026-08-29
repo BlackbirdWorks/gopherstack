@@ -518,3 +518,17 @@ response shapes and 8 union families checked against the pinned SDK, only the tw
 above were found, both narrow and both now fixed with proof. This pass's own
 `last_audit_commit` is `92bc04738` (HEAD at audit time, pre-commit), dated `2026-08-20`,
 matching this entry's `last_audit_date`.
+
+**Per-item-failure sweep (this pass):** checked every op whose SDK output models a
+per-item failure/error field -- `BatchGetPolicy.Errors`, `IsAuthorized.Errors`,
+`IsAuthorizedWithToken.Errors`, `BatchIsAuthorized`/`BatchIsAuthorizedWithToken`'s
+per-item `BatchIsAuthorized(WithToken)OutputItem.Errors` -- against whether the
+backend can ever populate them with a real failure, not just whether the field
+round-trips. `BatchGetPolicy` already reports real per-item `POLICY_NOT_FOUND`/
+`POLICY_STORE_NOT_FOUND`/`POLICY_STORE_ALIAS_NOT_FOUND` (policies.go's
+`BatchGetPolicy`, fixed prior pass). The four `IsAuthorized*` variants all thread
+`cedar.Authorize`'s own `diag.Errors` through unmodified (authorization.go's
+`evaluateCedar`) -- a real evaluation error (e.g. a policy referencing an entity or
+attribute absent from the request) surfaces from the real `cedar-go` engine itself,
+not a gopherstack-side computation that could be silently dropped. All five ops
+clean; no bugs found in this class.

@@ -606,13 +606,13 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 }
 
 // StartTask places tasks on specific container instances (as opposed to RunTask which auto-places).
-func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
+func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, error) {
 	if input.TaskDefinition == "" {
-		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
+		return nil, nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
 	if len(input.ContainerInstances) == 0 {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: at least one container instance is required",
 			ErrInvalidParameter,
 		)
@@ -621,8 +621,9 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
 	var (
-		ferr  error
-		tasks []Task
+		ferr     error
+		tasks    []Task
+		failures []Failure
 	)
 
 	func() {
@@ -641,8 +642,19 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 		clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 		tasks = make([]Task, 0, len(input.ContainerInstances))
+		failures = make([]Failure, 0, len(input.ContainerInstances))
 
 		for _, ciArn := range input.ContainerInstances {
+			if _, found := b.containerInstances.Get(scopedKey(clusterName, ciArn)); !found {
+				failures = append(failures, Failure{
+					Arn:    ciArn,
+					Reason: statusMissing,
+					Detail: fmt.Sprintf("container instance %s not found", ciArn),
+				})
+
+				continue
+			}
+
 			taskID := uuid.New().String()
 			taskArn := arn.Build(
 				"ecs",
@@ -671,10 +683,10 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	}()
 
 	if ferr != nil {
-		return nil, ferr
+		return nil, nil, ferr
 	}
 
-	return tasks, nil
+	return tasks, failures, nil
 }
 
 // GetTaskProtection returns the protection state for the given tasks on a cluster.

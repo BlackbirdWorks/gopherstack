@@ -582,7 +582,18 @@ func TestECS_UpdateContainerInstancesState_NotFound(t *testing.T) {
 		},
 		"status": "DRAINING",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Empty(t, resp["containerInstances"])
+
+	failures := resp["failures"].([]any)
+	require.Len(t, failures, 1)
+	failure := failures[0].(map[string]any)
+	assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:container-instance/x/nonexistent", failure["arn"])
+	assert.Equal(t, "MISSING", failure["reason"])
 }
 
 func TestECS_UpdateContainerAgent(t *testing.T) {
