@@ -2138,3 +2138,147 @@ signatures changed, so repo-wide vet not required), `go test -race -count=1
 ./services/ec2/...` (full suite green), `golangci-lint run ./services/ec2/...`
 (0 new issues; one pre-existing `golines` finding in a concurrently-edited
 file from the other in-flight ec2 agent's tranche, not touched here).
+
+**2026-08-29 pass -- request-wrapper-key sweep, Fleet/Spot/Traffic
+Mirror/Verified Access/newer-feature families (20 ops)**: regenerated the
+202 implemented `Describe*`/`List*` operation strings (grep, `Response`-
+suffixed XML-element false positives stripped) and diffed against every op
+name already mentioned anywhere in this file; picked a 20-op tranche from
+the families this file's own "not reached" notes above name as still
+outstanding (Fleets, Spot, Traffic Mirror, Verified Access) plus four
+completely never-mentioned newer-feature ops (Outposts, VPC block-public-
+access, AMI store-image). Read each handler's request-parsing code against
+its own `awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+Note: Capacity Reservations/Capacity Blocks (named in the task brief as a
+target family) turned out to be fully field-diffed already by the 2026-08-23
+`gopherstack-6cuc` passes above (all 38 `registerCapacityFamilyOps` ops,
+line-for-line against the SDK) -- confirmed by reading those notes before
+picking ops, not re-audited here, and not counted toward this tranche's 20.
+Likewise `DescribeSpotFleetRequests`/`DescribeSpotFleetInstances`/
+`DescribeSpotFleetRequestHistory` were already audited clean in `ec2sweep24`
+("all 10 spot-fleet ... ops were audited against the real SDK this pass") --
+excluded here in favor of the still-outstanding non-fleet Spot ops.
+
+Fleet family (3, `handler_fleet.go`/`fleet.go`): `DescribeFleets` (clean --
+`FleetId.N` correct against serializers.go:77611), `DescribeFleetHistory`,
+`DescribeFleetInstances`.
+
+Spot family (3, non-SpotFleet): `DescribeSpotInstanceRequests`
+(`handler_spot_instances.go`, clean -- `SpotInstanceRequestId.N` correct
+against serializers.go:81133), `DescribeSpotPriceHistory`
+(`handler_spot_instances.go`), `DescribeSpotDatafeedSubscription`
+(`handler_spot_fleet.go`, clean -- real `DescribeSpotDatafeedSubscriptionInput`
+has only `DryRun`, confirmed against `api_op_DescribeSpotDatafeedSubscription.go`).
+
+Traffic Mirror family (4, `handler_traffic_mirror.go`): `DescribeTrafficMirrorFilters`
+(clean -- `TrafficMirrorFilterId.N`, serializers.go:81401),
+`DescribeTrafficMirrorFilterRules` (clean -- `TrafficMirrorFilterId` is
+correctly read as a scalar via `vals.Get`, matching the real
+`object.Key("TrafficMirrorFilterId")` at serializers.go:81360; see gaps for
+the unread `TrafficMirrorFilterRuleIds` list), `DescribeTrafficMirrorSessions`
+(clean -- `TrafficMirrorSessionId.N`, serializers.go:81437),
+`DescribeTrafficMirrorTargets` (clean -- `TrafficMirrorTargetId.N`,
+serializers.go:81473).
+
+Verified Access family (5, `handler_verified_access.go`/
+`handler_verified_access_policy.go`): `DescribeVerifiedAccessEndpoints`
+(clean -- `VerifiedAccessEndpointId.N`, serializers.go:81941; see gaps for
+the two unread scalar `VerifiedAccessGroupId`/`VerifiedAccessInstanceId`
+narrowing params), `DescribeVerifiedAccessGroups` (clean --
+`VerifiedAccessGroupId.N`, serializers.go:81987; see gaps for the unread
+scalar `VerifiedAccessInstanceId`), `DescribeVerifiedAccessInstanceLoggingConfigurations`
+(clean -- `VerifiedAccessInstanceId.N`, serializers.go:82028),
+`DescribeVerifiedAccessInstances` (clean -- `VerifiedAccessInstanceId.N`,
+serializers.go:82064), `DescribeVerifiedAccessTrustProviders` (clean --
+`VerifiedAccessTrustProviderId.N`, serializers.go:82100).
+
+Newer-feature singles (5): `DescribeInstanceConnectEndpoints`
+(`handler_instances.go`, clean -- `InstanceConnectEndpointId.N`,
+serializers.go:78211), `DescribeOutpostLags` (`handler_secondary_net.go`,
+clean -- `OutpostLagId.N`, serializers.go:80007),
+`DescribeVpcBlockPublicAccessExclusions` (`handler_vpc_config.go`, clean --
+`ExclusionId.N`, serializers.go:82286), `DescribeVpcBlockPublicAccessOptions`
+(`handler_vpc_config.go`, clean -- real input has only `DryRun`, confirmed
+against `api_op_DescribeVpcBlockPublicAccessOptions.go`), `DescribeStoreImageTasks`
+(`handler_image_ops.go`, clean -- `ImageId.N`, serializers.go:81249).
+
+**1 real bug found and fixed, class 2 (wrong cardinality)**:
+`DescribeSpotPriceHistory` (`handler_spot_instances.go`) read
+`AvailabilityZone` via `parseMemberList(vals, "AvailabilityZone")`, an
+indexed-list reader looking for `AvailabilityZone.1`, `.2`, ... but the real
+`DescribeSpotPriceHistoryInput.AvailabilityZone` is a scalar `*string`
+serialized as a bare `AvailabilityZone` key (`object.Key("AvailabilityZone")`,
+serializers.go:81147-81149) -- a key a real client's single-AZ filter never
+matches in indexed form. The filter was always silently ignored;
+`GenerateSpotPriceHistory` fell back to its 3-AZ default
+(`region+"a"/"b"/"c"`) every time, so a real client narrowing to one AZ got
+records from all three instead. Fixed: read `vals.Get("AvailabilityZone")`
+as a scalar, wrapped into a 1-element slice only when non-empty (matching
+the existing `[]string`-taking `GenerateSpotPriceHistory` signature -- no
+`Backend`/exported signature changed).
+
+Missing-feature gaps (real key on the wire, no read code exists at all to be
+wrong -- kept distinct from the bug above, not fabricated as fixes):
+`DescribeSpotPriceHistory` also never reads `EndTime` or `AvailabilityZoneId`
+(both real scalar fields; `GenerateSpotPriceHistory` has no end-time bound or
+AZ-ID concept). `DescribeTrafficMirrorFilterRules` never reads the real
+`TrafficMirrorFilterRuleIds` list (narrowing to specific rule IDs within a
+filter). `DescribeVerifiedAccessEndpoints` never reads its two real scalar
+narrowing params, `VerifiedAccessGroupId`/`VerifiedAccessInstanceId`;
+`DescribeVerifiedAccessGroups` never reads its real scalar
+`VerifiedAccessInstanceId`. All Fleet/Spot/Traffic-Mirror/Verified-Access/
+Outpost-Lag/VPC-block-public-access/store-image ops in this tranche that
+declare a `Filters []types.Filter` field apply none of it -- the same
+already-documented, repo-wide missing-feature category as every prior
+request-wrapper-key-sweep tranche, not this pass's bug class.
+
+Structural gap, not fabricated (distinct from a missing-feature gap: there is
+no backing state to read a wrong key FROM): `DescribeFleetHistory` and
+`DescribeFleetInstances` (`handler_fleet.go`) are hardcoded stubs --
+`handleDescribeFleetHistory`/`handleDescribeFleetInstances` both take
+`_ url.Values` and always return an empty envelope, never reading the real
+required `FleetId`. Confirmed this is not a misdirected-key bug: `Backend.CreateFleet`
+(`fleet.go`) never launches or tracks any instance against a fleet at all
+(the `Fleet` struct has no launched-instance or history-event fields), so
+there is no real per-fleet instance/history data these ops could honestly
+return even with a correct `FleetId` read -- building it would mean modeling
+EC2 Fleet's launch/history state machine from scratch, a materially larger
+feature addition, not a wire-key fix. Left alone and named here rather than
+invented around.
+
+Existing tests: none of this tranche's 20 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side) for this
+bug class; the two bare dispatch-smoke-test references to
+`DescribeSpotPriceHistory` (`handler_core_test.go`, `handler_sdk_route_table_test.go`)
+only assert `200 OK`/`GetSupportedOperations` membership, never decoded
+per-field narrowing, so they're blind rather than wrong and were left as-is.
+
+New test (`services/ec2/wire_field_fixes_ec2sweep37_test.go`, 1
+`*_RealClient` test against the real `ec2sdk.Client`, confirmed failing
+pre-fix by running before the source change):
+`TestDescribeSpotPriceHistory_AvailabilityZoneFilter_RealClient` -- pre-fix
+failure: requesting `AvailabilityZone: "us-east-1a"` returned records from
+`"a"`/`"b"`/`"c"` (the handler's `Region` field was empty in the test
+harness, so the ignored-filter default degenerated further to bare
+`"a"`/`"b"`/`"c"`, not even `"us-east-1a"/"b"/"c"` -- same underlying bug,
+more visibly wrong result), instead of only `"us-east-1a"` records.
+
+Not reached this pass: DescribeReservedInstances/ReservedInstancesListings/
+ReservedInstancesModifications/ReservedInstancesOfferings, DescribeHosts/
+HostReservations/HostReservationOfferings, DescribePlacementGroups,
+DescribeRouteServer*, DescribeCoipPools, DescribeIpv6Pools,
+DescribeMacHosts/MacModificationTasks, DescribeConversionTasks,
+DescribeElasticGpus, DescribeScheduledInstance*, and the remaining
+never-verified ops from the ~123-candidate diff not covered by any pass
+above -- see the diff method in the 2026-08-29 IPAM/Local Gateway pass to
+regenerate.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean; repo-wide `go vet
+./...` shows only a pre-existing, unrelated `services/eks/` build break from
+the other in-flight agent's concurrent tranche -- confirmed via `git status`
+showing eks files already dirty before this pass touched anything, not ec2),
+`go test -race -count=1 ./services/ec2/...` (`ok`, full suite including the
+new test), `golangci-lint run ./services/ec2/...` (`0 issues`, run last, no
+`--fix` used). No banned `//nolint`s.
