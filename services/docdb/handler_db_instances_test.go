@@ -226,6 +226,12 @@ func TestTagsOnCreate_Instance(t *testing.T) {
 	}
 }
 
+// TestDescribeDBInstancesByCluster uses the real
+// Filters.Filter.N.Name=db-cluster-id/Values.Value.M wire shape --
+// DescribeDBInstancesInput has no top-level DBClusterIdentifier member at
+// all (confirmed absent from docdb@v1.51.4 api_op_DescribeDBInstances.go),
+// so a raw request keyed "DBClusterIdentifier" here would test a field no
+// real client ever sends.
 func TestDescribeDBInstancesByCluster(t *testing.T) {
 	t.Parallel()
 
@@ -262,9 +268,10 @@ func TestDescribeDBInstancesByCluster(t *testing.T) {
 				}
 			},
 			vals: url.Values{
-				"Action":              {"DescribeDBInstances"},
-				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"cluster-a"},
+				"Action":                          {"DescribeDBInstances"},
+				"Version":                         {"2014-10-31"},
+				"Filters.Filter.1.Name":           {"db-cluster-id"},
+				"Filters.Filter.1.Values.Value.1": {"cluster-a"},
 			},
 			wantStatus: http.StatusOK,
 			wantCount:  2,

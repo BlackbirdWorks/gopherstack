@@ -103,6 +103,13 @@ type ListGroupResourcesFilter struct {
 	Values []string `json:"Values"`
 }
 
+// ListGroupingStatusesFilter holds a single filter criterion for ListGroupingStatuses.
+// Supported Name values: "status" and "resource-arn" (types.ListGroupingStatusesFilterName).
+type ListGroupingStatusesFilter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}
+
 // tagFilterQuery is the parsed form of a TAG_FILTERS_1_0 ResourceQuery string.
 type tagFilterQuery struct {
 	ResourceTypeFilters []string    `json:"ResourceTypeFilters"`

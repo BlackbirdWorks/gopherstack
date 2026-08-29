@@ -180,7 +180,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 				require.Len(t, resources, 1)
 				assert.Equal(t, "arn:aws:s3:::my-bucket", resources[0].ResourceArn)
 
-				statuses, _, err := b.ListGroupingStatuses(context.Background(), "res-group", "", 0)
+				statuses, _, err := b.ListGroupingStatuses(context.Background(), "res-group", nil, "", 0)
 				require.NoError(t, err)
 				require.Len(t, statuses, 1)
 				assert.Equal(t, "SUCCESS", statuses[0].Status)
@@ -322,7 +322,7 @@ func Test_PersistenceFullStateRoundTrip(t *testing.T) {
 	require.Len(t, resources, 1)
 	assert.Equal(t, "arn:aws:s3:::bucket-a", resources[0].ResourceArn)
 
-	statuses, _, err := b2.ListGroupingStatuses(ctx, "group-one", "", 0)
+	statuses, _, err := b2.ListGroupingStatuses(ctx, "group-one", nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, statuses, 1)
 	assert.Equal(t, "SUCCESS", statuses[0].Status)

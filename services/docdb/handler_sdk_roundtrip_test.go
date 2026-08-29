@@ -623,3 +623,162 @@ func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
 	require.NotNil(t, out.DBCluster)
 	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
 }
+
+// Test_SDKRoundTrip_DescribeDBClusters_Filters proves the real SDK client's
+// DescribeDBClustersInput.Filters (db-cluster-id) now genuinely narrows the
+// result set. The real serializer
+// (awsAwsquery_serializeOpDocumentDescribeDBClustersInput, docdb@v1.51.4
+// serializers.go:4874) puts Filters on the wire as
+// "Filters.Filter.N.Name"/"Filters.Filter.N.Values.Value.M"; the handler
+// previously read neither, so a real client's Filter was silently dropped
+// and every cluster came back regardless of it. The test creates a second,
+// non-matching cluster to prove the filter EXCLUDES it -- asserting only
+// that the matching cluster comes back would also pass against the bug.
+func Test_SDKRoundTrip_DescribeDBClusters_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-filter-cluster-match"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-filter-cluster-other"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusters(ctx, &docdbsdk.DescribeDBClustersInput{
+		Filters: []types.Filter{
+			{Name: aws.String("db-cluster-id"), Values: []string{"rt-filter-cluster-match"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(
+		t,
+		out.DBClusters,
+		1,
+		"Filters must exclude the non-matching cluster, not just include the matching one",
+	)
+	assert.Equal(t, "rt-filter-cluster-match", aws.ToString(out.DBClusters[0].DBClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_DescribeDBInstances_Filters proves DescribeDBInstancesInput.Filters
+// (db-cluster-id, db-instance-id) now genuinely narrows the result set,
+// covering both a bogus field the handler previously read instead
+// (DescribeDBInstancesInput has no top-level DBClusterIdentifier member at
+// all -- confirmed absent from docdb@v1.51.4 api_op_DescribeDBInstances.go's
+// Input struct -- so a real client's cluster scoping never reached the
+// backend by any mechanism) and the previously-entirely-dropped Filters
+// member itself.
+func Test_SDKRoundTrip_DescribeDBInstances_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	for _, id := range []string{"rt-filter-inst-clusterA", "rt-filter-inst-clusterB"} {
+		_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+			DBClusterIdentifier: aws.String(id),
+			Engine:              aws.String("docdb"),
+		})
+		require.NoError(t, err)
+	}
+	_, err := client.CreateDBInstance(ctx, &docdbsdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("rt-filter-inst-match"),
+		DBClusterIdentifier:  aws.String("rt-filter-inst-clusterA"),
+		DBInstanceClass:      aws.String("db.r5.large"),
+		Engine:               aws.String("docdb"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateDBInstance(ctx, &docdbsdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("rt-filter-inst-other"),
+		DBClusterIdentifier:  aws.String("rt-filter-inst-clusterB"),
+		DBInstanceClass:      aws.String("db.r5.large"),
+		Engine:               aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBInstances(ctx, &docdbsdk.DescribeDBInstancesInput{
+		Filters: []types.Filter{
+			{Name: aws.String("db-cluster-id"), Values: []string{"rt-filter-inst-clusterA"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.DBInstances, 1, "Filters must exclude the instance in the other cluster")
+	assert.Equal(t, "rt-filter-inst-match", aws.ToString(out.DBInstances[0].DBInstanceIdentifier))
+}
+
+// Test_SDKRoundTrip_DescribeGlobalClusters_Filters proves
+// DescribeGlobalClustersInput.Filters (db-cluster-id) now genuinely narrows
+// the result set (api_op_DescribeGlobalClusters.go's own doc comment names
+// the supported filter "db-cluster-id" even though it targets the global
+// cluster's own identifier, not a member DBCluster).
+func Test_SDKRoundTrip_DescribeGlobalClusters_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateGlobalCluster(ctx, &docdbsdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier: aws.String("rt-filter-gc-match"),
+		Engine:                  aws.String("docdb"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateGlobalCluster(ctx, &docdbsdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier: aws.String("rt-filter-gc-other"),
+		Engine:                  aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeGlobalClusters(ctx, &docdbsdk.DescribeGlobalClustersInput{
+		Filters: []types.Filter{
+			{Name: aws.String("db-cluster-id"), Values: []string{"rt-filter-gc-match"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.GlobalClusters, 1, "Filters must exclude the non-matching global cluster")
+	assert.Equal(t, "rt-filter-gc-match", aws.ToString(out.GlobalClusters[0].GlobalClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_DescribePendingMaintenanceActions_Filters proves
+// DescribePendingMaintenanceActionsInput.Filters (db-cluster-id,
+// db-instance-id) now genuinely narrows the result set, resolving a plain
+// identifier filter value against each queued action's ARN-keyed
+// ResourceIdentifier.
+func Test_SDKRoundTrip_DescribePendingMaintenanceActions_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	for _, id := range []string{"rt-filter-pma-match", "rt-filter-pma-other"} {
+		_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+			DBClusterIdentifier: aws.String(id),
+			Engine:              aws.String("docdb"),
+		})
+		require.NoError(t, err)
+		arn := "arn:aws:rds:" + rtTestRegion + ":000000000000:cluster:" + id
+		backend.AddPendingMaintenanceActionInternal(arn, "system-update", "scheduled system update")
+	}
+
+	out, err := client.DescribePendingMaintenanceActions(ctx, &docdbsdk.DescribePendingMaintenanceActionsInput{
+		Filters: []types.Filter{
+			{Name: aws.String("db-cluster-id"), Values: []string{"rt-filter-pma-match"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.PendingMaintenanceActions, 1, "Filters must exclude the other resource's pending actions")
+	assert.Contains(t, aws.ToString(out.PendingMaintenanceActions[0].ResourceIdentifier), "rt-filter-pma-match")
+}

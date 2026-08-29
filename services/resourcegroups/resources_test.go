@@ -30,7 +30,7 @@ func TestGroupingStatusOnUngroup(t *testing.T) {
 	assert.Equal(t, "arn:aws:s3:::nonmember", result.Failed[0].ResourceArn)
 	assert.Equal(t, "RESOURCE_NOT_FOUND", result.Failed[0].ErrorCode)
 
-	statuses, _, err := b.ListGroupingStatuses(context.Background(), "status-group", "", 0)
+	statuses, _, err := b.ListGroupingStatuses(context.Background(), "status-group", nil, "", 0)
 	require.NoError(t, err)
 
 	var successCount, failCount int
@@ -318,17 +318,17 @@ func TestListGroupingStatuses_Pagination(t *testing.T) {
 	_, err = b.GroupResources(context.Background(), "status-paged", arns)
 	require.NoError(t, err)
 
-	page1, tok1, err := b.ListGroupingStatuses(context.Background(), "status-paged", "", 2)
+	page1, tok1, err := b.ListGroupingStatuses(context.Background(), "status-paged", nil, "", 2)
 	require.NoError(t, err)
 	assert.Len(t, page1, 2)
 	require.NotEmpty(t, tok1)
 
-	page2, tok2, err := b.ListGroupingStatuses(context.Background(), "status-paged", tok1, 2)
+	page2, tok2, err := b.ListGroupingStatuses(context.Background(), "status-paged", nil, tok1, 2)
 	require.NoError(t, err)
 	assert.Len(t, page2, 2)
 	require.NotEmpty(t, tok2)
 
-	page3, tok3, err := b.ListGroupingStatuses(context.Background(), "status-paged", tok2, 2)
+	page3, tok3, err := b.ListGroupingStatuses(context.Background(), "status-paged", nil, tok2, 2)
 	require.NoError(t, err)
 	assert.Len(t, page3, 1)
 	assert.Empty(t, tok3)

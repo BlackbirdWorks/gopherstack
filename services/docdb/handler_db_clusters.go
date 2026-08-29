@@ -59,6 +59,10 @@ func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values)
 	if err != nil {
 		return nil, err
 	}
+	clusters, err = filterDBClusters(vals, clusters)
+	if err != nil {
+		return nil, err
+	}
 	xmlClusters := make([]xmlDBCluster, 0, len(clusters))
 	for _, c := range clusters {
 		cp := c

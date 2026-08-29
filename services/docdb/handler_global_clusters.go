@@ -8,6 +8,10 @@ import (
 
 func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, vals url.Values) (any, error) {
 	gcs := h.Backend.DescribeGlobalClusters(ctx, vals.Get("GlobalClusterIdentifier"))
+	gcs, err := filterGlobalClusters(vals, gcs)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlGlobalCluster, 0, len(gcs))
 	for _, gc := range gcs {
 		cp := gc

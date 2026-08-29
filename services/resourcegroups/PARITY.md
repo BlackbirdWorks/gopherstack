@@ -2,8 +2,9 @@
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
 last_audit_commit: a8a59e42   # HEAD when this audit started (wrapper-key sweep, 2026-08-20)
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # clean pass this sweep -- no wire bugs found; see notes
+                      # 2026-08-29 (request-direction sweep): checked every List/Describe/Get op's REQUEST side (filter/sort/time-range/pagination/precondition members from the real Input struct), not just response shape -- a prior "wire: ok" here had only ever been verified response-side. FOUND AND FIXED one real dropped-filter bug: ListGroupingStatuses' Filters member (real ListGroupingStatusesFilterName values "status"/"resource-arn") had no field at all on gopherstack's listGroupingStatusesInput wire struct, so json.Unmarshal silently discarded it and every real client's Filters was a no-op. Fixed via a new ListGroupingStatusesFilter type threaded through StorageBackend.ListGroupingStatuses (interfaces.go/resources.go/handler_resources.go) and proven by Test_ListGroupingStatuses_FiltersRoundTrip (list_grouping_statuses_filters_test.go), which drives the real typed aws-sdk-go-v2/service/resourcegroups client and includes a non-matching (FAILED-status / other-ARN) record the filter must EXCLUDE. Every other List/Describe/Get op's filter/pagination members (ListGroups.Filters, ListGroupResources.Filters, ListTagSyncTasks.Filters, SearchResources's ResourceQuery.Query ResourceTypeFilters) were re-checked and confirmed already correctly read and applied -- see gaps: for the one already-disclosed, structurally-blocked exception (SearchResources' TagFilters, which needs a cross-service tag registry this backend does not have; left as previously documented, not fabricated).
 ops:
   CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed; now accepts Owner/DisplayName/Criticality at creation time via CreateGroupOption; Criticality range corrected to 1-10"}
   GetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag"}
@@ -17,7 +18,7 @@ ops:
   GroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects a group with a ResourceQuery (BadRequestException) instead of silently accepting membership writes on a query-based group -- see 'Real bugs fixed this sweep'"}
   UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same ResourceQuery-group rejection as GroupResources"}
   ListGroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: deprecated ResourceIdentifiers field now populated identically to Resources; QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
-  ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string"}
+  ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string. FIXED 2026-08-29 (request direction): Filters (Name: status/resource-arn) had no field on the wire input struct at all -- silently dropped by json.Unmarshal, every real client's Filters was a no-op. Now a real ListGroupingStatusesFilter, threaded through StorageBackend.ListGroupingStatuses and applied by groupingStatusMatchesFilters (resources.go) before pagination."}
   SearchResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok}
   Tag: {wire: ok, errors: ok, state: ok, persist: ok}
