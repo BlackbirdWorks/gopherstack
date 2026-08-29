@@ -18,7 +18,9 @@ type StorageBackend interface {
 	DeleteFilter(arn string) error
 	ListFilters(arns []string, action string) ([]*Filter, error)
 
-	ListFindings(maxResults int32, nextToken string, filterCriteria map[string]any) ([]*Finding, string, error)
+	ListFindings(
+		maxResults int32, nextToken string, filterCriteria map[string]any, sortField, sortOrder string,
+	) ([]*Finding, string, error)
 	SeedFinding(f Finding) (*Finding, error)
 	FindingSeverityCounts() map[string]int64
 	AddFinding(findingType, severityLabel, status, title, description string, resources []FindingResource) string

@@ -142,9 +142,19 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 }
 
 // ListLFTags returns a paginated list of LF tags for the given catalog.
-func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string) {
+// ListLFTags returns the account's LF-tags. resourceShareType FOREIGN always
+// returns none: this backend models a single account with no RAM
+// cross-account sharing, so no LF-tag is ever foreign
+// (api_op_ListLFTags.go, lakeformation@v1.50.4) -- gopherstack-4ly2.
+func (b *InMemoryBackend) ListLFTags(
+	catalogID, resourceShareType string, maxResults int, nextToken string,
+) ([]*LFTag, string) {
 	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
+
+	if resourceShareType == "FOREIGN" {
+		return nil, ""
+	}
 
 	all := make([]*LFTag, 0, b.lfTags.Len())
 

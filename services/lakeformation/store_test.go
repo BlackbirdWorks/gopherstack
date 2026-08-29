@@ -55,7 +55,7 @@ func TestPaginate_NextToken(t *testing.T) {
 				),
 			)
 
-			resources, token := b.ListResources(tt.maxResults, "")
+			resources, token := b.ListResources(nil, tt.maxResults, "")
 			assert.Len(t, resources, tt.wantCount)
 
 			if tt.wantToken {
@@ -102,7 +102,7 @@ func TestPaginate_InvalidNextToken(t *testing.T) {
 				b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role", lakeformation.RegisterResourceOptions{}),
 			)
 
-			resources, _ := b.ListResources(0, tt.nextToken)
+			resources, _ := b.ListResources(nil, 0, tt.nextToken)
 			assert.Len(t, resources, tt.wantCount)
 		})
 	}

@@ -174,7 +174,7 @@ func TestListFindings_FilterCriteria(t *testing.T) {
 			t.Parallel()
 
 			b := seed(t)
-			got, _, err := b.ListFindings(0, "", tc.criteria)
+			got, _, err := b.ListFindings(0, "", tc.criteria, "", "")
 			require.NoError(t, err)
 			assert.Len(t, got, tc.wantCount)
 		})
@@ -192,17 +192,17 @@ func TestListFindings_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	page1, next, err := b.ListFindings(2, "", nil)
+	page1, next, err := b.ListFindings(2, "", nil, "", "")
 	require.NoError(t, err)
 	assert.Len(t, page1, 2)
 	require.NotEmpty(t, next)
 
-	page2, next2, err := b.ListFindings(2, next, nil)
+	page2, next2, err := b.ListFindings(2, next, nil, "", "")
 	require.NoError(t, err)
 	assert.Len(t, page2, 2)
 	require.NotEmpty(t, next2)
 
-	page3, next3, err := b.ListFindings(2, next2, nil)
+	page3, next3, err := b.ListFindings(2, next2, nil, "", "")
 	require.NoError(t, err)
 	assert.Len(t, page3, 1)
 	assert.Empty(t, next3)

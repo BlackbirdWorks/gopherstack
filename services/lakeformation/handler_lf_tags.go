@@ -73,7 +73,7 @@ func (h *Handler) handleListLFTags(_ context.Context, c *echo.Context, body []by
 		}
 	}
 
-	tags, nextToken := h.Backend.ListLFTags(in.CatalogID, in.MaxResults, in.NextToken)
+	tags, nextToken := h.Backend.ListLFTags(in.CatalogID, in.ResourceShareType, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listLFTagsOutput{
 		LFTags:    tags,

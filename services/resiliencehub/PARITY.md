@@ -60,17 +60,17 @@ ops:
   ListAlarmRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; validates assessmentArn, always empty (no recommendation engine)"}
   ListAppAssessmentComplianceDrifts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "assessments.go; validates assessmentArn, always empty (no drift-detection engine)"}
   ListAppAssessmentResourceDrifts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "assessments.go; same as above"}
-  ListAppAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; GET, filters + reverseOrder"}
+  ListAppAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; GET, filters + reverseOrder. gopherstack-4ly2 wrapper-key sweep: reverseOrder previously reversed the (arbitrary, key-sorted) Snapshot() order, not StartTime -- ListAppAssessmentsInput docs \"the default is to sort by ascending startTime\"; now sorts by StartTime explicitly"}
   ListAppComponentCompliances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "assessments.go; real per-component entries using the documented coarse compliance rule (see complianceStatusForPolicy)"}
   ListAppComponentRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}
   ListAppInputSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
-  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; GET, single-filter-at-a-time"}
+  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; GET, single-filter-at-a-time. gopherstack-4ly2 wrapper-key sweep: fromLastAssessmentTime/toLastAssessmentTime and reverseOrder were parsed nowhere -- listAppsFilter had no such fields, and the result was never sorted at all (arbitrary Snapshot() key order). Now honored: time-window filter combines (AND) with the single appArn/awsApplicationArn/name filter, and the list sorts by LastAppComplianceEvaluationTime (ListAppsInput docs: default ascending, reverseOrder for descending)"}
   ListAppVersionAppComponents: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go"}
   ListAppVersionResourceMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
   ListAppVersionResources: {wire: fixed, errors: ok, state: ok, persist: ok, note: "resources.go; FIXED 2026-08-20 (gopherstack-r80d, required-output-member sweep) -- ResolutionId is required (api_op_ListAppVersionResources.go:67-70) but wire.go's omitempty tag dropped the key entirely for an app version that has never gone through ResolveAppVersionResources (v.Resolution == nil, a fully reachable state for any freshly created app). Now emitted present-but-empty in that case; only the wire.go struct tag changed, no handler logic. Proven via a real aws-sdk-go-v2 client round trip that fails against the unfixed tag (wire_output_required_r80d_test.go)."}
   ListAppVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft + every published snapshot, [startTime,endTime] filter"}
   ListMetrics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "metrics.go; always empty (no historical metrics store; ResiliencyScore itself is a placeholder)"}
-  ListRecommendationTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "templates.go; GET, filters + reverseOrder"}
+  ListRecommendationTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "templates.go; GET, filters + reverseOrder. gopherstack-4ly2 wrapper-key sweep: same StartTime-sort fix as ListAppAssessments -- reverseOrder previously reversed key order, not StartTime"}
   ListResiliencyPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; GET"}
   ListResourceGroupingRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "grouping.go; GET, always empty (no ML clustering engine)"}
   ListSopRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}

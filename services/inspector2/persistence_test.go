@@ -193,7 +193,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "test", tags["env"])
 
 	// findings table.
-	findings, _, err := fresh.ListFindings(0, "", nil)
+	findings, _, err := fresh.ListFindings(0, "", nil, "", "")
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "HIGH", findings[0].Severity.Label)

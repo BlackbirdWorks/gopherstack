@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -18,6 +19,10 @@ import (
 )
 
 const resiliencehubService = "resiliencehub"
+
+// queryValueTrue is the "true" the reverseOrder query param compares
+// against across ListApps/ListAppAssessments/ListRecommendationTemplates.
+const queryValueTrue = "true"
 
 var errUnknownPath = errors.New("unknown path")
 
@@ -332,6 +337,25 @@ func queryMaxResults(q url.Values) int {
 	}
 
 	return n
+}
+
+// queryTime parses a query-string date-time parameter, which the REST-JSON
+// serializer encodes via smithytime.FormatDateTime (RFC3339) -- see
+// awsRestjson1_serializeOpHttpBindingsListAppsInput,
+// resiliencehub@v1.38.3/serializers.go. Returns the zero Time if absent or
+// unparseable, so callers can treat it as "no bound" with time.Time.IsZero.
+func queryTime(q url.Values, key string) time.Time {
+	raw := q.Get(key)
+	if raw == "" {
+		return time.Time{}
+	}
+
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }
 
 // decodeJSONBody unmarshals body into v, treating an empty body as a no-op
