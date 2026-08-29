@@ -596,6 +596,7 @@ type ResourceGateway struct {
 	SecurityGroupIDs            []string
 	SubnetIDs                   []string
 	Ipv4AddressesPerEni         int32
+	ServiceManaged              bool
 }
 
 // ResourceGatewaySummary is a resource gateway entry for list responses.
@@ -642,8 +643,12 @@ type ResourceConfiguration struct {
 	CustomDomainName             string
 	GroupDomain                  string
 	DomainVerificationID         string
+	DomainVerificationARN        string
+	DomainVerificationStatus     string
+	FailureReason                string
 	PortRanges                   []string
 	AllowShareableAssoc          bool
+	AmazonManaged                bool
 }
 
 // ResourceConfigurationSummary is a resource configuration entry for list
@@ -661,6 +666,7 @@ type ResourceConfigurationSummary struct {
 	CustomDomainName             string
 	GroupDomain                  string
 	DomainVerificationID         string
+	AmazonManaged                bool
 }
 
 // ServiceNetworkResourceAssociation associates a resource configuration with

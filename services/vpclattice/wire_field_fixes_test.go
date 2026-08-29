@@ -396,3 +396,71 @@ func TestResourceConfiguration_CustomDomainNameAndDomainVerificationId(t *testin
 	assert.Equal(t, "custom.example.com", aws.ToString(got.CustomDomainName))
 	assert.Equal(t, "dvi-abc123", aws.ToString(got.DomainVerificationId))
 }
+
+// TestResourceConfiguration_DomainVerificationArnStatusAndAmazonManaged
+// drives StartDomainVerification/CreateResourceConfiguration/
+// GetResourceConfiguration through the real SDK client. GetResourceConfigurationOutput
+// carries amazonManaged/domainVerificationArn/domainVerificationStatus
+// (deserializers.go's awsRestjson1_deserializeOpDocumentGetResourceConfigurationOutput)
+// but ResourceConfiguration/resourceConfigurationToJSON had no fields for
+// any of the three -- a real client's typed fields were always nil/false
+// regardless of backend state.
+func TestResourceConfiguration_DomainVerificationArnStatusAndAmazonManaged(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	dv, err := client.StartDomainVerification(ctx, &vpclatticesdk.StartDomainVerificationInput{
+		DomainName: aws.String("verify.example.com"),
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateResourceConfiguration(
+		ctx,
+		&vpclatticesdk.CreateResourceConfigurationInput{
+			Name:                         aws.String("rc-domainverification"),
+			Type:                         vpclatticetypes.ResourceConfigurationTypeSingle,
+			DomainVerificationIdentifier: dv.Id,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(created.DomainVerificationArn))
+
+	got, err := client.GetResourceConfiguration(ctx, &vpclatticesdk.GetResourceConfigurationInput{
+		ResourceConfigurationIdentifier: created.Id,
+	})
+	require.NoError(t, err)
+	assert.False(t, aws.ToBool(got.AmazonManaged))
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(got.DomainVerificationArn))
+	assert.Equal(t, vpclatticetypes.VerificationStatusPending, got.DomainVerificationStatus)
+}
+
+// TestGetResourceGateway_ServiceManaged drives CreateResourceGateway/
+// GetResourceGateway through the real SDK client. GetResourceGatewayOutput
+// carries serviceManaged (deserializers.go's
+// awsRestjson1_deserializeOpDocumentGetResourceGatewayOutput) but
+// ResourceGateway had no field for it and the handler never emitted the
+// key -- a real client's typed field was always nil regardless of backend
+// state.
+func TestGetResourceGateway_ServiceManaged(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateResourceGateway(ctx, &vpclatticesdk.CreateResourceGatewayInput{
+		Name:          aws.String("gw-servicemanaged"),
+		VpcIdentifier: aws.String("vpc-123"),
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetResourceGateway(ctx, &vpclatticesdk.GetResourceGatewayInput{
+		ResourceGatewayIdentifier: created.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.ServiceManaged, "ServiceManaged must round-trip under its real wire key")
+	assert.False(t, aws.ToBool(got.ServiceManaged))
+}

@@ -106,12 +106,7 @@ func (h *Handler) handleListResourceConfigurations(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// resourceConfigurationSummaryToJSON builds a ListResourceConfigurations
-// item. Real ResourceConfigurationSummary also carries
-// customDomainName/groupDomain/domainVerificationId/
-// resourceConfigurationGroupId (deserializers.go), all already tracked on
-// the backend's ResourceConfiguration -- previously dropped here even
-// though GetResourceConfiguration already emitted them.
+// resourceConfigurationSummaryToJSON builds a ListResourceConfigurations item.
 func resourceConfigurationSummaryToJSON(rc *ResourceConfigurationSummary) map[string]any {
 	m := map[string]any{
 		keyARN:              rc.ARN,
@@ -120,6 +115,7 @@ func resourceConfigurationSummaryToJSON(rc *ResourceConfigurationSummary) map[st
 		keyType:             rc.Type,
 		keyStatus:           rc.Status,
 		"resourceGatewayId": rc.ResourceGatewayID,
+		"amazonManaged":     rc.AmazonManaged,
 		keyCreatedAt:        rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:    rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
@@ -155,6 +151,7 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 		keyProtocol:  rc.Protocol,
 		"portRanges": rc.PortRanges,
 		"allowAssociationToShareableServiceNetwork": rc.AllowShareableAssoc,
+		"amazonManaged":  rc.AmazonManaged,
 		keyCreatedAt:     rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt: rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
@@ -177,6 +174,18 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 
 	if rc.DomainVerificationID != "" {
 		m["domainVerificationId"] = rc.DomainVerificationID
+	}
+
+	if rc.DomainVerificationARN != "" {
+		m["domainVerificationArn"] = rc.DomainVerificationARN
+	}
+
+	if rc.DomainVerificationStatus != "" {
+		m["domainVerificationStatus"] = rc.DomainVerificationStatus
+	}
+
+	if rc.FailureReason != "" {
+		m["failureReason"] = rc.FailureReason
 	}
 
 	if def := resourceConfigurationDefinitionToJSON(rc.Definition); def != nil {

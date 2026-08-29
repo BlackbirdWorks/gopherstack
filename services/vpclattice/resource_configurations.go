@@ -95,7 +95,10 @@ func (b *InMemoryBackend) CreateResourceConfiguration(
 	b.resourceConfigurations.Put(rc)
 	b.tags[rcARN] = copyTags(tags)
 
-	return rc.toResourceConfiguration(), nil
+	out := rc.toResourceConfiguration()
+	out.DomainVerificationARN, out.DomainVerificationStatus = b.resolveDomainVerificationInfo(domainVerificationID)
+
+	return out, nil
 }
 
 // resolveResourceConfigurationParents validates and resolves
@@ -148,7 +151,10 @@ func (b *InMemoryBackend) GetResourceConfiguration(id string) (*ResourceConfigur
 
 	rc, _ := b.resourceConfigurations.Get(rcID)
 
-	return rc.toResourceConfiguration(), nil
+	out := rc.toResourceConfiguration()
+	out.DomainVerificationARN, out.DomainVerificationStatus = b.resolveDomainVerificationInfo(rc.DomainVerificationID)
+
+	return out, nil
 }
 
 // UpdateResourceConfiguration updates a resource configuration's

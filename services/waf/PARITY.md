@@ -211,3 +211,26 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   has no subsystem that proxies or evaluates real HTTP traffic through WAF rules, so there
   is no request/rate data for either op to report — inventing sample requests or blocked
   IPs would be fabrication, not emulation.
+
+- **2026-08-28 wrapper-key/layer-2 re-sweep (bug class gopherstack-6flj/21my), no bugs
+  found.** Protocol re-confirmed against the pinned `waf@v1.33.4` module:
+  `awsAwsjson11_*` serializer prefix (JSON-RPC), not WAFv2's protocol — read directly, not
+  assumed from `_PROTOCOLS.md`. Per-op manifest-mention check found the match-set
+  families' individual Create/Get/Update op names (ByteMatchSet/IPSet/SizeConstraintSet/
+  SqlInjectionMatchSet/XssMatchSet/GeoMatchSet/RegexPatternSet/RegexMatchSet),
+  CreateRule/CreateRuleGroup/GetRuleGroup/UpdateRuleGroup,
+  CreateRateBasedRule/GetRateBasedRule/UpdateRateBasedRule,
+  ListActivatedRulesInRuleGroup, and PutPermissionPolicy/GetPermissionPolicy/
+  DeletePermissionPolicy at zero literal mentions (this manifest tracks status by
+  *family*, e.g. `IPSet:`, not by individual op name) — swept each against its own
+  `api_op_*.go` Output struct and `deserializers.go` document-deserializer field-for-field
+  at both the wrapper-key and nested-tuple/type layer. All confirmed clean: wrapper keys
+  (`IPSet`/`ByteMatchSet`/.../`Rule` for GetRateBasedRule, `Rules` for
+  ListRateBasedRules) match; `ByteMatchTuple.TargetString` was checked as a possible
+  base64/[]byte type mismatch (real deserializer base64-decodes it,
+  `deserializers.go:10420`) but gopherstack passes the wire-format base64 string through
+  verbatim on both the accept and echo path (never decoding), so a real client's own
+  base64 round trip still produces the original bytes -- not a bug, just an internal
+  representation choice. `ActivatedRule`/`WafAction`/`WafOverrideAction`/`ExcludedRule`/
+  `LoggingConfiguration`/`RedactedFields` also spot-checked clean. No source changes this
+  pass.

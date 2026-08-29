@@ -12,6 +12,34 @@ last_audit_date: 2026-08-07
 # surface (37 fields / 16 ops-with-required, plus AccessLogSubscriptionSummary
 # and DomainVerificationSummary's nested required members) read end to end;
 # see the dated note at the bottom of this file.
+# 2026-08-28 wrapper-key/layer-2 sweep (bug class gopherstack-6flj/21my):
+# 2 silent drops found and fixed, both proven via real SDK client round
+# trips (wire_field_fixes_test.go), fail-before/pass-after confirmed.
+# GetResourceConfiguration/CreateResourceConfiguration were missing
+# amazonManaged/domainVerificationArn/domainVerificationStatus/failureReason
+# (deserializers.go's awsRestjson1_deserializeOpDocumentGetResourceConfigurationOutput,
+# api_op_CreateResourceConfiguration.go's Output struct); ListResourceConfigurations'
+# summary was missing amazonManaged (types.ResourceConfigurationSummary).
+# GetResourceGateway was missing serviceManaged
+# (awsRestjson1_deserializeOpDocumentGetResourceGatewayOutput). amazonManaged/
+# serviceManaged are always false (this backend never creates AWS- or
+# service-managed resources -- a real, not fabricated, value);
+# domainVerificationArn/domainVerificationStatus are resolved live against
+# the referenced DomainVerification record via the new
+# resolveDomainVerificationInfo helper (domain_verifications.go).
+# failureReason stays unset (same disclosed-gap pattern as
+# GetServiceOutput.failureCode/failureMessage below -- this backend's Create
+# paths are synchronous and never fail post-validation).
+# Full op-gap sweep also run this pass per the campaign's zero-mention
+# protocol: every one of the 73 routed ops already had >=1 PARITY.md mention
+# (this manifest enumerates every op as its own `ops:` key), so there was no
+# zero-hit primary-target set here the way ssm/transfer had one -- targets
+# were instead picked by re-reading each family's own SDK Output struct
+# field-for-field against the handler's JSON emission (layer 2), which is
+# how the two bugs above were found. ResourceConfiguration/ResourceGateway
+# families swept this way; BatchUpdateRule/TargetGroupConfig/Rule-match
+# families spot-checked and found clean but not exhaustively re-verified
+# field-for-field this pass.
 overall: A            # gopherstack-lx2k: Resource Gateway/ResourceConfiguration/
                       # ServiceNetworkResourceAssociation/DomainVerification families
                       # (20 SDK ops) implemented for real against v1.25.5; PutAuthPolicy/
@@ -71,15 +99,15 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (gopherstack-lx2k). Note the real API's field-name inconsistency preserved verbatim: Create/Summary echo vpcIdentifier, but Get/Update/Delete echo vpcId (verified against api_op_*ResourceGateway.go/types.ResourceGatewaySummary directly, not assumed)"}
-  GetResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  GetResourceGateway: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NEW previous pass; FIXED this pass -- serviceManaged was missing entirely, now always false (this backend never creates service-managed gateways)"}
   UpdateResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- only securityGroupIds is accepted, matching UpdateResourceGatewayInput"}
   DeleteResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- rejects with ConflictException while any resource configuration still references the gateway"}
   ListResourceGateways: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
-  CreateResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- resourceConfigurationDefinition union (arnResource/dnsResource/ipResource) round-trips; CHILD type inherits ResourceGatewayId from its GROUP parent per the real API's documented behavior"}
-  GetResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  CreateResourceConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NEW previous pass -- resourceConfigurationDefinition union (arnResource/dnsResource/ipResource) round-trips; CHILD type inherits ResourceGatewayId from its GROUP parent per the real API's documented behavior. FIXED this pass -- amazonManaged/domainVerificationArn/failureReason were missing entirely"}
+  GetResourceConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NEW previous pass; FIXED this pass -- amazonManaged/domainVerificationArn/domainVerificationStatus/failureReason were missing entirely, see dated note above"}
   UpdateResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- allowAssociationToShareableServiceNetwork/portRanges/resourceConfigurationDefinition, matching UpdateResourceConfigurationInput"}
   DeleteResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- rejects with ConflictException while any SNRA or CHILD configuration references it"}
-  ListResourceConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ListResourceConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NEW previous pass; FIXED this pass -- summary was missing amazonManaged (types.ResourceConfigurationSummary), now always false"}
   CreateServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- both DeleteServiceNetwork and DeleteResourceConfiguration now also check for a referencing SNRA before allowing delete"}
   GetServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   DeleteServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
@@ -98,7 +126,7 @@ gaps:
   - "GetServiceOutput/GetServiceNetworkVpcAssociationOutput failureCode/failureMessage fields (populated when a resource is stuck in a *_FAILED state) are never set because this backend's Create paths are synchronous and never fail after validation — acceptable since there's no in-progress/failed state machine to represent, but worth knowing if async failure simulation is ever added."
   - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (bd: gopherstack-lx2k). Both are populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoints of type Resource/ServiceNetwork referencing a ResourceConfiguration/ServiceNetwork ARN) — vpc-lattice itself exposes no Create operation for either, and this backend has no EC2 VPC-endpoint cross-service integration to source one from. Buildable with enough cross-service work (not structural), just out of scope this pass; the wire shape and empty-vs-error behavior is honest (List returns real empty, Delete honestly 404s) rather than fabricated."
   - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
-  - "GetResourceGateway/UpdateResourceGateway/DeleteResourceGateway's ManagedBy/ServiceManaged fields (set when a resource gateway is provisioned by another AWS service, not directly by the caller) are never populated -- this backend has no cross-service provisioning path that would ever set them, so every resource gateway here is caller-managed. Not fabricated, just never non-default."
+  - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
 ### 2026-08-21 gopherstack-r80d batch 13: required-output cut, 1 bug
