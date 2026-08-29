@@ -415,7 +415,7 @@ type InMemoryBackend struct {
 	recycleBinImages         *store.Table[RecycleBinImage]
 	recycleBinSnapshots      *store.Table[Snapshot]
 	recycleBinVolumes        *store.Table[RecycleBinVolume]
-	fastLaunchImages         map[string]bool
+	fastLaunchImages         map[string]*FastLaunchImageItem
 	fastSnapshotRestores     map[string]bool
 	vpnConnectionRoutes      *store.Table[VpnConnectionRoute]
 	spotDatafeed             *SpotDatafeed
@@ -655,7 +655,7 @@ func initVpcConfigMaps(b *InMemoryBackend) {
 // fast-launch and VPN-route maps (split out to keep newInMemoryBackendMaps
 // under the funlen limit).
 func initBatch6Maps(b *InMemoryBackend) {
-	b.fastLaunchImages = make(map[string]bool)
+	b.fastLaunchImages = make(map[string]*FastLaunchImageItem)
 	b.fastSnapshotRestores = make(map[string]bool)
 }
 

@@ -8,9 +8,10 @@ import (
 )
 
 type anomalyMonitorInput struct {
-	MonitorName      string `json:"MonitorName"`
-	MonitorType      string `json:"MonitorType"`
-	MonitorDimension string `json:"MonitorDimension"`
+	MonitorSpecification *ceExpression `json:"MonitorSpecification,omitempty"`
+	MonitorName          string        `json:"MonitorName"`
+	MonitorType          string        `json:"MonitorType"`
+	MonitorDimension     string        `json:"MonitorDimension"`
 }
 
 type createAnomalyMonitorInput struct {
@@ -38,6 +39,7 @@ func (h *Handler) handleCreateAnomalyMonitor(
 		in.AnomalyMonitor.MonitorName,
 		in.AnomalyMonitor.MonitorType,
 		in.AnomalyMonitor.MonitorDimension,
+		in.AnomalyMonitor.MonitorSpecification,
 		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
@@ -75,12 +77,13 @@ type getAnomalyMonitorsInput struct {
 }
 
 type anomalyMonitorSummary struct {
-	CreationDate     *string `json:"CreationDate,omitempty"`
-	LastUpdatedDate  *string `json:"LastUpdatedDate,omitempty"`
-	MonitorArn       string  `json:"MonitorArn"`
-	MonitorName      string  `json:"MonitorName"`
-	MonitorType      string  `json:"MonitorType"`
-	MonitorDimension string  `json:"MonitorDimension,omitempty"`
+	CreationDate         *string       `json:"CreationDate,omitempty"`
+	LastUpdatedDate      *string       `json:"LastUpdatedDate,omitempty"`
+	MonitorSpecification *ceExpression `json:"MonitorSpecification,omitempty"`
+	MonitorArn           string        `json:"MonitorArn"`
+	MonitorName          string        `json:"MonitorName"`
+	MonitorType          string        `json:"MonitorType"`
+	MonitorDimension     string        `json:"MonitorDimension,omitempty"`
 }
 
 type getAnomalyMonitorsOutput struct {
@@ -101,10 +104,11 @@ func (h *Handler) handleGetAnomalyMonitors(
 
 	for _, mon := range monitors {
 		s := anomalyMonitorSummary{
-			MonitorArn:       mon.MonitorARN,
-			MonitorName:      mon.MonitorName,
-			MonitorType:      mon.MonitorType,
-			MonitorDimension: mon.MonitorDimension,
+			MonitorArn:           mon.MonitorARN,
+			MonitorName:          mon.MonitorName,
+			MonitorType:          mon.MonitorType,
+			MonitorDimension:     mon.MonitorDimension,
+			MonitorSpecification: mon.MonitorSpecification,
 		}
 
 		if !mon.CreationDate.IsZero() {
@@ -160,11 +164,12 @@ type subscriberInput struct {
 }
 
 type anomalySubscriptionInput struct {
-	SubscriptionName string            `json:"SubscriptionName"`
-	Frequency        string            `json:"Frequency"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	Frequency           string            `json:"Frequency"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold"`
 }
 
 type createAnomalySubscriptionInput struct {
@@ -207,6 +212,7 @@ func (h *Handler) handleCreateAnomalySubscription(
 		in.AnomalySubscription.MonitorArnList,
 		subs,
 		in.AnomalySubscription.Threshold,
+		in.AnomalySubscription.ThresholdExpression,
 		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
@@ -245,13 +251,14 @@ type getAnomalySubscriptionsInput struct {
 }
 
 type anomalySubscriptionSummary struct {
-	SubscriptionArn  string            `json:"SubscriptionArn"`
-	SubscriptionName string            `json:"SubscriptionName"`
-	AccountID        string            `json:"AccountId,omitempty"`
-	Frequency        string            `json:"Frequency"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold,omitempty"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionArn     string            `json:"SubscriptionArn"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	AccountID           string            `json:"AccountId,omitempty"`
+	Frequency           string            `json:"Frequency"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold,omitempty"`
 }
 
 type getAnomalySubscriptionsOutput struct {
@@ -279,13 +286,14 @@ func (h *Handler) handleGetAnomalySubscriptions(
 		}
 
 		items = append(items, anomalySubscriptionSummary{
-			SubscriptionArn:  sub.SubscriptionARN,
-			SubscriptionName: sub.SubscriptionName,
-			AccountID:        sub.AccountID,
-			MonitorArnList:   sub.MonitorARNList,
-			Frequency:        sub.Frequency,
-			Threshold:        sub.Threshold,
-			Subscribers:      subscribers,
+			SubscriptionArn:     sub.SubscriptionARN,
+			SubscriptionName:    sub.SubscriptionName,
+			AccountID:           sub.AccountID,
+			MonitorArnList:      sub.MonitorARNList,
+			Frequency:           sub.Frequency,
+			Threshold:           sub.Threshold,
+			ThresholdExpression: sub.ThresholdExpression,
+			Subscribers:         subscribers,
 		})
 	}
 
@@ -293,12 +301,13 @@ func (h *Handler) handleGetAnomalySubscriptions(
 }
 
 type updateAnomalySubscriptionInput struct {
-	SubscriptionArn  string            `json:"SubscriptionArn"`
-	Frequency        string            `json:"Frequency"`
-	SubscriptionName string            `json:"SubscriptionName"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionArn     string            `json:"SubscriptionArn"`
+	Frequency           string            `json:"Frequency"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold"`
 }
 
 type updateAnomalySubscriptionOutput struct {
@@ -320,7 +329,7 @@ func (h *Handler) handleUpdateAnomalySubscription(
 
 	sub, err := h.Backend.UpdateAnomalySubscription(
 		in.SubscriptionArn, in.Frequency, in.SubscriptionName,
-		in.MonitorArnList, subs, in.Threshold,
+		in.MonitorArnList, subs, in.Threshold, in.ThresholdExpression,
 	)
 	if err != nil {
 		return nil, err

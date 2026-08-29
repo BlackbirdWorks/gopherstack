@@ -79,6 +79,7 @@ func (b *InMemoryBackend) buildAnomalySubscriptionARN() string {
 // CreateAnomalyMonitor creates a new anomaly monitor.
 func (b *InMemoryBackend) CreateAnomalyMonitor(
 	monitorName, monitorType, monitorDimension string,
+	monitorSpecification *ceExpression,
 	resourceTags map[string]string,
 ) (*AnomalyMonitor, error) {
 	b.mu.Lock("CreateAnomalyMonitor")
@@ -99,13 +100,14 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	now := time.Now().UTC()
 	monARN := b.buildAnomalyMonitorARN()
 	mon := &AnomalyMonitor{
-		MonitorARN:       monARN,
-		MonitorName:      monitorName,
-		MonitorType:      monitorType,
-		MonitorDimension: monitorDimension,
-		CreationDate:     now,
-		LastUpdatedDate:  now,
-		Tags:             tagsCopy,
+		MonitorARN:           monARN,
+		MonitorName:          monitorName,
+		MonitorType:          monitorType,
+		MonitorDimension:     monitorDimension,
+		MonitorSpecification: monitorSpecification,
+		CreationDate:         now,
+		LastUpdatedDate:      now,
+		Tags:                 tagsCopy,
 	}
 	b.anomalyMonitors.Put(mon)
 
@@ -206,6 +208,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	monitorARNList []string,
 	subscribers []Subscriber,
 	threshold float64,
+	thresholdExpression *ceExpression,
 	resourceTags map[string]string,
 ) (*AnomalySubscription, error) {
 	b.mu.Lock("CreateAnomalySubscription")
@@ -237,15 +240,16 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 
 	subARN := b.buildAnomalySubscriptionARN()
 	sub := &AnomalySubscription{
-		SubscriptionARN:  subARN,
-		SubscriptionName: subscriptionName,
-		AccountID:        b.accountID,
-		Frequency:        frequency,
-		MonitorARNList:   monCopy,
-		Subscribers:      subsCopy,
-		Threshold:        threshold,
-		CreationDate:     time.Now().UTC(),
-		Tags:             tagsCopy,
+		SubscriptionARN:     subARN,
+		SubscriptionName:    subscriptionName,
+		AccountID:           b.accountID,
+		Frequency:           frequency,
+		MonitorARNList:      monCopy,
+		Subscribers:         subsCopy,
+		Threshold:           threshold,
+		ThresholdExpression: thresholdExpression,
+		CreationDate:        time.Now().UTC(),
+		Tags:                tagsCopy,
 	}
 	b.anomalySubscriptions.Put(sub)
 
@@ -339,6 +343,7 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	monitorARNList []string,
 	subscribers []Subscriber,
 	threshold float64,
+	thresholdExpression *ceExpression,
 ) (*AnomalySubscription, error) {
 	b.mu.Lock("UpdateAnomalySubscription")
 	defer b.mu.Unlock()
@@ -378,6 +383,10 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 
 	if threshold > 0 {
 		sub.Threshold = threshold
+	}
+
+	if thresholdExpression != nil {
+		sub.ThresholdExpression = thresholdExpression
 	}
 
 	out := *sub

@@ -1365,8 +1365,8 @@ type Backend interface {
 	RestoreSnapshotTier(snapshotID string) error
 	ImportSnapshot(description string) (*SnapshotImportTask, error)
 	DescribeImportSnapshotTasks(taskIDs []string) []*SnapshotImportTask
-	EnableFastLaunch(imageID string) error
-	DisableFastLaunch(imageID string) error
+	EnableFastLaunch(imageID string, cfg FastLaunchConfig) error
+	DisableFastLaunch(imageID string) (*FastLaunchImageItem, error)
 	DescribeFastLaunchImages(imageIDs []string) []FastLaunchImageItem
 	EnableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
 	DisableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error

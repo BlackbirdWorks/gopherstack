@@ -49,7 +49,7 @@ type backendSnapshot struct {
 	ImageAttributes                map[string]map[string]string                `json:"imageAttributes"`
 	VgwRoutePropagation            map[string]bool                             `json:"vgwRoutePropagation"`
 	TgwRTPropagations              map[string]map[string]*snapTGWRTProp        `json:"tgwRTPropagations,omitempty"`
-	FastLaunchImages               map[string]bool                             `json:"fastLaunchImages"`
+	FastLaunchImages               map[string]*FastLaunchImageItem             `json:"fastLaunchImages"`
 	FastSnapshotRestores           map[string]bool                             `json:"fastSnapshotRestores"`
 	SpotDatafeed                   *SpotDatafeed                               `json:"spotDatafeed,omitempty"`
 	VpcTenancy                     map[string]string                           `json:"vpcTenancy,omitempty"`

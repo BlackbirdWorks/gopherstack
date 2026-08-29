@@ -28,27 +28,38 @@ type SplitChargeRule struct {
 }
 
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
+// MonitorSpecification is the Expression that scopes a CUSTOM monitor (or a
+// DIMENSIONAL monitor with MonitorDimension TAG/COST_CATEGORY) -- required
+// input on CreateAnomalyMonitor, echoed back on GetAnomalyMonitors per
+// types.AnomalyMonitor (costexplorer@v1.67.4 types/types.go).
 type AnomalyMonitor struct {
-	CreationDate     time.Time         `json:"creationDate"`
-	LastUpdatedDate  time.Time         `json:"lastUpdatedDate"`
-	Tags             map[string]string `json:"tags"`
-	MonitorARN       string            `json:"monitorARN"`
-	MonitorName      string            `json:"monitorName"`
-	MonitorType      string            `json:"monitorType"`
-	MonitorDimension string            `json:"monitorDimension"`
+	CreationDate         time.Time         `json:"creationDate"`
+	LastUpdatedDate      time.Time         `json:"lastUpdatedDate"`
+	Tags                 map[string]string `json:"tags"`
+	MonitorSpecification *ceExpression     `json:"monitorSpecification,omitempty"`
+	MonitorARN           string            `json:"monitorARN"`
+	MonitorName          string            `json:"monitorName"`
+	MonitorType          string            `json:"monitorType"`
+	MonitorDimension     string            `json:"monitorDimension"`
 }
 
 // AnomalySubscription represents an in-memory AWS CE anomaly subscription.
+// ThresholdExpression is the non-deprecated alternative to Threshold (real
+// AWS: "you can specify either Threshold or ThresholdExpression, but not
+// both" -- costexplorer@v1.67.4 types/types.go's AnomalySubscription doc
+// comment); both CreateAnomalySubscriptionInput and
+// UpdateAnomalySubscriptionInput accept it.
 type AnomalySubscription struct {
-	CreationDate     time.Time         `json:"creationDate"`
-	Tags             map[string]string `json:"tags"`
-	SubscriptionARN  string            `json:"subscriptionARN"`
-	SubscriptionName string            `json:"subscriptionName"`
-	AccountID        string            `json:"accountID"`
-	Frequency        string            `json:"frequency"`
-	MonitorARNList   []string          `json:"monitorARNList"`
-	Subscribers      []Subscriber      `json:"subscribers"`
-	Threshold        float64           `json:"threshold"`
+	CreationDate        time.Time         `json:"creationDate"`
+	Tags                map[string]string `json:"tags"`
+	ThresholdExpression *ceExpression     `json:"thresholdExpression,omitempty"`
+	SubscriptionARN     string            `json:"subscriptionARN"`
+	SubscriptionName    string            `json:"subscriptionName"`
+	AccountID           string            `json:"accountID"`
+	Frequency           string            `json:"frequency"`
+	MonitorARNList      []string          `json:"monitorARNList"`
+	Subscribers         []Subscriber      `json:"subscribers"`
+	Threshold           float64           `json:"threshold"`
 }
 
 // AnomalyScore represents the anomaly detection score.

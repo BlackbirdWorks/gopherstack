@@ -254,3 +254,132 @@ func TestGetSavingsPlansPurchaseRecommendation_CurrencyCodeKey_RealClient(t *tes
 	assert.NotContains(t, body, `"RecommendationTotalCount"`,
 		"types.SavingsPlansPurchaseRecommendationMetadata has no RecommendationTotalCount member")
 }
+
+// TestCreateAnomalyMonitor_MonitorSpecification_RealClient covers a
+// write-only-state bug found by the primary-method sweep: real
+// CreateAnomalyMonitorInput.AnomalyMonitor carries a MonitorSpecification
+// *types.Expression member (required for a CUSTOM monitor, or a DIMENSIONAL
+// monitor whose MonitorDimension is TAG/COST_CATEGORY -- see
+// costexplorer@v1.67.4 types/types.go's AnomalyMonitor doc comment, and its
+// serializer/deserializer at serializers.go:2953/deserializers.go:6476).
+// This field was previously entirely absent from this package's wire
+// structs and internal model: a real client's MonitorSpecification was
+// accepted by nothing, stored nowhere, and every GetAnomalyMonitors
+// response omitted it regardless of what was sent on Create.
+func TestCreateAnomalyMonitor_MonitorSpecification_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName: aws.String("CustomTagMonitor"),
+			MonitorType: cetypes.MonitorTypeCustom,
+			MonitorSpecification: &cetypes.Expression{
+				Tags: &cetypes.TagValues{
+					Key:    aws.String("team"),
+					Values: []string{"prod"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(createOut.MonitorArn))
+
+	getOut, err := client.GetAnomalyMonitors(t.Context(), &costexplorersdk.GetAnomalyMonitorsInput{
+		MonitorArnList: []string{aws.ToString(createOut.MonitorArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalyMonitors, 1)
+
+	got := getOut.AnomalyMonitors[0]
+	require.NotNil(t, got.MonitorSpecification,
+		"MonitorSpecification must round-trip through Create->Get, not be silently dropped")
+	require.NotNil(t, got.MonitorSpecification.Tags)
+	assert.Equal(t, "team", aws.ToString(got.MonitorSpecification.Tags.Key))
+	assert.Equal(t, []string{"prod"}, got.MonitorSpecification.Tags.Values)
+}
+
+// TestAnomalySubscription_ThresholdExpression_RealClient covers the sibling
+// write-only-state bug in the same family: real AnomalySubscription/
+// CreateAnomalySubscriptionInput/UpdateAnomalySubscriptionInput all carry a
+// ThresholdExpression *types.Expression member, the non-deprecated
+// replacement for Threshold ("you can specify either Threshold or
+// ThresholdExpression, but not both" -- costexplorer@v1.67.4
+// types/types.go). It was entirely absent from this package's wire structs
+// and internal model, so a real client using only ThresholdExpression (the
+// documented modern path) had it silently dropped on Create, missing on
+// every Get, and any Update value discarded too.
+func TestAnomalySubscription_ThresholdExpression_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	monOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName:      aws.String("Mon"),
+			MonitorType:      cetypes.MonitorTypeDimensional,
+			MonitorDimension: cetypes.MonitorDimensionService,
+		},
+	})
+	require.NoError(t, err)
+
+	thresholdExpr := &cetypes.Expression{
+		Dimensions: &cetypes.DimensionValues{
+			Key:    cetypes.DimensionAnomalyTotalImpactAbsolute,
+			Values: []string{"100"},
+		},
+	}
+
+	createOut, err := client.CreateAnomalySubscription(t.Context(), &costexplorersdk.CreateAnomalySubscriptionInput{
+		AnomalySubscription: &cetypes.AnomalySubscription{
+			SubscriptionName: aws.String("Sub"),
+			Frequency:        cetypes.AnomalySubscriptionFrequencyDaily,
+			MonitorArnList:   []string{aws.ToString(monOut.MonitorArn)},
+			Subscribers: []cetypes.Subscriber{
+				{Address: aws.String("a@example.com"), Type: cetypes.SubscriberTypeEmail},
+			},
+			ThresholdExpression: thresholdExpr,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(createOut.SubscriptionArn))
+
+	getOut, err := client.GetAnomalySubscriptions(t.Context(), &costexplorersdk.GetAnomalySubscriptionsInput{
+		SubscriptionArnList: []string{aws.ToString(createOut.SubscriptionArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalySubscriptions, 1)
+
+	got := getOut.AnomalySubscriptions[0]
+	require.NotNil(t, got.ThresholdExpression,
+		"ThresholdExpression must round-trip through Create->Get, not be silently dropped")
+	require.NotNil(t, got.ThresholdExpression.Dimensions)
+	assert.Equal(t, cetypes.DimensionAnomalyTotalImpactAbsolute, got.ThresholdExpression.Dimensions.Key)
+	assert.Equal(t, []string{"100"}, got.ThresholdExpression.Dimensions.Values)
+
+	// Update with a new ThresholdExpression must also round-trip, not be discarded.
+	newExpr := &cetypes.Expression{
+		Dimensions: &cetypes.DimensionValues{
+			Key:    cetypes.DimensionAnomalyTotalImpactPercentage,
+			Values: []string{"50"},
+		},
+	}
+	_, err = client.UpdateAnomalySubscription(t.Context(), &costexplorersdk.UpdateAnomalySubscriptionInput{
+		SubscriptionArn:     createOut.SubscriptionArn,
+		ThresholdExpression: newExpr,
+	})
+	require.NoError(t, err)
+
+	getOut2, err := client.GetAnomalySubscriptions(t.Context(), &costexplorersdk.GetAnomalySubscriptionsInput{
+		SubscriptionArnList: []string{aws.ToString(createOut.SubscriptionArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut2.AnomalySubscriptions, 1)
+	got2 := getOut2.AnomalySubscriptions[0]
+	require.NotNil(t, got2.ThresholdExpression)
+	assert.Equal(t, cetypes.DimensionAnomalyTotalImpactPercentage, got2.ThresholdExpression.Dimensions.Key)
+	assert.Equal(t, []string{"50"}, got2.ThresholdExpression.Dimensions.Values)
+}

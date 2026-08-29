@@ -516,16 +516,19 @@ type enableFastLaunchResponse struct {
 }
 
 // disableFastLaunchResponse matches DisableFastLaunchOutput (same shape as
-// EnableFastLaunchOutput). LaunchTemplate/MaxParallelLaunches/ResourceType/
+// EnableFastLaunchOutput): LaunchTemplate/MaxParallelLaunches/ResourceType/
 // SnapshotConfiguration are the parameters fast launch had before being
-// disabled; this backend doesn't persist that configuration, so those fields
-// are left absent rather than guessed.
+// disabled.
 type disableFastLaunchResponse struct {
-	XMLName   xml.Name `xml:"DisableFastLaunchResponse"`
-	RequestID string   `xml:"requestId"`
-	ImageID   string   `xml:"imageId,omitempty"`
-	OwnerID   string   `xml:"ownerId,omitempty"`
-	State     string   `xml:"state,omitempty"`
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	XMLName               xml.Name                      `xml:"DisableFastLaunchResponse"`
+	RequestID             string                        `xml:"requestId"`
+	ImageID               string                        `xml:"imageId,omitempty"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	State                 string                        `xml:"state,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
 }
 
 // parseFastLaunchLaunchTemplate reads LaunchTemplate.{LaunchTemplateId,
@@ -545,9 +548,6 @@ func parseFastLaunchLaunchTemplate(vals url.Values) *fastLaunchLaunchTemplateIte
 
 func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
-	if err := h.Backend.EnableFastLaunch(imageID); err != nil {
-		return nil, err
-	}
 
 	resourceType := vals.Get("ResourceType")
 	if resourceType == "" {
@@ -568,6 +568,28 @@ func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, er
 		}
 	}
 
+	launchTemplate := parseFastLaunchLaunchTemplate(vals)
+
+	cfg := FastLaunchConfig{
+		ResourceType:        resourceType,
+		MaxParallelLaunches: maxParallelLaunches,
+	}
+	if launchTemplate != nil {
+		cfg.HasLaunchTemplate = true
+		cfg.LaunchTemplateID = launchTemplate.LaunchTemplateID
+		cfg.LaunchTemplateName = launchTemplate.LaunchTemplateName
+		cfg.LaunchTemplateVersion = launchTemplate.Version
+	}
+
+	if snapshotConfig != nil {
+		cfg.HasSnapshotConfiguration = true
+		cfg.SnapshotTargetResourceCount = snapshotConfig.TargetResourceCount
+	}
+
+	if err := h.Backend.EnableFastLaunch(imageID, cfg); err != nil {
+		return nil, err
+	}
+
 	return &enableFastLaunchResponse{
 		RequestID:             reqID,
 		ImageID:               imageID,
@@ -575,23 +597,44 @@ func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, er
 		MaxParallelLaunches:   maxParallelLaunches,
 		OwnerID:               h.AccountID,
 		State:                 "enabling",
-		LaunchTemplate:        parseFastLaunchLaunchTemplate(vals),
+		LaunchTemplate:        launchTemplate,
 		SnapshotConfiguration: snapshotConfig,
 	}, nil
 }
 
 func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
-	if err := h.Backend.DisableFastLaunch(imageID); err != nil {
+
+	prev, err := h.Backend.DisableFastLaunch(imageID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &disableFastLaunchResponse{
+	resp := &disableFastLaunchResponse{
 		RequestID: reqID,
 		ImageID:   imageID,
 		OwnerID:   h.AccountID,
 		State:     "disabling",
-	}, nil
+	}
+	if prev != nil {
+		resp.ResourceType = prev.ResourceType
+		resp.MaxParallelLaunches = prev.MaxParallelLaunches
+		if prev.HasLaunchTemplate {
+			resp.LaunchTemplate = &fastLaunchLaunchTemplateItem{
+				LaunchTemplateID:   prev.LaunchTemplateID,
+				LaunchTemplateName: prev.LaunchTemplateName,
+				Version:            prev.LaunchTemplateVersion,
+			}
+		}
+
+		if prev.HasSnapshotConfiguration {
+			resp.SnapshotConfiguration = &fastLaunchSnapshotConfigItem{
+				TargetResourceCount: prev.SnapshotTargetResourceCount,
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) (any, error) {
@@ -610,7 +653,7 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 	for _, item := range items {
 		resp.FastLaunchImageSet.Items = append(
 			resp.FastLaunchImageSet.Items,
-			fastLaunchImageItem(item),
+			toFastLaunchImageItem(item, h.AccountID),
 		)
 	}
 

@@ -160,14 +160,15 @@ func TestFastLaunch(t *testing.T) { //nolint:paralleltest // existing issue.
 	imageID := "ami-testfast"
 
 	t.Run("enable fast launch", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.EnableFastLaunch(imageID))
+		require.NoError(t, b.EnableFastLaunch(imageID, ec2.FastLaunchConfig{}))
 		items := b.DescribeFastLaunchImages([]string{imageID})
 		require.Len(t, items, 1)
 		assert.Equal(t, "enabled", items[0].State)
 	})
 
 	t.Run("disable fast launch", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DisableFastLaunch(imageID))
+		_, err := b.DisableFastLaunch(imageID)
+		require.NoError(t, err)
 		items := b.DescribeFastLaunchImages([]string{imageID})
 		assert.Empty(t, items)
 	})

@@ -45,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "anomaly_monitor_round_trip",
 			setup: func(b *ce.InMemoryBackend) string {
-				mon, err := b.CreateAnomalyMonitor("MyMonitor", "DIMENSIONAL", "SERVICE", nil)
+				mon, err := b.CreateAnomalyMonitor("MyMonitor", "DIMENSIONAL", "SERVICE", nil, nil)
 				if err != nil {
 					return ""
 				}
@@ -64,7 +64,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "anomaly_subscription_round_trip",
 			setup: func(b *ce.InMemoryBackend) string {
-				mon, err := b.CreateAnomalyMonitor("SubMon", "DIMENSIONAL", "SERVICE", nil)
+				mon, err := b.CreateAnomalyMonitor("SubMon", "DIMENSIONAL", "SERVICE", nil, nil)
 				if err != nil {
 					return ""
 				}
@@ -74,6 +74,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					[]string{mon.MonitorARN},
 					[]ce.Subscriber{{Address: "test@example.com", Type: "EMAIL", Status: "CONFIRMED"}},
 					10.0,
+					nil,
 					nil,
 				)
 				if err != nil {
@@ -219,14 +220,14 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	mon, err := original.CreateAnomalyMonitor("FullMonitor", "DIMENSIONAL", "SERVICE", nil)
+	mon, err := original.CreateAnomalyMonitor("FullMonitor", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	sub, err := original.CreateAnomalySubscription(
 		"FullSub", "DAILY",
 		[]string{mon.MonitorARN},
 		[]ce.Subscriber{{Address: "full@example.com", Type: "EMAIL", Status: "CONFIRMED"}},
-		10.0, nil,
+		10.0, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -288,7 +289,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 
 	b := ce.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateAnomalyMonitor("Mon1", "DIMENSIONAL", "SERVICE", nil)
+	_, err := b.CreateAnomalyMonitor("Mon1", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateCostCategoryDefinition("Cat1", "CostCategoryExpression.v1", "", nil, nil)
@@ -309,7 +310,7 @@ func TestCeHandler_Persistence(t *testing.T) {
 	backend := ce.NewInMemoryBackend("000000000000", "us-east-1")
 	h := ce.NewHandler(backend)
 
-	_, err := backend.CreateAnomalyMonitor("snap-mon", "DIMENSIONAL", "SERVICE", nil)
+	_, err := backend.CreateAnomalyMonitor("snap-mon", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())

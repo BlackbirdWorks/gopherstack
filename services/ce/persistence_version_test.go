@@ -38,7 +38,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	original := ce.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := original.CreateAnomalyMonitor("VersionMon", "DIMENSIONAL", "SERVICE", nil)
+	_, err := original.CreateAnomalyMonitor("VersionMon", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
@@ -74,7 +74,7 @@ func TestInMemoryBackend_RestoreMissingVersion(t *testing.T) {
 
 	original := ce.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := original.CreateAnomalyMonitor("LegacyMon", "DIMENSIONAL", "SERVICE", nil)
+	_, err := original.CreateAnomalyMonitor("LegacyMon", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())

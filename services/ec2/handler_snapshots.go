@@ -411,8 +411,36 @@ type describeImportSnapshotTasksResponse struct {
 }
 
 type fastLaunchImageItem struct {
-	ImageID string `xml:"imageId"`
-	State   string `xml:"state"`
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	ImageID               string                        `xml:"imageId"`
+	State                 string                        `xml:"state"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
+}
+
+func toFastLaunchImageItem(item FastLaunchImageItem, ownerID string) fastLaunchImageItem {
+	out := fastLaunchImageItem{
+		ImageID:             item.ImageID,
+		State:               item.State,
+		ResourceType:        item.ResourceType,
+		OwnerID:             ownerID,
+		MaxParallelLaunches: item.MaxParallelLaunches,
+	}
+	if item.HasLaunchTemplate {
+		out.LaunchTemplate = &fastLaunchLaunchTemplateItem{
+			LaunchTemplateID:   item.LaunchTemplateID,
+			LaunchTemplateName: item.LaunchTemplateName,
+			Version:            item.LaunchTemplateVersion,
+		}
+	}
+
+	if item.HasSnapshotConfiguration {
+		out.SnapshotConfiguration = &fastLaunchSnapshotConfigItem{TargetResourceCount: item.SnapshotTargetResourceCount}
+	}
+
+	return out
 }
 
 type enableDisableFastSnapshotRestoresResponse struct {
