@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -116,7 +117,15 @@ func (h *Handler) handleStartTraceRetrieval(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: TraceIds is required", errInvalidRequest)
 	}
 
-	token := h.Backend.StartTraceRetrieval(in.TraceIDs)
+	if in.StartTime == 0 || in.EndTime == 0 {
+		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
+	}
+
+	token := h.Backend.StartTraceRetrieval(
+		in.TraceIDs,
+		time.Unix(int64(in.StartTime), 0),
+		time.Unix(int64(in.EndTime), 0),
+	)
 
 	return json.Marshal(map[string]any{
 		"RetrievalToken": token,

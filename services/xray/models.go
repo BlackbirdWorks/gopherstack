@@ -293,19 +293,21 @@ type AnnotationOccurrence struct {
 
 // TraceSummaryData holds derived data for GetTraceSummaries response.
 type TraceSummaryData struct {
-	Annotations  map[string][]AnnotationOccurrence
-	HTTP         *TraceSummaryHTTP
-	EntryPoint   *TraceSummaryServiceID
-	TraceID      string
-	Users        []string
-	ServiceIDs   []TraceSummaryServiceID
-	Duration     float64
-	ResponseTime float64
-	Revision     int
-	HasFault     bool
-	HasError     bool
-	HasThrottle  bool
-	IsPartial    bool
+	Annotations       map[string][]AnnotationOccurrence
+	HTTP              *TraceSummaryHTTP
+	EntryPoint        *TraceSummaryServiceID
+	TraceID           string
+	Users             []string
+	ServiceIDs        []TraceSummaryServiceID
+	AvailabilityZones []string
+	InstanceIDs       []string
+	Duration          float64
+	ResponseTime      float64
+	Revision          int
+	HasFault          bool
+	HasError          bool
+	HasThrottle       bool
+	IsPartial         bool
 }
 
 // TraceSummaryHTTP holds HTTP fields for a trace summary.

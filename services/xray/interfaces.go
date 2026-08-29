@@ -53,9 +53,9 @@ type StorageBackend interface {
 	) ([]SamplingTargetResult, []UnprocessedStatisticsResult, []UnprocessedStatisticsResult)
 	LastRuleModification() time.Time
 	// Service graph operations
-	GetServiceGraph(startTime, endTime time.Time) []map[string]any
+	GetServiceGraph(startTime, endTime time.Time, filterExpr string) []map[string]any
 	GetTraceGraph(traceIDs []string) []map[string]any
-	GetTimeSeriesServiceStatistics(startTime, endTime time.Time, period int) []map[string]any
+	GetTimeSeriesServiceStatistics(startTime, endTime time.Time, period int, filterExpr string) []map[string]any
 	// Destination
 	GetTraceSegmentDestination() string
 	UpdateTraceSegmentDestination(destination string) string
@@ -63,7 +63,7 @@ type StorageBackend interface {
 	ListRetrievedTraces(retrievalToken string) (string, []*Trace, error)
 	// Tags
 	ListTagsForResource(resourceARN string) ([]map[string]string, error)
-	StartTraceRetrieval(traceIDs []string) string
+	StartTraceRetrieval(traceIDs []string, rangeStart, rangeEnd time.Time) string
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	// Indexing rule update

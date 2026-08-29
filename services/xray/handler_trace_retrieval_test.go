@@ -38,7 +38,11 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 	assert.Empty(t, unprocessed)
 
 	// Start retrieval and list.
-	startResp := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{"TraceIds": []string{traceID}})
+	startResp := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{
+		"TraceIds":  []string{traceID},
+		"StartTime": 1699999999.0,
+		"EndTime":   1700000100.0,
+	})
 	require.Equal(t, 200, startResp.Code)
 
 	var startResult map[string]any
@@ -78,7 +82,11 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 func startTestRetrieval(t *testing.T, h *xray.Handler) string {
 	t.Helper()
 
-	rec := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{"TraceIds": []string{"1-real-000000000001"}})
+	rec := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{
+		"TraceIds":  []string{"1-real-000000000001"},
+		"StartTime": float64(time.Now().Add(-time.Hour).Unix()),
+		"EndTime":   float64(time.Now().Add(time.Hour).Unix()),
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
