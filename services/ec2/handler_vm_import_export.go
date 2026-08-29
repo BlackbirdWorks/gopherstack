@@ -248,12 +248,14 @@ type instanceExportDetailsItem struct {
 	TargetEnvironment string `xml:"targetEnvironment,omitempty"`
 }
 
+// exportTaskItem matches types.ExportTask (ec2@v1.319.1 deserializers.go:100167):
+// the instance details wrap under "instanceExport", not "instanceExportDetails".
 type exportTaskItem struct {
 	Description           string                    `xml:"description,omitempty"`
 	ExportTaskID          string                    `xml:"exportTaskId,omitempty"`
 	State                 string                    `xml:"state,omitempty"`
 	StatusMessage         string                    `xml:"statusMessage,omitempty"`
-	InstanceExportDetails instanceExportDetailsItem `xml:"instanceExportDetails"`
+	InstanceExportDetails instanceExportDetailsItem `xml:"instanceExport"`
 	ExportToS3Task        exportToS3TaskItem        `xml:"exportToS3"`
 }
 

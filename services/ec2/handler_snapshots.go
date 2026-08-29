@@ -373,16 +373,32 @@ type listSnapshotsInRecycleBinResponse struct {
 	} `xml:"snapshotSet"`
 }
 
-type importSnapshotTaskItem struct {
-	ImportTaskID string `xml:"importTaskId"`
-	Description  string `xml:"description"`
-	Status       string `xml:"status"`
+// snapshotTaskDetailItem matches types.SnapshotTaskDetail, nested under
+// ImportSnapshotTask/ImportSnapshotOutput's "snapshotTaskDetail" element
+// (ec2@v1.319.1 deserializers.go:158042) -- status does NOT sit at the top
+// level of importSnapshotTaskItem/importSnapshotResponse.
+type snapshotTaskDetailItem struct {
+	Status      string `xml:"status,omitempty"`
+	SnapshotID  string `xml:"snapshotId,omitempty"`
+	Description string `xml:"description,omitempty"`
 }
 
+// importSnapshotTaskItem matches types.ImportSnapshotTask (ec2@v1.319.1
+// deserializers.go:109707).
+type importSnapshotTaskItem struct {
+	ImportTaskID       string                 `xml:"importTaskId"`
+	Description        string                 `xml:"description,omitempty"`
+	SnapshotTaskDetail snapshotTaskDetailItem `xml:"snapshotTaskDetail"`
+}
+
+// importSnapshotResponse matches ImportSnapshotOutput (ec2@v1.319.1
+// deserializers.go:215941, same description/snapshotTaskDetail nesting).
 type importSnapshotResponse struct {
-	XMLName      xml.Name `xml:"ImportSnapshotResponse"`
-	RequestID    string   `xml:"requestId"`
-	ImportTaskID string   `xml:"importTaskId"`
+	XMLName            xml.Name               `xml:"ImportSnapshotResponse"`
+	RequestID          string                 `xml:"requestId"`
+	ImportTaskID       string                 `xml:"importTaskId"`
+	Description        string                 `xml:"description,omitempty"`
+	SnapshotTaskDetail snapshotTaskDetailItem `xml:"snapshotTaskDetail"`
 }
 
 type describeImportSnapshotTasksResponse struct {
@@ -488,6 +504,12 @@ func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, erro
 	return &importSnapshotResponse{
 		RequestID:    reqID,
 		ImportTaskID: task.ImportTaskID,
+		Description:  task.Description,
+		SnapshotTaskDetail: snapshotTaskDetailItem{
+			Status:      task.Status,
+			SnapshotID:  task.SnapshotID,
+			Description: task.Description,
+		},
 	}, nil
 }
 
@@ -510,7 +532,11 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 			importSnapshotTaskItem{
 				ImportTaskID: t.ImportTaskID,
 				Description:  t.Description,
-				Status:       t.Status,
+				SnapshotTaskDetail: snapshotTaskDetailItem{
+					Status:      t.Status,
+					SnapshotID:  t.SnapshotID,
+					Description: t.Description,
+				},
 			},
 		)
 	}

@@ -97,9 +97,13 @@ type deleteEgressOnlyInternetGatewayResponse struct {
 	ReturnCode bool     `xml:"returnCode"`
 }
 
+// iamProfileSpec matches types.IamInstanceProfile (ec2@v1.319.1
+// deserializers.go:105766): the second member is "id", not "name" -- this
+// backend has no real IAM instance-profile ID, so it approximates with the
+// ARN's trailing segment, same as before this key fix.
 type iamProfileSpec struct {
-	ARN  string `xml:"arn"`
-	Name string `xml:"name"`
+	ARN string `xml:"arn"`
+	ID  string `xml:"id"`
 }
 
 type iamAssociationItem struct {
@@ -296,8 +300,8 @@ func iamAssocToItem(assoc *IamInstanceProfileAssociation) iamAssociationItem {
 		AssociationID: assoc.AssociationID,
 		InstanceID:    assoc.InstanceID,
 		IamInstanceProfile: iamProfileSpec{
-			ARN:  assoc.IamInstanceProfile,
-			Name: iamProfileName(assoc.IamInstanceProfile),
+			ARN: assoc.IamInstanceProfile,
+			ID:  iamProfileName(assoc.IamInstanceProfile),
 		},
 		State:     assoc.State,
 		Timestamp: assoc.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z"),

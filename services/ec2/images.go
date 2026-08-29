@@ -232,9 +232,15 @@ func (b *InMemoryBackend) ResetImageAttribute(imageID, attribute string) error {
 
 // InstanceImageMetadataItem holds image-related metadata for a single instance.
 type InstanceImageMetadataItem struct {
-	InstanceID string `json:"instanceID,omitempty"`
-	ImageID    string `json:"imageID,omitempty"`
-	ImageState string `json:"imageState,omitempty"`
+	LaunchTime       time.Time
+	InstanceID       string `json:"instanceID,omitempty"`
+	ImageID          string `json:"imageID,omitempty"`
+	ImageState       string `json:"imageState,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	InstanceType     string `json:"instanceType,omitempty"`
+	OwnerID          string `json:"ownerID,omitempty"`
+	StateName        string `json:"stateName,omitempty"`
+	StateCode        int    `json:"stateCode,omitempty"`
 }
 
 // DescribeInstanceImageMetadata returns image metadata for instances (or all).
@@ -259,9 +265,15 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 			imageState = stateDisabledImg
 		}
 		out = append(out, InstanceImageMetadataItem{
-			InstanceID: inst.ID,
-			ImageID:    inst.ImageID,
-			ImageState: imageState,
+			InstanceID:       inst.ID,
+			ImageID:          inst.ImageID,
+			ImageState:       imageState,
+			AvailabilityZone: inst.Placement.AvailabilityZone,
+			InstanceType:     inst.InstanceType,
+			OwnerID:          b.AccountID,
+			StateName:        inst.State.Name,
+			StateCode:        inst.State.Code,
+			LaunchTime:       inst.LaunchTime,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].InstanceID < out[j].InstanceID })

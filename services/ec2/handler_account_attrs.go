@@ -40,21 +40,39 @@ type describeIDFormatResponse struct {
 	} `xml:"statusSet"`
 }
 
+// describeAggregateIDFormatResponse wraps its list under statusSet
+// (deserializers.go:196919), not "statuses" -- the real client's
+// deserializer only matches "statusSet" and would otherwise decode an empty
+// Statuses slice.
 type describeAggregateIDFormatResponse struct {
 	XMLName   xml.Name `xml:"DescribeAggregateIdFormatResponse"`
 	RequestID string   `xml:"requestId"`
 	Statuses  struct {
 		Items []idFormatItem `xml:"item"`
-	} `xml:"statuses"`
+	} `xml:"statusSet"`
 	UseLongIDsAggregated bool `xml:"useLongIdsAggregated"`
 }
 
-type describePrincipalIDFormatResponse struct {
-	XMLName    xml.Name `xml:"DescribePrincipalIdFormatResponse"`
-	RequestID  string   `xml:"requestId"`
-	Principals struct {
+// principalIDFormatItem matches types.PrincipalIdFormat (ec2@v1.319.1
+// deserializers.go:143696): a principal ARN plus its per-resource-type ID
+// format statuses, not a flat idFormatItem list.
+type principalIDFormatItem struct {
+	Arn       string `xml:"arn,omitempty"`
+	StatusSet struct {
 		Items []idFormatItem `xml:"item"`
-	} `xml:"principals"`
+	} `xml:"statusSet"`
+}
+
+// describePrincipalIDFormatResponse wraps its list under principalSet
+// (deserializers.go:203012), not "principals" -- the real client's
+// deserializer only matches "principalSet" and would otherwise decode an
+// empty Principals slice.
+type describePrincipalIDFormatResponse struct {
+	XMLName      xml.Name `xml:"DescribePrincipalIdFormatResponse"`
+	RequestID    string   `xml:"requestId"`
+	PrincipalSet struct {
+		Items []principalIDFormatItem `xml:"item"`
+	} `xml:"principalSet"`
 }
 
 // instanceEventNotifAttrsResponse is shared by Describe/Register/Deregister
@@ -183,12 +201,14 @@ func (h *Handler) handleDescribePrincipalIDFormat(vals url.Values, reqID string)
 	principalARN := vals.Get("PrincipalArn")
 	items := h.Backend.DescribePrincipalIDFormat(principalARN)
 	resp := &describePrincipalIDFormatResponse{RequestID: reqID}
+	principal := principalIDFormatItem{Arn: principalARN}
 	for _, item := range items {
-		resp.Principals.Items = append(resp.Principals.Items, idFormatItem{
+		principal.StatusSet.Items = append(principal.StatusSet.Items, idFormatItem{
 			Resource:   item.Resource,
 			UseLongIDs: item.UseLongIDs,
 		})
 	}
+	resp.PrincipalSet.Items = append(resp.PrincipalSet.Items, principal)
 
 	return resp, nil
 }
