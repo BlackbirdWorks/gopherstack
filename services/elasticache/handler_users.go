@@ -225,10 +225,12 @@ func (h *Handler) deleteUser(ctx context.Context, c *echo.Context, form url.Valu
 
 func (h *Handler) describeUsers(ctx context.Context, c *echo.Context, form url.Values) error {
 	userID := form.Get("UserId")
+	engine := form.Get("Engine")
+	filterUserIDs := parseUserIDFilters(form)
 
 	p, err := describeListChecked(c, form,
 		func(marker string, maxRecords int) (page.Page[User], error) {
-			return h.Backend.DescribeUsers(ctx, userID, marker, maxRecords)
+			return h.Backend.DescribeUsers(ctx, userID, marker, engine, maxRecords, filterUserIDs)
 		},
 		ErrUserNotFound, http.StatusNotFound, "UserNotFound", "User not found")
 	if err != nil {

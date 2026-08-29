@@ -312,8 +312,10 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 			maxItems = n
 		}
 	}
+	delegationSetID := normaliseDelegationSetID(q.Get("delegationsetid"))
+	hostedZoneType := q.Get("hostedzonetype")
 
-	p, err := h.Backend.ListHostedZones(marker, maxItems)
+	p, err := h.Backend.ListHostedZones(marker, maxItems, delegationSetID, hostedZoneType)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -451,7 +453,7 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
 	}
 
-	zones, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion)
+	zones, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion, maxItems)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}

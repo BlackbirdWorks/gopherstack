@@ -85,7 +85,7 @@ func TestBackend_DescribeUsers_All(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	p, err := b.DescribeUsers(context.Background(), "", "", 0)
+	p, err := b.DescribeUsers(context.Background(), "", "", "", 0, nil)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 3)
 }
@@ -100,7 +100,7 @@ func TestBackend_DescribeUsers_FilterByID(t *testing.T) {
 	_, err = b.CreateUser(context.Background(), "other-user", "other-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	p, err := b.DescribeUsers(context.Background(), "filter-user", "", 0)
+	p, err := b.DescribeUsers(context.Background(), "filter-user", "", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "filter-user", p.Data[0].UserID)

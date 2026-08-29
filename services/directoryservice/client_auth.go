@@ -66,8 +66,8 @@ func (b *InMemoryBackend) DisableClientAuthentication(ctx context.Context, direc
 func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 	ctx context.Context,
 	directoryID, authType string,
-	limit int32, //nolint:revive // existing issue.
-	nextToken string, //nolint:revive // existing issue.
+	limit int32,
+	nextToken string,
 ) ([]ClientAuthInfo, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
-	var result []ClientAuthInfo
+	var all []ClientAuthInfo
 	for _, s := range b.clientAuthSettingsInRegion(region) {
 		if s.DirectoryID != directoryID {
 			continue
@@ -86,14 +86,38 @@ func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 		if authType != "" && s.AuthType != authType {
 			continue
 		}
-		result = append(result, ClientAuthInfo{
+		all = append(all, ClientAuthInfo{
 			DirectoryID:         s.DirectoryID,
 			AuthType:            s.AuthType,
 			Status:              s.Status,
 			LastUpdatedDateTime: s.LastUpdatedDateTime,
 		})
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].AuthType < result[j].AuthType })
+	sort.Slice(all, func(i, j int) bool { return all[i].AuthType < all[j].AuthType })
 
-	return result, "", nil
+	start := 0
+	if nextToken != "" {
+		for i, s := range all {
+			if s.AuthType == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	pageSize := int(limit)
+	if pageSize <= 0 || pageSize > 1000 {
+		pageSize = 1000
+	}
+
+	end := min(start+pageSize, len(all))
+	result := all[start:end]
+
+	var outToken string
+	if end < len(all) {
+		outToken = all[end].AuthType
+	}
+
+	return result, outToken, nil
 }

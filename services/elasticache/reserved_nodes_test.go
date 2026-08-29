@@ -15,7 +15,7 @@ func TestBackend_DescribeReservedCacheNodes_Empty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	p, err := b.DescribeReservedCacheNodes(context.Background(), "", "", "", "", 0)
+	p, err := b.DescribeReservedCacheNodes(context.Background(), "", "", "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -25,7 +25,7 @@ func TestBackend_DescribeReservedCacheNodesOfferings_NonEmpty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	p, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", 0)
+	p, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 1)
 }
@@ -35,7 +35,7 @@ func TestBackend_PurchaseReservedCacheNodesOffering(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	offerings, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", 0)
+	offerings, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", "", "", 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, offerings.Data)
 

@@ -18,7 +18,7 @@ type StorageBackend interface {
 	) (*HostedZone, error)
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
-	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+	ListHostedZones(marker string, maxItems int, delegationSetID, hostedZoneType string) (page.Page[HostedZone], error)
 	ListHostedZonesByName(dnsName, zoneID string, maxItems int) ([]HostedZone, string, string, error)
 	GetHostedZoneCount() int
 	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
@@ -54,7 +54,7 @@ type StorageBackend interface {
 	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
 	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
 	ListVPCAssociations(zoneID string) ([]vpcAssociation, error)
-	ListHostedZonesByVPC(vpcID, vpcRegion string) ([]HostedZone, error)
+	ListHostedZonesByVPC(vpcID, vpcRegion string, maxItems int) ([]HostedZone, error)
 	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
 	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
 	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)

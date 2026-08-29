@@ -275,9 +275,13 @@ func (b *InMemoryBackend) GetHostedZone(zoneID string) (*HostedZone, error) {
 }
 
 // ListHostedZones returns hosted zones sorted by name, with optional pagination.
+// delegationSetID restricts results to zones associated with that reusable
+// delegation set; hostedZoneType == "PrivateHostedZone" restricts results to
+// private zones (route53@v1.65.6 api_op_ListHostedZones.go).
 func (b *InMemoryBackend) ListHostedZones(
 	marker string,
 	maxItems int,
+	delegationSetID, hostedZoneType string,
 ) (page.Page[HostedZone], error) {
 	b.mu.RLock("ListHostedZones")
 	defer b.mu.RUnlock()
@@ -285,6 +289,12 @@ func (b *InMemoryBackend) ListHostedZones(
 	all := b.zones.All()
 	result := make([]HostedZone, 0, len(all))
 	for _, zd := range all {
+		if delegationSetID != "" && zd.zone.DelegationSetID != delegationSetID {
+			continue
+		}
+		if hostedZoneType == "PrivateHostedZone" && !zd.zone.PrivateZone {
+			continue
+		}
 		cp := zd.zone
 		cp.ResourceRecordSetCount = len(zd.records)
 		result = append(result, cp)

@@ -55,6 +55,18 @@ leaks: {status: clean, note: "Reset()/Snapshot()/Restore() all close+recreate ta
 
 ## Notes
 
+### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
+
+Measured all 6 collection-returning operations (`DescribeAccountLimits`,
+`DescribeInstanceHealth`, `DescribeLoadBalancerPolicies`,
+`DescribeLoadBalancerPolicyTypes`, `DescribeLoadBalancers`, `DescribeTags`; excluded
+`DescribeLoadBalancerAttributes`, which returns a single struct, not a collection) and
+every constraining parameter each declares in its own `api_op_<Op>.go` Input struct.
+Genuinely clean this pass: every declared filter (`LoadBalancerNames`, `Instances`,
+`PolicyNames`, `PolicyTypeNames`) and both pagination params (`Marker`/`PageSize` on
+`DescribeAccountLimits`/`DescribeLoadBalancers`) were already read and correctly applied,
+including truncation and cursor round-trip. No fixes made this pass; no code changed.
+
 Protocol: query/xml (single POST, `Action=` form param, `Version=2012-06-01`). Root
 namespace `http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/`.
 

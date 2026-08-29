@@ -195,8 +195,10 @@ func (b *InMemoryBackend) ListVPCAssociationAuthorizations(
 	return result, nil
 }
 
-// ListHostedZonesByVPC returns all private hosted zones that have a VPC association with the given VPC.
-func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string) ([]HostedZone, error) {
+// ListHostedZonesByVPC returns all private hosted zones that have a VPC
+// association with the given VPC, truncated to maxItems
+// (route53@v1.65.6 api_op_ListHostedZonesByVPC.go).
+func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string, maxItems int) ([]HostedZone, error) {
 	b.mu.RLock("ListHostedZonesByVPC")
 	defer b.mu.RUnlock()
 
@@ -217,6 +219,10 @@ func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string) ([]Hoste
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+
+	if maxItems > 0 && len(result) > maxItems {
+		result = result[:maxItems]
+	}
 
 	return result, nil
 }

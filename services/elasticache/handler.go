@@ -441,6 +441,25 @@ func parseRepeatedField(form url.Values, prefix string) []string {
 	return items
 }
 
+// parseUserIDFilters extracts Values from DescribeUsersInput.Filters entries
+// named "UserId" -- the only documented Filters[].Name (elasticache@v1.56.4
+// api_op_DescribeUsers.go: "The property being filtered. For example,
+// UserId.").
+func parseUserIDFilters(form url.Values) []string {
+	var ids []string
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		if name == "" {
+			break
+		}
+		if name == "UserId" {
+			ids = append(ids, parseRepeatedField(form, fmt.Sprintf("Filters.member.%d.Values.member", i))...)
+		}
+	}
+
+	return ids
+}
+
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	type resetter interface{ Reset() }

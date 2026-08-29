@@ -152,17 +152,36 @@ func (b *InMemoryBackend) DeleteUser(ctx context.Context, userID string) (*User,
 }
 
 // DescribeUsers returns a paginated list of users, optionally filtered by userID.
+// DescribeUsers filters by engine and, when the request carries a Filters
+// entry named "UserId" (elasticache@v1.56.4 api_op_DescribeUsers.go -- the
+// only documented Filters[].Name), by that filter's Values.
 func (b *InMemoryBackend) DescribeUsers(
 	ctx context.Context,
-	userID, marker string,
+	userID, marker, engine string,
 	maxRecords int,
+	filterUserIDs []string,
 ) (page.Page[User], error) {
 	b.mu.RLock("DescribeUsers")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	p, err := describePaged(b.usersStoreRO(region), userID, ErrUserNotFound, nil,
+	idFilter := make(map[string]bool, len(filterUserIDs))
+	for _, id := range filterUserIDs {
+		idFilter[id] = true
+	}
+
+	p, err := describePaged(b.usersStoreRO(region), userID, ErrUserNotFound,
+		func(u User) bool {
+			if engine != "" && u.Engine != engine {
+				return false
+			}
+			if len(idFilter) > 0 && !idFilter[u.UserID] {
+				return false
+			}
+
+			return true
+		},
 		func(u User) string { return u.UserID }, marker, maxRecords)
 	if err != nil {
 		return p, err

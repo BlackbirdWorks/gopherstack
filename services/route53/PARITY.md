@@ -24,7 +24,7 @@ ops:
   CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone; fixed this pass: DelegationSetId was parsed off the wire and then silently dropped — every zone got the same hardcoded default name servers regardless of what was requested. Now accepts a reusable delegation set (bare or /delegationset/-prefixed ID), validates it exists (NoSuchDelegationSet), and both the CreateHostedZone/GetHostedZone DelegationSet response element and the zone's auto-seeded NS/SOA records use the linked set's real name servers"}
   DeleteHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "DelegationSet response element now reflects the zone's actual linked reusable delegation set (Id + NameServers) instead of always the fixed default pair — see CreateHostedZone"}
-  ListHostedZones: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — Marker, a required output member (api_op_ListHostedZones.go: 'the value that you specified for the marker parameter in the request that produced the current response'), was never echoed back; the response struct only carried the optional NextMarker (next-page cursor). Prior wire: ok was false — see 2026-08-14 pass"}
+  ListHostedZones: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — Marker, a required output member (api_op_ListHostedZones.go: 'the value that you specified for the marker parameter in the request that produced the current response'), was never echoed back; the response struct only carried the optional NextMarker (next-page cursor). Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-29 list-filter-params pass) — DelegationSetId and HostedZoneType, both real query-bound filters (api_op_ListHostedZones.go), were never read by the handler at all; every call returned every zone regardless. Now filters by the zone's stored DelegationSetID/PrivateZone"}
   ListHostedZonesByName: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHostedZoneComment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZoneCount: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -53,7 +53,7 @@ ops:
   AssociateVPCWithHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: re-associating a VPC already associated with the same zone now returns success (idempotent no-op) instead of a fabricated InvalidInput error. AWS's documented error list has no duplicate-association error, and the one association-conflict error it does document (ConflictingDomainExists) is explicitly scoped to a *different* hosted zone with the same name, ruling it out for this case — confirmed against the AssociateVPCWithHostedZone API reference's Errors section"}
   DisassociateVPCFromHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: VPC not associated now returns VPCAssociationNotFound (404) instead of generic InvalidInput; LastVPCAssociation guard already correct"}
   ListVPCAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHostedZonesByVPC: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — MaxItems, a required output member (api_op_ListHostedZonesByVPC.go:36-40), was absent from the response struct entirely (not merely unset); the SDK always decoded a nil *int32. Handler now parses the optional maxitems query param (default 100, maxHZByVPC) and echoes it. Prior wire: ok was false — see 2026-08-14 pass"}
+  ListHostedZonesByVPC: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — MaxItems, a required output member (api_op_ListHostedZonesByVPC.go:36-40), was absent from the response struct entirely (not merely unset); the SDK always decoded a nil *int32. Handler now parses the optional maxitems query param (default 100, maxHZByVPC) and echoes it. Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-29 list-filter-params pass) — MaxItems was parsed and echoed in the response but never actually applied: the backend call dropped it entirely, so the constraint was decorative only. Now truncates the result to maxItems"}
   CreateVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVPCAssociationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -96,10 +96,25 @@ families:
 gaps: []  # both tracked gaps (gopherstack-8l0.5, gopherstack-8l0.3) closed this pass, see ops table
 deferred:
   - selectWeighted/selectLatency/selectGeo/selectFailover/multiValueAnswer were re-checked against AWS's *public* routing-policy documentation this pass (see routing_policies family note) and found correct, but not re-derived against AWS's non-public source — Route 53's exact selection algorithm (esp. latency-routing tie-breaks and geoproximity's precise bias geometry) is not fully published, so "matches documented behavior" is the strongest verification achievable without live-AWS access
+  - "2026-08-29 list-filter-params pass: pagination is hardcoded/never-truncating on 6 list ops — ListReusableDelegationSets (Marker/MaxItems never read, backend takes none), ListGeoLocations (Start*Code + MaxItems never read; static 15-row table so low real-world impact), ListCidrCollections/ListCidrBlocks/ListCidrLocations (MaxResults/NextToken never read, always IsTruncated=false), and the ListTrafficPolic{y,yInstance}* family — ListTrafficPolicies, ListTrafficPolicyVersions, ListTrafficPolicyInstances(ByHostedZone|ByPolicy) — which all hardcode MaxItems:\"100\" in the response and never truncate or apply their Marker params. Recorded as deferred rather than fixed, matching the cloudfront pass's precedent: real filter/parameter bugs (ListHostedZones) took priority over a page-size sweep across 6 ops, which is a larger piece of work than this pass. ListVPCAssociationAuthorizations similarly ignores MaxResults/NextToken but VPC-per-zone authorization counts are AWS-limited to a handful, so impact is low."
 leaks: {status: clean, note: "no goroutines, tickers, or background timers anywhere in services/route53 (grep for 'go func|time.After|time.Sleep|Ticker' returns nothing) — all ops are synchronous request/response; Reset()/DeleteHostedZone/DeleteHealthCheck correctly cascade-delete tags/KSKs/VPC-assocs/query-logging-configs so no orphaned map entries accumulate under normal use. b.tags itself was NOT wired into Snapshot/Restore before a prior pass (fixed then) — that was a persistence gap, not a leak, since Reset() already covered it. This pass's new HostedZone.DelegationSetSourceUsed field is backend-internal (not a new map/table) and rides along with the existing zoneDataSnapshot embedding of HostedZone, confirmed to survive Snapshot/Restore by TestSnapshotRestore_DelegationSetSourceUsed — no new lock paths, no new leak surface."}
 ---
 
 ## Notes
+
+### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
+
+Measured all 21 collection-returning operations (verified by SDK output shape, not
+verb: the 17 `List*` ops, plus `ListTagsForResources`, `GetHealthCheckStatus`, and
+`GetCheckerIpRanges`, which return arrays despite `Get*` names) and every constraining
+parameter each declares in its own `api_op_<Op>.go` Input struct. Found and fixed 2
+real bugs on `ListHostedZones`/`ListHostedZonesByVPC` (see ops table). `ListHealthChecks`,
+`ListHostedZonesByName`, `ListResourceRecordSets`, `ListQueryLoggingConfigs`, and
+`ListTagsForResources` were re-verified and already honour every declared filter/marker
+correctly. 6 further list ops have never-truncating pagination — see `deferred` above,
+same shape as cloudfront's prior-pass finding, not fixed here by the same "larger piece
+of work" reasoning. No parameter-parsed-then-discarded-to-`_` cases and no handler that
+skips reading its request body were found in this service this pass.
 
 ### 2026-08-29 (error-path sweep: what a typed client sees on failure)
 
