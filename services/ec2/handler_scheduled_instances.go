@@ -179,9 +179,7 @@ type runScheduledInstancesResponse struct {
 	Xmlns         string   `xml:"xmlns,attr"`
 	RequestID     string   `xml:"requestId"`
 	InstanceIDSet struct {
-		Items []struct {
-			InstanceID string `xml:"instanceId,omitempty"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"instanceIdSet"`
 }
 
@@ -264,11 +262,7 @@ func (h *Handler) handleRunScheduledInstances(vals url.Values, reqID string) (an
 	}
 
 	resp := &runScheduledInstancesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
-	for _, id := range ids {
-		resp.InstanceIDSet.Items = append(resp.InstanceIDSet.Items, struct {
-			InstanceID string `xml:"instanceId,omitempty"`
-		}{InstanceID: id})
-	}
+	resp.InstanceIDSet.Items = ids
 
 	return resp, nil
 }

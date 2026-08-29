@@ -60,7 +60,7 @@ func TestHandler_ScheduledInstances_DescribeAvailabilityPurchaseRun(t *testing.T
 	require.Equal(t, http.StatusOK, runRec.Code)
 	runBody := runRec.Body.String()
 	assert.Contains(t, runBody, "<RunScheduledInstancesResponse")
-	assert.Contains(t, runBody, "<instanceId>i-")
+	assert.Contains(t, runBody, "<instanceIdSet><item>i-")
 }
 
 func TestHandler_ScheduledInstances_PurchaseInvalidTokenFails(t *testing.T) {

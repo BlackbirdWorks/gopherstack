@@ -80,9 +80,7 @@ type instanceTopologyItem struct {
 	AvailabilityZone string `xml:"availabilityZone"`
 	ZoneID           string `xml:"zoneId"`
 	NetworkNodeSet   struct {
-		Items []struct {
-			Value string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"networkNodeSet"`
 }
 
@@ -285,6 +283,7 @@ func (h *Handler) handleDescribeInstanceTopology(vals url.Values, reqID string) 
 			AvailabilityZone: item.AvailabilityZone,
 			ZoneID:           item.ZoneID,
 		}
+		ti.NetworkNodeSet.Items = item.NetworkNodes
 		resp.InstanceSet.Items = append(resp.InstanceSet.Items, ti)
 	}
 

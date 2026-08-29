@@ -51,9 +51,7 @@ type assignIpv6Response struct {
 	RequestID             string   `xml:"requestId"`
 	NetworkInterfaceID    string   `xml:"networkInterfaceId"`
 	AssignedIpv6Addresses struct {
-		Items []struct {
-			Ipv6Address string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"assignedIpv6Addresses"`
 }
 
@@ -62,9 +60,7 @@ type unassignIpv6Response struct {
 	RequestID               string   `xml:"requestId"`
 	NetworkInterfaceID      string   `xml:"networkInterfaceId"`
 	UnassignedIpv6Addresses struct {
-		Items []struct {
-			Ipv6Address string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"unassignedIpv6Addresses"`
 }
 
@@ -194,11 +190,7 @@ func (h *Handler) handleAssignIpv6Addresses(vals url.Values, reqID string) (any,
 	}
 
 	resp := &assignIpv6Response{RequestID: reqID, NetworkInterfaceID: niID}
-	for _, addr := range assigned {
-		resp.AssignedIpv6Addresses.Items = append(resp.AssignedIpv6Addresses.Items, struct {
-			Ipv6Address string `xml:"item"`
-		}{Ipv6Address: addr})
-	}
+	resp.AssignedIpv6Addresses.Items = assigned
 
 	return resp, nil
 }
@@ -212,11 +204,7 @@ func (h *Handler) handleUnassignIpv6Addresses(vals url.Values, reqID string) (an
 	}
 
 	resp := &unassignIpv6Response{RequestID: reqID, NetworkInterfaceID: niID}
-	for _, addr := range addrs {
-		resp.UnassignedIpv6Addresses.Items = append(resp.UnassignedIpv6Addresses.Items, struct {
-			Ipv6Address string `xml:"item"`
-		}{Ipv6Address: addr})
-	}
+	resp.UnassignedIpv6Addresses.Items = addrs
 
 	return resp, nil
 }
