@@ -505,3 +505,19 @@ Proof: `TestSNSPagination_NegativeToken` (`pagination_test.go`) confirmed panick
 passes now. Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race
 -count=1 ./services/sns/...`, `golangci-lint run ./services/sns/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+**2026-08-30 (wrapper-key-sweep cross-call pagination-reproducibility audit)**: audited every
+`sns` listing (`ListTopics`/`ListTopicsInRegion`, `ListPlatformApplications`,
+`ListEndpointsByPlatformApplication`, `ListSubscriptions`/`ListSubscriptionsByTopic`,
+`ListOriginationNumbers`, `ListSMSSandboxPhoneNumbers`, `ListPhoneNumbersOptedOut`) for
+whether the full sorted order is reproducible between two calls with nothing changed in
+between — the class described in `.claude/memories/parity-principles.md`'s wrapper-key
+sweep: a `store.Table.All()`/map walk feeding a sort whose key can tie drops or duplicates a
+record at a page boundary. Every one of these sorts by its own `store.Table` key (TopicArn,
+PlatformApplicationArn, EndpointArn, SubscriptionArn, PhoneNumber), or, for
+`ListPhoneNumbersOptedOut`, by the phone-number string that is itself the source map's own
+key — so no tie is possible regardless of the underlying walk order. `ListOriginationNumbers`
+sorts by `PhoneNumber` (not obviously unique) but its source is a direct per-region slice
+(`b.originationNumbers[b.region]`), not a map walk, so it is stable across calls independent
+of any tie. No pagination-reproducibility bug found; nothing changed. This confirms/extends
+(does not contradict) the negative-token pass above.

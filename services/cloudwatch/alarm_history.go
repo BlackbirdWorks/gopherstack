@@ -53,7 +53,11 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Timestamp.Before(result[j].Timestamp)
+		if !result[i].Timestamp.Equal(result[j].Timestamp) {
+			return result[i].Timestamp.Before(result[j].Timestamp)
+		}
+
+		return result[i].seq < result[j].seq
 	})
 
 	return page.New(result, nextToken, maxRecords, cwDefaultAlarmHistoryLimit), nil
@@ -62,6 +66,7 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 // appendHistory adds a history item. Caller must hold b.mu (write lock).
 // alarmTypeName should be "MetricAlarm" or "CompositeAlarm" to populate the AlarmType field.
 func (b *InMemoryBackend) appendHistory(alarmName, alarmTypeName, itemType, summary, data string) {
+	b.alarmHistorySeq++
 	item := AlarmHistoryItem{
 		Timestamp:       time.Now(),
 		AlarmName:       alarmName,
@@ -69,12 +74,42 @@ func (b *InMemoryBackend) appendHistory(alarmName, alarmTypeName, itemType, summ
 		HistoryItemType: itemType,
 		HistorySummary:  summary,
 		HistoryData:     data,
+		seq:             b.alarmHistorySeq,
 	}
 	b.alarmHistory[alarmName] = append(b.alarmHistory[alarmName], item)
 	// Cap history to avoid unbounded growth.
 	if h := b.alarmHistory[alarmName]; len(h) > cwMaxAlarmHistory {
 		b.alarmHistory[alarmName] = h[len(h)-cwMaxAlarmHistory:]
 	}
+}
+
+// reindexAlarmHistorySeqLocked assigns fresh, deterministic seq values to
+// every restored AlarmHistoryItem. seq is unexported and therefore not part
+// of a persisted snapshot, so every item comes back from Restore with seq
+// zero; without this, restored items sharing a Timestamp would tie again.
+// Alarm names are visited in sorted order and each alarm's own item slice
+// keeps its stored (insertion) order, so the result is reproducible from the
+// same snapshot bytes regardless of Go's map iteration order.
+// Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) reindexAlarmHistorySeqLocked() {
+	names := make([]string, 0, len(b.alarmHistory))
+	for name := range b.alarmHistory {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	var seq uint64
+
+	for _, name := range names {
+		items := b.alarmHistory[name]
+		for i := range items {
+			seq++
+			items[i].seq = seq
+		}
+	}
+
+	b.alarmHistorySeq = seq
 }
 
 // stateChangeHistoryData builds a JSON string for a state-change history item.

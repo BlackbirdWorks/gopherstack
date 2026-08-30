@@ -473,3 +473,31 @@ of inventing a rule for it. Worth a follow-up if the cursor's shape is ever revi
 Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/dynamodb/...` (pass),
 `golangci-lint run ./services/dynamodb/...` (0 issues).
+
+## 2026-08-30 cross-call pagination-reproducibility audit (wrapper-key-sweep campaign)
+
+Re-audited every `List`/`Query`/`Scan` op for the class this campaign's brief distinguishes
+from the arithmetic sweep above: is the *complete sorted order* reproducible between two
+calls with nothing changed in between (a `store.Table.All()`/map walk feeding a sort whose
+key can tie drops or duplicates a record at a page boundary), not just whether the pagination
+arithmetic/limit handling is correct. `ListTables` (`sort.Strings` on table names, globally
+unique), `ListStreams` (sorted by stream ARN, unique per table), `ListImports`/`ListExports`
+(sorted by ImportArn/ExportArn, unique), `ListGlobalTables`/`ListContributorInsights` (sorted
+by table/global-table name, unique), and `ListBackups` (sorted by `(CreationDateTime,
+BackupArn)`, ARN tiebreak already present — see the "Recorded, not fixed" entry above, which
+is about a *different* class: cursor resumption after a deleted backup, not cross-call
+ordering) all sort by a field that is the same table's own unique key, so no walk-order tie
+is reachable regardless of `store.Table.All()`'s unspecified iteration order. `Query`/`Scan`
+draw their candidate items from `table.Items` — a plain Go slice under `table.mu`, not a map
+— so their traversal order is already stable across calls with no writes in between,
+independent of any tie in the requested sort/index key (confirmed for the GSI/LSI case too,
+where duplicate `(index PK, index SK)` pairs are legitimately possible in real DynamoDB: the
+existing "base-PK fusion" `LastEvaluatedKey` handling, already proven correct per the
+`query_scan` row above, sits on top of that same stable slice source). `ListTagsOfResource`
+is correctly non-paginated by design (real op has no `MaxResults`/page-size member) and sorts
+by the tag map's own key via `collections.SortedKeys`. No pagination-reproducibility bug
+found in `services/dynamodb`; nothing changed. This confirms the brief's own note that this
+service's one known-bad cursor (`ListBackups`' ARN-only `ExclusiveStartBackupArn`, unable to
+reconstruct a deleted backup's `CreationDateTime` half) is a distinct, already-recorded,
+deliberately-unfixed gap — not an instance of the cross-call reproducibility class audited
+here.

@@ -101,7 +101,11 @@ func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_, filterStatus st
 		result = append(result, &cp)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedDate.After(result[j].CreatedDate)
+		if !result[i].CreatedDate.Equal(result[j].CreatedDate) {
+			return result[i].CreatedDate.After(result[j].CreatedDate)
+		}
+
+		return result[i].RequestID < result[j].RequestID
 	})
 
 	return result
@@ -229,7 +233,11 @@ func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_, filterStatus st
 		result = append(result, &cp)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedDate.After(result[j].CreatedDate)
+		if !result[i].CreatedDate.Equal(result[j].CreatedDate) {
+			return result[i].CreatedDate.After(result[j].CreatedDate)
+		}
+
+		return result[i].RequestID < result[j].RequestID
 	})
 
 	return result

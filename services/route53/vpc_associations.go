@@ -224,7 +224,13 @@ func (b *InMemoryBackend) ListHostedZonesByVPC(
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].ID < result[j].ID
+		}
+
+		return result[i].Name < result[j].Name
+	})
 
 	return page.New(result, token, maxItems, route53DefaultMaxItems), nil
 }
