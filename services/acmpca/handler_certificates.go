@@ -135,10 +135,10 @@ type revokeCertificateOutput struct{}
 func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 	var input issueCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArgs
 	}
 
-	csrPEM, err := decodeBase64Field(input.Csr, "Csr")
+	csrPEM, err := decodeBase64Field(input.Csr, "Csr", ErrMalformedCSR)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func resolveValidityDays(v validityInput) (int, error) {
 		return days, nil
 	default:
 		return 0, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, YEARS, or END_DATE)",
-			ErrInvalidParameter, v.Type)
+			ErrInvalidArgs, v.Type)
 	}
 }
 
@@ -211,7 +211,7 @@ func resolveValidityDays(v validityInput) (int, error) {
 // always expressed using the ABSOLUTE Validity type (Unix epoch seconds).
 func resolveValidityAbsoluteTime(v validityInput) (time.Time, error) {
 	if v.Type != "ABSOLUTE" && v.Type != "" {
-		return time.Time{}, fmt.Errorf("%w: ValidityNotBefore.Type must be ABSOLUTE", ErrInvalidParameter)
+		return time.Time{}, fmt.Errorf("%w: ValidityNotBefore.Type must be ABSOLUTE", ErrInvalidArgs)
 	}
 
 	return time.Unix(v.Value, 0).UTC(), nil
@@ -219,7 +219,7 @@ func resolveValidityAbsoluteTime(v validityInput) (time.Time, error) {
 
 // decodeAPIPassthrough converts the wire APIPassthrough into the backend's
 // APIPassthrough model, rejecting the sub-fields that are not implemented
-// (see the wire struct doc comments above) with a clear InvalidParameterException
+// (see the wire struct doc comments above) with a clear InvalidArgsException
 // instead of silently dropping them.
 func decodeAPIPassthrough(w *apiPassthroughWire) (*APIPassthrough, error) {
 	ap := &APIPassthrough{}
@@ -250,7 +250,7 @@ func decodeASN1Subject(w *asn1SubjectWire) (*APIPassthroughSubject, error) {
 		w.Pseudonym != "" || w.Surname != "" || w.Title != "" || len(w.CustomAttributes) > 0 {
 		return nil, fmt.Errorf(
 			"%w: APIPassthrough.Subject.{DistinguishedNameQualifier,GenerationQualifier,Initials,"+
-				"Pseudonym,Surname,Title,CustomAttributes} are not supported", ErrInvalidParameter,
+				"Pseudonym,Surname,Title,CustomAttributes} are not supported", ErrInvalidArgs,
 		)
 	}
 
@@ -268,7 +268,7 @@ func decodeASN1Subject(w *asn1SubjectWire) (*APIPassthroughSubject, error) {
 func decodeExtensions(w *extensionsWire) (*APIPassthroughExtensions, error) {
 	if len(w.CertificatePolicies) > 0 {
 		return nil, fmt.Errorf(
-			"%w: APIPassthrough.Extensions.CertificatePolicies is not supported", ErrInvalidParameter,
+			"%w: APIPassthrough.Extensions.CertificatePolicies is not supported", ErrInvalidArgs,
 		)
 	}
 
@@ -334,7 +334,7 @@ func decodeGeneralName(gn generalNameWire) (APIPassthroughSAN, error) {
 		gn.UniformResourceIdentifier != "" || gn.RegisteredID != "" {
 		return APIPassthroughSAN{}, fmt.Errorf(
 			"%w: SubjectAlternativeNames.{OtherName,DirectoryName,EdiPartyName,"+
-				"UniformResourceIdentifier,RegisteredId} are not supported", ErrInvalidParameter,
+				"UniformResourceIdentifier,RegisteredId} are not supported", ErrInvalidArgs,
 		)
 	}
 
@@ -348,7 +348,7 @@ func decodeGeneralName(gn generalNameWire) (APIPassthroughSAN, error) {
 func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	cert, err := h.Backend.GetCertificate(ctx, input.CertificateAuthorityArn, input.CertificateArn)
@@ -373,7 +373,7 @@ func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 func (h *Handler) jsonRevokeCert(ctx context.Context, body []byte) (any, error) {
 	var input revokeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.RevokeCertificate(

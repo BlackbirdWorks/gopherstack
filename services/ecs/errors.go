@@ -20,8 +20,14 @@ var (
 	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
 )
 
+// errServiceDeploymentAlreadyStopped is returned by StopServiceDeployment when
+// the deployment is already STOPPED. ecs models no "AlreadyStopped" exception
+// (absent from ecs@v1.90.0/types/errors.go and from
+// awsAwsjson11_deserializeOpErrorStopServiceDeployment's switch) --
+// ConflictException ("conflict in the current state of the resource") is the
+// code that switch actually models for this condition (gopherstack-101r).
 var errServiceDeploymentAlreadyStopped = awserr.New(
-	"ServiceDeploymentAlreadyStoppedException", awserr.ErrInvalidParameter,
+	"ConflictException", awserr.ErrInvalidParameter,
 )
 
 // errNoLifecycleHook is returned by ContinueServiceDeployment: this backend

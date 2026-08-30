@@ -127,7 +127,7 @@ func (h *Handler) GetTagsForTest(resourceID string) []map[string]string {
 func (h *Handler) jsonTagCA(ctx context.Context, body []byte) (any, error) {
 	var input tagCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {
@@ -152,7 +152,7 @@ func (h *Handler) jsonTagCA(ctx context.Context, body []byte) (any, error) {
 func (h *Handler) jsonUntagCA(ctx context.Context, body []byte) (any, error) {
 	var input untagCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {
@@ -172,7 +172,7 @@ func (h *Handler) jsonUntagCA(ctx context.Context, body []byte) (any, error) {
 func (h *Handler) jsonListTags(ctx context.Context, body []byte) (any, error) {
 	var input listTagsInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {

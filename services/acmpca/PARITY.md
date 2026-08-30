@@ -14,14 +14,14 @@ overall: A            # wrapper-key/nested-shape re-audit this pass: zero new wi
 ops:
   CreateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "ROOT auto-signs+activates; SUBORDINATE -> PENDING_CERTIFICATE. FIXED THIS PASS: IdempotencyToken now deduplicated (5-min window); KeyStorageSecurityStandard/UsageMode/RevocationConfiguration now accepted, validated, stored, and echoed (previously entirely absent from the model -- a gap not listed in the prior manifest, found via full field-diff)."}
   DescribeCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "reports RestorableUntil, LastStateChangeAt (new field, fixed this pass), KeyStorageSecurityStandard, UsageMode, RevocationConfiguration (omitted entirely when unconfigured, matching a nil *types.RevocationConfiguration). A CA past its RestorableUntil deadline now correctly returns ResourceNotFoundException (fixed this pass -- see gaps)."}
-  ListCertificateAuthorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: ResourceOwner now validated and enforced -- SELF/empty lists this account's CAs, OTHER_ACCOUNTS returns an empty page (no cross-account sharing modeled), anything else is InvalidParameterException. Also now filters out CAs past their RestorableUntil deadline. gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): MaxResults' documented ceiling (api_op_ListCertificateAuthorities.go: 'Although the maximum value is 1000, the action only returns a maximum of 100 items.') was not applied -- a caller-requested MaxResults above 100 (up to the accepted max of 1000) returned that many items in one page instead of AWS's hard 100-item page cap. Fixed: certificate_authorities.go's ListCertificateAuthorities now clamps to defaultMaxItems (100) whenever the requested value is <=0 or >100, matching the doc comment exactly (not just the omitted-parameter default). TestInMemoryBackend_ListCertificateAuthorities_MaxResultsCappedAt100 (list_certificate_authorities_maxresults_test.go) confirmed failing pre-fix for MaxResults=500 and MaxResults=1000 (both returned the full requested count against 105 seeded CAs)."}
+  ListCertificateAuthorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: ResourceOwner now validated and enforced -- SELF/empty lists this account's CAs, OTHER_ACCOUNTS returns an empty page (no cross-account sharing modeled), anything else is InvalidArgsException (corrected gopherstack-r3pr, 2026-08-30 -- was previously the fabricated InvalidParameterException). Also now filters out CAs past their RestorableUntil deadline. gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): MaxResults' documented ceiling (api_op_ListCertificateAuthorities.go: 'Although the maximum value is 1000, the action only returns a maximum of 100 items.') was not applied -- a caller-requested MaxResults above 100 (up to the accepted max of 1000) returned that many items in one page instead of AWS's hard 100-item page cap. Fixed: certificate_authorities.go's ListCertificateAuthorities now clamps to defaultMaxItems (100) whenever the requested value is <=0 or >100, matching the doc comment exactly (not just the omitted-parameter default). TestInMemoryBackend_ListCertificateAuthorities_MaxResultsCappedAt100 (list_certificate_authorities_maxresults_test.go) confirmed failing pre-fix for MaxResults=500 and MaxResults=1000 (both returned the full requested count against 105 seeded CAs)."}
   DeleteCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "tracks RestorableUntil (default 30d) and sets LastStateChangeAt (new field, fixed this pass)."}
   UpdateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts RevocationConfiguration (omitting the field leaves the CA's existing configuration unchanged, matching the real API's documented semantics -- distinguished from an explicit null via a custom UnmarshalJSON tracking which wire keys were present); sets LastStateChangeAt on status change."}
   RestoreCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: clears RestorableUntil and now correctly rejects a restore attempted after the RestorableUntil deadline (ResourceNotFoundException, matching real AWS permanently removing the CA once its restoration window ends) -- see caGet/casInRegion in store.go, the single choke point every CA read/write goes through."}
   GetCertificateAuthorityCsr: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportCertificateAuthorityCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "sets LastStateChangeAt (fixed this pass)."}
   GetCertificateAuthorityCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
-  IssueCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (severe wire bug, found via field-diff): the certificate ARN's final path segment must be the certificate's own serial number in decimal (see IssueCertificateOutput's doc example) -- gopherstack instead appended an unrelated crypto/rand ID, meaning every issued cert ARN was wrong-shaped. Also FIXED: IdempotencyToken deduplication (5-min window); TemplateArn now gates ApiPassthrough per the real API's documented 'ignored unless an APIPassthrough/APICSRPassthrough template variant is selected' rule; ApiPassthrough now really applies Subject/KeyUsage/ExtendedKeyUsage/SubjectAlternativeNames(DNS+IP+email)/CustomExtensions overrides to the issued cert (previously silently ignored entirely). UsageMode=SHORT_LIVED_CERTIFICATE now enforces the real API's 7-day validity cap. Still not implemented: ApiPassthrough.Extensions.CertificatePolicies, the ASN1Subject RDN types beyond CommonName/Country/Organization/OrganizationalUnit/State/Locality/SerialNumber, and the GeneralName variants beyond DnsName/IpAddress/Rfc822Name -- all explicitly REJECTED (InvalidParameterException) rather than silently dropped when a caller sets them; TemplateArn's per-template default extension profile (e.g. SubordinateCACertificate_PathLenN's path-length constraint) is not modeled beyond the APIPassthrough-gating behavior. END_DATE validity type is still treated as epoch seconds like ABSOLUTE rather than true UTCTime/GeneralizedTime -- pre-existing intentional simplification, unchanged this pass (see Traps)."}
+  IssueCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (severe wire bug, found via field-diff): the certificate ARN's final path segment must be the certificate's own serial number in decimal (see IssueCertificateOutput's doc example) -- gopherstack instead appended an unrelated crypto/rand ID, meaning every issued cert ARN was wrong-shaped. Also FIXED: IdempotencyToken deduplication (5-min window); TemplateArn now gates ApiPassthrough per the real API's documented 'ignored unless an APIPassthrough/APICSRPassthrough template variant is selected' rule; ApiPassthrough now really applies Subject/KeyUsage/ExtendedKeyUsage/SubjectAlternativeNames(DNS+IP+email)/CustomExtensions overrides to the issued cert (previously silently ignored entirely). UsageMode=SHORT_LIVED_CERTIFICATE now enforces the real API's 7-day validity cap. Still not implemented: ApiPassthrough.Extensions.CertificatePolicies, the ASN1Subject RDN types beyond CommonName/Country/Organization/OrganizationalUnit/State/Locality/SerialNumber, and the GeneralName variants beyond DnsName/IpAddress/Rfc822Name -- all explicitly REJECTED (InvalidArgsException, corrected gopherstack-r3pr) rather than silently dropped when a caller sets them; TemplateArn's per-template default extension profile (e.g. SubordinateCACertificate_PathLenN's path-length constraint) is not modeled beyond the APIPassthrough-gating behavior. END_DATE validity type is still treated as epoch seconds like ABSOLUTE rather than true UTCTime/GeneralizedTime -- pre-existing intentional simplification, unchanged this pass (see Traps)."}
   GetCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED THIS PASS: the prior manifest's gap note ('does not require CRL/OCSP to be enabled before revoking') was a misdiagnosis -- re-checked against the real SDK's RevokeCertificate doc comment, which describes CRL/OCSP as purely optional side-effects of revocation, not a precondition for it. No such requirement exists in the real API; this was never actually a gap and no fix was needed or made."}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -38,7 +38,7 @@ ops:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "NEW (found this pass): CertificateAuthority.FailureReason (types.FailureReason: REQUEST_TIMED_OUT/UNSUPPORTED_ALGORITHM/OTHER) and CertificateAuthorityStatus's FAILED/EXPIRED enum values are entirely unmodeled -- CreateCertificateAuthority is synchronous and always succeeds or returns an immediate validation error, so no CA ever reaches FAILED, and no expiry-driven ACTIVE->EXPIRED transition is simulated. FailureReason is correctly never emitted (matching the real API omitting it whenever Status != FAILED), so this is a state-machine depth gap, not a wire-shape bug -- disclosed, not fixed (would need a new terminal status + expiry sweep, out of scope for a wrapper-key/nesting sweep)."
   - "NEW (found this pass): CertificateAuthorityConfiguration.CsrExtensions (nested CsrExtensions{KeyUsage, SubjectInformationAccess->AccessDescription{AccessMethod,GeneralName}}) is accepted by neither CreateCertificateAuthority's input decoding (caConfigInput has no CsrExtensions field) nor echoed by Describe/List -- silently dropped on the request side rather than rejected. Real AWS would echo a caller-supplied CsrExtensions back on every subsequent Describe/List; gopherstack never stores it, so a caller setting it gets no error but also never sees it round-trip. Disclosed, not fixed -- same class of gap as the already-documented ASN1Subject exotic RDN types, but this one lacks the explicit-rejection treatment those get in decodeASN1Subject/decodeExtensions (handler_certificates.go); a caller has no signal the field was ignored."
-  - ApiPassthrough.Extensions.CertificatePolicies is rejected (InvalidParameterException) rather than implemented -- would require arbitrary OID/PolicyQualifier ASN.1 encoding beyond a simple pkix.Extension passthrough
+  - ApiPassthrough.Extensions.CertificatePolicies is rejected (InvalidArgsException, corrected gopherstack-r3pr) rather than implemented -- would require arbitrary OID/PolicyQualifier ASN.1 encoding beyond a simple pkix.Extension passthrough
   - ApiPassthrough.Subject's exotic RDN types (DistinguishedNameQualifier, GenerationQualifier, Initials, Pseudonym, Surname, Title, CustomAttributes) are rejected rather than implemented -- crypto/x509's pkix.Name has no direct fields for most of these
   - ApiPassthrough.Extensions.SubjectAlternativeNames' exotic GeneralName variants (OtherName, DirectoryName, EdiPartyName, UniformResourceIdentifier, RegisteredId) are rejected rather than implemented -- only DnsName/IpAddress/Rfc822Name (the three Terraform's aws_acmpca_certificate resource actually exposes) are modeled
   - TemplateArn's per-template default X.509 extension profile (e.g. SubordinateCACertificate_PathLenN's CA path-length constraint, OCSPSigningCertificate/CodeSigningCertificate's preset KeyUsage/ExtendedKeyUsage) is not modeled; only the documented APIPassthrough/APICSRPassthrough-gating behavior (whether ApiPassthrough is honored at all) is implemented -- every issued cert uses the same flat extension baseline (optionally overridden by ApiPassthrough) regardless of TemplateArn's specific value
@@ -53,6 +53,44 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 Protocol: awsjson1.1 (single POST, `X-Amz-Target: ACMPrivateCA.<Op>`; RouteMatcher prefix
 `"ACMPrivateCA."` confirmed against the SDK's `ServiceID`/operation names — correct).
+
+### 2026-08-30 fabricated-error-code sweep (gopherstack-r3pr)
+
+**Real bug, confirmed and fixed**: every "invalid parameter" path in this service emitted
+the wire code `InvalidParameterException` via a single sentinel (`ErrInvalidParameter`)
+and one central `handleOpError` mapping. `InvalidParameterException` names no type in the
+pinned SDK (`acmpca@v1.50.0`) -- grepping every `awsAwsjson11_deserializeOpError*` switch
+in `deserializers.go` confirms it appears in none of the 23 operations' modeled error sets.
+A typed client's `errors.As` against any acm-pca exception type therefore always missed,
+falling through to `*smithy.GenericAPIError` -- confirmed both by reading the deserializers
+and by 4 new SDK-driven tests (`error_code_fixes_test.go`) that fail against the unmodified
+code with exactly that fallthrough.
+
+Fix: replaced the one flat sentinel with per-operation-correct sentinels, chosen by reading
+each emitting operation's own `deserializeOpError` (not a sibling's): `ErrInvalidArgs`
+("InvalidArgsException", CreateCertificateAuthority/UpdateCertificateAuthority business-rule
+validation and CreateCertificateAuthorityAuditReport/DescribeCertificateAuthorityAuditReport
+non-ARN fields), `ErrInvalidArn` ("InvalidArnException", every `*Arn`-field required-check --
+modeled by every op except CreateCertificateAuthority/ListCertificateAuthorities),
+`ErrInvalidRequest` ("InvalidRequestException", RevokeCertificate's RevocationReason),
+`ErrInvalidPolicy` ("InvalidPolicyException", PutPolicy's empty-Policy check),
+`ErrMalformedCertificate` ("MalformedCertificateException", ImportCertificateAuthorityCertificate's
+PEM decode/parse failures), `ErrMalformedCSR` ("MalformedCSRException", IssueCertificate's Csr
+field). A few call sites (CreatePermission's Principal/Actions checks, DeletePermission's
+Principal check) have no matching code in their own operation's modeled set at all -- best
+effort `ErrInvalidArgs` used there since it is at minimum a real acm-pca exception type,
+flagged here as unconfirmed against that specific operation's deserializer.
+
+Also corrected: `DeleteCertificateAuthority`'s out-of-range `PermanentDeletionTimeInDays`
+and `ListCertificateAuthorities`'s invalid `ResourceOwner` both map to `ErrInvalidArgs` as a
+best-effort choice (neither operation's own deserializer models `InvalidArgsException` or
+any other "bad argument" code -- `DeleteCertificateAuthority` models only
+`ConcurrentModificationException`/`InvalidArnException`/`InvalidStateException`/
+`ResourceNotFoundException`, `ListCertificateAuthorities` only `InvalidNextTokenException`).
+25 existing test assertions across 15 files, asserting the fabricated `InvalidParameterException`
+(some via `acmpca.ErrInvalidParameter`, some via the literal wire string), were updated to the
+corrected code. 4 new SDK-driven tests were added (`error_code_fixes_test.go`), each confirmed
+to fail against the unmodified code before this fix.
 
 ### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw)
 
@@ -118,8 +156,8 @@ response" bug class does not apply to `GeneralName` here — verified by grep, n
 On the request side (`generalNameWire`/`decodeGeneralName`, `handler_certificates.go`),
 all 8 variants are represented in the wire struct; the 3 Terraform actually uses
 (`DnsName`/`IpAddress`/`Rfc822Name`) are implemented, the other 5 are explicitly rejected
-with `InvalidParameterException` rather than silently dropped — correct treatment, no
-change needed.
+with `InvalidArgsException` (corrected gopherstack-r3pr, was the fabricated `InvalidParameterException`)
+rather than silently dropped — correct treatment, no change needed.
 
 **Request-only-field-in-response check**: `ApiPassthrough` (the other main
 request/response-shared-shape risk named in the brief) is `IssueCertificateInput`-only —
@@ -234,7 +272,8 @@ regressions, no stale claims.
    the signed certificate (see `crypto.go`'s `applyAPIPassthrough`). The
    sub-fields not implemented (`CertificatePolicies`, exotic `ASN1Subject` RDN
    types, exotic `GeneralName` variants) are explicitly **rejected** with
-   `InvalidParameterException` when a caller sets them, rather than silently
+   `InvalidArgsException` (corrected gopherstack-r3pr, was the fabricated
+   `InvalidParameterException`) when a caller sets them, rather than silently
    dropped — see `handler_certificates.go`'s `decodeASN1Subject`/
    `decodeExtensions`/`decodeGeneralName`, and parity-principles.md's
    no-silent-gaps rule.
@@ -260,7 +299,9 @@ regressions, no stale claims.
    ignored.** Now validated against the real 2-value enum: `SELF`/empty lists
    this account's CAs (unchanged behavior), `OTHER_ACCOUNTS` returns an empty
    page (no cross-account CA sharing is modeled, so no CA is ever owned by
-   another account), and any other value is `InvalidParameterException`.
+   another account), and any other value is `InvalidArgsException` (corrected gopherstack-r3pr,
+   best-effort -- ListCertificateAuthorities' own deserializer does not model
+   InvalidArgsException; was the fabricated `InvalidParameterException`).
 
 9. **`TagCertificateAuthority` never enforced the 50-tag-per-CA limit.** Now
    returns `TooManyTagsException` when tagging would exceed it (checked

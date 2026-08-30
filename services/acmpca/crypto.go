@@ -282,7 +282,7 @@ func applyOneExtendedKeyUsage(tmpl *x509.Certificate, eku APIPassthroughExtended
 		oid, err := parseOID(eku.ObjectIdentifier)
 		if err != nil {
 			return fmt.Errorf("%w: ExtendedKeyUsageObjectIdentifier %q: %w",
-				ErrInvalidParameter, eku.ObjectIdentifier, err)
+				ErrInvalidArgs, eku.ObjectIdentifier, err)
 		}
 
 		tmpl.UnknownExtKeyUsage = append(tmpl.UnknownExtKeyUsage, oid)
@@ -302,7 +302,7 @@ func applyOneExtendedKeyUsage(tmpl *x509.Certificate, eku APIPassthroughExtended
 		return nil
 	}
 
-	return fmt.Errorf("%w: unsupported ExtendedKeyUsageType %q", ErrInvalidParameter, eku.Type)
+	return fmt.Errorf("%w: unsupported ExtendedKeyUsageType %q", ErrInvalidArgs, eku.Type)
 }
 
 func applySubjectAlternativeNames(tmpl *x509.Certificate, sans []APIPassthroughSAN) error {
@@ -326,7 +326,7 @@ func applySubjectAlternativeNames(tmpl *x509.Certificate, sans []APIPassthroughS
 			ip := net.ParseIP(san.IPAddress)
 			if ip == nil {
 				return fmt.Errorf(
-					"%w: invalid SubjectAlternativeNames IpAddress %q", ErrInvalidParameter, san.IPAddress,
+					"%w: invalid SubjectAlternativeNames IpAddress %q", ErrInvalidArgs, san.IPAddress,
 				)
 			}
 
@@ -348,13 +348,13 @@ func applyCustomExtensions(tmpl *x509.Certificate, exts []APIPassthroughCustomEx
 		oid, err := parseOID(ext.ObjectIdentifier)
 		if err != nil {
 			return fmt.Errorf(
-				"%w: CustomExtensions ObjectIdentifier %q: %w", ErrInvalidParameter, ext.ObjectIdentifier, err,
+				"%w: CustomExtensions ObjectIdentifier %q: %w", ErrInvalidArgs, ext.ObjectIdentifier, err,
 			)
 		}
 
 		value, err := base64.StdEncoding.DecodeString(ext.ValueBase64)
 		if err != nil {
-			return fmt.Errorf("%w: CustomExtensions Value must be base64-encoded: %w", ErrInvalidParameter, err)
+			return fmt.Errorf("%w: CustomExtensions Value must be base64-encoded: %w", ErrInvalidArgs, err)
 		}
 
 		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, pkix.Extension{
@@ -372,7 +372,7 @@ func applyCustomExtensions(tmpl *x509.Certificate, exts []APIPassthroughCustomEx
 func parseOID(dotted string) (asn1.ObjectIdentifier, error) {
 	parts := strings.Split(dotted, ".")
 	if len(parts) < 2 { //nolint:mnd // an OID needs at least two arcs
-		return nil, fmt.Errorf("%w: OID must have at least two components", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: OID must have at least two components", ErrInvalidArgs)
 	}
 
 	oid := make(asn1.ObjectIdentifier, len(parts))
@@ -380,7 +380,7 @@ func parseOID(dotted string) (asn1.ObjectIdentifier, error) {
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return nil, fmt.Errorf("%w: OID component %q is not numeric", ErrInvalidParameter, p)
+			return nil, fmt.Errorf("%w: OID component %q is not numeric", ErrInvalidArgs, p)
 		}
 
 		oid[i] = n

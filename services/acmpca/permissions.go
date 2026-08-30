@@ -19,30 +19,30 @@ func (b *InMemoryBackend) CreatePermission(
 	sourceAccount string,
 	actions []string,
 ) (*Permission, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return nil, err
 	}
 
 	if principal == "" {
-		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidArgs)
 	}
 
 	// Per aws-sdk-go-v2's CreatePermissionInput.Principal doc comment: "At this
 	// time, the only valid principal is acm.amazonaws.com." Real AWS rejects
 	// anything else; gopherstack previously accepted any string.
 	if principal != acmServicePrincipal {
-		return nil, fmt.Errorf("%w: Principal must be %s", ErrInvalidParameter, acmServicePrincipal)
+		return nil, fmt.Errorf("%w: Principal must be %s", ErrInvalidArgs, acmServicePrincipal)
 	}
 
 	if len(actions) == 0 {
-		return nil, fmt.Errorf("%w: Actions is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: Actions is required", ErrInvalidArgs)
 	}
 
 	for _, action := range actions {
 		switch action {
 		case actionIssueCertificate, actionGetCertificate, actionListPermissions:
 		default:
-			return nil, fmt.Errorf("%w: unsupported action %s", ErrInvalidParameter, action)
+			return nil, fmt.Errorf("%w: unsupported action %s", ErrInvalidArgs, action)
 		}
 	}
 
@@ -78,11 +78,11 @@ func (b *InMemoryBackend) CreatePermission(
 
 // DeletePermission deletes a permission on the given CA.
 func (b *InMemoryBackend) DeletePermission(ctx context.Context, caARN, principal, sourceAccount string) error {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return err
 	}
 
-	if err := validateRequiredParameter(principal, "Principal"); err != nil {
+	if err := validateRequiredParameter(principal, "Principal", ErrInvalidArgs); err != nil {
 		return err
 	}
 
@@ -109,7 +109,7 @@ func (b *InMemoryBackend) DeletePermission(ctx context.Context, caARN, principal
 func (b *InMemoryBackend) ListPermissions(
 	ctx context.Context, caARN, nextToken string, maxItems int,
 ) (page.Page[Permission], error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return page.Page[Permission]{}, err
 	}
 

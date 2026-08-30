@@ -14,17 +14,17 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 	s3BucketName string,
 	responseFormat string,
 ) (*AuditReport, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return nil, err
 	}
 
 	if s3BucketName == "" {
-		return nil, fmt.Errorf("%w: S3BucketName is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: S3BucketName is required", ErrInvalidArgs)
 	}
 
 	format := strings.ToUpper(responseFormat)
 	if format != auditReportFormatJSON && format != auditReportFormatCSV {
-		return nil, fmt.Errorf("%w: AuditReportResponseFormat must be JSON or CSV", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: AuditReportResponseFormat must be JSON or CSV", ErrInvalidArgs)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -68,11 +68,11 @@ func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
 	caARN string,
 	auditReportID string,
 ) (*AuditReport, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return nil, err
 	}
 
-	if err := validateRequiredParameter(auditReportID, "AuditReportId"); err != nil {
+	if err := validateRequiredParameter(auditReportID, "AuditReportId", ErrInvalidArgs); err != nil {
 		return nil, err
 	}
 

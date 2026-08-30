@@ -77,12 +77,13 @@ func TestACMPCAHandler_PolicyLifecycle(t *testing.T) {
 }
 
 // TestACMPCAHandler_GetPolicy_RequiresResourceArn verifies that GetPolicy
-// without a ResourceArn returns InvalidParameterException.
+// without a ResourceArn returns InvalidArnException, matching GetPolicy's
+// own deserializeOpError.
 func TestACMPCAHandler_GetPolicy_RequiresResourceArn(t *testing.T) {
 	t.Parallel()
 
 	rec := doACMPCARequest(t, newACMPCAHandler(), "GetPolicy", map[string]any{})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	resp := parseACMPCAResponse(t, rec)
-	assert.Equal(t, "InvalidParameterException", resp["__type"])
+	assert.Equal(t, "InvalidArnException", resp["__type"])
 }

@@ -42,14 +42,15 @@ func TestACMPCAHandler_PermissionLifecycle(t *testing.T) {
 }
 
 // TestACMPCAHandler_ListPermissions_RequiresCA verifies that ListPermissions
-// without a CertificateAuthorityArn returns InvalidParameterException.
+// without a CertificateAuthorityArn returns InvalidArnException, matching
+// ListPermissions' own deserializeOpError.
 func TestACMPCAHandler_ListPermissions_RequiresCA(t *testing.T) {
 	t.Parallel()
 
 	rec := doACMPCARequest(t, newACMPCAHandler(), "ListPermissions", map[string]any{})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	resp := parseACMPCAResponse(t, rec)
-	assert.Equal(t, "InvalidParameterException", resp["__type"])
+	assert.Equal(t, "InvalidArnException", resp["__type"])
 }
 
 // TestACMPCAHandler_CreatePermission_Duplicate verifies that granting the same

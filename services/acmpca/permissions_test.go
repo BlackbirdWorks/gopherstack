@@ -122,7 +122,7 @@ func TestInMemoryBackend_PermissionValidation(t *testing.T) {
 					testAccountID,
 					[]string{"IssueCertificate"},
 				)
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArn)
 			},
 		},
 		{
@@ -136,7 +136,7 @@ func TestInMemoryBackend_PermissionValidation(t *testing.T) {
 					"",
 					testAccountID,
 				)
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 			},
 		},
 		{
@@ -163,7 +163,7 @@ func TestInMemoryBackend_PermissionValidation(t *testing.T) {
 					testAccountID,
 					[]string{"IssueCertificate"},
 				)
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 			},
 		},
 		{

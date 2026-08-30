@@ -8,6 +8,8 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
 // TestStopTask_UnknownTask_RealClient drives StopTask through the real
@@ -323,4 +325,39 @@ func TestExpressGatewayService_ErrorCodes_RealClient(t *testing.T) {
 		var ip *ecstypes.InvalidParameterException
 		require.ErrorAs(t, err, &ip, "expected a real InvalidParameterException from the SDK deserializer")
 	})
+}
+
+// TestStopServiceDeployment_AlreadyStopped_RealClient drives StopServiceDeployment
+// through the real client on a deployment that is already STOPPED.
+// "ServiceDeploymentAlreadyStoppedException" is not a real ECS exception type
+// (absent from ecs@v1.90.0/types/errors.go and from
+// awsAwsjson11_deserializeOpErrorStopServiceDeployment's switch) --
+// gopherstack emitted it anyway (a hand sweep fixed eleven fabricated codes
+// in this service but missed this twelfth; gopherstack-101r). StopServiceDeployment's
+// own deserializer models ConflictException ("conflict in the current state
+// of the resource"), which is the correct code for this condition.
+func TestStopServiceDeployment_AlreadyStopped_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	backend, ok := h.Backend.(*ecs.InMemoryBackend)
+	require.True(t, ok)
+
+	const depArn = "arn:aws:ecs:us-east-1:000000000000:service-deployment/dep-cluster/dep-svc/dep-1"
+	backend.AddServiceDeploymentInternal(&ecs.ServiceDeployment{
+		ServiceDeploymentArn: depArn,
+		ClusterArn:           "arn:aws:ecs:us-east-1:000000000000:cluster/dep-cluster",
+		ServiceArn:           "arn:aws:ecs:us-east-1:000000000000:service/dep-cluster/dep-svc",
+		Status:               "STOPPED",
+	})
+
+	client := newTestECSClient(t, h)
+
+	_, err := client.StopServiceDeployment(t.Context(), &ecssdk.StopServiceDeploymentInput{
+		ServiceDeploymentArn: aws.String(depArn),
+	})
+	require.Error(t, err)
+
+	var ce *ecstypes.ConflictException
+	require.ErrorAs(t, err, &ce, "expected a real ConflictException from the SDK deserializer")
 }

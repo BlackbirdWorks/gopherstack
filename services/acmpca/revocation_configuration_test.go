@@ -68,7 +68,7 @@ func TestInMemoryBackend_RevocationConfiguration(t *testing.T) {
 		_, err := b.CreateCertificateAuthority(
 			context.Background(), "ROOT", rootCACfg("Bad CA"), acmpca.WithCreateCARevocationConfiguration(rc),
 		)
-		require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+		require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 	})
 
 	t.Run("disabled CRL with extra fields is rejected", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestInMemoryBackend_RevocationConfiguration(t *testing.T) {
 		_, err := b.CreateCertificateAuthority(
 			context.Background(), "ROOT", rootCACfg("Bad CA"), acmpca.WithCreateCARevocationConfiguration(rc),
 		)
-		require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+		require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 	})
 
 	t.Run("unsupported CrlType is rejected", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestInMemoryBackend_RevocationConfiguration(t *testing.T) {
 		_, err := b.CreateCertificateAuthority(
 			context.Background(), "ROOT", rootCACfg("Bad CA"), acmpca.WithCreateCARevocationConfiguration(rc),
 		)
-		require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+		require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 	})
 
 	t.Run("UpdateCertificateAuthority sets RevocationConfiguration", func(t *testing.T) {
@@ -160,7 +160,7 @@ func TestInMemoryBackend_UsageMode_ShortLivedCertificateValidityCap(t *testing.T
 	require.NoError(t, err)
 
 	_, err = b.IssueCertificate(context.Background(), ca.ARN, csr, 30)
-	require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+	require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 
 	cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 7)
 	require.NoError(t, err)
@@ -181,5 +181,5 @@ func TestInMemoryBackend_KeyStorageSecurityStandard_Default(t *testing.T) {
 		context.Background(), "ROOT", rootCACfg("Bad standard CA"),
 		acmpca.WithCreateCAKeyStorageSecurityStandard("NOT_A_REAL_STANDARD"),
 	)
-	require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+	require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 }
