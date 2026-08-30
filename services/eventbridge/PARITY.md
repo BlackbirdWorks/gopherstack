@@ -5,6 +5,27 @@ sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service
 last_audit_commit: b72533e7a
 last_audit_date: 2026-08-07
 overall: A
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Reviewed every
+# sort.Slice/sort.Strings call site across every paginated listing (archives/
+# replays via the shared listNamedItems helper, connections, endpoints,
+# event_buses, event_sources, api_destinations, schemas/registries/discoverers,
+# rules, targets). Every reachable-by-real-traffic one sorts on that resource's
+# own real unique Name/ID (or, for ListSchemas/SearchSchemas, SchemaName scoped
+# to one registry's own per-registry map, itself the map key). One genuine
+# Class F shape found: ListCodeBindings (schemas.go) sorts solely on Language,
+# which is not unique (the same language can appear across multiple
+# SchemaVersions of one schema) -- but this op is deliberately NOT advertised
+# in GetSupportedOperations (see handler_dispatch.go's comment: no such method
+# exists on any version of aws-sdk-go-v2/service/schemas.Client; checking a
+# binding's status is DescribeCodeBinding, per-language, one at a time -- there
+# is no real list-all-bindings operation), so it is unreachable by any real AWS
+# SDK client and left as internal-only test scaffolding, same resolution as
+# ram's ListTagsForResource. Not fixed (matches this service's own established
+# precedent for unreachable internal-only routes); flagged here for visibility.
+# Confirmed no listing reachable by real traffic in this service returns
+# two-or-more collections the API defines as one ordered sequence truncated
+# independently. No code changes.
 ops:
   CreateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "name length/prefix validation, 200-per-account custom-bus limit enforced across regions. FIXED this sweep: CreateEventBusOutput was missing Description (real AWS echoes it); LastModifiedTime now set at creation (was zero-valued, only set by UpdateEventBus)."}
   DeleteEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades rule/target/index cleanup; default bus protected"}

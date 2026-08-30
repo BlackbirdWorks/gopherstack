@@ -197,7 +197,11 @@ func (b *InMemoryBackend) GetBlueprintRuns(blueprintName string) []*BlueprintRun
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].RunID < runs[k].RunID
 	})
 
 	return runs

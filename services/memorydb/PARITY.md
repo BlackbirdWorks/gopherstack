@@ -59,6 +59,19 @@ overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape 
                        # dead code today. Left unchanged: even if reached, there is no correct
                        # generic replacement code to invent (MemoryDB genuinely has none). Flagged as
                        # a landmine for a future sentinel added without a matching errCodeLookup row.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Reviewed every
+# sort.Slice call site across every paginated listing (acls/clusters/snapshots/
+# multi_region_clusters/parameter_groups/multi-region parameter objects/
+# subnet_groups/users/reserved_nodes/service_updates/events/tags). Every one
+# sorts on that resource's own real unique Name/ID (or, where Name alone could
+# repeat across a broader scope -- events.go's Date, service_updates.go's
+# ServiceUpdateName, multi_region_clusters.go's cross-region cluster listing --
+# a composite key ending in a field that IS unique in that scope: Region+Name,
+# ServiceUpdateName+ClusterName, Date+SourceName+Message) -- already total by
+# construction, not newly fixed. No non-unique, tiebreak-free sort key found.
+# Confirmed no listing in this service returns two-or-more collections the API
+# defines as one ordered sequence truncated independently. No code changes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

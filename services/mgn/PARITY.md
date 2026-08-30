@@ -61,6 +61,20 @@ last_audit_date: 2026-08-21
 # this SDK's surface can ever populate them; see networkmigrationjobs.go/networkmigration.go doc
 # comments). 1 genuine bug found and fixed: ListManagedAccounts (see its ops: entry) -- the one op
 # in the family that bypassed the shared pagination pattern.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). This service has
+# NO explicit sort.Slice/slices.Sort* call in any listing -- every paginated op
+# builds its page via the shared pkgs/page.New chokepoint over
+# store.Table.Snapshot() (or a filtered clone of it), never store.Table.All().
+# Table.Snapshot() (pkgs/store/table.go) returns items ordered by the table's
+# own keyFn, ascending -- and every mgn table is keyed by that resource's real
+# unique ID (SourceServerID/ApplicationID/WaveID/ConnectorID/JobID/...), so the
+# base order is already total by construction; page.New itself only offset-
+# slices a slice its own doc comment requires to already be "fully sorted", it
+# does not sort. Confirmed no listing response in this service carries two-or-
+# more collections the API defines as one ordered sequence (each op returns
+# exactly one paginated array). No bugs found or fixed this pass; 0 code
+# changes for Class F/G.
 overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration suite this A-/B distinction
 # hinges on now exists and passes under Docker, and every buildable gap this pass found (5 items,
 # enumerated in the comment block above) is closed. What remains in gaps:/structural_gaps: below is

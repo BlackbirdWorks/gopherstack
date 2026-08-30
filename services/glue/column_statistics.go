@@ -205,7 +205,11 @@ func (b *InMemoryBackend) ListColumnStatisticsTaskRuns() []*ColumnStatisticsTask
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].ColumnStatisticsTaskRunID < runs[k].ColumnStatisticsTaskRunID
 	})
 
 	return runs

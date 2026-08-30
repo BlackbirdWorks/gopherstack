@@ -74,6 +74,19 @@ overall: A            # write-only-state sweep pass (this pass, 2026-08-28). Exi
                        # immutability gap (gopherstack-2tx), and the Portal/PortalProduct family
                        # (out of this pass's declared scope, per the task's op list) were
                        # re-confirmed as still accurate/deliberately out of scope, not re-touched.
+                       # ---- sort-totality sweep, Class F/G (this pass, 2026-08-30) ----
+                       # Reviewed every sort.Slice call site across every paginated listing in this
+                       # service (apis/api_mappings/api_models/authorizers/deployments/domain_names
+                       # incl. RoutingRules/integrations/integration_responses/routes/
+                       # route_responses/portals/portal_products/stages/vpc_links). Every one sorts
+                       # on that resource's own real unique ID (APIID/ModelID/APIMappingID/
+                       # AuthorizerID/DeploymentID/RoutingRuleID/DomainNameValue/IntegrationID/
+                       # IntegrationResponseID/RouteID/RouteResponseID/PortalID/PortalProductID/
+                       # StageName/VpcLinkID) -- confirmed each is that resource's primary/unique
+                       # identifier, not assumed from the field name. No non-unique sort key found;
+                       # no Class F bug. Confirmed no listing in this service returns two-or-more
+                       # collections the API defines as one ordered sequence truncated
+                       # independently -- no Class G candidate found. No code changes.
 ops:
   CreateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey+target quick-create shortcut was entirely unimplemented -- CreateAPIInput had no such fields at all, so real quick-create requests silently created a bare API with no route/integration/stage (fixed by a prior pass, see Notes #6). This pass: ipAddressType and quick-create's credentialsArn were ALSO entirely absent from CreateAPIInput -- fixed, see Notes #8-9."}
   GetApi: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Api.ipAddressType/importInfo/warnings were entirely absent -- fixed, see Notes #8"}

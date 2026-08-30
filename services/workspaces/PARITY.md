@@ -15,14 +15,58 @@ last_audit_date: 2026-08-28
 # off an unordered store.All()/map range. DescribeWorkspacesPoolSessions' fix is currently
 # unobservable in practice -- b.poolSessions is never Put anywhere in this backend (no op creates a
 # session), so the list is always empty today -- but the wiring is correct once that changes.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Reviewed every
+# sort.Slice/sort.Strings/slices.Sort* call site across every paginated listing
+# in this service (including the 10 ops the cursor-population sweep above just
+# added pagination to). Every one sorts on that resource's own real unique ID
+# (BundleID/AliasID/GroupID/PoolID/SessionID/AddInID/LinkID/DirectoryID/
+# ImageID/WorkspaceName-echoed-workspaceID, and DescribeConnectionAliasPermissions
+# preserves insertion order over a plain non-reordered slice rather than
+# resorting a map) -- confirmed against each type's own store key, not assumed.
+# No non-unique sort key found. Confirmed no listing in this service returns
+# two-or-more collections the API defines as one ordered sequence truncated
+# independently (each op returns exactly one paginated array). No Class F/G
+# bugs found.
+# ALSO CHECK sweep (classes A-E) found one genuine, previously mis-diagnosed
+# bug: DescribeWorkspacesConnectionStatus. The 2026-08-13 audit (see the
+# "2 left unfixed as provably bounded" note above) claimed this op's response
+# "can never exceed the request's own bound" since WorkspaceIds is capped at 25
+# -- true only when WorkspaceIds is given. Real
+# DescribeWorkspacesConnectionStatusInput/Output (workspaces@v1.73.1
+# api_op_DescribeWorkspacesConnectionStatus.go) BOTH declare NextToken, and the
+# real doc comment's 25-item cap is on WorkspaceIds specifically, not on the
+# unfiltered (WorkspaceIds omitted, "describe every WorkSpace") path -- that
+# PARITY claim was wrong. gopherstack's wire structs didn't declare NextToken
+# at all (worse than declared-but-unpopulated), and the unfiltered path built
+# its response straight off store.Table.All() (unspecified map order) with no
+# sort -- both a missing-cursor gap (Class B-adjacent) and Class E (never
+# sorted). Hand-verified against the pre-fix code: 15 repeated calls with no
+# intervening writes returned a different WorkspaceId order nearly every time.
+# Fixed: NextToken now on both wire structs, backend method now takes/returns
+# a token, sorts by WorkspaceID (unique) before pkgs/page.New with a new
+# internal connectionStatusPageSize=100 (the real input has no MaxResults, so
+# the page size is server-chosen -- same pattern as DescribeAccountModifications/
+# ListAvailableManagementCidrRanges). GetWorkspacesConnectionStatus's exported
+# signature changed (added nextToken in, added nextToken out) -- StorageBackend
+# interface and the one call site (handler_workspaces.go) updated to match; no
+# other caller existed. Proven by
+# TestDescribeWorkspacesConnectionStatus_UnfilteredPageWalksExactly (130 items,
+# walks 2 internal pages, asserts the concatenation is exactly the created set)
+# and TestDescribeWorkspacesConnectionStatus_UnfilteredOrderIsDeterministic (15
+# repeated calls, same order every time) in
+# connection_status_pagination_test.go.
 # 5 ops confirmed already correct: DescribeAccountModifications, DescribeWorkspaceDirectories,
 # DescribeWorkspaces, ListAvailableManagementCidrRanges, and DescribeWorkspaceBundles (whose
 # unfiltered path pages correctly; its BundleIds-filtered path returns unpaginated results bounded
-# by the caller's own BundleIds list length, a judgment call, not a fix). 2 left unfixed as
+# by the caller's own BundleIds list length, a judgment call, not a fix). 1 left unfixed as
 # provably bounded: DescribeApplications (its backing store, b.applications, is registered but
-# never Put by any op -- always 0 items) and DescribeWorkspacesConnectionStatus (real AWS caps
-# WorkspaceIds at 25 per call -- "up to 25 WorkSpaces", api_op_DescribeWorkspacesConnectionStatus.go
-# -- so the response can never exceed the request's own bound).
+# never Put by any op -- always 0 items). CORRECTED 2026-08-30 (sort-totality sweep): this note
+# previously also claimed DescribeWorkspacesConnectionStatus was provably bounded because
+# WorkspaceIds is capped at 25 per call -- that cap is real but only applies when WorkspaceIds is
+# given; the unfiltered (WorkspaceIds omitted) path genuinely paginates on real AWS (both
+# DescribeWorkspacesConnectionStatusInput/Output declare NextToken) and had no cursor at all here.
+# Now fixed -- see that op's own dated note and ops: entry below.
 overall: A            # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep):
                        # DescribeWorkspaceDirectories' dirResp carried only
                        # DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds --
@@ -64,7 +108,7 @@ overall: A            # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-dro
 ops:
   CreateWorkspaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (prior pass) — was all-or-nothing; now partitions FailedRequests/PendingRequests per item, matching real FailedCreateWorkspaceRequest{WorkspaceRequest,ErrorCode,ErrorMessage} shape. FIXED 2026-08-23: WorkspaceRequest.WorkspaceName (aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879, real input member, required for user-decoupled WorkSpaces where UserName=[UNDEFINED]) was accepted nowhere -- createWorkspaceSpec/WorkspaceCreationSpec had no field for it at all, so it was silently dropped end to end. Now threaded through ThemeUpdateOptions-style (see appstream's UpdateThemeForStack fix, same session) into WorkspaceCreationSpec and echoed on PendingRequests/FailedRequests.WorkspaceRequest."}
   DescribeWorkspaces: {wire: fixed, errors: ok, state: ok, persist: ok, note: "pagination (25/page), region filter, WorkspaceIds/DirectoryId/UserName/BundleId filters all verified against real field names. FIXED 2026-08-23: workspaceResp already had a WorkspaceName wire key (added after this file's 2026-08-13 audit without a corresponding PARITY.md update -- see Notes), but InMemoryBackend.CreateWorkspace was fabricating its value by echoing UserName (or WorkspaceId when UserName was empty) for EVERY WorkSpace -- real types.Workspace.WorkspaceName is documented as 'the name of the user-decoupled WorkSpace' and 'not applicable if UserName is specified for user-assigned WorkSpaces', so a real client describing an ordinary WorkSpace was receiving a fabricated field value that does not exist on real AWS's wire for that case. Now only ever set from the caller-supplied WorkspaceRequest.WorkspaceName, absent (omitempty) otherwise."}
-  DescribeWorkspacesConnectionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity."}
+  DescribeWorkspacesConnectionStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity. FIXED 2026-08-30 (sort-totality sweep): the unfiltered (WorkspaceIds omitted) path had no NextToken on either wire struct and built its response off an unsorted map -- see the dated note above for the full correction of this file's own prior 'provably bounded' claim."}
   ModifyWorkspaceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidComputeTypeName was a hand-copied 9-entry allowlist predating 14 values types.Compute now has (GENERALPURPOSE_4XLARGE/8XLARGE and the G6/GR6/G6F GPU families) -- ComputeTypeName was falsely rejected for any of them. Now derives from types.Compute.Values()."}
   ModifyWorkspaceState: {wire: ok, errors: ok, state: ok, persist: ok}
   RebootWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "intentionally does not transition state — documented + tested (TestRebootWorkspaces_DoesNotChangeState in workspaces_lifecycle_test.go); this emulator models reboot as instantaneous with no transient REBOOTING window, not a bug. FIXED this pass (gopherstack-o5ig): real AWS's documented precondition 'You cannot reboot a WorkSpace unless its state is AVAILABLE, UNHEALTHY, or REBOOTING' was entirely unenforced (only existence was checked) — now returns a per-item FailedRequests{ErrorCode:\"OperationNotSupportedException\"} entry (the only error OperationNotSupportedException in this op's real error list) for a workspace in a disallowed state, e.g. STOPPED or ADMIN_MAINTENANCE."}

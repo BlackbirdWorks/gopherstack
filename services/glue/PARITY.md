@@ -3,6 +3,53 @@ service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.152.0
 last_audit_commit: a7f9c5fb2  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
 last_audit_date: 2026-08-13
+# 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
+# not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
+# this service's ~48 paginated listings for whether the sort key is unique.
+# 7 genuine bugs found and fixed, all sharing the same shape -- a field that
+# admits ties, re-sorted fresh from unordered store.All()/map storage on every
+# call via an unstable sort, so two honest calls can disagree about the
+# relative order of tied items and a record is dropped or duplicated across a
+# page boundary with nothing else changed:
+#   - GetBlueprintRuns (blueprints.go), ListColumnStatisticsTaskRuns
+#     (column_statistics.go), ListDataQualityRuleRecommendationRuns
+#     (data_quality_rulesets.go), ListMaterializedViewRefreshTaskRuns
+#     (materialized_views.go), ListDataQualityEvaluationRuns
+#     (data_quality_stats.go) all sorted solely on StartedOn, a
+#     float64(time.Now().Unix()) value truncated to whole seconds -- any two
+#     runs started within the same wall-clock second tie. Fixed by adding each
+#     type's own real unique ID (RunID/ColumnStatisticsTaskRunID/
+#     RecommendationRunID/TaskRunID/RunID respectively) as the final
+#     comparator term.
+#   - GetMLTransforms/ListMLTransforms (ml.go) sorted solely on Name; real AWS
+#     MLTransform.Name is not unique (only TransformId is -- confirmed against
+#     glue@v1.152.0's CreateMLTransform, which has no name-uniqueness
+#     constraint). Fixed by appending TransformID as the tiebreak; this also
+#     makes handler_ml.go's user-supplied-Sort path (sortTransforms, a stable
+#     sort applied on top of this base order) total for STATUS/CREATED/
+#     LAST_MODIFIED, none of which are unique either.
+#   - SearchAssets' sortAssets (assets.go) let the caller pick the sort
+#     attribute (Name/Description/AssetTypeId/CreatedAt/UpdatedAt), none of
+#     which is unique across assets -- only Id is (already used as the
+#     fallback for an unrecognized/empty attr, but not appended as a tiebreak
+#     for the 5 named cases). Fixed by falling through to ID in every case.
+# Each fix proven by a dedicated test (pagination_sort_totality_test.go) that
+# creates several tied-key items, walks paginateSlice's own offset-token
+# semantics repeatedly (Go's map iteration order is randomized per range, so
+# repeated calls surface the instability), and asserts the concatenated ID
+# set is exact -- confirmed to fail on iteration 0 against the pre-fix code
+# for all 7, confirmed green post-fix across 30 iterations each.
+# Also swept for Class G (two-or-more collections the API defines as one
+# ordered sequence, truncated independently): none found in this service --
+# every paginated response found carries exactly one truncated collection;
+# no delimiter/common-prefix-style dual-list op exists here.
+# Remaining sort sites reviewed and confirmed already total (unique key, no
+# fix needed): every other sort.Slice/sort.Strings call in this service sorts
+# on a field that is that resource's real primary key (ID/ARN/Name-as-primary-
+# key/composite key) -- e.g. UsageProfile/CustomEntityType/Integration/
+# SecurityConfiguration/Schema-within-Registry Name, FunctionName (scoped per
+# database), CatalogID, VersionID, IndexName, ItemID -- confirmed against each
+# type's own store.Table key function, not assumed from the field name alone.
 # 2026-08-21 gopherstack-r80d batch 15 (required-output cut): 6 required-response-
 # member bugs found and fixed at member granularity across three families --
 # Catalog.Name (CreateCatalog read the name off a nonexistent CatalogInput.Name;

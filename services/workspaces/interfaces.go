@@ -34,7 +34,9 @@ type StorageBackend interface {
 		workspaceIDs, directoryID, userID, bundleID []string,
 		limit int32, nextToken string,
 	) ([]*Workspace, string, error)
-	GetWorkspacesConnectionStatus(workspaceIDs []string) ([]*WorkspaceConnectionStatus, error)
+	GetWorkspacesConnectionStatus(
+		workspaceIDs []string, nextToken string,
+	) ([]*WorkspaceConnectionStatus, string, error)
 	ModifyWorkspaceProperties(workspaceID string, props WorkspaceProperties) error
 	ModifyWorkspaceState(workspaceID, state string) error
 	RebootWorkspaces(workspaceIDs []string) ([]FailedRequest, error)

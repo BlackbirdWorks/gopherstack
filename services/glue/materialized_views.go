@@ -100,7 +100,11 @@ func (b *InMemoryBackend) ListMaterializedViewRefreshTaskRuns() []*MaterializedV
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].TaskRunID < runs[k].TaskRunID
 	})
 
 	return runs

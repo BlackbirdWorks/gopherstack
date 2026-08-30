@@ -555,21 +555,34 @@ func (b *InMemoryBackend) SearchAssets(
 // in SearchSort.Attribute; an unrecognized or empty attr falls back to ID for
 // deterministic ordering.
 func sortAssets(assets []*Asset, attr string, desc bool) {
+	// None of Name/Description/AssetTypeId/CreatedAt/UpdatedAt is unique
+	// across assets, so each falls through to ID -- the real primary
+	// key -- as a final tiebreak, making the order total.
 	less := func(i, j int) bool {
 		switch attr {
 		case "Name":
-			return assets[i].Name < assets[j].Name
+			if assets[i].Name != assets[j].Name {
+				return assets[i].Name < assets[j].Name
+			}
 		case "Description":
-			return assets[i].Description < assets[j].Description
+			if assets[i].Description != assets[j].Description {
+				return assets[i].Description < assets[j].Description
+			}
 		case "AssetTypeId":
-			return assets[i].AssetTypeID < assets[j].AssetTypeID
+			if assets[i].AssetTypeID != assets[j].AssetTypeID {
+				return assets[i].AssetTypeID < assets[j].AssetTypeID
+			}
 		case "CreatedAt":
-			return assets[i].CreatedAt < assets[j].CreatedAt
+			if assets[i].CreatedAt != assets[j].CreatedAt {
+				return assets[i].CreatedAt < assets[j].CreatedAt
+			}
 		case "UpdatedAt":
-			return assets[i].UpdatedAt < assets[j].UpdatedAt
-		default:
-			return assets[i].ID < assets[j].ID
+			if assets[i].UpdatedAt != assets[j].UpdatedAt {
+				return assets[i].UpdatedAt < assets[j].UpdatedAt
+			}
 		}
+
+		return assets[i].ID < assets[j].ID
 	}
 
 	if desc {

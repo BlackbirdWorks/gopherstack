@@ -238,7 +238,16 @@ func (b *InMemoryBackend) GetMLTransforms() []*MLTransform {
 	for _, m := range src {
 		out = append(out, cloneMLTransform(m))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		// Real AWS ML transform Name is not unique -- only TransformId is
+		// (multiple transforms can share a Name), so Name alone is not a
+		// total order.
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+
+		return out[i].TransformID < out[j].TransformID
+	})
 
 	return out
 }

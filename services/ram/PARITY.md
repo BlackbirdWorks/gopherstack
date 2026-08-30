@@ -21,6 +21,26 @@ last_audit_date: 2026-08-19
 # ListSourceAssociations (declares NextToken) is also correctly left unpopulated -- already
 # documented above (its own ops: entry, 2026-07-23) as provably always empty: no op in this SDK's
 # entire surface can ever create a source association. No fixes needed this pass; 0 code changes.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Most ops sort on
+# a real unique key (Version per permission, ARN, Name-as-primary-key, ShareARN
+# composite) -- confirmed clean. Four ops (ListPrincipals/ListResources/
+# ListPendingInvitationResources/ListResourceSharePermissions) sort solely on
+# AssociatedEntity/Permission.ARN, which is NOT globally unique when the
+# optional resourceShareArn filter is empty (the same principal/resource ARN
+# can be associated with multiple different shares). This looked like a Class F
+# candidate but does not manifest the described failure here: the backing
+# store (b.associations, store.go) is a plain append-order []*T slice, never a
+# map, and is never reordered in place (Disassociate/Associate flip a Status
+# field or append, they don't remove-and-reinsert) -- so sort.Slice, though not
+# "stable" in the formal sense, is deterministic call-to-call for identical
+# input (verified empirically: 20 repeated sort.Slice calls over the same
+# tied-key slice produced byte-identical output every time, unlike glue's
+# map-sourced Class F bugs this same pass found and fixed). Left unfixed as a
+# cosmetic, not observable, gap -- see gopherstack-101r-adjacent principle of
+# not fabricating a bug the code cannot actually exhibit. Confirmed no listing
+# in this service returns two-or-more collections the API defines as one
+# ordered sequence truncated independently. No code changes for Class F/G.
 overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)
                       # 2026-07-31: pkgs/sdkcheck reverse check found ListTagsForResource wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way (RAM dispatches by request path, and no real client sends this path), and real tag-reading via GetResourceShares.Tags was already correct.
                       # 2026-08-19: wrapper-key/nested-shape sweep of all 34 SDK ops found and fixed 3 genuine bugs (CreatePermissionVersion/ListPermissionVersions had their Summary/Detail response shapes swapped; ListPermissionAssociations used the wrong key ("permissionArn" vs real "arn") and wrong type (number vs real string) for its AssociatedPermission items, the latter causing an actual SDK deserialization failure, not just a silent drop). All 3 fixed and proven by hand-revert + SDK-client round trip. Remaining 31 ops confirmed clean against their own deserializers. Grade held at A.
