@@ -380,7 +380,12 @@ func TestDeleteObjectsOnCancel_RequiresAborted(t *testing.T) {
 	txID := txOut["TransactionId"].(string)
 
 	// Transaction is ACTIVE — should fail
-	rec2 := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{"TransactionId": txID})
+	rec2 := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{
+		"TransactionId": txID,
+		"DatabaseName":  "db",
+		"TableName":     "t",
+		"Objects":       []map[string]any{{"Uri": "s3://bucket/key"}},
+	})
 	assert.Equal(t, http.StatusBadRequest, rec2.Code, "must be ABORTED before DeleteObjectsOnCancel")
 }
 
@@ -392,7 +397,12 @@ func TestDeleteObjectsOnCancel_AfterCancel(t *testing.T) {
 
 	postJSON(t, h, "/CancelTransaction", map[string]any{"TransactionId": "txn-aborted"})
 
-	rec := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{"TransactionId": "txn-aborted"})
+	rec := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{
+		"TransactionId": "txn-aborted",
+		"DatabaseName":  "db",
+		"TableName":     "t",
+		"Objects":       []map[string]any{{"Uri": "s3://bucket/key"}},
+	})
 	assert.Equal(t, http.StatusOK, rec.Code, "should succeed when transaction is ABORTED")
 }
 
@@ -404,6 +414,84 @@ func TestDeleteObjectsOnCancel_MissingID(t *testing.T) {
 
 	rec := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{"TransactionId": ""})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// DatabaseName, TableName, and Objects are all `required` on the real
+// DeleteObjectsOnCancelInput (api_op_DeleteObjectsOnCancel.go, lakeformation@v1.50.4) but
+// were accepted and silently dropped -- gopherstack-4shm class bug, never validated, never
+// forwarded to the backend.
+func TestDeleteObjectsOnCancel_RequiresDatabaseTableObjects(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	postJSON(t, h, "/CancelTransaction", map[string]any{"TransactionId": "txn-missing-fields"})
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing_database_name",
+			body: map[string]any{
+				"TransactionId": "txn-missing-fields",
+				"TableName":     "t",
+				"Objects":       []map[string]any{{"Uri": "s3://bucket/key"}},
+			},
+		},
+		{
+			name: "missing_table_name",
+			body: map[string]any{
+				"TransactionId": "txn-missing-fields",
+				"DatabaseName":  "db",
+				"Objects":       []map[string]any{{"Uri": "s3://bucket/key"}},
+			},
+		},
+		{
+			name: "missing_objects",
+			body: map[string]any{
+				"TransactionId": "txn-missing-fields",
+				"DatabaseName":  "db",
+				"TableName":     "t",
+			},
+		},
+		{
+			name: "empty_objects",
+			body: map[string]any{
+				"TransactionId": "txn-missing-fields",
+				"DatabaseName":  "db",
+				"TableName":     "t",
+				"Objects":       []map[string]any{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postJSON(t, h, "/DeleteObjectsOnCancel", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "expected rejection: %s", rec.Body.String())
+		})
+	}
+}
+
+func TestDeleteObjectsOnCancel_AllRequiredFieldsPresent(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	postJSON(t, h, "/CancelTransaction", map[string]any{"TransactionId": "txn-full"})
+
+	rec := postJSON(t, h, "/DeleteObjectsOnCancel", map[string]any{
+		"TransactionId": "txn-full",
+		"DatabaseName":  "db",
+		"TableName":     "t",
+		"Objects":       []map[string]any{{"Uri": "s3://bucket/key"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code, "should succeed with all required fields: %s", rec.Body.String())
 }
 
 // --- UpdateDataCellsFilter validation ---

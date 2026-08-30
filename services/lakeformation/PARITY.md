@@ -53,7 +53,7 @@ ops:
   ExtendTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTransactions: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteObjectsOnCancel: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DeleteObjectsOnCancel: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): DatabaseName/TableName/Objects are all `required` on the real DeleteObjectsOnCancelInput (api_op_DeleteObjectsOnCancel.go, lakeformation@v1.50.4) but were accepted and silently dropped -- never validated, never forwarded to the backend (which only ever took TransactionId). Now validated required-non-empty; CatalogID remains unread, see gaps (same class as the other CatalogID-accepting ops)."}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
   UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTemporaryDataLocationCredentials: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members. gopherstack-4ly2 (2026-08-21): the fixed handler still over-validated -- it demanded DataLocations be non-empty, but GetTemporaryDataLocationCredentialsInput marks no member required, DataLocations included, and the backend never uses it as a lookup key (only echoes it back as AccessibleDataLocations). Now optional; TestGetTemporaryDataLocationCredentials_MissingDataLocations (which asserted the wrong 400) was corrected."}
@@ -88,6 +88,63 @@ gaps:
   - "FIXED (gopherstack-kbnu): GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource now reject Resource kinds other than Database/Table/TableWithColumns with InvalidInputException, matching the documented restriction (\"The database, table, or column resource...\", api_op_GetResourceLFTags.go:30-33 / api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource states it explicitly: \"Only database, table, or tableWithColumns resource are allowed.\", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/lakeformation@v1.50.4). Was a permissive superset (accepted Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy too) -- the same bug class as a glacier-pass finding the same day (gopherstack accepting a clause AWS rejects)."
 deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). The prior claim that RedshiftScopeUnion/ServiceIntegrationUnion had no routed wire surface was WRONG (disproved gopherstack-6flj, 2026-08-15): ServiceIntegrations is a real member of CreateLakeFormationIdentityCenterConfigurationInput/UpdateLakeFormationIdentityCenterConfigurationInput/DescribeLakeFormationIdentityCenterConfigurationOutput, all three of them routed ops. Now implemented -- see the identity-center ops above and the ServiceIntegration/RedshiftScopeUnion/RedshiftConnect types in models.go.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
+---
+
+## 2026-08-30: reqfieldscan request-field-read sweep (gopherstack, cmd/reqfieldscan)
+
+First run of `cmd/reqfieldscan` against this service (previously audited only for filter
+value semantics, 2026-08-30 entry above -- that pass says nothing about whether request
+fields are read). 61 dispatch-table operations, 60/61 resolved (98%, GetDataLakePrincipal's
+`_ []byte` no-op decode is the one unresolved entry -- it has no request body to decode, not
+a scanner miss). 23 fields flagged unread. 3 were a real bug, fixed above
+(`DeleteObjectsOnCancel`'s DatabaseName/TableName/Objects). The remaining 20 are honest
+structural gaps, hand-verified against each op's own backend, not fabricated as bugs:
+
+- **CatalogID unread on 7 ops** (BatchGrantPermissions, BatchRevokePermissions,
+  DeleteObjectsOnCancel, GetDataLakeSettings, GrantPermissions, PutDataLakeSettings,
+  RevokePermissions): CatalogId is documented on every one of these ops as "By default, the
+  account ID" (api_op_*.go doc comments, lakeformation@v1.50.4) and this backend's
+  permissions subsystem (permissionsList backing Grant/Revoke/BatchGrant/BatchRevoke) and
+  DataLakeSettings (`b.dataLakeSettings`, a single global struct, data_lake_settings.go) are
+  both genuinely single-catalog: `ListPermissionsInput`/`GetEffectivePermissionsForPathInput`
+  don't even declare a CatalogID field in this codebase's own wire structs, so there is no
+  catalog-scoped read path these 7 ops' grants/settings could plug into without a
+  cross-cutting rework of the whole permissions/settings subsystem (adding catalog-keyed
+  storage to Grant/Revoke/List/GetEffectivePermissions and DataLakeSettings together, not a
+  single-field fix -- layer boundary, not touched). Contrast with LFTags/LFTagExpressions/
+  IdentityCenterConfiguration, which DO thread CatalogID through as a real per-catalog
+  storage key elsewhere in this same service -- the gap is scoped to the
+  permissions/settings families specifically, not this service as a whole.
+- **GetTemporaryDataLocationCredentials/GetTemporaryGluePartitionCredentials/
+  GetTemporaryGlueTableCredentials' AuditContext/Permissions/Partition/
+  SupportedPermissionTypes unread** (8 fields): these are all inputs to a Lake Formation
+  authorization decision. handler_credentials.go's own comment on
+  GetTemporaryDataLocationCredentials already discloses the reason: "No real authorization is
+  enforced (this backend never checks Lake Formation permissions)". The same reasoning
+  extends to its two Glue-credential siblings (structurally identical intent, same absence of
+  an authorization engine) and to QuerySessionContext, already disclosed above as its own gap
+  entry for the same op family. Wiring these would mean building a permission-evaluation
+  engine spanning TableArn/Partition-key matching and Permissions/SupportedPermissionTypes
+  negotiation against permissionsList -- a structural feature, not a one-field fix; flagged,
+  not fixed.
+- **getResourceLFTagsInput.ShowAssignedLFTags unread**: real semantic is "show LF-tags
+  directly assigned to the resource" as distinct from inherited ones, but
+  `GetResourceLFTags` (lf_tags.go) only ever returns tags stored at the exact resource key
+  (`b.resourceLFTags[resourceToKey(resource)]`) -- no database-to-table (or table-to-column)
+  inheritance is modeled anywhere in this service, so there is no "inherited" category for
+  the flag to toggle away from "assigned". No observable difference to build.
+- **getWorkUnitsInput.NextToken/PageSize unread**: `GetWorkUnits` (work_units.go) always
+  returns exactly one range (WorkUnitIDMin/Max both 0) -- already documented above under
+  GetWorkUnitResults' own fix note ("GetWorkUnits always returns exactly one range"). Same
+  reasoning as the already-disclosed `ListTableStorageOptimizersInput.MaxResults/NextToken`
+  gap: pagination over a fixed single-item result can never be observed against any real
+  NextToken/PageSize value.
+- **listPermissionsInput.IncludeRelated / listTableStorageOptimizersInput.NextToken**:
+  already disclosed above, re-confirmed unchanged.
+
+Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...`.
 ---
 
 ## Notes

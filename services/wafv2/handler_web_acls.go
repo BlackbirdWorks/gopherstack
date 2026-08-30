@@ -295,6 +295,14 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
 		return nil, err
 	}
@@ -355,6 +363,14 @@ func (h *Handler) handleDeleteWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := h.Backend.DeleteWebACL(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
@@ -401,7 +417,11 @@ func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, bod
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.DeleteFirewallManagerRuleGroups(ctx, req.WebACLArn)
+	if req.WebACLLockToken == "" {
+		return nil, fmt.Errorf("%w: WebACLLockToken is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.DeleteFirewallManagerRuleGroups(ctx, req.WebACLArn, req.WebACLLockToken)
 	if err != nil {
 		return nil, err
 	}

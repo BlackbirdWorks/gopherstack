@@ -96,6 +96,19 @@ func (h *Handler) handleDeleteObjectsOnCancel(_ context.Context, c *echo.Context
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
+
+	if strings.TrimSpace(in.DatabaseName) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "DatabaseName is required")
+	}
+
+	if strings.TrimSpace(in.TableName) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableName is required")
+	}
+
+	if len(in.Objects) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Objects is required")
+	}
+
 	if err := h.Backend.DeleteObjectsOnCancel(in.TransactionID); err != nil {
 		return h.handleError(c, err)
 	}

@@ -50,23 +50,23 @@ overall: A            # New this pass: the AI-bot pay-per-crawl monetization-rep
 ops:
   CreateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23 gopherstack request-side sweep: MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig were accepted and silently dropped, see Notes"}
   GetWebACL: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps). gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetWebACLInput marks no member required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is a real alternative to Name+Scope+Id. Added GetWebACLByARN (region-scoped via the existing webACLsByARN index/webACLIDByARNInRegion) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects. FIXED (this session, gopherstack-6flj reverse-direction sweep): WebACL.Capacity (types.WebACL) was never computed -- this backend already has a real per-statement WCU cost model (capacity.go, used by CheckCapacity) but never applied it to its own GetWebACL response; now computed via the same engine. WebACL.LabelNamespace was also entirely unmodeled -- grammar `awswaf:<account ID>:webacl:<web ACL name>:` confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_WebACL.html (the pinned SDK's own doc comment has its <placeholder> substitutions stripped by a codegen artifact). Both proven via real aws-sdk-go-v2/service/wafv2 client round trips (TestGetWebACL_CapacityAndLabelNamespace, wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
-  UpdateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig drop as CreateWebACL, see Notes"}
-  DeleteWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateWebACL: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig drop as CreateWebACL, see Notes. 2026-08-30 (reqfieldscan sweep): Name/Scope were accepted and never validated despite being `required` on UpdateWebACLInput -- now required."}
+  DeleteWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
   ListWebACLs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIPSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
-  GetIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetIPSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes (Name only, Get requires Name+Scope+Id per GetIPSetInput)"}
+  UpdateIPSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
+  DeleteIPSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
   ListIPSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
-  GetRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRegexPatternSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes (Name only, Get requires Name+Scope+Id per GetRegexPatternSetInput)"}
+  UpdateRegexPatternSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
+  DeleteRegexPatternSet: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
   ListRegexPatternSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23: MonetizationConfig was accepted and silently dropped, see Notes"}
   GetRuleGroup: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetRuleGroupInput marks no member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is a real alternative to Name+Scope+Id. Added GetRuleGroupByARN (region-scoped via the existing ruleGroupsByARN index) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects. FIXED (this session, gopherstack-6flj reverse-direction sweep): RuleGroup.LabelNamespace (types.RuleGroup) was entirely unmodeled, unlike its sibling Capacity which this handler already emitted correctly -- grammar `awswaf:<account ID>:rulegroup:<rule group name>:` confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_RuleGroup.html. Proven via TestGetRuleGroup_LabelNamespace (wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
-  UpdateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig drop as CreateRuleGroup, see Notes"}
-  DeleteRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule"}
+  UpdateRuleGroup: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig drop as CreateRuleGroup, see Notes. 2026-08-30 (reqfieldscan sweep): Name/Scope were accepted and never validated despite being `required` on UpdateRuleGroupInput -- now required."}
+  DeleteRuleGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule; FIXED (2026-08-30, reqfieldscan sweep): Name/Scope (and Delete's LockToken-sibling family) are `required` on the real Input (wafv2@v1.77.3) but were accepted and never validated -- see the 2026-08-30 reqfieldscan section in Notes"}
   ListRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-nqu4): validateAssociationScope's REGIONAL-scope check returned nil unconditionally, and its regionalResourceServices list used execute-api for API Gateway where the SDK doc says apigateway -- both fixed, see Notes"}
   DisassociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent no-op on missing association, matches AWS"}
@@ -87,7 +87,7 @@ ops:
   PutPermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteFirewallManagerRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteFirewallManagerRuleGroups: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-08-30, reqfieldscan sweep): WebACLLockToken is `required` on the real DeleteFirewallManagerRuleGroupsInput but was accepted and never validated or checked against the WebACL's stored LockToken -- now required and checked (empty-skips-check convention, same as every other Update*/Delete* op, see Notes)"}
   GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled, genuinely unreachable, see gaps/Notes; fixed: was missing required Name/Scope validation, see Notes"}
   ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get; fixed: Scope is required on the real op, was an optional filter here, see Notes. FIXED 2026-08-30 (pagination-tie sweep): PutManagedRuleSetVersions keys strictly on the caller-supplied Id with no Name-uniqueness check (unlike CreateWebACL/CreateIPSet/CreateRegexPatternSet/CreateRuleGroup's webACLsByNameScope-style dedup), so two ManagedRuleSets could share a Name. handleListManagedRuleSets paginated with paginateByName, an equality/marker cursor keyed on Name alone that skips every item whose name is <= the marker -- once a page boundary fell inside a same-name tie group, every remaining item in that group was dropped, deterministically (proven with one walk, not 30, since the loss doesn't depend on map-iteration order). Fixed with a new paginateByNameID helper (handler.go) whose marker also encodes the last id seen, plus an id tiebreak added to ListManagedRuleSets' sort (managed_rule_sets.go). paginateByName itself was left untouched: its other four callers (WebACLs/IPSets/RegexPatternSets/RuleGroups via listResourceSummaries, and APIKeys) all have a name that is either dedup-enforced at Create or a generated UUID, so they were re-verified safe rather than changed. TestListManagedRuleSets_DuplicateNamePagination (handler_managed_rule_sets_test.go) creates 3 ManagedRuleSets sharing a Name, pages at Limit=2, and asserts all 3 ids are seen across the full walk; failed against unfixed code (ms-3 dropped) before this fix."}
   PutManagedRuleSetVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was missing required Name/Scope validation, see Notes"}
@@ -102,7 +102,7 @@ ops:
   ListAvailableManagedRuleGroupVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   GenerateMobileSdkReleaseUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetMobileSdkRelease: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListMobileSdkReleases: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListMobileSdkReleases: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): removed fabricated Scope field (ListMobileSdkReleasesInput has no such member); Limit/NextMarker were parsed but never applied to pagination -- same bug class just fixed for ListAvailableManagedRuleGroups above, now paginated via paginateByName sorted by ReleaseVersion"}
   GetRevenueStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0 (AI-bot pay-per-crawl monetization). Full request validation (Currency=USDC, CLOUDFRONT-only Scope, StatisticType enum, GroupBy required iff TOP_SOURCES_BY_REVENUE, SortBy/SortOrder enums, 90-day TimeWindow cap, Filters incl. enum-restricted values); always returns an empty SourceStatistics or RevenuePathStatistics list (matching which field the SDK docs say is 'populated when' -- the other is omitted) because no real AI-bot traffic exists to rank. See Notes."}
   GetRevenueStatisticsSummary: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family; RevenueBreakdown is always Currency=<request currency>, all amounts '0', all counts 0 -- honest zero, not fabricated. See Notes."}
   GetRevenueStatisticsTimeSeries: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family plus Interval enum and Limit 1-10000 bound; DataPoints always empty. See Notes."}
@@ -560,3 +560,77 @@ extensive prior audit trail above): the revenue-statistics family, logging
 configuration, permission policies, API key CRUD beyond the `Version` check
 above, managed rule set family, and the tag/pagination/error-code
 infrastructure.
+
+## 2026-08-30: reqfieldscan request-field-read sweep (gopherstack, cmd/reqfieldscan)
+
+First run of `cmd/reqfieldscan` against this service (previously audited only for a scope-
+validation bug that always returned nil on both branches, already fixed -- that pass says
+nothing about whether request fields are read). This service does not use
+`map[string]service.JSONOpFunc`/`service.WrapOp` (dispatch is a local `map[string]dispatchFn`
++ per-handler `json.Unmarshal`), so the coverage guard's `usesJSONOpFunc` gate never applies
+here -- mechanically confirmed via `grep -rn "JSONOpFunc" services/wafv2/` (no hits). Coverage
+is instead built entirely from the tool's literal-decode + GetSupportedOperations-static-list
+path: 59 operations, 54/59 (92%) resolved. The 5 unresolved (DescribeAllManagedProducts,
+ListIPSets, ListRegexPatternSets, ListRuleGroups, ListWebACLs) are not measurement gaps:
+DescribeAllManagedProducts takes no request struct at all (real Input has no members), and the
+four `List*` ops decode through a shared generic helper
+(`handleListResourceFamily`/`listFamilyRequest`, handler.go) one call-frame removed from the
+op's own handler function -- outside this tool's literal-decode "same function" resolution by
+construction, not a defect. Hand-verified clean: Scope/NextMarker/Limit are all read inside
+`handleListResourceFamily`/`listResourceSummaries`.
+
+39 fields flagged unread. 22 were real bugs (required-field-dropped shape, the dominant class
+this campaign has found repeatedly), fixed this pass:
+
+- **Name unread on Get/Update/Delete of IPSet and RegexPatternSet, and Update/Delete of
+  RuleGroup and WebACL** (10 ops); **Scope additionally unread on Update/Delete of all four**
+  (8 more). Verified per-op against the real SDK: `GetIPSetInput`/`GetRegexPatternSetInput`
+  mark Id+Name+Scope all `required`; every `Delete*Input`/`Update*Input` in this family marks
+  Name+Scope+LockToken all `required` (wafv2@v1.77.3). None were validated -- a client
+  omitting them got silently accepted instead of a `WAFInvalidParameterException`. Now
+  required-non-empty checked, matching this repo's own established pattern (see
+  `UpdateManagedRuleSetVersionExpiryDate`'s prior fix, ops: above). Deliberately NOT extended
+  to cross-validate Name against the resource's actual stored name -- that's a different,
+  unflagged concern; this fix addresses only "accepted and never read".
+- **GetRuleGroup.Name / GetWebACL.Name were correctly left alone**: `GetRuleGroupInput`/
+  `GetWebACLInput` mark NO member required at all (ARN is a real alternative to Name+Scope+Id,
+  already documented above from the 2026-08-21 gopherstack-4ly2 pass) -- verified directly
+  against the pinned SDK, not inferred from the IPSet/RegexPatternSet sibling shape. Left as a
+  disclosed honest gap, not fixed; see gaps.
+- **DeleteFirewallManagerRuleGroups.WebACLLockToken**: `required` on the real Input, accepted
+  and never validated or checked against the addressed WebACL's stored LockToken. Now
+  required, and `Backend.DeleteFirewallManagerRuleGroups` gained a `lockToken` parameter
+  checked the same empty-skips-check way every other Update*/Delete* op already does (see
+  LockToken bypass note above) -- signature change, `interfaces.go` and the one caller in
+  `handler_web_acls.go` updated.
+- **ListMobileSdkReleases.Scope/NextMarker/Limit**: Scope doesn't exist on the real
+  `ListMobileSdkReleasesInput` at all (verified against api_op_ListMobileSdkReleases.go) --
+  deleted rather than left as dead, wire-inaccurate decode surface. Limit/NextMarker were
+  parsed but never applied -- this catalog has 2 releases per platform (buildMobileSdkCatalog,
+  managed_rule_catalog.go), so pagination IS observable, unlike the honest gaps below. Fixed
+  with the same `paginateByName` helper `ListAvailableManagedRuleGroups` was just fixed with
+  the prior pass (sorted by ReleaseVersion).
+
+The remaining 17 are honest gaps, hand-verified against each op's own backend, not fabricated
+as bugs -- 9 were already disclosed in this file (DescribeManagedProductsByVendor/
+DescribeManagedRuleGroup's Scope, GetRateBasedStatementManagedKeys' empty-ManagedKeys family,
+the GetTopPathStatisticsByTraffic no-traffic-model gap, the GetRevenueStatistics*/
+ListSettlementRecords always-empty family). Two are new, same reasoning extended to sibling
+ops in this same catalog family, not previously called out by field name:
+
+- **ListAvailableManagedRuleGroupVersions.Scope/NextMarker/Limit**: Scope is the same
+  "no per-entry scope-availability data" gap already documented for
+  DescribeManagedProductsByVendor/DescribeManagedRuleGroup/DescribeAllManagedProducts above
+  (managed_rule_catalog.go's static catalog has no scope dimension at all).
+  NextMarker/Limit: this catalog hardcodes exactly one version per versioning-supported group
+  (`defaultManagedRuleGroupVersion`) -- `handleListAvailableManagedRuleGroupVersions` always
+  returns 0 or 1 entries, so pagination over a fixed 0-or-1-item result is never observable,
+  unlike the sibling `ListMobileSdkReleases` bug above (2 items/platform) or the
+  already-fixed `ListAvailableManagedRuleGroups` (14-entry catalog).
+- **ListAvailableManagedRuleGroups.Scope**: same "no per-entry scope-availability data" gap
+  as above -- the Limit/NextMarker half of this op was a real, fixed bug the prior pass
+  (paginateByName now applied); Scope was never part of that fix and remains unread for the
+  same structural reason as its siblings.
+
+Gates: `go build ./services/wafv2/...`, `go vet ./services/wafv2/...`,
+`go test -race -count=1 ./services/wafv2/...`, `golangci-lint run ./services/wafv2/...`.

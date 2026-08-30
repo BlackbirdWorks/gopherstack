@@ -184,7 +184,9 @@ func TestRegexPatternSetObjectShape(t *testing.T) {
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Get and verify the entries are returned as objects.
-	recGet := doWafv2Request(t, h, "GetRegexPatternSet", map[string]any{"Id": id})
+	recGet := doWafv2Request(
+		t, h, "GetRegexPatternSet", map[string]any{"Id": id, "Name": "regex-obj", "Scope": "REGIONAL"},
+	)
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var getResp map[string]any
@@ -301,6 +303,7 @@ func TestHandler_GetRegexPatternSet(t *testing.T) {
 		{
 			name:       "not_found",
 			requestID:  "nonexistent-id",
+			setupName:  "nonexistent-name",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -312,13 +315,13 @@ func TestHandler_GetRegexPatternSet(t *testing.T) {
 			h := newTestHandler(t)
 
 			id := tt.requestID
-			if tt.setupName != "" {
+			if tt.setupName != "" && tt.requestID == "" {
 				id = createRegexPatternSetHelper(t, h, tt.setupName)
 			}
 
 			var body any
 			if id != "" {
-				body = map[string]any{"Id": id, "Scope": "REGIONAL"}
+				body = map[string]any{"Id": id, "Name": tt.setupName, "Scope": "REGIONAL"}
 			} else {
 				body = map[string]any{}
 			}
@@ -418,6 +421,7 @@ func TestHandler_UpdateRegexPatternSet(t *testing.T) {
 		{
 			name:       "not_found",
 			requestID:  "nonexistent",
+			setupName:  "nonexistent-name",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -429,13 +433,15 @@ func TestHandler_UpdateRegexPatternSet(t *testing.T) {
 			h := newTestHandler(t)
 
 			id := tt.requestID
-			if tt.setupName != "" {
+			if tt.setupName != "" && tt.requestID == "" {
 				id = createRegexPatternSetHelper(t, h, tt.setupName)
 			}
 
 			var body any
 			if id != "" {
-				body = map[string]any{"Id": id, "Description": tt.description}
+				body = map[string]any{
+					"Id": id, "Name": tt.setupName, "Scope": "REGIONAL", "Description": tt.description,
+				}
 			} else {
 				body = map[string]any{}
 			}

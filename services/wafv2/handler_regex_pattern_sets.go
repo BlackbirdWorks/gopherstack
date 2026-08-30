@@ -131,6 +131,14 @@ func (h *Handler) handleDeleteRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := h.Backend.DeleteRegexPatternSet(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
@@ -156,6 +164,10 @@ func (h *Handler) handleGetRegexPatternSet(ctx context.Context, body []byte) ([]
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
 	r, err := h.Backend.GetRegexPatternSet(ctx, req.ID)
@@ -224,6 +236,14 @@ func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) 
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
 	entries, err := parseRegexEntries(req.RegularExpressionList)

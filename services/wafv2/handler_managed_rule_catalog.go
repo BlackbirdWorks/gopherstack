@@ -320,9 +320,11 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 }
 
 // listMobileSdkReleasesRequest is the request body for ListMobileSdkReleases.
+// Scope is deliberately not modeled: ListMobileSdkReleasesInput has no such
+// member (api_op_ListMobileSdkReleases.go, wafv2@v1.77.3) -- mobile SDK
+// releases aren't REGIONAL/CLOUDFRONT-scoped.
 type listMobileSdkReleasesRequest struct {
 	Platform   string `json:"Platform"`
-	Scope      string `json:"Scope"`
 	NextMarker string `json:"NextMarker"`
 	Limit      int    `json:"Limit"`
 }
@@ -335,17 +337,30 @@ func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
 	}
 
 	releases := getMobileSdkReleases(req.Platform)
+	sort.Slice(releases, func(i, j int) bool { return releases[i].ReleaseVersion < releases[j].ReleaseVersion })
 
-	summaries := make([]map[string]any, 0, len(releases))
+	page, nextMarker := paginateByName(
+		releases,
+		func(r mobileSdkReleaseInfo) string { return r.ReleaseVersion },
+		req.NextMarker,
+		req.Limit,
+	)
 
-	for _, r := range releases {
+	summaries := make([]map[string]any, 0, len(page))
+
+	for _, r := range page {
 		summaries = append(summaries, map[string]any{
 			"ReleaseVersion": r.ReleaseVersion,
 			"Timestamp":      r.Timestamp,
 		})
 	}
 
-	return json.Marshal(map[string]any{"ReleaseSummaries": summaries})
+	resp := map[string]any{"ReleaseSummaries": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // managedRuleCatalogDispatchOps returns the managed-rule-group and mobile-SDK catalog
