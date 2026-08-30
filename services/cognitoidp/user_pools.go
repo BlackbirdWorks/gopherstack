@@ -292,6 +292,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		EmailConfiguration:     opts.EmailConfiguration,
 		AccountRecoverySetting: opts.AccountRecoverySetting,
 		DeletionProtection:     opts.DeletionProtection,
+		MfaConfiguration:       opts.MfaConfiguration,
 	}
 
 	b.pools.Put(pool)

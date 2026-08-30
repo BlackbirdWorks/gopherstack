@@ -836,3 +836,60 @@ repo-wide `go vet ./...` (clean except a pre-existing, unrelated
 `services/appconfig` failure from a concurrently-edited service), `go test
 -race -count=1 ./services/ecs/...` (pass), `golangci-lint run --fix
 ./services/ecs/...` (0 issues).
+
+**2026-08-30 (gopherstack request-field re-scan, `cmd/reqfieldscan`)**:
+first pass of `cmd/reqfieldscan` (added `aa4ec0ad2`) against this service's
+request fields -- the ecs pass noted above swept error codes only, request
+fields were unscanned until now. Coverage: 77/77 dispatch-table ops (100%)
+resolved via `service.WrapOp`, no unresolved ops, no blind spots this tool's
+own doc discloses were hit (no local wrapper-around-WrapOp shape like
+cognitoidp's `wrapAccuracy`, no non-`handle<Op>`-named handler this scan
+needed a suffix guess for). 6 fields flagged; hand-verified each against
+`aws-sdk-go-v2/service/ecs@v1.90.0`'s own serializers:
+
+- **`ListDaemonTaskDefinitions.Revision` -- real bug, fixed.**
+  `api_op_ListDaemonTaskDefinitions.go`: "Specify LAST_REGISTERED to return
+  only the last registered revision for each daemon task definition family"
+  -- the field's one documented enum value
+  (`types.DaemonTaskDefinitionRevisionFilterLastRegistered`). The handler
+  built its backend query from `Family`/`FamilyPrefix`/`Status` only, never
+  read `Revision`, so passing `LAST_REGISTERED` silently returned every
+  revision of every matching family instead of narrowing to each family's
+  highest. Fixed by filtering the already-family+revision-sorted result set
+  down to one entry per family when `Revision` case-insensitively equals
+  `"LAST_REGISTERED"`. Proof:
+  `TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered`
+  (`handler_daemon_test.go`), real typed SDK client, confirmed failing
+  (returned all 5 registered revisions instead of the 2 latest) against the
+  unfixed code.
+- **`CreateDaemon.ClientToken` -- verified, structural, not fixed.** No
+  idempotency-token dedup pattern exists anywhere else in this service --
+  grepped the whole package for `ClientToken`; this is the only field of
+  that name in the entire service, meaning no `Create*`/`Run*` op here
+  implements request-token deduplication. Consistent with the rest of the
+  service rather than a localized gap; implementing dedup would be a new
+  cross-cutting feature, not a narrow wire-field fix.
+- **`DiscoverPollEndpoint.Cluster`/`.ContainerInstance` -- verified, not a
+  bug.** `discoverPollEndpointInput`'s own doc comment states plainly:
+  "Currently unused: the handler discards its input" -- the handler's
+  parameter is even declared `_ *discoverPollEndpointInput`. A deliberately
+  disclosed simplification (a single global poll endpoint regardless of
+  cluster/instance), not a silent gap.
+- **`ListContainerInstances.Filter` -- verified, structural, not fixed.**
+  Real AWS's `filter` here is a Cluster Query Language expression (e.g.
+  `attribute:ecs.instance-type =~ t2.*`). Grepped the service for any
+  existing CQL parsing (for this op or any sibling `List*` op with a
+  `filter` parameter): none. A whole unimplemented query-language feature,
+  not a dropped-field fix.
+- **`RegisterContainerInstance.InstanceIdentityDocumentSignature` --
+  verified, not a bug.** The struct's own doc comment states it is "accepted
+  for wire-shape completeness but not cryptographically verified by this
+  emulator" -- a deliberate, disclosed simplification (verifying an EC2
+  instance identity document signature against AWS's public certificate
+  chain is out of scope for an emulator with no real EC2 backing it).
+
+Gates: `go build ./services/ecs/...`, `go build ./...` (repo-wide, clean),
+`go vet ./services/ecs/...`, `go vet ./...` (repo-wide, clean), `go test
+-race -count=1 ./services/ecs/...` (pass), `golangci-lint run
+./services/ecs/...` (0 issues). Work left uncommitted per this pass's
+instructions.

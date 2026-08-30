@@ -425,6 +425,39 @@ func TestListDatasetEntries_Filters(t *testing.T) {
 	assert.Empty(t, withErrors.DatasetEntries)
 }
 
+// TestCompareFaces_SimilarityThreshold proves CompareFacesInput's
+// SimilarityThreshold (api_op_CompareFaces.go: "By default, only faces with
+// a similarity score of greater than or equal to 80% are returned in the
+// response. You can change this value by specifying the SimilarityThreshold
+// parameter.") actually gates FaceMatches. Before the fix, the handler
+// discarded SourceImage/TargetImage/SimilarityThreshold entirely (a blank
+// `_ *compareFacesReq` parameter) and always returned the exact same
+// hardcoded match regardless of what threshold the caller asked for.
+func TestCompareFaces_SimilarityThreshold(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestRekognitionClient(t, h)
+
+	img := &types.Image{Bytes: []byte("fake-image-bytes")}
+
+	low, err := client.CompareFaces(t.Context(), &rekognitionsdk.CompareFacesInput{
+		SourceImage:         img,
+		TargetImage:         img,
+		SimilarityThreshold: aws.Float32(1),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, low.FaceMatches, "a low threshold must match")
+
+	high, err := client.CompareFaces(t.Context(), &rekognitionsdk.CompareFacesInput{
+		SourceImage:         img,
+		TargetImage:         &types.Image{Bytes: []byte("different-image-bytes")},
+		SimilarityThreshold: aws.Float32(99.99),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, high.FaceMatches, "a near-100 threshold against a different image must not match")
+}
+
 // TestListFaces_Filters proves ListFacesInput's FaceIds and UserId filters
 // (api_op_ListFaces.go) are honoured -- previously neither was read by the
 // handler at all.

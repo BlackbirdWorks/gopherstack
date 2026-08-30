@@ -732,6 +732,24 @@ type listDaemonTaskDefinitionsOutput struct {
 	DaemonTaskDefinitions []daemonTaskDefinitionSummaryView `json:"daemonTaskDefinitions"`
 }
 
+// lastRegisteredDaemonTaskDefPerFamily narrows tds to one entry per family:
+// the highest revision. tds must already be sorted ascending by (Family,
+// Revision) -- see handleListDaemonTaskDefinitions's SortFunc above -- so
+// each family's last occurrence is its highest revision.
+func lastRegisteredDaemonTaskDefPerFamily(tds []DaemonTaskDefinition) []DaemonTaskDefinition {
+	out := make([]DaemonTaskDefinition, 0, len(tds))
+
+	for i, td := range tds {
+		if i+1 < len(tds) && tds[i+1].Family == td.Family {
+			continue
+		}
+
+		out = append(out, td)
+	}
+
+	return out
+}
+
 func (h *Handler) handleListDaemonTaskDefinitions(
 	_ context.Context,
 	in *listDaemonTaskDefinitionsInput,
@@ -752,6 +770,10 @@ func (h *Handler) handleListDaemonTaskDefinitions(
 
 		return a.Revision - c.Revision
 	})
+
+	if strings.EqualFold(in.Revision, "LAST_REGISTERED") {
+		tds = lastRegisteredDaemonTaskDefPerFamily(tds)
+	}
 
 	if strings.EqualFold(in.Sort, "DESC") {
 		slices.Reverse(tds)

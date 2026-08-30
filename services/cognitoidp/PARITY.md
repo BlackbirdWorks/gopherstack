@@ -1353,3 +1353,91 @@ twice, including via `op*` constants a literal grep would miss. Built each group
 map directly off a zero-value `*Handler` and diffed the 39 key sets against each
 other (temporary diagnostic, not committed): 130 distinct op names, zero
 collisions.
+
+**2026-08-30 (gopherstack WrapOp-blind-spot re-scan, `cmd/reqfieldscan`)**:
+`cmd/reqfieldscan` (added `aa4ec0ad2`) reported only 81/130 (62%) of this
+service's dispatch table resolved, with the other 49 ops "unresolved" -- an
+implausible number per that tool's own "treat low coverage as a measurement
+bug" guidance, hand-confirmed as exactly that: this service defines a local
+generic wrapper `wrapAccuracy[I,O](fn) service.JSONOpFunc { return
+service.WrapOp(fn) }` (`handler.go:484`), so the map-literal call site the
+tool's literal `sel.Sel.Name == "WrapOp"` check looks for is never present
+for the 49 ops registered via `wrapAccuracy(...)` -- confirmed 1:1 (49
+`wrapAccuracy(h.*)` call sites, 49 unresolved ops). A second, separate gap:
+many of this service's handlers are named `handle<Op>Full`/`handle<Op
+>Accurate`/`handle<Op>WithOpts` rather than exactly `handle<Op>`, which the
+tool's own naming-convention resolver doesn't try. A scratch-only patched
+copy of the tool (not committed; both gaps are specific to this service's
+conventions, not upstream-worthy per the tool's own disclosed-blind-spot
+policy) resolved all 130/130 and surfaced 6 flagged fields the unpatched
+tool's 3-of-130 partial run could not have reached. Hand-verified each:
+
+- **`CreateUserPool.MfaConfiguration` -- real bug, fixed.** Every other
+  writer of `pool.MfaConfiguration` (`SetUserPoolMfaConfig`,
+  `UpdateUserPoolWithOpts`) wires it through; `CreateUserPoolWithOpts`'s own
+  `UserPoolOptions` struct had no field to carry it at all, so a pool
+  created with `MfaConfiguration: "ON"` silently came back `OFF` until a
+  separate `SetUserPoolMfaConfig`/`UpdateUserPool` call. Fixed by adding
+  `MfaConfiguration` to `UserPoolOptions` and wiring
+  `handleCreateUserPoolWithOpts`'s `opts` literal and
+  `CreateUserPoolWithOpts`'s pool literal to it (`UpdateUserPoolWithOpts`
+  already takes `mfaConfiguration` as an explicit positional param and does
+  not read `opts.MfaConfiguration` -- left as is, no double-write path).
+  Proof: `TestHandler_CreateUserPool_MfaConfiguration`
+  (`user_pools_test.go`), confirmed failing (asserted "ON", got "OFF")
+  against the unfixed code.
+- **`AdminDisableProviderForUser.User` -- verified, not a bug.**
+  `AdminDisableProviderForUser`'s own doc comment states this backend does
+  not track federated identity provider links at all, and validates only
+  that the pool exists (matching real AWS's behavior for an unknown provider
+  link) -- reading `User` would have nothing to act on. Comment correctly
+  explains the gap; not fixed.
+- **`ConfirmDevice.DeviceSecretVerifierConfig` -- verified, structural, not
+  fixed.** This SRP verifier config exists to support a later
+  `DEVICE_SRP_AUTH` re-authentication flow; grepped the whole service for
+  `DEVICE_SRP_AUTH` and found no such `AuthFlow` recognized anywhere
+  (`InitiateAuth`/`AdminInitiateAuth` only handle `USER_SRP_AUTH`,
+  `REFRESH_TOKEN_AUTH`, `ADMIN_USER_SRP_AUTH`), and the `Device` model has no
+  field to store a verifier/salt in even if it were read. A whole
+  unimplemented auth flow, not a narrow dropped-field fix.
+- **`AdminRespondToAuthChallenge.UserPoolID` -- real gap, left at a layer
+  boundary, not fixed.** Every challenge-response backend method this
+  handler calls (`RespondToMFAChallenge`, `RespondToNewPasswordRequired`,
+  `RespondToSRPChallenge`, `RespondToMFASetupChallenge`,
+  `RespondToCustomAuthChallenge`) takes only `clientID`/`session`, never
+  `userPoolID` -- contrast `AdminInitiateAuth`, whose sibling backend calls
+  (`AdminInitiateAuthSRP`, `AdminInitiateAuth`) do take and use it to scope
+  the user lookup. No pool-ownership validation exists anywhere in this
+  package (grepped for a `ClientBelongsToPool`-shaped helper: none), so a
+  caller presenting a `Session`/`ClientId` from one pool while claiming a
+  different `UserPoolId` is not rejected. A correct fix means adding
+  `userPoolID` to (and validating it in) five backend method signatures --
+  crosses the handler/backend layer boundary, reported rather than fixed.
+- **`VerifySoftwareToken.FriendlyDeviceName` -- verified, not fixed.** Real
+  AWS treats this as a display-only label with no modeled behavioral effect
+  either (it does not gate MFA behavior in the real API), and no device
+  model in this service has a field to hold it. Lowest-priority of the five.
+- **`ListUserPoolReplicas.NextToken` -- real minor gap, not fixed.** The
+  handler returns every replica in one page regardless of `NextToken`/
+  `MaxResults` and never issues a `NextToken` of its own. Low real-world
+  impact -- `user_pool_replicas.go`'s own doc comment (trusted per this
+  campaign's "a comment that gives a correct reason" guidance, and already
+  cited by this file's own List-pagination sweep above) establishes at most
+  one replica per region with no cross-region duplication path, so there is
+  rarely more than a handful of items to page over in practice -- but the
+  field is still genuinely wired on the wire and genuinely ignored.
+
+**Re-derived collision/group count (previously recorded: 130 ops / 39 groups
+/ zero collisions).** Re-ran the same style of check this pass (AST-walked
+every `map[string]service.JSONOpFunc{...}` composite literal, resolving keys
+through both string literals and `opX`-style string constants): **130
+distinct operations across 41 registration groups, zero collisions** --
+confirmed as of this pass; group count has drifted up to 41 (this file's own
+count is exactly the kind of number that goes stale, as its own record notes
+elsewhere) but the load-bearing claim, zero collisions, still holds.
+
+Gates: `go build ./services/cognitoidp/...`, `go build ./...` (repo-wide,
+clean), `go vet ./services/cognitoidp/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cognitoidp/...` (pass),
+`golangci-lint run ./services/cognitoidp/...` (0 issues). Work left
+uncommitted per this pass's instructions.

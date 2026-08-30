@@ -301,3 +301,111 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
      `rekognitionSnapshotVersion` bump; round-trip verified by
      `TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields`
      (`persistence_test.go`).
+
+**2026-08-30 (gopherstack request-field re-scan, `cmd/reqfieldscan`)**:
+`cmd/reqfieldscan` (added `aa4ec0ad2`) against this service's request fields.
+Coverage: 75/75 dispatch-table ops (100%) resolved via `service.WrapOp`, no
+unresolved ops, no `wrapAccuracy`-style local-wrapper blind spot (unlike
+cognitoidp). 35 fields originally flagged; 3 fixed this pass (see below), 32
+remain, all hand-verified and sorted below.
+
+**Real bug, fixed: `CompareFaces` discarded its entire request** (`_
+*compareFacesReq` -- `SourceImage`/`TargetImage`/`SimilarityThreshold` all
+three unreadable) and always returned the same hardcoded match regardless of
+`SimilarityThreshold`, so a client asking for a 99.99% threshold got the
+identical fabricated "match" as a client asking for 1%
+(api_op_CompareFaces.go's documented default is 80%). Fixed to bind `req`,
+default an unset/zero threshold to 80 per that doc, and gate a synthetic
+match on `SimilarityThreshold` using a deterministic similarity derived from
+whether `SourceImage`/`TargetImage` are the same reference (`imageRefKey`,
+this file's existing convention for stateless-mock similarity, already used
+by `SearchFacesByImage`) -- identical images score 100, distinct ones a
+lower plausible score, so the threshold has an observable, testable effect.
+Proof: `TestCompareFaces_SimilarityThreshold` (`wire_field_fixes_test.go`),
+real typed SDK client, confirmed failing (returned a match at a 99.99
+threshold against two distinct images) against the unfixed code.
+
+**Real bugs found, hand-verified, explicitly NOT fixed this pass (shape:
+"a handler discarding its whole request body") -- four more handlers share
+`CompareFaces`'s pre-fix shape, declared with a blank `_ *reqType`
+parameter, structurally unable to read anything:**
+
+- **`DetectFaces`** (`Image`, `Attributes` both unreadable). No sibling
+  precedent to safely generalize from: `Attributes` selects which optional
+  facial-attribute sub-objects (age range, emotions, landmarks, ...) appear
+  in the response, and `faceDetailEntry` has no fields for any of them --
+  wiring it in without inventing new response shape isn't a narrow fix.
+- **`DetectCustomLabels`** (`ProjectVersionArn`, `Image`, `MaxResults`,
+  `MinConfidence` all unreadable). Distinct from the others: this service
+  *does* track custom-labels project versions as real state
+  (`project_versions.go`'s `InMemoryBackend.projectVersions`, with a real
+  `RUNNING`/`TRAINING_IN_PROGRESS`/`STOPPED` status lifecycle via
+  `StartProjectVersion`/`StopProjectVersion`), so this is also a **missing
+  existence check**: real AWS requires the named `ProjectVersionArn` to
+  exist and be `RUNNING` (`ResourceNotReadyException` otherwise), and
+  gopherstack currently accepts any string, running or not, without
+  looking it up. `projectVersions` is only reachable through the unexported
+  `InMemoryBackend` field, not the `StorageBackend` interface `Handler`
+  holds, so a correct fix needs a new interface method -- a layer-boundary
+  change, reported rather than made. Fabricating specific custom-label
+  *names* for a nonexistent customer-trained model would additionally risk
+  inventing capability that isn't real (the class of bug this campaign
+  explicitly flags as "fix deletes rather than adds"), so even the
+  existence-check-only version of this fix was left for a dedicated pass.
+- **`DetectProtectiveEquipment`** (`SummarizationAttributes`, `Image` both
+  unreadable). Same "no safe sibling pattern" reasoning as `DetectFaces`.
+- **`RecognizeCelebrities`** (`Image` unreadable, its only field). No
+  celebrity database or confidence-threshold analog exists to gate a
+  synthetic result on, unlike `CompareFaces`'s `SimilarityThreshold`.
+
+**Verified, not bugs -- established sibling convention, not a gap:**
+
+- **`DetectLabels.Image` / `DetectModerationLabels.Image`.** Both handlers
+  *do* bind `req` and use its non-image fields (`MinConfidence`/`MaxLabels`
+  for `DetectLabels`'s `plausibleLabels`; `MinConfidence` gating
+  `DetectModerationLabels`'s "clean by default, `Suggestive` only below a
+  low explicit threshold" synthetic result) -- this service's established,
+  disclosed pattern ("stateless mock results", per `handler_faces.go`'s own
+  section comment) for ops with no real CV backing is to shape a synthetic
+  response from confidence/count parameters without decoding the image
+  itself. `Image` being unread here is consistent with that established
+  convention, not a stub.
+
+**Verified, structural (whole capability class not implemented anywhere in
+this service), not fixed:**
+
+- **`ClientRequestToken`** on all ten `Start*`/`CreateFaceLivenessSession`
+  ops (`CreateFaceLivenessSession`, `StartCelebrityRecognition`,
+  `StartContentModeration`, `StartFaceDetection`, `StartFaceSearch`,
+  `StartLabelDetection`, `StartMediaAnalysisJob`, `StartPersonTracking`,
+  `StartSegmentDetection`, `StartTextDetection`). No idempotency-token dedup
+  pattern exists anywhere in this service (or, per the same pass's ecs
+  finding, in ecs either) -- a systemic gap, not an isolated one.
+- **`DetectText.Filters`.** Declared as `*struct{}` -- a Go empty-struct
+  type with zero members, so the *sub-fields* real AWS's `DetectTextFilters`
+  actually carries (`WordFilter.MinConfidence`, region-of-interest boxes)
+  were never modeled in the first place; there is nothing for a field read
+  to reach.
+- **`getJobReq.NextToken`/`.MaxResults`** (shared by `GetCelebrityRecognition`
+  /`GetFaceDetection`/`GetFaceSearch`/`GetPersonTracking`/
+  `GetSegmentDetection`/`GetTextDetection`), **`getContentModerationReq
+  .NextToken`/`.MaxResults`**, **`getLabelDetectionReq.NextToken`/
+  `.MaxResults`.** Every one of these six ops' result-list field is typed
+  as `[]struct{}` (`Faces`, `Persons`, `ModerationLabels`, `Labels`, etc.) --
+  literally incapable of carrying data regardless of how the handler is
+  written, since this backend does no real video analysis. Pagination
+  parameters are moot when the collection being paginated can never hold
+  anything; distinguishing this from a silently-broken listing per this
+  campaign's own guidance, this is an honestly-empty design, not a bug.
+- **`startContentModerationReq.MinConfidence`, `startFaceDetectionReq
+  .FaceAttributes`, `startFaceSearchReq.FaceMatchThreshold`,
+  `startLabelDetectionReq.MinConfidence`.** These exist to shape their
+  matching `Get*` op's results -- moot for the same reason as the
+  pagination fields above: the `Get*` responses they would shape are
+  structurally always empty.
+
+Gates: `go build ./services/rekognition/...`, `go build ./...` (repo-wide,
+clean), `go vet ./services/rekognition/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/rekognition/...` (pass),
+`golangci-lint run ./services/rekognition/...` (0 issues). Work left
+uncommitted per this pass's instructions.

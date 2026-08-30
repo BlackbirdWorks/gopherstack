@@ -450,6 +450,41 @@ func TestInMemoryBackend_GetPoolMetrics(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateUserPool_MfaConfiguration proves CreateUserPool's
+// MfaConfiguration request field (api_op_CreateUserPool.go) is actually
+// stored on the pool it creates, rather than silently discarded in favor of
+// the always-OFF default -- unlike UpdateUserPool/SetUserPoolMfaConfig,
+// which do wire it through (see handleUpdateUserPoolWithOpts).
+func TestHandler_CreateUserPool_MfaConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{
+		"PoolName":         "mfa-at-create-pool",
+		"MfaConfiguration": "ON",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp struct {
+		UserPool struct {
+			Id string `json:"Id"` //nolint:revive,staticcheck // matches wire field name.
+		} `json:"UserPool"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+
+	rec = doCognitoRequest(t, h, "GetUserPoolMfaConfig", map[string]any{
+		"UserPoolId": createResp.UserPool.Id,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var mfaResp struct {
+		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mfaResp))
+	assert.Equal(t, "ON", mfaResp.MfaConfiguration)
+}
+
 func TestGetUserPoolMfaConfig_DefaultsToOFF(t *testing.T) {
 	t.Parallel()
 

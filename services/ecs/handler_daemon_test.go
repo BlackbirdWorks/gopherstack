@@ -278,6 +278,38 @@ func TestECS_ListDaemonTaskDefinitions_Order(t *testing.T) {
 	assert.Equal(t, wantDesc, gotDesc)
 }
 
+// TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered proves the
+// LAST_REGISTERED Revision filter (ecs@v1.90.0
+// api_op_ListDaemonTaskDefinitions.go: "Specify LAST_REGISTERED to return
+// only the last registered revision for each daemon task definition
+// family") narrows each family down to its single highest revision, instead
+// of the filter being silently ignored and every revision coming back.
+func TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	registerDaemonTaskDef(t, h, "rev-family-a")
+	registerDaemonTaskDef(t, h, "rev-family-a")
+	lastA := registerDaemonTaskDef(t, h, "rev-family-a")
+
+	registerDaemonTaskDef(t, h, "rev-family-b")
+	lastB := registerDaemonTaskDef(t, h, "rev-family-b")
+
+	out, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{
+		Revision: ecstypes.DaemonTaskDefinitionRevisionFilterLastRegistered,
+	})
+	require.NoError(t, err)
+
+	got := make([]string, len(out.DaemonTaskDefinitions))
+	for i, td := range out.DaemonTaskDefinitions {
+		got[i] = aws.ToString(td.Arn)
+	}
+
+	assert.ElementsMatch(t, []string{lastA, lastB}, got)
+}
+
 // ----- CreateDaemon / DescribeDaemon / UpdateDaemon / DeleteDaemon / ListDaemons -----
 
 func TestECS_CreateDaemon(t *testing.T) {
