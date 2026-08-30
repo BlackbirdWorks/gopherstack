@@ -644,3 +644,89 @@ Gates: `go build ./services/cloudformation/...`, `go vet
 ./services/cloudformation/...`, `go test -race -count=1
 ./services/cloudformation/...` (pass), `golangci-lint run
 ./services/cloudformation/...` (0 issues).
+
+## gopherstack-wl89: DeleteStackInstances teardown-failure divergence, fixed (2026-08-30)
+
+Follow-up to the "discarded-error sweep" entry above, which disclosed but
+did not fix `stack_instances.go:177`. Fixed this pass.
+
+**`deleteMatchingStackInstances`** discarded `deleteStackLocked`'s error
+*and* unconditionally excluded the instance from `filtered` regardless of
+outcome, so a stack instance whose child-stack teardown failed vanished
+from the StackSet as if the delete had succeeded — the caller had no way to
+learn the child stack still existed. Real CloudFormation documents this
+exact case on `StackInstanceStatus`
+(cloudformation@v1.76.1 `types/types.go:1894`): *"INOPERABLE: A
+DeleteStackInstances operation has failed and left the stack in an unstable
+state."* Fixed by keeping the instance in `filtered` on a teardown error,
+setting `Status = "INOPERABLE"` / `StatusReason = err.Error()` (matching the
+literal convention `provisionStackInstance` already uses for a failed
+child-stack *create*), and threading the per-(account,region) failure
+through a new `recordStackInstanceDeleteResults`, which records `FAILED` +
+`StatusReason` on the matching `StackSetOperationResult` (visible via
+`ListStackSetOperationResults`, wire already carried `StatusReason`, no wire
+change needed) and flips the operation's own `Status` to `FAILED`
+(`StackSetOperationStatus` enum, `types/enums.go:1742` — visible via
+`DescribeStackSetOperation`, also no wire change needed).
+
+Forced the failure through the real public API rather than a test hook: a
+StackSet template with an `Export`, a stack instance created from it, then
+a second, independent stack that imports that export via
+`Fn::ImportValue`. `DeleteStackInstances` on the instance now hits the same
+`ErrExportInUse` protection `DeleteStack` already enforces
+(`exports.go`'s `stackExportsInUse`), which is a real, reachable failure
+mode of `deleteStackLocked` completely independent of the `wl89` "not fixed
+because it needs a hook" concern — `EnableTerminationProtection` isn't
+reachable for a stack-instance's auto-provisioned child stack
+(`provisionStackInstance` always passes `StackOptions{}`), but export-in-use
+is.
+
+Proof: `TestDeleteStackInstances_SurvivesFailedTeardown`
+(`stack_instances_teardown_failure_test.go`), driven through the real
+`aws-sdk-go-v2` client (`newTestHandlerAndClientWithBackend`). Confirmed
+failing against the pre-fix code (instance not found after delete). Asserts
+`DescribeStackInstance`/`ListStackInstances` still find the instance with
+`types.StackInstanceStatusInoperable`, `DescribeStackSetOperation` reports
+`types.StackSetOperationStatusFailed`, and `ListStackSetOperationResults`
+reports `types.StackSetOperationResultStatusFailed` with a `StatusReason`
+naming the blocking export.
+
+**Type-registry "reports empty on failure" half of the same issue,
+re-verified — status: was NOT actually reachable, defensive fix applied
+anyway.** `wl89` names `ListTypes`/`ListTypeVersions`/`TestType`/
+`RegisterPublisher` (plus, by the same grep, `ListTypeRegistrations` and
+`SetTypeConfiguration`) as discarding their backend call's error
+(`_, _ := h.Backend.Foo(...)`) in `handler_type_registry.go`. Read all six
+backend methods (`type_registry.go`): every one of them has zero code paths
+that return a non-nil error — `ListTypes`/`ListTypeVersions`/
+`ListTypeRegistrations` fall back to an empty/full result instead of
+erroring on an unknown type, and `TestType`/`RegisterPublisher`/
+`SetTypeConfiguration` always succeed. So today the discard cannot actually
+mask a real failure — this contradicts the type_registry `status: ok` note
+above ("non-error-returning backend methods were reviewed and left as-is
+... intentional"), which was right about *why* it's currently harmless but
+should have said so instead of leaving `_, _ :=` in place. Wired proper
+propagation anyway (`err != nil` → `h.xmlError(c, "CFNRegistryException",
+err.Error())`, matching the error this family's own deserializer models for
+every one of these ops per `deserializers.go`, and matching
+`handleDescribeType`'s existing convention) so a future backend change that
+adds a real failure mode (e.g. `TypeNotFoundException` for an unknown
+`TypeName`, which real `ListTypeVersions`/`SetTypeConfiguration`/`TestType`
+model but this backend doesn't implement) can't silently regress into
+reporting an empty success again. Not independently unit-tested: doing so
+would require adding a test-only failure hook to the production backend,
+which is out of scope and explicitly the kind of fabricated reachability
+this pass was told to avoid — `go build`/`go vet`/`go test -race`/
+`golangci-lint run` (0 issues) all still pass with the change, and every
+existing type-registry test still passes unchanged.
+
+Untouched, per scope: `DeleteStackSet` (`stack_sets.go:128`, already
+propagates correctly), and the MaxResults/NextToken parsing gap on
+`ListTypes`/`ListTypeVersions`/`ListTypeRegistrations` and the stack-refactor
+listings — filed separately, not part of this fix.
+
+Gates: `go build ./services/cloudformation/...`, `go vet ./...` (repo-wide,
+clean of cloudformation findings — other services on this branch have
+unrelated in-progress failures), `go test -race -count=1
+./services/cloudformation/...` (pass), `golangci-lint run
+./services/cloudformation/...` (0 issues).

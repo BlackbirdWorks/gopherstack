@@ -326,7 +326,10 @@ func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) error {
-	configArn, _ := h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	configArn, err := h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		ConfigurationArn string `xml:"ConfigurationArn"`
 	}
@@ -399,7 +402,10 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 }
 
 func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
-	types, _ := h.Backend.ListTypes("")
+	types, err := h.Backend.ListTypes("")
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type typeXML struct {
 		TypeName string `xml:"TypeName,omitempty"`
 		TypeArn  string `xml:"TypeArn,omitempty"`
@@ -430,7 +436,10 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error {
-	versionIDs, _ := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("Type"))
+	versionIDs, err := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("Type"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	// Real TypeVersionSummary's ARN member is "Arn", not "TypeArn"
 	// (cloudformation@v1.76.1 types/types.go:3578).
 	type versionXML struct {
@@ -463,7 +472,10 @@ func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) error {
-	tokens, _ := h.Backend.ListTypeRegistrations(form.Get("TypeName"), form.Get("Type"))
+	tokens, err := h.Backend.ListTypeRegistrations(form.Get("TypeName"), form.Get("Type"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		RegistrationTokenList []string `xml:"RegistrationTokenList>member"`
 	}
@@ -510,7 +522,10 @@ func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Contex
 }
 
 func (h *Handler) handleTestType(form url.Values, c *echo.Context) error {
-	token, _ := h.Backend.TestType(form.Get("TypeName"), form.Get("Arn"))
+	token, err := h.Backend.TestType(form.Get("TypeName"), form.Get("Arn"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		TypeVersionArn string `xml:"TypeVersionArn,omitempty"`
 	}
@@ -532,7 +547,10 @@ func (h *Handler) handleTestType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleRegisterPublisher(form url.Values, c *echo.Context) error {
-	id, _ := h.Backend.RegisterPublisher(form.Get("ConnectionArn"))
+	id, err := h.Backend.RegisterPublisher(form.Get("ConnectionArn"))
+	if err != nil {
+		return h.xmlError(c, "CFNRegistryException", err.Error())
+	}
 	type result struct {
 		PublisherID string `xml:"PublisherId"`
 	}

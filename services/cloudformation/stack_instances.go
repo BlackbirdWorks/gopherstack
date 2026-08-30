@@ -151,14 +151,29 @@ func (b *InMemoryBackend) provisionStackInstance(
 	}
 }
 
+// stackInstanceTeardownFailure records that an instance targeted for
+// removal could not actually have its child stack torn down, so the caller
+// can report it instead of the instance silently disappearing.
+type stackInstanceTeardownFailure struct {
+	account string
+	region  string
+	reason  string
+}
+
 // deleteMatchingStackInstances filters stackSetName's instances down to
 // those NOT matching any (account, region) pair, tearing down each removed
-// instance's provisioned child stack. Must be called with b.mu held.
+// instance's provisioned child stack. An instance whose child-stack teardown
+// fails is NOT dropped: real CloudFormation leaves it in the StackSet as
+// INOPERABLE rather than discarding it (cloudformation@v1.76.1
+// types/types.go:1894, StackInstance.Status doc: "INOPERABLE: A
+// DeleteStackInstances operation has failed and left the stack in an
+// unstable state"). Must be called with b.mu held.
 func (b *InMemoryBackend) deleteMatchingStackInstances(
 	ctx context.Context, stackSetName string, accounts, regions []string,
-) {
+) []stackInstanceTeardownFailure {
 	instances := b.stackInstances[stackSetName]
 	filtered := make([]StackInstance, 0, len(instances))
+	var failed []stackInstanceTeardownFailure
 	for _, inst := range instances {
 		keep := true
 		for _, acct := range accounts {
@@ -174,10 +189,55 @@ func (b *InMemoryBackend) deleteMatchingStackInstances(
 			continue
 		}
 		if childName, teardownOK := b.stackIDIndex[inst.StackID]; teardownOK {
-			_ = b.deleteStackLocked(ctx, childName)
+			if err := b.deleteStackLocked(ctx, childName); err != nil {
+				inst.Status = "INOPERABLE"
+				inst.StatusReason = err.Error()
+				filtered = append(filtered, inst)
+				failed = append(failed, stackInstanceTeardownFailure{
+					account: inst.Account,
+					region:  inst.Region,
+					reason:  err.Error(),
+				})
+			}
 		}
 	}
 	b.stackInstances[stackSetName] = filtered
+
+	return failed
+}
+
+// recordStackInstanceDeleteResults records DeleteStackInstances' per-
+// account/region operation results: FAILED (with StatusReason) for pairs
+// whose child-stack teardown failed, SUCCEEDED for the rest. Also flips the
+// operation's own Status to FAILED when any pair failed, matching
+// StackSetOperationStatus's FAILED value (cloudformation@v1.76.1
+// types/enums.go:1742). Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) recordStackInstanceDeleteResults(
+	stackSetName, opID string, accounts, regions []string, failed []stackInstanceTeardownFailure,
+) {
+	type pair struct{ account, region string }
+	reasonByPair := make(map[pair]string, len(failed))
+	for _, f := range failed {
+		reasonByPair[pair{f.account, f.region}] = f.reason
+	}
+	if b.stackSetOpResults[stackSetName] == nil {
+		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
+	}
+	for _, acct := range accounts {
+		for _, region := range regions {
+			result := StackSetOperationResult{Account: acct, Region: region, Status: "SUCCEEDED"}
+			if reason, failedPair := reasonByPair[pair{acct, region}]; failedPair {
+				result.Status = cfnStatusFailed
+				result.StatusReason = reason
+			}
+			b.stackSetOpResults[stackSetName][opID] = append(b.stackSetOpResults[stackSetName][opID], result)
+		}
+	}
+	if len(failed) > 0 {
+		if op, ok := b.stackSetOperations[stackSetName][opID]; ok {
+			op.Status = cfnStatusFailed
+		}
+	}
 }
 
 func (b *InMemoryBackend) DeleteStackInstances(
@@ -200,9 +260,9 @@ func (b *InMemoryBackend) DeleteStackInstances(
 			accounts = append(accounts, t.account)
 		}
 	}
-	b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions)
+	failed := b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions)
 	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
-	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
+	b.recordStackInstanceDeleteResults(stackSetName, opID, accounts, regions, failed)
 
 	return opID, nil
 }
