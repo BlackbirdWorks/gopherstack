@@ -15,7 +15,7 @@ ops:
   DisableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeHub: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSecurityHubConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes"}
+  GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes. ALSO FIXED this pass (gopherstack-uox6 value-semantics sweep) -- matchesStringFilter combined every entry of a field's []StringFilter list with a strict AND; types.StringFilter's doc comment documents CONTAINS/EQUALS/PREFIX entries on the same field joined by OR and NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS joined by AND, the two groups then AND'd together. A real client's `Title CONTAINS X OR Title CONTAINS Y`-shaped filter (the documented example) matched nothing under the old code. Also affects BatchUpdateFindings/UpdateFindings, which share matchesFindingFilters. See Notes."}
   BatchImportFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- re-import now preserves Note/UserDefinedFields/VerificationState/Workflow per AWS's documented semantics, see Notes"}
   BatchUpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -145,6 +145,7 @@ gaps:
   - "GetFindingsV2 Filters.CompositeFilters evaluates String/Number/Date/Map/Ip/Boolean filters and NestedCompositeFilters (gopherstack-8j08), but only for the field-name subset in ocsfStringFieldMap/ocsfNumberFieldMap/ocsfDateFieldMap/ipFieldNetworkKeys/mapFilterCandidates (findings_v2.go) that has a genuine ASFF-backed equivalent. Any OcsfStringField/OcsfNumberField/OcsfDateField/OcsfMapField/OcsfIpField/OcsfBooleanField outside those mapped subsets is accepted on the wire but not evaluated -- deliberately, per the no-fabrication rule, rather than guessed at. Remaining unmapped, with reasons: (a) fields with no ASFF concept at all -- OcsfBooleanField compliance.assessments.meets_criteria (ASFF Compliance has no 'assessments'), OcsfMapField databucket.tags (ASFF has no databucket concept), most 'evidences.*'/vendor_attributes.*' string+number fields (ASFF has no evidences/vendor_attributes objects); (b) fields whose only ASFF analog is lossy/ambiguous -- OcsfBooleanField vulnerabilities.is_fix_available (ASFF Vulnerability.FixAvailable is three-valued YES/NO/PARTIAL; collapsing PARTIAL into a bool would misclassify findings); (c) fields that exist in ASFF only nested inside arrays this pass didn't reach -- e.g. vulnerabilities.cve.cvss.base_score (Vulnerabilities[].Cvss[].BaseScore), resources.image.*/resources.modified_time_dt (ASFF Resource has no image/per-resource-modified timestamp). class_name (its closest analog, Types, is a string array, not scalar) remains unmapped from the prior pass. A complete OCSF taxonomy crosswalk is ~70 string + ~14 number fields; this pass closed the DateFilters/MapFilters/IpFilters/BooleanFilters/NestedCompositeFilters gap specifically (the issue's stated priority) plus one bonus NumberFilter field (confidence_score -> ASFF Confidence)."
   - "BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding."
   - "(parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change."
+  - "(gopherstack-uox6 value-semantics sweep) GetFindingsV2's OcsfMapFilter (findings_v2.go matchesOcsfMapFilter/compareMapFilter) does not apply the same-field CONTAINS/EQUALS-joined-by-OR, NOT_CONTAINS/NOT_EQUALS-joined-by-AND combination rule that MapFilter's own doc comment documents (the same rule fixed this pass for V1's []StringFilter in matchesStringFilter) -- multiple OcsfMapFilter entries in one CompositeFilter's MapFilters list are instead combined via that CompositeFilter's explicit Operator (AND/OR), per matchesCompositeFilterDepth. Left unresolved rather than guessed: GetFindingsV2's OcsfFindingFilters model already exposes an explicit per-CompositeFilter Operator that V1's AwsSecurityFindingFilters has no equivalent of, and neither the MapFilter doc comment nor the OcsfFindingFilters/CompositeFilter doc comments state whether the legacy implicit per-field rule still applies underneath that explicit Operator, or is superseded by it, when a field's name repeats within one CompositeFilter's MapFilters list. Not attempted this pass -- the documentation does not specify this precisely enough to implement without fabricating a rule."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
@@ -874,3 +875,82 @@ fixed here (out of scope for this class): the SDK doc comment on
 `findings.go:458` covers, which differs from the `InvalidInput` used there —
 a real inaccuracy, but a different bug class with no `errors.As` ground
 truth, deliberately not chased this pass per campaign scope.
+
+**2026-08-30 (gopherstack-uox6 value-semantics sweep, one bug fixed)**:
+Audited every finding filter/matcher in this service against its SDK doc
+comment (V1 `matchesFindingFilters`/`matchesStringFilter`/`compareStringFilter`
+in `findings.go`; V2's `matchesFindingFiltersV2`/`matchesCompositeFilter*`/
+`matchesOcsf*Filter` family in `findings_v2.go`; `filterOrAll` in `store.go`).
+
+**Bug found and fixed**: `matchesStringFilter` (`findings.go`) combined every
+entry of a field's `[]StringFilter` list with a strict AND. `types.StringFilter`'s
+doc comment (`securityhub@v1.75.4` types.go:19655) documents the opposite for
+same-field entries: CONTAINS/EQUALS/PREFIX are joined by OR ("a finding
+matches if it matches any one of those filters" — the doc's own worked
+example is `Title CONTAINS CloudFront OR Title CONTAINS CloudWatch`),
+NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS are joined by AND, and the two
+groups then combine by AND ("Security Hub CSPM first processes the PREFIX
+filters, and then the NOT_EQUALS ... filters" — the doc's second worked
+example, `ResourceType PREFIX AwsIam` + `PREFIX AwsEc2` +
+`NOT_EQUALS AwsIamPolicy` + `NOT_EQUALS AwsEc2NetworkInterface`). Under the
+old AND-everything code, either worked example returned zero results against
+a real matching finding: an under-match, invisible to any shape-based sweep
+since the field is read and the comparator values are legal enum members —
+only the combination across multiple entries was wrong. Affects `GetFindings`
+and, via the shared `matchesFindingFilters`, `BatchUpdateFindings`.
+No prior test passed a multi-entry filter on the same field (existing
+`TestBackend_MatchesStringFilter`/`TestGetFindings_FiltersApplied` cases all
+use exactly one `StringFilter` entry per field), so the bug was invisible to
+the existing suite — "a filter test passing a single value cannot see a
+multi-value bug."
+
+Fixed by splitting entries into positive/negative groups (`isNegativeStringComparison`)
+and combining `!hasPositive || positiveMatched` (OR over positives, defaulting
+to "no restriction" when there are none) AND'd with every negative entry
+passing. Both of the SDK doc's own worked examples now pass as tests.
+
+Also checked and confirmed correct: `matchesFindingFiltersV2`'s composite
+AND/OR (`CompositeOperator`) and `matchesCompositeFilterDepth`'s per-filter
+`Operator` (both against `types.OcsfFindingFilters`/`types.CompositeFilter`'s
+doc comments, matched field-for-field: `NestedCompositeFilters` three-layer
+structure, `AllowedOperators` AND/OR with no NOT combinator since negation is
+expressed at the leaf comparator); `matchesOcsfNumberFilter`'s
+Eq/Gt/Gte/Lt/Lte against `types.NumberFilter`; `matchesDateRange`'s
+WITHIN/OLDER_THAN against `types.DateRange` (default WITHIN); `compareMapFilter`'s
+EQUALS/NOT_EQUALS/CONTAINS/NOT_CONTAINS against `types.MapFilter`; `ipInCIDR`'s
+bare-address-normalizes-to-/32-or-/128 against `types.IpFilter`'s documented
+"CIDR block or IP address" acceptance; `matchesWholeWord`'s word-boundary
+regex for `CONTAINS_WORD` (documented V2-only); the lifecycle-rule-style AND
+combination across *different* filter fields in both V1 and V2 (correct in
+both — the bug was specifically the same-field, multi-entry case).
+
+One gap recorded, not fixed: whether `OcsfMapFilter`'s same-field
+CONTAINS/EQUALS-OR / NOT_CONTAINS/NOT_EQUALS-AND rule (documented on the
+shared `MapFilter` type) still applies underneath a `CompositeFilter`'s
+explicit `Operator`, or is superseded by it, is not stated by either doc
+comment — left open rather than guessed (see gaps).
+
+`GetResourcesV2`'s `filters` parameter (`resources_v2.go`) is read nowhere
+(`//nolint:revive // existing issue` already marks it) and `GetInsightResults`
+never evaluates `insight.Filters` at all (documented in-code: "no real
+aggregation in mock") — both are pre-existing, already-flagged completeness
+gaps (an unread field, not a wrong algorithm on a read one), not new findings
+of this class, so left as-is.
+
+No AWS web pages were fetched this pass — every comparator/operator set
+needed was fully specified in the pinned SDK's Go doc comments
+(`securityhub@v1.75.4`), unlike the SNS/EventBridge instances of this bug
+class from the prior pass.
+
+Tests: added `TestGetFindings_MultiValueSameFieldCombination` (2 subtests,
+`findings_test.go`) driving the real filter shape through the HTTP handler
+end to end and asserting the exact ID set returned (not just a count), using
+the SDK doc's own two worked examples. Both subtests confirmed failing
+(0 results each) against the unmodified `matchesStringFilter` before the fix,
+passing after. No existing test was weakened; assertion count increased by 2
+new subtests, 0 removed.
+
+Gates: `go build ./services/securityhub/...`, `go vet ./services/securityhub/...`,
+`go test -race -count=1 ./services/securityhub/...`, `golangci-lint run
+./services/securityhub/...`. Work left uncommitted per this pass's
+instructions.

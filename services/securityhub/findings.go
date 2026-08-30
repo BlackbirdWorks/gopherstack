@@ -37,6 +37,13 @@ const (
 	findingHistorySourceBatchUpdate = "BATCH_UPDATE_FINDINGS"
 
 	maxFindingHistoryResults = 100
+
+	// comparisonNotEquals and comparisonNotContains name the two
+	// StringFilterComparison/MapFilterComparison values that both
+	// compareStringFilter/isNegativeStringComparison (this file) and
+	// compareMapFilter (findings_v2.go) branch on.
+	comparisonNotEquals   = "NOT_EQUALS"
+	comparisonNotContains = "NOT_CONTAINS"
 )
 
 func findingKey(productArn, id string) string {
@@ -361,7 +368,7 @@ func nestedFindingString(finding map[string]any, outer, inner string) string {
 // defaults to EQUALS, matching the real API.
 func compareStringFilter(comp, fieldVal, val string) bool {
 	switch comp {
-	case "NOT_EQUALS":
+	case comparisonNotEquals:
 		return fieldVal != val
 	case "PREFIX":
 		return strings.HasPrefix(fieldVal, val)
@@ -369,7 +376,7 @@ func compareStringFilter(comp, fieldVal, val string) bool {
 		return !strings.HasPrefix(fieldVal, val)
 	case "CONTAINS":
 		return strings.Contains(fieldVal, val)
-	case "NOT_CONTAINS":
+	case comparisonNotContains:
 		return !strings.Contains(fieldVal, val)
 	case "CONTAINS_WORD":
 		return matchesWholeWord(fieldVal, val)
@@ -378,12 +385,35 @@ func compareStringFilter(comp, fieldVal, val string) bool {
 	}
 }
 
-// matchesStringFilter checks a single string field value against a SecurityHub filter value.
+// isNegativeStringComparison reports whether comp is one of StringFilter's
+// documented "exclude" comparisons (NOT_CONTAINS/NOT_EQUALS/
+// PREFIX_NOT_EQUALS), as opposed to an "include" comparison
+// (CONTAINS/EQUALS/PREFIX/CONTAINS_WORD, and the empty/unrecognized default
+// which compareStringFilter treats as EQUALS).
+func isNegativeStringComparison(comp string) bool {
+	switch comp {
+	case comparisonNotContains, comparisonNotEquals, "PREFIX_NOT_EQUALS":
+		return true
+	default:
+		return false
+	}
+}
+
+// matchesStringFilter checks a single string field value against a SecurityHub
+// filter value: a []StringFilter-shaped list of {Value, Comparison} entries.
+// Per StringFilter's documented same-field combination rule
+// (securityhub@v1.75.4 types.StringFilter): CONTAINS/EQUALS/PREFIX entries
+// are joined by OR ("a finding matches if it matches any one of those
+// filters"); NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS entries are joined by
+// AND; the two groups then combine by AND (Security Hub "first processes the
+// PREFIX filters, and then the NOT_EQUALS ... filters").
 func matchesStringFilter(fieldVal string, filterVal any) bool {
 	items, ok := filterVal.([]any)
 	if !ok {
 		return true
 	}
+
+	var hasPositive, positiveMatched bool
 
 	for _, item := range items {
 		m, isMap := item.(map[string]any)
@@ -394,12 +424,21 @@ func matchesStringFilter(fieldVal string, filterVal any) bool {
 		val, _ := m["Value"].(string)
 		comp, _ := m["Comparison"].(string)
 
-		if !compareStringFilter(comp, fieldVal, val) {
-			return false
+		if isNegativeStringComparison(comp) {
+			if !compareStringFilter(comp, fieldVal, val) {
+				return false
+			}
+
+			continue
+		}
+
+		hasPositive = true
+		if compareStringFilter(comp, fieldVal, val) {
+			positiveMatched = true
 		}
 	}
 
-	return true
+	return !hasPositive || positiveMatched
 }
 
 func (b *InMemoryBackend) UpdateFindings(filters map[string]any, note map[string]any, recordState string) error {
