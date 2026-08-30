@@ -741,3 +741,86 @@ func TestListScanJobs_Pagination(t *testing.T) {
 	assert.True(t, seen[job1.ScanJobID])
 	assert.True(t, seen[job2.ScanJobID])
 }
+
+// TestListProtectedResources_Pagination proves ListProtectedResources honors
+// MaxResults/NextToken (real query params, backup@v1.59.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListProtectedResourcesInput) -- prior
+// code ignored both and always returned every record in one response.
+func TestListProtectedResources_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	mustVault(t, backend, "prp-vault")
+	backend.PutProtectedResource("arn:aws:ec2:us-east-1:000000000000:instance/i-prp-1", "EC2", "prp-vault")
+	backend.PutProtectedResource("arn:aws:ec2:us-east-1:000000000000:instance/i-prp-2", "EC2", "prp-vault")
+
+	page1, err := client.ListProtectedResources(
+		t.Context(), &backupsdk.ListProtectedResourcesInput{MaxResults: aws.Int32(1)},
+	)
+	require.NoError(t, err)
+	require.Len(t, page1.Results, 1)
+	require.NotNil(t, page1.NextToken, "a second page must exist")
+
+	page2, err := client.ListProtectedResources(t.Context(), &backupsdk.ListProtectedResourcesInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Results, 1)
+	assert.Nil(t, page2.NextToken, "no third page")
+
+	seen := map[string]bool{
+		aws.ToString(page1.Results[0].ResourceArn): true,
+		aws.ToString(page2.Results[0].ResourceArn): true,
+	}
+	assert.True(t, seen["arn:aws:ec2:us-east-1:000000000000:instance/i-prp-1"])
+	assert.True(t, seen["arn:aws:ec2:us-east-1:000000000000:instance/i-prp-2"])
+}
+
+// TestListProtectedResourcesByBackupVault_Pagination mirrors
+// TestListProtectedResources_Pagination for the vault-scoped variant (same
+// serializer, plus a required BackupVaultName URI member).
+func TestListProtectedResourcesByBackupVault_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	mustVault(t, backend, "prpv-vault")
+	backend.PutProtectedResource("arn:aws:ec2:us-east-1:000000000000:instance/i-prpv-1", "EC2", "prpv-vault")
+	backend.PutProtectedResource("arn:aws:ec2:us-east-1:000000000000:instance/i-prpv-2", "EC2", "prpv-vault")
+
+	page1, err := client.ListProtectedResourcesByBackupVault(
+		t.Context(),
+		&backupsdk.ListProtectedResourcesByBackupVaultInput{
+			BackupVaultName: aws.String("prpv-vault"),
+			MaxResults:      aws.Int32(1),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, page1.Results, 1)
+	require.NotNil(t, page1.NextToken, "a second page must exist")
+
+	page2, err := client.ListProtectedResourcesByBackupVault(
+		t.Context(),
+		&backupsdk.ListProtectedResourcesByBackupVaultInput{
+			BackupVaultName: aws.String("prpv-vault"),
+			MaxResults:      aws.Int32(1),
+			NextToken:       page1.NextToken,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, page2.Results, 1)
+	assert.Nil(t, page2.NextToken, "no third page")
+
+	seen := map[string]bool{
+		aws.ToString(page1.Results[0].ResourceArn): true,
+		aws.ToString(page2.Results[0].ResourceArn): true,
+	}
+	assert.True(t, seen["arn:aws:ec2:us-east-1:000000000000:instance/i-prpv-1"])
+	assert.True(t, seen["arn:aws:ec2:us-east-1:000000000000:instance/i-prpv-2"])
+}

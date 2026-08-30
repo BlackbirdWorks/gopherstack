@@ -87,9 +87,11 @@ func TestProtectedResources(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "EC2", pr.ResourceType)
 
-	all := b.ListProtectedResources()
+	all, nextToken := b.ListProtectedResources(0, "")
 	require.Len(t, all, 1)
+	assert.Empty(t, nextToken)
 
-	byVault := b.ListProtectedResourcesByBackupVault("my-vault")
+	byVault, nextToken := b.ListProtectedResourcesByBackupVault("my-vault", 0, "")
 	require.Len(t, byVault, 1)
+	assert.Empty(t, nextToken)
 }

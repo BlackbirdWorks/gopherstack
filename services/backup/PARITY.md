@@ -26,9 +26,23 @@ overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 p
                       # driving the real typed aws-sdk-go-v2 client, confirmed failing against unmodified code
                       # first. ListBackupJobs/ListCopyJobs/ListBackupVaults/ListBackupPlans/ListFrameworks/
                       # ListReportPlans/ListRestoreTestingPlans/ListRestoreTestingSelections/ListLegalHolds/
-                      # ListProtectedResources/ListBackupSelections were independently re-checked this pass and
-                      # found already correct (pagination applied via the same paginateByID/query-binding
-                      # pattern, no filter fields silently dropped) -- not a re-fix, no bug found.
+                      # ListBackupSelections were independently re-checked this pass and found already correct
+                      # (pagination applied via the same paginateByID/query-binding pattern, no filter fields
+                      # silently dropped) -- not a re-fix, no bug found.
+                      # CORRECTION (2026-08-30, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch, tie-prone-sort
+                      # audit): the line above was WRONG about ListProtectedResources/ListProtectedResourcesByBackupVault
+                      # -- neither one read MaxResults/NextToken at all (both real query params, backup@v1.59.4
+                      # api_op_ListProtectedResources.go/api_op_ListProtectedResourcesByBackupVault.go,
+                      # serializers.go:5645-5735); dispatchProtectedResourceOps called the bare backend accessors
+                      # and returned every record in a single unpaginated response every time. Fixed: both backend
+                      # methods now take (maxResults int, nextToken string) and page via the existing paginateByID
+                      # helper over their pre-existing sort-by-ResourceArn order (ResourceArn is the protectedResources
+                      # table's own key, so the sort was already total -- no tie-prone-sort bug here, just missing
+                      # pagination). Handler now parses maxResults/nextToken from the query string and echoes
+                      # NextToken when non-empty. Proven via wire_field_fixes_test.go's
+                      # TestListProtectedResources_Pagination/TestListProtectedResourcesByBackupVault_Pagination
+                      # (real client, confirmed failing against unmodified code first: MaxResults=1 returned both
+                      # seeded records with no NextToken).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -88,7 +102,8 @@ ops:
   ListCopyJobSummaries: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-jqh2: same unroutable bug as ListBackupJobSummaries (GET /audit/copy-job-summaries); fixed alongside it. Already groups by State (copy_jobs.go); same disclosed AccountId/AggregationPeriod/MessageCategory gap as ListBackupJobSummaries."}
   ListRestoreJobSummaries: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "gopherstack-jqh2: same unroutable bug as ListBackupJobSummaries (GET /audit/restore-job-summaries); fixed alongside it. FIXED 2026-08-29 (constraint-not-honoured sweep): unlike its ListBackupJobSummaries/ListCopyJobSummaries siblings, this op never grouped by State at all -- the handler called the plain ListRestoreJobs() accessor and always returned exactly one fabricated {Count, Region} entry for the WHOLE job set, silently dropping State/AccountId (both required members on real RestoreJobSummary, api_op_ListRestoreJobSummaries.go) regardless of how many distinct states existed. Added ListRestoreJobSummaries() (restore_jobs.go), grouping by Status the same way the Backup/Copy siblings already do. AccountId/AggregationPeriod filters remain unimplemented, same disclosed gap as the siblings. Proven via wire_field_fixes_test.go's TestListRestoreJobSummaries_State (real client, hand-reverted, confirmed failing pre-fix, restored)."}
   ListScanJobSummaries: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "gopherstack-jqh2: same unroutable bug as ListBackupJobSummaries (GET /audit/scan-job-summaries); fixed alongside it. FIXED 2026-08-29 (constraint-not-honoured sweep): the most degenerate of the four -- returned a single {Count} entry with no Region/AccountId/State at all (real ScanJobSummary, api_op_ListScanJobSummaries.go, requires AccountId/Count/Region/State at minimum). Added ListScanJobSummaries() (restore_testing.go), grouped by Status matching the Backup/Copy/Restore siblings. MalwareScanner/ScanResultStatus grouping and AggregationPeriod filtering remain unimplemented (ScanJob doesn't track a scan-result outcome at all -- see the ScanJob type doc). Proven via wire_field_fixes_test.go's TestListScanJobSummaries_State."}
-  ListProtectedResourcesByBackupVault: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-jqh2: GAP CLOSED -- GET /backup-vaults/{BackupVaultName}/resources had real handler+backend code (handler_protected_resources.go) but vaultSubRoute's suffix list never included \"/resources\", so the op was unreachable from any real path. Route added."}
+  ListProtectedResources: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-30 (tie-prone-sort audit): GET /resources ignored MaxResults/NextToken entirely, always returning every protected resource in one response -- a real client's MaxResults was silently dropped. Now paginated via paginateByID over the existing sort-by-ResourceArn order. See wrapper-key-sweep header note above for detail."}
+  ListProtectedResourcesByBackupVault: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-jqh2: GAP CLOSED -- GET /backup-vaults/{BackupVaultName}/resources had real handler+backend code (handler_protected_resources.go) but vaultSubRoute's suffix list never included \"/resources\", so the op was unreachable from any real path. Route added. FIXED 2026-08-30 (tie-prone-sort audit): once reachable, still ignored MaxResults/NextToken like its ListProtectedResources sibling; same fix applied. See wrapper-key-sweep header note above."}
 families:
   BackupVault: {status: ok, note: "CRUD, AccessPolicy, Notifications, Lock all verified against real paths/methods and already correct. mpaApprovalTeam Associate/Disassociate both fixed to responseCode 204 this pass (see ops). DescribeBackupVault field-diffed and extended (EncryptionKeyType, MpaApprovalTeamArn) this pass. FIXED (gopherstack-hnyl): PutBackupVaultNotifications's validVaultEvents was a hand-copied 17-entry allowlist that misspelled COPY_JOB_FAILED as \"COPY_JOB_FAILURE\" (an existing test, TestVaultNotificationsEventValidation/all_valid_event_types, encoded the same typo as a valid input -- fixed alongside the source) and was missing 7 newer types.BackupVaultEvent members (CONTINUOUS_BACKUP_INTERRUPTED, the three RECOVERY_POINT_INDEX* events, and the three EKS_* events). Now derives from types.BackupVaultEvent.Values()."}
   BackupPlan: {status: ok, note: "CRUD + versions + selections verified against real paths; already correct."}

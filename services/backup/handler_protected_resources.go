@@ -27,7 +27,8 @@ func (h *Handler) dispatchProtectedResourceOps(
 			"LastBackupTime": epochSeconds(pr.LastBackupTime),
 		})
 	case opListProtectedResources:
-		prs := h.Backend.ListProtectedResources()
+		q := c.Request().URL.Query()
+		prs, nextToken := h.Backend.ListProtectedResources(parseInt(q.Get("maxResults")), q.Get("nextToken"))
 		items := make([]map[string]any, 0, len(prs))
 		for _, pr := range prs {
 			items = append(items, map[string]any{
@@ -36,9 +37,17 @@ func (h *Handler) dispatchProtectedResourceOps(
 			})
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"Results": items})
+		resp := map[string]any{"Results": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
+
+		return true, c.JSON(http.StatusOK, resp)
 	case opListProtectedResourcesByBackupVault:
-		prs := h.Backend.ListProtectedResourcesByBackupVault(route.resource)
+		q := c.Request().URL.Query()
+		prs, nextToken := h.Backend.ListProtectedResourcesByBackupVault(
+			route.resource, parseInt(q.Get("maxResults")), q.Get("nextToken"),
+		)
 		items := make([]map[string]any, 0, len(prs))
 		for _, pr := range prs {
 			items = append(items, map[string]any{
@@ -47,7 +56,12 @@ func (h *Handler) dispatchProtectedResourceOps(
 			})
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"Results": items})
+		resp := map[string]any{"Results": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
+
+		return true, c.JSON(http.StatusOK, resp)
 	}
 
 	return false, nil
