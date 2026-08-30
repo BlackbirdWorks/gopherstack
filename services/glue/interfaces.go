@@ -498,7 +498,7 @@ type StorageBackend interface {
 	GetPlan(language string) (string, string)
 
 	// Workflow resume.
-	ResumeWorkflowRun(workflowName, runID string) (string, []string, error)
+	ResumeWorkflowRun(workflowName, runID string, nodeIDs []string) (string, []string, error)
 
 	// Schema version deletion (single version, by number).
 	DeleteSchemaVersion(registryName, schemaName string, versionNumber int64) error

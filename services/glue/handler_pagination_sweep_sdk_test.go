@@ -23,7 +23,7 @@ type pageLister func(
 // totalPaginationCases is the number of ops covered across every
 // paginationCases* helper below -- used only to preallocate the combined
 // slice in TestSDKRoundTrip_ListPagination.
-const totalPaginationCases = 32
+const totalPaginationCases = 33
 
 // paginationCase is one op fixed under gopherstack-awzv: seed populates a
 // fresh backend with more than pageSize items, and list drives the real SDK
@@ -610,6 +610,29 @@ func paginationCasesOpsAndMisc() []paginationCase {
 				require.NoError(t, err)
 
 				return len(out.Registries), out.NextToken
+			},
+		},
+		{
+			name: "list integration resource properties",
+			want: 3,
+			seed: func(t *testing.T, b *glue.InMemoryBackend) {
+				t.Helper()
+				for _, n := range []string{"r1", "r2", "r3"} {
+					_, err := b.CreateIntegrationResourceProperty(
+						"arn:aws:glue:us-east-1:000000000000:connection/"+n, nil, nil,
+					)
+					require.NoError(t, err)
+				}
+			},
+			list: func(t *testing.T, ctx context.Context, c *gluesdk.Client, pageSize int32, token *string) (int, *string) {
+				t.Helper()
+				out, err := c.ListIntegrationResourceProperties(
+					ctx,
+					&gluesdk.ListIntegrationResourcePropertiesInput{MaxRecords: aws.Int32(pageSize), Marker: token},
+				)
+				require.NoError(t, err)
+
+				return len(out.IntegrationResourcePropertyList), out.Marker
 			},
 		},
 		{

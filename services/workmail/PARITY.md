@@ -339,3 +339,34 @@ above (fixed). One ratifying test
 as correct; rewritten as `...NarrowShape` to assert their absence instead.
 Tests: `services/workmail/wire_field_fixes_test.go` (4 new real-SDK-client
 tests via the existing `newWorkMailSDKClient` helper).
+
+## 2026-08-30 WrapOp reflective-decode re-scan (gopherstack-4shm follow-up)
+
+Re-scanned with `cmd/reqfieldscan` (resolves `WrapOp`'s generic parameter,
+closing the literal-decode-anchored blind spot gopherstack-4shm was filed
+for): 92/92 ops in the dispatch table, 92 request types, 313 fields.
+
+2 fields flagged unread, both on `testAvailabilityConfigReq`: `EwsProvider`
+and `LambdaProvider`. Real bug, fixed: "The request must contain either one
+provider definition (EwsProvider or LambdaProvider) or the DomainName
+parameter. If the DomainName parameter is provided, the configuration
+stored under the DomainName will be tested." (workmail@v1.39.4
+api_op_TestAvailabilityConfiguration.go) -- `handleTestAvailabilityConfiguration`
+only ever used `DomainName`, so a client probing inline (not-yet-created)
+credentials before a `CreateAvailabilityConfiguration` call always got
+`EntityNotFoundException` instead of a real test result. Fixed by threading
+`EwsProvider`/`LambdaProvider` through to `TestAvailabilityConfiguration`,
+which now tests inline credentials directly when either is given, falling
+back to the stored-config lookup otherwise; the endpoint/username/ARN
+validation logic itself was already correct and is now shared (via new
+`testEwsProvider`/`testLambdaProvider` helpers) between the inline and
+stored-config paths instead of being duplicated. Tests:
+`handler_availability_config_test.go`
+(`TestAvailabilityConfigurationInlineProvider`, two cases: a valid inline
+EWS provider against a domain with no stored config, and an invalid inline
+Lambda ARN), confirmed failing (400 EntityNotFoundException) against
+unmodified code before the fix.
+
+Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/workmail/...` (pass),
+`golangci-lint run ./services/workmail/...` (0 issues).

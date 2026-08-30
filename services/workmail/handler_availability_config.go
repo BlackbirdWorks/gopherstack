@@ -159,7 +159,21 @@ type testAvailabilityConfigResp struct {
 func (h *Handler) handleTestAvailabilityConfiguration(
 	_ context.Context, req *testAvailabilityConfigReq,
 ) (*testAvailabilityConfigResp, error) {
-	passed, reason, err := h.Backend.TestAvailabilityConfiguration(req.OrganizationID, req.DomainName)
+	var ewsProv *AvailabilityEwsProvider
+	var lambdaARN string
+	if req.EwsProvider != nil {
+		ewsProv = &AvailabilityEwsProvider{
+			EwsEndpoint: req.EwsProvider.EwsEndpoint,
+			EwsUsername: req.EwsProvider.EwsUsername,
+			EwsPassword: req.EwsProvider.EwsPassword,
+		}
+	} else if req.LambdaProvider != nil {
+		lambdaARN = req.LambdaProvider.LambdaArn
+	}
+
+	passed, reason, err := h.Backend.TestAvailabilityConfiguration(
+		req.OrganizationID, req.DomainName, ewsProv, lambdaARN,
+	)
 	if err != nil {
 		return nil, err
 	}

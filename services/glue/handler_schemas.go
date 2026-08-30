@@ -546,6 +546,27 @@ func (h *Handler) handleGetSchemaVersion(
 	_ context.Context,
 	in *getSchemaVersionInput,
 ) (*getSchemaVersionOutput, error) {
+	// SchemaVersionId is a standalone lookup key: "Either this or the
+	// SchemaId wrapper has to be provided" (api_op_GetSchemaVersion.go) --
+	// checked first since it names one exact version, unlike SchemaId+
+	// SchemaVersionNumber below which defaults to version 1.
+	if in.SchemaVersionID != "" {
+		sv, _, ok := h.Backend.FindSchemaVersionByID(in.SchemaVersionID)
+		if !ok {
+			return nil, fmt.Errorf("%w: schema version %q", ErrNotFound, in.SchemaVersionID)
+		}
+
+		return &getSchemaVersionOutput{
+			SchemaVersionID:  sv.SchemaVersionID,
+			SchemaArn:        sv.SchemaARN,
+			SchemaDefinition: sv.SchemaDefinition,
+			DataFormat:       sv.DataFormat,
+			Status:           sv.Status,
+			VersionNumber:    sv.VersionNumber,
+			CreatedTime:      formatGlueTimestampString(sv.CreatedTime),
+		}, nil
+	}
+
 	registryName, schemaName := "", ""
 	if in.SchemaID != nil {
 		registryName = in.SchemaID.RegistryName

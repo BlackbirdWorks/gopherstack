@@ -208,16 +208,24 @@ func TestGetAggregateDiscoveredResourceCounts(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	if b.GetAggregateDiscoveredResourceCounts() != 0 {
-		t.Fatal("expected 0 initially")
+	if _, err := b.GetAggregateDiscoveredResourceCounts("unknown-agg"); err == nil {
+		t.Fatal("expected error for unknown aggregator")
+	}
+
+	if err := b.PutConfigurationAggregator("agg1", nil, nil, nil); err != nil {
+		t.Fatalf("PutConfigurationAggregator: %v", err)
+	}
+
+	if got, err := b.GetAggregateDiscoveredResourceCounts("agg1"); err != nil || got != 0 {
+		t.Fatalf("expected 0 initially, got %d, err=%v", got, err)
 	}
 
 	_ = b.PutResourceConfig("AWS::S3::Bucket", "b1", "{}")
 	_ = b.PutResourceConfig("AWS::S3::Bucket", "b2", "{}")
 	_ = b.PutResourceConfig("AWS::EC2::Instance", "i1", "{}")
 
-	if got := b.GetAggregateDiscoveredResourceCounts(); got != 3 {
-		t.Fatalf("expected 3, got %d", got)
+	if got, err := b.GetAggregateDiscoveredResourceCounts("agg1"); err != nil || got != 3 {
+		t.Fatalf("expected 3, got %d, err=%v", got, err)
 	}
 }
 

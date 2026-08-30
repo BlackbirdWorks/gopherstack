@@ -242,12 +242,19 @@ func (b *InMemoryBackend) ListDiscoveredResources(resourceType string) []Resourc
 	return out
 }
 
-// GetAggregateDiscoveredResourceCounts returns the total count of discovered resources.
-func (b *InMemoryBackend) GetAggregateDiscoveredResourceCounts() int32 {
+// GetAggregateDiscoveredResourceCounts returns the total count of discovered
+// resources. aggregatorName must name an existing aggregator
+// (NoSuchConfigurationAggregatorException), matching every other
+// aggregate-* op (see requireAggregatorLocked).
+func (b *InMemoryBackend) GetAggregateDiscoveredResourceCounts(aggregatorName string) (int32, error) {
 	b.mu.RLock("GetAggregateDiscoveredResourceCounts")
 	defer b.mu.RUnlock()
 
-	return int32(b.resourceConfigs.Len()) //nolint:gosec // Len is non-negative and bounded
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return 0, err
+	}
+
+	return int32(b.resourceConfigs.Len()), nil //nolint:gosec // Len is non-negative and bounded
 }
 
 // GetAggregateResourceConfig returns the configuration item for a single

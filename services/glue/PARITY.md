@@ -1667,3 +1667,193 @@ confirmed failing against unmodified code before the fix.
 
 Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
 ./services/glue/...` (pass), `golangci-lint run ./services/glue/...` (0 issues).
+
+## 2026-08-30 WrapOp reflective-decode re-scan (gopherstack-4shm follow-up)
+
+Glue has the most `service.WrapOp` call sites in the repo (~299), and its
+most recent pass before this one explicitly read the existing audit trail
+rather than running a fresh scan -- exactly the verdict gopherstack-4shm's
+campaign put in doubt. Ran `cmd/reqfieldscan -dir glue` fresh: it returned
+**zero** dispatch entries, not because glue is invisible to `WrapOp`
+resolution (`collectWrapOpFuncNames` finds a `service.WrapOp(...)` call
+anywhere in the package regardless of which literal it lives in) but because
+glue's dispatch table is a data-driven `[]struct{name string; bind
+func(*Handler) service.JSONOpFunc}{...}` slice (`handler_routing.go`'s
+`glueOpBindings`), not a `map[string]service.JSONOpFunc{...}` composite
+literal or a `GetSupportedOperations` `[]string{}` literal -- the two
+dispatch-table shapes the tool's denominator logic recognizes. This is a
+real tool blind spot, disclosed rather than silently mis-measured: **the
+tool could not reach this service's dispatch table at all.**
+
+Checked by hand via a private, uncommitted scratch copy of `cmd/reqfieldscan`
+(not modifying the real tool, per this issue's scope rule barring edits
+under `cmd/`) with one addition: a `collectOpBindingSliceNames` fallback
+recognizing glue's `[]struct{...; name string; ...}{...}` slice shape.
+Result: 297/299 ops resolved (99%), 297 types, 778 fields. 2 unresolved
+(`UpdateJobFromSourceControl`/`UpdateSourceControlFromJob`) -- both use a Go
+type *alias* (`type updateJobFromSourceControlInput =
+jobSourceControlInput`), which `collectStructTypes` never registers (its
+`ts.Type.(*ast.StructType)` check fails for an alias's `*ast.Ident` RHS), so
+the binder never resolves `in`'s declared type to a known struct and the op
+resolves as unresolved rather than silently mis-scored. Hand-verified: all 9
+real `UpdateJobFromSourceControlInput`/`UpdateSourceControlFromJobInput`
+fields (`AuthStrategy`/`AuthToken`/`BranchName`/`CommitId`/`Folder`/`JobName`/
+`Provider`/`RepositoryName`/`RepositoryOwner`, confirmed against
+glue@v1.152.0 `api_op_UpdateJobFromSourceControl.go`/
+`api_op_UpdateSourceControlFromJob.go`) are genuinely read -- 8 via the
+shared `jobSourceControlInput.toSourceControlDetails()` method, `JobName`
+directly in both handlers. Clean, not a bug; a scanner blind spot only.
+
+42 fields flagged unread across the 297 resolved ops. Hand-verified every
+one against glue@v1.152.0. Sorted by shape:
+
+**Real bugs, fixed (4):**
+
+- `ResumeWorkflowRun`'s `NodeIds` ("This member is required" --
+  api_op_ResumeWorkflowRun.go) was parsed and then never passed to the
+  backend at all, and the response's `NodeIds` ("The new nodes that were
+  actually restarted") was hardcoded to an empty list regardless of what was
+  requested. Parsed-then-discarded-parameter class. This backend has no
+  per-node run-attempt state to validate node IDs against (`WorkflowRun`
+  tracks no `Graph`/per-node history -- a disclosed, package-sized gap noted
+  elsewhere in this file), so the honest fix threads `nodeIDs` through and
+  echoes the requested list back as restarted, rather than inventing
+  per-node validation this backend can't back. Fixed in `workflows.go`
+  (`ResumeWorkflowRun` gained a `nodeIDs []string` parameter) and
+  `handler_workflows.go`. Test:
+  `handler_workflows_test.go:TestResumeWorkflowRun_EchoesRequestedNodes`,
+  confirmed failing (asserted `[]string{}` instead of the requested IDs)
+  against unmodified code.
+- `GetSchemaVersion`'s `SchemaVersionId` ("Either this or the SchemaId
+  wrapper has to be provided" -- api_op_GetSchemaVersion.go) was parsed and
+  never read; the handler always fell through to the `SchemaId`+
+  `SchemaVersionNumber` path (defaulting to version 1 when neither was
+  given), so a client fetching a version purely by the opaque ID a prior
+  `RegisterSchemaVersion` call returned got either the wrong version or
+  `EntityNotFoundException`, never the one it asked for. Wrong-key-selected
+  class. Fixed by checking `SchemaVersionId` first and resolving it via the
+  already-existing `FindSchemaVersionByID` helper (built for
+  `PutSchemaVersionMetadata`/`RemoveSchemaVersionMetadata`'s identical
+  standalone-ID lookup need -- no new backend surface required). Test:
+  `handler_timestamp_sweep_sdk_test.go:TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId`,
+  a real `aws-sdk-go-v2/service/glue` client round trip, confirmed failing
+  (`EntityNotFoundException`) against unmodified code.
+- `ListIntegrationResourceProperties`'s `Marker`/`MaxRecords` were declared
+  and never read -- no `paginateSlice` call at all, unlike every sibling
+  List op in this file (`DescribeIntegrations`/`DescribeInboundIntegrations`
+  two rows above in this same ledger). Always returned every stored entry
+  unbounded in one response. Fixed via the same `paginateSlice` convention,
+  new `defaultListIntegrationResourcePropertiesLimit = 100` const. Test:
+  `handler_pagination_sweep_sdk_test.go` gained a "list integration resource
+  properties" case (bumping `totalPaginationCases` 32->33), confirmed
+  failing (first page returned all 3 seeded items instead of truncating)
+  against unmodified code.
+- `GetDataflowGraph`'s `Language` field does not exist on the real
+  `GetDataflowGraphInput` at all (api_op_GetDataflowGraph.go: the only
+  member is `PythonScript`) -- a fabricated field from a prior pass, unread
+  and untested. Deleted rather than wired, per this campaign's "the fix
+  deletes rather than adds" guidance for fabricated fields; zero behavior
+  change (nothing read it before, no real client can populate it).
+
+**Confirmed false positives, hand-verified consistent with an
+already-established or newly-confirmed disclosed pattern (no fix needed):**
+
+- `getCatalogsInput.ParentCatalogID`/`IncludeRoot`/`Recursive`,
+  `putDataCatalogExportConfigurationInput.ClientToken`,
+  `getConnectionsInput.CatalogID`, `listCustomEntityTypesInput.Tags`,
+  `listSessionsInput.Tags`/`RequestOrigin`,
+  `listDataQualityResultsInput.Filter`,
+  `listMaterializedViewRefreshTaskRunsInput.CatalogID` -- all already
+  documented inert in this file's gopherstack-awzv note or an inline doc
+  comment (flat single-catalog namespace / no backing state / idempotency
+  token).
+- `deleteTableOptimizerInput.CatalogID`/`updateTableOptimizerInput.CatalogID`
+  -- newly confirmed consistent with the same flat-catalog convention:
+  `CreateTableOptimizer`'s own backend method already discards its
+  `CatalogID` parameter (named `_`) for the identical reason.
+  `testConnectionInput.CatalogID` -- same convention (`Connection` has no
+  `CatalogId` field anywhere in this backend).
+- `describeEntityInput.CatalogID`/`DataStoreAPIVersion`/`NextToken`,
+  `getEntityRecordsInput.CatalogID`/`DataStoreAPIVersion`,
+  `listEntitiesInput.CatalogID`/`DataStoreAPIVer` -- the whole Entities
+  family is an explicitly disclosed "canned"/synthetic-data feature
+  (`entities.go`'s own doc comments, and the 2026-08-22 gopherstack-2wvq note
+  below); `DescribeEntity` doesn't paginate at all (returns `def.fields`
+  directly), consistent with `NextToken` never being populated either side.
+- `listDataQualityRuleRecommendationRunsInput.Tags` -- already documented
+  inline ("Tags is not modeled: DQRuleRecommendationRun is never routed
+  through tags.go's tag dispatch").
+- `listDataQualityStatisticsInput.ProfileID`/`StatisticID` -- op is a
+  documented, honest always-empty stub (own doc comment: "this emulator does
+  not run [automated data-quality monitoring], so no profile ever has
+  computed statistics"); an intentionally-empty listing correctly
+  distinguished from a silently-broken one.
+- `listTableOptimizerRunsInput.NextToken`/`MaxResults` -- this backend only
+  ever tracks a table optimizer's single `LastRun` (hand-confirmed: `runs :=
+  []*TableOptimizerRun{}; if to.LastRun != nil { runs = append(runs,
+  to.LastRun) }`), so there is never more than one item to paginate over.
+  Already named in this file's 2026-08-29 cursor-pagination audit.
+- `getSchemaVersionsDiffInput.SchemaDiffType` -- real field is required on
+  the wire but "Refers to SYNTAX_DIFF, which is the currently supported diff
+  type" (api_op_GetSchemaVersionsDiff.go): no second value exists in real
+  AWS today for a branch to dispatch on.
+- `getUnfilteredPartitionMetadataInput`/`getUnfilteredPartitionsMetadataInput`/
+  `getUnfilteredTableMetadataInput.SupportedPermissionTypes` -- the
+  input-side complement of this file's already-disclosed 2026-08-23 Lake
+  Formation gap ("this backend has no Lake Formation permissions/cell-filter
+  engine anywhere"); the output members this field would gate
+  (`CellFilters` etc.) are already documented absent for the same reason.
+
+**Deferred, real but package-sized (not fixed, matching this file's
+existing DQDL/compatibility-parsing precedent for "genuinely package-sized,
+not approximated"):**
+
+- `StartDataQualityRuleRecommendationRun`'s `DataSource` and `Role` (both
+  "This member is required" -- api_op_StartDataQualityRuleRecommendationRun.go)
+  are dropped entirely; the handler instead reads a fabricated
+  `OutputS3Path` field that does not exist on the real input at all. Same
+  root cause as this file's existing `GetDataQualityRuleRecommendationRun`
+  note (line ~139): "no rule-recommendation engine runs...DataSource in
+  particular can't be honestly reconstructed since this backend only stores
+  a flat DataSourceS3Path string while the real field is a structured
+  types.DataSource{GlueTable}". Wiring `DataSource.GlueTable` into
+  `DataSourceS3Path` without also fixing `GetDataQualityRuleRecommendationRunOutput`
+  (which doesn't surface `DataSource` back to the client at all, also
+  already-disclosed) would be exactly the invisible half-feature this
+  campaign's restraint rule warns against -- left disclosed, not touched.
+- `GetPlan`'s `Mapping` (required) and `GetMapping`'s `Location` (optional)
+  -- both part of this file's already-deferred ETL script-generation
+  simplification; `GetPlan`/`GetDataflowGraph`/`GetMapping`/
+  `CreateScript` synthesize/parse scripts heuristically rather than running
+  real Glue Studio-quality codegen, and honoring `Mapping`/`Location`
+  meaningfully would mean building a real mapping-aware code generator, not
+  a wire-key fix.
+
+**Whole-second sort-key check (explicitly requested this pass):** grepped
+every `sort.Slice`/`sort.SliceStable` call in the package. The five listings
+this file's history already fixed with a `StartedOn`-tiebreak
+(`blueprints.go`/`column_statistics.go`/`data_quality_stats.go`/
+`data_quality_rulesets.go`/`materialized_views.go`) all still carry their
+`if x[i].StartedOn != x[j].StartedOn { ... }` tiebreak. The sixth
+(`GetMLTaskRuns`, already fixed per this file's `GetMLTaskRuns` note) is
+still correctly tiebroken -- `handleGetMLTaskRuns` calls
+`h.Backend.GetMLTaskRuns` (whose own internal `sort.Slice` at `ml.go:115`
+is a bare `StartedOn` comparison with no tiebreak) and then always
+re-sorts the full result via `sortTaskRuns`, which does carry the
+`TaskRunID` tiebreak, before returning; `ml.go:115` is redundant/dead
+ordering with no path to the client, not a live bug (its only caller
+immediately re-sorts). No other listing sorts on a whole-second value. No
+remaining live whole-second-sort-key bugs found.
+
+Tests added: `TestResumeWorkflowRun_EchoesRequestedNodes` (1),
+`TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId` (3 assertions), one
+`paginationCase` entry for `ListIntegrationResourceProperties` (reuses the
+shared `runPaginationCase` assertions, 3 per case). No existing test
+assertions were weakened or dropped; `TestGetAggregateDiscoveredResourceCounts`/
+`TestReset_ClearsNewMaps` (awsconfig) and the schema-version/pagination
+signature changes above are mechanical signature updates (new required
+constructor args), not assertion drops.
+
+Gates: `go build ./services/glue/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run
+./services/glue/...` (0 issues).

@@ -139,3 +139,56 @@ func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
 		})
 	}
 }
+
+// GetAggregateDiscoveredResourceCounts's own ConfigurationAggregatorName
+// ("This member is required") was dropped entirely by the handler --
+// requests for a nonexistent aggregator still succeeded, unlike every other
+// aggregate-* op in this service (all validated via requireAggregatorLocked,
+// declaring NoSuchConfigurationAggregatorException per their own
+// deserializers).
+func TestAWSConfigHandler_GetAggregateDiscoveredResourceCounts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           any
+		name           string
+		wantContains   []string
+		wantCode       int
+		skipAggregator bool
+	}{
+		{
+			name:           "unknown_aggregator_errors",
+			body:           map[string]any{"ConfigurationAggregatorName": "no-such-aggregator"},
+			skipAggregator: true,
+			wantCode:       http.StatusNotFound,
+			wantContains:   []string{"NoSuchConfigurationAggregatorException"},
+		},
+		{
+			name:         "known_aggregator_returns_count",
+			body:         map[string]any{"ConfigurationAggregatorName": "my-aggregator"},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TotalDiscoveredResources"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if !tt.skipAggregator {
+				seedRec := doAWSConfigRequest(t, h, "PutConfigurationAggregator", map[string]any{
+					"ConfigurationAggregatorName": "my-aggregator",
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
+			rec := doAWSConfigRequest(t, h, "GetAggregateDiscoveredResourceCounts", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}

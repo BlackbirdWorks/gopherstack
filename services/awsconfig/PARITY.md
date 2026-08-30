@@ -522,3 +522,74 @@ call sites: `ConformancePackState: "COMPLETE"` isn't a member of real
 `TestDescribeConformancePackStatus_State_RealClient`
 (`handler_conformance_packs_test.go`), driven through the real SDK client
 and asserted against `types.ConformancePackStateCreateComplete`.
+
+## 2026-08-30 WrapOp reflective-decode re-scan (gopherstack-4shm follow-up)
+
+Prior scans anchored on literal `json.Unmarshal`/`Bind` calls found nothing
+in this service because every op decodes reflectively through
+`pkgs/service.WrapOp` -- gopherstack-4shm's blind spot. Re-scanned with
+`cmd/reqfieldscan`, which resolves `WrapOp`'s own generic parameter: 102/102
+ops in the dispatch table, 88 request types, 157 fields.
+
+8 fields flagged unread; hand-verified against configservice@v1.68.4:
+
+- **Real bug, fixed**: `GetAggregateDiscoveredResourceCounts`'s
+  `ConfigurationAggregatorName` ("This member is required",
+  api_op_GetAggregateDiscoveredResourceCounts.go) was accepted on the wire
+  and then dropped entirely -- the backend method took no aggregator name at
+  all, so a request naming a nonexistent aggregator still succeeded,
+  unlike every sibling aggregate-* op in this file (all validated via
+  `requireAggregatorLocked`, declaring `NoSuchConfigurationAggregatorException`
+  per their own deserializers -- see the doc comment on
+  `requireAggregatorLocked` in `aggregators.go`, which lists five other ops
+  and conspicuously omits this one). Missing-existence-check class: an
+  empty/success result and a missing parent are not the same answer. Fixed
+  by threading `aggregatorName` through to a `requireAggregatorLocked` call,
+  matching every sibling. Also fixed the doc comment above
+  `handleGetAggregateDiscoveredResourceCounts`, which claimed `GroupByKey`
+  "is not read from the request at all here" while the code two lines below
+  already echoed `in.GroupByKey` correctly -- a stale comment, not a bug.
+  Tests: `handler_resources_test.go`
+  (`TestAWSConfigHandler_GetAggregateDiscoveredResourceCounts`, two cases,
+  driven through the JSON handler), plus existing `resources_test.go`/
+  `store_test.go` direct-backend tests updated for the new signature.
+  Confirmed failing (200 instead of 404/NoSuchConfigurationAggregatorException)
+  against unmodified code before the fix.
+- **False positive, documented in code**: `describeConfigRulesInput.Filters`
+  -- already has a doc comment explaining `EvaluationMode`/
+  `RuleEvaluationVisibility` are accepted-but-inert (`ConfigRule` has no
+  matching state to filter by). Correct as-is.
+- **Deferred, same disclosed root cause as `PutEvaluations`'s wire-shape
+  divergence**: five `NextToken`/`Limit` pagination fields
+  (`DescribeComplianceByResource`, `GetAggregateComplianceDetailsByConfigRule`
+  x2, `GetComplianceDetailsByConfigRule`, `GetComplianceDetailsByResource`)
+  are accepted but never enforced -- each op always returns its complete,
+  unbounded result set in one response with no output `NextToken`, unlike
+  `DescribeConfigRules` (same file), which does real `page.New` pagination.
+  Functionally this over-returns rather than silently drops data (a client
+  walking pages the normal way sees `NextToken=""` immediately and stops
+  with the complete, correct set), so it is not the same class as a field
+  that discards information the caller needs -- left as an honest,
+  not-yet-implemented pagination gap rather than fixed this pass, to avoid
+  scope creep into five separate `page.New` wirings under this issue's
+  budget. Named here for whoever next touches these ops' pagination.
+- **Real, disclosed-not-fixed wire-shape gap, found while verifying
+  `PutEvaluations`**: `putEvaluationsInput`/`evaluationBody` carry a
+  `ConfigRuleName` field that does not exist on the real
+  `PutEvaluationsInput`/`types.Evaluation` at all (configservice@v1.68.4:
+  the real required field is the opaque `ResultToken`, which this backend
+  accepts but never reads or validates). Real AWS derives the rule identity
+  server-side by decrypting `ResultToken`, issued to a Lambda invocation
+  this backend never performs (`evaluation.go`'s own comment: "Custom/Lambda
+  rules are evaluated out-of-band; their results arrive via..."); a real SDK
+  client's `PutEvaluations` call carries no `ConfigRuleName` field to
+  serialize, so every evaluation would file under `ConfigRuleName=""` for a
+  real client today. Fixing this honestly needs `ResultToken`
+  issuance/redemption tied to a rule-invocation flow that does not exist in
+  this backend -- a feature-sized addition, not a wire-key rename -- so left
+  disclosed rather than attempted under this pass's budget. `ResultToken`
+  itself is likewise accepted and never validated/stored.
+
+Gates: `go build ./services/awsconfig/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
+`golangci-lint run ./services/awsconfig/...` (0 issues).
