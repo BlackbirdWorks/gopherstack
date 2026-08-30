@@ -251,7 +251,9 @@ func (b *InMemoryBackend) DeleteClusterSnapshot(snapshotID string) (*Snapshot, e
 }
 
 // DescribeClusterSnapshots returns snapshots, optionally filtered by snapshotID, clusterID, or
-// snapshotType ("manual" or "automated"). An empty snapshotType matches all types.
+// snapshotType ("manual" or "automated"). An empty snapshotType matches all types. Results are
+// ordered by SnapshotIdentifier ascending so handleDescribeClusterSnapshots' Marker-based
+// pagination (handler_snapshots.go) sees a reproducible order across calls.
 func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string) ([]Snapshot, error) {
 	b.mu.RLock("DescribeClusterSnapshots")
 	defer b.mu.RUnlock()
@@ -267,7 +269,7 @@ func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID, snapsh
 
 	result := make([]Snapshot, 0, b.snapshots.Len())
 
-	for _, snap := range b.snapshots.All() {
+	for _, snap := range b.snapshots.Snapshot() {
 		if clusterID != "" && snap.ClusterIdentifier != clusterID {
 			continue
 		}

@@ -2,17 +2,87 @@ package opensearch_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	opensearchsdk "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
+
+// TestDescribePackages_PaginationOrderIsReproducible walks every package via
+// NextToken-based pagination and asserts the concatenation of pages
+// reproduces the full set exactly -- no drops, no duplicates. DescribePackages
+// (with no PackageID filter) builds its page from b.packages.All(), an
+// unspecified-order map walk (pkgs/store's Table.All doc), with no sort
+// before pkgs/page.New's offset-based pagination -- so a second call backing
+// a later page can observe a completely different order than the first,
+// corrupting the walk even though PackageID (the table's own key) is unique.
+func TestDescribePackages_PaginationOrderIsReproducible(t *testing.T) {
+	t.Parallel()
+
+	const numPackages = 60
+	const pageSize = 7
+
+	for iter := range 30 {
+		_, h := newTestHandlerAndBackend()
+		client := newTestOpenSearchClient(t, h)
+		ctx := t.Context()
+
+		want := make(map[string]bool, numPackages)
+
+		for i := range numPackages {
+			name := fmt.Sprintf("order-pkg-%03d", i)
+
+			out, err := client.CreatePackage(ctx, &opensearchsdk.CreatePackageInput{
+				PackageName: aws.String(name),
+				PackageType: types.PackageTypeTxtDictionary,
+				PackageSource: &types.PackageSource{
+					S3BucketName: aws.String("pkg-bucket"),
+					S3Key:        aws.String("pkg-key-" + name),
+				},
+			})
+			require.NoErrorf(t, err, "iteration %d: setup create package %q", iter, name)
+			want[aws.ToString(out.PackageDetails.PackageID)] = true
+		}
+
+		got := make(map[string]int, numPackages)
+
+		var nextToken *string
+
+		for page := range numPackages/pageSize + 5 {
+			out, err := client.DescribePackages(ctx, &opensearchsdk.DescribePackagesInput{
+				MaxResults: pageSize,
+				NextToken:  nextToken,
+			})
+			require.NoErrorf(t, err, "iteration %d page %d", iter, page)
+
+			for _, pd := range out.PackageDetailsList {
+				got[aws.ToString(pd.PackageID)]++
+			}
+
+			if aws.ToString(out.NextToken) == "" {
+				break
+			}
+
+			nextToken = out.NextToken
+		}
+
+		for id := range want {
+			assert.Equalf(t, 1, got[id], "iteration %d: package %s expected exactly once, got %d", iter, id, got[id])
+		}
+
+		assert.Lenf(t, got, numPackages, "iteration %d: total distinct packages returned", iter)
+	}
+}
 
 func TestOpenSearchHandler_DissociatePackage(t *testing.T) {
 	t.Parallel()

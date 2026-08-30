@@ -102,7 +102,12 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	return nil
 }
 
-// ListUserPools returns all user pools sorted by name.
+// ListUserPools returns all user pools sorted by name, tiebroken by ID.
+// PoolName is not unique -- CreateUserPool has no "already exists" exception
+// (real AWS Cognito allows multiple pools with the same name), so a Name-only
+// sort admits ties; handleListUserPools' marker-based pagination (which
+// resumes by pool ID) needs the complete order, not just the marker, to be
+// reproducible across calls.
 func (b *InMemoryBackend) ListUserPools() []*UserPool {
 	b.mu.RLock("ListUserPools")
 	defer b.mu.RUnlock()
@@ -115,7 +120,13 @@ func (b *InMemoryBackend) ListUserPools() []*UserPool {
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+
+		return out[i].ID < out[j].ID
+	})
 
 	return out
 }

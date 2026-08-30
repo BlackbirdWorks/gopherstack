@@ -437,3 +437,64 @@ func TestListUserPools_Pagination_StaleCursor(t *testing.T) {
 	assert.Empty(t, aws.ToString(page2.NextToken))
 	assert.Empty(t, page2.UserPools)
 }
+
+// TestListUserPools_PaginationOrderIsReproducible walks every user pool via
+// NextToken-based pagination and asserts the concatenation of pages
+// reproduces the full set exactly -- no drops, no duplicates. Cognito does
+// not enforce unique pool names (CreateUserPool has no "already exists"
+// exception -- see TestInMemoryBackend_CreateUserPool's duplicate_name case
+// in user_pools_test.go), so ListUserPools' sort-by-Name (user_pools.go) can
+// have genuine ties; the backing store (pools.All()) is also an
+// unspecified-order map walk, so two same-named pools can swap relative
+// order between the call that produced a page's NextToken and the call that
+// resumes from it, even though the NextToken itself (pool ID) is unique.
+func TestListUserPools_PaginationOrderIsReproducible(t *testing.T) {
+	t.Parallel()
+
+	const numPools = 16
+	const pageSize = 3
+
+	for iter := range 30 {
+		h := newTestHandler(t)
+		client := newTestCognitoIDPClient(t, h)
+		ctx := t.Context()
+
+		want := make(map[string]bool, numPools)
+
+		for range numPools {
+			out, err := client.CreateUserPool(ctx, &cognitoidpsdk.CreateUserPoolInput{
+				PoolName: aws.String("dup-pool-name"),
+			})
+			require.NoErrorf(t, err, "iteration %d: setup create pool", iter)
+			want[aws.ToString(out.UserPool.Id)] = true
+		}
+
+		got := make(map[string]int, numPools)
+
+		var nextToken *string
+
+		for page := range numPools/pageSize + 5 {
+			out, err := client.ListUserPools(ctx, &cognitoidpsdk.ListUserPoolsInput{
+				MaxResults: aws.Int32(pageSize),
+				NextToken:  nextToken,
+			})
+			require.NoErrorf(t, err, "iteration %d page %d", iter, page)
+
+			for _, p := range out.UserPools {
+				got[aws.ToString(p.Id)]++
+			}
+
+			if aws.ToString(out.NextToken) == "" {
+				break
+			}
+
+			nextToken = out.NextToken
+		}
+
+		for id := range want {
+			assert.Equalf(t, 1, got[id], "iteration %d: pool %s expected exactly once, got %d", iter, id, got[id])
+		}
+
+		assert.Lenf(t, got, numPools, "iteration %d: total distinct pools returned", iter)
+	}
+}

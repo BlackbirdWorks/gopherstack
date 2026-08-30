@@ -1225,3 +1225,59 @@ traffic for all eight.
 ./services/cognitoidp/...` (pass, including every pre-existing pagination test), `golangci-lint
 run ./services/cognitoidp/...` (0 issues, confirmed by removing the new test files and
 re-running rather than assuming pre-existing-file status).
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `ListUserPools`
+(`user_pools.go`) sorted only by `Name` before `handleListUserPools`'s (`handler_user_pools.go`)
+`NextToken`-based pagination. `CreateUserPool` has no "already exists" exception -- real AWS
+Cognito does not enforce unique pool names, and this codebase already has a test documenting that
+(`TestInMemoryBackend_CreateUserPool`'s `duplicate_name` case, `user_pools_test.go`) -- so `Name`
+alone is not a unique sort key, and the underlying `b.pools.All()` read is also an unspecified-order
+map walk. Two same-named pools could swap relative order between the call that produced a page's
+`NextToken` and the call that resumed from it, dropping or duplicating a pool at the boundary, even
+though the `NextToken` itself (pool ID, via `handleListUserPools`'s `p.ID == in.NextToken` scan) is
+unique -- the same "unique cursor, tie-prone sort" shape the campaign brief documents for elbv2 and
+ssoadmin. Not a duplicate-rejection case (unlike waf's activated rules): duplicate pool names are
+legitimate on real AWS, matching route53 hosted zones, so the fix is a tiebreak, not a Create-path
+rejection. Fixed by tiebreaking the sort on `ID` (unique) when `Name` compares equal.
+
+This is a different bug from the four *List* operations with a shadowed dispatch-table
+registration this file already documents finding safe (`ListGroups`/`ListUsersInGroup` via
+`groupsOpsA`+`groupsOpsB`, `ListIdentityProviders` via `identityProvidersOpsB`+`OpsC`,
+`ListResourceServers` via `resourceServersOpsA`+`OpsB`) -- re-verified this pass: in every one of
+those four, the *winning* registration (the later `maps.Copy` in `dispatchTable()`, always the
+`Full`/`Accurate`-suffixed handler) reads via a `store.Index.Get` filtered to one user pool and
+sorts by a field that is unique within that pool once filtered (`GroupName`, `Username`,
+`ProviderName`, `Identifier`) -- already safe, unchanged. Note for the next pass: this file's
+"registers four operation names twice" framing undercounts -- a broader sweep this pass found at
+least 19 more operation names (mostly Create/Update/Describe/Get/Set, not List) registered under
+both a literal string and an `opX` constant across separate `OpsA`/`OpsB`/`OpsC` functions, all
+following the same later-registration-wins `Full`/`Accurate` pattern; not re-audited here since none
+are List/paginated operations relevant to this sweep's scope.
+
+Every other paginated `List*` site in this service was audited and confirmed already safe:
+`ListGroupsPage`/`ListUsersInGroupPage` (`groups.go`, backing the two *Full* handlers above),
+`ListIdentityProviders` (`identity_providers.go`), `ListResourceServers` (`resource_servers.go`),
+`ListUsers`/`ListUsersFiltered` (`users.go`), `ListTerms` (`terms.go`), `paginateDevicesLocked`
+(`devices.go`), `ListWebAuthnCredentials` (`webauthn.go`) all filter to one pool/user (via
+`store.Index.Get` or a per-key inner map) before sorting by a field unique within that filtered set,
+or (devices/webauthn) sort by a field that is itself the inner map's own key.
+`paginateAuthEventsLocked` (`auth_events.go`) sorts by `CreatedAt` with an explicit `EventID`
+tiebreak already in place -- confirmed correct, unchanged, and a good precedent that made the
+`ListUserPools` gap stand out by contrast. `ListUserPoolReplicas` (`user_pool_replicas.go`) carries
+a doc comment establishing it never has more than one item to page over in practice (one replica per
+region, no cross-region duplication path) -- trusted per this campaign's guidance to trust a comment
+that gives a correct reason, not re-litigated.
+
+Proof: `TestListUserPools_PaginationOrderIsReproducible` (`pagination_arithmetic_test.go`) creates
+16 user pools all sharing one `PoolName`, walks them with `MaxResults=3` across `NextToken`-resumed
+pages (real SDK client), and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed reliably against the unfixed code, passes after the
+`ID` tiebreak. Existing `TestListUserPools_Pagination` (`user_pools_config_test.go`) and
+`TestListUserPools_Pagination_StaleCursor` (same file as the new test) both use distinct pool names
+throughout (`pool-00`..`pool-04`, `listpools-stale-000`..`002`) and so could not have caught this;
+`TestListUserPools_Pagination` additionally dedups by `Name` in its own assertion, which would have
+masked an ID-level duplicate even had one occurred.
+
+Gates: `go build ./services/cognitoidp/...`, `go vet ./services/cognitoidp/...`,
+`go test -race -count=1 ./services/cognitoidp/...` (pass), `golangci-lint run
+./services/cognitoidp/...` (0 issues). Work left uncommitted per this pass's instructions.

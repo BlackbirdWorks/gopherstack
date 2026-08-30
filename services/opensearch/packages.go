@@ -186,7 +186,10 @@ func (b *InMemoryBackend) DeletePackage(packageID string) (*Package, error) {
 // here; EngineVersion and PackageOwner are also valid enum members but this
 // backend has no such fields on Package to filter against (structural gap,
 // documented in PARITY.md) -- those two filter names are accepted but have
-// no effect, same as an absent filter.
+// no effect, same as an absent filter. With no PackageID filter, the
+// unfiltered set is read via Snapshot() (ordered by PackageID ascending) so
+// pkgs/page.New's offset-based pagination sees a reproducible order across
+// calls, rather than All()'s unspecified map order.
 func (b *InMemoryBackend) DescribePackages(
 	filters map[string][]string, nextToken string, maxResults int,
 ) (page.Page[*Package], error) {
@@ -199,7 +202,7 @@ func (b *InMemoryBackend) DescribePackages(
 
 	if len(ids) == 0 {
 		base = make([]*Package, 0, b.packages.Len())
-		for _, pkg := range b.packages.All() {
+		for _, pkg := range b.packages.Snapshot() {
 			cp := *pkg
 			base = append(base, &cp)
 		}

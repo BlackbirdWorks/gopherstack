@@ -1511,3 +1511,37 @@ so this single reproduction stands for the class). Gates: `go build ./services/r
 `go vet ./services/redshift/...`, `go test -race -count=1 ./services/redshift/...`,
 `golangci-lint run ./services/redshift/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `DescribeClusterSnapshots`
+(`snapshots.go`) built its unfiltered result from `b.snapshots.All()` -- an unspecified-order map
+walk (`pkgs/store`'s `Table.All` doc) -- with no sort at all before `handleDescribeClusterSnapshots`
+(`handler_snapshots.go`) applied its `Marker`-based pagination. Two calls could observe different
+underlying orders, so a client paging with `MaxRecords` smaller than the snapshot count could drop
+or duplicate a snapshot at a page boundary even though `SnapshotIdentifier` (the marker value, and
+the table's own key) is itself unique -- the same shape the campaign brief documents for 3 elbv2
+listings resumed by a unique listener ARN and 3 ssoadmin listings resumed by a unique request id.
+Fixed by reading via `b.snapshots.Snapshot()` instead of `.All()` -- `Snapshot()` sorts by the
+table's own key (`SnapshotIdentifier`) ascending, deterministically, matching the existing
+`DescribeClusters` pattern this same file already uses for the same reason.
+
+Every other `Describe*`/`List*` site in this service was audited: the 40+ non-serverless `Describe*`
+ops (`custom_domains.go`, `endpoint_access.go`, `events.go`, `auth_profiles.go`, `data_shares.go`,
+`hsm.go`, `param_groups.go`, and the rest) accept no `Marker`/`MaxRecords` at all -- they always
+return the full set in one response, so there is no page boundary for this bug class to hit (a
+separate, pre-existing gap: these ops ignore `Marker`/`MaxRecords` entirely, not newly introduced or
+touched this pass). `DescribeClusters` and `DescribeQev2IdcApplications` already page via
+`.Snapshot()`/sort-by-table-key and were confirmed safe, unchanged. All 11 Redshift Serverless
+`List*` ops page via the pre-sorted `sortedStringIndex` (`serverless_index.go`) keyed by each
+resource's own unique name -- confirmed safe, unchanged.
+
+Proof: `TestDescribeClusterSnapshots_PaginationOrderIsReproducible`
+(`handler_snapshots_test.go`) creates 130 same-cluster snapshots, walks them with `MaxRecords=25`
+across `Marker`-resumed pages, and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed on the first iteration against the unfixed code (some
+snapshots missing entirely, others double-counted), passes after the `.Snapshot()` fix. Existing
+`TestDescribeClusterSnapshots_Pagination` subtests never exercised a real multi-page walk (every
+snapshot count used fits in one `MaxRecords=20` page), so they could not have caught this.
+
+Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...`,
+`go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...`
+(0 issues). Work left uncommitted per this pass's instructions.

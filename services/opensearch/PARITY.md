@@ -984,3 +984,34 @@ golines). New tests in `list_filter_params_test.go` drive the real typed SDK cli
 backend directly to avoid re-deriving `StartMigration`'s unrelated `MigrationOptions.Workspace`/
 `resolveDataSourceRefLocked` validation chain -- the read path under test (`ListMigrations` pagination)
 still goes through the real client.
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `DescribePackages`
+(`packages.go`), when called with no `PackageID` filter, built its unfiltered result from
+`b.packages.All()` -- an unspecified-order map walk (`pkgs/store`'s `Table.All` doc) -- with no
+sort at all before `pkgs/page.New`'s offset-based pagination. `page.New`'s own doc says it "creates
+a Page from a fully sorted slice"; this call site did not honor that contract, so a client paging
+with `MaxResults` smaller than the package count could drop or duplicate a package at a page
+boundary even though `PackageID` (the table's own key) is unique -- offset pagination over an
+unstable order breaks the same way marker pagination does. Fixed by reading via
+`b.packages.Snapshot()` instead of `.All()` -- `Snapshot()` sorts by the table's own key
+(`PackageID`) ascending, deterministically. The `len(ids) > 0` branch (filtering to explicit
+`PackageID`s from the request) was already safe -- it iterates the caller-supplied `ids` slice, not
+a map.
+
+Every other paginated `List*`/`Describe*` site in this service was audited this pass and confirmed
+already safe: `DescribeInboundConnections`/`DescribeOutboundConnections` (`inbound_connections.go`'s
+shared `filterAndPageConnections`) sort by `ConnectionID`, the table's own key; `ListApplications`
+(`applications.go`) sorts by `ID`, the table's own key; `ListDomainMaintenances`
+(`domain_maintenance.go`) reads a direct per-key slice (`b.domainMaintenances[domainName]`), not a
+map range; `ListMigrations` (`migrations.go`) reads via `store.Index.Get`, which is
+insertion-ordered, not a map range.
+
+Proof: `TestDescribePackages_PaginationOrderIsReproducible` (`handler_packages_test.go`) creates 60
+packages, walks them with `MaxResults=7` across `NextToken`-resumed pages (real
+`opensearchsdk.Client`), and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed reliably against the unfixed code (drops and triplicate
+counts observed), passes after the `.Snapshot()` fix.
+
+Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...`,
+`go test -race -count=1 ./services/opensearch/...` (pass), `golangci-lint run
+./services/opensearch/...` (0 issues). Work left uncommitted per this pass's instructions.
