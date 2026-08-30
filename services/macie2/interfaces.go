@@ -134,7 +134,8 @@ type StorageBackend interface {
 
 	// Search resources
 	SearchResources(
-		bucketCriteria map[string]any,
+		bucketCriteria *SearchResourcesBucketCriteria,
+		sortBy *SearchResourcesSortCriteria,
 		maxResults int,
 		nextToken string,
 	) ([]map[string]any, string, error)

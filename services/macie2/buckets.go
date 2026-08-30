@@ -305,8 +305,3 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 		"unclassifiableObjectSizeInBytes":          map[string]any{},
 	}, nil
 }
-
-// SearchResources searches S3 resources (always returns empty — no real S3 scanning).
-func (b *InMemoryBackend) SearchResources(_ map[string]any, _ int, _ string) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
-}

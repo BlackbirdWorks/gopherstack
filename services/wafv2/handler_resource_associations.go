@@ -4,18 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 )
-
-// regionalResourceServices are the AWS service identifiers accepted for REGIONAL WebACL associations.
-var regionalResourceServices = []string{ //nolint:gochecknoglobals // package-level lookup table
-	"elasticloadbalancing",
-	"execute-api",
-	"appsync",
-	"cognito-idp",
-	"apprunner",
-}
 
 // associateWebACLRequest is the request body for AssociateWebACL.
 type associateWebACLRequest struct {
@@ -58,13 +48,19 @@ func (h *Handler) validateAssociationScope(webACLArn, resourceArn string) error 
 		)
 	}
 
-	// For REGIONAL WebACLs, validate service.
-	service := extractARNService(resourceArn)
-	if slices.Contains(regionalResourceServices, service) {
-		return nil
+	// resourceTypeForARN implements the same 8-format classification as
+	// AssociateWebACLInput.ResourceArn's own doc comment (wafv2@v1.77.3
+	// api_op_AssociateWebACL.go); an ARN whose service segment matches none
+	// of them "corresponds to a resource with which a web ACL can't be
+	// associated" per WAFInvalidParameterException's doc comment
+	// (types/errors.go), which is the error real AWS returns for it.
+	if resourceTypeForARN(resourceArn) == "" {
+		return fmt.Errorf(
+			"%w: ResourceArn %q does not correspond to a resource with which a web ACL can be associated",
+			errInvalidRequest, resourceArn,
+		)
 	}
 
-	// If service is unrecognised, still allow (for compatibility with unknown resource types).
 	return nil
 }
 

@@ -31,6 +31,11 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceType := vals.Get("SourceType")
 	enabled := vals.Get("Enabled") != "false"
 	sourceIDs := parseSourceIDMembers(vals)
+	// Real key is "EventCategories.EventCategory.N", not the generic
+	// ".member.N" (confirmed on this op's own serializer,
+	// awsAwsquery_serializeOpDocumentCreateEventSubscriptionInput,
+	// neptune@v1.48.4 serializers.go:5967-5972).
+	eventCategories := parseMemberList(vals, "EventCategories.EventCategory")
 	tags := parseTagEntries(vals)
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
@@ -41,6 +46,7 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 		snsTopicARN,
 		sourceType,
 		sourceIDs,
+		eventCategories,
 		enabled,
 	)
 	if err != nil {

@@ -129,7 +129,7 @@ type StorageBackend interface {
 	CreateEventSubscription(
 		ctx context.Context,
 		name, snsTopicARN, sourceType string,
-		sourceIDs []string,
+		sourceIDs, eventCategories []string,
 		enabled bool,
 	) (*EventSubscription, error)
 	CreateGlobalCluster(

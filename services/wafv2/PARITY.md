@@ -68,10 +68,10 @@ ops:
   UpdateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig drop as CreateRuleGroup, see Notes"}
   DeleteRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule"}
   ListRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "resource-type allowlist is deliberately permissive for unknown types (see Notes)"}
+  AssociateWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-nqu4): validateAssociationScope's REGIONAL-scope check returned nil unconditionally, and its regionalResourceServices list used execute-api for API Gateway where the SDK doc says apigateway -- both fixed, see Notes"}
   DisassociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent no-op on missing association, matches AWS"}
   GetWebACLForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResourcesForWebACL: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ResourceType (api_op_ListResourcesForWebACL.go: 'If you don't provide a resource type, the call uses the resource type APPLICATION_LOAD_BALANCER. Default: APPLICATION_LOAD_BALANCER') was parsed into the request struct but never applied at all -- every associated resource ARN was returned regardless of type, including the no-filter case, which should default to ALB-only. Now classifies each stored resource ARN by service segment per AssociateWebACLInput.ResourceArn's doc comment (exact ARN format given for all 8 ResourceType values) and filters accordingly -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns). Adjacent bug noted, not fixed (out of class): handleAssociateWebACL's validateAssociationScope computes a service-allowlist check but returns nil unconditionally on both branches -- the check is dead code that can never reject a request; separately, its regionalResourceServices list uses \"execute-api\" for API Gateway where AssociateWebACLInput's own doc comment says \"apigateway\" (arn:partition:apigateway:region::/restapis/api-id/stages/stage-name)"}
+  ListResourcesForWebACL: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ResourceType (api_op_ListResourcesForWebACL.go: 'If you don't provide a resource type, the call uses the resource type APPLICATION_LOAD_BALANCER. Default: APPLICATION_LOAD_BALANCER') was parsed into the request struct but never applied at all -- every associated resource ARN was returned regardless of type, including the no-filter case, which should default to ALB-only. Now classifies each stored resource ARN by service segment per AssociateWebACLInput.ResourceArn's doc comment (exact ARN format given for all 8 ResourceType values) and filters accordingly -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns). Adjacent bug noted then, not fixed at the time (out of class): handleAssociateWebACL's validateAssociationScope computed a service-allowlist check but returned nil unconditionally on both branches -- dead code that could never reject a request; separately, its regionalResourceServices list used \"execute-api\" for API Gateway where AssociateWebACLInput's own doc comment says \"apigateway\". FIXED 2026-08-30 (gopherstack-nqu4), see AssociateWebACL's own row/Notes."}
   CheckCapacity: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes); 2026-08-22 gopherstack-zquj: response key was \"ConsumedCapacity\", real wire key is \"Capacity\" -- see Notes"}
   CreateAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -180,13 +180,41 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
      to avoid a large, low-value blast radius across 5 test files for behavior unreachable by
      compliant clients.
 
-- **`validateAssociationScope` (handler.go) is deliberately permissive**, not a disguised
+- **CORRECTED 2026-08-30 (gopherstack-nqu4)**: the previous entry below (now struck) trusted
+  `validateAssociationScope`'s own comment ("still allow, for compatibility with unknown
+  resource types") and concluded the always-nil REGIONAL branch was deliberate. It was not:
+  `validateAssociationScope` (handler_resource_associations.go) returned nil on BOTH branches
+  of its REGIONAL-scope check -- a validation-shaped check that can never reject anything.
+  `AssociateWebACLInput.ResourceArn`'s own doc comment (wafv2@v1.77.3 api_op_AssociateWebACL.go)
+  enumerates exactly 8 legal ARN formats, and `WAFInvalidParameterException`'s doc comment
+  (types/errors.go) states real AWS rejects "an ARN that is malformed, or corresponds to a
+  resource with which a web ACL can't be associated" -- confirmed as one of
+  `AssociateWebACL`'s own modelled exceptions via its `deserializeOpError` switch
+  (deserializers.go). Fixed: `validateAssociationScope` now rejects (via `errInvalidRequest`,
+  which the existing error switch already maps to `WAFInvalidParameterException`) when
+  `resourceTypeForARN` (already correct, used by `ListResourcesForWebACL`) returns "" for the
+  resource ARN's service segment, instead of a separate, now-deleted `regionalResourceServices`
+  list that used "execute-api" for API Gateway where the doc comment says "apigateway"
+  (`arn:partition:apigateway:region::/restapis/api-id/stages/stage-name`) -- "apigateway" is the
+  identifier used to *name* the REST API resource for association purposes; "execute-api" is
+  the service segment used to *invoke* a deployed API and does not appear anywhere in
+  `AssociateWebACLInput`'s doc comment. Reusing `resourceTypeForARN` as the single source of
+  truth also closes the gap where the old 5-entry allowlist was missing Amplify/Bedrock
+  AgentCore/Verified-Access-instance, which `resourceTypeForARN` already modelled correctly.
+  Proven via `TestAssociateWebACL_RejectsUnsupportedResourceType` (S3 ARN correctly rejected
+  with `WAFInvalidParameterException`, confirmed failing pre-fix) and
+  `TestAssociateWebACL_AcceptsAPIGatewayARN` (apigateway ARN correctly accepted),
+  handler_resource_associations_test.go.
+
+- ~~`validateAssociationScope` (handler.go) is deliberately permissive~~, not a disguised
   no-op: it rejects CLOUDFRONT WebACL ARNs (`/global/`) but always returns nil for REGIONAL
   ones regardless of whether the resource ARN's service is in `regionalResourceServices` — the
   code comment says this is intentional ("If service is unrecognised, still allow, for
   compatibility with unknown resource types"), guarding against the allowlist going stale as
   AWS adds new associable resource types (Amplify, Verified Access, etc.). Confirmed
-  intentional via the comment; not treated as a bug.
+  intentional via the comment; not treated as a bug. **WRONG, see correction above** — the
+  comment was itself the bug; a real client can send an ARN AWS's own SDK doc says can't be
+  associated and this let it through silently.
 
 - Fixed this pass: `CreateWebACL`/`CreateIPSet`/`CreateRegexPatternSet`/`CreateRuleGroup`
   responses were missing `Description` in their `Summary` object. Real

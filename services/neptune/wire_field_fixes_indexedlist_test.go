@@ -48,6 +48,43 @@ func TestModifyEventSubscription_EventCategoriesKey(t *testing.T) {
 		"EventCategories sent under its real wire key must reach the subscription")
 }
 
+// TestCreateEventSubscription_EventCategories proves EventCategories set on
+// CreateEventSubscription itself is honored. CreateEventSubscriptionInput's
+// own serializer (awsAwsquery_serializeOpDocumentCreateEventSubscriptionInput,
+// neptune@v1.48.4 serializers.go:5958-5972) calls the very same
+// awsAwsquery_serializeDocumentEventCategoriesList used by
+// ModifyEventSubscription -- confirmed independently on this op's own
+// serializer, not inferred from that sibling -- so a real client's
+// EventCategories arrives under "EventCategories.EventCategory.N" here too.
+// Before this fix, handleCreateEventSubscription never read the field at
+// all (not even under the wrong key), so it was silently dropped even though
+// ModifyEventSubscription/DescribeEvents already parsed it correctly.
+func TestCreateEventSubscription_EventCategories(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	out, err := client.CreateEventSubscription(ctx, &neptunesdk.CreateEventSubscriptionInput{
+		SubscriptionName: aws.String("evcat-create-sub"),
+		SnsTopicArn:      aws.String("arn:aws:sns:us-east-1:000000000000:topic"),
+		EventCategories:  []string{"backup", "failover"},
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"backup", "failover"}, out.EventSubscription.EventCategoriesList,
+		"CreateEventSubscription's own response must reflect the requested EventCategories")
+
+	describeOut, err := client.DescribeEventSubscriptions(ctx, &neptunesdk.DescribeEventSubscriptionsInput{
+		SubscriptionName: aws.String("evcat-create-sub"),
+	})
+	require.NoError(t, err)
+	require.Len(t, describeOut.EventSubscriptionsList, 1)
+	assert.ElementsMatch(t, []string{"backup", "failover"}, describeOut.EventSubscriptionsList[0].EventCategoriesList,
+		"EventCategories set at creation time must persist and be visible on describe")
+}
+
 // TestDescribeEvents_EventCategoriesFilter proves DescribeEvents' Filter
 // EventCategories reaches the backend under the same real wire key
 // (EventCategories.EventCategory.N) and actually narrows the returned
