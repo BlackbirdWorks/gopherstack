@@ -3,6 +3,7 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -586,6 +587,8 @@ func matchesAssociationFilter(a Association, f AssociationFilterEntry) bool {
 // input.AssociationFilterList and paginated by input.MaxResults/NextToken --
 // real, optional ListAssociationsInput members (api_op_ListAssociations.go)
 // a literal struct{} input previously discarded from every request.
+//
+//nolint:dupl // mirrors ListOpsMetadata's filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListAssociations(
 	ctx context.Context,
 	input *ListAssociationsInput,
@@ -612,6 +615,8 @@ func (b *InMemoryBackend) ListAssociations(
 			list = append(list, *a)
 		}
 	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].AssociationID < list[j].AssociationID })
 
 	var maxResults int
 	if input.MaxResults != nil {

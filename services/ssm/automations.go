@@ -192,7 +192,11 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	}
 
 	sort.Slice(list, func(i, k int) bool {
-		return list[i].StartTime < list[k].StartTime
+		if list[i].StartTime != list[k].StartTime {
+			return list[i].StartTime < list[k].StartTime
+		}
+
+		return list[i].AutomationExecutionID < list[k].AutomationExecutionID
 	})
 
 	var maxResults int

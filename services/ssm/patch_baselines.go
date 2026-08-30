@@ -250,6 +250,8 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 		})
 	}
 
+	sort.Slice(all, func(i, j int) bool { return all[i].BaselineID < all[j].BaselineID })
+
 	startIdx := parseNextToken(input.NextToken)
 
 	const defaultBaselineMaxResults = 50

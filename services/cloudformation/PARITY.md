@@ -556,3 +556,91 @@ the pre-fix code before the fix landed.
 Gates: `go build ./services/cloudformation/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/cloudformation/...` (pass),
 `golangci-lint run ./services/cloudformation/...` (0 issues).
+
+## Map-walk pagination sweep (2026-08-30, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns)
+
+Audited every `sort.Slice`/`sort.Strings` call and every `pkgs/page.New`
+call site in `services/cloudformation` for the "sort on a tie-prone field
+(or no sort at all) over a `store.Table.All()`/raw-Go-map walk, unstable
+between calls" bug class. Discriminator: `.All()` on a `store.Table`, or
+ranging a raw `map[string]V`/`map[string][]V` by every key, is the bug
+source; `store.Table.Snapshot()` (deterministic, key-sorted) and a direct
+per-key slice lookup into a raw map (`b.someMap[key]`) are stable across
+calls and were left alone even where the sort key itself was tie-prone.
+
+Every `page.New` call in this service hardcodes `cfnDefaultPageSize` (100)
+as the limit — none of these ops take a client-supplied page-size input, so
+a walk needed >100 records to force a page boundary at all (this matches
+real AWS: CloudFormation's List/Describe ops for stacks/stack
+sets/exports/etc. genuinely have no MaxResults-equivalent input, confirmed
+by no handler in this service even reading one — not a parity gap).
+
+**Bugs found and fixed** (each proven first with 110+ records, or a
+constructed tie, walked in pages of 100, 30 iterations, confirmed failing
+against unmodified code on iteration 0):
+
+- `ListResourceScans` (generated_templates.go) — no sort at all over
+  `resourceScans.All()`. Fixed: sort by `ResourceScanID` (table key).
+- `ListGeneratedTemplates` (generated_templates.go) — sorted by
+  `GeneratedTemplateName` alone over `generatedTemplates.All()`;
+  `CreateGeneratedTemplate` never checks Name for uniqueness. Fixed: added
+  `GeneratedTemplateID` (table key) as tiebreak.
+- `ListStackSetOperations` (stack_sets.go) — sorted by `CreatedAt` alone
+  over a raw `map[string]*StackSetOperation` walk
+  (`b.stackSetOperations[stackSetName]`, keyed by operation ID); two
+  operations created in the same instant tie. Fixed: added `OperationID`
+  (`uuid`-derived, always unique) as tiebreak. Proven via a new
+  `AddStackSetOperationInternal` test-seed helper (`export_test.go`)
+  constructing 110 same-`CreatedAt` operations.
+- `DescribeEvents` (stack_lifecycle.go), the no-`StackName`/all-stacks
+  branch — sorted by `Timestamp` (descending) alone over a raw
+  `map[string][]StackEvent` walk (`b.events`, keyed by stack ID); two events
+  on different stacks sharing an exact Timestamp tie. This branch is really
+  reachable: real `DescribeStackEvents` makes `StackName` optional and
+  returns events across every stack when omitted, and this backend's own
+  handler (`handleDescribeEvents`) passes `form.Get("StackName")` straight
+  through, so an empty form field reaches it. Fixed: added `EventID`
+  (`uuid`-derived) as tiebreak. Proven via a new `AddStackEventInternal`
+  test-seed helper (`export_test.go`) constructing 120 same-Timestamp events
+  spread across 4 stacks.
+
+**Confirmed clean (tie-prone sort, but the key is already unique, or the
+source is stable) — left unchanged, with the reason:**
+- Every sort keyed on a `store.Table`'s own key field over `.All()`
+  (`ListCollaborations`… no, that's cleanrooms — for cloudformation:
+  `ListStacks`/StackName, `ListStackSets`/StackSetName,
+  `ListTypes`/TypeName — also unpaginated, no NextToken anywhere on this
+  op, so not even reachable by the bug pattern, `ListExports`/Name,
+  `ListImports`/StackName over `stacks.All()`).
+- `ListChangeSets` (change_sets.go) sorts a raw `map[string]*ChangeSet`
+  walk by `ChangeSetName`, which is that inner map's own key (unique within
+  a stack).
+- `ListStackResources`/`DescribeStackResources` (stack_resources.go) sort a
+  raw `map[string]*StackResource` walk by `LogicalResourceID`, which is
+  that map's own key.
+- `ListStackInstances` (stack_instances.go) has no sort at all, but reads
+  `b.stackInstances[stackSetName]` — a direct per-key slice lookup, not a
+  map walk — so insertion order is stable across calls.
+- `evictDeletedStacks` (stacks.go) and `trimStackSetOperations`
+  (stack_sets.go) are internal eviction/GC helpers, not customer-facing
+  paginated listings (no NextToken, no page boundary a client ever walks) —
+  a tie in their sort only affects *which* record gets evicted when a cap
+  is exceeded, not a drop/duplicate across a page boundary, so left alone
+  as out of scope for this bug class (same reasoning as ssm's non-existent
+  equivalent, noted there).
+- Every `sort.Strings` call (changeset_diff.go, exports.go, stacks.go,
+  stack_sets.go) sorts scalar strings directly; two records that legitimately
+  share a string value are indistinguishable at that value, so an unstable
+  sort permuting their relative order produces byte-identical output either
+  way — immune to this bug class by construction, unlike sorting structs by
+  a display field.
+
+**Existing-test gap**: no pre-existing test in this package constructed a
+tie and walked pages asserting item-identity reproduction. New tests added
+this pass (`generated_templates_test.go`, `stack_sets_test.go`) assert exact
+reproduction of the full ID set across a 30-iteration page walk.
+
+Gates: `go build ./services/cloudformation/...`, `go vet
+./services/cloudformation/...`, `go test -race -count=1
+./services/cloudformation/...` (pass), `golangci-lint run
+./services/cloudformation/...` (0 issues).

@@ -38,6 +38,31 @@ func TopoSortResources(resources map[string]TemplateResource) []string {
 	return topoSortResources(resources)
 }
 
+// AddStackEventInternal appends a fully-formed StackEvent directly into
+// b.events[stackID], bypassing addEvent's time.Now() Timestamp assignment so
+// callers can construct Timestamp ties across different stacks.
+func (b *InMemoryBackend) AddStackEventInternal(stackID string, evt StackEvent) {
+	b.mu.Lock("AddStackEventInternal")
+	defer b.mu.Unlock()
+
+	b.events[stackID] = append(b.events[stackID], evt)
+}
+
+// AddStackSetOperationInternal inserts a fully-formed StackSetOperation
+// directly into b.stackSetOperations[stackSetName], bypassing
+// recordStackSetOperation's time.Now() CreatedAt assignment so callers can
+// construct CreatedAt ties.
+func (b *InMemoryBackend) AddStackSetOperationInternal(stackSetName string, op *StackSetOperation) {
+	b.mu.Lock("AddStackSetOperationInternal")
+	defer b.mu.Unlock()
+
+	if b.stackSetOperations[stackSetName] == nil {
+		b.stackSetOperations[stackSetName] = make(map[string]*StackSetOperation)
+	}
+
+	b.stackSetOperations[stackSetName][op.OperationID] = op
+}
+
 // ParseDependsOn exposes parseDependsOn for white-box testing.
 func ParseDependsOn(v any) []string {
 	return parseDependsOn(v)

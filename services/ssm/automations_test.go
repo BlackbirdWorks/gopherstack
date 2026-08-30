@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -640,4 +641,81 @@ func TestAutomationExecution_MaxConcurrencyMaxErrorsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "5", got.AutomationExecution.MaxConcurrency)
 	assert.Equal(t, "2", got.AutomationExecution.MaxErrors)
+}
+
+// TestDescribeAutomationExecutions_TiedStartTimePageWalk proves
+// DescribeAutomationExecutions sorts on StartTime alone, a field with no
+// tiebreak, over automationExecutionsStore.All() (a store.Table map walk
+// whose iteration order Go randomizes between calls). Several executions
+// sharing one StartTime -- plausible any time two automations start in the
+// same instant -- can therefore land in a different relative order on each
+// call. paginateSlice pages by offset into that order, so a page boundary
+// that fell between two tied executions on one call falls between two
+// different tied executions on the next -- one gets dropped or duplicated
+// across the page boundary with nothing else changed. Looped: a single walk
+// can pass by luck since map iteration is randomized per-call.
+func TestDescribeAutomationExecutions_TiedStartTimePageWalk(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	ctx := context.Background()
+
+	const total = 12
+
+	const tiedStart = 1_700_000_000.0
+
+	want := make(map[string]bool, total)
+
+	for i := range total {
+		id := "auto-tied-" + strconv.Itoa(i)
+		b.AddAutomationExecutionInternal(ssm.AutomationExecution{
+			AutomationExecutionID: id,
+			DocumentName:          "AWS-RunShellScript",
+			Status:                "Success",
+			StartTime:             tiedStart,
+		})
+		want[id] = true
+	}
+
+	pageSize := int32(5)
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		var token string
+		for range total/int(pageSize) + 2 {
+			out, err := b.DescribeAutomationExecutions(ctx, &ssm.DescribeAutomationExecutionsInput{
+				MaxResults: &pageSize,
+				NextToken:  token,
+			})
+			require.NoError(t, err)
+
+			for _, e := range out.AutomationExecutionMetadataList {
+				got[e.AutomationExecutionID]++
+			}
+
+			if out.NextToken == "" {
+				break
+			}
+
+			token = out.NextToken
+		}
+
+		require.Len(
+			t, got, total,
+			"iteration %d: page walk produced %d distinct executions, want %d", iter, len(got), total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t,
+				1,
+				got[id],
+				"iteration %d: execution %s appeared %d times across the page walk",
+				iter,
+				id,
+				got[id],
+			)
+		}
+	}
 }

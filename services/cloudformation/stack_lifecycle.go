@@ -224,7 +224,11 @@ func (b *InMemoryBackend) DescribeEvents(
 		all = append(all, evts...)
 	}
 	sort.Slice(all, func(i, j int) bool {
-		return all[i].Timestamp.After(all[j].Timestamp)
+		if !all[i].Timestamp.Equal(all[j].Timestamp) {
+			return all[i].Timestamp.After(all[j].Timestamp)
+		}
+
+		return all[i].EventID < all[j].EventID
 	})
 	all = filterFailedEvents(all, failedOnly)
 

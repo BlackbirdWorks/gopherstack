@@ -307,7 +307,11 @@ func (b *InMemoryBackend) ListStackSetOperations(
 		sorted = append(sorted, op)
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+		if !sorted[i].CreatedAt.Equal(sorted[j].CreatedAt) {
+			return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+		}
+
+		return sorted[i].OperationID < sorted[j].OperationID
 	})
 	summaries := make([]StackSetOperationSummary, 0, len(sorted))
 	for _, op := range sorted {

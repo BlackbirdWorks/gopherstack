@@ -236,6 +236,8 @@ func matchesOpsMetadataFilter(m OpsMetadata, f OpsMetadataFilterEntry) bool {
 // and paginated by input.MaxResults/NextToken -- real, optional
 // ListOpsMetadataInput members (api_op_ListOpsMetadata.go) a literal
 // struct{} input previously discarded from every request.
+//
+//nolint:dupl // mirrors ListAssociations' filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListOpsMetadata(
 	ctx context.Context,
 	input *ListOpsMetadataInput,
@@ -336,6 +338,8 @@ func (b *InMemoryBackend) DescribeOpsItems(
 			Priority:         item.Priority,
 		})
 	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].OpsItemID < all[j].OpsItemID })
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -623,6 +627,11 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 	if all == nil {
 		all = []OpsItemRelatedItem{}
 	}
+
+	// AssociationID is assigned via uuid.NewString() (AssociateOpsItemRelatedItem)
+	// and never reused, so sorting on it alone is sufficient even though the
+	// OpsItemId=="" branch above walks opsItemRelatedItems in unspecified map order.
+	sort.Slice(all, func(i, j int) bool { return all[i].AssociationID < all[j].AssociationID })
 
 	const maxOpsItemRelatedItems = 50
 

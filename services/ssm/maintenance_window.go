@@ -620,6 +620,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 		all = append(all, mwToIdentity(mw))
 	}
 
+	sort.Slice(all, func(i, j int) bool { return all[i].WindowID < all[j].WindowID })
+
 	startIdx := parseNextToken(input.NextToken)
 
 	const defaultMWMaxResults = 50
@@ -875,6 +877,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 			identities = append(identities, mwToIdentity(mw))
 		}
 	}
+
+	sort.Slice(identities, func(i, j int) bool { return identities[i].WindowID < identities[j].WindowID })
 
 	const (
 		defaultMWTargetMaxResults = 20

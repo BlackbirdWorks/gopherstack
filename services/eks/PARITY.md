@@ -351,3 +351,42 @@ Confirmed via hand-revert: reverting `handler_identity_providers.go` to
 `git show HEAD:services/eks/handler_identity_providers.go` made the new
 `missing_config_name` subtest fail (`expected: 400, actual: 200`); restored
 and `md5sum`-verified identical to the fix.
+
+## Map-walk pagination sweep (2026-08-30, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns)
+
+Audited every `sort.Slice` call and every `pkgs/page.New` call site (the
+handler-level offset-index pager `eksPaginationParams`/`eksPageResponse`
+feed) in `services/eks` for the "sort on a tie-prone field over
+`store.Table.All()` (a map walk, unstable between calls), no unique
+tiebreak" bug class. Discriminator: `.All()` is the bug source;
+`store.Index.Get(clusterName)` (used by every cluster-scoped List* in this
+service) is insertion-ordered and stable across calls, so a tie-prone sort
+over it is provably harmless.
+
+**Structurally almost entirely clean**: of 13 `page.New` call sites
+(fargate profiles, access entries, access policies, associated access
+policies, identity provider configs, addons, insights, clusters, pod
+identity associations, capabilities, updates, node groups, subscriptions),
+12 read from a `store.Index.Get(clusterName)` lookup (stable, matches the
+discriminator), a `store.Table.Snapshot()` (`ListClusters` — deterministic
+key-sorted, not `.All()`), a raw per-key slice lookup (associated access
+policies), or a fully hardcoded static/derived list (`ListAccessPolicies`,
+`ListInsights` — no backing store at all). None of these sort on a
+non-unique key over an unstable source.
+
+**One bug found and fixed**: `ListEksAnywhereSubscriptions`
+(subscriptions.go) is the *only* eks List op that reads
+`b.subscriptions.All()` (a genuine `store.Table` map walk) rather than an
+index — subscriptions have no cluster to scope an index by. It sorted by
+`Name` alone; `CreateEksAnywhereSubscription` never checks Name for
+uniqueness (unlike real AWS, which does — a separate, pre-existing parity
+gap not fixed here, out of scope), so two subscriptions can legitimately
+share a Name. Proven via a new `AddSubscriptionInternal`-seeded test
+(`subscriptions_test.go`) constructing 12 same-named subscriptions and
+walking pages of 5 through the real HTTP handler 30x; failed on iteration 0
+against unmodified code (7 of 12 survived one walk). Fixed: added `ID` (the
+table's own key, `uuid`-derived, always unique) as the tiebreak.
+
+Gates: `go build ./services/eks/...`, `go vet ./services/eks/...`,
+`go test -race -count=1 ./services/eks/...` (pass), `golangci-lint run
+./services/eks/...` (0 issues).

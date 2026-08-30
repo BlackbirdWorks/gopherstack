@@ -429,6 +429,8 @@ func (b *InMemoryBackend) DescribeActivations(
 		}
 	}
 
+	sort.Slice(list, func(i, j int) bool { return list[i].ActivationID < list[j].ActivationID })
+
 	var maxResults int
 	if input.MaxResults != nil {
 		maxResults = int(*input.MaxResults)

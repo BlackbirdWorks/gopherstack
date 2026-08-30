@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"time"
 
@@ -99,6 +100,8 @@ func (b *InMemoryBackend) GetInventory(
 			Data: data,
 		})
 	}
+
+	sort.Slice(entities, func(i, j int) bool { return entities[i].ID < entities[j].ID })
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -482,6 +485,12 @@ func (b *InMemoryBackend) ListComplianceItems(
 		all = []ComplianceItem{}
 	}
 
+	// Stable, not Slice: items sharing a ResourceID must keep the relative
+	// order PutComplianceItems stored them in (b.compliance[region] map walk
+	// above only randomizes which ResourceID group comes first, not the
+	// order within one).
+	sort.SliceStable(all, func(i, j int) bool { return all[i].ResourceID < all[j].ResourceID })
+
 	const maxComplianceItems = 50
 
 	if input.MaxResults != nil {
@@ -564,6 +573,13 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 			},
 		})
 	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		si, _ := summaries[i].(ComplianceSummaryItem)
+		sj, _ := summaries[j].(ComplianceSummaryItem)
+
+		return si.ComplianceType < sj.ComplianceType
+	})
 
 	const maxComplianceSummaries = 50
 
@@ -652,6 +668,13 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 			},
 		})
 	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		si, _ := summaries[i].(ResourceComplianceSummaryItem)
+		sj, _ := summaries[j].(ResourceComplianceSummaryItem)
+
+		return si.ResourceID < sj.ResourceID
+	})
 
 	const maxResourceComplianceSummaries = 50
 

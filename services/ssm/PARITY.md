@@ -1013,3 +1013,124 @@ Gates: `go build ./...`, `go vet ./...` (repo-wide, clean),
 ./services/ssm/...` (0 issues after splitting `paramMatchesFilter`'s
 Equals/BeginsWith/Contains loop into `fieldMatchesFilterOption` to stay
 under the `cyclop` budget — no `nolint`, per this repo's ban).
+
+## Map-walk pagination sweep (2026-08-30, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns)
+
+Audited every `sort.Slice`/`sort.SliceStable` call and every hand-rolled
+offset-pagination site (`parseNextToken`/`paginateSlice`) in `services/ssm`
+for the "sort on a tie-prone field over `store.Table.All()`/`Range()` (a Go
+map walk, unstable between calls), no unique tiebreak" bug class — and,
+separately, for a listing with NO sort at all feeding `paginateSlice`'s
+offset cursor, which fails the same way even without a tie. Discriminator:
+`Table.All()`/`Range()` (unstable between calls) is a bug source; `Index.Get()`
+and a direct per-key slice lookup (`map[string][]T` accessed by one key) are
+insertion-ordered and stable, so a non-unique/no sort there is provably
+harmless and was left alone.
+
+**Bugs found and fixed** (each proven first: construct >1 record sharing the
+sort key or, where none existed, just enough records to exceed one page;
+walk pages 30x; confirm the concatenation reproduces the full set with no
+drops/duplicates; confirm the test fails on unmodified code, usually on
+iteration 0):
+
+- `DescribeActivations` (activations.go) — built its list from
+  `activations.All()` and handed it straight to `paginateSlice` with **no
+  sort at all**. Fixed: sort by `ActivationID` (the table's own key, unique).
+- `DescribeAutomationExecutions` (automations.go) — sorted by `StartTime`
+  alone over `automationExecutionsStore.All()`; `StartTime` is not the table
+  key and ties (two executions starting at the same instant) are plausible.
+  Fixed: added `AutomationExecutionID` as tiebreak.
+- `ListAssociations` (associations.go) — no sort at all over
+  `associationsStore.All()`. Fixed: sort by `AssociationID` (table key).
+- `DescribeMaintenanceWindows` (maintenance_window.go) — no sort at all over
+  `maintenanceWindowsStore.All()`. Fixed: sort by `WindowID` (table key).
+- `DescribeMaintenanceWindowsForTarget` (maintenance_window.go) — matched
+  window IDs were collected into a local `map[string]struct{}` (a second,
+  independent layer of unspecified Go map order) and ranged with no sort.
+  Fixed: sort by `WindowID` (table key) after building `identities`.
+- `GetInventory` (inventory.go) — no sort at all over a raw
+  `map[string][]InventoryItem` walk (`b.inventory`, keyed by instance ID).
+  Fixed: sort by `ID` (the map's own key, unique).
+- `ListComplianceItems` (inventory.go) — no sort at all over a raw
+  `map[string][]ComplianceItem` walk (`b.compliance`, keyed by resource ID);
+  items *within* one resource ID were already insertion-ordered (the whole
+  slice is replaced atomically by `PutComplianceItems`), so only the outer
+  per-resource grouping order was unstable. Fixed: `sort.SliceStable` by
+  `ResourceID` — stable, not `sort.Slice`, specifically to preserve that
+  already-correct within-group order.
+- `ListComplianceSummaries` (inventory.go) — no sort at all over a
+  `map[string]*complianceTally` keyed by `ComplianceType`. Fixed: sort by
+  `ComplianceType` (the map's own key, unique).
+- `ListResourceComplianceSummaries` (inventory.go) — no sort at all over the
+  same raw `b.compliance` map walk, keyed by resource ID. Fixed: sort by
+  `ResourceID` (the map's own key, unique).
+- `DescribeOpsItems` (ops_items.go) — no sort at all over
+  `opsItemsStore.All()`. Fixed: sort by `OpsItemID` (table key).
+- `ListOpsItemRelatedItems` (ops_items.go) — when `OpsItemId` is omitted
+  (a real, optional input member), flattens `opsItemRelatedItemsStore` (a
+  raw `map[string][]OpsItemRelatedItem` keyed by OpsItem ID) with no sort.
+  Fixed: sort by `AssociationID`, which `AssociateOpsItemRelatedItem` always
+  assigns via `uuid.NewString()` and is therefore globally unique regardless
+  of which OpsItem it belongs to.
+- `DescribePatchBaselines` (patch_baselines.go) — no sort at all over
+  `patchBaselinesStore.All()`. Fixed: sort by `BaselineID` (table key).
+
+**Confirmed clean (tie-prone sort, but over a stable source, or key is
+already unique) — left unchanged, with the reason:**
+- Every sort keyed on a `store.Table`'s own key field over `.All()`
+  (`ListResourceDataSync`/SyncName, `ListCommands`/CommandID,
+  `ListDocuments`/Name, `DescribeMaintenanceWindows`-window helper via
+  `windowScopedPage`/WindowTaskID+WindowTargetID, `buildNodeInfos`/
+  InstanceID, `DescribeEffectiveInstanceAssociations`+
+  `DescribeInstanceAssociationsStatus`/AssociationID,
+  `DescribeInstancePatchStates(ForPatchGroup)`/InstanceID,
+  `DescribeInstanceProperties`/InstanceID (dedup-merged from two sources,
+  still unique), `ListAll`/`collectPathParams`/`DescribeParameters`/Name,
+  `ListOpsMetadata`/OpsMetadataArn, `DescribeSessions`/SessionID,
+  `ListStacks`… wait, that's cloudformation — see that service's note) can
+  never tie, so map-walk instability is unobservable regardless.
+- `ListCommandInvocations` (commands.go) sorts a raw `map[string][]T` walk
+  by `(CommandID, InstanceID)`; that composite is unique per invocation
+  (one invocation per instance per command, written once), so ties are
+  structurally impossible.
+- `DescribePatchProperties` (patch_baselines.go) sorts by `BaselineName`
+  alone over a map walk, but a `seen["OS:Name"]` dedup guard runs first and
+  `OperatingSystem` is a required, fixed input — so within one call the
+  surviving set already has unique `BaselineName` values.
+- `ListCloudConnectors` reads `cloudConnectorsStore.Snapshot()`, not
+  `.All()` — `Snapshot()` is documented key-sorted and deterministic.
+- Every `Index.Get()`-sourced or direct-per-key-slice-sourced list
+  (`DescribeDocumentPermission`, `ListDocumentVersions`, `GetResourcePolicies`,
+  `DescribeInventoryDeletions`, `DescribeAssociationExecutions`,
+  `DescribeAssociationExecutionTargets`, `DescribeAutomationStepExecutions`,
+  `ListNodes` via `buildNodeInfos`) — insertion-ordered, stable across calls,
+  so no sort (or a tie-prone one) is provably harmless.
+
+**PARITY claims checked, not just trusted**: this file's own header block
+(above) documents an earlier pagination-population sweep with a long list of
+ops fixed for a *different* bug (NextToken never populated at all). None of
+that block's claims were relied on without re-reading the current code —
+every op touched this pass was re-read from source, not from the prior
+note's description of it, per this repo's standing "PARITY notes have been
+wrong nine times" caution.
+
+**Existing-test gap**: no pre-existing test in this package constructed a
+tie and walked pages asserting item-identity reproduction; pagination tests
+here asserted page sizes / NextToken presence / that *a* item appeared, not
+that the full set survives a multi-page walk under randomized source order.
+New tests added this pass (`activations_test.go`, `automations_test.go`,
+`pagination_tie_sweep_test.go`) all assert exact reproduction of the full ID
+set across a 30-iteration page walk, per bug.
+
+**Unaudited this pass**: `resources_*`-style single-collaboration/service
+listings outside the sort/pagination surface (already covered by the header
+block's own pass); `evictDeletedStacks`-equivalents don't exist in ssm, but
+note the analogous internal (non-paginated) eviction/GC helpers elsewhere in
+this codebase were explicitly treated as out of scope for this bug class
+(no customer-facing page boundary exists for them to corrupt).
+
+Gates: `go build ./services/ssm/...`, `go vet ./services/ssm/...`,
+`go test -race -count=1 ./services/ssm/...` (pass), `golangci-lint run
+./services/ssm/...` (0 issues; one `dupl` finding between `ListAssociations`
+and `ListOpsMetadata` — mirrored shapes are the fix itself, not copy-paste —
+suppressed with `//nolint:dupl` on both, not a banned type).
