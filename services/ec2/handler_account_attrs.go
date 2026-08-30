@@ -204,11 +204,16 @@ func (h *Handler) handleDescribeAggregateIDFormat(_ url.Values, reqID string) (a
 	return resp, nil
 }
 
+// handleDescribePrincipalIDFormat: DescribePrincipalIdFormatInput has no
+// PrincipalArn field at all (api_op_DescribePrincipalIdFormat.go) -- the
+// operation always describes the calling principal. It does declare a
+// Resources filter (wire key "Resource.N",
+// awsEc2query_serializeOpDocumentDescribePrincipalIdFormatInput), which this
+// handler must honor.
 func (h *Handler) handleDescribePrincipalIDFormat(vals url.Values, reqID string) (any, error) {
-	principalARN := vals.Get("PrincipalArn")
-	items := h.Backend.DescribePrincipalIDFormat(principalARN)
+	items := h.Backend.DescribePrincipalIDFormat(parseMemberList(vals, "Resource"))
 	resp := &describePrincipalIDFormatResponse{RequestID: reqID}
-	principal := principalIDFormatItem{Arn: principalARN}
+	principal := principalIDFormatItem{}
 	for _, item := range items {
 		principal.StatusSet.Items = append(principal.StatusSet.Items, idFormatItem{
 			Resource:   item.Resource,

@@ -30,6 +30,7 @@ const (
 	filterKeyDhcpConfigValue  = "value"
 	filterKeyResourceID       = "resource-id"
 	filterKeyInstanceType     = "instance-type"
+	filterKeyType             = "type"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -1433,4 +1434,99 @@ instanceLoop:
 	}
 
 	return out
+}
+
+// applyCustomerGatewayFilters supports bgp-asn, customer-gateway-id,
+// ip-address, state, type, and tag: (api_op_DescribeCustomerGateways.go).
+// amazon-side-asn/tag-key are documented but not implemented here.
+func applyCustomerGatewayFilters(
+	gws []*CustomerGateway, filters map[string][]string, b Backend,
+) []*CustomerGateway {
+	if len(filters) == 0 {
+		return gws
+	}
+
+	out := gws[:0:0]
+
+cgwLoop:
+	for _, gw := range gws {
+		for name, values := range filters {
+			if !customerGatewayMatchesFilter(gw, name, values, b) {
+				continue cgwLoop
+			}
+		}
+
+		out = append(out, gw)
+	}
+
+	return out
+}
+
+func customerGatewayMatchesFilter(gw *CustomerGateway, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "bgp-asn":
+		return anyEqual(gw.BgpAsn, values)
+	case "customer-gateway-id":
+		return anyEqual(gw.CustomerGatewayID, values)
+	case "ip-address":
+		return anyEqual(gw.IPAddress, values)
+	case filterKeyState:
+		return anyEqual(gw.State, values)
+	case filterKeyType:
+		return anyEqual(gw.Type, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(gw.CustomerGatewayID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyVpnGatewayFilters supports attachment.state, attachment.vpc-id,
+// state, type, vpn-gateway-id, and tag: (api_op_DescribeVpnGateways.go).
+// amazon-side-asn/availability-zone/tag-key are documented but not tracked
+// by this backend's VpnGateway struct, so are left unimplemented.
+func applyVpnGatewayFilters(
+	gws []*VpnGateway, filters map[string][]string, b Backend,
+) []*VpnGateway {
+	if len(filters) == 0 {
+		return gws
+	}
+
+	out := gws[:0:0]
+
+vgwLoop:
+	for _, gw := range gws {
+		for name, values := range filters {
+			if !vpnGatewayMatchesFilter(gw, name, values, b) {
+				continue vgwLoop
+			}
+		}
+
+		out = append(out, gw)
+	}
+
+	return out
+}
+
+func vpnGatewayMatchesFilter(gw *VpnGateway, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "attachment.state":
+		return anyEqual(gw.AttachmentState, values)
+	case "attachment.vpc-id":
+		return anyEqual(gw.AttachedVPCID, values)
+	case filterKeyState:
+		return anyEqual(gw.State, values)
+	case filterKeyType:
+		return anyEqual(gw.Type, values)
+	case "vpn-gateway-id":
+		return anyEqual(gw.VpnGatewayID, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(gw.VpnGatewayID, tagKey, values, b)
+		}
+	}
+
+	return true
 }

@@ -28,9 +28,12 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 	}, nil
 }
 
+// handleDescribeVpnGateways previously never read Filters at all
+// (awsEc2query_serializeOpDocumentDescribeVpnGatewaysInput declares it) --
+// see applyVpnGatewayFilters (handler_filters.go).
 func (h *Handler) handleDescribeVpnGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpnGatewayId")
-	vgws := h.Backend.DescribeVpnGateways(ids)
+	vgws := applyVpnGatewayFilters(h.Backend.DescribeVpnGateways(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeVpnGatewaysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
@@ -108,9 +111,12 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 	}, nil
 }
 
+// handleDescribeCustomerGateways previously never read Filters at all
+// (awsEc2query_serializeOpDocumentDescribeCustomerGatewaysInput declares
+// it) -- see applyCustomerGatewayFilters (handler_filters.go).
 func (h *Handler) handleDescribeCustomerGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "CustomerGatewayId")
-	cgws := h.Backend.DescribeCustomerGateways(ids)
+	cgws := applyCustomerGatewayFilters(h.Backend.DescribeCustomerGateways(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeCustomerGatewaysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

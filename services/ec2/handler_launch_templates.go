@@ -3,6 +3,8 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
+	"strconv"
 	"time"
 )
 
@@ -26,14 +28,58 @@ func (h *Handler) handleDeleteLaunchTemplate(vals url.Values, reqID string) (any
 	}, nil
 }
 
+// handleDescribeLaunchTemplateVersions previously only ever read
+// LaunchTemplateId, ignoring the wire's LaunchTemplateName (an alternative
+// identifier), Versions (FlatKey "LaunchTemplateVersion" -- specific version
+// numbers), and MinVersion/MaxVersion (a version range) --
+// awsEc2query_serializeOpDocumentDescribeLaunchTemplateVersionsInput. This
+// backend only ever stores one version snapshot per template, so Versions/
+// MinVersion/MaxVersion are applied against that single item rather than a
+// real multi-version history (which this mock does not model).
 func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
-	versions, err := h.Backend.DescribeLaunchTemplateVersions(vals.Get("LaunchTemplateId"))
+	id := vals.Get("LaunchTemplateId")
+	if id == "" {
+		if name := vals.Get("LaunchTemplateName"); name != "" {
+			if matches := h.Backend.DescribeLaunchTemplates([]string{name}); len(matches) > 0 {
+				id = matches[0].ID
+			}
+		}
+	}
+
+	versions, err := h.Backend.DescribeLaunchTemplateVersions(id)
 	if err != nil {
 		return nil, err
 	}
 
+	requestedVersions := parseMemberList(vals, "LaunchTemplateVersion")
+
+	var minVersion, maxVersion int64
+
+	hasMin := vals.Get("MinVersion") != ""
+	if hasMin {
+		minVersion, _ = strconv.ParseInt(vals.Get("MinVersion"), 10, 64)
+	}
+
+	hasMax := vals.Get("MaxVersion") != ""
+	if hasMax {
+		maxVersion, _ = strconv.ParseInt(vals.Get("MaxVersion"), 10, 64)
+	}
+
 	items := make([]launchTemplateVersionItem, 0, len(versions))
 	for _, lt := range versions {
+		if len(requestedVersions) > 0 &&
+			!slices.Contains(requestedVersions, strconv.FormatInt(lt.LatestVersionNumber, 10)) {
+			continue
+		}
+
+		if hasMin && lt.LatestVersionNumber < minVersion {
+			continue
+		}
+
+		if hasMax && lt.LatestVersionNumber > maxVersion {
+			continue
+		}
+
 		item := launchTemplateVersionItem{
 			LaunchTemplateID:   lt.ID,
 			LaunchTemplateName: lt.Name,
@@ -93,10 +139,33 @@ func launchTemplatesSupportedOperations() []string {
 	}
 }
 
-// handleDescribeLaunchTemplates returns launch templates.
+// handleDescribeLaunchTemplates previously only read LaunchTemplateName.N,
+// silently ignoring LaunchTemplateId.N entirely
+// (awsEc2query_serializeOpDocumentDescribeLaunchTemplatesInput both declare
+// FlatKey("LaunchTemplateId")/FlatKey("LaunchTemplateName")) -- a client
+// filtering by specific template IDs got every template back unfiltered.
 func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "LaunchTemplateId")
 	names := parseMemberList(vals, "LaunchTemplateName")
-	templates := h.Backend.DescribeLaunchTemplates(names)
+
+	var templates []*LaunchTemplate
+
+	switch {
+	case len(ids) > 0:
+		idSet := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			idSet[id] = true
+		}
+
+		for _, t := range h.Backend.DescribeLaunchTemplates(nil) {
+			if idSet[t.ID] {
+				templates = append(templates, t)
+			}
+		}
+	default:
+		templates = h.Backend.DescribeLaunchTemplates(names)
+	}
+
 	items := make([]launchTemplateItem, 0, len(templates))
 	for _, template := range templates {
 		items = append(items, launchTemplateItem{

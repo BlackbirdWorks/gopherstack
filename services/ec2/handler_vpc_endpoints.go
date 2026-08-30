@@ -418,8 +418,31 @@ func gatewayEndpointServiceType(name string) string {
 	return vpcEndpointTypeInterface
 }
 
-func (h *Handler) handleDescribeVpcEndpointServices(_ url.Values, reqID string) (any, error) {
+// handleDescribeVpcEndpointServices previously ignored ServiceName.N
+// entirely (awsEc2query_serializeOpDocumentDescribeVpcEndpointServicesInput
+// declares it as a FlatKey list), so requesting specific service names
+// always returned the full catalogue. ServiceRegion.N and Filters are not
+// applied: this backend synthesizes one static service catalogue for
+// h.Region with no per-service attribute data (owner, tags, etc.) to filter
+// against, so those remain a documented gap rather than a misread key.
+func (h *Handler) handleDescribeVpcEndpointServices(vals url.Values, reqID string) (any, error) {
 	names := h.Backend.DescribeVpcEndpointServices()
+
+	if requested := parseMemberList(vals, "ServiceName"); len(requested) > 0 {
+		wanted := make(map[string]bool, len(requested))
+		for _, n := range requested {
+			wanted[n] = true
+		}
+
+		filtered := names[:0:0]
+		for _, n := range names {
+			if wanted[n] {
+				filtered = append(filtered, n)
+			}
+		}
+		names = filtered
+	}
+
 	azs := h.Backend.DescribeAvailabilityZones(h.Region)
 	resp := &describeVpcEndpointServicesResponse{RequestID: reqID}
 

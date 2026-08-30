@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -68,10 +69,26 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeImageUsageReports(_ url.Values, reqID string) (any, error) {
+// handleDescribeImageUsageReports previously ignored ReportId.N and
+// ImageId.N entirely
+// (awsEc2query_serializeOpDocumentDescribeImageUsageReportsInput declares
+// both as FlatKey lists), so filtering by either always returned every
+// report.
+func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string) (any, error) {
+	reportIDs := parseMemberList(vals, "ReportId")
+	imageIDs := parseMemberList(vals, "ImageId")
+
 	reports := h.Backend.DescribeImageUsageReports()
 	items := make([]imageUsageReportItem, 0, len(reports))
 	for _, report := range reports {
+		if len(reportIDs) > 0 && !slices.Contains(reportIDs, report.ReportID) {
+			continue
+		}
+
+		if len(imageIDs) > 0 && !slices.Contains(imageIDs, report.ImageID) {
+			continue
+		}
+
 		item := imageUsageReportItem{
 			ImageID:  report.ImageID,
 			ReportID: report.ReportID,

@@ -348,24 +348,33 @@ func (h *Handler) handleDisassociateIamInstanceProfile(vals url.Values, reqID st
 	}, nil
 }
 
+// handleDescribeIamInstanceProfileAssociations: the real filters are
+// "instance-id" and "state" (api_op_DescribeIamInstanceProfileAssociations.go
+// DescribeIamInstanceProfileAssociationsInput.Filters doc comment). The
+// previous version unconditionally read Filter.1.Value.1 as the instance ID
+// before checking Filter.1.Name, so a lone "state" filter (Filter.1) was
+// misread as an instance-id filter and silently dropped every association.
 func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
 	assocIDs := parseMemberList(vals, "AssociationId")
-	instanceID := vals.Get("Filter.1.Value.1") // basic filter support
 
-	// Try direct instance ID filter.
+	var instanceID, state string
+
 	for i := 1; ; i++ {
-		key := "Filter." + strconv.Itoa(i) + ".Name"
-		name := vals.Get(key)
-
+		name := vals.Get("Filter." + strconv.Itoa(i) + ".Name")
 		if name == "" {
 			break
 		}
 
-		if name == filterKeyInstanceID {
-			instanceID = vals.Get("Filter." + strconv.Itoa(i) + ".Value.1")
+		value := vals.Get("Filter." + strconv.Itoa(i) + ".Value.1")
+
+		switch name {
+		case filterKeyInstanceID:
+			instanceID = value
+		case filterKeyState:
+			state = value
 		}
 	}
 
@@ -374,6 +383,10 @@ func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 	resp := &describeIamInstanceProfileAssociationsResponse{RequestID: reqID}
 
 	for _, a := range assocs {
+		if state != "" && a.State != state {
+			continue
+		}
+
 		resp.Associations.Items = append(resp.Associations.Items, iamAssocToItem(a))
 	}
 

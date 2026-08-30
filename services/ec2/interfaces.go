@@ -1258,7 +1258,7 @@ type Backend interface {
 	DescribeIdentityIDFormat(_ string, resources []string) []IDFormatItem
 	ModifyIdentityIDFormat(_ string, resource string, useLongIDs bool) error
 	DescribeAggregateIDFormat() []IDFormatItem
-	DescribePrincipalIDFormat(_ string) []IDFormatItem
+	DescribePrincipalIDFormat(resources []string) []IDFormatItem
 	DescribeInstanceEventNotificationAttributes() *InstanceEventNotificationAttributes
 	DeregisterInstanceEventNotificationAttributes()
 
