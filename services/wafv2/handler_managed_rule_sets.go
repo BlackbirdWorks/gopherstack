@@ -87,9 +87,10 @@ func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([
 
 	sets := h.Backend.ListManagedRuleSets(ctx, req.Scope)
 
-	items, nextMarker := paginateByName(
+	items, nextMarker := paginateByNameID(
 		sets,
 		func(ms *ManagedRuleSet) string { return ms.Name },
+		func(ms *ManagedRuleSet) string { return ms.ID },
 		req.NextMarker,
 		req.Limit,
 	)

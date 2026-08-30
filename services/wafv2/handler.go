@@ -360,6 +360,57 @@ func paginateByName[T any](items []T, getName func(T) string, nextMarker string,
 	return page, newMarker
 }
 
+// paginateByNameID is paginateByName's counterpart for a collection whose
+// Name is not guaranteed unique (ManagedRuleSet: PutManagedRuleSetVersions
+// keys strictly on the caller-supplied Id, unlike CreateWebACL/CreateIPSet/
+// CreateRegexPatternSet/CreateRuleGroup's name-uniqueness check, so two
+// ManagedRuleSets can share a Name). paginateByName's marker only encodes
+// the last name seen and resumes by skipping every item whose name is <=
+// that marker -- fine when Name is a total order, but when several items
+// tie on Name it drops every item in the tie group after the first page
+// boundary lands inside it, deterministically (not just map-order
+// dependently), every time. The marker here also encodes the last id seen
+// so a same-name tie resumes at the exact record already returned. items
+// must already be sorted by (name, id): callers get that by falling
+// through to id as the final comparison whenever name compares equal.
+func paginateByNameID[T any](
+	items []T, getName, getID func(T) string, nextMarker string, limit int,
+) ([]T, string) {
+	startAfterName, startAfterID := "", ""
+
+	if nextMarker != "" {
+		decoded, err := base64.StdEncoding.DecodeString(nextMarker)
+		if err == nil {
+			startAfterName, startAfterID, _ = strings.Cut(string(decoded), "\x00")
+		}
+	}
+
+	start := 0
+
+	if startAfterName != "" || startAfterID != "" {
+		for start < len(items) {
+			name, id := getName(items[start]), getID(items[start])
+			if name > startAfterName || (name == startAfterName && id > startAfterID) {
+				break
+			}
+
+			start++
+		}
+	}
+
+	items = items[start:]
+
+	if limit <= 0 || limit > len(items) {
+		return items, ""
+	}
+
+	page := items[:limit]
+	last := page[len(page)-1]
+	newMarker := base64.StdEncoding.EncodeToString([]byte(getName(last) + "\x00" + getID(last)))
+
+	return page, newMarker
+}
+
 // listResourceSummaries implements the shared scope-filter + paginate + summarize logic
 // behind handleListWebACLs, handleListIPSets, handleListRegexPatternSets, and
 // handleListRuleGroups: those four handlers are otherwise structurally identical aside

@@ -2,7 +2,21 @@
 service: workmail
 sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
 last_audit_commit: dc877102
-last_audit_date: 2026-07-23
+# 2026-08-30: pagination-tie sweep (separate from the cursor-population sweep below -- this one
+# asks whether a name-sorted List op can lose or duplicate a record at a page boundary when two
+# records tie on the sort key). Of the 16 backend List* methods, 14 source from a store.Index
+# (*ByOrg.Get/byOrgEntity.Get), whose order does not vary between calls (pkgs/store/index.go),
+# so a tie-prone sort (e.g. ListGroups/ListUsers/ListResources by Name, where the table's own key
+# is GroupID/UserID/ResourceID, not Name) still cannot reorder or drop a record between two
+# separate List calls. ListGroupMembers and ListResourceDelegates walk a raw
+# map[orgID]map[parentID]map[childID]bool set and sort by that same childID (MemberID/
+# DelegateID) -- since a Go map cannot hold two entries under one key, that sort can never tie
+# regardless of iteration order. ListOrganizations is the one real map-walk
+# (store.Table.All()) sorted by a field (Alias) other than the table's own key (OrgID): confirmed
+# safe because CreateOrganization explicitly rejects a duplicate Alias
+# (`b.orgsByAlias[alias]` check, organizations.go) before insert, so Alias is unique by
+# construction. No fixes needed; 0 code changes. Existing tests construct only distinct
+# names/aliases, so none could have exercised a tie even where one is possible in principle.
 # 2026-08-30: cursor-population sweep (does every List response struct that DECLARES a NextToken
 # actually SET one before the collection can exceed a page?). Enumerated all 15 SDK ops whose
 # Input/Output declare NextToken (ListAliases, ListAvailabilityConfigurations, ListGroupMembers,

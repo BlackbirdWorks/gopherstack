@@ -2,6 +2,23 @@ service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
+                       # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
+                       # pagination_sweep entry below still holds: every List* backend method
+                       # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
+                       # ListMultiRegionAccessPoints/ListAccessPointsForObjectLambda/
+                       # ListRegionalBuckets/ListAccessGrants/ListAccessGrantsLocations/
+                       # ListStorageLensGroups/ListStorageLensConfigurations) filters
+                       # store.Table.All() (or a raw map, for the last one) down to one AccountID
+                       # first, then sorts by the exact field that -- together with that fixed
+                       # AccountID -- forms the table's own composite key (accessPointKeyFn etc.,
+                       # store_setup.go), so no tie survives the AccountID filter regardless of
+                       # store.Table.All()'s documented unspecified order. The handler layer
+                       # pages uniformly via s3cPaginate (handler.go), an integer-offset cursor --
+                       # this service does NOT use a marker/equality cursor anywhere in its List
+                       # family (contrary to a prior assumption that it might), so there is no
+                       # deterministic-drop risk to separately check. No fixes needed this pass;
+                       # 0 code changes. TestListAccessPoints_Pagination/similar existing tests
+                       # use distinct names throughout.
 overall: A            # 2026-08-07 (gopherstack-tir4 follow-up): independently re-verified this
                        # file's two "closed" claims by reading code directly rather than trusting
                        # the prior pass's narrative -- DeleteAccessGrantsInstance's precondition

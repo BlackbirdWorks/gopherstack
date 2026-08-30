@@ -3,6 +3,23 @@ service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.4
 last_audit_commit: 22d69640
 last_audit_date: 2026-08-29
+                       # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose or
+                       # duplicate a record at a page boundary when two records tie on the sort
+                       # key?). All 13 backend List* methods (endpoints, rules, firewall rule
+                       # groups + their associations, firewall domain lists, firewall rules,
+                       # outpost resolvers, query log configs + their associations, rule
+                       # associations, firewall/resolver/dnssec configs) source from a
+                       # `*ByRegion.Get(region)` store.Index, never store.Table.All()/Range() --
+                       # Index.Get's order does not vary between calls (pkgs/store/index.go),
+                       # unlike a raw map walk, so a sort by Name/Priority/ResourceID/ID that
+                       # ties can still never reorder or drop a record between two separate List
+                       # calls. Handler-layer re-sorts (e.g. handleListResolverEndpoints,
+                       # handleListFirewallRules) operate on that same deterministic input, so
+                       # they inherit the same guarantee. Tags (tags.go) dedup by Key on write,
+                       # so a Key-sorted tag list can never tie either. No fixes needed; 0 code
+                       # changes. Existing pagination tests (e.g.
+                       # TestListResolverRules_Pagination) use distinct names throughout, so they
+                       # could not have exercised a tie even if one were possible.
                        # gopherstack-6flj follow-up sweep (2026-08-29): write-only-state hand
                        # search across all families. 2 real bugs found and fixed:
                        # TargetAddress.ServerNameIndication (nested inside ResolverRule.TargetIps,

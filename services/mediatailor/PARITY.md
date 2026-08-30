@@ -8,6 +8,24 @@ service: mediatailor
 sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
 last_audit_commit: a874b0df                              # HEAD when this manifest was written
 last_audit_date: 2026-08-29
+                       # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose a
+                       # record at a page boundary when two records tie on the sort key?). All 8
+                       # paginated listings (ListChannels/ListSourceLocations/
+                       # ListPlaybackConfigurations/ListFunctions each store.Table.All()'d and
+                       # sorted by Name/FunctionID; ListLiveSources/ListVodSources/
+                       # ListPrefetchSchedules/GetChannelSchedule each *ByLocation/*ByChannel/
+                       # *ByConfig index-scoped and sorted by LiveSourceName/VodSourceName/Name/
+                       # ScheduledStartTime) are safe: the four store.Table.All() cases sort by
+                       # exactly the field store_setup.go's *KeyFn uses as that table's own key
+                       # (channelKeyFn/sourceLocationKeyFn/playbackConfigKeyFn/functionKeyFn all
+                       # return that same field), so no duplicate can exist to tie on; the four
+                       # index-scoped cases come from a composite key ("parent/child") where the
+                       # index call already fixes the parent component, so the child-name sort
+                       # field is the composite key's only remaining, therefore unique, component
+                       # -- and separately, store.Index.Get's order doesn't vary between calls
+                       # regardless (pkgs/store/index.go), so even a hypothetical tie couldn't
+                       # cause a cross-call drop. No fixes needed; 0 code changes. Existing
+                       # pagination tests use distinct names throughout.
 overall: A            # all 4 prior gaps + 3 prior deferred items closed for real this pass; 3 new completeness bugs found+fixed
 # 2026-08-29 (gopherstack wrapper-key/constraint-parameter sweep): GetChannelSchedule's
 # Audience filter was never read at all, and ScheduleEntry.Audiences (left disclosed by
