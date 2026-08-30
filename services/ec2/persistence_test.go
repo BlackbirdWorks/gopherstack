@@ -243,7 +243,7 @@ func TestPersistenceExtended(t *testing.T) {
 		{
 			name: "ec2_fleet_persists",
 			setup: func(b *ec2.InMemoryBackend) {
-				_, err := b.CreateFleet("instant", 1)
+				_, _, err := b.CreateFleet(ec2.FleetCreateInput{Type: "instant", TotalTargetCapacity: 1})
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *ec2.InMemoryBackend) {

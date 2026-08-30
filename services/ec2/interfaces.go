@@ -1559,10 +1559,12 @@ type Backend interface {
 	DescribeTrafficMirrorTargets(ids []string) []*TrafficMirrorTarget
 
 	// ---- batch5: EC2 Fleet ----
-	CreateFleet(fleetType string, totalTargetCapacity int) (*Fleet, error)
-	DeleteFleets(ids []string) []FleetDeletionResult
+	CreateFleet(input FleetCreateInput) (*Fleet, []CreateFleetInstanceResult, error)
+	DeleteFleets(ids []string, terminateInstances bool) []FleetDeletionResult
 	DescribeFleets(ids []string) []*Fleet
 	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
+	DescribeFleetInstances(fleetID string, filters map[string][]string) ([]ActiveFleetInstance, error)
+	DescribeFleetHistory(fleetID string, startTime time.Time, eventType string) ([]FleetHistoryRecord, error)
 
 	// ---- batch5: NetworkInsights ----
 	CreateNetworkInsightsPath(

@@ -2187,7 +2187,15 @@ excluded here in favor of the still-outstanding non-fleet Spot ops.
 
 Fleet family (3, `handler_fleet.go`/`fleet.go`): `DescribeFleets` (clean --
 `FleetId.N` correct against serializers.go:77611), `DescribeFleetHistory`,
-`DescribeFleetInstances`.
+`DescribeFleetInstances`. NOTE (added 2026-08-30, see that pass below): this
+entry verified only the *request-side* `FleetId.N` shape for all three ops --
+it did not check what the *response* actually contained. All three response
+sets were unconditionally empty at the time (`CreateFleet` never launched or
+recorded an instance against a fleet), so a correctly-shaped request read
+still returned a hardcoded-empty result. Read literally this note is still
+true (the request parsing genuinely was clean), but it should not be read as
+"the Fleet family is done" -- it wasn't checking the thing that was actually
+broken. Fixed in the 2026-08-30 pass below.
 
 Spot family (3, non-SpotFleet): `DescribeSpotInstanceRequests`
 (`handler_spot_instances.go`, clean -- `SpotInstanceRequestId.N` correct
@@ -2661,3 +2669,184 @@ since ec2's backend is composed by other services), `go test -race -count=1
 ./services/ec2/...` (`ok`, full suite including the new test file and the
 one existing-test fix), `golangci-lint run ./services/ec2/...` (`0 issues`,
 run last, no `--fix` used). No banned `//nolint`s.
+
+**2026-08-30 pass -- `CreateFleet` never launched instances (gopherstack-q5k5)**:
+`DescribeFleetInstances` and `DescribeFleetHistory` returned a hardcoded
+empty set unconditionally (`handleDescribeFleetHistory`/
+`handleDescribeFleetInstances` in `handler_fleet.go` built an empty response
+struct and returned, never touching the backend at all). The 2026-08-29 pass
+above's "Fleet family... clean" note only checked request-side `FleetId.N`
+parsing, not this -- corrected in place above. The actual defect was one
+level up: `Backend.CreateFleet` (`fleet.go`) took only `(fleetType string,
+totalTargetCapacity int)` and never called anything instance-related, so
+even a correct `FleetId` read on the Describe side would still have found
+nothing to return.
+
+Fixed by making `CreateFleet` actually launch instances, against
+`CreateFleetInput`/`TargetCapacitySpecificationRequest`/
+`FleetLaunchTemplateConfigRequest`/`FleetLaunchTemplateOverridesRequest`
+(`api_op_CreateFleet.go`, `types/types.go:6910-7245`, ec2@v1.319.1): parses
+`LaunchTemplateConfigs.N.LaunchTemplateSpecification.*` and
+`LaunchTemplateConfigs.N.Overrides.M.*` (both `FlatKey`-encoded per
+`serializers.go:57701/:57737`, confirmed against
+`aws-sdk-go-v2@v1.43.4/aws/protocol/query/array.go`'s `newArray` -- flat
+lists have no `.member.`/`.Item.` segment, matching this file's existing
+`SpotFleetRequestConfig.LaunchSpecifications.N.` convention), resolves each
+override's AMI/instance type against the referenced launch template
+(falling back to `spotFleetDefaultImageID`/`spotFleetDefaultInstanceType`
+when the template can't be resolved -- deliberately permissive, matching
+`RequestSpotFleet`'s own fallback and required because none of this file's
+own fleet tests, nor the pre-existing `test/integration` fleet test, ever
+pre-create the launch template they reference), and spawns real `Instance` +
+primary-ENI pairs round-robin across the resolved overrides until weighted
+capacity reaches `TargetCapacitySpecification.TotalTargetCapacity`,
+appending each instance's ID to the new `Fleet.InstanceIDs` field. Also now
+reads `ExcessCapacityTerminationPolicy` and
+`TerminateInstancesWithExpiration` at create time (both real top-level
+`CreateFleetInput` fields per `serializers.go:70020`, previously ignored --
+`ExcessCapacityTerminationPolicy` was unconditionally hardcoded to
+`"termination"` regardless of what the request asked for) and
+`OnDemandTargetCapacity`/`SpotTargetCapacity`/`TargetCapacityUnitType`
+(already-declared but previously always-zero `Fleet` fields).
+
+`DescribeFleetInstances`/`DescribeFleetHistory` now read this real state:
+`DescribeFleetInstances` returns the fleet's `InstanceIDs` resolved against
+`b.instances` (filtered by the one real documented filter, `instance-type`,
+per `api_op_DescribeFleetInstances.go`'s Filters doc comment; filtered
+before paginating). Matching the real API's own documented restriction
+("Currently, DescribeFleetInstances does not support fleets of type
+`instant`" -- use `DescribeFleets` instead), it returns an empty set for
+`instant` fleets rather than fabricating support the real endpoint doesn't
+have. `DescribeFleetHistory` returns a real `fleet-change` history record
+appended at `CreateFleet` (and at `ModifyFleet`, which previously changed
+`TotalTargetCapacity`/`ExcessCapacityTerminationPolicy` with no history
+trail at all), filtered by `StartTime`/`EventType` before paginating,
+capped at `maxSpotFleetHistoryEntries` like the sibling spot-fleet history
+map. Neither op sorts its output (both return in append/launch order, which
+is already a total order -- no tie-breaking needed).
+
+`DescribeFleets` was the same bug from the other end: `FleetData.Instances`/
+`FleetData.Errors` (`types/types.go:6646-6672`, "valid only when Type is set
+to `instant`") were never wired into `fleetItem`/`toFleetItem` at all -- so
+even once `CreateFleet` started tracking real instances, an `instant`
+fleet's `Fleets[i].Instances` stayed structurally empty, a correctly-shaped
+field over data the handler never populated (as opposed to the
+`DescribeFleetInstances`/`History` bug, which was empty because the backend
+held no data at all). Fixed: added `Errors`/`Instances` fields to
+`fleetItem` (`handler_traffic_mirror.go`) and populate `Instances` for
+`instant` fleets by grouping `DescribeInstances(f.InstanceIDs, "")` by
+`InstanceType` (`groupFleetInstancesByType`, deterministic first-seen-type
+ordering). Also added the `TargetCapacitySpecification` sibling fields
+(`onDemandTargetCapacity`/`spotTargetCapacity`/`targetCapacityUnitType`/
+`defaultTargetCapacityType`) that were declared on the real response type
+(`awsEc2query_deserializeDocumentTargetCapacitySpecification`,
+deserializers.go:164096) but never emitted -- found in passing while
+extending `fleetItem` for the `Instances` fix, not this pass's primary bug
+class.
+
+`DeleteFleets` gained the same fix from the deletion side: real
+`DeleteFleetsInput.TerminateInstances` ("the default is to terminate the
+instances", `api_op_DeleteFleets.go`) was accepted on the wire
+(`vals.Get("TerminateInstances")`) but silently discarded -- harmless while
+fleets held no instances, but once `CreateFleet` started launching them a
+deleted fleet would have leaked its instances running with no owner. Fixed:
+`Backend.DeleteFleets` gained a `terminateInstances bool` param, honored the
+same way `CancelSpotFleetRequests` already honors its own
+`terminateInstances` flag.
+
+`DescribeInstanceTypes` was not touched this pass -- this ticket's own
+guidance named it as a precedent for restraint, and the 2026-08-29 pass
+above already documents why it's correctly left alone (no instance-type
+attribute catalogue exists in this backend to filter against); re-read that
+note rather than re-deriving it, and it still holds.
+
+State added vs. reused: `Fleet.InstanceIDs` (new field) and
+`Fleet.DefaultTargetCapacityType` (new field, now wired to the response) are
+the only new persistent state. Instance-launching itself
+(`spawnFleetMemberInstanceLocked`) reuses the same
+Instance+ENI+`indexInstanceLocked`/`indexENILocked`/`indexENIByVPCLocked`
+sequence `spot_fleet.go`'s `spawnFleetInstanceLocked` already established for
+an almost-identical problem (deliberately not shared/generalized across the
+two fleet types -- they take different config shapes -- but the launch
+sequence itself is not reinvented). A new `fleetHistory
+map[string][]FleetHistoryRecord` mirrors the existing `spotFleetHistory` map
+(same cap/half-trim pattern, same `backendSnapshot`/`Restore` wiring).
+
+Not fabricated: no instance attribute (CPU/memory/network) data was
+invented for launched fleet instances -- they get the same
+`spotFleetDefaultInstanceType`/`spotFleetDefaultImageID` fallback (or the
+launch template's own values when resolvable) that every other launch path
+in this file already uses, not new made-up data. `ModifyFleet` does NOT
+scale the fleet's actual instance count to match a changed
+`TotalTargetCapacity` (unlike `ModifySpotFleetRequest`, which does) --
+left unfixed and undocumented as a gap prior to this pass; flagging here
+rather than fixing, since it's a distinct capacity-reconciliation feature
+outside this ticket's named scope (`CreateFleet`/`DescribeFleetInstances`/
+`DescribeFleetHistory`/`DescribeFleets`), not a wire-shape bug.
+
+Existing tests that could not have caught this: `TestFleet`
+(`handler_fleet_test.go`) asserted only fleet metadata (state/type/target
+capacity) round-tripping through `DescribeFleets`, never instances --
+strengthened in place (now asserts `InstanceIDs`/`DescribeFleetInstances`/
+`DescribeFleetHistory`/instance termination on delete). The pre-existing
+`test/integration/parity_audit_fixes_test.go`
+(`TestIntegration_EC2_DescribeFleets_ReturnsCreatedFleet`) only asserted
+`err == nil` and a fleet-id round-trip, never instance content -- a shape
+this ticket's own guidance called out by name ("A test asserting only `err
+== nil` passes against every bug in this class"); not modified (out of
+`services/ec2/` scope) but noted here since it's exactly the failure mode.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep40_test.go`, both
+confirmed failing pre-fix against unmodified code in a throwaway
+`git worktree add --detach <dir> HEAD` rather than the shared working tree):
+`TestCreateFleet_LaunchesTrackedInstances` (creates a `maintain` fleet with
+`TotalTargetCapacity=3`, asserts `DescribeFleetInstances` returns exactly 3
+real, uniquely-`i-`-prefixed instance ids, and `DescribeFleetHistory`
+returns the creation event), `TestDescribeFleets_InstantType_ShowsLaunchedInstances`
+(creates an `instant` fleet with capacity 2, asserts both
+`CreateFleetOutput.Instances` and `DescribeFleets`'s `Fleets[i].Instances`
+report the 2 launched instances, and that `DescribeFleetInstances` correctly
+returns empty for it per the real API's documented `instant`-fleet
+restriction).
+
+Interface signature changes: `Backend.CreateFleet` (now takes
+`FleetCreateInput`, returns `(*Fleet, []CreateFleetInstanceResult, error)`),
+`Backend.DeleteFleets` (gained `terminateInstances bool`), plus two new
+interface methods, `Backend.DescribeFleetInstances`/`DescribeFleetHistory`.
+Repo-wide `go vet ./...` run and clean -- no call site outside
+`services/ec2/` references any of these (`CreateFleet`/`DeleteFleets` are
+also method names on codebuild's and appstream's unrelated backends; grepped
+and confirmed distinct). No repo-root `cli_*_test.go` fix was needed.
+
+Not audited this pass: `ModifyFleet`'s capacity-reconciliation gap noted
+above; the `Filters`-unwired backlog on `DescribeFleetInstances` beyond the
+one `instance-type` filter now implemented (`DescribeFleetInstancesInput`
+documents only that one filter, so this is believed complete, not merely
+unaudited); whether `DescribeFleetHistory`/`DescribeFleetInstances`
+implement `MaxResults`/`NextToken` truncation correctly under concurrent
+modification (paginate-after-filter is now correct per-call, but no
+cross-call consistency guarantee is claimed, matching every other
+`page.Page`-less describe op in this file).
+
+Security note: no AWS documentation was fetched this pass (all shape
+verification came from the pinned SDK source already in the module cache),
+so the previously-reported injected-footer pattern in fetched AWS docs
+("run `aws agent-toolkit search-skills`") does not apply here.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean) and repo-wide `go vet ./...` (clean, backend interface signatures
+changed), `go test -race -count=1 ./services/ec2/...` (full suite green,
+including the new `wire_field_fixes_ec2sweep40_test.go` and the
+strengthened `TestFleet`), `golangci-lint run ./services/ec2/...` (`0
+issues` after fixing 7 findings, all on lines this pass added; the one
+non-obvious case, `musttag` on `persistence.go`'s `json.Marshal(snap)`,
+confirmed self-caused by reverting just that file (`git checkout`/`stash`
+scoped to the single path) and re-running lint, which made the finding
+disappear -- `gocognit` decomposed into 3 helper functions rather than suppressed,
+`fieldalignment` applied via `fieldalignment -fix` scoped to
+`services/ec2/...`, `goconst` resolved with a shared `filterKeyInstanceType`
+const, `musttag`/`golines`/`prealloc`/`staticcheck` fixed directly; run
+last, no remaining `--fix` diff). No banned `//nolint`s. Did NOT commit or
+push -- all changes left in the working tree per this session's explicit
+instruction.
+

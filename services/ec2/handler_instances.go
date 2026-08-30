@@ -769,7 +769,7 @@ func applyInstanceTypeOfferingFilters(
 
 	out := make([]InstanceTypeOffering, 0, len(offerings))
 	for _, o := range offerings {
-		if vals, ok := filters["instance-type"]; ok && !anyEqual(o.InstanceType, vals) {
+		if vals, ok := filters[filterKeyInstanceType]; ok && !anyEqual(o.InstanceType, vals) {
 			continue
 		}
 		if vals, ok := filters["location"]; ok && !anyEqual(o.Location, vals) {

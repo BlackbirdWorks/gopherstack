@@ -29,6 +29,7 @@ const (
 	filterKeyDhcpConfigKey    = "key"
 	filterKeyDhcpConfigValue  = "value"
 	filterKeyResourceID       = "resource-id"
+	filterKeyInstanceType     = "instance-type"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -807,7 +808,7 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, b
 		return anyEqual(inst.VPCID, values)
 	case filterKeySubnetID:
 		return anyEqual(inst.SubnetID, values)
-	case "instance-type":
+	case filterKeyInstanceType:
 		return anyEqual(inst.InstanceType, values)
 	case "key-name":
 		return anyEqual(inst.KeyName, values)
@@ -1406,4 +1407,30 @@ func instanceStatusMatchesFilter(
 	}
 
 	return true
+}
+
+// applyActiveFleetInstanceFilters filters DescribeFleetInstances' results.
+// Supports "instance-type", the only filter DescribeFleetInstancesInput
+// documents (ec2@v1.319.1 api_op_DescribeFleetInstances.go).
+func applyActiveFleetInstanceFilters(
+	instances []ActiveFleetInstance, filters map[string][]string,
+) []ActiveFleetInstance {
+	if len(filters) == 0 {
+		return instances
+	}
+
+	out := instances[:0:0]
+
+instanceLoop:
+	for _, inst := range instances {
+		for name, values := range filters {
+			if name == filterKeyInstanceType && !anyEqual(inst.InstanceType, values) {
+				continue instanceLoop
+			}
+		}
+
+		out = append(out, inst)
+	}
+
+	return out
 }

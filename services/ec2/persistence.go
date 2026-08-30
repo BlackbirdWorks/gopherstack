@@ -31,6 +31,7 @@ type backendSnapshot struct {
 	IpamPrefixListResolverVersions map[string][]int64                          `json:"ipamPLRVersions,omitempty"`
 	VpcCidrAssociations            map[string]*VpcCidrBlockAssociation         `json:"vpcCidrAssociations"`
 	SpotFleetHistory               map[string][]SpotFleetHistoryRecord         `json:"spotFleetHistory"`
+	FleetHistory                   map[string][]FleetHistoryRecord             `json:"fleetHistory,omitempty"`
 	SnapshotTiers                  map[string]string                           `json:"snapshotTiers,omitempty"`
 	VpcPeeringOptions              map[string]*PeeringConnectionOptions        `json:"vpcPeeringOptions"`
 	SubnetCIDRAssociations         map[string][]*SubnetCIDRAssociation         `json:"subnetCIDRAssociations"`
@@ -116,6 +117,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextElasticIPIndex:             b.nextElasticIPIndex,
 		VpcCidrAssociations:            b.vpcCidrAssociations,
 		SpotFleetHistory:               b.spotFleetHistory,
+		FleetHistory:                   b.fleetHistory,
 		SnapshotTiers:                  b.snapshotTiers,
 		SnapshotAttributes:             b.snapshotAttributes,
 		SgVpcAssociations:              b.sgVpcAssociations,
@@ -239,6 +241,7 @@ func restoreMapField[K comparable, V any](dst *map[K]V, src map[K]V) {
 func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.vpcCidrAssociations, snap.VpcCidrAssociations)
 	restoreMapField(&b.spotFleetHistory, snap.SpotFleetHistory)
+	restoreMapField(&b.fleetHistory, snap.FleetHistory)
 	restoreMapField(&b.snapshotTiers, snap.SnapshotTiers)
 	restoreMapField(&b.snapshotAttributes, snap.SnapshotAttributes)
 	restoreMapField(&b.sgVpcAssociations, snap.SgVpcAssociations)
