@@ -255,6 +255,7 @@ func paginateKnowledgeBases(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, k := range all {
 			if k.KnowledgeBaseID == nextToken {
 				start = i

@@ -125,6 +125,40 @@ families:
 leaks: {status: clean, note: "no goroutines/janitors spawned; email retention capped at maxRetainedEmails (10000, FIFO-compacted) so SendEmail/SendCustomVerificationEmail can't leak memory on a long-running instance. DeleteTenant now cascades its resource-association index cleanup (both tenantResources and resourceTenants maps) so deleting a tenant with associated resources doesn't leave ghost rows."}
 ---
 
+## This pass (2026-08-29): pagination-arithmetic sweep
+
+Distinct from the filter/pagination *parameter* sweep directly below (that
+pass measured whether a param was read/honoured at all; this one measured
+the arithmetic of the cursor itself, once honoured). Census: every List op
+in this service is `pkgs/page.New` (safe by construction -- the one
+`start >= len(all)` guard `pkgs/page` has that a hand-rolled equivalent
+would need to remember) except five (`ListDomainDeliverabilityCampaigns`,
+`ListMultiRegionEndpoints`, `ListTenants`, `ListResourceTenants`,
+`ListTenantResources`) that instead call one shared local helper,
+`paginateMaps` (store.go), which does its own equality-matched cursor scan
+over `[]map[string]any`.
+
+**Bug found (Class B — infinite loop):** `paginateMaps` searched linearly
+for the item whose `keyName` field equalled `nextToken` and left `start` at
+its zero value on a miss. A client whose cursor named a since-deleted
+tenant/endpoint/campaign got page one back forever, with the same NextToken
+echoed back, and never terminated. All 5 call sites already sort their
+input before calling `paginateMaps` (`sortMapsByStringKey`, or -- for
+`ListDomainDeliverabilityCampaigns` -- campaigns in `b.emails`'s stable
+append order), so this was the only bug in the shape; no "unsorted
+collection" issue here as quicksight had.
+
+Fixed by defaulting `start` to `len(all)` on a miss instead of 0 -- one
+change in `store.go` fixes all 5 operations at once, since they share the
+helper. New test `pagination_arithmetic_test.go`
+(`TestListTenantsPaginationStaleCursor`) drives `ListTenants` with a cursor
+naming a tenant that was never created (equivalent to "since deleted") and
+fails against the pre-fix code (returned tenant-00 again instead of an
+empty page); a boundary-walk and final-page/empty test are included too.
+Confirmed through the real typed client (`aws sesv2 create-tenant` x3,
+`list-tenants --page-size 2`, `delete-tenant` + re-list with the deleted
+tenant's stale token -> empty page with no NextToken, not page one again).
+
 ## This pass (2026-08-29): filter/pagination parameter sweep
 
 Measured every collection-returning op (verified from each op's Output shape

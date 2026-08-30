@@ -117,6 +117,7 @@ func (b *InMemoryBackend) ListDashboards(
 	defer b.mu.RUnlock()
 
 	all := b.dashboards.All()
+	sort.Slice(all, func(i, j int) bool { return all[i].DashboardID < all[j].DashboardID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -124,6 +125,7 @@ func (b *InMemoryBackend) ListDashboards(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, d := range all {
 			if d.DashboardID == nextToken {
 				start = i
@@ -174,6 +176,14 @@ func (b *InMemoryBackend) ListDashboardVersions(
 	}
 
 	total := int(d.VersionNumber)
+	// A token issued before this dashboard's version count decreased (not
+	// currently reachable, since versions are append-only, but the encoder
+	// makes no such promise) can name an offset past the current end --
+	// clamp instead of letting the loop below run backwards or panic.
+	if start > total {
+		start = total
+	}
+
 	end := start + int(maxResults)
 
 	var next string

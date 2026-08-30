@@ -80,6 +80,7 @@ func paginateUserIndexCapacity(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, u := range all {
 			if u.UserName == nextToken {
 				start = i

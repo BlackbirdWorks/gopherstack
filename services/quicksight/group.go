@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -151,12 +152,18 @@ func matchesGroupNameFilters(name string, filters []SearchFilter) bool {
 }
 
 func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*Group, string) {
+	// Callers pass storedGroup slices built by filtering store.Table.All(),
+	// whose iteration order is unspecified -- sort here so both call sites
+	// get a stable order without duplicating it at each one.
+	sort.Slice(all, func(i, j int) bool { return all[i].GroupName < all[j].GroupName })
+
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
 	}
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, g := range all {
 			if g.GroupName == nextToken {
 				start = i
@@ -258,6 +265,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 			members = append(members, member)
 		}
 	}
+	sort.Strings(members)
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -265,6 +273,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 
 	start := 0
 	if nextToken != "" {
+		start = len(members)
 		for i, m := range members {
 			if m == nextToken {
 				start = i

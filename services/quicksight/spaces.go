@@ -177,6 +177,7 @@ func paginateSpaces(all []*storedSpace, maxResults int32, nextToken string) ([]*
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, s := range all {
 			if s.SpaceID == nextToken {
 				start = i

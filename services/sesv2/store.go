@@ -136,6 +136,11 @@ func paginateMaps(
 
 	start := 0
 	if nextToken != "" {
+		// Default to the end of the collection when the cursor doesn't
+		// resolve (e.g. the item it named was deleted) -- defaulting to 0
+		// would silently restart pagination from page one forever.
+		start = len(all)
+
 		for i, item := range all {
 			if item[keyName] == nextToken {
 				start = i

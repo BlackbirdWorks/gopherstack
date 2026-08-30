@@ -120,6 +120,7 @@ func (b *InMemoryBackend) ListAnalyses(
 	defer b.mu.RUnlock()
 
 	all := b.analyses.All()
+	sort.Slice(all, func(i, j int) bool { return all[i].AnalysisID < all[j].AnalysisID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -127,6 +128,7 @@ func (b *InMemoryBackend) ListAnalyses(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, a := range all {
 			if a.AnalysisID == nextToken {
 				start = i

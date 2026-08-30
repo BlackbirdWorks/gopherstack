@@ -347,6 +347,83 @@ individually re-verified for pagination correctness this pass beyond
 the general pattern already documented elsewhere in this file. This is
 reported as scope-remaining, not "audited and clean."
 
+### 2026-08-29 (pagination-arithmetic sweep)
+
+Follow-up to the note directly above: this pass audited exactly the
+gap it left open -- the arithmetic inside every plain `List*` op's
+`MaxResults`/`NextToken` pagination (not filter semantics, not
+`Search*` binding). Census: ~40 `List*` backend methods, none call
+`pkgs/page` -- every one hand-rolls its own cursor window, either via
+one of 8 small shared `paginate<Type>` helpers (agents.go, group.go,
+flow.go, actionconnector.go, iampolicyassignments.go, spaces.go,
+knowledgebases.go, userindexcapacity.go) or inline in the `List*`
+method itself (the majority).
+
+**Two bug classes found, both systemic (not per-op mistakes):**
+
+- **Class A (panic).** 7 helpers encode the cursor as a raw integer
+  offset (`encodePageToken`/`decodePageToken`, store.go) with no upper
+  bound check: `paginateFolders`, `paginateNamespaces`,
+  `ListTemplates`, `ListDashboardVersions`, `ListVPCConnections`,
+  `ListThemes`, `ListBrands`. A token issued before items were deleted
+  can decode to an offset past the new, shorter collection, and
+  `all[start:end]` panics (`slice bounds out of range`) instead of
+  returning an empty page. `pkgs/page.New` already has the guard
+  (`start >= len(all)` returns `Page{}`) these five never adopted.
+  Fixed by clamping `start` to `len(all)` (or the version count, for
+  `ListDashboardVersions`) right after decoding, matching `pkgs/page`'s
+  behavior without changing the wire-compatible token format (both use
+  the same `base64(strconv.Itoa(offset))` encoding).
+- **Class B (infinite loop).** 28 call sites (8 shared helpers + 20
+  inline `List*`/`ListXVersions`/`ListXAliases`/`ListXMembers`
+  methods) search linearly for the item named by an equality-matched
+  cursor and leave `start` at its zero value on a miss -- a client
+  whose cursor names a since-deleted item gets page one forever, never
+  terminating. Fixed uniformly: default `start` to `len(collection)`
+  (end, not beginning) when the cursor doesn't resolve, matching the
+  safe pattern `ssoadmin.paginateOrdered` already uses in this repo.
+- **Adjacent (unsorted collection).** 9 operations
+  (`ListAnalyses`, `ListDataSources`, `ListDataSets`, `ListDashboards`,
+  `ListUsers`, `ListIngestions`, `ListGroups`, `ListUserGroups`,
+  `ListGroupMemberships`) paginated a slice built straight from
+  `store.Table.All()` (or a raw map range) with no `sort.Slice`/
+  `sort.Strings` call -- `Table.All()`'s doc comment is explicit that
+  iteration order is unspecified. Two back-to-back calls with no
+  mutation in between could already drop or duplicate items purely
+  from Go's randomized map iteration, independent of the cursor bugs
+  above. Their `Search*` siblings already sorted (compared side by
+  side, e.g. `ListDataSets` vs `SearchDataSets` in dataset.go); fixed
+  by adding the same sort to each.
+
+**Verified clean, no bug:** `ssoadmin`'s three pagination helpers
+(`paginateStrings`/`paginateBy` use threshold search — `keyFn(item) >=
+cursor` — which cannot express Class A/B/C by construction;
+`paginateOrdered` uses equality search but already defaults to
+`len(items)` on a miss). Not touched.
+
+New tests: `pagination_arithmetic_test.go` -- table-driven boundary
+walk (N=7 items, page size 3, concatenation reproduces the exact
+collection), stale-cursor (Class A and B), and final-page/empty/exact
+checks against `ListGroups` (shared-helper + unsorted shape),
+`ListAnalyses` (inline + unsorted shape), `ListFolders` and
+`ListTemplates` (index-cursor/Class A shape). All four failed against
+the pre-fix code (confirmed panics/duplicated items in this pass), and
+pass after the fix. The full existing suite
+(`go test -race ./services/quicksight/...`) also still passes.
+Confirmed through the real typed client (`aws quicksight create-group`
+x5, `list-groups --max-results 2` across 3 pages, `delete-group` +
+re-list with the deleted item's stale token -> empty page, not page
+one again).
+
+**Not touched, left recorded:** the ~20 `Search*` ops' own filter
+*semantics* (as scoped out by the note above -- this pass only
+verified the pagination arithmetic downstream of whatever the filter
+step already returned). The unused `filter/-` alignment in the
+`CustomPermissions`/`RoleMemberships`/`FolderMembers`/
+`FoldersForResource` families' non-page-size list bodies was not
+re-examined; only their pagination cursors were in scope and were
+fixed as part of Class B above.
+
 ### 2026-08-29 (error-path sweep: what a typed client sees on failure)
 
 Extracted all 277 `awsRestjson1_deserializeOpError<Op>` switches from quicksight@v1.123.1's

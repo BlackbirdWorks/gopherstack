@@ -198,6 +198,7 @@ func paginateActionConnectors(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, a := range all {
 			if a.ActionConnectorID == nextToken {
 				start = i

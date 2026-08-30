@@ -329,6 +329,11 @@ func paginateFolders(all []*storedFolder, maxResults int32, nextToken string) ([
 			start = off
 		}
 	}
+	// A token issued before items were deleted can name an offset past the
+	// current end -- clamp instead of letting all[start:end] panic.
+	if start > len(all) {
+		start = len(all)
+	}
 
 	end := start + int(maxResults)
 	var next string
@@ -480,6 +485,7 @@ func (b *InMemoryBackend) ListFolderMembers(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, m := range all {
 			if m.MemberType+"/"+m.MemberID == nextToken {
 				start = i
@@ -636,6 +642,7 @@ func (b *InMemoryBackend) ListFoldersForResource(
 
 	start := 0
 	if nextToken != "" {
+		start = len(folderIDs)
 		for i, id := range folderIDs {
 			if id == nextToken {
 				start = i

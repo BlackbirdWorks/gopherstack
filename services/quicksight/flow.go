@@ -259,6 +259,7 @@ func paginateFlows(all []*storedFlow, maxResults int32, nextToken string) ([]*Fl
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, f := range all {
 			if f.FlowID == nextToken {
 				start = i

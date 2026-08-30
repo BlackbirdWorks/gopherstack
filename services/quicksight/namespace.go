@@ -102,6 +102,11 @@ func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken stri
 			start = off
 		}
 	}
+	// A token issued before items were deleted can name an offset past the
+	// current end -- clamp instead of letting all[start:end] panic.
+	if start > len(all) {
+		start = len(all)
+	}
 
 	end := start + int(maxResults)
 
