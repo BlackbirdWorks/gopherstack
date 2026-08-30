@@ -222,3 +222,24 @@ leaks: {status: clean, note: "no goroutines/timers/janitors in this service; all
   any other value (including empty, which now explicitly defaults to `NTLM`) is now rejected
   with `InvalidRequestException` instead of silently succeeding -- a more-permissive-than-AWS
   bug class.
+
+## 2026-08-30 wire-key-read sweep, continued (remaining Describe/List operations)
+
+Completed the wire-key-read sweep across all 19 Describe/List operations (derived from
+`handler.go`'s dispatch-table registrations). The prior pass on this branch fixed ListLocations and
+ListTasks (dropped Filters, both re-confirmed still correct earlier this same pass, see the
+`ListLocations`/`ListTasks` rows above). This pass audited the remaining 17 and found no bugs.
+
+All 12 `DescribeLocation*` ops, `DescribeAgent`, `DescribeTask`, and `DescribeTaskExecution` have
+exactly one real Input field each (a single scoping ARN); every handler struct tags it under the
+correct PascalCase wire key (confirmed against `awsAwsjson11_serializeOpDocumentDescribeAgentInput`
+for a sample -- datasync's JSON1.1 wire keys are PascalCase, unlike personalize's camelCase) and
+reads it before calling the backend. `ListAgents` has no filter field in the real API (MaxResults/
+NextToken only) -- confirmed correctly unscoped. `ListTagsForResource` reads ResourceArn correctly,
+backend paginates over sorted tag keys. `ListTaskExecutions` reads its real `TaskArn` scoping field
+(`listTaskExecutionsInput.TaskArn`, `json:"TaskArn"`) and the backend filters by it via
+`executionsByTask` before pagination -- confirmed correct, not previously covered by name in this
+file. No dropped filter, no wrong key, no wrong cardinality found across any of these 17.
+
+Gates: `go build ./services/datasync/...` (no changes made, nothing to build-verify beyond
+confirming the tree is unchanged). Work left uncommitted per this pass's instructions.

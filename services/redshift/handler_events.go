@@ -183,69 +183,86 @@ type describeEventCategoriesResponse struct {
 	Result  xmlEventCategoriesResult `xml:"DescribeEventCategoriesResult"`
 }
 
-func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
-	return &describeEventCategoriesResponse{
-		Xmlns: redshiftXMLNS,
-		Result: xmlEventCategoriesResult{
-			EventCategoriesMapList: []xmlEventCategoriesMap{
+func (h *Handler) handleDescribeEventCategories(vals url.Values) (any, error) {
+	sourceType := vals.Get("SourceType")
+
+	all := []xmlEventCategoriesMap{
+		{
+			SourceType: keyResourceCluster,
+			Events: []xmlEventInfo{
 				{
-					SourceType: keyResourceCluster,
-					Events: []xmlEventInfo{
-						{
-							EventID:          "REDSHIFT-EVENT-2001",
-							EventDescription: "Cluster maintenance event",
-							EventCategories:  []string{"maintenance"},
-							Severity:         eventSeverityInfo,
-						},
-						{
-							EventID:          "REDSHIFT-EVENT-2002",
-							EventDescription: "Cluster monitoring event",
-							EventCategories:  []string{"monitoring"},
-							Severity:         eventSeverityInfo,
-						},
-						{
-							EventID:          "REDSHIFT-EVENT-2003",
-							EventDescription: "Cluster security event",
-							EventCategories:  []string{"security"},
-							Severity:         eventSeverityInfo,
-						},
-					},
+					EventID:          "REDSHIFT-EVENT-2001",
+					EventDescription: "Cluster maintenance event",
+					EventCategories:  []string{"maintenance"},
+					Severity:         eventSeverityInfo,
 				},
 				{
-					SourceType: "cluster-snapshot",
-					Events: []xmlEventInfo{
-						{
-							EventID:          "REDSHIFT-EVENT-3001",
-							EventDescription: "Cluster snapshot backup event",
-							EventCategories:  []string{"backup"},
-							Severity:         eventSeverityInfo,
-						},
-					},
+					EventID:          "REDSHIFT-EVENT-2002",
+					EventDescription: "Cluster monitoring event",
+					EventCategories:  []string{"monitoring"},
+					Severity:         eventSeverityInfo,
 				},
 				{
-					SourceType: "cluster-parameter-group",
-					Events: []xmlEventInfo{
-						{
-							EventID:          "REDSHIFT-EVENT-4001",
-							EventDescription: "Cluster parameter group configuration event",
-							EventCategories:  []string{"configuration"},
-							Severity:         eventSeverityInfo,
-						},
-					},
-				},
-				{
-					SourceType: "cluster-security-group",
-					Events: []xmlEventInfo{
-						{
-							EventID:          "REDSHIFT-EVENT-5001",
-							EventDescription: "Cluster security group configuration event",
-							EventCategories:  []string{"configuration"},
-							Severity:         eventSeverityInfo,
-						},
-					},
+					EventID:          "REDSHIFT-EVENT-2003",
+					EventDescription: "Cluster security event",
+					EventCategories:  []string{"security"},
+					Severity:         eventSeverityInfo,
 				},
 			},
 		},
+		{
+			SourceType: "cluster-snapshot",
+			Events: []xmlEventInfo{
+				{
+					EventID:          "REDSHIFT-EVENT-3001",
+					EventDescription: "Cluster snapshot backup event",
+					EventCategories:  []string{"backup"},
+					Severity:         eventSeverityInfo,
+				},
+			},
+		},
+		{
+			SourceType: "cluster-parameter-group",
+			Events: []xmlEventInfo{
+				{
+					EventID:          "REDSHIFT-EVENT-4001",
+					EventDescription: "Cluster parameter group configuration event",
+					EventCategories:  []string{"configuration"},
+					Severity:         eventSeverityInfo,
+				},
+			},
+		},
+		{
+			SourceType: "cluster-security-group",
+			Events: []xmlEventInfo{
+				{
+					EventID:          "REDSHIFT-EVENT-5001",
+					EventDescription: "Cluster security group configuration event",
+					EventCategories:  []string{"configuration"},
+					Severity:         eventSeverityInfo,
+				},
+			},
+		},
+	}
+
+	if sourceType == "" {
+		return &describeEventCategoriesResponse{
+			Xmlns:  redshiftXMLNS,
+			Result: xmlEventCategoriesResult{EventCategoriesMapList: all},
+		}, nil
+	}
+
+	filtered := make([]xmlEventCategoriesMap, 0, len(all))
+
+	for _, m := range all {
+		if m.SourceType == sourceType {
+			filtered = append(filtered, m)
+		}
+	}
+
+	return &describeEventCategoriesResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: xmlEventCategoriesResult{EventCategoriesMapList: filtered},
 	}, nil
 }
 

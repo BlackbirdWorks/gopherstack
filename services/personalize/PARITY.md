@@ -413,3 +413,32 @@ service (every cursor is identifier-based, not a numeric offset).
 **Gates**: `go build ./services/personalize/...`, `go vet ./services/personalize/...`,
 `go test -race -count=1 ./services/personalize/...` all pass; `golangci-lint run
 ./services/personalize/...` reports 0 issues.
+
+## 2026-08-30 wire-key-read sweep, continued (remaining Describe/List operations)
+
+Completed the wire-key-read sweep across all 36 Describe/List operations (derived from
+`handler.go`'s dispatch-table registrations). The prior pass on this branch covered 18; this pass
+audited the remaining 18 (all List ops except ListRecipes, already covered) and found no bugs.
+
+Every `Describe*` op's real Input struct has exactly one field, a single scoping ARN
+(AlgorithmArn/BatchInferenceJobArn/.../SolutionVersionArn) -- all 18 handlers read it under the
+correct camelCase JSON key (confirmed against `awsAwsjson11_serializeOpDocumentDescribe*Input` for
+a sample, e.g. `describeDatasetGroup` reads `datasetGroupArn`, matching the wire key emitted by
+`awsAwsjson11_serializeOpDocumentDescribeDatasetGroupInput`).
+
+Every `List*` op's real Input struct is MaxResults/NextToken plus at most one scoping ARN
+(DatasetGroupArn/SolutionArn/SolutionVersionArn/DatasetArn/MetricAttributionArn) -- all handlers
+read and forward that scoping arg to the backend, and every backend `List*` method filters on it
+before pagination (`Snapshot()`-sorted input, filter-then-paginate via the shared `paginateItems`
+helper), field-diffed one at a time: `listBatchInferenceJobs`/`listBatchSegmentJobs`
+(solutionVersionArn), `listCampaigns` (solutionArn, with the SolutionVersionArn-prefix-match this
+file's ListCampaigns already documents), `listDataDeletionJobs`/`listDatasetImportJobs`/
+`listDatasetExportJobs`/`listDatasets`/`listEventTrackers`/`listFilters`/`listMetricAttributions`/
+`listRecommenders`/`listSolutions` (datasetGroupArn or datasetArn), `listSolutionVersions`
+(solutionArn), `listMetricAttributionMetrics` (metricAttributionArn). `listSchemas`/
+`listDatasetGroups` have no scoping field in the real API (account-wide lists) -- confirmed against
+their Input structs, correctly unscoped. No dropped filter, no wrong key, no wrong cardinality found
+across any of these 18 -- a genuine zero-bug result, not an unaudited gap.
+
+Gates: `go build ./services/personalize/...` (no changes made, nothing to build-verify beyond
+confirming the tree is unchanged). Work left uncommitted per this pass's instructions.

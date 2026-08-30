@@ -1545,3 +1545,104 @@ snapshot count used fits in one `MaxRecords=20` page), so they could not have ca
 Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...`,
 `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...`
 (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 wire-key-read sweep, continued (remaining Describe/List operations)
+
+Completed the wire-key-read sweep across all 43 Describe/List operations (derived from
+`handler.go`'s dispatch-table registrations, not this file's prose). The prior pass on this
+branch covered 13 (7 fixed bugs: Tags, ClusterSnapshots, ScheduledActions, UsageLimits,
+HsmClientCertificates, HsmConfigurations, EndpointAccess; 6 confirmed-correct: ClusterParameterGroups,
+ClusterSubnetGroups, ClusterSecurityGroups, Events, DescribeClusters, ReservedNodeExchangeStatus
+enum). This pass audited the remaining 30 and found 8 more real bugs, all the same "declared field
+never read" shape:
+
+- `DescribeClusterParameters`: `Source` (real values `engine-default`/`user`, `param_groups.go`'s
+  `ClusterParameter.Source`) was declared and never read -- every request returned every parameter
+  regardless of `Source`. Fixed (`handler_param_groups.go`).
+- `DescribeEventCategories`: `SourceType` (5 legal values, 4 modeled in this backend's static
+  catalog) was declared and never read -- `_ url.Values` ignored the whole request. Fixed
+  (`handler_events.go`).
+- `DescribeCustomDomainAssociations`: `CustomDomainCertificateArn` was declared and never read,
+  even though it's real backend data already echoed in every response. Fixed
+  (`handler_custom_domains.go`). NOTE: the response shape itself remains the pre-existing,
+  separately-scoped gap already documented under `families.CustomDomainAssociation` above (real
+  `Association` groups by certificate via `CertificateAssociations`, this backend emits a flat
+  per-domain list) -- not touched, out of scope for a filter fix.
+- `DescribeInboundIntegrations`: full no-stub violation, not just a dropped filter -- `_
+  url.Values` ignored the request AND the handler never consulted the integrations store at all,
+  always returning empty regardless of real `Integration` data (every integration this backend can
+  create already has a real `TargetArn`, i.e. it always targets something in Redshift). Fixed by
+  filtering the same store `DescribeIntegrations` reads, keyed on `IntegrationArn`/`TargetArn`
+  (`handler_integrations.go`). Response reshaped into a dedicated `inboundIntegrationXML` (CreateTime/
+  IntegrationArn/SourceArn/Status/TargetArn only, confirmed against `types.InboundIntegration`,
+  types/types.go:1160) instead of reusing `integrationXML`, which carries fields
+  (IntegrationName/Description/KMSKeyId/Tags) not on `InboundIntegration`'s real wire shape at all.
+- `DescribeIntegrations`: `Filters` (real enum `integration-arn`/`source-arn`/`source-types`,
+  `DescribeIntegrationsFilterName`, types/enums.go:194) was declared and never read. Fixed
+  `integration-arn` and `source-arn` (both exact-match against real, already-stored `Integration`
+  fields); `source-types` deliberately left unenforced -- it classifies `SourceArn` by AWS resource
+  type (e.g. "rds", "aurora-mysql"), data this backend does not derive from the stored ARN string,
+  so implementing it would fabricate a classification rather than read real data.
+- `DescribeSnapshotCopyGrants`: `TagKeys`/`TagValues` were declared and never read, even though
+  `SnapshotCopyGrant.Tags` is real, populated data already echoed on every response (same shape as
+  the previous pass's UsageLimit/Hsm* fixes). Fixed via the existing `anyTagMatchesFilter` helper
+  (`handler_snapshot_copy.go`).
+- `DescribeSnapshotSchedules`: both `ClusterIdentifier` and `TagKeys`/`TagValues` were declared and
+  never read. `SnapshotSchedule.AssociatedClusters` (derived at read time from
+  `Cluster.SnapshotScheduleIdentifier`) and `SnapshotSchedule.Tags` are both real, populated data.
+  Fixed both (`handler_snapshot_schedules.go`).
+- `DescribeTableRestoreStatus`: `TableRestoreRequestId` -- the real per-request identifier,
+  `TableRestoreStatus.TableRestoreRequestID` -- was declared and never read; only `ClusterIdentifier`
+  was. A client polling one specific restore request got back every restore status for the account
+  instead. Fixed (`handler_table_restore.go`).
+
+Confirmed correct / left alone, with reasoning:
+
+- `DescribeAccountAttributes`: `AttributeNames` declared, never read, but the whole response is a
+  static empty envelope regardless (no account-quota data modeled anywhere in this backend) --
+  filtering an unconditionally empty set is provably inert. Not fixed, matches this file's existing
+  "legitimately static/filter-less" note.
+- `DescribeClusterVersions`: `ClusterVersion`/`ClusterParameterGroupFamily` declared, never read,
+  but the static catalog has exactly one entry (`modelVersion10`) -- provably inert, same standard as
+  a single-legal-value enum.
+- `DescribeClusterTracks` / `DescribeOrderableClusterOptions`: `MaintenanceTrackName` /
+  `ClusterVersion`+`NodeType` declared, never read. Both catalogs are small, hardcoded reference
+  tables (2 and 4 entries) rather than real per-account resource state -- consistent with this file's
+  prior explicit judgment call on the same ops ("legitimately static/filter-less", `families.
+  Descriptive/static ops` above). Re-examined this pass and left as-is rather than reversing that
+  call: unlike the fixed bugs above, there is no real per-account backend record being silently
+  hidden here, only a fixed reference list whose contents do not vary by account or request.
+- `DescribeEventSubscriptions`: `TagKeys`/`TagValues` declared, never read -- `EventSubscription`
+  (`events.go`) has no `Tags` field at all, missing backend data, not a misread key.
+- `DescribeNodeConfigurationOptions`: `NodeType`/`NumberOfNodes` (carried inside `Filters`, not
+  top-level params) are already read via `nodeConfigFilterValue`'s indexed-list fallback, verified
+  against the real wire key (`Filter.NodeConfigurationOptionsFilter.N.Name`/`.Value.item.M`,
+  `awsAwsquery_serializeDocumentValueStringList` uses `item` not `member`). `Operator` (eq/lt/le/gt/
+  ge/between/in) is not honoured -- every filter is treated as equality -- a real gap, but a missing
+  feature on an already-correctly-read field, not the silent-full-list class this sweep targets; not
+  fixed, left for a follow-up pass.
+- `DescribeReservedNodeExchangeStatus`: `ReservedNodeExchangeRequestId` declared, never read, but
+  this backend does not model exchange requests as distinct entities at all (`Describe
+  ReservedNodeExchangeStatus` returns a hardcoded "Succeeded" keyed only on whether the reserved
+  node exists) -- missing backend data, not a misread key.
+- `DescribeStorage`: real Input struct has zero fields (`noSmithyDocumentSerde` only) -- nothing to
+  misread.
+- `DescribeAuthenticationProfiles`, `DescribeClusterDbRevisions`, `DescribeDataShares`,
+  `DescribeDataSharesForConsumer`, `DescribeDataSharesForProducer`, `DescribeDefaultClusterParameters`,
+  `DescribeEndpointAuthorization`, `DescribeLoggingStatus`, `DescribePartners`,
+  `DescribeQev2IdcApplications`, `DescribeRedshiftIdcApplications`, `DescribeReservedNodeOfferings`,
+  `DescribeReservedNodes`, `DescribeResize`: every real request field is already read; re-diffed
+  field-by-field against each op's Input struct, no gaps found.
+
+New tests (`wire_field_fixes_test.go`, real `aws-sdk-go-v2` client, decoded-response assertions,
+each hand-confirmed to fail against the pre-fix handler):
+`TestDescribeClusterParameters_FiltersBySource`, `TestDescribeEventCategories_FiltersBySourceType`,
+`TestDescribeCustomDomainAssociations_FiltersByCertificateArn`,
+`TestDescribeInboundIntegrations_ReturnsRealData`, `TestDescribeIntegrations_FiltersBySourceArn`,
+`TestDescribeSnapshotCopyGrants_FiltersByTagKeys`,
+`TestDescribeSnapshotSchedules_FiltersByClusterIdentifier`,
+`TestDescribeTableRestoreStatus_FiltersByRequestId`.
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, clean), `go test -race
+-count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...` (0 issues).
+Work left uncommitted per this pass's instructions.

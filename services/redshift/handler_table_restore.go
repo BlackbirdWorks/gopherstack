@@ -87,6 +87,7 @@ func tableRestoreStatusToXML(s *TableRestoreStatus) xmlTableRestoreStatus {
 
 func (h *Handler) handleDescribeTableRestoreStatus(vals url.Values) (any, error) {
 	clusterID := vals.Get("ClusterIdentifier")
+	requestID := vals.Get("TableRestoreRequestId")
 
 	statuses, err := h.Backend.DescribeTableRestoreStatus(clusterID)
 	if err != nil {
@@ -96,6 +97,10 @@ func (h *Handler) handleDescribeTableRestoreStatus(vals url.Values) (any, error)
 	members := make([]xmlTableRestoreStatus, 0, len(statuses))
 
 	for i := range statuses {
+		if requestID != "" && statuses[i].TableRestoreRequestID != requestID {
+			continue
+		}
+
 		members = append(members, tableRestoreStatusToXML(&statuses[i]))
 	}
 

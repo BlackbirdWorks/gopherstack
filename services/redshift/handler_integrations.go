@@ -3,6 +3,8 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
+	"strconv"
 	"time"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -98,7 +100,62 @@ type describeIntegrationsResponse struct {
 	} `xml:"DescribeIntegrationsResult"`
 }
 
+// describeIntegrationsFilter mirrors one Filters.DescribeIntegrationsFilter.N entry:
+// a Name (integration-arn/source-arn/source-types) and its Values.Value.M list
+// (confirmed against awsAwsquery_serializeDocumentDescribeIntegrationsFilter,
+// aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go:10298).
+type describeIntegrationsFilter struct {
+	name   string
+	values []string
+}
+
+// parseDescribeIntegrationsFilters extracts the indexed
+// Filters.DescribeIntegrationsFilter.N.Name / .Values.Value.M filter list.
+func parseDescribeIntegrationsFilters(vals url.Values) []describeIntegrationsFilter {
+	var filters []describeIntegrationsFilter
+
+	for i := 1; i <= maxListItems; i++ {
+		prefix := "Filters.DescribeIntegrationsFilter." + strconv.Itoa(i) + "."
+
+		name := vals.Get(prefix + "Name")
+		if name == "" {
+			break
+		}
+
+		filters = append(filters, describeIntegrationsFilter{
+			name:   name,
+			values: parseStringList(vals, prefix+"Values.Value."),
+		})
+	}
+
+	return filters
+}
+
+// integrationMatchesFilters reports whether ig satisfies every filter. Real
+// legal Name values are integration-arn, source-arn, source-types
+// (DescribeIntegrationsFilterName, types/enums.go:194); source-types would
+// need to classify SourceArn by AWS resource type, data this backend does not
+// derive, so a source-types filter is left unenforced rather than guessed.
+func integrationMatchesFilters(ig *Integration, filters []describeIntegrationsFilter) bool {
+	for _, f := range filters {
+		switch f.name {
+		case "integration-arn":
+			if !slices.Contains(f.values, ig.IntegrationArn) {
+				return false
+			}
+		case "source-arn":
+			if !slices.Contains(f.values, ig.SourceArn) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
+	filters := parseDescribeIntegrationsFilters(vals)
+
 	igs, err := h.Backend.DescribeIntegrations(vals.Get("IntegrationArn"))
 	if err != nil {
 		return nil, err
@@ -107,6 +164,10 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 	members := make([]integrationXML, 0, len(igs))
 
 	for i := range igs {
+		if !integrationMatchesFilters(&igs[i], filters) {
+			continue
+		}
+
 		members = append(members, integrationToXML(&igs[i]))
 	}
 
@@ -116,16 +177,69 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 	return resp, nil
 }
 
+// inboundIntegrationXML mirrors types.InboundIntegration (CreateTime, Errors,
+// IntegrationArn, SourceArn, Status, TargetArn -- types/types.go:1160). It is a
+// narrower shape than Integration/integrationXML: no IntegrationName,
+// Description, KMSKeyId or Tags on the real wire, so integrationXML is not
+// reused here.
+type inboundIntegrationXML struct {
+	CreateTime     string `xml:"CreateTime,omitempty"`
+	IntegrationArn string `xml:"IntegrationArn"`
+	SourceArn      string `xml:"SourceArn,omitempty"`
+	TargetArn      string `xml:"TargetArn,omitempty"`
+	Status         string `xml:"Status"`
+}
+
+func inboundIntegrationToXML(ig *Integration) inboundIntegrationXML {
+	x := inboundIntegrationXML{
+		IntegrationArn: ig.IntegrationArn,
+		SourceArn:      ig.SourceArn,
+		TargetArn:      ig.TargetArn,
+		Status:         ig.Status,
+	}
+
+	if !ig.CreateTime.IsZero() {
+		x.CreateTime = ig.CreateTime.Format(time.RFC3339)
+	}
+
+	return x
+}
+
 type describeInboundIntegrationsResponse struct {
 	XMLName xml.Name `xml:"DescribeInboundIntegrationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		InboundIntegrations []integrationXML `xml:"InboundIntegrations>InboundIntegration"`
+		InboundIntegrations []inboundIntegrationXML `xml:"InboundIntegrations>InboundIntegration"`
 	} `xml:"DescribeInboundIntegrationsResult"`
 }
 
-func (h *Handler) handleDescribeInboundIntegrations(_ url.Values) (any, error) {
-	return &describeInboundIntegrationsResponse{Xmlns: redshiftXMLNS}, nil
+// handleDescribeInboundIntegrations implements DescribeInboundIntegrations by
+// filtering the same integrations store CreateIntegration/DescribeIntegrations
+// populate -- every integration this backend can create already targets a
+// Redshift resource, so it is real inbound-integration data, not fabricated.
+func (h *Handler) handleDescribeInboundIntegrations(vals url.Values) (any, error) {
+	integrationArn := vals.Get("IntegrationArn")
+	targetArn := vals.Get("TargetArn")
+
+	igs, err := h.Backend.DescribeIntegrations(integrationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]inboundIntegrationXML, 0, len(igs))
+
+	for i := range igs {
+		if targetArn != "" && igs[i].TargetArn != targetArn {
+			continue
+		}
+
+		members = append(members, inboundIntegrationToXML(&igs[i]))
+	}
+
+	resp := &describeInboundIntegrationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.InboundIntegrations = members
+
+	return resp, nil
 }
 
 type modifyIntegrationResponse struct {

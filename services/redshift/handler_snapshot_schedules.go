@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -107,6 +108,9 @@ type describeSnapshotSchedulesResponse struct {
 
 func (h *Handler) handleDescribeSnapshotSchedules(vals url.Values) (any, error) {
 	scheduleID := vals.Get("ScheduleIdentifier")
+	clusterID := vals.Get("ClusterIdentifier")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	schedules, err := h.Backend.DescribeSnapshotSchedules(scheduleID)
 	if err != nil {
@@ -116,6 +120,14 @@ func (h *Handler) handleDescribeSnapshotSchedules(vals url.Values) (any, error) 
 	members := make([]xmlSnapshotSchedule, 0, len(schedules))
 
 	for i := range schedules {
+		if clusterID != "" && !slices.Contains(schedules[i].AssociatedClusters, clusterID) {
+			continue
+		}
+
+		if !anyTagMatchesFilter(schedules[i].Tags, tagKeys, tagValues) {
+			continue
+		}
+
 		members = append(members, snapshotScheduleToXML(&schedules[i]))
 	}
 
