@@ -444,3 +444,32 @@ Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/dynamodb/...` (pass),
 `golangci-lint run --fix ./services/dynamodb/...` then plain
 `golangci-lint run ./services/dynamodb/...` (0 issues both times).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited every pagination helper for pure arithmetic (boundary correctness, exact division,
+single-page, empty, cursor stability, stale-cursor behaviour): `findStartIndex` (`table_ops.go`
+— `ListTables`) is correct and deletion-tolerant by construction (first-name-strictly-greater
+search, so a since-deleted `ExclusiveStartTableName` still resumes correctly). `encode`/
+`decodePartiQLNextToken` (`partiql.go`) are a plain encode/decode of the real
+`LastEvaluatedKey`, not offset arithmetic — nothing to verify there beyond round-trip, which
+holds. No bug found or fixed in either; both newly boundary-tested directly
+(`pagination_arithmetic_internal_test.go`).
+
+**Recorded, not fixed:** `paginateBackupSummaries` (`backup_ops.go` — `ListBackups`) resolves
+`ExclusiveStartBackupArn` by exact ARN match and falls back to `start = 0` when the named
+backup has since been deleted, restarting pagination from the beginning rather than resuming
+past it — diverges from `findStartIndex`'s deletion-tolerant `>`-search pattern elsewhere in
+this same package. Not changed: unlike the equivalent bug fixed in `services/dax`/`services/omics`
+this pass, this list is sorted by a composite `(CreationDateTime, BackupArn)` key and the
+cursor carries only the ARN half, so reconstructing the correct resume position for a deleted
+ARN isn't a like-for-like `==` → `>=` swap — it would need the cursor to also encode the
+creation time, which AWS's own `LastEvaluatedBackupArn` (a bare ARN string) leaves no room
+for. AWS does not document `ListBackups`' behaviour for a stale `ExclusiveStartBackupArn`, so
+the current behaviour is pinned by a test (`TestPaginateBackupSummaries_StaleCursorRestartsFromZero`)
+rather than asserted correct, per this pass's instruction to record undefined behaviour instead
+of inventing a rule for it. Worth a follow-up if the cursor's shape is ever revisited.
+
+Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run ./services/dynamodb/...` (0 issues).

@@ -487,3 +487,50 @@ isn't request filtering). This bug class doesn't apply to this service.
 Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/dax/...` (pass, including `./services/dax/dataplane/...`, no changes),
 `golangci-lint run ./services/dax/...` (0 issues). No code changed this pass.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Four bugs found and fixed, all the same class: an exact-match ("==") or bounded
+(`n < len(all)`) cursor lookup that silently fell back to its zero-value default —
+offset/index 0 — whenever the cursor didn't land on a currently-present element, instead
+of resuming past it (a deleted item) or terminating (an exhausted/garbage token). Net
+effect: a stale cursor handed the caller duplicate items already seen (deletion case) or
+restarted pagination at page one forever (exhaustion case), rather than returning the
+correct remainder or an empty page.
+
+- `paginateList` (`store.go`, generic — backs `DescribeParameterGroups` and
+  `DescribeSubnetGroups` via `describeNamedGroups`, 2 operations): fixed by searching for
+  the first `getName(item) >= nextToken` instead of `==`, defaulting `start = len(all)` when
+  no match is found (previously defaulted to 0).
+- `paginateClusters` (`clusters.go` — `DescribeClusters`, 1 operation): same fix,
+  `c.ClusterName >= nextToken` / default `len(all)`.
+- `paginateParameters` (`parameter_groups.go` — `DescribeParameters` and
+  `DescribeDefaultParameters`, 2 operations): its cursor is a plain decimal index
+  (`strconv.Atoi`), not a name lookup, but the inner validation `idx >= 0 && idx < len(all)`
+  rejected any out-of-range `idx` and left `start` at its zero-value default instead of
+  falling through to the existing `if start >= len(all) { return empty }` guard — same
+  net bug, different mechanism. Fixed by dropping the `idx < len(all)` half of the inner
+  check and letting the outer guard do its job.
+- `DescribeEvents` (`events.go`, 1 operation): identical `idx < len(filtered)` bug as
+  `paginateParameters`, same fix.
+- `ListTags` (`tags.go`, 1 operation): identical exact-match-cursor bug as `paginateList`/
+  `paginateClusters` (sorted tag keys via `collections.SortedKeys`), same `>=`/default-to-end
+  fix. Reachable in practice: `UntagResource` between two `ListTags` calls reproduces it.
+
+7 operations affected total. Every fix is proven by a failing-then-passing unit test against
+the helper directly (`pagination_arithmetic_test.go`, `tags_test.go`) plus one real
+`aws-sdk-go-v2/service/dax` client round trip
+(`pagination_sdk_roundtrip_test.go`: `ListTags`, deletes the cursor's tag between pages).
+
+`paginateBlocks`-style "n < len" bug independently recurred in `services/textract` and was
+fixed there too — see that service's PARITY.md; not the same helper, no shared root cause,
+just the same mistake made twice.
+
+**Not fixed, recorded only:** `ListReadSetUploadParts` in `services/omics/read_sets.go` has
+the same exact-match-cursor shape (compares `strconv.Itoa(p.PartNumber) == nextToken`) but
+was found unreachable in that service: there's no per-part delete, only whole-upload
+delete/abort, so the named part can never go missing between calls. See omics's PARITY.md.
+
+Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/dax/...` (pass, including
+`./services/dax/dataplane/...`), `golangci-lint run ./services/dax/...` (0 issues).

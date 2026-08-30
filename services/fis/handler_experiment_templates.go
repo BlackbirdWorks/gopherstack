@@ -92,18 +92,7 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 		ids[i] = t.ID
 	}
 
-	q := c.Request().URL.Query()
-	maxResults, start := paginateWithToken(ids, q)
-
-	end := min(start+maxResults, len(templates))
-
-	var nextTok string
-
-	if end < len(templates) {
-		nextTok = encodePageToken(end)
-	}
-
-	page := templates[start:end]
+	page, nextTok := paginatePage(templates, ids, c.Request().URL.Query())
 	dtos := make([]experimentTemplateSummaryDTO, len(page))
 
 	for i, t := range page {

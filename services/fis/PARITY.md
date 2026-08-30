@@ -324,3 +324,33 @@ executionId, and experimentReport) instead of `types.ExperimentSummary`
   `ServiceQuotaExceededException`, added in commit `efc42cbc4`, "Parity 4") — the
   `errors.go` literal is only ever used for `errors.Is` identity and the message text, never
   the wire `Type` field. No new fix needed.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed:** `paginatePage` (`handler.go`) sliced `items[start:end]` without
+clamping `start` to the current item count. A `nextToken` decoding to an offset beyond the
+list (list shrank between calls, or a hand-constructed/replayed token) panicked with "slice
+bounds out of range". The same missing clamp was independently duplicated (not via
+`paginatePage`) in five handlers that hand-rolled the identical `start`/`end`/`encodePageToken`
+sequence instead of calling it: `handleListActions`, `handleListTargetResourceTypes`
+(`handler_actions.go`), `handleListExperiments`, `handleListExperimentResolvedTargets`
+(`handler_experiments.go`), `handleListExperimentTemplates` (`handler_experiment_templates.go`).
+Fixed `paginatePage` by clamping `start = min(start, len(items))` before computing `end`, and
+rewired all five hand-rolled call sites to call `paginatePage` instead of duplicating its logic
+— closing the bug at all 7 call sites (the 2 that already called `paginatePage` —
+`ListTargetAccountConfigurations`/`ListExperimentTargetAccountConfigurations` — needed no
+handler change) and removing the duplication itself, so a future fix here can't miss a copy.
+
+Proof: `TestPaginatePage_StaleOrTamperedTokenPastEnd` (pagination_arithmetic_internal_test.go,
+unit, calls `paginatePage` directly) and
+`TestListActions_SDKRoundTrip_StaleNextTokenDoesNotPanic` (pagination_sdk_roundtrip_test.go,
+real `aws-sdk-go-v2/service/fis` client) both reproduce the panic pre-fix.
+
+`paginateWithToken`/`encodePageToken`/`decodePageToken` (offset/limit decoding and token
+codec) verified separately and found correct — boundary walk, exact-division, default/cap on
+`maxResults`, round-trip, malformed-token rejection all pass
+(`pagination_arithmetic_internal_test.go`).
+
+Gates: `go build ./services/fis/...`, `go vet ./services/fis/...` and `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/fis/...`,
+`golangci-lint run ./services/fis/...` (0 issues).

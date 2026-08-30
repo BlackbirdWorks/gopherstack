@@ -58,7 +58,7 @@ func (b *InMemoryBackend) DescribeEvents(
 
 	if nextToken != "" {
 		idx, err := strconv.Atoi(nextToken)
-		if err == nil && idx >= 0 && idx < len(filtered) {
+		if err == nil && idx >= 0 {
 			start = idx
 		}
 	}

@@ -690,6 +690,11 @@ func paginateWithToken(_ []string, q url.Values) (int, int) {
 func paginatePage[T any](items []T, ids []string, q url.Values) ([]T, string) {
 	maxResults, start := paginateWithToken(ids, q)
 
+	// A stale or tampered nextToken can decode to an offset past the current
+	// item count (e.g. the list shrank between calls); clamp before slicing
+	// so it degrades to an empty page instead of panicking.
+	start = min(start, len(items))
+
 	end := min(start+maxResults, len(items))
 
 	var nextTok string

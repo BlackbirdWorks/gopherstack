@@ -13,6 +13,28 @@ func FilterPatternMatches(pattern, message string) bool {
 	return filterPatternMatches(pattern, message)
 }
 
+// PaginateStreamsForTest exposes the unexported paginateStreams pagination
+// helper so its arithmetic can be verified directly.
+func PaginateStreamsForTest(all []LogStream, nextToken string, limit int) ([]LogStream, string) {
+	return paginateStreams(all, nextToken, limit)
+}
+
+// PaginateGroupsForTest exposes the unexported paginateGroups pagination
+// helper so its arithmetic can be verified directly.
+func PaginateGroupsForTest(all []LogGroup, nextToken string, limit int) ([]LogGroup, string) {
+	return paginateGroups(all, nextToken, limit)
+}
+
+// EncodeNextTokenForTest exposes the unexported encodeNextToken cursor helper.
+func EncodeNextTokenForTest(idx int) string {
+	return encodeNextToken(idx)
+}
+
+// ParseNextTokenForTest exposes the unexported parseNextToken cursor helper.
+func ParseNextTokenForTest(token string) int {
+	return parseNextToken(token)
+}
+
 // SetTagsForTest sets tags for a resource ID directly, bypassing JSON round-trip.
 // Used in persistence tests to populate tags before taking a snapshot.
 func (h *Handler) SetTagsForTest(resourceID string, kv map[string]string) {

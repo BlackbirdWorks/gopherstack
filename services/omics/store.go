@@ -332,8 +332,10 @@ func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, 
 	start := 0
 
 	if nextToken != "" {
+		start = len(ids)
+
 		for i, id := range ids {
-			if id == nextToken {
+			if id >= nextToken {
 				start = i
 
 				break

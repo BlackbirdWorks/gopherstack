@@ -636,3 +636,35 @@ and `TestHandler_ScheduledQuery_DestinationConfiguration` sent the wrong
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/cloudwatchlogs/...`).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited every pagination helper: `paginateStreams`/`paginateGroups` (both correct,
+boundary-tested) and the ~19 handler-level clones of the same
+`parseNextToken`/encodeNextToken`/start-end` block (`ListLogAnomalyDetectors`,
+`ListAnomalies`, `DescribeAccountPolicies`, `DescribeDeliveries`, `DescribeDestinations`,
+`DescribeExportTasks`, `DescribeImportTasks`, `ListSourcesForS3TableIntegration`,
+`ListSyslogConfigurations`, `DescribeLookupTables`, `DescribeResourcePolicies`,
+`DescribeMetricFilters`, `DescribeQueries`, `ListScheduledQueries`,
+`GetScheduledQueryHistory`, `DescribeSubscriptionFilters`, plus handler-level
+`GetQueryResults`/`ListLogGroupsForQuery`) — all read and confirmed byte-identical and
+correct; no shared helper factored out, but no bug either (contrast with `services/workspaces`,
+which had the same "many shallow copies" shape but a real missing-cursor bug in each copy).
+
+**Bug found and fixed:** `InMemoryBackend.GetLogEvents` (`log_events.go`) — its bidirectional
+forward/backward pagination computed `startIdx` from `nextToken` with no upper-bound clamp,
+unlike every sibling method above (which all guard `if startIdx >= len(all) { return empty }`
+before slicing). A `nextToken` naming an offset past the current event count — e.g. minted
+before the retention janitor swept older events out from under it, or simply a
+corrupted/replayed token — panicked with "slice bounds out of range" on
+`filtered[startIdx:end]`. Fixed by clamping `startIdx = min(startIdx, len(filtered))` before
+computing `end`. `FilterLogEvents`'s equivalent pagination was checked and found
+self-correcting by construction (its `end`/`startIdx` clamps compose safely even though
+computed in an unusual order) — no change needed there.
+
+Proof: `TestCloudWatchLogsBackend_GetLogEvents_StaleTokenPastEnd` (log_events_test.go, unit)
+and `TestGetLogEvents_SDKRoundTrip_StaleNextTokenDoesNotPanic` (pagination_sdk_roundtrip_test.go,
+real `aws-sdk-go-v2/service/cloudwatchlogs` client) both reproduce the panic pre-fix.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/cloudwatchlogs/...`).

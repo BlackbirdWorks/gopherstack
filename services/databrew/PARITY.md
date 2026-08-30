@@ -140,3 +140,23 @@ name segment) unchanged. Hand-reverted `handler.go` to `git show HEAD`,
 confirmed the test fails with `*json.SyntaxError: "invalid character 'o' in
 literal null (expecting 'u')"`, restored the fix, `md5sum`-confirmed
 byte-identical.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+`paginateKeys` (`paginate_helper.go` — the sole flat-key-list pagination helper, shared by
+`ListDatasets`, `ListJobs`, `ListProjects`, `ListRecipes`, `ListRulesets`, `ListSchedules` —
+6 call sites) verified clean: boundary walk, exact division, single-page,
+empty, deletion-tolerant cursor (`>`-search, matching `services/dynamodb`'s `findStartIndex`
+pattern — the correct precedent, not the buggy `==`-match one found elsewhere this pass),
+cursor-past-end, and the `maxResults<=0` default-to-100 fallback all correct
+(`paginate_helper_internal_test.go`). No bug found.
+
+Two more `List*` operations pursue the same shape but hand-roll it inline rather than call
+`paginateKeys`, since they don't paginate a flat key list: `ListRecipeVersions`
+(`recipes.go`) and `ListJobRuns` (`jobs.go`) both paginate structs by a value cursor
+(`RecipeVersion`/`RunID`) with the same `>`-search-and-default-to-len(...)-on-no-match
+pattern as `paginateKeys` — read and confirmed correct by inspection (not independently unit
+tested this pass, given existing coverage in `recipes_test.go`/`jobs_test.go`).
+
+Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/databrew/...`).

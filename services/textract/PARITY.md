@@ -285,3 +285,27 @@ re-verified).
   type — if a new op is added, its entry (or lack of one) must be verified
   against that op's real `deserializeOpError<Op>` switch, not assumed from
   a sibling op.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed:** `paginateBlocks` (`synthetic_blocks.go`, exported as
+`PaginateBlocks` — backs `GetDocumentAnalysis` and `GetDocumentTextDetection`, 2 operations)
+decoded `nextToken` to an offset but only accepted it when `n >= 0 && n < len(blocks)`; any
+out-of-range `n` (a token exactly at or past the current block count — the value this same
+helper would itself emit for an exhausted final page, or simply a stale/tampered token) left
+`offset` at its zero-value default. The existing `if offset >= len(blocks) { return empty }`
+guard immediately below can then never fire, since `offset` was already reset to a
+now-in-range 0 — so pagination silently restarted at block one instead of returning empty.
+Fixed by dropping the `n < len(blocks)` half of the inner validation and letting the outer
+guard do its job — the same fix (and the same root mistake, independently made) as
+`services/dax`'s `paginateParameters`/`DescribeEvents` this same pass.
+
+Proof: `TestPaginateBlocks_CursorPastEndDoesNotRestart` /
+`TestPaginateBlocks_CursorExactlyAtEndDoesNotRestart`
+(pagination_arithmetic_internal_test.go, unit, calls `paginateBlocks` directly) and
+`TestGetDocumentTextDetection_SDKRoundTrip_CursorAtEndDoesNotRestart`
+(pagination_sdk_roundtrip_test.go, real `aws-sdk-go-v2/service/textract` client) both fail
+pre-fix and pass post-fix.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/textract/...`).

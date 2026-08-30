@@ -495,3 +495,44 @@ lookup) -- confirming the original symptom; restored and `md5sum`-verified byte-
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed:** `paginateStrings` (`store.go`), the tail of `paginatedCopies` —
+the shared pagination path for all 20 `List*` operations built on it (annotation stores,
+annotation import jobs, annotation store versions, configurations, reference stores, shares,
+run groups, runs, run caches, run batches, workflows, sequence stores, variant stores,
+variant import jobs, read sets, read set activation/export/import jobs, multipart uploads) —
+looked up the cursor by exact id match (`id == nextToken`) and left `start` at its zero-value
+default when no match was found. Net effect: if the id named by the cursor had been deleted
+between the two `List*` calls, pagination silently restarted from the beginning, redelivering
+every already-seen item instead of resuming past the gap. Fixed by searching for the first
+`id >= nextToken` instead of `==`, defaulting `start = len(ids)` on no match (was 0) — matches
+the same fix applied to the equivalent bug independently found in `services/dax`
+(`paginateList`/`paginateClusters`/`ListTags`) this same pass.
+
+Proof: `TestPaginateStrings_StaleCursorAfterDeletion`/`TestPaginateStrings_CursorPastEnd`
+(pagination_arithmetic_test.go, unit, calls `paginateStrings` directly via a new
+`PaginateStringsForTest` export) and
+`TestListReferenceStores_SDKRoundTrip_PaginationSurvivesDeleteBetweenPages`
+(pagination_sdk_roundtrip_test.go, real `aws-sdk-go-v2/service/omics` client, deletes the
+store the cursor names before fetching page 2) both fail pre-fix and pass post-fix.
+
+**Recorded, not fixed:** `ListReadSetUploadParts` (`read_sets.go`) has the identical
+exact-match-cursor shape (`strconv.Itoa(p.PartNumber) == nextToken`, no fallback), and its
+`parts` slice is never sorted before pagination (insertion order, not `PartNumber` order) —
+but it was found dormant, not reachable: there is no operation that removes an individual
+upload part (only whole-upload delete/abort via `AbortMultipartReadSetUpload`/
+`CompleteMultipartReadSetUpload`, and `UploadReadSetPart` re-uploading the same
+part+source *updates* the existing entry in place rather than moving or removing it). A
+correct fix would also need either a numeric (not string-lexicographic) comparison or an
+explicit sort by `PartNumber`, since `"10" < "9"` as strings — deferred as a design decision
+rather than patched blind, per this pass's instruction to record undefined/unreachable
+behaviour rather than invent a rule for it.
+
+`paginatedCopies` itself (the sort + call to `paginateStrings` + per-id copy) was re-read and
+found otherwise correct — every caller sorts implicitly via `sort.Strings(ids)` inside
+`paginatedCopies`, so no caller-side ordering bug.
+
+Gates: `go build`, `go vet` (default/e2e/integration), `go test -race -count=1`,
+`golangci-lint run` (0 issues) — all `./services/omics/...`.

@@ -557,3 +557,25 @@ NOT AUDITED, LIKELY THE SAME BUG: CreateUnreferencedMergeCommit,
 MergeBranchesBySquash, MergeBranchesByThreeWay, MergePullRequestBySquash and
 MergePullRequestByThreeWay all show the same missing authorName, commitMessage
 and email in the same scan. merges.go was never opened. Treat as unconfirmed.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+`paginateStrings` (`handler.go` — backs `ListBranches`, `ListPullRequests` via the shared
+helper) verified clean: boundary walk, exact division, single-page, empty, cursor-past-end,
+and negative/malformed-token handling all correct (`pagination_arithmetic_internal_test.go`).
+No bug found.
+
+**Adjacent finding, not a bug:** `handleListRepositories` (`handler_repositories.go`)
+hand-rolls an identical copy of `paginateStrings`'s arithmetic instead of calling it — because
+`paginateStrings` is typed `[]string`, not generic, and `ListRepositories` paginates a `[]Repository`
+slice. The duplicated arithmetic was read and is itself correct (same clamp,
+`if start > len(repos) { start = len(repos) }`, present). Separately: the real AWS
+`ListRepositoriesInput`/`ListBranchesInput` wire shapes have **no `MaxResults` field at all**
+(fixed internal batch size per AWS's own docs) — gopherstack's `maxResults` JSON field on
+both is emulator-internal and unreachable from a real SDK client, which can only ever get one
+unbounded page from either op. `ListPullRequests`, which *does* carry `MaxResults` on the real
+wire, was used for the SDK-level pagination proof instead
+(`pagination_sdk_roundtrip_test.go`).
+
+Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/codecommit/...`).
