@@ -165,6 +165,67 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 
 ## Notes
 
+### 2026-08-30 (dispatch-duplicate sweep: is the winner correct, not just which one wins)
+
+The 2026-08-22 (`gopherstack-zquj`) keycheck pass hand-resolved all 27 ops registered twice in
+`dispatchTable()` and field-diffed each winning handler's item *shape* against the SDK. This pass
+asked the stricter question that entry itself flagged as narrower than a full audit for the four
+`List*` ops: for every one of the 27 pairs, does the *shadowed loser* actually contain a stub
+that would silently start serving traffic if a future edit ever swapped its `maps.Copy` call
+after the winner's, and is the currently-winning registration provably the one still wired.
+
+Re-derived `dispatchTable()`'s real `maps.Copy` order from `handler.go` directly (did not trust
+line-number ordering in any prior note) and read both handlers in every pair. Result: all 27
+winners are already correct -- no live bug found, consistent with the 2026-08-22 field-diff.
+Three of the losers are the exact stubs a prior survey named ahead of time
+(`handleAssociateSoftwareToken`: hardcoded RFC 6238 example secret; `handleGetUserAttributeVerificationCode`:
+hardcoded `user@example.com`/`EMAIL` regardless of the real user; `handleDescribeRiskConfiguration`:
+calls the backend and discards the result, returning an empty type unconditionally). A fourth,
+not previously named, is the same class: `handleVerifyUserAttribute` calls
+`Backend.VerifyUserAttribute`, itself a documented no-op ("the mock does not send verification
+codes so all attributes are considered already verified. Returns success for any code.") --
+already shadowed by the real `VerifyUserAttributeWithCode` path (`attributesOpsC`, later in the
+`maps.Copy` chain), so not reachable, but worth naming since nothing had verified *why* the
+1b07/zquj passes' "fixed for hygiene" note didn't mean "deleted" -- it didn't; the dead handler
+bodies were still present and un-audited on this question going into this pass.
+
+The four `List*` ops closed by the 2026-08-30 cursor-population sweep and the 2026-08-29
+pagination-arithmetic sweep (`ListGroups`, `ListUsersInGroup`, `ListIdentityProviders`,
+`ListResourceServers`) were re-checked on this pass's question too: all four winners
+(`handleListGroupsFull`, `handleListUsersInGroupFull`, `handleListIdentityProvidersFull`,
+`handleListResourceServersAccurate`) are the ones actually wired, confirmed by `maps.Copy` order,
+not just by pagination behavior.
+
+Deleted all 27 shadowed loser handlers (dead code, unreachable via any real client, confirmed by
+`grep` for direct test references before removal) and their now-orphaned wire-only input/output
+types, across `handler_mfa.go`, `handler_groups.go`, `handler_identity_providers.go`,
+`handler_resource_servers.go`, `handler_domains.go`, `handler_security_config.go`,
+`handler_branding.go`, `handler_attributes.go` and their `models_*.go` siblings.
+`resourceServersOpsA()` and `attributesOpsB()` are now-empty and were deleted along with their
+`maps.Copy` call in `dispatchTable()` (the other 25 pairs' surviving groups still register at
+least one non-duplicate op, so their `*OpsA/B` functions and `maps.Copy` calls stay). Backend
+methods the deleted handlers called into (`InMemoryBackend.VerifyUserAttribute`,
+`SetRiskConfiguration`/`DescribeRiskConfiguration` raw-map variants, `GetUICustomization`/
+`SetUICustomization`) were left alone: they're exported, still exercised directly by
+`persistence_test.go`/`attributes_management_test.go`, and `SetRiskConfiguration`/
+`DescribeRiskConfiguration`'s backing map is still read/written by snapshot persistence --
+deleting them was out of this pass's scope (dispatch-table duplicates only, not backend cleanup).
+
+Added `TestVerifySoftwareToken_WrongCode_Rejected` (`mfa_test.go`, drives the real typed SDK
+client) -- the only one of the 27 pairs without an existing test that would fail if the shadowed
+`handleVerifySoftwareToken` stub (unconditional `Status: "SUCCESS"`) ever won the dispatch race.
+Strengthened `TestIdentityProvider_GetByIdentifier` to assert `AttributeMapping`/`IdpIdentifiers`/
+`CreationDate` (fields the shadowed non-Full `handleGetIdentityProviderByIdentifier` never
+populated) so it also pins wiring, not just success. Every other pair already had an existing
+test that would fail against its shadowed loser (verified by reading each test's assertions
+against what the loser actually returns, not by re-deriving from scratch) -- see the bd issue for
+the full per-pair table.
+
+`go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` all clean for
+`./services/cognitoidp/...` after the deletions (0 lint issues; the only findings during this
+pass were `goimports` trailing-blank-line diffs in the three files where a whole trailing type
+block was removed, fixed by `gofmt -w` on those three files only).
+
 ### 2026-08-29 (error-path sweep: what a typed client sees on failure)
 
 Extracted all 129 `awsAwsjson11_deserializeOpError<Op>` switches from

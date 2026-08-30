@@ -13,17 +13,6 @@ type Group struct {
 	Precedence     int32     `json:"precedence,omitempty"`
 }
 
-type createGroupInput struct {
-	UserPoolID  string `json:"UserPoolId,omitempty"`
-	GroupName   string `json:"GroupName,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Precedence  int32  `json:"Precedence,omitempty"`
-}
-
-type createGroupOutput struct {
-	Group *groupSummary `json:"Group,omitempty"`
-}
-
 type groupSummary struct {
 	GroupName    string  `json:"GroupName,omitempty"`
 	UserPoolID   string  `json:"UserPoolId,omitempty"`
@@ -38,14 +27,6 @@ type deleteGroupInput struct {
 }
 
 type deleteGroupOutput struct{}
-
-type listGroupsInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-}
-
-type listGroupsOutput struct {
-	Groups []*groupSummary `json:"Groups"`
-}
 
 type adminAddUserToGroupInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
@@ -73,35 +54,6 @@ type adminListGroupsForUserInput struct {
 type adminListGroupsForUserOutput struct {
 	NextToken string          `json:"NextToken,omitempty"`
 	Groups    []*groupSummary `json:"Groups"`
-}
-
-type listUsersInGroupInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	GroupName  string `json:"GroupName,omitempty"`
-}
-
-type listUsersInGroupOutput struct {
-	Users []*userSummary `json:"Users,omitempty"`
-}
-
-type updateGroupInput struct {
-	UserPoolID  string `json:"UserPoolId,omitempty"`
-	GroupName   string `json:"GroupName,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Precedence  int32  `json:"Precedence,omitempty"`
-}
-
-type updateGroupOutput struct {
-	Group *groupSummary `json:"Group,omitempty"`
-}
-
-type getGroupInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	GroupName  string `json:"GroupName,omitempty"`
-}
-
-type getGroupOutput struct {
-	Group *groupSummary `json:"Group,omitempty"`
 }
 
 type createGroupFullInput struct {

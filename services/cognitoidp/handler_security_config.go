@@ -242,28 +242,6 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 	return out
 }
 
-func (h *Handler) handleDescribeRiskConfiguration(
-	_ context.Context,
-	in *describeRiskConfigurationInput,
-) (*describeRiskConfigurationOutput, error) {
-	if _, err := h.Backend.DescribeRiskConfiguration(in.UserPoolID, in.ClientID); err != nil {
-		return nil, err
-	}
-
-	return &describeRiskConfigurationOutput{RiskConfiguration: &riskConfigurationType{}}, nil
-}
-
-func (h *Handler) handleSetRiskConfiguration(
-	_ context.Context,
-	in *setRiskConfigurationInput,
-) (*setRiskConfigurationOutput, error) {
-	if err := h.Backend.SetRiskConfiguration(in.UserPoolID, in.ClientID, nil); err != nil {
-		return nil, err
-	}
-
-	return &setRiskConfigurationOutput{RiskConfiguration: &riskConfigurationType{}}, nil
-}
-
 func (h *Handler) handleGetLogDeliveryConfiguration(
 	_ context.Context,
 	in *getLogDeliveryConfigurationInput,
@@ -304,10 +282,8 @@ func (h *Handler) handleSetLogDeliveryConfiguration(
 
 func (h *Handler) securityConfigOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"DescribeRiskConfiguration":   service.WrapOp(h.handleDescribeRiskConfiguration),
 		"GetLogDeliveryConfiguration": service.WrapOp(h.handleGetLogDeliveryConfiguration),
 		"SetLogDeliveryConfiguration": service.WrapOp(h.handleSetLogDeliveryConfiguration),
-		"SetRiskConfiguration":        service.WrapOp(h.handleSetRiskConfiguration),
 	}
 }
 

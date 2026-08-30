@@ -345,7 +345,8 @@ func TestIdentityProvider_GetByIdentifier(t *testing.T) {
 			"client_secret":    "amzn-sec",
 			"authorize_scopes": "profile",
 		},
-		"IdpIdentifiers": []string{"amazon.com"},
+		"AttributeMapping": map[string]string{"email": "email"},
+		"IdpIdentifiers":   []string{"amazon.com"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -357,12 +358,22 @@ func TestIdentityProvider_GetByIdentifier(t *testing.T) {
 
 	var out struct {
 		IdentityProvider *struct {
-			ProviderName string `json:"ProviderName,omitempty"`
+			ProviderName     string            `json:"ProviderName,omitempty"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			IdpIdentifiers   []string          `json:"IdpIdentifiers,omitempty"`
+			CreationDate     float64           `json:"CreationDate,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.NotNil(t, out.IdentityProvider)
 	assert.Equal(t, "LoginWithAmazon", out.IdentityProvider.ProviderName)
+	// AttributeMapping/IdpIdentifiers/CreationDate only appear on the "Full"
+	// handler's output shape (identityProvidersOpsC, the later maps.Copy
+	// registration) -- the shadowed loser's identityProviderType lacks them
+	// entirely, so this pins which handler is actually wired.
+	assert.Equal(t, "email", out.IdentityProvider.AttributeMapping["email"])
+	assert.Contains(t, out.IdentityProvider.IdpIdentifiers, "amazon.com")
+	assert.Greater(t, out.IdentityProvider.CreationDate, float64(0))
 }
 
 func TestIdentityProvider_List_WithTimestamps(t *testing.T) {

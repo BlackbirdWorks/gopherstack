@@ -24,38 +24,12 @@ func toGroupSummary(g *Group) *groupSummary {
 	}
 }
 
-func (h *Handler) handleCreateGroup(
-	_ context.Context,
-	in *createGroupInput,
-) (*createGroupOutput, error) {
-	g, err := h.Backend.CreateGroup(in.UserPoolID, in.GroupName, in.Description, in.Precedence)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createGroupOutput{Group: toGroupSummary(g)}, nil
-}
-
 func (h *Handler) handleDeleteGroup(_ context.Context, in *deleteGroupInput) (*deleteGroupOutput, error) {
 	if err := h.Backend.DeleteGroup(in.UserPoolID, in.GroupName); err != nil {
 		return nil, err
 	}
 
 	return &deleteGroupOutput{}, nil
-}
-
-func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
-	groups, err := h.Backend.ListGroups(in.UserPoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]*groupSummary, 0, len(groups))
-	for _, g := range groups {
-		out = append(out, toGroupSummary(g))
-	}
-
-	return &listGroupsOutput{Groups: out}, nil
 }
 
 func (h *Handler) handleAdminAddUserToGroup(
@@ -97,41 +71,6 @@ func (h *Handler) handleAdminListGroupsForUser(
 	}
 
 	return &adminListGroupsForUserOutput{Groups: out, NextToken: pg.Next}, nil
-}
-
-func (h *Handler) handleListUsersInGroup(
-	_ context.Context,
-	in *listUsersInGroupInput,
-) (*listUsersInGroupOutput, error) {
-	users, err := h.Backend.ListUsersInGroup(in.UserPoolID, in.GroupName)
-	if err != nil {
-		return nil, err
-	}
-
-	summaries := make([]*userSummary, 0, len(users))
-	for _, u := range users {
-		summaries = append(summaries, toUserSummary(u))
-	}
-
-	return &listUsersInGroupOutput{Users: summaries}, nil
-}
-
-func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
-	g, err := h.Backend.UpdateGroup(in.UserPoolID, in.GroupName, in.Description, in.Precedence)
-	if err != nil {
-		return nil, err
-	}
-
-	return &updateGroupOutput{Group: toGroupSummary(g)}, nil
-}
-
-func (h *Handler) handleGetGroup(_ context.Context, in *getGroupInput) (*getGroupOutput, error) {
-	g, err := h.Backend.GetGroup(in.UserPoolID, in.GroupName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &getGroupOutput{Group: toGroupSummary(g)}, nil
 }
 
 func (h *Handler) handleCreateGroupFull(
@@ -228,15 +167,10 @@ func toGroupFullSummary(g *Group) *groupFullSummary {
 
 func (h *Handler) groupsOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateGroup":              service.WrapOp(h.handleCreateGroup),
 		"DeleteGroup":              service.WrapOp(h.handleDeleteGroup),
-		"GetGroup":                 service.WrapOp(h.handleGetGroup),
-		"ListGroups":               service.WrapOp(h.handleListGroups),
 		"AdminAddUserToGroup":      service.WrapOp(h.handleAdminAddUserToGroup),
 		"AdminRemoveUserFromGroup": service.WrapOp(h.handleAdminRemoveUserFromGroup),
 		"AdminListGroupsForUser":   service.WrapOp(h.handleAdminListGroupsForUser),
-		"ListUsersInGroup":         service.WrapOp(h.handleListUsersInGroup),
-		"UpdateGroup":              service.WrapOp(h.handleUpdateGroup),
 	}
 }
 

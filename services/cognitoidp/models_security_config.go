@@ -165,26 +165,6 @@ type setRiskConfigFullOutput struct {
 	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration,omitempty"`
 }
 
-type describeRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type riskConfigurationType struct{}
-
-type describeRiskConfigurationOutput struct {
-	RiskConfiguration *riskConfigurationType `json:"RiskConfiguration,omitempty"`
-}
-
-type setRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type setRiskConfigurationOutput struct {
-	RiskConfiguration *riskConfigurationType `json:"RiskConfiguration,omitempty"`
-}
-
 type getLogDeliveryConfigurationInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 }

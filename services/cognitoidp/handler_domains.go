@@ -63,18 +63,6 @@ func (h *Handler) handleUpdateUserPoolDomainFull(
 	}, nil
 }
 
-func (h *Handler) handleCreateUserPoolDomain(
-	_ context.Context,
-	in *createUserPoolDomainInput,
-) (*createUserPoolDomainOutput, error) {
-	d, err := h.Backend.CreateUserPoolDomain(in.UserPoolID, in.Domain)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createUserPoolDomainOutput{CloudFrontDomain: d.CloudFrontDistribution}, nil
-}
-
 func (h *Handler) handleDeleteUserPoolDomain(
 	_ context.Context,
 	in *deleteUserPoolDomainInput,
@@ -115,24 +103,10 @@ func (h *Handler) handleDescribeUserPoolDomain(
 	return &describeUserPoolDomainOutput{DomainDescription: desc}, nil
 }
 
-func (h *Handler) handleUpdateUserPoolDomain(
-	_ context.Context,
-	in *updateUserPoolDomainInput,
-) (*updateUserPoolDomainOutput, error) {
-	cfDomain, err := h.Backend.UpdateUserPoolDomain(in.UserPoolID, in.Domain)
-	if err != nil {
-		return nil, err
-	}
-
-	return &updateUserPoolDomainOutput{CloudFrontDomain: cfDomain}, nil
-}
-
 func (h *Handler) domainsOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPoolDomain":   service.WrapOp(h.handleCreateUserPoolDomain),
 		"DeleteUserPoolDomain":   service.WrapOp(h.handleDeleteUserPoolDomain),
 		"DescribeUserPoolDomain": service.WrapOp(h.handleDescribeUserPoolDomain),
-		"UpdateUserPoolDomain":   service.WrapOp(h.handleUpdateUserPoolDomain),
 	}
 }
 
