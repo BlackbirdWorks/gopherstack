@@ -2,8 +2,84 @@
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.319.1   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit:                                # unknown: pass was instructed not to commit and had no git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-07
-overall: A   # unrecorded-Describe/List sweep (this pass, gopherstack wrapper-key-sweep branch):
+last_audit_date: 2026-08-30
+overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
+             # branch): regenerated the prior pass's "18 remaining" list from scratch --
+             # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
+             # and the map-literal `"OpName": h.handleOpName`), restricted to Describe*/List*,
+             # non-test files only -- 192 such registrations. `LC_ALL=C comm -23` against every
+             # (Describe|List)[A-Za-z]+ token appearing anywhere in this file's prose returned
+             # only 3 names (DescribeTransitGatewayConnectPeers/PeeringAttachments/RouteTables),
+             # not 16 or 18 -- a false negative: the prior pass's own note names those three via
+             # a slash-joined "DescribeTransitGatewayConnects/ConnectPeers/PeeringAttachments/
+             # RouteTables" sentence that a whole-token regex can't split, so they read as
+             # "already named" even though they're genuinely covered elsewhere (confirmed still
+             # real, in wire_field_fixes_ec2sweep36_test.go). Mechanical comm-diffing doesn't
+             # work here because this file's prose names virtually every op somewhere (including
+             # in "not yet audited" sentences) -- "named" isn't "recorded as verified". Fell back
+             # to reading the prior pass's own explicit "18 of the 37 remain genuinely unreached
+             # this pass (not audited)" sentence directly: it lists 20 raw names, 4 of which
+             # (DescribeIamInstanceProfileAssociations, DescribeLaunchTemplates,
+             # DescribeLaunchTemplateVersions, DescribePrincipalIdFormat) already had a bug fixed
+             # and were parenthetically excluded from the "not audited" framing even though still
+             # listed -- leaving 16, which matches the task's given list exactly (not 18; trusting
+             # the regenerated/cross-checked list per instructions, and saying so). Audited all
+             # 16: DescribeAggregateIdFormat, DescribeInstanceEventNotificationAttributes,
+             # DescribeFpgaImageAttribute, and DescribeNetworkInterfaceAttribute were CONFIRMED
+             # CORRECT (the first two take no parameters beyond DryRun on the real wire --
+             # nothing to misread; FpgaImageAttribute/NetworkInterfaceAttribute both correctly
+             # read their scalar FpgaImageId/NetworkInterfaceId + Attribute keys and switch on the
+             # real enum, returning only the matching block, with NetworkInterfaceAttribute's
+             # groupSet/associatePublicIpAddress gap already honestly documented in-code).
+             # DescribeIpamPools/DescribeIpamScopes/DescribeAwsNetworkPerformanceMetricSubscriptions/
+             # DescribeExportTasks/DescribeVpnConcentrators all correctly read their FlatKey ID
+             # lists but never read their declared Filters -- NOT fixed: unlike every other target
+             # below, the pinned SDK's generated doc comment for these five gives no per-filter
+             # name at all ("One or more filters." / "the filters for the export tasks." / "One or
+             # more filters to limit the results."), so implementing named filter matching here
+             # would mean fabricating filter semantics never verified against the wire; recorded as
+             # a real, deliberately-unfixed gap rather than faked. FIXED 7 unread-Filters bugs, all
+             # confirmed to fail against pre-fix code first, all with SDK-doc-enumerated filter
+             # names AND backend fields to back them: (1) DescribeClassicLinkInstances (group-id,
+             # vpc-id, tag: -- ClassicLinkInstance already tracks Groups/VpcID).
+             # (2) DescribeSecondaryNetworks (owner-id, secondary-network-id/-arn, state, type,
+             # ipv4-cidr-block-association.*, tag:). (3) DescribeSecondarySubnets (owner-id,
+             # secondary-network-id/-type, secondary-subnet-id/-arn, state,
+             # ipv4-cidr-block-association.*, tag:). (4) DescribeSecondaryInterfaces (owner-id,
+             # status, secondary-interface-id/-arn/-type, secondary-network-id/-type,
+             # secondary-subnet-id, attachment.instance-id,
+             # private-ipv4-addresses.private-ip-address, tag:). (5) DescribeServiceLinkVirtualInterfaces
+             # (owner-id, outpost-lag-id, outpost-arn, state, vlan,
+             # service-link-virtual-interface-id, tag:). (6) DescribeInstanceSqlHaHistoryStates
+             # (haStatus, sqlServerLicenseUsage, tag:). (7) DescribeImageUsageReportEntries
+             # (account-id, resource-type, creation-time with the documented "*" day-wildcard).
+             # tag-key is documented on all seven but deliberately left unimplemented, matching
+             # this file's pre-existing convention (no existing applyXxxFilters function
+             # implements tag-key either). New code: handler_filters.go gained
+             # applyClassicLinkInstanceFilters/applySecondaryInterfaceFilters/
+             # applySecondaryNetworkFilters/applySecondarySubnetFilters/
+             # applyServiceLinkVirtualInterfaceFilters/applySQLHaHistoryFilters/
+             # applyImageUsageReportEntryFilters (+ an anyContains helper for list-membership
+             # filters), wired into the five ops' existing handlers
+             # (handler_vpc_config.go/handler_secondary_net.go/handler_sql_ha.go/
+             # handler_image_ops.go); no Backend interface signature changed. No new Go-type
+             # mismatches found across any of the 16 -- every scalar/list/enum already matched its
+             # real wire type. New tests: wire_field_fixes_ec2sweep42_test.go (7 real-client
+             # tests, one per fix, each confirmed to fail against pre-fix code by reverting the
+             # handler/filter files to HEAD and re-running before restoring the fix). Gates:
+             # build/vet/race all clean; `golangci-lint run` initially flagged cyclop (2,
+             # decomposed the two ipv4-cidr-block-association.* switches into small per-field
+             # helpers) and goconst (5, extracted filterKeyOwnerID/filterKeySecondaryNetID/
+             # filterKeyResourceType/filterKeyAttachInstanceID constants, reusing
+             # filterKeyResourceType in the pre-existing handler_tags.go too) and golines (1, in
+             # the new test file) -- all fixed without nolints; 0 issues on the final run,
+             # verified as caused by this pass's own new code (the flagged lines were all in this
+             # pass's new functions/file). Repo-wide `go vet ./...` also run since instructed to
+             # for this scope (no signature changed, so not strictly required) -- confirms 0
+             # ec2-related findings; the acmpca build failures it surfaces are pre-existing and
+             # out of this pass's scope (another agent's target directory).
+             # ---- prior pass's note follows ----
+             # unrecorded-Describe/List sweep (this pass, gopherstack wrapper-key-sweep branch):
              # regenerated the list of implemented Describe/List operations this file had never
              # recorded as verified (grepped every "OpName": h.handleOpName / ops["OpName"] =
              # h.handleOpName dispatch-table registration, stripped anything ending in "Response",

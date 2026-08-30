@@ -149,7 +149,9 @@ func (h *Handler) handleDescribeInstanceSQLHaHistoryStates(vals url.Values, reqI
 	startTime, _ := time.Parse(time.RFC3339, vals.Get("StartTime"))
 	endTime, _ := time.Parse(time.RFC3339, vals.Get("EndTime"))
 
-	regs := h.Backend.DescribeInstanceSQLHaHistoryStates(instanceIDs, startTime, endTime)
+	regs := applySQLHaHistoryFilters(
+		h.Backend.DescribeInstanceSQLHaHistoryStates(instanceIDs, startTime, endTime), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeInstanceSQLHaHistoryStatesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range regs {

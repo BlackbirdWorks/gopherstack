@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // This file adds EC2 filter matching for resource types that previously
@@ -31,6 +32,10 @@ const (
 	filterKeyResourceID       = "resource-id"
 	filterKeyInstanceType     = "instance-type"
 	filterKeyType             = "type"
+	filterKeyOwnerID          = "owner-id"
+	filterKeySecondaryNetID   = "secondary-network-id"
+	filterKeyResourceType     = "resource-type"
+	filterKeyAttachInstanceID = "attachment.instance-id"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -170,7 +175,7 @@ func volumeMatchesFilter(vol *Volume, filterName string, values []string, b Back
 		want := anyEqual("true", values)
 
 		return vol.Encrypted == want
-	case "attachment.instance-id":
+	case filterKeyAttachInstanceID:
 		if vol.Attachment == nil {
 			return false
 		}
@@ -409,7 +414,7 @@ func eniMatchesFilter(eni *NetworkInterface, filterName string, values []string,
 		return anyEqual(eni.Description, values)
 	case "private-ip-address":
 		return anyEqual(eni.PrivateIP, values)
-	case "attachment.instance-id":
+	case filterKeyAttachInstanceID:
 		return anyEqual(eni.InstanceID, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
@@ -1046,7 +1051,7 @@ mplLoop:
 
 func managedPrefixListMatchesFilter(pl *ManagedPrefixList, filterName string, values []string) bool {
 	switch filterName {
-	case "owner-id":
+	case filterKeyOwnerID:
 		return anyEqual(pl.OwnerID, values)
 	case "prefix-list-id":
 		return anyEqual(pl.PrefixListID, values)
@@ -1172,7 +1177,7 @@ func carrierGatewayMatchesFilter(gw *CarrierGateway, filterName string, values [
 		return anyEqual(gw.CarrierGatewayID, values)
 	case filterKeyState:
 		return anyEqual(gw.State, values)
-	case "owner-id":
+	case filterKeyOwnerID:
 		return anyEqual(gw.OwnerID, values)
 	case filterKeyVPCID:
 		return anyEqual(gw.VpcID, values)
@@ -1526,6 +1531,421 @@ func vpnGatewayMatchesFilter(gw *VpnGateway, filterName string, values []string,
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
 			return tagMatch(gw.VpnGatewayID, tagKey, values, b)
 		}
+	}
+
+	return true
+}
+
+// anyContains returns true when any element of list equals any of values.
+func anyContains(list []string, values []string) bool {
+	for _, item := range list {
+		if anyEqual(item, values) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// applyClassicLinkInstanceFilters supports group-id, vpc-id, and tag:
+// (api_op_DescribeClassicLinkInstances.go). tag-key is documented but not
+// implemented, matching this file's existing convention.
+func applyClassicLinkInstanceFilters(
+	links []*ClassicLinkInstance, filters map[string][]string, b Backend,
+) []*ClassicLinkInstance {
+	if len(filters) == 0 {
+		return links
+	}
+
+	out := links[:0:0]
+
+clLoop:
+	for _, link := range links {
+		for name, values := range filters {
+			if !classicLinkInstanceMatchesFilter(link, name, values, b) {
+				continue clLoop
+			}
+		}
+
+		out = append(out, link)
+	}
+
+	return out
+}
+
+func classicLinkInstanceMatchesFilter(link *ClassicLinkInstance, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "group-id":
+		return anyContains(link.Groups, values)
+	case filterKeyVPCID:
+		return anyEqual(link.VpcID, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(link.InstanceID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applySecondaryInterfaceFilters supports owner-id, status,
+// secondary-interface-id, secondary-interface-arn, secondary-interface-type,
+// secondary-network-id, secondary-network-type, secondary-subnet-id,
+// attachment.instance-id, private-ipv4-addresses.private-ip-address, and tag:
+// (api_op_DescribeSecondaryInterfaces.go). attachment.attachment-id,
+// attachment.instance-owner-id, attachment.status, and tag-key are
+// documented but not tracked by this backend's SecondaryInterface struct.
+func applySecondaryInterfaceFilters(
+	sis []*SecondaryInterface, filters map[string][]string, b Backend,
+) []*SecondaryInterface {
+	if len(filters) == 0 {
+		return sis
+	}
+
+	out := sis[:0:0]
+
+siLoop:
+	for _, si := range sis {
+		for name, values := range filters {
+			if !secondaryInterfaceMatchesFilter(si, name, values, b) {
+				continue siLoop
+			}
+		}
+
+		out = append(out, si)
+	}
+
+	return out
+}
+
+func secondaryInterfaceMatchesFilter(si *SecondaryInterface, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case filterKeyOwnerID:
+		return anyEqual(si.OwnerID, values)
+	case filterKeyStatus:
+		return anyEqual(si.Status, values)
+	case "secondary-interface-id":
+		return anyEqual(si.SecondaryInterfaceID, values)
+	case "secondary-interface-arn":
+		return anyEqual(si.SecondaryInterfaceArn, values)
+	case "secondary-interface-type":
+		return anyEqual(si.SecondaryInterfaceType, values)
+	case filterKeySecondaryNetID:
+		return anyEqual(si.SecondaryNetworkID, values)
+	case "secondary-network-type":
+		return anyEqual(si.SecondaryNetworkType, values)
+	case "secondary-subnet-id":
+		return anyEqual(si.SecondarySubnetID, values)
+	case filterKeyAttachInstanceID:
+		return anyEqual(si.InstanceID, values)
+	case "private-ipv4-addresses.private-ip-address":
+		return anyContains(si.PrivateIpv4Addresses, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(si.SecondaryInterfaceID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applySecondaryNetworkFilters supports owner-id, secondary-network-id,
+// secondary-network-arn, state, type, ipv4-cidr-block-association.*, and tag:
+// (api_op_DescribeSecondaryNetworks.go). tag-key is documented but not
+// implemented, matching this file's existing convention.
+func applySecondaryNetworkFilters(
+	nets []*SecondaryNetwork, filters map[string][]string, b Backend,
+) []*SecondaryNetwork {
+	if len(filters) == 0 {
+		return nets
+	}
+
+	out := nets[:0:0]
+
+netLoop:
+	for _, n := range nets {
+		for name, values := range filters {
+			if !secondaryNetworkMatchesFilter(n, name, values, b) {
+				continue netLoop
+			}
+		}
+
+		out = append(out, n)
+	}
+
+	return out
+}
+
+// secondaryNetworkCidrAssocField returns the association field matching
+// filterName's "ipv4-cidr-block-association.*" suffix, and whether
+// filterName was recognized as one of that family.
+func secondaryNetworkCidrAssocField(assoc SecondaryNetworkCidrAssoc, filterName string) (string, bool) {
+	switch filterName {
+	case "ipv4-cidr-block-association.association-id":
+		return assoc.AssociationID, true
+	case "ipv4-cidr-block-association.cidr-block":
+		return assoc.CidrBlock, true
+	case "ipv4-cidr-block-association.state":
+		return assoc.State, true
+	default:
+		return "", false
+	}
+}
+
+func secondaryNetworkMatchesFilter(n *SecondaryNetwork, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case filterKeyOwnerID:
+		return anyEqual(n.OwnerID, values)
+	case filterKeySecondaryNetID:
+		return anyEqual(n.SecondaryNetworkID, values)
+	case "secondary-network-arn":
+		return anyEqual(n.SecondaryNetworkArn, values)
+	case filterKeyState:
+		return anyEqual(n.State, values)
+	case filterKeyType:
+		return anyEqual(n.Type, values)
+	default:
+		if _, recognized := secondaryNetworkCidrAssocField(SecondaryNetworkCidrAssoc{}, filterName); recognized {
+			for _, assoc := range n.Ipv4CidrBlockAssociations {
+				field, _ := secondaryNetworkCidrAssocField(assoc, filterName)
+				if anyEqual(field, values) {
+					return true
+				}
+			}
+
+			return false
+		}
+
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(n.SecondaryNetworkID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applySecondarySubnetFilters supports owner-id, secondary-network-id,
+// secondary-network-type, secondary-subnet-id, secondary-subnet-arn, state,
+// ipv4-cidr-block-association.*, and tag: (api_op_DescribeSecondarySubnets.go).
+// tag-key is documented but not implemented, matching this file's existing
+// convention.
+func applySecondarySubnetFilters(
+	subs []*SecondarySubnet, filters map[string][]string, b Backend,
+) []*SecondarySubnet {
+	if len(filters) == 0 {
+		return subs
+	}
+
+	out := subs[:0:0]
+
+subLoop:
+	for _, s := range subs {
+		for name, values := range filters {
+			if !secondarySubnetMatchesFilter(s, name, values, b) {
+				continue subLoop
+			}
+		}
+
+		out = append(out, s)
+	}
+
+	return out
+}
+
+// secondarySubnetCidrAssocField returns the association field matching
+// filterName's "ipv4-cidr-block-association.*" suffix, and whether
+// filterName was recognized as one of that family.
+func secondarySubnetCidrAssocField(assoc SecondarySubnetCidrAssoc, filterName string) (string, bool) {
+	switch filterName {
+	case "ipv4-cidr-block-association.association-id":
+		return assoc.AssociationID, true
+	case "ipv4-cidr-block-association.cidr-block":
+		return assoc.CidrBlock, true
+	case "ipv4-cidr-block-association.state":
+		return assoc.State, true
+	default:
+		return "", false
+	}
+}
+
+func secondarySubnetMatchesFilter(s *SecondarySubnet, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case filterKeyOwnerID:
+		return anyEqual(s.OwnerID, values)
+	case filterKeySecondaryNetID:
+		return anyEqual(s.SecondaryNetworkID, values)
+	case "secondary-network-type":
+		return anyEqual(s.SecondaryNetworkType, values)
+	case "secondary-subnet-id":
+		return anyEqual(s.SecondarySubnetID, values)
+	case "secondary-subnet-arn":
+		return anyEqual(s.SecondarySubnetArn, values)
+	case filterKeyState:
+		return anyEqual(s.State, values)
+	default:
+		if _, recognized := secondarySubnetCidrAssocField(SecondarySubnetCidrAssoc{}, filterName); recognized {
+			for _, assoc := range s.Ipv4CidrBlockAssociations {
+				field, _ := secondarySubnetCidrAssocField(assoc, filterName)
+				if anyEqual(field, values) {
+					return true
+				}
+			}
+
+			return false
+		}
+
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(s.SecondarySubnetID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyServiceLinkVirtualInterfaceFilters supports owner-id, outpost-lag-id,
+// outpost-arn, state, vlan, service-link-virtual-interface-id, and tag:
+// (api_op_DescribeServiceLinkVirtualInterfaces.go). local-gateway-virtual-
+// interface-id and tag-key are documented but not tracked by this backend's
+// ServiceLinkVirtualInterface struct.
+func applyServiceLinkVirtualInterfaceFilters(
+	vifs []*ServiceLinkVirtualInterface, filters map[string][]string, b Backend,
+) []*ServiceLinkVirtualInterface {
+	if len(filters) == 0 {
+		return vifs
+	}
+
+	out := vifs[:0:0]
+
+vifLoop:
+	for _, v := range vifs {
+		for name, values := range filters {
+			if !serviceLinkVirtualInterfaceMatchesFilter(v, name, values, b) {
+				continue vifLoop
+			}
+		}
+
+		out = append(out, v)
+	}
+
+	return out
+}
+
+func serviceLinkVirtualInterfaceMatchesFilter(
+	v *ServiceLinkVirtualInterface, filterName string, values []string, b Backend,
+) bool {
+	switch filterName {
+	case filterKeyOwnerID:
+		return anyEqual(v.OwnerID, values)
+	case "outpost-lag-id":
+		return anyEqual(v.OutpostLagID, values)
+	case "outpost-arn":
+		return anyEqual(v.OutpostArn, values)
+	case filterKeyState:
+		return anyEqual(v.ConfigurationState, values)
+	case "vlan":
+		return anyEqual(strconv.Itoa(int(v.Vlan)), values)
+	case "service-link-virtual-interface-id":
+		return anyEqual(v.ServiceLinkVirtualInterfaceID, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(v.ServiceLinkVirtualInterfaceID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applySQLHaHistoryFilters supports haStatus, sqlServerLicenseUsage, and
+// tag: (api_op_DescribeInstanceSqlHaHistoryStates.go). tag-key is
+// documented but not implemented, matching this file's existing convention.
+func applySQLHaHistoryFilters(
+	regs []*RegisteredSQLHaInstance, filters map[string][]string, b Backend,
+) []*RegisteredSQLHaInstance {
+	if len(filters) == 0 {
+		return regs
+	}
+
+	out := regs[:0:0]
+
+haLoop:
+	for _, r := range regs {
+		for name, values := range filters {
+			if !sqlHaHistoryMatchesFilter(r, name, values, b) {
+				continue haLoop
+			}
+		}
+
+		out = append(out, r)
+	}
+
+	return out
+}
+
+func sqlHaHistoryMatchesFilter(r *RegisteredSQLHaInstance, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case "haStatus":
+		return anyEqual(r.HaStatus, values)
+	case "sqlServerLicenseUsage":
+		return anyEqual(r.SQLServerLicenseUsage, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(r.InstanceID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyImageUsageReportEntryFilters supports account-id, resource-type, and
+// creation-time (api_op_DescribeImageUsageReportEntries.go). creation-time
+// supports the documented "*" wildcard suffix (e.g. "2025-11-29*") to match
+// an entire day/prefix, plus an exact RFC3339 match.
+func applyImageUsageReportEntryFilters(
+	entries []*UsageReportEntry, filters map[string][]string,
+) []*UsageReportEntry {
+	if len(filters) == 0 {
+		return entries
+	}
+
+	out := entries[:0:0]
+
+entryLoop:
+	for _, e := range entries {
+		for name, values := range filters {
+			if !usageReportEntryMatchesFilter(e, name, values) {
+				continue entryLoop
+			}
+		}
+
+		out = append(out, e)
+	}
+
+	return out
+}
+
+func usageReportEntryMatchesFilter(e *UsageReportEntry, filterName string, values []string) bool {
+	switch filterName {
+	case "account-id":
+		return anyEqual(e.AccountID, values)
+	case filterKeyResourceType:
+		return anyEqual(e.ResourceType, values)
+	case "creation-time":
+		creationTime := e.ReportCreationTime.UTC().Format(time.RFC3339Nano)
+		for _, v := range values {
+			if prefix, ok := strings.CutSuffix(v, "*"); ok {
+				if strings.HasPrefix(creationTime, prefix) {
+					return true
+				}
+
+				continue
+			}
+
+			if creationTime == v {
+				return true
+			}
+		}
+
+		return false
 	}
 
 	return true

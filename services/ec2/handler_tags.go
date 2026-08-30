@@ -10,10 +10,10 @@ import (
 //
 //nolint:gochecknoglobals // lookup set
 var validDescribeTagsFilters = map[string]bool{
-	"key":           true,
-	"resource-id":   true,
-	"resource-type": true,
-	"value":         true,
+	"key":                 true,
+	"resource-id":         true,
+	filterKeyResourceType: true,
+	"value":               true,
 }
 
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
@@ -48,7 +48,7 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 			keyFilters = filterVals
 		case "value":
 			valueFilters = filterVals
-		case "resource-type":
+		case filterKeyResourceType:
 			typeFilters = filterVals
 		}
 	}
