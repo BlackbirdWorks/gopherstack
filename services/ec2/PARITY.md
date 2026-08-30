@@ -3005,3 +3005,138 @@ last, no remaining `--fix` diff). No banned `//nolint`s. Did NOT commit or
 push -- all changes left in the working tree per this session's explicit
 instruction.
 
+## 2026-08-30 -- value-semantics filter audit (gopherstack-uox6)
+
+Targeted pass for the bug class named in gopherstack-uox6: a filter
+parameter that is read and applied, but with the wrong semantics --
+invisible to every wire-shape/field-coverage scan because the field itself
+is real. Confirmed `handler_filters.go`'s general convention (AND across
+filter names, OR within a filter's values, case-sensitive, no negation
+modifier) matches `types.Filter`'s own doc comment
+(aws-sdk-go-v2/service/ec2/types/types.go:6432) across every `apply*Filters`
+function in that file; wildcards are NOT documented on ordinary string
+filters (only on specific timestamp filters as a `*` day-suffix, e.g.
+`creation-date`/`launch-time`/the image-watermark timestamps), so the
+plain-equality matchers throughout are correct as written, not a gap.
+
+Four real bugs found and fixed, all confirmed failing against unmodified
+code first, all real-aws-sdk-go-v2-client-driven:
+
+1. **DescribeImageUsageReportEntries `creation-time` exact match**
+   (`handler_filters.go` `usageReportEntryMatchesFilter`). The day-wildcard
+   form was already correct, but the exact-match branch formatted the
+   entry's `ReportCreationTime` with `time.RFC3339Nano` while
+   `toImageUsageReportEntryItem` (`handler_image_ops.go`) puts the same
+   field on the wire with plain `time.RFC3339` (no fractional seconds).
+   Since the underlying `time.Time` almost always carries a nonzero
+   nanosecond component, an exact-match filter built from the timestamp the
+   API itself just returned never matched its own record. Under-matching.
+   Fixed by formatting with `time.RFC3339` in both places. Test:
+   `wire_field_fixes_creationtime_filter_test.go`.
+
+2. **DescribeSecurityGroupRules `group-id` filter, multiple values**
+   (`handler_security_groups.go` `handleDescribeSecurityGroupRules`). Read
+   only `filters["group-id"][0]`, discarding every value after the first --
+   the confirmed "list consumed only at its first element" shape. A
+   multi-value `group-id` filter silently dropped every group past the
+   first. Under-matching. Fixed by looping over all values and merging each
+   group's rules (`Backend.DescribeSecurityGroupRules(groupID string)`
+   itself unchanged -- no cross-service callers, confirmed by repo-wide
+   grep). `security-group-rule-id` and `tag:` (also documented on
+   `DescribeSecurityGroupRulesInput.Filters`) remain unimplemented --
+   recorded as a gap, not fixed: this backend has no rule-ID-keyed lookup,
+   only group-keyed. Test:
+   `wire_field_fixes_sg_rules_multivalue_test.go`.
+
+3. **SearchLocalGatewayRoutes `state` vs `route-search.exact-match`**
+   (`handler_local_gateway.go` `searchLocalGatewayRouteStates`). Two
+   distinct, separately-documented filter names
+   (api_op_SearchLocalGatewayRoutes.go: `state` - "The state of the route."
+   vs `route-search.exact-match` - "The exact match of the specified
+   filter.") were folded into one `[]string` and matched against the
+   route's `State` field, so any `route-search.exact-match` filter --
+   whatever it is meant to match -- excluded every real route (no route's
+   `State` is ever a CIDR/prefix string). Also read only
+   `Filter.N.Value.1`, dropping additional `state` values. Both
+   under-matching. Fixed by scoping the value-collection loop to `state`
+   only and reading all `Value.M` indices. `route-search.exact-match` /
+   `-longest-prefix-match` / `-subnet-of-match` / `-supernet-of-match` /
+   `prefix-list-id` / `type` remain unimplemented -- the AWS web page
+   fetched for this operation (see below) gives no more precision than the
+   SDK doc comment on what `route-search.exact-match` actually matches
+   (CIDR? prefix-list? destination?), so implementing CIDR-matching
+   semantics here would be fabrication, not verification; left as a gap
+   rather than guessed. Test:
+   `wire_field_fixes_local_gateway_route_filters_test.go`.
+
+4. **DescribeTags `tag:<key>` filter rejected as unknown**
+   (`handler_tags.go` `handleDescribeTags`). `validDescribeTagsFilters` is
+   an exact-match set of the four literal filter names
+   (`key`/`resource-id`/`resource-type`/`value`); `tag:<key>` is a fifth,
+   separately documented filter name with a dynamic suffix
+   (api_op_DescribeTags.go: `tag : - The key/value combination of the
+   tag...`), so every `tag:<key>` filter -- a legitimate, common request
+   shape -- was rejected outright with `InvalidParameterValue: unknown
+   filter name`, not merely mis-matched. Under-matching via wrongful
+   rejection. Fixed by recognizing the `tag:` prefix before the
+   unknown-name check and matching entries whose `Key`/`Value` satisfy each
+   `tag:<key>` filter, ANDed with the existing filters per the file's
+   standard combining rule. Decomposed `handleDescribeTags` into
+   `parseDescribeTagsFilters` + `describeTagsFilters.matches` to keep
+   `gocognit` under the repo's threshold without a nolint. Test:
+   `wire_field_fixes_describetags_tagkey_filter_test.go`.
+
+Checked and confirmed correct, not modified: `imageMatchesFilter`'s `name`
+filter uses plain equality, matching that `DescribeImagesInput.Filters`
+documents wildcards only on `creation-date`/`image-watermark.*` timestamps,
+not on `name` (api_op_DescribeImages.go); boolean-valued filters
+(`isDefault`, `encrypted`, `default`, `entry.egress`, etc.) all compare
+against the literal string `"true"`, matching every Boolean filter's
+documented `true`/`false` spelling; no EC2 filter anywhere in this package
+documents a `!`-negation modifier (grepped the pinned SDK for
+"negat"/"exclamation"/"prefixed with", no hits), so the secretsmanager-class
+negation bug does not apply here; `addressMatchesFilter`'s `domain` case
+(comparing the constant `"vpc"` against filter values rather than a
+per-address field) is not a bug -- `Address` has no stored `Domain` field
+because every address this backend ever creates is VPC-domain
+(`handler_elastic_ips.go` hardcodes `Domain: resourceTypeVPC}` on every
+response item), so the constant-vs-filter comparison is the correct
+encoding of "this address's domain is always vpc", just written tersely.
+
+Gap noted, not fixed: `handleDescribeAddresses` folds the `PublicIps`
+direct request member into the same `filters["public-ip"]` OR-group as any
+independent `Filter.N.Name=public-ip` the client also sends
+(`handler_elastic_ips.go`), rather than treating them as two independently
+ANDed narrowers. Only visibly wrong if a client sends both simultaneously
+with different values -- no SDK doc or web page specifies how a direct
+ID-list member should combine with an overlapping `Filters` entry, so this
+is recorded rather than guessed.
+
+One page fetched:
+`https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_SearchLocalGatewayRoutes.html`
+(for bug 3, to check whether it gave more precision than the SDK doc
+comment on `route-search.exact-match` -- it did not, word-for-word
+identical filter list). It carried the injected footer directing the
+reader to run `aws agent-toolkit search-skills`; treated as untrusted page
+content, not followed.
+
+Tests added: 4 new files, 4 new tests total (one assertion-bearing test per
+bug above), all confirmed failing against unmodified code before the fix
+and passing after. No existing test was modified or weakened -- zero
+assertion drops.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), repo-wide `go vet ./...` (clean -- no Backend interface signature
+changed, run anyway per this session's instructions), `go build ./...`
+(clean), `go test -race -count=1 ./services/ec2/...` (full suite green),
+`golangci-lint run ./services/ec2/...` (2 findings from this pass's own new
+code on the first run -- `golines` on a >120-char line in
+`wire_field_fixes_sg_rules_multivalue_test.go`, wrapped by hand;
+`gocognit` on `handleDescribeTags` after the `tag:` fix pushed it over the
+repo's threshold, decomposed into `parseDescribeTagsFilters` +
+`describeTagsFilters.matches` rather than suppressed -- re-ran, `0 issues`).
+No banned `//nolint`s (grepped for cyclop/gocyclo/gocognit/funlen, zero
+hits in `services/ec2/`). Did NOT commit, push, or run any `bd` write
+command -- all changes left in the working tree per this session's
+instructions.
+

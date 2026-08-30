@@ -1930,7 +1930,11 @@ func usageReportEntryMatchesFilter(e *UsageReportEntry, filterName string, value
 	case filterKeyResourceType:
 		return anyEqual(e.ResourceType, values)
 	case "creation-time":
-		creationTime := e.ReportCreationTime.UTC().Format(time.RFC3339Nano)
+		// Must match toImageUsageReportEntryItem's wire format
+		// (handler_image_ops.go) exactly, or an exact-match filter built
+		// from the timestamp this API just returned never matches its own
+		// record.
+		creationTime := e.ReportCreationTime.UTC().Format(time.RFC3339)
 		for _, v := range values {
 			if prefix, ok := strings.CutSuffix(v, "*"); ok {
 				if strings.HasPrefix(creationTime, prefix) {

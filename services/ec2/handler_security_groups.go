@@ -274,14 +274,19 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	// always indexed).
 	filters := parseEC2Filters(vals)
 
-	var groupID string
-	if values := filters["group-id"]; len(values) > 0 {
-		groupID = values[0]
+	groupIDs := filters["group-id"]
+	if len(groupIDs) == 0 {
+		groupIDs = []string{""}
 	}
 
-	rules, err := h.Backend.DescribeSecurityGroupRules(groupID)
-	if err != nil {
-		return nil, err
+	var rules []*SecurityGroupRuleDetail
+	for _, groupID := range groupIDs {
+		groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+		if err != nil {
+			return nil, err
+		}
+
+		rules = append(rules, groupRules...)
 	}
 
 	maxResults, offset, err := parseEC2Pagination(

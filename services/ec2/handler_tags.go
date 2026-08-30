@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
@@ -16,14 +17,29 @@ var validDescribeTagsFilters = map[string]bool{
 	"value":               true,
 }
 
-// handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
-// Supports resource-id, key, value, and resource-type filters.
-// Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
-func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
-	var resourceIDs []string
+// tagKeyValueFilter is one "tag:<key>" filter (api_op_DescribeTags.go):
+// matches entries whose Key equals key and whose Value is in values.
+type tagKeyValueFilter struct {
+	key    string
+	values []string
+}
 
-	// keyFilters, valueFilters, typeFilters are post-fetch AND filters.
-	var keyFilters, valueFilters, typeFilters []string
+// describeTagsFilters holds the parsed, post-fetch AND filters for
+// handleDescribeTags: resourceIDs narrows the Backend.DescribeTags call
+// itself, the rest are applied per-entry.
+type describeTagsFilters struct {
+	resourceIDs        []string
+	keyFilters         []string
+	valueFilters       []string
+	typeFilters        []string
+	tagKeyValueFilters []tagKeyValueFilter
+}
+
+// parseDescribeTagsFilters reads Filter.N.Name/Filter.N.Value.* from vals.
+// Supports resource-id, key, value, resource-type, and tag:<key> filters.
+// Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
+func parseDescribeTagsFilters(vals url.Values) (describeTagsFilters, error) {
+	var f describeTagsFilters
 
 	for i := 1; i <= maxFiltersPerRequest; i++ {
 		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
@@ -31,42 +47,73 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 			break
 		}
 
+		filterVals := parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+
+		if tagKey, ok := strings.CutPrefix(name, "tag:"); ok {
+			f.tagKeyValueFilters = append(f.tagKeyValueFilters, tagKeyValueFilter{key: tagKey, values: filterVals})
+
+			continue
+		}
+
 		if !validDescribeTagsFilters[name] {
-			return nil, fmt.Errorf(
+			return describeTagsFilters{}, fmt.Errorf(
 				"%w: unknown filter name %q for DescribeTags",
 				ErrInvalidParameter,
 				name,
 			)
 		}
 
-		filterVals := parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
-
 		switch name {
 		case "resource-id":
-			resourceIDs = filterVals
+			f.resourceIDs = filterVals
 		case "key":
-			keyFilters = filterVals
+			f.keyFilters = filterVals
 		case "value":
-			valueFilters = filterVals
+			f.valueFilters = filterVals
 		case filterKeyResourceType:
-			typeFilters = filterVals
+			f.typeFilters = filterVals
 		}
 	}
 
-	entries := h.Backend.DescribeTags(resourceIDs)
+	return f, nil
+}
+
+// matches reports whether e satisfies every parsed filter (AND across
+// filter names, OR within a filter's values).
+func (f describeTagsFilters) matches(e TagEntry) bool {
+	if len(f.keyFilters) > 0 && !anyEqual(e.Key, f.keyFilters) {
+		return false
+	}
+	if len(f.valueFilters) > 0 && !anyEqual(e.Value, f.valueFilters) {
+		return false
+	}
+	if len(f.typeFilters) > 0 && !anyEqual(e.ResourceType, f.typeFilters) {
+		return false
+	}
+
+	for _, tf := range f.tagKeyValueFilters {
+		if e.Key != tf.key || !anyEqual(e.Value, tf.values) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
+func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
+	filters, err := parseDescribeTagsFilters(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := h.Backend.DescribeTags(filters.resourceIDs)
 
 	items := make([]tagItem, 0, len(entries))
 	for _, e := range entries {
-		if len(keyFilters) > 0 && !anyEqual(e.Key, keyFilters) {
-			continue
+		if filters.matches(e) {
+			items = append(items, tagItem(e))
 		}
-		if len(valueFilters) > 0 && !anyEqual(e.Value, valueFilters) {
-			continue
-		}
-		if len(typeFilters) > 0 && !anyEqual(e.ResourceType, typeFilters) {
-			continue
-		}
-		items = append(items, tagItem(e))
 	}
 
 	return &describeTagsResponse{
