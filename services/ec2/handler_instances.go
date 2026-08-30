@@ -1065,9 +1065,27 @@ func (h *Handler) handleRebootInstances(vals url.Values, reqID string) (any, err
 	}, nil
 }
 
+// handleDescribeInstanceStatus mirrors real DescribeInstanceStatus's default
+// (api_op_DescribeInstanceStatus.go): when no InstanceId is given and
+// IncludeAllInstances isn't "true", only running instances are reported.
+// An explicit InstanceId list is always honoured in full. IncludeManagedResources
+// is documented but left unread: this backend has no concept of an
+// Amazon Web Services-managed instance to hide or reveal.
 func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
 	instances := h.Backend.DescribeInstanceStatus(ids)
+
+	if len(ids) == 0 && vals.Get("IncludeAllInstances") != "true" {
+		running := instances[:0:0]
+		for _, inst := range instances {
+			if inst.State.Name == declarativePoliciesReportStateRunning {
+				running = append(running, inst)
+			}
+		}
+		instances = running
+	}
+
+	instances = applyInstanceStatusFilters(instances, parseEC2Filters(vals))
 
 	items := make([]instanceStatusItem, 0, len(instances))
 	for _, inst := range instances {
@@ -1077,9 +1095,14 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 		// SDK InstanceStatusOk waiter reach its terminal state.
 		health := instanceHealthForState(inst.State.Name)
 
+		az := inst.Placement.AvailabilityZone
+		if az == "" {
+			az = h.Region + "a"
+		}
+
 		items = append(items, instanceStatusItem{
 			InstanceID:     inst.ID,
-			AvailZone:      h.Region + "a",
+			AvailZone:      az,
 			InstanceState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
 			SystemStatus:   health,
 			InstanceStatus: health,

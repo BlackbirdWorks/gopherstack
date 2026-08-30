@@ -167,16 +167,13 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 }
 
 func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any, error) {
-	// support both Filter.N.Name=vpc-id filter and NetworkAclId.N direct IDs
+	// vpc-id (among other documented filter names) is applied generically
+	// below via applyNetworkACLFilters, so fetch unfiltered by VPC here.
 	filters := parseEC2Filters(vals)
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
-	var vpcIDs []string
-	if v, ok := filters[filterKeyVPCID]; ok {
-		vpcIDs = v
-	}
-
-	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(vpcIDs), aclIDs)
+	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(nil), aclIDs)
+	acls = applyNetworkACLFilters(acls, filters, h.Backend)
 
 	maxResults := 0
 	if v := vals.Get("MaxResults"); v != "" {

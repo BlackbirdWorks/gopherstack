@@ -2125,6 +2125,31 @@ correctly (asserts the decoded response is properly narrowed, not just
 
 No new tests added -- no fixable bug found in this tranche.
 
+**Update (gopherstack-j2v5 pass, 2026-08-30): the missing-feature gap above is
+now fixed for 10 of the 11 ops it listed.** `DescribeDhcpOptions`,
+`DescribeEgressOnlyInternetGateways`, `DescribePrefixLists`,
+`DescribeManagedPrefixLists`, `DescribePublicIpv4Pools`, `DescribeBundleTasks`,
+`DescribeCarrierGateways`, and `DescribeFlowLogs` now apply every filter name
+their own SDK doc comment lists AND this backend's struct actually stores
+(`handler_filters.go`'s new `apply*Filters`/`*MatchesFilter` functions);
+names naming untracked data (e.g. `owner-id` on `DhcpOptions`/`PrefixList`,
+which have no per-resource owner field; `entry.icmp.*`/`entry.ipv6-cidr` on
+`NetworkACL`'s `NACLEntry`, which has no ICMP or IPv6 fields) are left
+unimplemented, documented inline at each function. `DescribeNetworkAcls` now
+applies its full documented filter set, not just `vpc-id`.
+`DescribeInstanceStatus` now reads `IncludeAllInstances` (defaults to
+running-only when no explicit `InstanceId` list is given, matching real AWS)
+and applies its filters; `IncludeManagedResources` is still left unread --
+this backend has no managed-instance concept to hide or reveal.
+**`DescribeInstanceTypes` is the one op left genuinely unfixed**: unlike the
+other ten, its documented filter names (`hypervisor`, `bare-metal`,
+`ebs-info.*`, `instance-storage-info.*`, etc.) all describe instance-type
+*attributes*, and this backend has no instance-type attribute catalog at
+all -- `handleDescribeInstanceTypes` (`handler_instances_lifecycle.go`) only
+ever echoes back the `InstanceType.N` values a caller asked for (or a single
+fallback), so there is no real data to filter against without fabricating
+an attribute table. Left as a missing feature, not a bug.
+
 Not reached this pass: DescribeInstanceTypeOfferings/DescribeInstanceStatus/
 DescribeInstanceTypes' Go pagination and instance-type-catalog fidelity concerns
 are out of this class's scope. The other 74 ops from the ~123-candidate diff

@@ -3,6 +3,7 @@ package ec2
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,30 +55,52 @@ type SnapshotEntry struct {
 	State       string `json:"state,omitempty"`
 }
 
-// CreateSnapshots creates one snapshot per volumeID in the list.
+// CreateSnapshots creates one crash-consistent snapshot per volume attached
+// to instanceID, honouring excludeBootVolume and excludeDataVolumeIDs
+// (types.InstanceSpecification, api_op_CreateSnapshots.go). The root/boot
+// volume is the one attached at the device matching the instance's AMI
+// RootDeviceName; when the AMI can't be resolved, no volume is treated as
+// boot (ExcludeBootVolume then excludes nothing, matching "unknown" rather
+// than fabricating a root).
 func (b *InMemoryBackend) CreateSnapshots(
-	volumeIDs []string,
+	instanceID string,
+	excludeBootVolume bool,
+	excludeDataVolumeIDs []string,
 	description string,
 ) ([]*Snapshot, error) {
-	if len(volumeIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one VolumeId is required", ErrInvalidParameter)
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceSpecification.InstanceId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateSnapshots")
 	defer b.mu.Unlock()
 
-	for _, vid := range volumeIDs {
-		if _, ok := b.volumes.Get(vid); !ok {
-			return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, vid)
-		}
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
-	snaps := make([]*Snapshot, 0, len(volumeIDs))
-	for _, vid := range volumeIDs {
-		vol, _ := b.volumes.Get(vid)
+	rootDevice := ""
+	if img := b.lookupImageLocked(inst.ImageID); img != nil {
+		rootDevice = img.RootDeviceName
+	}
+
+	targets, err := selectSnapshotVolumes(
+		b.attachedVolumesLocked(instanceID), rootDevice, excludeBootVolume, excludeDataVolumeIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("%w: instance %s has no volumes to snapshot", ErrInvalidParameter, instanceID)
+	}
+
+	snaps := make([]*Snapshot, 0, len(targets))
+	for _, vol := range targets {
 		snap := &Snapshot{
 			SnapshotID:  newSnapshotID(),
-			VolumeID:    vid,
+			VolumeID:    vol.ID,
 			Description: description,
 			State:       stateCompleted,
 			Progress:    snapshotProgress100,
@@ -92,6 +115,59 @@ func (b *InMemoryBackend) CreateSnapshots(
 	}
 
 	return snaps, nil
+}
+
+// attachedVolumesLocked returns the volumes attached to instanceID, sorted by
+// ID for deterministic snapshot ordering. Must be called with b.mu held.
+func (b *InMemoryBackend) attachedVolumesLocked(instanceID string) []*Volume {
+	var attached []*Volume
+	for _, vol := range b.volumes.All() {
+		if vol.Attachment != nil && vol.Attachment.InstanceID == instanceID {
+			attached = append(attached, vol)
+		}
+	}
+	sort.Slice(attached, func(i, j int) bool { return attached[i].ID < attached[j].ID })
+
+	return attached
+}
+
+// selectSnapshotVolumes applies ExcludeBootVolume/ExcludeDataVolumeIds to
+// attached. The boot volume is whichever attached volume's Device matches
+// rootDevice; an empty rootDevice (AMI unresolved) means no volume is ever
+// treated as boot. Naming the root volume in excludeDataVolumeIDs is
+// rejected, matching real AWS ("If you specify the ID of the root volume,
+// the request fails" -- InstanceSpecification.ExcludeDataVolumeIds doc).
+func selectSnapshotVolumes(
+	attached []*Volume,
+	rootDevice string,
+	excludeBootVolume bool,
+	excludeDataVolumeIDs []string,
+) ([]*Volume, error) {
+	exclude := make(map[string]bool, len(excludeDataVolumeIDs))
+	for _, id := range excludeDataVolumeIDs {
+		exclude[id] = true
+	}
+
+	var targets []*Volume
+	for _, vol := range attached {
+		isBoot := rootDevice != "" && strings.EqualFold(vol.Attachment.Device, rootDevice)
+
+		switch {
+		case isBoot && exclude[vol.ID]:
+			return nil, fmt.Errorf(
+				"%w: %s is the root volume; exclude it with ExcludeBootVolume, not ExcludeDataVolumeIds",
+				ErrInvalidParameter, vol.ID,
+			)
+		case isBoot && excludeBootVolume:
+			continue
+		case !isBoot && exclude[vol.ID]:
+			continue
+		}
+
+		targets = append(targets, vol)
+	}
+
+	return targets, nil
 }
 
 // ---- Snapshot block public access ----

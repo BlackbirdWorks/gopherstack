@@ -326,6 +326,7 @@ func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeFlowLogs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "FlowLogId")
 	logs := h.Backend.DescribeFlowLogs(ids)
+	logs = applyFlowLogFilters(logs, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeFlowLogsResponse{RequestID: reqID}
 
@@ -399,6 +400,7 @@ func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, e
 func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "DhcpOptionsId")
 	opts := h.Backend.DescribeDhcpOptions(ids)
+	opts = applyDhcpOptionsFilters(opts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeDhcpOptionsResponse{RequestID: reqID}
 

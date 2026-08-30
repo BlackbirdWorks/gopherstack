@@ -336,6 +336,7 @@ func (h *Handler) handleCancelBundleTask(vals url.Values, reqID string) (any, er
 func (h *Handler) handleDescribeBundleTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "BundleId")
 	tasks := h.Backend.DescribeBundleTasks(ids)
+	tasks = applyBundleTaskFilters(tasks, parseEC2Filters(vals))
 
 	resp := &describeBundleTasksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range tasks {

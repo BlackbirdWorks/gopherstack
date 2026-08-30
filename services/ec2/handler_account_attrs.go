@@ -110,6 +110,7 @@ func (h *Handler) handleDescribeAccountAttributes(vals url.Values, reqID string)
 func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PrefixListId")
 	lists := h.Backend.DescribePrefixLists(ids)
+	lists = applyPrefixListFilters(lists, parseEC2Filters(vals))
 
 	resp := &describePrefixListsResponse{RequestID: reqID}
 	for _, pl := range lists {

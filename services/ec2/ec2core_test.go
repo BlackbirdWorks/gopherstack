@@ -798,9 +798,9 @@ func TestDescribeInstanceStatus_IncludesHealthObjects(t *testing.T) {
 	require.NotEmpty(t, id)
 
 	statusReq := url.Values{
-		"Action":     {"DescribeInstanceStatus"},
-		"Version":    {"2016-11-15"},
-		"InstanceId": {id},
+		"Action":       {"DescribeInstanceStatus"},
+		"Version":      {"2016-11-15"},
+		"InstanceId.1": {id},
 	}
 
 	// While pending: health objects present, reporting "initializing".

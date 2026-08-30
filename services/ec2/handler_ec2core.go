@@ -269,6 +269,7 @@ func (h *Handler) handleDescribeEgressOnlyInternetGateways(
 ) (any, error) {
 	ids := parseMemberList(vals, "EgressOnlyInternetGatewayId")
 	igws := h.Backend.DescribeEgressOnlyInternetGateways(ids)
+	igws = applyEOIGWFilters(igws, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeEgressOnlyInternetGatewaysResponse{RequestID: reqID}
 

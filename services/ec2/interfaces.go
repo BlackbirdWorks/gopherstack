@@ -1185,7 +1185,9 @@ type Backend interface {
 	DescribeVolumeStatus(ids []string) []VolumeStatusItem
 	DescribeVolumesModifications(ids []string) []*VolumeModification
 	CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error)
-	CreateSnapshots(volumeIDs []string, description string) ([]*Snapshot, error)
+	CreateSnapshots(
+		instanceID string, excludeBootVolume bool, excludeDataVolumeIDs []string, description string,
+	) ([]*Snapshot, error)
 
 	// ---- batch1: snapshot block public access ----
 

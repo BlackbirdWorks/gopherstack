@@ -101,21 +101,16 @@ func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error)
 }
 
 func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, error) {
-	// InstanceSpecification.InstanceId is the primary instance; volumes derived from it.
-	// Also accept direct VolumeId.1, VolumeId.2... form.
-	volumeIDs := parseMemberList(vals, "VolumeId")
-	if len(volumeIDs) == 0 {
-		// Fallback: single volume via InstanceSpecification (simplified)
-		if vid := vals.Get("InstanceSpecification.ExcludeBootVolume"); vid != "" {
-			volumeIDs = []string{vid}
-		}
+	instanceID := vals.Get("InstanceSpecification.InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceSpecification.InstanceId is required", ErrInvalidParameter)
 	}
-	if len(volumeIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one VolumeId is required", ErrInvalidParameter)
-	}
+
+	excludeBootVolume := vals.Get("InstanceSpecification.ExcludeBootVolume") == "true"
+	excludeDataVolumeIDs := parseMemberList(vals, "InstanceSpecification.ExcludeDataVolumeId")
 	description := vals.Get("Description")
 
-	snaps, err := h.Backend.CreateSnapshots(volumeIDs, description)
+	snaps, err := h.Backend.CreateSnapshots(instanceID, excludeBootVolume, excludeDataVolumeIDs, description)
 	if err != nil {
 		return nil, err
 	}
