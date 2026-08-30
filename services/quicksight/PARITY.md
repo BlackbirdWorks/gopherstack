@@ -1108,3 +1108,41 @@ build ./services/quicksight/...`, `go vet ./services/quicksight/...`, `go test -
 ./services/quicksight/...`, `golangci-lint run ./services/quicksight/...` (0 issues — one
 `err113` finding from the fix's first draft, a dynamic `fmt.Errorf`, was replaced with the
 existing `ErrValidation` sentinel). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 gopherstack-wlo1: error-envelope sweep, confirmed clean
+
+QuickSight is restjson1 (`aws-sdk-go-v2/service/quicksight@v1.123.1`:
+`awsRestjson1_` prefix). Read all 277 `deserializeOpError` functions in
+`deserializers.go` (277-of-277, not sampled): all identically call
+`restjson.GetErrorInfo(decoder)` after checking `X-Amzn-ErrorType`, and
+`GetErrorInfo` checks body key `Code` (untagged Go field, exact-matches
+JSON key `"Code"`) *before* falling back to `__type`. `handler_paths.go`'s
+`writeError` writes `{"Code": errCode, "Message": msg}` with no header --
+this satisfies the client's body fallback directly via the `Code` key,
+which is actually checked ahead of `__type` in the real SDK, so this
+service's different-looking envelope (`Code`, not `__type`) is just as
+correct as the `__type`-shaped ones used elsewhere in this campaign.
+Grepped every direct `http.Status{Bad,NotFound,Conflict,...}` use across
+all `handler_*.go` files (33 files hit): every one resolves to a call
+through `writeError`/`httpErr`, no bypass found. Spot-checked the
+AlreadyExists family (folders/templates/themes/topics use
+`ResourceExistsException`, not the generic `httpErr` ConflictException
+default) -- these are handled explicitly at each call site
+(`errors.Is(err, ErrXAlreadyExists)` before falling through to `httpErr`),
+so the more specific code is preserved; not a bug, just worth recording
+since `httpErr`'s own `ErrAlreadyExists` branch always emits
+`ConflictException`.
+
+No bug found. Added
+`TestErrorEnvelope_DescribeDataSetNotFoundDecodesToTypedError`
+(`error_envelope_test.go`), driving a real `quicksightsdk.Client` through
+`DescribeDataSet` for a nonexistent dataset: asserts `errors.As` unwraps to
+the concrete `*types.ResourceNotFoundException`, and separately asserts on
+the raw response bytes for the same case (raw HTTP request needs an
+`Authorization` header naming the SigV4 credential scope `quicksight`,
+since `RouteMatcher`'s `isQuickSightRequest` reads it directly off the
+header). Passed against unmodified code, confirming this service's error
+envelope was already wire-correct.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.

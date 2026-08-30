@@ -1198,3 +1198,26 @@ call.
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## 2026-08-30 gopherstack-wlo1: error-envelope re-verification (N-of-N)
+
+Re-visited as part of a 5-service error-envelope sweep (lightsail,
+medialive, pinpoint, quicksight, apigateway). The 2026-08-22 fix above was
+verified via 2 sampled `deserializeOpError` functions
+(`DescribeChannel`/`CreateChannel`); this pass read all 123 in
+`deserializers.go` (123-of-123, not sampled) and confirms every one is
+identical generated boilerplate reading `X-Amzn-ErrorType` then
+`restjson.GetErrorInfo` -- the existing fix covers the whole surface, not
+just the two sampled ops.
+
+Strengthened `handler_error_type_test.go`'s existing
+`TestDescribeChannel_UnknownChannelSurfacesNotFoundException` (which
+asserted only the `smithy.APIError` interface + `ErrorCode()` string) with
+an additional `errors.As` assertion against the concrete
+`*types.NotFoundException`, and added
+`TestDescribeChannel_UnknownChannelRawEnvelope` asserting on the raw
+response header/body bytes directly. Both pass unmodified -- no bug found,
+this service remains correctly fixed.
+
+Gates (this pass, `services/medialive/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.

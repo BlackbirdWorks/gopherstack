@@ -766,3 +766,27 @@ Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — a
   `errors.go` are real and wired, but serve the data-plane request-proxy path
   -- `proxy.go`'s usage-plan throttle/quota enforcement on an actual API
   invocation -- not any control-plane SDK operation in this table.)
+
+## 2026-08-30 gopherstack-wlo1: error-envelope re-verification (N-of-N)
+
+Re-visited as part of a 5-service error-envelope sweep (lightsail,
+medialive, pinpoint, quicksight, apigateway). Confirmed all 124
+`deserializeOpError` functions in `deserializers.go` (124-of-124, not
+sampled) are identical generated boilerplate reading `X-Amzn-ErrorType`
+then `restjson.GetErrorInfo` -- the gopherstack-wlo1 fix above (and the
+`c6554e9f8`/`gopherstack-o7gx` fixes it references) covers the whole
+surface. Traced every error-writing path (`handleError`,
+`writeJSONProtocolDispatchError`) to confirm both `handleRESTAPI` (the real
+client's path) and `handleJSONProtocol` funnel to the same `{"__type",
+"message"}` envelope; no bypass found.
+
+Added `TestErrorEnvelope_GetRestApiNotFoundDecodesToTypedError`
+(`error_envelope_test.go`) exercising a genuinely modelled exception
+(`GetRestApi` on a nonexistent API -> `*types.NotFoundException` via
+`errors.As`), complementing the existing dispatch-miss tests which use the
+framework-only `UnknownOperationException` (not a concrete SDK type).
+Also asserts on the raw response bytes for the same case. Passed against
+unmodified code -- no bug found.
+
+Gates (this pass, `services/apigateway/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.

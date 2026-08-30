@@ -1280,3 +1280,34 @@ tie.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/lightsail/...`).
+
+## 2026-08-30 gopherstack-wlo1: error-envelope sweep, confirmed clean
+
+Lightsail is `awsAwsjson11` (AWS JSON 1.1 RPC), not restjson1 -- confirmed
+by `deserializers.go`'s `awsAwsjson11_deserializeOpError<Op>` function name
+prefix on all 161 ops. Read all 161 (161-of-161, not sampled): every one is
+byte-identical generated boilerplate calling `getProtocolErrorInfo(decoder)`
+plus `response.Header.Get("X-Amzn-ErrorType")`, resolved via
+`resolveProtocolErrorType` (header first, else body `__type`, else body
+`code`), with `message`/`Message` (case-insensitive, untagged struct field)
+for the message. `handler.go`'s `handleError` writes exactly
+`{"__type": errType, "message": err.Error()}` -- no header needed since the
+body `__type` key alone satisfies the client's fallback. Single error path
+confirmed: grepped for any other `JSONBlob`/`__type` writer in the package,
+found none -- `handleError` is the sole call site, used for both real
+business-logic errors (`classifyLightsailError`) and framework-level
+dispatch failures (`pkgs/service/jsondisp.go`'s shared `writeDispatchError`,
+already fixed for the whole JSON-target family). HTTP status doesn't affect
+identification here -- the client's error path triggers on any status
+outside 200-299, confirmed in the generated deserializer.
+
+No bug found. Added `TestErrorEnvelope_NotFoundDecodesToTypedError`
+(`error_envelope_test.go`), driving a real `lightsailsdk.Client` through
+`GetInstance` for a nonexistent instance: asserts `errors.As` unwraps to
+the concrete `*types.NotFoundException` (not just that an error occurred),
+and separately asserts on the raw response bytes/status for the same case.
+Passed against unmodified code, confirming this service's error envelope
+was already wire-correct.
+
+Gates (this pass, `services/lightsail/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.

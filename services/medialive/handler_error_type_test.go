@@ -2,6 +2,9 @@ package medialive_test
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	medialivesdk "github.com/aws/aws-sdk-go-v2/service/medialive"
+	"github.com/aws/aws-sdk-go-v2/service/medialive/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
@@ -42,6 +46,53 @@ func TestDescribeChannel_UnknownChannelSurfacesNotFoundException(t *testing.T) {
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
 	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+
+	var notFound *types.NotFoundException
+	require.ErrorAs(t, err, &notFound,
+		"SDK must decode to the concrete *types.NotFoundException, not just a generic API error")
+}
+
+// TestDescribeChannel_UnknownChannelRawEnvelope asserts on the raw HTTP
+// response bytes/headers for the same not-found case above, pinning the
+// exact shape aws-sdk-go-v2's restjson.GetErrorInfo
+// (aws/protocol/restjson/decoder_util.go) requires: an X-Amzn-Errortype
+// response header (checked first) with a JSON body carrying a "Message"
+// key. A test that only asserts the decoded error is insufficient here --
+// this is the wire-shape guarantee itself, not the client's tolerance of
+// it.
+func TestDescribeChannel_UnknownChannelRawEnvelope(t *testing.T) {
+	t.Parallel()
+
+	backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+	h := medialive.NewHandler(backend)
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		srv.URL+"/prod/channels/no-such-channel", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, "NotFoundException", resp.Header.Get("X-Amzn-Errortype"))
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+
+	_, hasMessage := envelope["Message"]
+	assert.True(t, hasMessage, "raw body must carry a Message key restjson.GetErrorInfo reads: %s", raw)
 }
 
 // newErrorInjectingMediaLiveClient is newTestMediaLiveClient plus an extra

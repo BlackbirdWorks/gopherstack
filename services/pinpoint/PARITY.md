@@ -326,3 +326,32 @@ item identity across a paginated walk before this pass.
 Gate output (this pass, `services/pinpoint/` only): `go build ./services/pinpoint/...`
 clean; `go vet ./services/pinpoint/...` clean; `go test ./services/pinpoint/... -race
 -count=1` -- `ok`; `golangci-lint run ./services/pinpoint/...` -- `0 issues.`
+
+## 2026-08-30 gopherstack-wlo1: error-envelope sweep, confirmed clean
+
+Pinpoint is restjson1 (`aws-sdk-go-v2/service/pinpoint@v1.42.4`:
+`awsRestjson1_` prefix). Read all 122 `deserializeOpError` functions in
+`deserializers.go` (122-of-122, not sampled): all identically call
+`restjson.GetErrorInfo(decoder)` (`aws-sdk-go-v2@v1.43.4`
+`aws/protocol/restjson/decoder_util.go`) after checking the
+`X-Amzn-ErrorType` response header, and `GetErrorInfo` itself checks body
+key `Code` before `__type` (tag `json:"__type"`), with `Message`/`message`
+for the message. `handler.go`'s `writeErrorResponse` writes
+`{"message": ..., "__type": ...}` with no header -- satisfies the body
+`__type` fallback (header absent -> `jsonCode` from body is used). Grepped
+every `writeErrorResponse` call site (215) and every direct
+`http.Status{Bad,NotFound,...}` use in the package: all route through
+`writeErrorResponse`, no bypass found.
+
+No bug found. Added `TestErrorEnvelope_GetAppNotFoundDecodesToTypedError`
+(`error_envelope_test.go`), driving a real `pinpointsdk.Client` through
+`GetApp` for a nonexistent app: asserts `errors.As` unwraps to the concrete
+`*types.NotFoundException`, and separately asserts on the raw response
+bytes for the same case (raw HTTP request needs an `Authorization` header
+naming the SigV4 credential scope `mobiletargeting` -- Pinpoint's actual
+signing name, not `pinpoint` -- since `RouteMatcher` reads it via
+`httputils.ExtractServiceFromRequest`). Passed against unmodified code,
+confirming this service's error envelope was already wire-correct.
+
+Gates (this pass, `services/pinpoint/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.
