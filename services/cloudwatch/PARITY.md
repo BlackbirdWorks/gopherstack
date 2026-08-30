@@ -895,3 +895,28 @@ graded pass/fail against a serializer that doesn't exist for it.** No code
 changes in this service this pass -- the live path enumeration found
 nothing to fix, which is itself informative given how much of this bug
 class showed up when the same method was pointed at ec2's Query/XML surface.
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `contributors.go`/`interfaces.go`/`alarm_mute_rules.go`/`alarm_history.go`/
+`metrics.go`/`metric_streams.go`/`anomaly_detectors.go`/`insight_rules.go`/
+`dashboards.go` all call `pkgs/page.New` directly — clamped offset tokens, no
+independent arithmetic. Two genuinely hand-rolled cursors exist: `paginateAlarmResults`
+(`alarms.go`, `DescribeAlarms`'s combined metric/composite/log-alarm page window) clamps
+its offset via `min(page.DecodeToken(nextToken), combinedTotal)` before ever indexing —
+safe against Class A, and being purely positional (not identity-matched) it cannot
+express Class B/C either. `paginateMetricData`/`decodeMetricDataToken` (`metricdata.go`,
+`GetMetricData`'s datapoint-budget pagination) decodes a `{ResultIndex, PointOffset}`
+cursor, clamps both to `>= 0`, and its consuming loop (`for i := cursor.ResultIndex;
+i < len(all); i++`) degrades to an empty, cursor-less result when `ResultIndex` is
+past the end rather than panicking or looping. `pagination.go`'s
+`signPageToken`/`parseSignedPageToken` are unused by any current op (grep-confirmed) —
+dead code, not a live bug surface. Verdict: correct, no bug found.
+
+Added `pagination_arithmetic_test.go`: a real `aws-sdk-go-v2` typed-client boundary
+walk over `DescribeAlarms` (N=7 metric alarms, page=3 via `MaxRecords`,
+`assert.ElementsMatch` against the full set) — the one hand-rolled cursor in this
+service without pre-existing typed-client-level pagination coverage.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/cloudwatch/...`).

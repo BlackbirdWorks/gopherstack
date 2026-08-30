@@ -106,6 +106,20 @@ func (b *InMemoryBackend) GetMFASessionCodeForTest(session string) string {
 	return ""
 }
 
+// SeedAuthEventForTest directly inserts an AuthEvent for a user, bypassing
+// the normal (currently unimplemented) sign-in event hooks. For testing only.
+func (b *InMemoryBackend) SeedAuthEventForTest(poolID, username string, ev *AuthEvent) {
+	b.mu.Lock("SeedAuthEventForTest")
+	defer b.mu.Unlock()
+
+	key := userStateKey(poolID, username)
+	if b.authEvents[key] == nil {
+		b.authEvents[key] = make(map[string]*AuthEvent)
+	}
+
+	b.authEvents[key][ev.EventID] = ev
+}
+
 // GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
 func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
 	b.mu.RLock("GetAttrVerificationCodeForTest")

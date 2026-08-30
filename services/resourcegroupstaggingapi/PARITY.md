@@ -194,3 +194,24 @@ leaks: {status: clean, note: "no goroutines; per-region resourceCache and report
   underlying `aws-sdk-go` `api-2.json`/`docs-2.json` shape models, and match (including
   the easy-to-misspell `KeysWithNoncompliantValues`, and the 2-value `FailureInfo.ErrorCode`
   enum -- `InternalServiceException`/`InvalidParameterException` only).
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `paginateResources`/`findTokenStart` (`GetResources`) and `paginateStrings`
+(`GetTagKeys`/`GetTagValues`), both in `pagination.go`, already use the "return a found
+flag or error" safe-by-construction pattern this campaign is looking for
+(`ErrPaginationTokenExpired` on a scan miss, never a silent restart at offset 0) — one of
+the three patterns explicitly called out as already present in this repo. Both callers
+(`get_resources.go`, `tag_keys.go`, `tag_values.go`) propagate the error rather than
+swallowing it. Verdict: correct, no bug found.
+
+Existing tests (`TestGetResources_PaginationWalk`, `TestGetResources_UnmatchedTokenExpired`
+in `get_resources_test.go`) already exercise both the boundary walk and the stale-cursor
+case thoroughly at the backend level — no gap. Added `pagination_arithmetic_test.go` with
+a new `newTestRGTAClient` helper (this service had no typed-`aws-sdk-go-v2`-client test
+helper at all before this pass) confirming the same two properties survive the real
+serializer/deserializer round trip: a `GetResources` boundary walk (N=7, page=3, exact
+order preserved) plus a stale-token call that errors instead of looping.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/resourcegroupstaggingapi/...`).

@@ -58,6 +58,11 @@ func (b *InMemoryBackend) paginateDevicesLocked(key string, limit int, nextToken
 	startIdx := 0
 
 	if nextToken != "" {
+		// Default a miss (e.g. the device the token named was forgotten) to
+		// the end of the collection: leaving startIdx at 0 would resume a
+		// stale cursor at page one, forever.
+		startIdx = len(all)
+
 		for i, d := range all {
 			if d.DeviceKey == nextToken {
 				startIdx = i

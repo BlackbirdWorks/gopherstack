@@ -20,7 +20,17 @@ last_audit_date: 2026-08-08
 # reusing each backend's existing deterministic sort. 9 ops confirmed already correct: AdminListDevices,
 # AdminListUserAuthEvents, ListDevices, ListGroups (via handleListGroupsFull -> ListGroupsPage),
 # ListTerms, ListUserPools, ListUsers, ListUsersInGroup (via handleListUsersInGroupFull ->
-# ListUsersInGroupPage), ListWebAuthnCredentials. 2 left unfixed as provably bounded:
+# ListUsersInGroupPage), ListWebAuthnCredentials.
+#
+# CORRECTION 2026-08-29 (pagination-arithmetic sweep): "confirmed already correct" above was
+# checked for cursor-population/wire-shape only, not pagination arithmetic. 7 of these 9 --
+# AdminListDevices, ListDevices, ListGroups, ListUsersInGroup, ListWebAuthnCredentials, ListUsers,
+# ListUserPools -- turned out to have a genuine Class B (infinite loop on a stale cursor) bug in
+# their own hand-rolled equality-scan cursor. None of them use pkgs/page. Fixed this pass; see the
+# dated pagination-arithmetic section near the end of this file. ListTerms (real pkgs/page.New
+# user) and AdminListUserAuthEvents (real bug too, but its authEvents store is never populated by
+# any code path in this emulator, so it was unreachable in practice -- fixed anyway) are covered
+# there too. 2 left unfixed as provably bounded:
 # ListUserPoolClientSecrets (real AWS's documented 2-active-secrets limit, enforced here as
 # maxExtraClientSecrets) and ListUserPoolReplicas (this backend enforces "at most one [replica] is
 # allowed per user directory", matching real Cognito's current one-secondary-region limit --
@@ -107,7 +117,7 @@ ops:
   AdminUserGlobalSignOut: {wire: ok, errors: ok, state: ok, persist: ok, note: "revokes refresh tokens + stamps tokenRevokedBefore so already-issued access tokens are rejected too"}
   GlobalSignOut: {wire: ok, errors: ok, state: ok, persist: ok, note: "same revocation mechanism as AdminUserGlobalSignOut"}
   RevokeToken: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
+  ListUsers: {wire: ok, errors: ok, state: fixed, persist: ok, note: "CORRECTION 2026-08-29 (pagination-arithmetic sweep): the 'pkgs/page-style pagination' note above was wrong -- handleListUsers hand-rolls its own equality-scan cursor inline (handler_users.go), does not call pkgs/page at all, and had a Class B infinite-loop bug on a stale cursor. See the pagination-arithmetic section below."}
   ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-22 (gopherstack-zquj): same adminUserJSON \"UserAttributes\"-vs-\"Attributes\" bug as AdminCreateUser (this type backs both ops' item shape). See Notes below."}
   ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (prior pass, gopherstack-8fw). THIS PASS (gopherstack-n7gh follow-up): an unknown username now also tries the UserMigration_ForgotPassword Lambda trigger (user_migration.go's tryUserMigrationForgotPassword) before falling back to PreventUserExistenceErrors masking / UserNotFoundException, matching the documented 'user migration during forgot-password flow' trigger source. Per AWS docs, no password is sent in this event (request.password is omitted entirely, not sent empty) since the user has none yet."}
   ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, same rationale as ConfirmSignUp (this pass, closes remainder of gopherstack-aib)"}
@@ -1149,3 +1159,69 @@ detail; summary:
   does fire for a freshly-migrated user, just after migration rather than before. Real
   Cognito's exact ordering between these two triggers on a migrating request was not
   verified against a live pool.
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Scope: arithmetic inside every hand-rolled pagination helper in this service (not wire-shape
+cursor *population*, already covered by the "cursor-population sweep" comment above this
+file's schema header -- that sweep and this one found different bug classes in overlapping
+ops; see the CORRECTION notes left in place of its wrong claims).
+
+**Census.** 8 hand-rolled paginators in this package, none importing `pkgs/page`:
+`paginateDevicesLocked` (`devices.go`, shared by `ListDevices` and `AdminListDevices`),
+`ListGroupsPage` (`groups.go`, `ListGroups`), `ListUsersInGroupPage` (`groups.go`,
+`ListUsersInGroup`), `paginateAuthEventsLocked` (`auth_events.go`,
+`AdminListUserAuthEvents`), `ListWebAuthnCredentials`'s own inline cursor (`webauthn.go`),
+and two handler-inline cursors that live in the handler function itself rather than a
+named helper: `handleListUsers` (`handler_users.go`, `ListUsers`) and
+`handleListUserPools` (`handler_user_pools.go`, `ListUserPools`). `ListTerms` is the one
+List op in this service that genuinely does use `pkgs/page.New` (`terms.go`) and was
+already correct. Every other List/Describe op in this service either has no pagination at
+all or goes through one of the wins-the-registration handlers the cursor-population sweep
+already covers.
+
+**Bug (Class B: infinite loop, cursor matched by equality) x8.** All eight helpers above
+shared the identical bug: search `all`/`ids` for the item named by the token by equality,
+and on a miss (the item was deleted, or never existed) leave `start`/`startIdx` at its zero
+value instead of the collection length. A client resuming with a token naming a
+since-deleted device/group/group-member/credential/user/pool got page one again, forever.
+Fixed identically at each site: a miss now sets `start = len(all)` (the "default a miss to
+empty" pattern, as in glacier) instead of leaving it at `0`. None of the eight can express
+the bug anymore.
+
+`AdminListUserAuthEvents`/`paginateAuthEventsLocked` is a genuine instance of the same bug,
+but currently unreachable in practice: no code path in this emulator (no sign-in hook, no
+janitor sweep) ever writes into `b.authEvents`, so the collection is always empty and the
+scan-miss branch never has anything to search regardless. Fixed anyway for correctness
+under any future caller; tested via a new `SeedAuthEventForTest` `export_test.go` helper
+that seeds the otherwise-unreachable store directly.
+
+**Testing.** New `pagination_arithmetic_test.go` covers all eight helpers, each via the
+operation that calls it (backend-level for the five that expose an exported backend method;
+real `aws-sdk-go-v2` typed client for the two handler-inline ones, since there's no backend
+method to call directly for those). Boundary walk (N=7, page=3, full concatenation checked)
+plus a stale-cursor case (a token for an item that never existed, or a real deletion via the
+service's own delete op where one exists) for every site; exact-division/single-page/empty
+checks added where the setup cost was low. All stale-cursor subtests were confirmed to fail
+against the unmodified code before the fix (Class B: another non-empty cursor came back
+instead of terminating), then pass after it. Existing pagination tests this sweep found
+(`TestListUsers_Pagination` in `handler_users_lifecycle_test.go`,
+`TestListUserPools_Pagination` in `user_pools_config_test.go`,
+`TestAdminListGroupsForUser_Pagination`/`TestGroup_ListGroups_Pagination`/
+`TestGroup_ListUsersInGroup_Pagination`) already did real boundary walks with
+no-duplicates checks -- good tests -- but none of them presented a stale cursor, which is
+why this class of bug survived them; new `*_StaleCursor` tests close that gap without
+duplicating the existing boundary-walk coverage.
+
+**Reachable-handler check (per the shadowed-registration risk this file already tracks).**
+Verified each of `ListDevices`, `AdminListDevices`, `ListGroups`, `ListUsersInGroup`,
+`ListWebAuthnCredentials`, `ListUsers`, `ListUserPools`, `AdminListUserAuthEvents` is
+registered exactly once across every `*OpsA/B/C` map `maps.Copy`'d into `handler.go`'s
+dispatch table -- none of the eight fixed here are among the operations with a duplicate
+registration, so the handler read during this audit is the one that actually serves
+traffic for all eight.
+
+**Gates:** `go build`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/cognitoidp/...` (pass, including every pre-existing pagination test), `golangci-lint
+run ./services/cognitoidp/...` (0 issues, confirmed by removing the new test files and
+re-running rather than assuming pre-existing-file status).

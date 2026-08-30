@@ -370,3 +370,31 @@ and `TestHandler_DataCatalog_ListIncludesStatus` sent the wrong top-level
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/athena/...`).
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `paginationStart` (`pagination.go`) is a shared threshold-search cursor
+(`sort.Search` for the first key `>= boundary`, defaulting a full miss to `n` — the
+end of the collection, never `0`) used by `ListNamedQueries`, `ListDataCatalogs`,
+`ListPreparedStatements`, `ListWorkGroups`, `ListTagsForResource`. It is already the
+appmesh-style safe-by-construction pattern this campaign is looking for — the bug class
+(Class B/C: a scan-miss defaulting to offset 0) cannot be expressed here. Separately,
+`pageTokenCodec.paginateQueryExecutionIDs` (`ListQueryExecutions`) uses
+`sort.SearchStrings`, the same threshold-search shape, over an opaque HMAC-signed token.
+`GetQueryResults` (`sql.go`) uses a plain numeric row-offset token, clamped
+(`offset >= len(res.rows)` returns an empty page) before every slice — safe against
+Class A. No hand-rolled equality-scan cursor exists anywhere in this service; this
+service does not import `pkgs/page` (its own threshold-search codec/helper predates
+and supersedes it). Verdict: correct, no bug found.
+
+Added `pagination_arithmetic_test.go`: a real `aws-sdk-go-v2` typed-client boundary
+walk over `ListWorkGroups` (N=7 workgroups + the default "primary", page size 3,
+concatenation checked for completeness/no-dupes). The pre-existing
+`TestListWorkGroups_Pagination_StaleTokenResumesStably`
+(`handler_work_groups_test.go`) already covers the stale-cursor case end-to-end
+(delete the boundary workgroup a token names, resume, assert it lands on the next
+surviving item rather than restarting at offset 0) — a genuinely strong existing test,
+not a gap.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/athena/...`).

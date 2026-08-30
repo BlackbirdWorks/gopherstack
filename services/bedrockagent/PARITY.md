@@ -997,3 +997,48 @@ confirming the symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Scope: arithmetic inside every hand-rolled pagination helper in this service, not the
+wire-shape binding bugs already covered above. This service has exactly one such helper —
+`paginate(ids []string, nextToken string, maxResults int) ([]string, string)` in `store.go`
+— shared by 14 List operations: `ListAgents`, `ListAgentVersions`,
+`ListAgentActionGroups`, `ListAgentAliases`, `ListAgentCollaborators`,
+`ListKnowledgeBases`, `ListAgentKnowledgeBases`, `ListDataSources`,
+`ListKnowledgeBaseDocuments`, `ListIngestionJobs`, `ListFlows`, `ListFlowVersions`,
+`ListFlowAliases`, `ListPrompts`. No other hand-rolled paginator exists in this package
+(`ListFlowVersions`/`ListAgentVersions`'s `version` sort keys go through the same helper via
+`tableIDs`); this service does not import `pkgs/page`.
+
+**Bug (Class B: infinite loop, cursor matched by equality).** `paginate` scanned `ids` for
+`nextToken` by equality and left `start` at its zero value on a miss. Since every caller's
+`ids`/`keys` slice is deleted from over time (agents, versions, action groups, aliases,
+collaborators, KBs, data sources, documents, ingestion jobs, flows, prompts all support
+delete), a client resuming with a `NextToken` naming a since-deleted item got page one
+again, forever — the pagination never terminates, it does not merely drop or duplicate
+results. `ListIngestionJobs` additionally sorts its result by an arbitrary `sortBy` before
+paginating (not always ID-ascending), which rules out a binary-search fix for the shared
+helper; fixed instead with the "default a miss to empty" safe pattern (as in glacier): a
+scan miss now sets `start = len(ids)` instead of leaving it at `0`, so a stale cursor
+returns an empty final page and terminates. The helper can no longer express Class B.
+
+**Testing.** `pagination_arithmetic_test.go` (new) is a table-driven unit test against
+`paginate` directly (exposed via `PaginateForTest` in `export_test.go`), covering all seven
+checks: boundary walk (N=7, page=3, concatenation reproduces the input exactly), final page,
+single page, empty collection, exact division, cursor round trip, and stale cursor (the one
+that found this bug — confirmed to fail against the pre-fix helper, in particular producing
+another non-empty cursor instead of terminating). `list_pagination_binding_test.go` gained
+`TestListAgents_StaleCursorTerminates`, a real-client-level (`aws-sdk-go-v2` typed client, not
+raw JSON) reproduction: create 3 agents, take a `NextToken` from a `MaxResults=1` page, delete
+every agent, resume with the stale token — must return a real (empty) response, not hang.
+
+**Existing-test gap.** `TestListAgents_MaxResultsHonoured` /
+`TestListAgentAliases_MaxResultsHonoured` (`list_pagination_binding_test.go`, pre-existing)
+prove `MaxResults`/`NextToken` binding and page-size math but never present a stale cursor —
+they would not have caught this bug.
+
+**Gates:** `go build`, `go vet ./...` (repo-wide, clean — no backend signature changes
+propagated to any `cli_*_test.go`), `go test -race -count=1 ./services/bedrockagent/...`
+(pass), `golangci-lint run ./services/bedrockagent/...` (0 issues, confirmed by removing the
+new test files and re-running rather than assuming pre-existing-file status).

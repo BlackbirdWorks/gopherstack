@@ -479,3 +479,24 @@ NOT independently re-verified this pass (ops unchanged, relying on the
 extensive prior audit trail above): JobQueue, JobDefinition, Job,
 ConsumableResource, SchedulingPolicy, QuotaShare, ServiceEnvironment, and
 ServiceJob families beyond the `ComputeEnvironment` checks above.
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: exactly one hand-rolled pagination path, and it is not really hand-rolled —
+`paginateMapKeys` (`store.go`) delegates entirely to `pkgs/page.NewHMAC`, an HMAC-signed
+offset token that `pkgs/page` itself clamps (`start >= len(all)` returns an empty page)
+before ever slicing. `describeResourcesPaginated` (the shared "describe by explicit
+names, else paginate over all region-scoped entries" generic used by
+`DescribeComputeEnvironments`/`DescribeJobQueues`/`DescribeServiceEnvironments`) just
+wraps `paginateMapKeys`. No equality-scan cursor, no independent arithmetic to audit.
+Verdict: correct by construction (reuses the audited `pkgs/page` package), no bug found.
+
+Added `pagination_arithmetic_test.go`: this service had no pagination test coverage at
+all before this pass (raw-JSON or typed-client). New test drives
+`DescribeComputeEnvironments` through the real `aws-sdk-go-v2` typed client: a boundary
+walk (N=7, page=3, `assert.ElementsMatch` against the full set) plus a stale-cursor case
+(take an offset token, delete every compute environment, resume with the stale token —
+must return an empty page, not error or hang).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/batch/...`).

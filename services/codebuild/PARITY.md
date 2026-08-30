@@ -619,3 +619,24 @@ the test file) and pass after.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/codebuild/...`).
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `paginateIDs` and `paginateCommandExecutions` (`pagination.go`) both delegate
+straight to `pkgs/page.New` after an optional descending-order reversal — an offset
+token `pkgs/page` itself clamps to the collection length. No equality-scan cursor
+anywhere in this service. Re-checked every `List*` handler for a bypass of the shared
+paginator (per this campaign's specific warning that `ListCommandExecutionsForSandbox`
+had one, fixed 2026-08-29 in `4cc1b6238`/an adjacent commit on this same branch, already
+reflected above as `paginateCommandExecutions`): every remaining `List*` op either calls
+`paginateIDs`/`paginateCommandExecutions`, or has no real-AWS pagination fields at all
+(`ListSharedProjects`, `ListSharedReportGroups`, `ListSourceCredentials`,
+`ListCuratedEnvironmentImages`, all `BatchGet*`). No further bypasses found. Verdict:
+correct, no bug found.
+
+Added `pagination_arithmetic_test.go`: a real `aws-sdk-go-v2` typed-client boundary walk
+over `ListProjects` (N=7, page implicit default, `assert.ElementsMatch` against the full
+set).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/codebuild/...`).

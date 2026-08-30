@@ -33,8 +33,13 @@ func (h *Handler) handleListUserPools(
 	// ordering for pagination tokens.
 	pools := h.Backend.ListUserPools()
 
+	// A miss (the pool the token named was deleted) defaults start to the
+	// end of the collection: leaving it at 0 would resume a stale cursor at
+	// page one, forever.
 	start := 0
 	if in.NextToken != "" {
+		start = len(pools)
+
 		for i, p := range pools {
 			if p.ID == in.NextToken {
 				start = i
