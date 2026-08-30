@@ -91,6 +91,24 @@ families:
   gui_sessions: {status: ok, note: "3 ops, tagging_vpc_misc.go. Real SettingUp->Ready timer-driven state walk per instance, real Stop/restart bookkeeping."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps:
+  - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
+    the cloudwatchlogs/memorydb bug class (an identifier/storage key built from the backend's
+    fixed default region instead of the request's) against this service. Confirmed CLEAN, and by
+    a stronger margin than a mere absence of evidence: this service's OWN code explicitly
+    documents the intended architecture at disks.go's CopySnapshot (the one genuinely cross-region
+    op in the whole 161-op surface) -- \"This repo models each AWS region as its own separate
+    InMemoryBackend instance\" -- and every handler in this package discards ctx
+    ((_ context.Context, body []byte)) because NewInMemoryBackend(ctx, accountID, region) fixes
+    both identity dimensions once, at construction, for the life of the instance; every
+    store_setup.go KeyFn is Name-alone (not even AccountID-scoped, since one instance is also one
+    account). This is the same single-account-single-region-per-process design already
+    independently confirmed correct for regionalARN/globalARN/distributionARN (store.go, section
+    5.1/1047-1055 above -- Domain literal-\"global\", Distribution region-agnostic-but-reports-
+    us-east-1, everything else regional-via-b.region) with zero sibling inconsistency: no operation
+    anywhere in this package derives region from a request the way services/ssm's
+    getRegion(ctx)/httputils.ExtractRegionFromRequest does (confirmed absent from this package).
+    Not a bug per this task's own criterion that a uniformly single-region service can be a
+    legitimate design -- no fix made."
   - "NEW this pass (gopherstack-jigw, 2026-08-13): UpdateDistributionInput.Origin
     (*types.InputOrigin) is real and optional but not wired -- UpdateDistribution
     (certificates_distributions.go) now accepts and replaces
