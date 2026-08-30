@@ -547,3 +547,79 @@ func TestAccessTokenGroupsClaim(t *testing.T) {
 		})
 	}
 }
+
+// TestAdminListGroupsForUser_Pagination proves the op pages through every
+// group a user belongs to exactly once instead of returning them all on a
+// single page with no cursor.
+func TestAdminListGroupsForUser_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "admin-groups-pagination-pool")
+
+	createUserRec := doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "grpuser",
+		"TemporaryPassword": "Temp123!",
+	})
+	require.Equal(t, http.StatusOK, createUserRec.Code, "body: %s", createUserRec.Body)
+
+	names := []string{"group-a", "group-b", "group-c"}
+	for _, n := range names {
+		rec := doCognitoRequest(t, h, "CreateGroup", map[string]any{
+			"UserPoolId": poolID,
+			"GroupName":  n,
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+
+		rec = doCognitoRequest(t, h, "AdminAddUserToGroup", map[string]any{
+			"UserPoolId": poolID,
+			"Username":   "grpuser",
+			"GroupName":  n,
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+	}
+
+	type listOut struct {
+		NextToken string           `json:"NextToken,omitempty"`
+		Groups    []map[string]any `json:"Groups"`
+	}
+
+	rec1 := doCognitoRequest(t, h, "AdminListGroupsForUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "grpuser",
+		"Limit":      2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
+
+	var page1 listOut
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Groups, 2)
+	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more groups remain")
+
+	rec2 := doCognitoRequest(t, h, "AdminListGroupsForUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "grpuser",
+		"Limit":      2,
+		"NextToken":  page1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
+
+	var page2 listOut
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Groups, 1)
+	require.Empty(t, page2.NextToken)
+
+	seen := map[string]bool{}
+	for _, g := range page1.Groups {
+		seen[g["GroupName"].(string)] = true
+	}
+
+	for _, g := range page2.Groups {
+		name := g["GroupName"].(string)
+		require.False(t, seen[name], "group %s returned on both pages", name)
+		seen[name] = true
+	}
+
+	require.Len(t, seen, len(names))
+}

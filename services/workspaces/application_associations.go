@@ -1,6 +1,18 @@
 package workspaces
 
-import "time"
+import (
+	"sort"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// applicationAssociationsPageSize is this backend's default page size for
+// DescribeApplicationAssociations; real AWS doesn't document an exact
+// default, so this is chosen generously (larger than any realistic
+// per-application association list) so pagination only activates when a
+// caller explicitly requests a smaller MaxResults.
+const applicationAssociationsPageSize = 100
 
 // associationStateCompleted/associationStateRemoved are the two terminal
 // values of the real AssociationState enum this backend can reach: it applies
@@ -148,7 +160,7 @@ func (b *InMemoryBackend) workspaceAssociationsLocked(workspaceID string) []Work
 // in this backend, so requiring a match would make this operation
 // permanently return zero results even for associations it created itself.
 func (b *InMemoryBackend) DescribeApplicationAssociations(
-	applicationID string, associatedResourceTypes []string, _ int32, _ string,
+	applicationID string, associatedResourceTypes []string, maxResults int32, nextToken string,
 ) ([]ApplicationResourceAssociation, string, error) {
 	b.mu.RLock("DescribeApplicationAssociations")
 	defer b.mu.RUnlock()
@@ -157,14 +169,18 @@ func (b *InMemoryBackend) DescribeApplicationAssociations(
 		return nil, "", err
 	}
 
-	var result []ApplicationResourceAssociation
-
+	workspaceIDs := make([]string, 0, len(b.appAssociations))
 	for wsID, apps := range b.appAssociations {
-		a, ok := apps[applicationID]
-		if !ok {
-			continue
+		if _, ok := apps[applicationID]; ok {
+			workspaceIDs = append(workspaceIDs, wsID)
 		}
+	}
 
+	sort.Strings(workspaceIDs)
+
+	result := make([]ApplicationResourceAssociation, 0, len(workspaceIDs))
+	for _, wsID := range workspaceIDs {
+		a := b.appAssociations[wsID][applicationID]
 		result = append(result, ApplicationResourceAssociation{
 			ApplicationID:          applicationID,
 			AssociatedResourceID:   wsID,
@@ -175,11 +191,9 @@ func (b *InMemoryBackend) DescribeApplicationAssociations(
 		})
 	}
 
-	if result == nil {
-		result = []ApplicationResourceAssociation{}
-	}
+	pg := page.New(result, nextToken, int(maxResults), applicationAssociationsPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // DescribeApplications returns stored applications, filtered by IDs.

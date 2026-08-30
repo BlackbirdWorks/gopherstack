@@ -3,6 +3,8 @@ package workspaces
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // WorkspaceCreationSpec holds all fields for creating a workspace.
@@ -126,7 +128,9 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*storedImage, string, error)
-	DescribeWorkspaceImagePermissions(imageID string) (string, map[string]bool, error)
+	DescribeWorkspaceImagePermissions(
+		imageID, nextToken string, maxResults int,
+	) (string, page.Page[ImagePermission], error)
 	UpdateWorkspaceImagePermission(imageID, sharedAccountID string, allowCopy bool) error
 	DescribeCustomWorkspaceImageImport(imageID string) (*storedImage, error)
 	DescribeImageAssociations(

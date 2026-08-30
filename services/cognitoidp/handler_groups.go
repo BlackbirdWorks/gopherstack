@@ -3,8 +3,16 @@ package cognitoidp
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// adminGroupsForUserPageSize is this backend's default page size for
+// AdminListGroupsForUser; real AWS doesn't document an exact default, so
+// this is chosen generously (larger than any realistic per-user group
+// membership count) so pagination only activates when a caller explicitly
+// requests a smaller Limit.
+const adminGroupsForUserPageSize = 100
 
 func toGroupSummary(g *Group) *groupSummary {
 	return &groupSummary{
@@ -81,12 +89,14 @@ func (h *Handler) handleAdminListGroupsForUser(
 		return nil, err
 	}
 
-	out := make([]*groupSummary, 0, len(groups))
-	for _, g := range groups {
+	pg := page.New(groups, in.NextToken, in.Limit, adminGroupsForUserPageSize)
+
+	out := make([]*groupSummary, 0, len(pg.Data))
+	for _, g := range pg.Data {
 		out = append(out, toGroupSummary(g))
 	}
 
-	return &adminListGroupsForUserOutput{Groups: out}, nil
+	return &adminListGroupsForUserOutput{Groups: out, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleListUsersInGroup(

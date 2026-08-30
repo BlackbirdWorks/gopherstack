@@ -66,10 +66,13 @@ type adminRemoveUserFromGroupOutput struct{}
 type adminListGroupsForUserInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	Username   string `json:"Username,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	Limit      int    `json:"Limit,omitempty"`
 }
 
 type adminListGroupsForUserOutput struct {
-	Groups []*groupSummary `json:"Groups"`
+	NextToken string          `json:"NextToken,omitempty"`
+	Groups    []*groupSummary `json:"Groups"`
 }
 
 type listUsersInGroupInput struct {

@@ -52,10 +52,12 @@ type describeResourceServerAccurateOutput struct {
 
 type listResourceServersAccurateInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listResourceServersAccurateOutput struct {
+	NextToken       string                       `json:"NextToken,omitempty"`
 	ResourceServers []resourceServerAccurateType `json:"ResourceServers,omitempty"`
 }
 

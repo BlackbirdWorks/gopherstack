@@ -3,8 +3,16 @@ package cognitoidp
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// resourceServersPageSize is this backend's default page size for
+// ListResourceServers; real AWS doesn't document an exact default, so this
+// is chosen generously (larger than any realistic per-pool resource-server
+// count) so pagination only activates when a caller explicitly requests a
+// smaller MaxResults.
+const resourceServersPageSize = 100
 
 func toResourceServerType(rs *ResourceServer) resourceServerAccurateType {
 	scopes := make([]resourceServerScopeType, len(rs.Scopes))
@@ -62,12 +70,14 @@ func (h *Handler) handleListResourceServersAccurate(
 		return nil, err
 	}
 
-	out := make([]resourceServerAccurateType, len(servers))
-	for i, rs := range servers {
+	pg := page.New(servers, in.NextToken, in.MaxResults, resourceServersPageSize)
+
+	out := make([]resourceServerAccurateType, len(pg.Data))
+	for i, rs := range pg.Data {
 		out[i] = toResourceServerType(rs)
 	}
 
-	return &listResourceServersAccurateOutput{ResourceServers: out}, nil
+	return &listResourceServersAccurateOutput{ResourceServers: out, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleUpdateResourceServerAccurate(

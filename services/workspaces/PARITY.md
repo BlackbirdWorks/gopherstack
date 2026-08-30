@@ -2,6 +2,27 @@ service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
 last_audit_commit: 7c8077891728
 last_audit_date: 2026-08-28
+# 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
+# NextToken actually SET one before the collection can exceed a page?). Enumerated all 17 SDK ops
+# whose Input/Output declare NextToken. This service has NO shared pagination chokepoint (only
+# account.go/directories.go/bundles.go/workspaces.go hand-rolled their own correctly) -- 10 of the
+# 17 silently returned every item on one page with an empty NextToken, ignoring the caller's
+# MaxResults/NextToken entirely: DescribeApplicationAssociations, DescribeConnectClientAddIns,
+# DescribeConnectionAliases, DescribeConnectionAliasPermissions, DescribeIpGroups,
+# DescribeWorkspaceImagePermissions, DescribeWorkspaceImages, DescribeWorkspacesPools,
+# DescribeWorkspacesPoolSessions, ListAccountLinks. All 10 fixed via pkgs/page.New (the same
+# chokepoint mgn/cognitoidp already use) plus a deterministic sort where the backend read straight
+# off an unordered store.All()/map range. DescribeWorkspacesPoolSessions' fix is currently
+# unobservable in practice -- b.poolSessions is never Put anywhere in this backend (no op creates a
+# session), so the list is always empty today -- but the wiring is correct once that changes.
+# 5 ops confirmed already correct: DescribeAccountModifications, DescribeWorkspaceDirectories,
+# DescribeWorkspaces, ListAvailableManagementCidrRanges, and DescribeWorkspaceBundles (whose
+# unfiltered path pages correctly; its BundleIds-filtered path returns unpaginated results bounded
+# by the caller's own BundleIds list length, a judgment call, not a fix). 2 left unfixed as
+# provably bounded: DescribeApplications (its backing store, b.applications, is registered but
+# never Put by any op -- always 0 items) and DescribeWorkspacesConnectionStatus (real AWS caps
+# WorkspaceIds at 25 per call -- "up to 25 WorkSpaces", api_op_DescribeWorkspacesConnectionStatus.go
+# -- so the response can never exceed the request's own bound).
 overall: A            # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep):
                        # DescribeWorkspaceDirectories' dirResp carried only
                        # DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds --
@@ -61,7 +82,7 @@ ops:
   RestoreWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — was a true no-op with no existence check (silently 200'd for unknown WorkspaceId); now returns ResourceNotFoundException. No snapshot modeling, so still otherwise a no-op beyond validation — acceptable given no snapshot state exists to restore from."}
   MigrateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "source deleted, new workspace created with target bundleId, tested in workspaces_lifecycle_test.go"}
   CreateIpGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "lowercase groupId/groupName/groupDesc/userRules JSON keys verified against real deserializer — an AWS API quirk, not a bug"}
-  DescribeIpGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeIpGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30, cursor sweep) -- backend ignored MaxResults/NextToken entirely (`_ int32, _ string` params), always returning every IP group on one page with NextToken always empty. Now sorted by GroupID and paginated via pkgs/page.New. Proven via TestDescribeIpGroups_Pagination + hand-revert."}
   DeleteIpGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   AuthorizeIpRules: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeIpRules: {wire: ok, errors: ok, state: ok, persist: ok}

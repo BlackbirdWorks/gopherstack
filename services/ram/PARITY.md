@@ -8,6 +8,19 @@ service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
 last_audit_commit: cfc26365a                    # HEAD when this manifest was written
 last_audit_date: 2026-08-19
+# 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
+# a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
+# ops whose Input/Output declare NextToken. Found genuinely clean: all 12 real paginated ops
+# (GetResourcePolicies, GetResourceShareAssociations, GetResourceShareInvitations,
+# GetResourceShares, ListPendingInvitationResources, ListPermissionAssociations, ListPermissions,
+# ListPermissionVersions, ListPrincipals, ListReplacePermissionAssociationsWork, ListResources,
+# ListResourceSharePermissions) go through the single `ramPaginate` chokepoint (handler.go) that
+# both reads req.NextToken/MaxResults and returns a real base64-offset cursor -- no exceptions, no
+# bypasses. ListResourceTypes (declares NextToken) is correctly left unpopulated: its content is a
+# static 21-entry compiled-in catalogue of shareable resource types, well under any page size.
+# ListSourceAssociations (declares NextToken) is also correctly left unpopulated -- already
+# documented above (its own ops: entry, 2026-07-23) as provably always empty: no op in this SDK's
+# entire surface can ever create a source association. No fixes needed this pass; 0 code changes.
 overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)
                       # 2026-07-31: pkgs/sdkcheck reverse check found ListTagsForResource wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way (RAM dispatches by request path, and no real client sends this path), and real tag-reading via GetResourceShares.Tags was already correct.
                       # 2026-08-19: wrapper-key/nested-shape sweep of all 34 SDK ops found and fixed 3 genuine bugs (CreatePermissionVersion/ListPermissionVersions had their Summary/Detail response shapes swapped; ListPermissionAssociations used the wrong key ("permissionArn" vs real "arn") and wrong type (number vs real string) for its AssociatedPermission items, the latter causing an actual SDK deserialization failure, not just a silent drop). All 3 fixed and proven by hand-revert + SDK-client round trip. Remaining 31 ops confirmed clean against their own deserializers. Grade held at A.

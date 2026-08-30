@@ -1,13 +1,24 @@
 package workspaces
 
 import (
-	"maps"
+	"cmp"
 	"slices"
 	"time"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// imagePermissionsPageSize and imagesPageSize are this backend's default
+// page sizes; real AWS doesn't document exact defaults for either operation,
+// so these are chosen generously (larger than any realistic per-account
+// image or permission-sharing list) so pagination only activates when a
+// caller explicitly requests a smaller MaxResults.
+const (
+	imagePermissionsPageSize = 100
+	imagesPageSize           = 100
 )
 
 // imageImportSpec carries the extra fields ImportWorkspaceImage/
@@ -247,15 +258,21 @@ func (b *InMemoryBackend) CreateUpdatedWorkspaceImage(
 
 // DescribeWorkspaceImages returns workspace images, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeWorkspaceImages(
-	imageIDs []string, _ /*imageType*/ string, _ int32, _ string,
+	imageIDs []string, _ /*imageType*/ string, maxResults int32, nextToken string,
 ) ([]*storedImage, string, error) {
 	b.mu.RLock("DescribeWorkspaceImages")
 	defer b.mu.RUnlock()
 
 	filter := buildFilter(imageIDs)
-	var result []*storedImage
+	all := b.images.All()
 
-	for _, img := range b.images.All() {
+	slices.SortFunc(all, func(a, b *storedImage) int {
+		return cmp.Compare(a.ImageID, b.ImageID)
+	})
+
+	result := make([]*storedImage, 0, len(all))
+
+	for _, img := range all {
 		if !matchesFilter(filter, img.ImageID) {
 			continue
 		}
@@ -264,28 +281,45 @@ func (b *InMemoryBackend) DescribeWorkspaceImages(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedImage{}
-	}
+	pg := page.New(result, nextToken, int(maxResults), imagesPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
-// DescribeWorkspaceImagePermissions returns sharing permissions for an image.
+// ImagePermission is one shared-account entry from
+// DescribeWorkspaceImagePermissions.
+type ImagePermission struct {
+	SharedAccountID string
+	AllowCopyImage  bool
+}
+
+// DescribeWorkspaceImagePermissions returns a page of sharing permissions for
+// an image, sorted by account ID for a stable pagination order.
 func (b *InMemoryBackend) DescribeWorkspaceImagePermissions(
-	imageID string,
-) (string, map[string]bool, error) {
+	imageID, token string, limit int,
+) (string, page.Page[ImagePermission], error) {
 	b.mu.RLock("DescribeWorkspaceImagePermissions")
 	defer b.mu.RUnlock()
 
 	if !b.images.Has(imageID) {
-		return "", nil, errImageNotFound
+		return "", page.Page[ImagePermission]{}, errImageNotFound
 	}
 
-	perms := make(map[string]bool)
-	maps.Copy(perms, b.imagePermissions[imageID])
+	perms := b.imagePermissions[imageID]
+	accountIDs := make([]string, 0, len(perms))
 
-	return imageID, perms, nil
+	for accountID := range perms {
+		accountIDs = append(accountIDs, accountID)
+	}
+
+	slices.Sort(accountIDs)
+
+	all := make([]ImagePermission, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		all = append(all, ImagePermission{SharedAccountID: accountID, AllowCopyImage: perms[accountID]})
+	}
+
+	return imageID, page.New(all, token, limit, imagePermissionsPageSize), nil
 }
 
 // UpdateWorkspaceImagePermission sets the sharing permission for an image.

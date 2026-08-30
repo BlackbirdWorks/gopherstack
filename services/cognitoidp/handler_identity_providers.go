@@ -4,8 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// identityProvidersPageSize is this backend's default page size for
+// ListIdentityProviders; real AWS doesn't document an exact default, so this
+// is chosen generously (larger than any realistic per-pool provider count)
+// so pagination only activates when a caller explicitly requests a smaller
+// MaxResults.
+const identityProvidersPageSize = 100
 
 func (h *Handler) handleAdminDisableProviderForUser(
 	_ context.Context,
@@ -85,9 +93,11 @@ func (h *Handler) handleListIdentityProvidersFull(
 		return nil, err
 	}
 
-	out := make([]identityProviderSummaryJSON, 0, len(idps))
+	pg := page.New(idps, in.NextToken, in.MaxResults, identityProvidersPageSize)
 
-	for _, idp := range idps {
+	out := make([]identityProviderSummaryJSON, 0, len(pg.Data))
+
+	for _, idp := range pg.Data {
 		s := identityProviderSummaryJSON{
 			ProviderName: idp.ProviderName,
 			ProviderType: idp.ProviderType,
@@ -104,7 +114,7 @@ func (h *Handler) handleListIdentityProvidersFull(
 		out = append(out, s)
 	}
 
-	return &listIdentityProvidersFullOutput{Providers: out}, nil
+	return &listIdentityProvidersFullOutput{Providers: out, NextToken: pg.Next}, nil
 }
 
 func toIdentityProviderJSON(idp *IdentityProvider) *identityProviderJSON {

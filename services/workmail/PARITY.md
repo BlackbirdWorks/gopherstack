@@ -3,6 +3,19 @@ service: workmail
 sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
 last_audit_commit: dc877102
 last_audit_date: 2026-07-23
+# 2026-08-30: cursor-population sweep (does every List response struct that DECLARES a NextToken
+# actually SET one before the collection can exceed a page?). Enumerated all 15 SDK ops whose
+# Input/Output declare NextToken (ListAliases, ListAvailabilityConfigurations, ListGroupMembers,
+# ListGroupsForEntity, ListGroups, ListImpersonationRoles, ListMailboxExportJobs,
+# ListMailboxPermissions, ListMailDomains, ListMobileDeviceAccessOverrides, ListOrganizations,
+# ListPersonalAccessTokens, ListResourceDelegates, ListResources, ListUsers). Found genuinely
+# clean: every one of the 15 backend methods sorts its result deterministically then delegates to
+# a single shared `paginate[T any]` helper (store.go), and every one of the 15 handlers reads
+# req.NextToken/MaxResults and returns the resulting token -- no exceptions, no bypasses, no
+# handler that discards the params. workmail and ram both already had this shared-helper pattern
+# and came back clean; workspaces had no such helper at all (10 bugs found), and mgn/cognitoidp
+# each had one op that bypassed their otherwise-correct shared helper.
+# No fixes needed this pass; 0 code changes.
 overall: A            # 6 gaps + 1 (already-fixed, stale-labeled) deferred item closed; 1 real leak class fixed; banned nolint removed
                       # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings expanded on inspection: the shared ErrConflict sentinel (fabricated EntityAlreadyExistsException, a type this SDK defines nowhere) was used by 9 different creation ops, each modeling a DIFFERENT real code. Split into ErrNameUnavailable (NameAvailabilityException: CreateAvailabilityConfiguration/CreateGroup/CreateOrganization/CreateResource/CreateUser), ErrEmailInUse (EmailAddressInUseException: CreateAlias/RegisterToWorkMail), ErrMailDomainInUse (MailDomainInUseException: RegisterMailDomain). CreateImpersonationRole kept ErrConflict/the fabricated code: its own model defines no AlreadyExists exception at all, no replacement invented. The default-500 "InternalServiceError" code left unchanged: WorkMail models no generic internal-error type across all 92 ops, so no code choice here is ever errors.As-matchable regardless. 4 existing tests (handler_users_test.go, handler_aliases_test.go, handler_organizations_test.go, handler_availability_config_test.go) previously asserted the fabricated "AlreadyExists"-shaped string as correct; corrected. EnableInteroperability (this pass's assigned follow-up check): independently reverified already fixed (gopherstack-sm09, closed same day) -- CreateOrganization threads it onto InteroperabilityEnabled and DescribeOrganization echoes it back correctly.
 ops:

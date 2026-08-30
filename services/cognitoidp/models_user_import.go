@@ -53,11 +53,14 @@ type describeUserImportJobOutput struct {
 }
 
 type listUserImportJobsInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
+	UserPoolID      string `json:"UserPoolId,omitempty"`
+	PaginationToken string `json:"PaginationToken,omitempty"`
+	MaxResults      int    `json:"MaxResults,omitempty"`
 }
 
 type listUserImportJobsOutput struct {
-	UserImportJobs []userImportJobType `json:"UserImportJobs,omitempty"`
+	PaginationToken string              `json:"PaginationToken,omitempty"`
+	UserImportJobs  []userImportJobType `json:"UserImportJobs,omitempty"`
 }
 
 type startUserImportJobInput struct {

@@ -51,6 +51,16 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
 last_audit_commit: ee8d5788f
 last_audit_date: 2026-08-21
+# 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
+# NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
+# whose Input/Output declare NextToken. 22 already correct via the shared pkgs/page.New chokepoint
+# (page.go + listNMJobs helper). 6 correctly left unpopulated: ListExportErrors,
+# ListNetworkMigrationAnalysisResults, ListNetworkMigrationCodeGenerationSegments,
+# ListNetworkMigrationDeployedStacks, ListNetworkMigrationMapperSegmentConstructs,
+# ListNetworkMigrationMapperSegments -- each documented in-code as provably always-empty (no op in
+# this SDK's surface can ever populate them; see networkmigrationjobs.go/networkmigration.go doc
+# comments). 1 genuine bug found and fixed: ListManagedAccounts (see its ops: entry) -- the one op
+# in the family that bypassed the shared pagination pattern.
 overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration suite this A-/B distinction
 # hinges on now exists and passes under Docker, and every buildable gap this pass found (5 items,
 # enumerated in the comment block above) is closed. What remains in gaps:/structural_gaps: below is
@@ -143,7 +153,7 @@ ops:
   RemoveTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
   # service_init (2)
   InitializeService: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListManagedAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: now resolves real AWS Organizations member accounts (resolveManagedAccountsLocked, cross_service.go) when this account is the org's management account or a registered delegated administrator for mgnServicePrincipal (\"mgn.amazonaws.com\" -- an unconfirmed but conventionally-derived value, same evidentiary standard this file already applies to ARN resource-path segments), falling back to just the caller's own account otherwise. Verified against a real Organizations backend in test/integration/mgn_test.go's TestIntegration_MGN_ListManagedAccounts."}
+  ListManagedAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: now resolves real AWS Organizations member accounts (resolveManagedAccountsLocked, cross_service.go) when this account is the org's management account or a registered delegated administrator for mgnServicePrincipal (\"mgn.amazonaws.com\" -- an unconfirmed but conventionally-derived value, same evidentiary standard this file already applies to ARN resource-path segments), falling back to just the caller's own account otherwise. Verified against a real Organizations backend in test/integration/mgn_test.go's TestIntegration_MGN_ListManagedAccounts. FIXED (2026-08-30, cursor sweep) -- ListManagedAccountsOutput.NextToken (api_op_ListManagedAccounts.go) was never populated: handleListManagedAccounts ignored req.NextToken/MaxResults entirely and returned the full member-account list unpaginated every call, silently truncating nothing only because no caller-controllable path could exceed one page before this fix, but a real org with many delegated/managed accounts could. Backend now returns page.Page[ManagedAccount] via pkgs/page, same chokepoint every other List/Describe op in this service already used. Proven via TestListManagedAccounts_Pagination (services/mgn/cross_service_test.go), a real Organizations backend wired through SetAppConfig with 3 accounts, MaxResults=2 + hand-revert (confirmed 3-of-3 returned on one page, no NextToken, pre-fix)."}
   # tagging (3)
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
