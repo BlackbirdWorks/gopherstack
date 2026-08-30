@@ -690,3 +690,37 @@ func TestListMembers_Pagination(t *testing.T) {
 	assert.Empty(t, aws.ToString(page2.NextToken))
 	assert.NotEqual(t, aws.ToString(page1.Members[0].AccountId), aws.ToString(page2.Members[0].AccountId))
 }
+
+// TestGetFindingsStatistics_MaxResults proves MaxResults (parsed off the
+// wire into FindingStatisticsQuery, which findingStatisticsFor already
+// honors, confirmed against GetFindingsStatisticsInput.MaxResults'
+// "You can use this parameter only with the groupBy parameter" doc) was
+// dropped between decode and the FindingStatisticsQuery{} literal in
+// handleGetFindingsStatistics -- a real client's requested cap silently
+// no-op'd and every call fell back to the default of 25 regardless
+// (gopherstack-4a8v).
+func TestGetFindingsStatistics_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	detID := createTestDetector(t, h)
+
+	doRequest(t, h, http.MethodPost, "/detector/"+detID+"/findings/create", map[string]any{
+		"findingTypes": []string{
+			"Backdoor:EC2/DenialOfService.Tcp",
+			"Recon:IAMUser/TorIPCaller",
+			"Trojan:EC2/BlackholeTraffic",
+		},
+	})
+
+	client := newTestGuardDutyClient(t, h)
+
+	resp, err := client.GetFindingsStatistics(t.Context(), &guarddutysdk.GetFindingsStatisticsInput{
+		DetectorId: aws.String(detID),
+		GroupBy:    types.GroupByTypeFindingType,
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.FindingStatistics.GroupedByFindingType, 1,
+		"requested MaxResults=1 must cap the bucket count, not return all 3")
+}

@@ -206,6 +206,11 @@ func (h *Handler) handlePutFindingsPublicationConfiguration(body []byte) (int, e
 		return http.StatusBadRequest, ErrValidation
 	}
 
+	// ClientToken is an idempotency token the SDK client auto-fills; accepted
+	// on the wire but GetFindingsPublicationConfigurationOutput has no such
+	// member, so it must never be persisted/echoed back.
+	cfg.ClientToken = ""
+
 	if err := h.Backend.PutFindingsPublicationConfiguration(&cfg); err != nil {
 		return http.StatusInternalServerError, err
 	}

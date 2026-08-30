@@ -164,7 +164,7 @@ ops:
   ArchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "real mutation: sets Service.Archived + UpdatedAt, verified by reading GetFindings after"}
   UnarchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSampleFindings: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — groupBy=ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY now each return the correct real groupedByX list (finding_statistics.go), selected exclusively (matching \"if a groupBy was provided\" semantics — the deprecated countBySeverity is omitted whenever groupBy is set, and vice versa); findingCriteria now filters which findings are aggregated; maxResults honored (default 25, matching the real doc). groupByResource's resourceId is always \"\" — this backend has no per-resource-type identifier field (instanceId/functionName/etc), only resourceType, which is a real, documented limitation not a bug"}
+  GetFindingsStatistics: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — groupBy=ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY now each return the correct real groupedByX list (finding_statistics.go), selected exclusively (matching \"if a groupBy was provided\" semantics — the deprecated countBySeverity is omitted whenever groupBy is set, and vice versa); findingCriteria now filters which findings are aggregated; maxResults honored (default 25, matching the real doc). groupByResource's resourceId is always \"\" — this backend has no per-resource-type identifier field (instanceId/functionName/etc), only resourceType, which is a real, documented limitation not a bug. CORRECTED 2026-08-30 (gopherstack-4a8v): the prior note's \"maxResults honored\" claim was true only of findingStatisticsFor's own default-25 fallback logic — handleGetFindingsStatistics (handler_findings.go) built FindingStatisticsQuery{GroupBy, OrderBy} without ever threading req.MaxResults through, so a real client's own requested cap silently no-op'd and every call got the unconditional default regardless. Fixed by adding MaxResults to that literal. See TestGetFindingsStatistics_MaxResults (wire_field_fixes_test.go)."}
   UpdateFindingsFeedback: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIPSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "real GetIPSetOutput has no createdAt/updatedAt — correctly omitted"}
@@ -644,3 +644,42 @@ Proof: `TestDecodeToken_NegativeOffset` and `TestPaginate_NegativeOffset_DoesNot
 build ./services/guardduty/...`, `go vet ./services/guardduty/...`, `go test -race -count=1
 ./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## reqfieldscan anonymous-struct-decode pass (2026-08-30, bd gopherstack-4a8v)
+
+`cmd/reqfieldscan`'s new anonymous-inline-struct decode path (every handler
+here is a `service.JSONOpFunc` directly via `RESTRouter`, decoding into
+local `var req struct{...}` literals — no `WrapOp` anywhere in this
+service) surfaced 5 previously invisible unread-request-field flags.
+Hand-verified each against `aws-sdk-go-v2/service/guardduty@v1.85.4`'s own
+`api_op_*.go`/`serializers.go`:
+
+- **Real bug, fixed**: `GetFindingsStatistics`'s `MaxResults` — see the
+  `GetFindingsStatistics` row above for the full note.
+- **Honest gap, not previously documented**: `CreateDetector.ClientToken`
+  (`handler_detectors.go`), `CreateInvestigation.ClientToken`
+  (`handler_investigations.go`), and
+  `CreatePublishingDestination.ClientToken`
+  (`handler_publishing_destinations.go`) — all three are real
+  `ClientToken` members on their respective real Inputs (confirmed against
+  `api_op_CreateDetector.go`/`api_op_CreateInvestigation.go`/
+  `api_op_CreatePublishingDestination.go`), an idempotency-retry aid with
+  no backend dedup window to honor; none is ever passed to its `Backend.*`
+  call or echoed in any response. Matches this repo's established
+  accept-then-drop convention for idempotency tokens elsewhere (see
+  `glue/handler_catalogs.go`, `inspector2/handler_connectors.go`). Not a
+  bug; recorded here since no prior pass had verified it for this service.
+- **Honest gap, no observable surface exists**:
+  `UpdateFindingsFeedback.Comments` (`handler_findings.go`) is a real
+  `UpdateFindingsFeedbackInput.Comments` member (confirmed against
+  `api_op_UpdateFindingsFeedback.go`/`serializers.go`) but `types.Finding`
+  has no member anywhere it could surface on — real GuardDuty itself never
+  echoes it back through any read API. Storing it would be write-only
+  state no client could ever observe; left unfixed, same class as this
+  file's other declared-but-unobservable gaps (`ListCoverage`'s
+  `FilterCriteria`/`SortCriteria`, above).
+
+No other findings in this slice. Gates: `go build ./services/guardduty/...`,
+`go vet ./services/guardduty/...`, `go test -race -count=1
+./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0
+issues).

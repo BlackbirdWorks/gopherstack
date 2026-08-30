@@ -87,8 +87,8 @@ ops:
   GetClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClassificationScopes: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClassificationScope: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateClassificationScopeInput.S3 is types.S3ClassificationScopeUpdate{Excludes: *S3ClassificationScopeExclusionUpdate{BucketNames, Operation}} -- an explicit ADD/REMOVE/REPLACE discriminator, not a replacement list -- but the handler decoded S3 as the same freeform map[string]any Excludes used for Get/List and wholesale-replaced the stored value with whatever the request carried, so an ADD call silently dropped every bucket a prior ADD had added. Modeled ClassificationScopeS3Update/ClassificationScopeS3ExclusionUpdate distinct from the Get/List-side ClassificationScopeS3/ClassificationScopeS3Exclusion (now BucketNames []string, not a map) and implemented real ADD/REMOVE/REPLACE list semantics. See TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds."}
-  GetFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetFindingsPublicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-30 (gopherstack-4a8v, reqfieldscan anonymous-struct-decode pass): FindingsPublicationConfig fabricated top-level publishClassificationFindings/publishPolicyFindings members (no omitempty, so emitted on every response) -- confirmed against api_op_GetFindingsPublicationConfiguration.go/api_op_PutFindingsPublicationConfiguration.go and types.SecurityHubConfiguration that both real fields live ONLY nested under securityHubConfiguration; neither Input nor Output has a top-level member of either name. Removed the two fabricated fields; a pre-existing test (TestFindingsPublicationConfig/get_put_publication_config) asserted the fabricated top-level shape as correct and was fixed to assert the real nested shape plus their absence. ClientToken (real PutFindingsPublicationConfigurationInput member, idempotency-only, no member on Output) was being stored via the struct's whole-value copy and echoed back on a later Get; now explicitly discarded after decode, matching this codebase's existing accept-then-drop convention for idempotency tokens (see glue/handler_catalogs.go, inspector2/handler_connectors.go)."}
+  PutFindingsPublicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see GetFindingsPublicationConfiguration row -- same fix, same commit."}
   GetResourceProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-15 pass: response key 'sensitivityScoreOverride' does not exist on the real GetResourceProfileOutput (real key is 'sensitivityScoreOverridden', past participle) -- a real client's SensitivityScoreOverridden was always false even after UpdateResourceProfile set a manual override. Also fixed ResourceStatistics's 'totalDetectionsWithoutSuppression'->'totalDetectionsSuppressed' and 'totalItemsSkippedPermissionError'->'totalItemsSkippedPermissionDenied' (real deserializers.go field names); ResourceStatistics is always the zero-value struct in this backend (nothing populates real numbers), so the value itself is currently unobservable -- key names fixed and disclosed as untested rather than given a hollow test. 'totalItemsSensitive' remains entirely unmodeled."}
   UpdateResourceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceProfileArtifacts: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -494,3 +494,49 @@ Covered by `TestCreateMember_RelationshipStatus_RealClient`,
 `TestAcceptInvitation_RelationshipStatus_RealClient` (all in
 `wire_field_fixes_test.go`), each driven through the real SDK client and
 asserted against the real `types.RelationshipStatus` constants.
+
+## reqfieldscan anonymous-struct-decode pass (2026-08-30, bd gopherstack-4a8v)
+
+`cmd/reqfieldscan`'s new anonymous-inline-struct decode path (see
+`handler_findings.go`'s `var req struct{...}` shapes) surfaced 7 previously
+invisible unread-request-field flags. Hand-verified each against
+`macie2@v1.54.4`'s own serializers:
+
+- **Real bug, fixed**: `FindingsPublicationConfig.PublishClassificationFindings`/
+  `PublishPolicyFindings` (`models.go`) were fabricated top-level fields --
+  neither `PutFindingsPublicationConfigurationInput` nor
+  `GetFindingsPublicationConfigurationOutput` has a member of either name;
+  both real fields live only nested under `SecurityHubConfiguration`
+  (`types.SecurityHubConfiguration`). Both booleans lacked `omitempty`, so
+  every `Get`/`Put` response carried two keys no real client ever sends.
+  Removed. See the `GetFindingsPublicationConfiguration`/
+  `PutFindingsPublicationConfiguration` rows above for the full note.
+- **Real bug, fixed**: `FindingsPublicationConfig.ClientToken` was stored via
+  the handler's whole-struct copy and echoed back on a later `Get`, even
+  though `GetFindingsPublicationConfigurationOutput` has no such member.
+  Now explicitly discarded post-decode.
+- **Tool false positive (whole-struct-copy shape)**:
+  `FindingsPublicationConfig.SecurityHubConfiguration` reads as unread
+  because `handlePutFindingsPublicationConfiguration`/
+  `PutFindingsPublicationConfiguration` thread it through via `cp := *cfg`
+  struct-copy assignments, never a per-field selector -- functionally
+  correct and observable via `Get`, just invisible to the tool's
+  whole-struct-*conversion* (`SomeType(x)` call-expression) suppression
+  rule, which does not recognize a dereference-assignment copy.
+- **Honest gap, matches this codebase's established idempotency-token
+  convention** (see `glue/handler_catalogs.go`'s
+  `putDataCatalogExportConfigurationInput`, `inspector2/handler_connectors.go`'s
+  `createConnectorRequest`): `CreateAllowList.ClientToken`
+  (`handler_allow_lists.go`) and `CreateFindingsFilter.ClientToken`
+  (`handler_findings_filters.go`) are accepted, never stored, never echoed
+  -- an idempotency-retry aid with no backend dedup window to honor. Neither
+  response type has a field to echo it into either.
+- **Honest gap, already documented above** (`GetUsageStatistics` row, "no
+  billing engine"): `GetUsageStatistics.SortBy` (`handler_usage.go`) is
+  dropped along with `FilterBy`/`MaxResults`/`NextToken` -- the backend
+  returns an unconditionally empty `[]UsageRecord{}`, so there is nothing
+  for any of these to filter or sort.
+
+No other findings in this slice; `go build`/`go vet`/`go test -race
+-count=1 ./services/macie2/...`/`golangci-lint run ./services/macie2/...`
+all clean after the fix.

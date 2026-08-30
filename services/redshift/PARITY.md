@@ -1660,3 +1660,60 @@ backwards: real AWS's pending-payment value is `"pending-payment"` (state,
 then reason), not `"payment-pending"` (reason, then state). Fixed the
 literal. Covered by `TestPurchaseReservedNodeOffering_State`
 (`handler_sdk_roundtrip_test.go`), driven through the real SDK client.
+
+## 2026-08-30 anonymous-struct-decode sweep (gopherstack-4a8v): re-verified clean, no code change
+
+`cmd/reqfieldscan`'s fifth dispatch shape (anonymous inline `var req
+struct{...}` literal-decode, no `WrapOp`) made this service newly visible
+to that scanner: dispatch coverage 47/60 resolved (78%, both coverage lines
+identical, no guard warning — the 13 unresolved ops are the
+Get/Put/DeleteResourcePolicy, Create/Update/Delete/ListSnapshotCopyConfiguration,
+Create/Get/List/Update/DeleteEndpointAccess, and GetIdentityCenterAuthToken
+families. Root cause confirmed by reading the tool's own resolution path
+(main.go's package doc) plus this package's handlers: the literal-decode
+path resolves an op name only via a "handle"+opName fallback match
+(case-insensitive), and every one of these 13 ops' real, correctly-shaped
+`var req struct{...}` decoder lives on `*ServerlessHandler` under an
+`SL`-suffixed function name (`handleGetResourcePolicySL`,
+`handleCreateSnapshotCopyConfigurationSL`, `handleListEndpointAccessSL`,
+`handleGetIdentityCenterAuthTokenSL`, ...) that "handle"+opName never
+matches. Three of the 13 (`GetResourcePolicy`/`PutResourcePolicy`/
+`DeleteResourcePolicy`) additionally have a same-named classic-Redshift
+handler (`handleGetResourcePolicy(vals url.Values)`, query-param based, no
+JSON body) that the fallback matches instead, finding no decode there
+either; the other ten have no classic-Redshift op of the same name at all
+and simply match nothing. `RestoreFromRecoveryPoint` is the one op in this
+family whose Serverless handler kept the unsuffixed name
+(`handleRestoreFromRecoveryPoint`), so it alone resolved. A disclosed
+measurement gap, not a plausibility problem — worth a follow-up to
+cmd/reqfieldscan, not chased here (out of this pass's scope:
+cmd/reqfieldscan is held by another agent this pass). One field flagged:
+`RestoreFromRecoveryPoint`'s `MaintainIntegration`
+(`handler_serverless_recovery.go:65`).
+
+Hand-verified against `redshiftserverless@v1.38.5`'s
+`api_op_RestoreFromRecoveryPoint.go`: `MaintainIntegration` is a real
+`*bool` member ("If true, maintain existing data sharing, zero-ETL and S3
+event integrations when restoring"), parsed off the wire and never passed
+to `RestoreFromRecoveryPointSL`. This is the identical field, on the
+identical sibling operation's honest-gap precedent already fixed and
+documented in the 2026-08-13 pass above: `RestoreFromSnapshotSL`
+(`serverless_restore.go`) accepts the same field on
+`RestoreFromSnapshotParams` and explicitly discards it
+(`_ = p.MaintainIntegration`) with the reasoning "this backend does not
+model data-sharing/zero-ETL/S3-event integration state on namespaces at
+all, so there is nothing to maintain or drop." `RestoreFromRecoveryPointSL`
+has exactly the same limitation — no integration state exists anywhere on
+`Namespace` for either restore path to gate. Confirmed structurally, not
+just by analogy: grepped this package's `Namespace`/`ServerlessNamespace`
+struct and found no data-sharing/zero-ETL/S3-event field on either.
+
+**No code or test changes made to this service this pass.** The flagged
+field is an honest, structurally-identical restatement of an
+already-fixed-and-documented sibling gap, not a new bug — restraint per
+this campaign's own instructions, not a fabricated clean bill. This
+service's earlier verdict (see `overall: A` header and the Serverless
+family notes above) holds.
+
+Gates: not re-run (no change); `go build ./...` and `go vet ./...`
+(repo-wide) confirmed clean as part of this session's checks.

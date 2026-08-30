@@ -199,7 +199,7 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	}))
 
 	require.NoError(t, original.PutFindingsPublicationConfiguration(&macie2.FindingsPublicationConfig{
-		PublishClassificationFindings: true,
+		SecurityHubConfiguration: &macie2.SecurityHubConfig{PublishClassificationFindings: true},
 	}))
 
 	require.NoError(t, original.UpdateResourceProfile("arn:aws:s3:::bucket1", 42))
@@ -302,7 +302,8 @@ func assertRestoredState(t *testing.T, fresh *macie2.InMemoryBackend, ids restor
 
 	pubCfg, err := fresh.GetFindingsPublicationConfiguration()
 	require.NoError(t, err)
-	assert.True(t, pubCfg.PublishClassificationFindings)
+	require.NotNil(t, pubCfg.SecurityHubConfiguration)
+	assert.True(t, pubCfg.SecurityHubConfiguration.PublishClassificationFindings)
 
 	profile, err := fresh.GetResourceProfile("arn:aws:s3:::bucket1")
 	require.NoError(t, err)

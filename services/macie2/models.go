@@ -430,11 +430,16 @@ type ClassificationScopeSummary struct {
 }
 
 // FindingsPublicationConfig holds findings publication configuration.
+// PublishClassificationFindings/PublishPolicyFindings live only on
+// SecurityHubConfiguration -- neither PutFindingsPublicationConfigurationInput
+// nor GetFindingsPublicationConfigurationOutput has a top-level member of
+// either name (confirmed against aws-sdk-go-v2/service/macie2's
+// api_op_PutFindingsPublicationConfiguration.go/
+// api_op_GetFindingsPublicationConfiguration.go); a prior pass fabricated
+// both here, always emitted (no omitempty), on every response.
 type FindingsPublicationConfig struct {
-	SecurityHubConfiguration      *SecurityHubConfig `json:"securityHubConfiguration,omitempty"`
-	ClientToken                   string             `json:"clientToken,omitempty"`
-	PublishClassificationFindings bool               `json:"publishClassificationFindings"`
-	PublishPolicyFindings         bool               `json:"publishPolicyFindings"`
+	SecurityHubConfiguration *SecurityHubConfig `json:"securityHubConfiguration,omitempty"`
+	ClientToken              string             `json:"clientToken,omitempty"`
 }
 
 // SecurityHubConfig holds Security Hub integration settings.

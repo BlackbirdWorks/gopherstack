@@ -249,10 +249,13 @@ func TestFindingsPublicationConfig(t *testing.T) {
 				rec := doRequest(t, h, http.MethodGet, "/findings-publication-configuration", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
-				// PutFindingsPublicationConfiguration
+				// PutFindingsPublicationConfiguration. Real
+				// PutFindingsPublicationConfigurationInput has no top-level
+				// publishClassificationFindings/publishPolicyFindings members
+				// (confirmed against aws-sdk-go-v2/service/macie2's
+				// api_op_PutFindingsPublicationConfiguration.go) -- only
+				// nested under securityHubConfiguration.
 				rec = doRequest(t, h, http.MethodPut, "/findings-publication-configuration", map[string]any{
-					"publishClassificationFindings": true,
-					"publishPolicyFindings":         true,
 					"securityHubConfiguration": map[string]any{
 						"publishClassificationFindings": true,
 						"publishPolicyFindings":         false,
@@ -264,8 +267,19 @@ func TestFindingsPublicationConfig(t *testing.T) {
 				rec = doRequest(t, h, http.MethodGet, "/findings-publication-configuration", nil)
 				var updated map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
-				assert.True(t, updated["publishClassificationFindings"].(bool))
-				assert.True(t, updated["publishPolicyFindings"].(bool))
+
+				_, hasTopClassification := updated["publishClassificationFindings"]
+				_, hasTopPolicy := updated["publishPolicyFindings"]
+				assert.False(t, hasTopClassification,
+					"publishClassificationFindings must not appear at the top level -- "+
+						"GetFindingsPublicationConfigurationOutput has no such member")
+				assert.False(t, hasTopPolicy,
+					"publishPolicyFindings must not appear at the top level")
+
+				shc, ok := updated["securityHubConfiguration"].(map[string]any)
+				require.True(t, ok)
+				assert.True(t, shc["publishClassificationFindings"].(bool))
+				assert.False(t, shc["publishPolicyFindings"].(bool))
 			},
 		},
 	}
