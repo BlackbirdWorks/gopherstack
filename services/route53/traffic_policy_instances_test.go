@@ -294,13 +294,17 @@ func TestListTrafficPolicyInstancesByHostedZone(t *testing.T) {
 	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicyinstance", instanceBody)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	// Filter by hosted zone.
-	rec = send(t, h, http.MethodGet, "/2013-04-01/trafficpolicyinstances/hostedzone?hostedzoneid="+zoneID, "")
+	// Filter by hosted zone. route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesByHostedZoneInput
+	// binds HostedZoneId to query key "id", not "hostedzoneid" -- this test
+	// previously used "hostedzoneid", which matched the handler's
+	// then-matching bug rather than what a real client sends.
+	rec = send(t, h, http.MethodGet, "/2013-04-01/trafficpolicyinstances/hostedzone?id="+zoneID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "filtered.example.com")
 
 	// Filter by non-matching hosted zone.
-	rec = send(t, h, http.MethodGet, "/2013-04-01/trafficpolicyinstances/hostedzone?hostedzoneid=ZNONEXISTENT", "")
+	rec = send(t, h, http.MethodGet, "/2013-04-01/trafficpolicyinstances/hostedzone?id=ZNONEXISTENT", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "filtered.example.com")
 }

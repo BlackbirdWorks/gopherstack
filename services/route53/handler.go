@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1018,6 +1019,10 @@ const (
 	maxHZByVPC         = 100
 	defaultLimitValue  = 500
 	defaultDSLimit     = 100
+	// vpcAssocAuthDefaultMaxResults matches api_op_ListVPCAssociationAuthorizations.go's
+	// documented default ("If you don't specify a value for MaxResults, Route
+	// 53 returns up to 50 VPCs per page").
+	vpcAssocAuthDefaultMaxResults = 50
 )
 
 // Route53 path constants for completeness operations.
@@ -1247,16 +1252,16 @@ func (h *Handler) getAccountLimit(c *echo.Context, path string) error {
 	case route53LimitMaxHealthChecksByOwner:
 		count = h.Backend.GetHealthCheckCount()
 	case route53LimitMaxReusableDelegationSetsByOwner:
-		if sets, err := h.Backend.ListReusableDelegationSets(); err == nil {
-			count = len(sets)
+		if sets, err := h.Backend.ListReusableDelegationSets("", math.MaxInt32); err == nil {
+			count = len(sets.Data)
 		}
 	case route53LimitMaxTrafficPoliciesByOwner:
-		if policies, err := h.Backend.ListTrafficPolicies(); err == nil {
-			count = len(policies)
+		if policies, err := h.Backend.ListTrafficPolicies("", math.MaxInt32); err == nil {
+			count = len(policies.Data)
 		}
 	case route53LimitMaxTrafficPolicyInstancesByOwner:
-		if instances, err := h.Backend.ListTrafficPolicyInstances(); err == nil {
-			count = len(instances)
+		if instances, err := h.Backend.ListTrafficPolicyInstances("", math.MaxInt32); err == nil {
+			count = len(instances.Data)
 		}
 	}
 

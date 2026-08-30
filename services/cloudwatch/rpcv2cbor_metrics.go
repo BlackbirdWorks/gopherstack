@@ -224,9 +224,12 @@ func applyMetricStatToQuery(q *MetricDataQuery, msMap cbor.Map) {
 	}
 }
 
-// parseMetricDataQueries extracts MetricDataQueries from a CBOR map.
-func parseMetricDataQueries(input cbor.Map) []MetricDataQuery {
-	listVal, hasQueries := input["MetricDataQueries"]
+// parseMetricDataQueries extracts a MetricDataQuery list from a CBOR map
+// under key. GetMetricDataInput calls this member "MetricDataQueries";
+// PutMetricAlarmInput calls the same _MetricDataQueries shape "Metrics"
+// (cloudwatch@v1.66.3 schemas.go).
+func parseMetricDataQueries(input cbor.Map, key string) []MetricDataQuery {
+	listVal, hasQueries := input[key]
 	if !hasQueries {
 		return nil
 	}
@@ -280,7 +283,7 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 	scanBy := cborStr(input, "ScanBy")
 	nextToken := cborStr(input, "NextToken")
 	maxDatapoints := int(cborInt32(input, "MaxDatapoints"))
-	queries := parseMetricDataQueries(input)
+	queries := parseMetricDataQueries(input, "MetricDataQueries")
 
 	var pageResult GetMetricDataPage
 	var err error

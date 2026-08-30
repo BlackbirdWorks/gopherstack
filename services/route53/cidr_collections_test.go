@@ -300,14 +300,14 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 	assert.Equal(t, int64(2), updated.Version)
 
 	// ListCidrLocations.
-	locs, err := b.ListCidrLocations(col.ID)
+	locs, err := b.ListCidrLocations(col.ID, "", 0)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"office"}, locs)
+	assert.Equal(t, []string{"office"}, locs.Data)
 
 	// ListCidrBlocks.
-	blocks, err := b.ListCidrBlocks(col.ID, "office")
+	blocks, err := b.ListCidrBlocks(col.ID, "office", "", 0)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"192.168.1.0/24", "10.0.0.0/8"}, blocks)
+	assert.ElementsMatch(t, []string{"192.168.1.0/24", "10.0.0.0/8"}, blocks.Data)
 
 	// DELETE_IF_EXISTS.
 	_, err = b.ChangeCidrCollection(col.ID, []route53.CidrCollectionChange{
@@ -319,9 +319,9 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	blocks, err = b.ListCidrBlocks(col.ID, "office")
+	blocks, err = b.ListCidrBlocks(col.ID, "office", "", 0)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"192.168.1.0/24"}, blocks)
+	assert.Equal(t, []string{"192.168.1.0/24"}, blocks.Data)
 }
 
 func TestListCidrBlocks_Handler(t *testing.T) {

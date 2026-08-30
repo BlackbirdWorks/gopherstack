@@ -55,7 +55,7 @@ ops:
   GetMetricStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: period-aligned buckets, Average/Sum/Min/Max/SampleCount, extended-statistic percentiles via collectRawBuckets, anomaly band annotation"}
   GetMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: metric-math expressions (topo-sorted), ScanBy asc/desc, MaxDatapoints pagination with resumable cursor, PartialData/ArithmeticError messages, cross-account AccountId returns empty not error"}
   ListMetrics: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
-  PutMetricAlarm: {wire: ok, errors: fixed, state: ok, persist: ok, note: "CBOR error code FIXED 2026-08-29 — see error-codes family note."}
+  PutMetricAlarm: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "CBOR error code FIXED 2026-08-29 — see error-codes family note. Metrics (metric-math alarms) FIXED 2026-08-30 (gopherstack-p1ph) — cborPutMetricAlarm never read the 'Metrics' member; the dead legacy XML handlePutMetricAlarm parsed it via parseMetricDataQueriesFromForm but no real client reaches that path. Now parsed via parseMetricDataQueries(input, \"Metrics\") (generalized from the existing GetMetricData.MetricDataQueries parser — both share the _MetricDataQueries wire shape per schemas.go) and echoed back on DescribeAlarms/DescribeAlarmsForMetric via new buildMetricDataQueriesCBOR. Proven with a real aws-sdk-go-v2 write-then-read round trip (metric_math_alarm_p1ph_test.go). MetricStat.Unit remains unmodeled (repo's MetricStat struct has no Unit field, matching the legacy XML parser's pre-existing gap) — not fixed, noted in Notes."}
   PutCompositeAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlarmRule AND/OR/NOT parsing with cycle + depth-limit detection proven correct"}
   PutLogAlarm: {wire: ok, errors: fixed, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   DescribeAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns three lists (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms), single combined MaxRecords/NextToken pagination window extended across all three. FIXED THIS PASS (bd gopherstack-yvb7): includeComposite previously defaulted to true when AlarmTypes was omitted, contradicting DescribeAlarmsInput.AlarmTypes's own doc comment (\"If you omit this parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the account\", confirmed against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go). Now includeComposite := typeSet[\"CompositeAlarm\"] -- composite alarms, like log alarms, are excluded by default and returned only when AlarmTypes explicitly requests them. wire restored to ok; see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes for the before/after and the list of tests updated to assert the corrected default."}
@@ -861,20 +861,29 @@ and `ManagedRules` on `PutManagedInsightRules`. Every key matched exactly;
 no cardinality mistakes (no scalar-getter used on a list field or vice
 versa) found anywhere in this set.
 
-**Missing feature, left alone (not this bug class), and one real
-CBOR-vs-legacy divergence worth flagging for the next pass:**
-`PutMetricAlarmInput.Metrics []types.MetricDataQuery` (metric-math alarms)
-is a real, modeled field that `cborPutMetricAlarm` never reads at all --
-but the **dead** legacy XML `handlePutMetricAlarm` (`handler_alarms.go:51`)
-*does* parse it via `parseMetricDataQueriesFromForm`. So the unreachable
-path has strictly more feature coverage than the one real clients hit; this
-is a missing-feature gap on the live path, not a wrong-key bug, but is
-exactly the kind of live/dead divergence this service's protocol split
-makes easy to miss. Also unread on the CBOR path: `MetricStat.Unit`,
-`DescribeAlarmsForMetricInput` doesn't need it but `GetMetricStatistics`
-doesn't propagate `Unit` into a request-side list check (it's a scalar
-enum, not a list, so out of this bug class) -- noted for a future feature
-pass, not fixed here.
+**FIXED 2026-08-30 (gopherstack-p1ph):** `PutMetricAlarmInput.Metrics
+[]types.MetricDataQuery` (metric-math alarms) is a real, modeled field that
+`cborPutMetricAlarm` never read at all -- while the **dead** legacy XML
+`handlePutMetricAlarm` (`handler_alarms.go:51`) parsed it via
+`parseMetricDataQueriesFromForm`, so the unreachable path had strictly more
+feature coverage than the one real clients hit. Confirmed from the pinned
+SDK schema that `PutMetricAlarmInput`'s `"Metrics"` member and
+`GetMetricDataInput`'s `"MetricDataQueries"` member both point at the same
+`_MetricDataQueries` shape (schemas.go:4205,4487), so `parseMetricDataQueries`
+(previously hardcoded to the `"MetricDataQueries"` key) was generalized to
+take the key as a parameter and is now called with `"Metrics"` from
+`cborPutMetricAlarm` too. The read side (`buildMetricAlarmCBOR`, shared by
+`DescribeAlarms` and `DescribeAlarmsForMetric`) gained a new
+`buildMetricDataQueriesCBOR` so a write-then-read round trip through a real
+`aws-sdk-go-v2` client preserves the full nested structure (`Id`,
+`Expression`, `Label`, `AccountId`, `ReturnData`, and `MetricStat.{Metric.
+{Namespace,MetricName,Dimensions},Period,Stat}`). Proven by
+`metric_math_alarm_p1ph_test.go`'s `TestPutMetricAlarm_Metrics_RealClient_RoundTrip`,
+which failed against unmodified code (0 metrics came back) before the fix.
+Still unread on the CBOR path, deliberately left alone: `MetricStat.Unit` --
+this repo's own `MetricStat` model (`models.go`) has no `Unit` field at all,
+a gap that predates this fix and matches the legacy XML parser's identical
+omission, so adding it would be a new feature, not this bug's fix.
 
 **Dead legacy XML/Query path, spot-checked but not exhaustively
 cross-referenced:** the pinned SDK has no serializer for this protocol at

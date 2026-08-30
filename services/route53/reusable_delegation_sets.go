@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -157,8 +159,15 @@ func (b *InMemoryBackend) DeleteReusableDelegationSet(id string) error {
 	return nil
 }
 
-// ListReusableDelegationSets returns all reusable delegation sets.
-func (b *InMemoryBackend) ListReusableDelegationSets() ([]*ReusableDelegationSet, error) {
+// ListReusableDelegationSets returns a page of reusable delegation sets,
+// paginated by Marker/NextMarker (route53@v1.65.6
+// api_op_ListReusableDelegationSets.go). Sorted by ID, which is unique, so
+// the sort admits no ties despite b.reusableDelegationSets.All() being an
+// unordered map walk.
+func (b *InMemoryBackend) ListReusableDelegationSets(
+	marker string,
+	maxItems int,
+) (page.Page[*ReusableDelegationSet], error) {
 	b.mu.RLock("ListReusableDelegationSets")
 	defer b.mu.RUnlock()
 
@@ -171,7 +180,7 @@ func (b *InMemoryBackend) ListReusableDelegationSets() ([]*ReusableDelegationSet
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
 // CountZonesByReusableDelegationSet returns the number of hosted zones that use

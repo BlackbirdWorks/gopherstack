@@ -180,21 +180,32 @@ func (b *InMemoryBackend) DeleteVPCAssociationAuthorization(zoneID, vpcID string
 	return nil
 }
 
-// ListVPCAssociationAuthorizations returns all VPC association authorizations for a hosted zone.
+// ListVPCAssociationAuthorizations returns a page of VPC association
+// authorizations for a hosted zone, paginated by NextToken (route53@v1.65.6
+// api_op_ListVPCAssociationAuthorizations.go: the continuation field is
+// NextToken on both input and output, with no IsTruncated member, unlike
+// the Marker-based ListHostedZones family). b.vpcAssocAuthorizations[zoneID]
+// is a plain append-only slice (not a map), so it iterates in a stable,
+// call-reproducible order already and needs no sort/tiebreak.
 func (b *InMemoryBackend) ListVPCAssociationAuthorizations(
-	zoneID string,
-) ([]VPCAssociationAuthorization, error) {
+	zoneID, nextToken string,
+	maxResults int,
+) (page.Page[VPCAssociationAuthorization], error) {
 	b.mu.RLock("ListVPCAssociationAuthorizations")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.zones.Get(zoneID); !ok {
-		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+		return page.Page[VPCAssociationAuthorization]{}, fmt.Errorf(
+			"%w: hosted zone %s not found",
+			ErrHostedZoneNotFound,
+			zoneID,
+		)
 	}
 
 	result := make([]VPCAssociationAuthorization, len(b.vpcAssocAuthorizations[zoneID]))
 	copy(result, b.vpcAssocAuthorizations[zoneID])
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, route53DefaultMaxItems), nil
 }
 
 // ListHostedZonesByVPC returns all private hosted zones that have a VPC

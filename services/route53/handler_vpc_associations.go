@@ -3,6 +3,7 @@ package route53
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,25 +100,35 @@ type vpcAssocAuthorizationsResponse struct {
 	XMLName      xml.Name `xml:"ListVPCAssociationAuthorizationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	HostedZoneID string   `xml:"HostedZoneId"`
+	NextToken    string   `xml:"NextToken,omitempty"`
 	VPCs         []xmlVPC `xml:"VPCs>VPC"`
 }
 
 func (h *Handler) listVPCAssociationAuthorizations(c *echo.Context, path string) error {
 	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nexttoken")
+	maxResults := vpcAssocAuthDefaultMaxResults
+	if v := q.Get("maxresults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
 
-	auths, err := h.Backend.ListVPCAssociationAuthorizations(zoneID)
+	p, err := h.Backend.ListVPCAssociationAuthorizations(zoneID, nextToken, maxResults)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	vpcs := make([]xmlVPC, 0, len(auths))
-	for _, a := range auths {
+	vpcs := make([]xmlVPC, 0, len(p.Data))
+	for _, a := range p.Data {
 		vpcs = append(vpcs, xmlVPC{VPCRegion: a.VPCRegion, VPCID: a.VPCID})
 	}
 
 	return writeXML(c, http.StatusOK, vpcAssocAuthorizationsResponse{
 		Xmlns:        route53Namespace,
 		HostedZoneID: zoneID,
+		NextToken:    p.Next,
 		VPCs:         vpcs,
 	})
 }

@@ -268,56 +268,78 @@ func (h *Handler) deleteTrafficPolicy(c *echo.Context, id string, version int32)
 
 func (h *Handler) listTrafficPolicies(c *echo.Context) error {
 	ctx := c.Request().Context()
+	q := c.Request().URL.Query()
+	// Wire query key is "trafficpolicyid", not "trafficpolicyidmarker"
+	// (route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPoliciesInput).
+	marker := q.Get("trafficpolicyid")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
-	policies, err := h.Backend.ListTrafficPolicies()
+	p, err := h.Backend.ListTrafficPolicies(marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicies", "count", len(policies))
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicies", "count", len(p.Data))
 
-	summaries := make([]xmlTrafficPolicySummary, 0, len(policies))
-	for _, p := range policies {
+	summaries := make([]xmlTrafficPolicySummary, 0, len(p.Data))
+	for _, tp := range p.Data {
 		summaries = append(summaries, xmlTrafficPolicySummary{
-			ID:                 p.ID,
-			Name:               p.Name,
-			Type:               p.Type,
-			LatestVersion:      p.Version,
-			TrafficPolicyCount: p.VersionCount,
+			ID:                 tp.ID,
+			Name:               tp.Name,
+			Type:               tp.Type,
+			LatestVersion:      tp.Version,
+			TrafficPolicyCount: tp.VersionCount,
 		})
 	}
 
 	return writeXML(c, http.StatusOK, xmlListTrafficPoliciesResponse{
 		Xmlns:                 route53Namespace,
 		TrafficPolicies:       summaries,
-		IsTruncated:           false,
-		MaxItems:              "100",
-		TrafficPolicyIDMarker: "",
+		IsTruncated:           p.Next != "",
+		MaxItems:              strconv.Itoa(maxItems),
+		TrafficPolicyIDMarker: p.Next,
 	})
 }
 
 func (h *Handler) listTrafficPolicyVersions(c *echo.Context, id string) error {
 	ctx := c.Request().Context()
+	q := c.Request().URL.Query()
+	// Wire query key is "trafficpolicyversion", not
+	// "trafficpolicyversionmarker" (route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPolicyVersionsInput).
+	marker := q.Get("trafficpolicyversion")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
-	versions, err := h.Backend.ListTrafficPolicyVersions(id)
+	p, err := h.Backend.ListTrafficPolicyVersions(id, marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
 	logger.Load(ctx).
-		DebugContext(ctx, "Route53 ListTrafficPolicyVersions", "id", id, "count", len(versions))
+		DebugContext(ctx, "Route53 ListTrafficPolicyVersions", "id", id, "count", len(p.Data))
 
-	xmlPolicies := make([]xmlTrafficPolicy, 0, len(versions))
-	for _, v := range versions {
+	xmlPolicies := make([]xmlTrafficPolicy, 0, len(p.Data))
+	for _, v := range p.Data {
 		xmlPolicies = append(xmlPolicies, toXMLTrafficPolicy(v))
 	}
 
 	return writeXML(c, http.StatusOK, xmlListTrafficPolicyVersionsResponse{
 		Xmlns:                      route53Namespace,
 		TrafficPolicies:            xmlPolicies,
-		IsTruncated:                false,
-		MaxItems:                   "100",
-		TrafficPolicyVersionMarker: "",
+		IsTruncated:                p.Next != "",
+		MaxItems:                   strconv.Itoa(maxItems),
+		TrafficPolicyVersionMarker: p.Next,
 	})
 }
 

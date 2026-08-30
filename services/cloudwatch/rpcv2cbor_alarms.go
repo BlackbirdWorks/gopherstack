@@ -44,6 +44,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		OKActions:               cborStrList(input, "OKActions"),
 		InsufficientDataActions: cborStrList(input, "InsufficientDataActions"),
 		Dimensions:              cborDimensions(input),
+		Metrics:                 parseMetricDataQueries(input, "Metrics"),
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
@@ -192,8 +193,61 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	if len(a.InsufficientDataActions) > 0 {
 		m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
 	}
+	if len(a.Metrics) > 0 {
+		m["Metrics"] = buildMetricDataQueriesCBOR(a.Metrics)
+	}
 
 	return m
+}
+
+// buildMetricDataQueriesCBOR converts a MetricDataQuery list to the wire
+// shape PutMetricAlarmInput's "Metrics" member shares with GetMetricDataInput's
+// "MetricDataQueries" member (both the _MetricDataQueries shape in
+// cloudwatch@v1.66.3 schemas.go), for DescribeAlarms to echo back what
+// PutMetricAlarm stored.
+func buildMetricDataQueriesCBOR(queries []MetricDataQuery) cbor.List {
+	list := make(cbor.List, 0, len(queries))
+
+	for _, q := range queries {
+		qm := cbor.Map{
+			"Id":         cbor.String(q.ID),
+			"ReturnData": cbor.Bool(q.ReturnData),
+		}
+		if q.Label != "" {
+			qm["Label"] = cbor.String(q.Label)
+		}
+		if q.Expression != "" {
+			qm["Expression"] = cbor.String(q.Expression)
+		}
+		if q.AccountID != "" {
+			qm["AccountId"] = cbor.String(q.AccountID)
+		}
+		if q.MetricStat.MetricName != "" || q.MetricStat.Namespace != "" {
+			metric := cbor.Map{
+				keyNamespace:  cbor.String(q.MetricStat.Namespace),
+				keyMetricName: cbor.String(q.MetricStat.MetricName),
+			}
+			if len(q.MetricStat.Dimensions) > 0 {
+				dims := make(cbor.List, 0, len(q.MetricStat.Dimensions))
+				for _, d := range q.MetricStat.Dimensions {
+					dims = append(dims, cbor.Map{
+						keyName:  cbor.String(d.Name),
+						keyValue: cbor.String(d.Value),
+					})
+				}
+				metric["Dimensions"] = dims
+			}
+			qm["MetricStat"] = cbor.Map{
+				"Metric": metric,
+				"Period": cbor.Uint(uint64(q.MetricStat.Period)), //nolint:gosec // Period is positive
+				"Stat":   cbor.String(q.MetricStat.Stat),
+			}
+		}
+
+		list = append(list, qm)
+	}
+
+	return list
 }
 
 func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) error {
