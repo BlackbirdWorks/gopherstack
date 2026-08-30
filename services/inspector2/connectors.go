@@ -270,11 +270,18 @@ func (b *InMemoryBackend) ListConnectors(
 		pageSize = defaultConnectorsPageSize
 	}
 
+	// matched is sorted by ConnectorArn, the same unique field the cursor
+	// carries, so this is a threshold search: resume at the first connector
+	// whose ARN is strictly greater than nextToken. A deleted or forged token
+	// then resumes past everything already served instead of restarting at
+	// page one.
 	start := 0
 
 	if nextToken != "" {
+		start = len(matched)
+
 		for i, connector := range matched {
-			if connector.ConnectorArn == nextToken {
+			if connector.ConnectorArn > nextToken {
 				start = i
 
 				break
@@ -354,11 +361,18 @@ func (b *InMemoryBackend) ListConnectorScanConfigurations(
 		pageSize = defaultConnectorScanConfigsPageSize
 	}
 
+	// matched is sorted by AwsConfigConnectorArn, the same unique field the
+	// cursor carries, so this is a threshold search: resume at the first item
+	// whose ARN is strictly greater than nextToken. An unresolvable token
+	// then resumes past everything already served instead of restarting at
+	// page one.
 	start := 0
 
 	if nextToken != "" {
+		start = len(matched)
+
 		for i, item := range matched {
-			if item.AwsConfigConnectorArn == nextToken {
+			if item.AwsConfigConnectorArn > nextToken {
 				start = i
 
 				break

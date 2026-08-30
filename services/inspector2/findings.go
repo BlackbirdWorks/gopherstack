@@ -171,25 +171,45 @@ func severityScore(label string) float64 {
 func sortFindings(matched []*Finding, field, order string) {
 	desc := order == "DESC"
 
-	less := func(i, j int) bool { return matched[i].FindingArn < matched[j].FindingArn }
+	// primary compares only the requested field. Every field below but
+	// FindingArn itself admits ties (many findings can share a severity,
+	// status, type, account, timestamp, ...), and matched is built from
+	// store.Table.Range -- a raw Go map iteration with no fixed order of its
+	// own -- so tied entries could otherwise land in a different relative
+	// order on every call. less appends FindingArn (unique) as a tiebreak so
+	// the overall order is total and reproducible across the repeated calls
+	// pagination makes.
+	primary := func(i, j int) bool { return matched[i].FindingArn < matched[j].FindingArn }
 
 	switch field {
 	case "AWS_ACCOUNT_ID":
-		less = func(i, j int) bool { return matched[i].AccountID < matched[j].AccountID }
+		primary = func(i, j int) bool { return matched[i].AccountID < matched[j].AccountID }
 	case "FINDING_TYPE":
-		less = func(i, j int) bool { return matched[i].Type < matched[j].Type }
+		primary = func(i, j int) bool { return matched[i].Type < matched[j].Type }
 	case "SEVERITY":
-		less = func(i, j int) bool { return matched[i].Severity.Score < matched[j].Severity.Score }
+		primary = func(i, j int) bool { return matched[i].Severity.Score < matched[j].Severity.Score }
 	case "FIRST_OBSERVED_AT":
-		less = func(i, j int) bool { return matched[i].FirstObservedAt.Before(matched[j].FirstObservedAt) }
+		primary = func(i, j int) bool { return matched[i].FirstObservedAt.Before(matched[j].FirstObservedAt) }
 	case "LAST_OBSERVED_AT":
-		less = func(i, j int) bool { return matched[i].LastObservedAt.Before(matched[j].LastObservedAt) }
+		primary = func(i, j int) bool { return matched[i].LastObservedAt.Before(matched[j].LastObservedAt) }
 	case "FINDING_STATUS":
-		less = func(i, j int) bool { return matched[i].Status < matched[j].Status }
+		primary = func(i, j int) bool { return matched[i].Status < matched[j].Status }
 	case "RESOURCE_TYPE":
-		less = func(i, j int) bool { return matched[i].ResourceType < matched[j].ResourceType }
+		primary = func(i, j int) bool { return matched[i].ResourceType < matched[j].ResourceType }
 	case "EPSS_SCORE":
-		less = func(i, j int) bool { return matched[i].EpssScore < matched[j].EpssScore }
+		primary = func(i, j int) bool { return matched[i].EpssScore < matched[j].EpssScore }
+	}
+
+	less := func(i, j int) bool {
+		if primary(i, j) {
+			return true
+		}
+
+		if primary(j, i) {
+			return false
+		}
+
+		return matched[i].FindingArn < matched[j].FindingArn
 	}
 
 	sort.Slice(matched, func(i, j int) bool {
@@ -340,9 +360,19 @@ func (b *InMemoryBackend) ListFindings(
 		pageSize = defaultFindingsPageSize
 	}
 
+	// matched is sorted by sortField, which is only guaranteed to be
+	// FindingArn (this cursor's own field) when the caller didn't request a
+	// different SortCriteria -- with any other field the list isn't ordered
+	// by FindingArn at all, so a threshold search on the token wouldn't be
+	// valid. An unresolved token (from a forged/stale value; findings have no
+	// delete operation) therefore defaults to the end of the collection
+	// rather than index 0, which would otherwise restart pagination at page
+	// one.
 	start := 0
 
 	if nextToken != "" {
+		start = len(matched)
+
 		for i, f := range matched {
 			if f.FindingArn == nextToken {
 				start = i

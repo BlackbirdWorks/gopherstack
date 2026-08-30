@@ -374,3 +374,42 @@ any entry at all -- structural gap for `Domain`). Left unfixed:
 all-`SERVICE` catalog. Implementing it would mean inventing behavior for
 an enum value the pinned SDK doesn't define, which the campaign's own
 restraint rule rules out.
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+Every `paginateItems`/`paginate`-backed listing in this service (16 `List*` ops via
+`store.go`'s two generic pagination helpers, plus `listRecipes`) resumed a `NextToken`
+by scanning for the item whose key equalled the token and left `start` at 0 on no
+match -- a deleted resource (or, for the built-in recipe catalog, a forged token)
+restarted pagination at page one instead of truncating.
+
+Fixed both generic helpers (`paginateItems[T]`, keyed by each table's own primary-key
+function; `paginate[T]`, used only by `ListMetricAttributionMetrics`) to use a
+threshold search: resume at the first item whose key is strictly greater than the
+token. This is valid everywhere it's used -- every `paginateItems` caller's `keyOf` is
+exactly the backing `store.Table`'s own (unique) `keyFn`, so `items` is always sorted by
+the cursor's own field (confirmed by reading every one of the 16 `store.Register(...,
+store.New(xKeyFn))` calls in `store_setup.go` against every `paginateItems(...,
+xKeyFn, ...)` call site), and `ListMetricAttributionMetrics`'s `paginate` caller sorts
+its synthetic key list ascending immediately before calling in.
+
+`listRecipes` (recipes.go) is different: `getBuiltinRecipes()` is a fixed, hand-curated
+list in an order that does not match `RecipeArn` (its cursor field), so a threshold
+search there would be wrong. Fixed by defaulting an unresolved token to the end of the
+collection instead. The built-in catalog has no delete operation, so the hostile test
+forges an unresolvable token rather than deleting an entry.
+
+New tests (`handler_pagination_restart_test.go`, both confirmed failing pre-fix):
+`TestPersonalize_ListCampaigns_Pagination_DeletedMidPage` (real
+`store.Table`-backed deletion, representative of all 16 `paginateItems` callers) and
+`TestPersonalize_ListRecipes_Pagination_StaleTokenDoesNotRestart`. No prior test in this
+service ever deleted an item or forged a token between pages.
+
+Confirmed no other pagination bug class present: every `store.Table.Snapshot()` (the
+source for every `paginateItems` caller) is already key-sorted, so there is no
+never-sorted-walk bug, and no negative-offset numeric token is decoded anywhere in this
+service (every cursor is identifier-based, not a numeric offset).
+
+**Gates**: `go build ./services/personalize/...`, `go vet ./services/personalize/...`,
+`go test -race -count=1 ./services/personalize/...` all pass; `golangci-lint run
+./services/personalize/...` reports 0 issues.

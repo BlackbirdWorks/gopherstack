@@ -356,3 +356,44 @@ and the `ResourceInUseException`→`ConflictException` correction) re-derived co
 **Gates**: `go build ./services/translate/...`, `go vet ./services/translate/...`, `go fix -diff
 ./services/translate/...`, `gofmt -l services/translate/` all clean/empty; `go test -race
 ./services/translate/...` passes (2.5s); `golangci-lint run ./services/translate/...` reports `0 issues`.
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+Every paginated listing in this service (`ListTerminologies`, `ListParallelData`,
+`ListTextTranslationJobs`, `ListLanguages`) resumed a `NextToken` by scanning for the
+item whose key equalled the token and left `start` at 0 on no match -- an unresolvable
+token (a forged/stale value, or a deleted terminology/parallel-data resource) restarted
+pagination at page one instead of erroring or truncating.
+
+Fixed by defaulting the miss to the end of the collection (empty final page) in both
+`store.go`'s shared `paginate[T]` (serves all three `ListTerminologies`/
+`ListParallelData`/`ListTextTranslationJobs`) and `handler_languages.go`'s
+`listLanguages`. Threshold search (resume at the first key `>` the token) was not used:
+`ListTerminologies`/`ListParallelData` are sorted by the same field the cursor carries
+(`Name`) and would have supported it, but the shared `paginate` helper also serves
+`ListTextTranslationJobs`, which is sorted by `SubmittedAt` with a `JobID` tiebreak --
+not by `JobID` (the cursor field) -- so a threshold search on the shared helper would
+have been wrong for that caller. `ListLanguages`'s built-in `knownLanguages()` table is
+sorted by `LanguageName`, not `LanguageCode` (the cursor field), so threshold search was
+invalid there too. `ListLanguages`'s and `ListTextTranslationJobs`'s built-ins/jobs have
+no delete operation, so the hostile test for those two forges an unresolvable token
+rather than deleting an item; `ListTerminologies`/`ListParallelData` genuinely delete
+the cursor's item mid-page (`DeleteTerminology`/`DeleteParallelData` both exist).
+
+Confirmed no other pagination bug class present: every listing sorts before paginating
+(no never-sorted walk), and `NextToken`/`Marker` handling elsewhere in this service
+(`ListTagsForResource`) has no pagination member on the real Input at all, so it's
+correctly unpaginated rather than missing pagination.
+
+New tests (`handler_pagination_restart_test.go`, all confirmed failing pre-fix):
+`TestListTerminologies_Pagination_DeletedMidPage`,
+`TestListParallelData_Pagination_DeletedMidPage`,
+`TestListTextTranslationJobs_Pagination_StaleTokenDoesNotRestart`,
+`TestListLanguages_Pagination_StaleTokenDoesNotRestart`. Prior pagination coverage
+(`TestListTerminologies_Pagination`, `TestListParallelData_Pagination`,
+`TestListLanguages_Pagination`) only ever exercised the happy path where every named
+cursor still resolves -- none deleted an item or forged a token between pages.
+
+**Gates**: `go build ./services/translate/...`, `go vet ./services/translate/...`,
+`go test -race -count=1 ./services/translate/...` all pass; `golangci-lint run
+./services/translate/...` reports 0 issues.

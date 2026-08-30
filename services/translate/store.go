@@ -122,6 +122,12 @@ func copyMap(m map[string]string) map[string]string {
 	return out
 }
 
+// paginate serves callers whose keys are sorted by the cursor field
+// (ListTerminologies, ListParallelData -- both Name-keyed) and callers whose
+// keys are NOT (ListTextTranslationJobs, sorted by SubmittedAt with a JobID
+// tiebreak). A miss therefore can't use a threshold search -- it isn't valid
+// for the job-listing caller -- so an unresolved token defaults to the end of
+// the collection, giving an empty final page instead of restarting at index 0.
 func paginate[T any](keys []string, get func(string) T, maxResults int, nextToken string) ([]T, string) {
 	const defaultMaxResults = 100
 
@@ -132,6 +138,8 @@ func paginate[T any](keys []string, get func(string) T, maxResults int, nextToke
 	start := 0
 
 	if nextToken != "" {
+		start = len(keys)
+
 		for i, k := range keys {
 			if k == nextToken {
 				start = i

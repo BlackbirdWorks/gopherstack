@@ -21,9 +21,16 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 	nextToken := req.URL.Query().Get("nextToken")
 	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
 
+	// deps is sorted by (ApplicationID, SemanticVersion) and the same
+	// ApplicationID can repeat across versions, so an unresolved token
+	// defaults to the end of the collection (an empty final page) rather
+	// than index 0 -- restarting at page one would otherwise be
+	// indistinguishable from a genuinely unresolvable cursor.
 	start := 0
 
 	if nextToken != "" {
+		start = len(deps)
+
 		for i, d := range deps {
 			if d.ApplicationID == nextToken {
 				start = i + 1

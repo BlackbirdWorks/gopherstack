@@ -440,3 +440,76 @@ restored, `md5sum`-verified byte-identical.
   "ec2ScanModeState" object (scanMode/scanModeStatus, neither real) into the
   response; GetEc2DeepInspectionConfigurationOutput declares only
   errorMessage/orgPackagePaths/packagePaths/status.
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+Every paginated listing in this service (`ListFindings`, `ListConnectors`,
+`ListConnectorScanConfigurations`, `ListCoverage`) resumed a `nextToken` by scanning for
+the item whose key equalled the token and left `start` at 0 on no match -- an
+unresolvable token restarted pagination at page one instead of truncating. Findings,
+coverage entries, and connector scan configurations have no delete operation in real
+Inspector2 (status changes only, or a derived/live view), so every hostile test here
+forges an unresolvable token; `ListConnectors`'s test genuinely deletes the cursor's
+connector, since `DeleteConnector` exists.
+
+`ListConnectors` (sorted by `ConnectorArn`, the `connectors` table's own key),
+`ListConnectorScanConfigurations` (sorted by `AwsConfigConnectorArn`, the
+`connectorScanConfigs` table's own key), and `ListCoverage` (sorted by
+`coverageEntryKeyFn`, the `coverageEntries` table's own composite key) are each sorted
+by exactly the field their cursor carries and that field is unique, so all three were
+converted to a threshold search: resume at the first item whose key is strictly greater
+than the token.
+
+`ListFindings` is different and required two fixes:
+
+1. **Restart bug**: `matched` is sorted by `sortField` (`sortFindings`), which only
+   equals `FindingArn` (the cursor's field) when the caller didn't request
+   `SortCriteria` -- with any other field (`SEVERITY`, `AWS_ACCOUNT_ID`, etc.) the list
+   isn't ordered by `FindingArn` at all, so a threshold search on the cursor wouldn't be
+   valid for those callers. Since the same function must serve both cases, fixed by
+   defaulting an unresolved token to the end of the collection instead.
+2. **Non-total sort / tie compounding**, found while checking the sort per this
+   campaign's known trap (quicksight's tied-name bug): every `sortFindings` field but
+   `FindingArn` itself admits ties (many findings can share a severity, status, type,
+   account, or timestamp), and `matched` is built via `store.Table.Range`, which
+   iterates Go's underlying map in genuinely randomized order on every call (unlike
+   rolesanywhere's `store.Index.Get`, which returns an insertion-ordered slice -- this
+   is a real, not just theoretical, difference; confirmed both ways with dedicated
+   tests). Without a tiebreak, two findings tied on the requested sort field could land
+   in a different relative order on the page-2 call than they did on page 1, letting an
+   already-served finding reappear or letting one slip past the cursor entirely. A test
+   with 24 same-severity findings paginated 3-at-a-time reproduced this concretely on
+   unmodified code: only 9 of 24 were ever visited before the walk stopped advancing.
+   Fixed by appending `FindingArn` (unique) as a tiebreak to every `sortFindings`
+   comparator, making the overall order total and reproducible across the repeated
+   calls pagination makes.
+
+`SearchVulnerabilities` also contains the same equality-match-with-unhandled-miss shape
+(`findings.go`), but is inert: it never emits a `nextToken` (`return matched[start:],
+"", nil` unconditionally), so no client ever receives a token to follow into a second
+call, and there's no page-size cap to make a second page necessary regardless of
+match count. Left as-is -- fixing dead code here would be adding unproven surface
+against a bug that cannot actually manifest through this API.
+
+New tests (`handler_pagination_restart_test.go`, all confirmed failing pre-fix except
+the tied-name check noted separately in rolesanywhere's own entry):
+`TestListFindings_Pagination_StaleTokenDoesNotRestart`,
+`TestListFindings_Pagination_TiedSeverityNoDropOrDuplicate` (reproduced the drop
+concretely, see above), `TestListConnectors_Pagination_DeletedMidPage`,
+`TestListConnectorScanConfigurations_Pagination_StaleTokenDoesNotRestart`,
+`TestListCoverage_Pagination_StaleTokenDoesNotRestart`. No prior test in this service
+(`connectors.go`/`coverage_reporting.go` had no dedicated test file at all; `findings`
+pagination tests such as `TestListFindings_Pagination` and `TestListFindingsPagination`
+only exercised page sizes/happy-path chains) ever deleted an item or forged a token
+between pages.
+
+Confirmed no other pagination bug class: every other `List*` op in this service
+(`ListCisScans`, `ListMembers`, `ListFilters`, `ListCodeSecurityIntegrations`,
+`ListUsageTotals`, `ListDelegatedAdminAccounts`, `ListAccountPermissions`,
+`ListCisScanResultsAggregatedBy*`, etc.) has no `nextToken`/pagination logic at all --
+each returns its full result set unpaginated, a structural completeness gap distinct
+from this bug class, not the restart bug.
+
+**Gates**: `go build ./services/inspector2/...`, `go vet ./services/inspector2/...`,
+`go test -race -count=1 ./services/inspector2/...` all pass; `golangci-lint run
+./services/inspector2/...` reports 0 issues.

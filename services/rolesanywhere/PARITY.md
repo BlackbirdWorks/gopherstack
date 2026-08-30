@@ -309,3 +309,42 @@ manifest failed re-derivation.
 **Gates**: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
 `go test -race` (pass), `golangci-lint run` (0 issues) -- all clean, no code changed
 this pass.
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+All four paginated listings in this service (`ListTrustAnchors`, `ListProfiles`,
+`ListCrls`, `ListSubjects`, all routed through `store.go`'s shared `listByRegionIndex`
++ `paginate[T]`) resumed a `pageToken` by scanning for the item whose ID equalled the
+token and left `start` at 0 on no match -- deleting the resource a cursor named (or a
+forged token) restarted pagination at page one instead of truncating.
+
+Checked for the compounding non-total-sort trap this class is known to hit (quicksight's
+tied-name bug) before choosing a fix: `listByRegionIndex` sorts by a display `Name`
+(`sortKey`) that is *not* the same field as `getID` (`TrustAnchorID`/`ProfileID`/
+`CrlID`) for three of the four callers -- `ListSubjects` is the exception, where both
+are `SubjectID`. Real RolesAnywhere doesn't enforce trust-anchor/profile/CRL name
+uniqueness, so `Name` genuinely admits ties. A dedicated test
+(`TestHandler_ListTrustAnchors_Pagination_TiedNamesTotalOrder`, 6 same-named trust
+anchors paginated across 3 pages) confirmed ties do **not** actually reorder between
+calls here, unlike the map-range-sourced bug this class usually compounds with: sorted:
+`store.Index.Get()` (the source `listByRegionIndex` sorts) returns a slice in insertion
+order, not a raw Go map iteration, so repeated `sort.Slice` calls on the same
+underlying slice are deterministically reproducible run-to-run absent a concurrent
+insert/delete. No tiebreak was added; adding one would have been extra unproven surface
+against a bug that doesn't manifest here.
+
+Since `sortKey` != cursor field (`getID`) for 3 of 4 callers, a threshold search on the
+cursor field isn't valid against a Name-sorted list. Fixed by defaulting an unresolved
+token to the end of the collection (`paginate[T]` in store.go) instead -- correct for
+all four callers regardless of which sort/cursor-field relationship they use.
+
+New tests (`handler_pagination_restart_test.go`):
+`TestHandler_ListTrustAnchors_Pagination_DeletedMidPage` (confirmed failing pre-fix) and
+`TestHandler_ListTrustAnchors_Pagination_TiedNamesTotalOrder` (passed even pre-fix --
+see tie-order note above; kept as a regression guard). `TestHandler_ListTrustAnchors_
+Pagination` (existing) only ever exercised page sizes, never followed a `nextToken` into
+a second page.
+
+**Gates**: `go build ./services/rolesanywhere/...`, `go vet ./services/rolesanywhere/...`,
+`go test -race -count=1 ./services/rolesanywhere/...` all pass; `golangci-lint run
+./services/rolesanywhere/...` reports 0 issues.

@@ -196,11 +196,18 @@ func (b *InMemoryBackend) ListCoverage(
 		pageSize = defaultCoveragePageSize
 	}
 
+	// matched is sorted by coverageEntryKeyFn ("<resourceId>/<scanType>", a
+	// composite unique key), the same field the cursor carries, so this is a
+	// threshold search: resume at the first entry whose key is strictly
+	// greater than nextToken. An unresolvable token then resumes past
+	// everything already served instead of restarting at page one.
 	start := 0
 
 	if nextToken != "" {
+		start = len(matched)
+
 		for i, e := range matched {
-			if coverageEntryKeyFn(e) == nextToken {
+			if coverageEntryKeyFn(e) > nextToken {
 				start = i
 
 				break
