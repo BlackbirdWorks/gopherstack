@@ -79,7 +79,13 @@ func (b *InMemoryBackend) DescribeDeliveries(
 		cp.Tags = maps.Clone(d.Tags)
 		all = append(all, cp)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTime != all[j].CreationTime {
+			return all[i].CreationTime < all[j].CreationTime
+		}
+
+		return all[i].ID < all[j].ID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {

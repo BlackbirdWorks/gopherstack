@@ -2,6 +2,7 @@ package cloudwatchlogs
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -199,7 +200,13 @@ func (b *InMemoryBackend) ListScheduledQueries(
 	for _, sq := range b.scheduledQueries.All() {
 		all = append(all, *sq)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTime != all[j].CreationTime {
+			return all[i].CreationTime < all[j].CreationTime
+		}
+
+		return all[i].ScheduledQueryArn < all[j].ScheduledQueryArn
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -246,6 +253,17 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 	sq.LastUpdatedTime = time.Now().UnixMilli()
 
 	return nil
+}
+
+// AddScheduledQueryInternal seeds a ScheduledQuery directly into the store
+// for testing. It overwrites any existing query with the same ARN.
+func (b *InMemoryBackend) AddScheduledQueryInternal(query ScheduledQuery) {
+	b.mu.Lock("AddScheduledQueryInternal")
+	defer b.mu.Unlock()
+
+	q := query
+	q.LogGroupIdentifiers = slices.Clone(query.LogGroupIdentifiers)
+	b.scheduledQueries.Put(&q)
 }
 
 // AddScheduledQueryRunInternal seeds a ScheduledQueryRunSummary for testing.

@@ -125,7 +125,13 @@ func (b *InMemoryBackend) DescribeResourcePolicies(
 		out = append(out, *p)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].PolicyName < out[j].PolicyName })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PolicyName != out[j].PolicyName {
+			return out[i].PolicyName < out[j].PolicyName
+		}
+
+		return out[i].ResourceArn < out[j].ResourceArn
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(out) {

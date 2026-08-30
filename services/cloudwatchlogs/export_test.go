@@ -101,6 +101,19 @@ func AddScheduledQueryRunInternal(
 	b.AddScheduledQueryRunInternal(scheduledQueryArn, run)
 }
 
+// AddScheduledQueryInternal exposes the backend seeding helper for testing.
+func AddScheduledQueryInternal(b *InMemoryBackend, query ScheduledQuery) {
+	b.AddScheduledQueryInternal(query)
+}
+
+// AddS3TableIntegrationSourceInternal exposes the backend seeding helper for testing.
+func AddS3TableIntegrationSourceInternal(
+	b *InMemoryBackend,
+	id, integrationArn, dataSourceName, dataSourceType string, createdTimeStamp int64,
+) {
+	b.AddS3TableIntegrationSourceInternal(id, integrationArn, dataSourceName, dataSourceType, createdTimeStamp)
+}
+
 // SetQueryStatusInternal exposes the backend query-status setter for testing.
 func SetQueryStatusInternal(b *InMemoryBackend, queryID string, status QueryStatus) {
 	b.SetQueryStatusInternal(queryID, status)

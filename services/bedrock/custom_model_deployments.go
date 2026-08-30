@@ -103,11 +103,15 @@ func (b *InMemoryBackend) ListCustomModelDeployments(
 
 	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(deployments, func(i, k int) bool {
-		if descending {
-			return deployments[i].CreationTime.After(deployments[k].CreationTime)
+		if !deployments[i].CreationTime.Equal(deployments[k].CreationTime) {
+			if descending {
+				return deployments[i].CreationTime.After(deployments[k].CreationTime)
+			}
+
+			return deployments[i].CreationTime.Before(deployments[k].CreationTime)
 		}
 
-		return deployments[i].CreationTime.Before(deployments[k].CreationTime)
+		return deployments[i].CustomModelDeploymentArn < deployments[k].CustomModelDeploymentArn
 	})
 
 	if in == nil {

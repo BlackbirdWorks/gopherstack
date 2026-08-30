@@ -1041,3 +1041,51 @@ and per-service results. One related-but-different anomaly was found in
 *both* `DescribePipeline` and `ListPipelines`, not just the List side) --
 flagged there, not fixed here, since it is a different bug shape than the
 one this pass targets.
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order, following on from the 2026-08-29 pagination-arithmetic sweep (which
+checked cursor arithmetic and confirmed every prior "40 hand-rolled
+paginators" bug, but never asked whether the sorts that do exist are total).
+Every collection here is a `store.Table[V]`, so `.All()` is unordered map
+iteration; a comparator with no secondary key can reorder tied records
+across two calls in the same paginated walk.
+
+Almost every sort in this service is over an ID/ARN field
+(`ActionConnectorID`, `AnalysisID`, `AgentID`, `BrandID`, `DataSourceID`,
+`DataSetID`, `IngestionID`, `JobID`, `DashboardID`, `FolderID`, `FlowID`,
+`UpgradeRequestID`, `KnowledgeBaseID`, `SpaceID`, `ThemeID`, `TopicID`,
+`ClientID`, `TemplateID`, `VPCConnectionID`) or a `Name`-shaped field that
+IS the table's own primary key within its scope
+(`namespaces`→`Name`, `groups`→`Namespace+GroupName` with `ListGroups`
+itself namespace-scoped, `users`→`Namespace+UserName` with `ListUsers`
+namespace-scoped, `customPermissions`→`Name`,
+`identityPropagationConfigs`→`Service`, `iamPolicyAssignments`→`Namespace+AssignmentName`
+with `ListIAMPolicyAssignments` namespace-scoped) — all confirmed against
+`store_setup.go`'s `keyFn` closures, all total by construction, nothing to
+fix. `folders.go`'s `ListFolderMembers` sorts on `(MemberType, MemberID)`,
+exactly the pair `folderMemberKey` uses beyond `FolderID` — also total.
+
+**Fixed (non-total sort found) — `ListUsersIndexCapacity`:** sorted on
+`UserName` alone, but `storedUser`'s key is `accountID/namespace/UserName`
+— UserName is only unique *within one namespace*. This op's own handler
+passes `namespace` straight from an optional request-body field, so
+`namespace == ""` is a real, reachable call shape (not a hypothetical) that
+scans every namespace at once; two different namespaces can each register a
+user named the same thing. Worse than an ordering flip: `paginateUserIndexCapacity`'s
+cursor is an *equality match* against `UserName`
+(`if u.UserName == nextToken`), so a tied `UserName` made every subsequent
+page's cursor resolve back to the *first* matching user and repeat — not
+just reordered results, a stuck cursor that never reaches the second tied
+user. Fixed by sorting on `(UserName, UserArn)` and switching the cursor
+itself to match on `UserArn` (globally unique, since it embeds the
+namespace) instead of `UserName`.
+`TestListUsersIndexCapacityCrossNamespaceSortIsTotal`
+(pagination_sort_totality_test.go) constructs the two-namespace tie and
+reproduces both symptoms (a record repeated across pages, and — guarded by
+an explicit page-count cap so the test fails cleanly rather than hanging —
+the walk never terminating) against unfixed code.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/quicksight/...`).

@@ -96,7 +96,7 @@ ops:
   DeleteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   GetScheduledQueryHistory: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResourcePolicy: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): the prior pass's structfielddiff sweep classified this whole family (\"account policies / data protection/resource/index policies / transformers / integrations\") as spot-checked-flat and moved on without an op-by-op field diff -- that shortcut missed real gaps. types.ResourcePolicy.ResourceArn/PolicyScope/RevisionId/LastUpdatedTime (deserializers.go:awsAwsjson11_deserializeDocumentResourcePolicy) had no Go field at all; ResourceArn in particular is a whole real feature (\"one per LogGroup resourceARN\", PutResourcePolicy doc comment) that was silently unreachable -- a caller-supplied resourceArn was accepted by the wire body but the handler never read it. Now models the real account-vs-resource scope split (keyed by resourceArn when present, else policyName, matching AWS's own \"a maximum of 10 policies without resourceARN and one per LogGroup resourceARN\" limit), generates an incrementing RevisionId, and enforces ExpectedRevisionId concurrency per the input's own doc comment (\"Required when resourceArn is provided to prevent concurrent modifications\")."}
-  DescribeResourcePolicies: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): PolicyScope/ResourceArn input filters were both unmodeled -- every call returned every policy regardless of scope. DescribeResourcePoliciesInput's own doc comment says PolicyScope \"defaults to ACCOUNT\" when omitted, which this backend now honors; ResourceArn does an exact lookup against the resource-scoped policy on that ARN. Limit/NextToken pagination still not implemented -- disclosed, not fixed; see gaps."}
+  DescribeResourcePolicies: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): PolicyScope/ResourceArn input filters were both unmodeled -- every call returned every policy regardless of scope. DescribeResourcePoliciesInput's own doc comment says PolicyScope \"defaults to ACCOUNT\" when omitted, which this backend now honors; ResourceArn does an exact lookup against the resource-scoped policy on that ARN. CORRECTED (2026-08-30, sort-totality pass): the \"Limit/NextToken pagination still not implemented\" line above is stale -- Limit/NextToken were implemented by the later pagination_sweep entry (2026-08-28/29, see below) and are live in the code today (parseNextToken/encodeNextToken). What this pass actually found and fixed: for the RESOURCE scope, PolicyName is not unique (PutResourcePolicy keys resource-scoped policies by policyName+resourceArn, so two different resourceArns can legitimately share a PolicyName) and the sort was `PolicyName` alone with no secondary key, sourced from store.Table.All() (unordered map iteration) -- a genuine record-dropped-or-duplicated-across-a-page-boundary bug, not just theoretical: TestDescribeResourcePoliciesSortIsTotal (pagination_sort_totality_test.go) reproduces it against unfixed code. Fixed by adding ResourceArn as the tiebreak."}
   DeleteResourcePolicy: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): ResourceArn (real DeleteResourcePolicyInput member, needed to address a resource-scoped policy at all since those are no longer keyed by name alone) and ExpectedRevisionId (concurrency check, \"Required when deleting a resource-scoped policy\") were both accepted on the wire and silently ignored -- any caller could delete any policy by name with no conflict check. Both now wired through PutResourcePolicy's shared key/revision helpers."}
   PutIndexPolicy: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): types.IndexPolicy.Source had no Go field at all, so a real client's Source field always deserialized empty even though it is always present on the wire. Now always LOG_GROUP (the only source this op can produce; PolicyName is correctly left unset here too, since the real type's own doc comment says log-group-level index policy responses don't carry a PolicyName -- only account-level ones, created via PutAccountPolicy's FIELD_INDEX_POLICY type, do). DescribeIndexPolicies does not fall back to an account-level FIELD_INDEX_POLICY when no log-group-level policy exists, despite this backend supporting that PolicyType on PutAccountPolicy -- disclosed, not fixed; see gaps."}
   PutQueryDefinition: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): Parameters ([]types.QueryParameter, a real accepted PutQueryDefinitionInput member per api_op_PutQueryDefinition.go) was dropped entirely -- a real client's parameterized-query placeholders never round-tripped. QueryLanguage also added to the QueryDefinition model, always CWLI since PutQueryDefinitionInput itself has no queryLanguage member to set it from."}
@@ -141,7 +141,7 @@ gaps:
   - "DISCLOSED, not fixed (gopherstack-enpq): import tasks -- CreateImportTaskInput.ImportFilter (EndEventTime/StartEventTime) is not accepted; Import/CancelImportTaskOutput's ImportStatistics(.BytesImported)/ErrorMessage are not modeled; DescribeImportTaskBatches remains validation-only (pre-existing, already documented in its own doc comment) rather than modeling real per-task import batches."
   - "DISCLOSED, not fixed (gopherstack-enpq): PutDeliverySourceInput.DeliverySourceConfiguration (per-log-type config key/value pairs) is not accepted, stored, or echoed; DeliverySource.Status/StatusReason are not modeled (StatusReason=RESOURCE_DELETED specifically needs cross-service resource-deletion tracking this backend does not have). PutDestinationPolicyInput.ForceUpdate is also unmodeled, but low-impact: on real AWS it only bypasses an idempotency check this backend never performs in the first place."
   - "2026-08-21 (gopherstack-enpq, second pass): the prior pass's own gaps entry (above, dated 2026-08-14) said 39 of 118 ops had a real structfielddiff candidate and were hand-verified one by one -- but the op-level table only carries individual entries for 2 of those 39 (ListAnomalies, UpdateAnomaly); the remaining ~37, including this whole family (\"account policies / data protection/resource/index policies / transformers / integrations\"), were folded into a single spot-checked-flat family note rather than genuinely diffed op-by-op, per that note's own honest caveat. Re-running the raw structfielddiff dump against this family surfaced 5 more real bugs the spot-check missed: PutResourcePolicy/DescribeResourcePolicies/DeleteResourcePolicy (ResourceArn/PolicyScope/RevisionId/LastUpdatedTime all missing -- see RESOLVED gap above), PutIndexPolicy (Source missing), PutQueryDefinition/DescribeQueryDefinitions (Parameters/QueryLanguage missing), DisassociateSourceFromS3TableIntegration (total no-op stub, both a permissiveness bug and a missing required output member), and GetDataProtectionPolicy (LastUpdatedTime missing). All 5 fixed and round-trip-tested against the real aws-sdk-go-v2 client; see the individual op entries above. Lesson for future passes: a family-level \"spot-checked flat, not exhaustively re-audited\" note is not equivalent to running structfielddiff against that family -- it looks similar in the table but is a materially weaker check. (bd: gopherstack-enpq)"
-  - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeResourcePolicies does not implement Limit/NextToken pagination (both real input/output members) -- every call returns the full, unpaginated result set for the matched scope."
+  - "STALE (2026-08-30, sort-totality pass): the DescribeResourcePolicies Limit/NextToken gap this line described was closed by the later pagination_sweep entry (2026-08-28/29, see op-level note above); kept here struck through only to preserve the audit trail rather than silently deleting a superseded claim."
   - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeIndexPolicies does not fall back to an account-level FIELD_INDEX_POLICY (PutAccountPolicy) when a log group has no policy of its own, despite this backend already supporting FIELD_INDEX_POLICY as a PutAccountPolicy type -- per DescribeIndexPolicies' own doc comment (\"If a specified log group doesn't have a log-group level index policy, but an account-wide index policy applies to it, that account-wide policy is returned\"). Would require DescribeIndexPolicies to additionally query the account-policies store and reason about applicability (scope ALL vs SELECTION_CRITERIA), not attempted this pass."
   - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeConfigurationTemplates and DescribeFieldIndexes are unconditional empty-list stubs. DescribeConfigurationTemplates is meant to return AWS's own static catalog of supported delivery-destination/log-type template combinations (not per-account state), which this backend would have to fabricate wholesale rather than derive from anything it models -- the no-stub rule favors the honest empty list over invented catalog data. DescribeFieldIndexes needs a field-indexing engine this backend does not have (same family as the already-disclosed FieldIndexNames filter gap)."
   - "2026-08-22 (gopherstack-enpq, third pass): the prior two passes' own gaps entries said this service was fully swept by cmd/structfielddiff across all 118 ops -- overstated in the same way the 2026-08-14 kinesis pass's ledger was: both compared field lists, but never asked whether an op could be called the way its own doc prose prescribes (kinesis's lesson: nine ops silently ignored the recommended StreamARN parameter). Applying that lens to cloudwatchlogs found 4 more real bugs the prior structural passes missed: CreateLookupTable/UpdateLookupTable had no QueryId field at all (doc: 'you must specify either tableBody or queryId, but not both' -- the query-results-populate-the-table path was structurally unreachable), UpdateAnomaly had no PatternId field and unconditionally required AnomalyId (doc: 'you must specify either anomalyId or patternId' -- the pattern-suppression path was structurally unreachable), AggregateLogGroupSummary modeled fabricated per-log-group fields that do not exist on the real type at all (a wire-shape break that survived the wrapper-key fix from an earlier pass because nobody re-checked the array ELEMENT shape, only the wrapper), and ListSourcesForS3TableIntegration was a total empty-list stub despite AssociateSourceToS3TableIntegration genuinely storing data underneath it (present but never read back). All 4 fixed and round-trip-tested against the real aws-sdk-go-v2 client, each hand-reverted and confirmed to fail against unfixed code; see the individual op entries above. Lesson reaffirmed: a structural field-diff sweep, however thorough, does not by itself catch (a) doc-prescribed alternate identification paths that are simply absent as fields, or (b) a correct-looking wrapper hiding a still-wrong element shape underneath. (bd: gopherstack-enpq)"
@@ -665,6 +665,102 @@ computed in an unusual order) — no change needed there.
 Proof: `TestCloudWatchLogsBackend_GetLogEvents_StaleTokenPastEnd` (log_events_test.go, unit)
 and `TestGetLogEvents_SDKRoundTrip_StaleNextTokenDoesNotPanic` (pagination_sdk_roundtrip_test.go,
 real `aws-sdk-go-v2/service/cloudwatchlogs` client) both reproduce the panic pre-fix.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/cloudwatchlogs/...`).
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice`/`sort.SliceStable` call for whether its comparator
+is a *total* order, not just whether the pagination arithmetic around it is
+correct (the 2026-08-29 sweep above checked the arithmetic; this pass asked
+a different question). The mechanism: a listing sorts on a field that admits
+ties, with no secondary key, over `store.Table.All()` (unordered map
+iteration per Go's randomised range), so two calls in the same paginated
+walk can disagree about relative order and drop or duplicate a record across
+a page boundary with nothing changed in between.
+
+**Fixed (non-total sort, tiebreak added):**
+
+- `ListLogAnomalyDetectors` — sorted on `CreationTimeStamp` alone; two
+  detectors created in the same millisecond tied. Added `AnomalyDetectorArn`
+  (the table's own key) as tiebreak.
+- `ListAnomalies` — sorted on `FirstSeen` alone. Added `AnomalyID` tiebreak.
+- `DescribeDeliveries` — sorted on `CreationTime` alone. Added `ID` tiebreak.
+- `DescribeExportTasks` / `DescribeImportTasks` — both sorted on
+  `CreationTime` alone. Added `TaskID`/`ImportID` tiebreak respectively.
+  (`DescribeExportTasks` also decomposed: the CreationTime→Status aging loop
+  was pulled into `advanceExportTaskStatesLocked`, since adding the tiebreak
+  pushed the combined function's gocognit complexity from 20 to 22 —
+  confirmed by lint against the pre-fix file before decomposing, not
+  guessed.)
+- `ListSourcesForS3TableIntegration` — sorted on `CreatedTimeStamp` alone.
+  Added `ID` tiebreak.
+- `ListScheduledQueries` — sorted on `CreationTime` alone. Added
+  `ScheduledQueryArn` tiebreak.
+- `DescribeResourcePolicies` — sorted on `PolicyName` alone, but PolicyName
+  is only unique *within* the ACCOUNT scope; two RESOURCE-scoped policies
+  (keyed by `policyName+resourceArn`) can legitimately share a PolicyName.
+  Added `ResourceArn` tiebreak. See the corrected op-level note above — an
+  earlier note claiming this op's pagination itself was unimplemented was
+  stale (fixed by the 2026-08-28/29 pass) and has been corrected in place.
+- `DescribeQueryDefinitions` — sorted on `Name` alone; `PutQueryDefinition`
+  does not (and per real AWS should not) enforce name uniqueness, only
+  `QueryDefinitionID` uniqueness. Added `QueryDefinitionID` tiebreak.
+- `DescribeLogStreams(orderBy=LastEventTime)` — the "caller selects the sort
+  attribute" shape called out for this audit: the default order
+  (`LogStreamName`, the table's own primary key) was already total, but the
+  `LastEventTime` branch had no secondary key at all, and streams with no
+  events share `LastEventTimestamp == nil` (0) by construction, so a tie is
+  the ordinary case for freshly created streams, not a contrived one. Added
+  `LogStreamName` tiebreak. Note: this source is `streamsByGroup.Get`
+  (an `Index`, insertion-order-stable absent an intervening delete), not
+  `Table.All()`, so a static-state 30x walk does not observe instability the
+  way the map-backed sites above do — the fix is still correct on its own
+  terms (the comparator was non-total regardless), see `pagination_sort_totality_test.go`'s
+  doc comment on this test for the full reasoning.
+
+**Confirmed correct, left unfixed (evidence, not presumption):**
+
+- `FilterLogEvents`'s cross-stream timestamp interleave and `exportWindowEvents`
+  (export.go) — both sort a per-stream `events []*OutputLogEvent` slice field
+  that is strictly append-ordered (never rebuilt from a map/index), using
+  `sort.SliceStable`, with the stream visitation order itself
+  (`filterStreamOrderLocked`) sorted on `LogStreamName` (a unique key). Same
+  shape as the `ram`-listings precedent from the prior pass: append-ordered
+  source + stable sort means a tied-timestamp pair's relative order is a
+  fixed function of insertion order, reproducible across repeated calls with
+  no intervening mutation. Not fixed; not observably unstable.
+- `GetScheduledQueryHistory` — sorts `ScheduledQueryRunSummary.InvocationTime`
+  descending, source is `history.Runs`, an append-only slice field
+  (`history.Runs = append(history.Runs, &r)`, never rebuilt from a table).
+  Same append-ordered-source reasoning as above; not fixed.
+- `GetLogGroupFields` — sorts `Percent` then `Name`; not paginated (single
+  full response), and its `fieldCounts` map keys (Name) are inherently
+  unique, so the existing `Name` tiebreak already makes this total.
+- Every `Name`/`FilterName`/`DestinationName`/`LogGroupName`/`LogGroupIdentifier`-keyed
+  sort not listed above (`data_protection.go`, `destinations.go`,
+  `subscription_filters.go`, `log_groups.go`, `lookup_tables.go`,
+  `syslog_configurations.go`, `integrations.go`'s `ListIntegrations`,
+  `deliveries.go`'s Describe*Destinations/*Sources) sorts on the same field
+  the backing `store.Table`'s `keyFn` uses as the primary key (confirmed
+  against `store_setup.go`), so it is unique by construction — a duplicate
+  value cannot exist because `Table.Put` would overwrite it. No tie is
+  possible; nothing to fix.
+- The Insights query-language `sort` command (`insights.go`'s `sortStage`,
+  `sort.SliceStable`) was reviewed and judged out of scope for this class:
+  it orders one query execution's already-fixed result set once, not a
+  resource listing paginated with a cursor across independent calls.
+
+**Existing test-suite weakness confirmed:** the pagination arithmetic tests
+from the 2026-08-28/29 sweep (`wire_field_fixes_test.go`) assert page sizes
+and truncation/duplicate-free-union only for the three ops they targeted —
+none of the existing pagination tests in this package construct a tie group
+and compare item *identity* across a full multi-page walk with a small page
+size, which is exactly the shape needed to catch this class. New tests
+(`pagination_sort_totality_test.go`) fill that gap for the ops fixed above,
+looping each 30x per the reasoning that map-iteration instability shows up
+across separate calls, not within one.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/cloudwatchlogs/...`).

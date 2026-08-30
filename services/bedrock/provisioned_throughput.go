@@ -122,11 +122,15 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs(
 
 	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(list, func(i, k int) bool {
-		if descending {
-			return list[i].CreationTime.After(list[k].CreationTime)
+		if !list[i].CreationTime.Equal(list[k].CreationTime) {
+			if descending {
+				return list[i].CreationTime.After(list[k].CreationTime)
+			}
+
+			return list[i].CreationTime.Before(list[k].CreationTime)
 		}
 
-		return list[i].CreationTime.Before(list[k].CreationTime)
+		return list[i].ProvisionedModelArn < list[k].ProvisionedModelArn
 	})
 
 	if in == nil {

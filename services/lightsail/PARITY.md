@@ -1205,3 +1205,78 @@ eyeballed, per this campaign's stated practice of catching an audit's own arithm
 
 No corrections were needed to the counts above after this re-check; this note itself IS that
 re-check, done before this document was finalized rather than after.
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order. Every resource collection in this backend is a `store.Table[V]`
+keyed by `Name` (or, for a handful of families, another field), so a sort on
+that same key field is total by construction — `Table.Put` cannot produce
+two distinct entries with equal key. That covers every `Name`-sorted site
+(instances, disks, static IPs, key pairs, snapshots, load balancers,
+databases, buckets, distributions, domains, certificates, alarms, CFN stack
+records, export snapshot records, container services) and the one
+`Protocol`-sorted site (`alarms_contacts.go`'s contact-method listing —
+`contactMethodKeyFn` keys the table on `Protocol` itself, so two contact
+methods with the same protocol cannot coexist). None of those needed a
+change.
+
+**Fixed (non-total sort, tiebreak added) — `CreatedAt`-based, sourced from
+`store.Table.All()` (unordered map iteration) with no tiebreak:**
+
+- `GetOperations` — sorted on `Operation.CreatedAt` alone. Operations are
+  routinely created in batches (one mutating call can spawn several), so a
+  tie is the ordinary case, not a contrived one. Added `ID` tiebreak.
+- `GetOperationsForResource` — same `CreatedAt`-alone sort, same fix
+  (`ID` tiebreak). Its source is `opsByResource.Get` (an `Index`), not
+  `Table.All()` — see the mutation-safety fix below, which is the more
+  serious bug at this call site.
+- `GetSetupHistory` — same `CreatedAt`-alone sort in both branches
+  (`resourceName`-scoped via the `setupHistoryByResource` index, and the
+  unscoped `setupHistory.All()` branch). Added `OperationID` tiebreak to
+  both.
+
+**Also fixed — a second, more serious bug found at the same two call
+sites while auditing them for totality:** `Index.Get` returns the index's
+own backing slice (its doc comment: *"The returned slice is owned by the
+index — the caller must not mutate it"*), but `GetOperationsForResource` and
+`GetSetupHistory`'s `resourceName`-scoped branch both passed that slice
+straight into `sort.Slice`, reordering the index's live bucket in place.
+Under this package's coarse-lock convention that's a correctness bug even
+single-threaded (a concurrent `RLock` reader of the same `resourceName`
+observes the sort mid-flight) and a `go test -race` hazard the moment two
+goroutines call either method concurrently for the same resource. Fixed by
+copying the slice (`append([]*T(nil), idx.Get(...)...)`) before sorting.
+Verified with `go test -race -count=1 ./services/lightsail/...` — clean.
+
+**Confirmed correct, left unfixed (evidence, not presumption):**
+
+- `addons.go`'s `sortAutoSnapshots` (sorts `AutoSnapshotDetails.Date`) reads
+  from `Instance.AutoSnapshots`/`Disk.AutoSnapshots`, a strictly
+  append-ordered slice field (`i.AutoSnapshots = append(...)`), never
+  rebuilt from a map or index. Same shape as the `ram`-listings precedent
+  from the prior pass: append-ordered source means a tied `Date`'s relative
+  order is a fixed function of insertion order, reproducible across repeated
+  calls with no intervening mutation — and in practice an auto-snapshot's
+  `Date` (one per calendar day) cannot tie for the same resource anyway. Not
+  fixed; not observably unstable.
+- `databases.go`'s `GetRelationalDatabaseEvents` sorts `db.Events`, also a
+  strictly append-ordered slice field (`db.Events = append(...)`) reached via
+  a single unique-key `Table.Get(name)` lookup, not iteration. Same
+  reasoning; not fixed.
+
+**Existing test-suite weakness confirmed:** no existing pagination test in
+this package constructed a tie group and compared item identity across a
+full multi-page walk. `GetOperations`/`GetOperationsForResource`/
+`GetSetupHistory` all page at a fixed size (`defaultPageLimit` = 100 — none
+of the three real Lightsail ops they mirror takes a caller-supplied page
+size), so the new tests (`pagination_sort_totality_test.go`) seed 105 tied
+records per case to force a real two-page boundary, via new
+`SeedOperationForTest`/`SeedSetupHistoryEntryForTest` test-only helpers
+(`export_test.go`, this package's first — added following the same pattern
+already established in `bedrock`/`cloudwatchlogs`) since neither type's
+`CreatedAt` is otherwise reachable from a `_test` package to force an exact
+tie.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/lightsail/...`).

@@ -12,6 +12,15 @@ import "sort"
 // are accepted (for wire compatibility) but not applied, matching this
 // backend's existing precedent of no-op unrecognized search-filter
 // attributes (see matchesNameFilter).
+//
+// namespace is optional (empty scans every namespace, per this op's own
+// handler). storedUser's key is accountID/namespace/UserName, so UserName is
+// only unique within one namespace -- across namespaces (or the namespace=""
+// scan) two different users can share a UserName. Sort and cursor therefore
+// use UserArn, not UserName: UserArn embeds the namespace and so is globally
+// unique, where UserName alone would (a) let store.Table.All()'s unordered
+// iteration reorder tied users across calls and (b) make paginateUserIndexCapacity's
+// equality-matched nextToken resolve to the same (first) tied user forever.
 func (b *InMemoryBackend) ListUsersIndexCapacity(
 	_, namespace string,
 	maxResults int32,
@@ -30,7 +39,13 @@ func (b *InMemoryBackend) ListUsersIndexCapacity(
 		}
 		all = append(all, userIndexCapacityFor(u, knowledgeBases, spaces))
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].UserName < all[j].UserName })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].UserName != all[j].UserName {
+			return all[i].UserName < all[j].UserName
+		}
+
+		return all[i].UserArn < all[j].UserArn
+	})
 
 	result, next := paginateUserIndexCapacity(all, maxResults, nextToken)
 
@@ -82,7 +97,7 @@ func paginateUserIndexCapacity(
 	if nextToken != "" {
 		start = len(all)
 		for i, u := range all {
-			if u.UserName == nextToken {
+			if u.UserArn == nextToken {
 				start = i
 
 				break
@@ -93,7 +108,7 @@ func paginateUserIndexCapacity(
 	end := start + int(maxResults)
 	var next string
 	if end < len(all) {
-		next = all[end].UserName
+		next = all[end].UserArn
 	} else {
 		end = len(all)
 	}

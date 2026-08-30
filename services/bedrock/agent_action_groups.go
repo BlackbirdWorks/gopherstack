@@ -96,10 +96,13 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 		}
 	}
 
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].ActionGroupName < list[j].ActionGroupName },
-	)
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].ActionGroupName != list[j].ActionGroupName {
+			return list[i].ActionGroupName < list[j].ActionGroupName
+		}
+
+		return list[i].ActionGroupID < list[j].ActionGroupID
+	})
 
 	return paginate(list, maxResults, nextToken)
 }

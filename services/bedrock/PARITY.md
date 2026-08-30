@@ -313,3 +313,92 @@ confirming the predicted symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order, not just whether the surrounding pagination arithmetic is correct.
+Every collection in this backend is a `store.Table[V]`, whose `.All()`
+returns map-iteration order — Go randomises the range start per call, not
+per map instance — so a comparator that treats two distinct records as equal
+(no secondary key) can reorder them differently across two calls in the same
+paginated walk, dropping or duplicating a record across a page boundary with
+nothing changed in between.
+
+**Fixed (non-total sort, tiebreak added) — string-keyed, tie is possible
+because no create-time uniqueness check exists:**
+
+- `ListAgentActionGroups` — sorted on `ActionGroupName` alone;
+  `CreateAgentActionGroup` never checks for an existing action group with the
+  same name on the same agent (real AWS presumably would reject the
+  duplicate; this backend's Create path doesn't). Added `ActionGroupID`
+  tiebreak.
+- `ListDataSources` — sorted on `Name` alone; `CreateDataSource` has no
+  per-knowledge-base name uniqueness check. Added `DataSourceID` tiebreak.
+- `ListFlowAliases` — sorted on `Name` alone; `CreateFlowAlias` has no
+  per-flow name uniqueness check. Added `FlowAliasID` tiebreak.
+- `ListAgentAliases` — sorted on `AgentAliasName` alone; `CreateAgentAlias`
+  has no per-agent name uniqueness check. Added `AgentAliasID` tiebreak.
+
+**Fixed (non-total sort, tiebreak added) — `CreationTime`-based, ten call
+sites sharing the exact same shape:**
+
+`ListCustomModels`, `ListEvaluationJobs`, `ListCustomModelDeployments`,
+`ListModelCopyJobs`, `ListModelInvocationJobs`, `ListModelImportJobs`,
+`ListImportedModels`, `ListModelCustomizationJobs`,
+`ListProvisionedModelThroughputs`, `ListAdvancedPromptOptimizationJobs` — all
+sorted purely on `CreationTime` (ascending or descending per `SortOrder`,
+neither branch had a fallback), with no tiebreak. Two records created in the
+same instant (or seeded identically) tie with nothing to break the tie.
+Fixed by falling back to each type's own unique ARN
+(`ModelArn`/`JobArn`/`CustomModelDeploymentArn`/`ImportedModelArn`/`ProvisionedModelArn`
+as appropriate) when `CreationTime` compares equal, in both the ascending
+and descending branches (the tiebreak itself is always ascending — only the
+primary key honors `SortOrder`).
+
+Note: `ListCustomModels`/`ListModelCustomizationJobs`'s existing gaps entry
+("sortBy is parsed but never changes the sort field, always CreationTime")
+is unrelated and still accurate — that's about `SortBy` not being honored,
+not about totality; not touched by this pass.
+
+**Also fixed — earlier-class bug found while auditing these same call
+sites:** the shared `paginate[T]` helper (`store.go`), used by ~20 List
+ops including four above, parsed `nextToken` via `strconv.Atoi` with no
+lower-bound check (`parseNextToken`, its sibling used by
+`paginateBedrockSlice`, does clamp negative values to 0 — `paginate` did
+not). A forged or stale token like `"-1"` parsed to `startIdx = -1`, which
+then passed the `startIdx >= len(list)` bounds check and panicked on
+`list[-1:end]`. Fixed by requiring `n >= 0` alongside `err == nil` before
+accepting the parsed offset. `TestPaginateRejectsNegativeToken`
+(pagination_sort_totality_test.go) reproduces the panic pre-fix and asserts
+it's gone.
+
+**Confirmed correct, left unfixed (evidence, not presumption):**
+
+- Every remaining single-field string/ARN/version sort (`ListPromptRouters`
+  on `PromptRouterName`, `ListAutomatedReasoningPolicies` family on
+  `Name`/`BuildWorkflowID`/`TestCaseID`, `ListAgentKnowledgeBaseAssociations`
+  on `KnowledgeBaseID`, `ListAgentCollaborators` on `CollaboratorID`,
+  `ListGuardrails` on `GuardrailID`, `ListMarketplaceModelEndpoints` on
+  `EndpointArn`, `ListIngestionJobs` on `IngestionJobID`, `ListFlows`/
+  `ListKnowledgeBases`/`ListPrompts` on `Name`, `ListInferenceProfiles` on
+  `InferenceProfileArn`, `ListKnowledgeBaseDocuments` on `DocumentID`,
+  `ListAgentVersions`/`ListFlowVersions`/`ListPromptVersions` on `Version`)
+  sorts on either the exact field the backing `store.Table`'s `keyFn` uses
+  as the primary key, or a field a real create-time uniqueness check
+  enforces (`flowsByName`/`kbByName`/`promptsByName`/`agentsByName`/
+  `arpByName`/`promptRoutersByName`/`customModelsByName`, verified against
+  each `Create*` function). No tie is possible; nothing to fix.
+
+**Existing test-suite weakness confirmed:** no existing pagination test in
+this package constructed a tie group and compared item identity across a
+full multi-page walk — the closest coverage was arithmetic-only (page-size
+and continuation-token assertions). New tests
+(`pagination_sort_totality_test.go`) fill that gap for every fixed op above,
+looping each 30x per the reasoning that map-iteration instability shows up
+across separate calls, not within one; the `CreationTime`-based tests that
+use `paginateBedrockSlice` (fixed 100-item page size, no caller-controlled
+page size) seed 105 tied items to force a real two-page boundary.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/bedrock/...`).
