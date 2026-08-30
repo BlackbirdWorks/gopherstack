@@ -499,15 +499,32 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	}
 }
 
-// anyMatchPrefix returns true if target has any of the given values as a prefix.
+// anyMatchPrefix returns true if target matches values under prefix semantics,
+// honouring AWS's documented negation prefix: "You can prefix your search value with
+// an exclamation mark ( ! ) in order to perform negation filters" (types.Filter.Values
+// doc comment, aws-sdk-go-v2/service/secretsmanager@v1.44.4 types/types.go -- Filter is
+// the shared type both ListSecretsInput and BatchGetSecretValueInput carry as Filters).
+// A negated value excludes any target with that prefix; if any positive (non-negated)
+// values are present, at least one must also match.
 func anyMatchPrefix(values []string, target string) bool {
+	hasPositive, positiveMatch := false, false
+
 	for _, v := range values {
+		if negated, ok := strings.CutPrefix(v, "!"); ok {
+			if strings.HasPrefix(target, negated) {
+				return false
+			}
+
+			continue
+		}
+
+		hasPositive = true
 		if strings.HasPrefix(target, v) {
-			return true
+			positiveMatch = true
 		}
 	}
 
-	return false
+	return !hasPositive || positiveMatch
 }
 
 // secretHasTagKey returns true if the secret has at least one of the given tag keys.
