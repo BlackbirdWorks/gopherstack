@@ -501,3 +501,33 @@ service's one known-bad cursor (`ListBackups`' ARN-only `ExclusiveStartBackupArn
 reconstruct a deleted backup's `CreationDateTime` half) is a distinct, already-recorded,
 deliberately-unfixed gap — not an instance of the cross-call reproducibility class audited
 here.
+
+## 2026-08-30 enumcheck typed-response-struct extension: one confirmed bug, five false positives
+
+`cmd/enumcheck` was extended to see an enum value carried on a named response
+struct's own composite literal (`SomeType{Field: value}` / `&SomeType{...}`),
+not only a `map[string]any` entry — its previously documented blind spot.
+Run against `services/dynamodb`, it surfaced 6 findings (all needs-review,
+none confident); hand-checked against the pinned dynamodb@v1.63.1 SDK:
+
+- **Confirmed bug, fixed**: `partiql.go`'s `partiqlValidationExceptionCode`
+  (`handleBatchExecuteStatement`'s parameter-conversion-failure branch) emitted
+  `BatchStatementError.Code = "ValidationException"`. The real
+  `BatchStatementErrorCodeEnum` (types/enums.go) has no such member — the
+  correct value is `"ValidationError"`. Fixed; covered by
+  `TestBatchExecuteStatement_ParameterConversionFailure_ErrorCode`, which
+  asserts against `types.BatchStatementErrorCodeEnumValidationError`, not a
+  hardcoded string.
+- **False positive** (`transact_ops.go:131`, `transact_validation.go:227`):
+  `CancellationReason{Code: "None"}` — the real SDK types `CancellationReason.Code`
+  as a plain `*string`, not an enum at all (confirmed in types/types.go).
+- **False positive** (`global_tables.go:170`, `global_tables.go:541`,
+  `replication.go:40`): `Table{Status: statusActive, ...}` — this repo's
+  internal `Table` struct's `json:"Status"` tag exists for
+  `persistence.go`'s snapshot serialization (save/restore to disk), not the
+  AWS wire response; the real `TableDescription` response is built
+  separately via `models.FromSDKTableDescription`, whose `TableStatus` field
+  carries the correct wire key and value. The checker cannot distinguish a
+  same-package tagged struct built for persistence from one built for the
+  wire — a real, structural false-positive class this extension can produce,
+  disclosed in `cmd/enumcheck`'s package doc.

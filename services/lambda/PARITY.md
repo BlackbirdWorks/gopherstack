@@ -272,3 +272,23 @@ repo-wide `go vet ./...` (clean except a pre-existing, unrelated
 `services/appconfig` failure from a concurrently-edited service), `go test
 -race -count=1 ./services/lambda/...` (pass), `golangci-lint run --fix
 ./services/lambda/...` (0 issues).
+
+## 2026-08-30 enumcheck typed-response-struct extension: 5 findings, all false positives
+
+`cmd/enumcheck` was extended to see an enum value carried on a named
+response struct's own composite literal, not only a `map[string]any` entry.
+Run against `services/lambda`, it surfaced 5 needs-review findings, all
+under an SDK-wide ambiguous wire key ("Status" or "Type" shared by
+`OperationStatus`/`ExecutionStatus`/`ProvisionedConcurrencyStatusEnum` or
+`KafkaSchemaRegistryAuthType`/`OperationType`/`SourceAccessType` in
+`lambda@v1.101.2/types/enums.go`). Hand-checked against each site's true
+field: `ProvisionedConcurrencyConfig.Status = "READY"` (legal
+`ProvisionedConcurrencyStatusEnumReady`), `DurableExecution.Status =
+"RUNNING"` (legal `ExecutionStatusRunning`), `DurableOperation.Type =
+"EXECUTION"` (legal `OperationTypeExecution`), `DurableOperation.Status =
+"STARTED"` (legal `OperationStatusStarted`), `TracingConfig.Mode =
+"PassThrough"` (legal `TracingModePassThrough`). Every value is a real
+member of its true single candidate; each only fails the ambiguous-key
+tier's "legal in every candidate" check because the other enum(s) sharing
+the wire key don't declare that member. No bug found; nothing changed in
+this service.

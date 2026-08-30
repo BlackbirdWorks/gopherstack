@@ -67,40 +67,61 @@
 //     all-or-nothing ambiguous-key filter dropped silently until this tier
 //     was added.
 //
-// A wire-key VALUE position is reached two ways in this repo, both covered:
-// a map[string]any composite-literal entry (checkLiteralElt) and an
+// A wire-key VALUE position is reached three ways in this repo, all
+// covered: a map[string]any composite-literal entry (checkLiteralElt), an
 // `out["wireKey"] = value` index-assignment onto an already-built map
-// (checkIndexAssignsInFunc) -- the latter added for gopherstack-3dzb, whose
-// real bug (comprehend's resourceMap: `out := cloneMap(...); out["Status"] =
-// resource.Status`) is exactly this shape and was invisible to the former.
-// Either position's value resolves the same single-hop way: a literal, a
-// same-package const, a types.SomeEnumMember/types.SomeEnum("x") selector/
-// conversion, or -- also added for gopherstack-3dzb -- a `structVar.Field`
-// read of a field this same function assigned exactly once
-// (localFieldConsts), keyed by the (local variable, field name) pair so two
-// different local structs sharing a field name never collide within one
-// function. This closes the blind spot gopherstack-3dzb was filed for: an
-// enum-typed value assigned into a struct field and only later marshalled
-// onto the wire (this repo's dominant status-field pattern) previously
-// defeated resolution entirely -- confirmed empirically: re-running against
-// comprehend's actual pre-fix commit (caf2a5f9f^) produced no finding for
-// any of its four real wrong-enum bugs.
+// (checkIndexAssignsInFunc) -- added for gopherstack-3dzb, whose real bug
+// (comprehend's resourceMap: `out := cloneMap(...); out["Status"] =
+// resource.Status`) is exactly this shape and was invisible to the former --
+// and a keyed field in a composite literal of a NAMED struct type declared
+// in the same package, `SomeType{Field: value}` or `&SomeType{Field:
+// value}` (checkStructResponsesInFunc), this repo's other dominant response
+// convention alongside map[string]any (`c.JSON(http.StatusOK,
+// listApisOutput{...})`). Every position's value resolves the same
+// single-hop way: a literal, a same-package const, a
+// types.SomeEnumMember/types.SomeEnum("x") selector/conversion, or --
+// gopherstack-3dzb -- a `structVar.Field` read of a field this same
+// function assigned exactly once (localFieldConsts), keyed by the (local
+// variable, field name) pair so two different local structs sharing a
+// field name never collide within one function. This closes the blind spot
+// gopherstack-3dzb was filed for: an enum-typed value assigned into a
+// struct field and only later marshalled onto the wire (this repo's
+// dominant status-field pattern) previously defeated resolution entirely --
+// confirmed empirically: re-running against comprehend's actual pre-fix
+// commit (caf2a5f9f^) produced no finding for any of its four real
+// wrong-enum bugs.
+//
+// The struct-literal position resolves a Go field to its real wire name by
+// reading the field's own `json` tag, falling back to an `xml` tag, falling
+// back to the Go field name itself only when neither tag is present --
+// never assuming the field name IS the wire name, since this repo's
+// response structs routinely tag a field under a different name (e.g. Go
+// field StatementID tagged json:"StatementId" in services/lambda). A field
+// tagged `json:"-"` is excluded outright, and an unkeyed (positional)
+// literal element is skipped -- there is no field identity to resolve a
+// wire name from without one. Identity is the (struct TYPE, field) pair,
+// resolved through that type's own tag-derived field map, never a bare
+// field name -- two struct types that happen to both declare a "Status"
+// field can never collide, the same discipline localFieldConsts already
+// applies one level down for (local variable, field) within one function.
+// This is not gated on `c.JSON` at all, deliberately: it mirrors
+// checkLiteralsInFunc, which likewise matches any map[string]any literal
+// wherever it appears in a function body, not only ones passed directly to
+// a response writer -- consistent scope, not a new risk. A composite
+// literal of an IMPORTED struct type (an SDK type, or another package's)
+// is out of scope: this repo's own response structs, the ones actually
+// examined, are declared in the service's own files, where their tags are
+// readable.
 //
 // SCOPE, disclosed rather than silently under-covered: only files directly
-// in services/<dir> are scanned (no recursion into subpackages); only
-// explicitly-typed `map[string]any`/`map[string]interface{}` composite
-// literals and index-assignments onto them are examined -- a value that only
-// ever reaches the wire through a NAMED Go struct's own composite literal
-// (e.g. `c.JSON(http.StatusOK, listApisOutput{...})`, a real and common
-// convention in this repo alongside map[string]any: roughly 372 such
-// `c.JSON(http.StatusOK, SomeType{...})` call sites exist across services/
-// against roughly 2812 map[string]any composite literals) is entirely
-// invisible to this scan, the same way an elided inner literal in a slice of
-// maps is. Local value resolution (including the new struct-field hop) is a
-// single hop each -- a value assembled through more indirection than that
-// (a field set in one function and read in another, e.g. this exact
-// scan can't see comprehend's actual historical bug, which crossed from
-// store.go's constructor into a different file's resourceMap) resolves to
+// in services/<dir> are scanned (no recursion into subpackages). Local
+// value resolution (including the struct-field hop) is a single hop each --
+// a value assembled through more indirection than that (a field set in one
+// function and read in another, e.g. this exact scan can't see
+// comprehend's actual historical bug, which crossed from store.go's
+// constructor into a different file's resourceMap; equally, a struct
+// literal built in one function and only later passed to a response writer
+// after further field mutation in a different function) resolves to
 // nothing and produces no finding, never a wrong one. Attempting full
 // cross-function dataflow was considered and rejected (gopherstack-3dzb's
 // own recommendation): two other auditors in this campaign hit roughly 85

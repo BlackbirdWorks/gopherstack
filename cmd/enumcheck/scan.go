@@ -56,6 +56,7 @@ func scanPackage(dir string, reg *enumRegistry, wireKeys map[string]wireKeyFact,
 	}
 
 	pkgConsts := packageStringConsts(files)
+	structFields := collectStructFields(files)
 
 	var out []finding
 
@@ -71,6 +72,10 @@ func scanPackage(dir string, reg *enumRegistry, wireKeys map[string]wireKeyFact,
 
 			out = append(out, checkLiteralsInFunc(fd, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)...)
 			out = append(out, checkIndexAssignsInFunc(fd, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)...)
+			out = append(
+				out,
+				checkStructResponsesInFunc(fd, fset, reg, wireKeys, localConsts, pkgConsts, structFields, repoRoot)...,
+			)
 		}
 	}
 

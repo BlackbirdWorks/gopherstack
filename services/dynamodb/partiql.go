@@ -22,9 +22,12 @@ import (
 // ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
 var ErrInvalidStatement = errors.New("invalid PartiQL statement")
 
-// partiqlValidationExceptionCode is the error code used in BatchExecuteStatement
-// error responses for parameter-conversion and statement-parse failures.
-const partiqlValidationExceptionCode = "ValidationException"
+// partiqlValidationExceptionCode is the BatchStatementError.Code used in
+// BatchExecuteStatement error responses for parameter-conversion failures.
+// "ValidationError", not "ValidationException" -- the real
+// BatchStatementErrorCodeEnum (dynamodb@v1.63.1 types/enums.go) has no
+// "ValidationException" member.
+const partiqlValidationExceptionCode = "ValidationError"
 
 // errScanFallback is an internal sentinel returned by tryQueryOptimization to
 // signal that the caller should fall back to a full Scan instead of Query.

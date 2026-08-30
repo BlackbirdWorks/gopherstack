@@ -390,3 +390,23 @@ table's own key, `uuid`-derived, always unique) as the tiebreak.
 Gates: `go build ./services/eks/...`, `go vet ./services/eks/...`,
 `go test -race -count=1 ./services/eks/...` (pass), `golangci-lint run
 ./services/eks/...` (0 issues).
+
+## 2026-08-30 enumcheck typed-response-struct extension: 34 findings, all false positives
+
+`cmd/enumcheck` was extended to see an enum value carried on a named
+response struct's own composite literal, not only a `map[string]any` entry.
+Run against `services/eks`, it surfaced 34 needs-review findings, all under
+one wire key ("status" or "type") that is genuinely ambiguous SDK-wide —
+shared by 11 (status) or 5 (type) unrelated real enums in
+`eks@v1.90.4/types/enums.go`. Hand-checked every distinct value against the
+enum its owning field's name actually indicates (`Cluster.Status` →
+`ClusterStatus`, `Addon.Status` → `AddonStatus`, `Update.Status`/`.Type` →
+`UpdateStatus`/`UpdateType`, `InsightsRefresh.Status` →
+`InsightsRefreshStatus`, `AnywhereSubscription.Status` →
+`EksAnywhereSubscriptionStatus`, etc.): every value is a real, legal member
+of its true single candidate (e.g. `"InProgress"` = `UpdateStatusInProgress`,
+`"AddonUpdate"` = `UpdateTypeAddonUpdate`, `"COMPLETED"` =
+`InsightsRefreshStatusCompleted`) — it only fails the ambiguous-key tier's
+"legal in every candidate" check because the other ~10 unrelated enums
+sharing the wire key don't declare that member. No bug found; nothing
+changed in this service.
