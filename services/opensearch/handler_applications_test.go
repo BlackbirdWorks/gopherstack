@@ -69,7 +69,7 @@ func TestApplications_CRUD(t *testing.T) {
 			assert.NotEmpty(t, app.ID)
 			assert.Equal(t, tt.appName, app.Name)
 
-			apps := b.ListApplications()
+			apps := b.ListApplications(nil, "", 0).Data
 			if tt.wantInList {
 				require.NotEmpty(t, apps)
 				found := false
@@ -91,7 +91,7 @@ func TestApplications_CRUD(t *testing.T) {
 				err = b.DeleteApplication(app.ID)
 				require.NoError(t, err)
 
-				apps = b.ListApplications()
+				apps = b.ListApplications(nil, "", 0).Data
 				for _, a := range apps {
 					assert.NotEqual(t, app.ID, a.ID, "deleted app should not appear in list")
 				}

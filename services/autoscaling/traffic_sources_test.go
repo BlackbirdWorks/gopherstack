@@ -61,7 +61,7 @@ func TestInMemoryBackend_AttachTrafficSources(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			require.NoError(t, err)
 			assert.Len(t, groups[0].TrafficSources, tt.wantLen)
 		})
@@ -165,7 +165,7 @@ func TestInMemoryBackend_DescribeTrafficSources(t *testing.T) {
 				tt.setup(b)
 			}
 
-			tss, err := b.DescribeTrafficSources(tt.group)
+			tss, err := b.DescribeTrafficSources(tt.group, "")
 			if tt.wantErr {
 				require.Error(t, err)
 

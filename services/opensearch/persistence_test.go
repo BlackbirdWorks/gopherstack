@@ -77,11 +77,11 @@ func TestPersistence_PackagesRoundTrip(t *testing.T) {
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	pkgs, err := fresh.DescribePackages([]string{pkgID})
+	pkgs, err := fresh.DescribePackages(map[string][]string{"PackageID": {pkgID}}, "", 0)
 	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
-	assert.Equal(t, "my-pkg", pkgs[0].PackageName)
-	assert.Equal(t, "TXT-DICTIONARY", pkgs[0].PackageType)
+	require.Len(t, pkgs.Data, 1)
+	assert.Equal(t, "my-pkg", pkgs.Data[0].PackageName)
+	assert.Equal(t, "TXT-DICTIONARY", pkgs.Data[0].PackageType)
 }
 
 func TestPersistence_VpcEndpointsRoundTrip(t *testing.T) {
@@ -216,7 +216,7 @@ func TestPersistence_OutboundConnectionsRoundTrip(t *testing.T) {
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	conns := fresh.DescribeOutboundConnections()
+	conns := fresh.DescribeOutboundConnections(nil, "", 0).Data
 	require.NotEmpty(t, conns)
 	found := false
 	for _, c := range conns {
@@ -340,11 +340,11 @@ func TestPersistence_DomainMaintenanceRoundTrip(t *testing.T) {
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	maintenances, err := fresh.ListDomainMaintenances("maint-domain")
+	maintenances, err := fresh.ListDomainMaintenances("maint-domain", "", "", "", 0)
 	require.NoError(t, err)
-	require.Len(t, maintenances, 1)
-	assert.Equal(t, "REBOOT_NODE", maintenances[0].Action)
-	assert.Equal(t, "node-1", maintenances[0].NodeID)
+	require.Len(t, maintenances.Data, 1)
+	assert.Equal(t, "REBOOT_NODE", maintenances.Data[0].Action)
+	assert.Equal(t, "node-1", maintenances.Data[0].NodeID)
 }
 
 func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
@@ -638,25 +638,25 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	dqSources := fresh.ListDirectQueryDataSources()
 	assert.Len(t, dqSources, 1)
 
-	outbound := fresh.DescribeOutboundConnections()
+	outbound := fresh.DescribeOutboundConnections(nil, "", 0).Data
 	assert.Len(t, outbound, 1)
 
 	// 2 inbound connections: one mirrored automatically from the outbound
 	// connection created above (peer-alias), one seeded directly (conn-in-1).
-	inbound := fresh.DescribeInboundConnections()
+	inbound := fresh.DescribeInboundConnections(nil, "", 0).Data
 	assert.Len(t, inbound, 2)
 
 	endpoints := fresh.ListVpcEndpoints()
 	assert.Len(t, endpoints, 1)
 
-	apps := fresh.ListApplications()
+	apps := fresh.ListApplications(nil, "", 0).Data
 	require.Len(t, apps, 1)
 	assert.Equal(t, app.Name, apps[0].Name)
 
-	pkgs, err := fresh.DescribePackages(nil)
+	pkgs, err := fresh.DescribePackages(nil, "", 0)
 	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
-	assert.Equal(t, pkg.PackageName, pkgs[0].PackageName)
+	require.Len(t, pkgs.Data, 1)
+	assert.Equal(t, pkg.PackageName, pkgs.Data[0].PackageName)
 
 	reserved := fresh.DescribeReservedInstances("")
 	assert.Len(t, reserved, 1)
@@ -678,9 +678,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	assert.Equal(t, []string{domain.Name}, fresh.ListDomainsForPackage(pkg.PackageID))
 
-	maintenances, err := fresh.ListDomainMaintenances(domain.Name)
+	maintenances, err := fresh.ListDomainMaintenances(domain.Name, "", "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, maintenances, 1)
+	assert.Len(t, maintenances.Data, 1)
 
 	history, err := fresh.GetUpgradeHistory(domain.Name)
 	require.NoError(t, err)

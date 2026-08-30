@@ -375,7 +375,7 @@ func TestInMemoryBackend_DescribePolicies(t *testing.T) {
 				tt.setup(b)
 			}
 
-			policies, err := b.DescribePolicies(tt.group, tt.policyNames)
+			policies, err := b.DescribePolicies(tt.group, tt.policyNames, nil)
 			require.NoError(t, err)
 			assert.Len(t, policies, tt.wantCount)
 		})

@@ -76,7 +76,7 @@ func TestInMemoryBackend_CreateOrUpdateTags(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.wantTag.Key != "" {
-				groups, gErr := b.DescribeAutoScalingGroups([]string{tt.tags[0].ResourceID})
+				groups, gErr := b.DescribeAutoScalingGroups([]string{tt.tags[0].ResourceID}, nil)
 				require.NoError(t, gErr)
 				found := false
 				for _, tag := range groups[0].Tags {

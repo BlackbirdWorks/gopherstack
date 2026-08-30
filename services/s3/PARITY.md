@@ -830,3 +830,39 @@ No live bugs found this pass; no code changes made to this service.
 Gates: `go build`, `go vet ./services/s3/...`, `go test -race -count=1
 ./services/s3/...` (pass, unchanged), `golangci-lint run ./services/s3/...`
 (0 issues, unchanged).
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 1 operation fixed
+
+s3 is REST-XML with bucket/key routing; per the campaign brief this service's "filters" are
+prefix/delimiter/marker/max-keys rather than a `Filter` object, so the audit unit was each List op's
+own Input struct in the pinned SDK (`s3@v1.106.5`), read directly rather than assumed from a sibling:
+`ListObjects`, `ListObjectsV2`, `ListObjectVersions`, `ListMultipartUploads`, `ListParts`, `ListBuckets`.
+
+**Confirmed already correct** (read every constraint field's handler + backend code path, not just
+grepped for its name): `ListObjects`/`ListObjectsV2` (`prefix`/`delimiter`/`marker`/`max-keys`/
+`encoding-type`, V2's `continuation-token`/`start-after`), `ListObjectVersions` (`prefix`/`delimiter`/
+`key-marker`/`version-id-marker`/`max-keys`, correctly combining key-marker+version-id-marker for the
+seek per the documented semantics), `ListMultipartUploads` (`prefix`/`delimiter`/`key-marker`/
+`upload-id-marker`/`max-uploads`), `ListParts` (`part-number-marker`/`max-parts`). All apply their
+documented constraints and truncate/paginate correctly (verified in `listing.go`/`multipart.go`/
+`bucket_ops_listing.go`/`multipart_ops.go`, not inferred).
+
+- **`ListBuckets`** (`bucket_ops.go`/`buckets.go`): `BucketRegion` (`api_op_ListBuckets.go`: "Limits the
+  response to buckets that are located in the specified Amazon Web Services Region", query-bound as
+  `bucket-region` per `awsRestxml_serializeOpHttpBindingsListBucketsInput`) was never read by the HTTP
+  handler at all, and the backend's `ListBuckets` never filtered on it even had it been set -- every
+  call returned buckets from every region. `Prefix`/`MaxBuckets`/`ContinuationToken` were already
+  correctly applied (including the documented 10,000 default page size). Fixed: `bucket-region` is now
+  read in `listBuckets` (`bucket_ops.go`) and applied against each `StoredBucket.Region` in
+  `InMemoryBackend.ListBuckets` (`buckets.go`).
+
+**Restraint, not pursued**: `ListBucketAnalyticsConfigurations`/`ListBucketInventoryConfigurations`/
+`ListBucketMetricsConfigurations` also carry a `ContinuationToken`-only pagination parameter, but each
+bucket's configuration count is realistically small (these are admin-configured, not per-object) and
+AWS itself caps them at low three-digit counts -- an unbounded page here is not the observable bug this
+class targets. Left unaudited in depth this pass.
+
+Gates: `go build ./services/s3/...`, `go vet ./...` (repo-wide; no signature changes, so no other
+package needed updating), `go test ./services/s3/... -race -count=1` (pass), `golangci-lint run
+./services/s3/...` (0 issues). New test in `list_filter_params_test.go` drives the real typed SDK
+client (`sdk_s3.Client`, path-style) via the existing `newRealS3ClientTest` helper.

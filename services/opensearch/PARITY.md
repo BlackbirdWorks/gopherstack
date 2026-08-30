@@ -921,3 +921,66 @@ No other List/Describe operation in this service implements `NextToken`/`MaxResu
 either handler or backend (confirmed by the same grep across all of `services/opensearch`), so there
 is no cursor for a filter-ordering bug to hide behind anywhere else in this service. Zero findings;
 no files changed.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 6 operations fixed
+
+Measured collection-returning operations from each op's own Input struct in the pinned SDK
+(`opensearch@v1.75.4`), not from the verb: 22 ops carry `Filters`/a named filter field/`Statuses`/
+`MaxResults`/`NextToken`. The 08-29 ordering-bug audit above already established that *no* op in this
+service implemented `MaxResults`/`NextToken` pagination at all -- this pass turned that same absence
+into six concrete fixes, all previously "never read" (class 1) or "never bound" (class 3):
+
+- **`DescribeInboundConnections`/`DescribeOutboundConnections`**
+  (`inbound_connections.go`/`outbound_connections.go`/`handler_inbound_connections.go`/
+  `handler_outbound_connections.go`): the handler never read the POST body at all -- `Filters`,
+  `MaxResults`, `NextToken` were all silently discarded, every connection was always returned in one
+  unbounded page. Fixed: `Filters` entries named `"connection-id"` now restrict the result
+  (OR-within-values, matching `API_Filter.html`: "must match at least one of the specified values");
+  `MaxResults` (capped at the documented maximum of 100, `API_DescribeInboundConnections.html`) and
+  `NextToken` now paginate via `pkgs/page`. **Restraint**: neither `API_Filter.html` nor
+  `api_op_Describe*Connections.go` enumerates a closed set of valid `Filter.Name` values for this
+  operation (unlike most AWS filter APIs) -- I did not invent additional names (e.g.
+  `local-domain-info.domain-name`) from outside knowledge; only `connection-id` is applied, and any
+  other `Name` is a documented no-op. Shared filter+pagination logic factored into a generic
+  `filterAndPageConnections[T any]` helper (`inbound_connections.go`) used by both operations --
+  avoids the duplicate-bug-per-copy pattern the brief warns about, since both connection kinds now
+  share one implementation instead of two.
+- **`ListApplications`** (`applications.go`/`handler_applications.go`): the handler didn't read the
+  query string at all (GET, all three params query-bound per `serializers.go`'s
+  `awsRestjson1_serializeOpHttpBindingsListApplicationsInput`). Fixed: repeated `statuses` query
+  values, `maxResults`, `nextToken` are now honored. Every application this backend creates is
+  implicitly `ACTIVE` (`DeleteApplication` removes its record immediately, no `DELETING` window), so a
+  `Statuses` filter that excludes `ACTIVE` now correctly returns empty rather than every application.
+- **`ListDomainMaintenances`** (`domain_maintenance.go`/`handler.go`): `Action`/`Status`/
+  `MaxResults`/`NextToken` are all query-bound (`awsRestjson1_serializeOpHttpBindingsListDomainMaintenancesInput`);
+  the handler ignored all four and returned the domain's full history (capped at 200 records per
+  domain, `advanced.go:114`) in one page regardless. Fixed: both filters and pagination now applied.
+- **`ListMigrations`** (`migrations.go`/`handler_migrations.go`): `applicationId`/`status` were
+  already correctly read from the query string and applied -- confirmed correct, not touched.
+  `maxResults`/`nextToken` were not read at all; fixed to paginate via `pkgs/page`.
+- **`DescribePackages`** (`packages.go`/`handler_packages.go`): the handler already read `Filters`
+  entries but matched only `Name: "PackageID"`; `DescribePackagesFilterName`
+  (`types/enums.go`) has six values -- `PackageID`, `PackageName`, `PackageStatus`, `PackageType`,
+  `EngineVersion`, `PackageOwner`. Fixed `PackageName`/`PackageStatus`/`PackageType` (fields this
+  backend's `Package` actually tracks) plus `MaxResults`/`NextToken` pagination. **Gap left**:
+  `EngineVersion`/`PackageOwner` have no corresponding field on `Package` at all -- a structural gap,
+  documented in code and here rather than fabricated.
+
+**Confirmed already correct, not touched**: `DescribeReservedInstances`/`DescribeReservedInstanceOfferings`
+(`reserved_instances.go`) already filter correctly by `reservationId`/`offeringId`; pagination was not
+added -- `DescribeReservedInstanceOfferings` serves a small hardcoded static catalog
+(`staticReservedInstanceOfferings()`) and per-account reserved-instance counts are realistically small,
+so an unbounded page is not an observable bug here (restraint call, matching the brief's "catalogue of
+three entries" guidance). `ListInsights`'s `SortOrder`/`TimeRange`/`MaxResults`/`NextToken` are accepted
+but structurally inert -- this backend has no analytics engine to generate insights at all
+(`handler_insights.go`'s own doc comment, confirmed correct pre-existing reasoning, not re-litigated).
+
+Gates: `go build ./services/opensearch/...`, `go vet ./...` (repo-wide, since backend method
+signatures changed), `go test ./services/opensearch/... -race -count=1` (pass), `golangci-lint run
+./services/opensearch/...` (0 issues after fixing dupl via the shared generic helper above,
+fieldalignment, gosec G109 by using `int` instead of `int32` for internal maxResults plumbing, and
+golines). New tests in `list_filter_params_test.go` drive the real typed SDK client
+(`opensearchsdk.Client`) for every fix above except the `ListMigrations` seed step, which uses the
+backend directly to avoid re-deriving `StartMigration`'s unrelated `MigrationOptions.Workspace`/
+`resolveDataSourceRefLocked` validation chain -- the read path under test (`ListMigrations` pagination)
+still goes through the real client.

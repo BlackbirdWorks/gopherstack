@@ -785,3 +785,58 @@ outside this bug class by construction and were not separately audited here.
 
 No code changes in this service this pass -- the enumeration found nothing
 to fix.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 5 operations fixed
+
+Measured from each op's own Input struct in the pinned SDK (`autoscaling@v1.70.4`): 13 Describe ops
+carry `Filters`/a named filter field/`MaxRecords`/`NextToken`. This pass closes the two gaps the prior
+pass explicitly flagged and left alone as "not this bug class" (quoted above), plus three more found
+by reading every one of the 13 Input structs directly:
+
+- **`DescribePolicies`** (`scaling_policies.go`/`handler_scaling_policies.go`/`interfaces.go`):
+  `PolicyTypes` (`api_op_DescribePolicies.go`: "The valid values are SimpleScaling, StepScaling,
+  TargetTrackingScaling, and PredictiveScaling") was parsed nowhere -- confirmed exactly the prior
+  pass's note. Fixed: `PolicyTypes.member` now filters alongside `PolicyNames`.
+- **`DescribeAutoScalingGroups`** (`auto_scaling_groups.go`/`handler_auto_scaling_groups.go`/
+  `interfaces.go`): `Filters` wasn't even part of the backend method signature -- confirmed exactly
+  the prior pass's note. The Go SDK's `Filter` type carries no closed `Name` enum; the API reference's
+  own worked examples are the only place the valid forms are spelled out (`API_DescribeAutoScalingGroups.html`
+  Examples 2-3): `tag-key`, `tag-value`, `tag:<key>`, ANDed across filters, each satisfied by any one
+  tag on the group. All three forms implemented in `autoScalingGroupMatchesFilters`/
+  `groupHasTagMatchingFilter`.
+- **`DescribeScalingActivities`** (`activities.go`/`handler_activities.go`): the `Filters` member
+  (`Status`, documented "This filter can only be used in combination with the AutoScalingGroupName
+  parameter") was never read, and `MaxRecords` truncated the slice with **no `NextToken` returned** --
+  results past the cutoff were silently dropped, not paginated. Fixed: `Status` filter applied;
+  real `pkgs/page`-backed pagination replaces the truncate, defaulting/capping at the documented 100
+  (`api_op_DescribeScalingActivities.go`: "The default value is 100 and the maximum value is 100").
+  **Gap left**: `StartTimeLowerBound`/`StartTimeUpperBound` (the other two documented `Filter.Name`
+  values) are not applied -- noted in code, not fabricated. **Restriction left unenforced**: the doc's
+  "Status can only be used with AutoScalingGroupName" is not rejected when violated (applied
+  regardless) -- a permissiveness gap, not a correctness one, left as-is given the added risk of a new
+  validation error path outweighing the benefit for a documented-but-unenforced restriction.
+- **`DescribeScheduledActions`** (`scheduled_actions.go`/`handler_scheduled_actions.go`): `StartTime`/
+  `EndTime` (`api_op_DescribeScheduledActions.go`: "the latest/earliest scheduled start time to
+  return... If scheduled action names are provided, this property is ignored") were never read. Fixed:
+  both now bound the returned set's `StartTime`, applied only when `actionNames` is empty per the
+  documented precedence (matching the existing name-lookup branch this backend already had).
+- **`DescribeTrafficSources`** (`traffic_sources.go`/`handler_traffic_sources.go`): `TrafficSourceType`
+  (`api_op_DescribeTrafficSources.go`: `elb`/`elbv2`/`vpc-lattice`) was never read. Fixed.
+
+**Confirmed already correct, not touched**: `DescribeTags`'s `Filters` (`handler_tags.go`'s
+`parseTagFilters`/`tagMatchesFilters`) was already correctly applied per-tag; `DescribeScheduledActions`'s
+`ScheduledActionNames` and `DescribeLaunchConfigurations`'s pagination were already correct. Did not
+touch `DescribeLaunchConfigurations`/`DescribeNotificationConfigurations`/`DescribeAutoScalingInstances`/
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`/`DescribeWarmPool`/`DescribeInstanceRefreshes`
+beyond confirming their only constraint fields are `MaxRecords`/`NextToken` pagination, which the
+existing handler code already implements correctly for each (spot-checked, not re-litigated in full).
+
+Gates: `go build ./services/autoscaling/...`, `go vet ./...` (repo-wide -- also required a call-site fix
+in `/cli_asg_ec2_wiring_test.go`, outside this service, since `DescribeAutoScalingGroups`'s signature
+changed), `go test ./services/autoscaling/... -race -count=1` (pass), `golangci-lint run
+./services/autoscaling/...` (0 issues after decomposing `DescribeScheduledActions` to clear gocognit --
+this repo bans the nolint for that linter). New tests in `list_filter_params_test.go` drive the real
+typed SDK client (`assdk.Client`) for every read path under test; fixture setup for the scaling-activity
+`InProgress` status and the traffic-source-type cases goes through the backend directly (lifecycle-hook
+wait state and raw `TrafficSource` structs are awkward to reach through the SDK's own input validation),
+consistent with the narrow exception for setup that doesn't touch the code path being tested.

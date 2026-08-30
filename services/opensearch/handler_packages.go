@@ -135,29 +135,40 @@ func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request)
 	body, _ := httputils.ReadBody(r)
 
 	var req struct {
-		Filters []struct {
+		NextToken string `json:"NextToken"`
+		Filters   []struct {
 			Name  string   `json:"Name"`
 			Value []string `json:"Value"`
 		} `json:"Filters"`
+		MaxResults int32 `json:"MaxResults"`
 	}
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
 
-	var ids []string
-
+	filters := make(map[string][]string, len(req.Filters))
 	for _, f := range req.Filters {
-		if f.Name == jsonKeyPackageID {
-			ids = append(ids, f.Value...)
-		}
+		filters[f.Name] = append(filters[f.Name], f.Value...)
 	}
 
-	pkgs, _ := h.Backend.DescribePackages(ids)
+	p, err := h.Backend.DescribePackages(filters, req.NextToken, int(req.MaxResults))
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+
+	pkgs := p.Data
 	if pkgs == nil {
 		pkgs = []*Package{}
 	}
 
-	h.writeJSON(r, w, map[string]any{"PackageDetailsList": pkgs})
+	out := map[string]any{"PackageDetailsList": pkgs}
+	if p.Next != "" {
+		out["NextToken"] = p.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // handleUpdatePackageRoute serves UpdatePackage: POST /packages/update, PackageID in the body.
@@ -302,8 +313,10 @@ func (h *Handler) handlePackageSubResourceRoutes(
 		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/domains")
 
 		var pkgName, pkgType string
-		if pkgs, err := h.Backend.DescribePackages([]string{pkgID}); err == nil && len(pkgs) == 1 {
-			pkgName, pkgType = pkgs[0].PackageName, pkgs[0].PackageType
+		if p, err := h.Backend.DescribePackages(
+			map[string][]string{jsonKeyPackageID: {pkgID}}, "", 0,
+		); err == nil && len(p.Data) == 1 {
+			pkgName, pkgType = p.Data[0].PackageName, p.Data[0].PackageType
 		}
 
 		domainNames := h.Backend.ListDomainsForPackage(pkgID)

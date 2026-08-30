@@ -3,6 +3,8 @@ package opensearch
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // StartDomainMaintenance starts a maintenance action on a domain.
@@ -64,18 +66,37 @@ func (b *InMemoryBackend) GetDomainMaintenanceStatus(
 	)
 }
 
-// ListDomainMaintenances returns all maintenance records for a domain.
-func (b *InMemoryBackend) ListDomainMaintenances(domainName string) ([]*DomainMaintenance, error) {
+// ListDomainMaintenances returns maintenance records for a domain, filtered
+// by action/status and paginated per nextToken/maxResults
+// (api_op_ListDomainMaintenances.go: Action/Status/MaxResults/NextToken are
+// all query-bound, per serializers.go's HttpBindings function for this op).
+// action/status empty means "no filter" -- both are optional on the wire.
+func (b *InMemoryBackend) ListDomainMaintenances(
+	domainName, action, status, nextToken string, maxResults int,
+) (page.Page[*DomainMaintenance], error) {
 	b.mu.RLock("ListDomainMaintenances")
 	defer b.mu.RUnlock()
 
 	src := b.domainMaintenances[domainName]
-	out := make([]*DomainMaintenance, len(src))
+	all := make([]*DomainMaintenance, 0, len(src))
 
-	for i, m := range src {
+	for _, m := range src {
+		if action != "" && m.Action != action {
+			continue
+		}
+
+		if status != "" && m.Status != status {
+			continue
+		}
+
 		cp := *m
-		out[i] = &cp
+		all = append(all, &cp)
 	}
 
-	return out, nil
+	limit := maxResults
+	if limit <= 0 {
+		limit = len(all)
+	}
+
+	return page.New(all, nextToken, limit, limit), nil
 }

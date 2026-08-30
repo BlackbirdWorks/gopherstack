@@ -1,9 +1,11 @@
 package autoscaling
 
+import "time"
+
 // StorageBackend is the interface for the Autoscaling in-memory store.
 type StorageBackend interface {
 	CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error)
-	DescribeAutoScalingGroups(names []string) ([]AutoScalingGroup, error)
+	DescribeAutoScalingGroups(names []string, filters []TagFilter) ([]AutoScalingGroup, error)
 	UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error)
 	DeleteAutoScalingGroup(name string, forceDelete bool) error
 
@@ -11,7 +13,7 @@ type StorageBackend interface {
 	DescribeLaunchConfigurations(names []string) ([]LaunchConfiguration, error)
 	DeleteLaunchConfiguration(name string) error
 
-	DescribeScalingActivities(groupName string) ([]ScalingActivity, error)
+	DescribeScalingActivities(groupName string, statuses []string) ([]ScalingActivity, error)
 
 	AttachInstances(groupName string, instanceIDs []string) error
 	AttachLoadBalancerTargetGroups(groupName string, targetGroupARNs []string) error
@@ -36,7 +38,9 @@ type StorageBackend interface {
 	TerminateInstanceInAutoScalingGroup(instanceID string, shouldDecrement bool) (*ScalingActivity, error)
 	PutLifecycleHook(hook LifecycleHook) error
 	DescribeLifecycleHooks(groupName string, hookNames []string) ([]LifecycleHook, error)
-	DescribeScheduledActions(groupName string, actionNames []string) ([]ScheduledAction, error)
+	DescribeScheduledActions(
+		groupName string, actionNames []string, startTime, endTime time.Time,
+	) ([]ScheduledAction, error)
 	DeleteTags(tags []ResourceTag) error
 	DescribeTags(filters []TagFilter) ([]ResourceTag, error)
 	DescribeAutoScalingInstances(instanceIDs []string) ([]InstanceDetails, error)
@@ -59,7 +63,7 @@ type StorageBackend interface {
 	// LB/TG/Traffic describe
 	DescribeLoadBalancers(groupName string) ([]LoadBalancerState, error)
 	DescribeLoadBalancerTargetGroups(groupName string) ([]LoadBalancerTargetGroupState, error)
-	DescribeTrafficSources(groupName string) ([]TrafficSourceState, error)
+	DescribeTrafficSources(groupName, trafficSourceType string) ([]TrafficSourceState, error)
 
 	// Detach operations
 	DetachInstances(groupName string, instanceIDs []string, shouldDecrement bool) ([]ScalingActivity, error)
@@ -103,7 +107,7 @@ type StorageBackend interface {
 	// Scaling policies
 	PutScalingPolicy(input ScalingPolicyInput) (*ScalingPolicy, error)
 	DeletePolicy(groupName, policyNameOrARN string) error
-	DescribePolicies(groupName string, policyNames []string) ([]ScalingPolicy, error)
+	DescribePolicies(groupName string, policyNames, policyTypes []string) ([]ScalingPolicy, error)
 
 	// Scheduled actions (single)
 	PutScheduledUpdateGroupAction(groupName string, action ScheduledUpdateGroupAction) error

@@ -62,6 +62,11 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 		return nil, err
 	}
 
+	marker, pageSize := parsePagination(vals)
+	certs, nextMarker := applyMarkerPage(certs, marker, pageSize, func(c Certificate) string {
+		return c.CertificateArn
+	})
+
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
 		members = append(members, xmlListenerCertificate(c))
@@ -70,6 +75,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 	return &describeListenerCertificatesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeListenerCertificatesResult{
+			NextMarker:   nextMarker,
 			Certificates: xmlListenerCertificateList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-listener-certs"},

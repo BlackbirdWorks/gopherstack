@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 
 	// CreateAutoScalingGroup already records one "Launching a new EC2 instance"
 	// scaling activity, exercising the raw (non-Table) activities map.
-	acts, err := src.DescribeScalingActivities("full-state-asg")
+	acts, err := src.DescribeScalingActivities("full-state-asg", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, acts)
 
@@ -105,7 +106,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	dst := autoscaling.NewInMemoryBackend()
 	require.NoError(t, dst.Restore(ctx, data))
 
-	groups, err := dst.DescribeAutoScalingGroups(nil)
+	groups, err := dst.DescribeAutoScalingGroups(nil, nil)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "full-state-asg", groups[0].AutoScalingGroupName)
@@ -117,7 +118,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, lcs, 1)
 	assert.Equal(t, "full-state-lc", lcs[0].LaunchConfigurationName)
 
-	restoredActs, err := dst.DescribeScalingActivities("full-state-asg")
+	restoredActs, err := dst.DescribeScalingActivities("full-state-asg", nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, restoredActs)
 
@@ -130,12 +131,12 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, hooks, 2)
 
-	policies, err := dst.DescribePolicies("full-state-asg", nil)
+	policies, err := dst.DescribePolicies("full-state-asg", nil, nil)
 	require.NoError(t, err)
 	require.Len(t, policies, 1)
 	assert.Equal(t, "full-state-policy", policies[0].PolicyName)
 
-	schedules, err := dst.DescribeScheduledActions("full-state-asg", nil)
+	schedules, err := dst.DescribeScheduledActions("full-state-asg", nil, time.Time{}, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, schedules, 1)
 	assert.Equal(t, "full-state-schedule", schedules[0].ScheduledActionName)
@@ -154,7 +155,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	// accumulate it (registry.RestoreAll resets every table first).
 	require.NoError(t, dst.Restore(ctx, data))
 
-	groupsAfterSecondRestore, err := dst.DescribeAutoScalingGroups(nil)
+	groupsAfterSecondRestore, err := dst.DescribeAutoScalingGroups(nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, groupsAfterSecondRestore, 1)
 }
@@ -182,7 +183,7 @@ func Test_Restore_IncompatibleVersion(t *testing.T) {
 	err = b.Restore(ctx, []byte(`{"version":0,"tables":{}}`))
 	require.NoError(t, err)
 
-	groups, err := b.DescribeAutoScalingGroups(nil)
+	groups, err := b.DescribeAutoScalingGroups(nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }
@@ -214,7 +215,7 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				policies, err := b.DescribePolicies("persist-asg", nil)
+				policies, err := b.DescribePolicies("persist-asg", nil, nil)
 				require.NoError(t, err)
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
@@ -302,7 +303,7 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				policies, err := b.DescribePolicies("customized-metric-persist-asg", nil)
+				policies, err := b.DescribePolicies("customized-metric-persist-asg", nil, nil)
 				require.NoError(t, err)
 				require.Len(t, policies, 1)
 
@@ -346,7 +347,7 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, err := b.DescribeAutoScalingGroups([]string{"baseline-perf-persist-asg"})
+				groups, err := b.DescribeAutoScalingGroups([]string{"baseline-perf-persist-asg"}, nil)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				require.NotNil(t, groups[0].MixedInstancesPolicy)
@@ -373,7 +374,7 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-asg"}, nil)
 				require.Len(t, groups[0].Instances, 1)
 
 				instID := groups[0].Instances[0].InstanceID

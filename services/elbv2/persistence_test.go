@@ -138,7 +138,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 			// The revocation added before the snapshot survives with its RevocationId
 			// intact (int64, not re-numbered).
-			revocations, err := dst.DescribeTrustStoreRevocations(trustStore.TrustStoreArn)
+			revocations, err := dst.DescribeTrustStoreRevocations(trustStore.TrustStoreArn, nil)
 			require.NoError(t, err)
 			require.Len(t, revocations, 1)
 			assert.Equal(t, addedBeforeSnapshot[0].RevocationID, revocations[0].RevocationID)

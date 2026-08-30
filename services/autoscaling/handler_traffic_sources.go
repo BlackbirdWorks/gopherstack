@@ -28,8 +28,9 @@ type attachTrafficSourcesResponse struct {
 
 func (h *Handler) handleDescribeTrafficSources(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
+	trafficSourceType := vals.Get("TrafficSourceType")
 
-	sources, err := h.Backend.DescribeTrafficSources(groupName)
+	sources, err := h.Backend.DescribeTrafficSources(groupName, trafficSourceType)
 	if err != nil {
 		return nil, err
 	}

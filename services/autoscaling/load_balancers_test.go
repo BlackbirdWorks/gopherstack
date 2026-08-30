@@ -59,7 +59,7 @@ func TestInMemoryBackend_AttachLoadBalancerTargetGroups(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			require.NoError(t, err)
 			assert.Len(t, groups[0].TargetGroupARNs, tt.wantARNsLen)
 		})
@@ -116,7 +116,7 @@ func TestInMemoryBackend_AttachLoadBalancers(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			require.NoError(t, err)
 			assert.Len(t, groups[0].LoadBalancerNames, tt.wantLen)
 		})
@@ -172,7 +172,7 @@ func TestInMemoryBackend_DetachLoadBalancers(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, _ := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, _ := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			for _, lb := range tt.lbs {
 				assert.NotContains(t, groups[0].LoadBalancerNames, lb)
 			}
@@ -229,7 +229,7 @@ func TestInMemoryBackend_DetachLoadBalancerTargetGroups(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, _ := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, _ := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			for _, arn := range tt.arns {
 				assert.NotContains(t, groups[0].TargetGroupARNs, arn)
 			}

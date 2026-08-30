@@ -190,8 +190,13 @@ func (b *InMemoryBackend) DeletePolicy(groupName, policyNameOrARN string) error 
 	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyNameOrARN)
 }
 
-// DescribePolicies returns scaling policies for the given group, optionally filtered by name.
-func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []string) ([]ScalingPolicy, error) {
+// DescribePolicies returns scaling policies for the given group, optionally
+// filtered by name and/or PolicyTypes (api_op_DescribePolicies.go: "The
+// valid values are SimpleScaling, StepScaling, TargetTrackingScaling, and
+// PredictiveScaling").
+func (b *InMemoryBackend) DescribePolicies(
+	groupName string, policyNames, policyTypes []string,
+) ([]ScalingPolicy, error) {
 	b.mu.RLock("DescribePolicies")
 	defer b.mu.RUnlock()
 
@@ -200,17 +205,34 @@ func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []strin
 		nameFilter[n] = true
 	}
 
+	typeFilter := make(map[string]bool, len(policyTypes))
+	for _, t := range policyTypes {
+		typeFilter[t] = true
+	}
+
+	matches := func(p *ScalingPolicy) bool {
+		if len(nameFilter) > 0 && !nameFilter[p.PolicyName] {
+			return false
+		}
+
+		if len(typeFilter) > 0 && !typeFilter[p.PolicyType] {
+			return false
+		}
+
+		return true
+	}
+
 	var result []ScalingPolicy
 
 	if groupName != "" {
 		for _, p := range b.scalingPoliciesByGroup.Get(groupName) {
-			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+			if matches(p) {
 				result = append(result, *p)
 			}
 		}
 	} else {
 		for _, p := range b.scalingPolicies.All() {
-			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+			if matches(p) {
 				result = append(result, *p)
 			}
 		}

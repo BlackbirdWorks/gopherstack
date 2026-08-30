@@ -598,8 +598,9 @@ func (h *Handler) handleDeletePolicy(vals url.Values) (any, error) {
 func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 	policyNames := parseMembers(vals, "PolicyNames.member")
+	policyTypes := parseMembers(vals, "PolicyTypes.member")
 
-	policies, err := h.Backend.DescribePolicies(groupName, policyNames)
+	policies, err := h.Backend.DescribePolicies(groupName, policyNames, policyTypes)
 	if err != nil {
 		return nil, err
 	}

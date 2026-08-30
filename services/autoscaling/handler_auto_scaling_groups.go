@@ -140,8 +140,9 @@ const (
 
 func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) {
 	names := parseMembers(vals, "AutoScalingGroupNames.member")
+	filters := parseTagFilters(vals)
 
-	groups, err := h.Backend.DescribeAutoScalingGroups(names)
+	groups, err := h.Backend.DescribeAutoScalingGroups(names, filters)
 	if err != nil {
 		return nil, err
 	}

@@ -265,8 +265,12 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(
 }
 
 // DescribeTrustStoreRevocations returns revocation entries for a trust store.
+// DescribeTrustStoreRevocations returns trustStoreArn's revocation files,
+// optionally restricted to revocationIDs (api_op_DescribeTrustStoreRevocations.go's
+// RevocationIds: "The revocation IDs of the revocation files you want to
+// describe").
 func (b *InMemoryBackend) DescribeTrustStoreRevocations(
-	trustStoreArn string,
+	trustStoreArn string, revocationIDs []int64,
 ) ([]TrustStoreRevocation, error) {
 	b.mu.RLock("DescribeTrustStoreRevocations")
 	defer b.mu.RUnlock()
@@ -276,8 +280,25 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(
 		return nil, ErrTrustStoreNotFound
 	}
 
-	result := make([]TrustStoreRevocation, len(ts.Revocations))
-	copy(result, ts.Revocations)
+	if len(revocationIDs) == 0 {
+		result := make([]TrustStoreRevocation, len(ts.Revocations))
+		copy(result, ts.Revocations)
+
+		return result, nil
+	}
+
+	want := make(map[int64]struct{}, len(revocationIDs))
+	for _, id := range revocationIDs {
+		want[id] = struct{}{}
+	}
+
+	result := make([]TrustStoreRevocation, 0, len(revocationIDs))
+
+	for _, r := range ts.Revocations {
+		if _, wanted := want[r.RevocationID]; wanted {
+			result = append(result, r)
+		}
+	}
 
 	return result, nil
 }

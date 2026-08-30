@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -180,7 +181,14 @@ func (h *Handler) handleGetMigration(w http.ResponseWriter, r *http.Request, mig
 func (h *Handler) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	migrations, err := h.Backend.ListMigrations(q.Get("applicationId"), q.Get("status"))
+	var maxResults int
+	if mr := q.Get("maxResults"); mr != "" {
+		if n, convErr := strconv.Atoi(mr); convErr == nil {
+			maxResults = n
+		}
+	}
+
+	p, err := h.Backend.ListMigrations(q.Get("applicationId"), q.Get("status"), q.Get("nextToken"), maxResults)
 	if err != nil {
 		// Unlike GetMigration/StartMigration, ListMigrations's own deserializer
 		// (opensearch@v1.75.4 deserializers.go) has no ResourceNotFoundException
@@ -190,12 +198,17 @@ func (h *Handler) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]migrationJSON, 0, len(migrations))
-	for _, m := range migrations {
+	items := make([]migrationJSON, 0, len(p.Data))
+	for _, m := range p.Data {
 		items = append(items, toMigrationJSON(m))
 	}
 
-	h.writeJSON(r, w, map[string]any{"migrations": items})
+	out := map[string]any{"migrations": items}
+	if p.Next != "" {
+		out["nextToken"] = p.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // writeMigrationError maps migration errors to their documented HTTP status

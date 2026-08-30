@@ -444,6 +444,10 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 		input.Prefix = aws.String(prefix)
 	}
 
+	if bucketRegion := q.Get("bucket-region"); bucketRegion != "" {
+		input.BucketRegion = aws.String(bucketRegion)
+	}
+
 	if mb := q.Get("max-buckets"); mb != "" {
 		if n, convErr := strconv.ParseInt(mb, 10, 32); convErr == nil && n > 0 {
 			input.MaxBuckets = aws.Int32(int32(n))

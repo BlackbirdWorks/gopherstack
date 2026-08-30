@@ -56,8 +56,10 @@ func (h *Handler) handleBatchPutScheduledUpdateGroupAction(vals url.Values) (any
 func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 	actionNames := parseMembers(vals, "ScheduledActionNames.member")
+	startTime := parseTimeVal(vals.Get("StartTime"))
+	endTime := parseTimeVal(vals.Get("EndTime"))
 
-	actions, err := h.Backend.DescribeScheduledActions(groupName, actionNames)
+	actions, err := h.Backend.DescribeScheduledActions(groupName, actionNames, startTime, endTime)
 	if err != nil {
 		return nil, err
 	}

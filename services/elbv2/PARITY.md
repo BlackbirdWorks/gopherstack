@@ -345,3 +345,47 @@ not recounted here) was cross-referenced rather than re-verified.** No code
 changes in this service this pass -- the enumeration found nothing to fix,
 consistent with how much of this exact bug class this service's PARITY.md
 already shows fixed from earlier campaigns.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 4 operations fixed
+
+That prior pass audited request-body *field parsing* (Actions/Conditions/Transforms/etc.). This pass
+covers a different surface: whether each Describe op's own constraint fields (filters, Marker/PageSize)
+are read at all. Measured from each op's own Input struct in the pinned SDK
+(`elasticloadbalancingv2@v1.58.5`): 10 ops carry `Names`/`*Arns`/`RevocationIds`/`Marker`/`PageSize`.
+
+- **`DescribeTrustStores`** (`handler_trust_stores.go`): `TrustStoreArns`/`Names` were already correctly
+  read and applied by the backend, but `Marker`/`PageSize` were never read at all -- every call returned
+  every trust store in one unbounded page, with `describeTrustStoresResult.NextMarker` always empty.
+  Fixed via a new generic `applyMarkerPage[T any]` helper (`handler.go`), reused by all three fixes below
+  rather than copy-pasting the same marker-scan-then-cut logic a fourth time (avoiding the "no helper
+  exists -> repeated bug" pattern the campaign brief flags).
+- **`DescribeListenerCertificates`** (`handler_listener_certificates.go`): same gap -- `Marker`/
+  `PageSize` never read despite the response struct already carrying an (always-empty) `NextMarker`
+  field, which was the tell. Fixed.
+- **`DescribeTrustStoreAssociations`** (`handler_trust_stores.go`): same gap, plus the response struct
+  didn't even have a `NextMarker` field yet (added; confirmed against `DescribeTrustStoreAssociationsOutput`
+  in the pinned SDK). Fixed. Not covered by a dedicated SDK-driven pagination test this pass -- the fix
+  is mechanically identical to the two above via the same `applyMarkerPage` helper, and multi-listener
+  trust-store-association fixtures are comparatively expensive to set up through the real client; verified
+  by code review and the full existing suite passing, not by a new targeted test.
+- **`DescribeTrustStoreRevocations`** (`trust_stores.go`/`handler_trust_stores.go`): `RevocationIds`
+  (`api_op_DescribeTrustStoreRevocations.go`: "The revocation IDs of the revocation files you want to
+  describe") was never read -- every call returned every revocation on the trust store regardless of the
+  requested IDs. Fixed, reusing the existing `parseRevocationIDs` helper `RemoveTrustStoreRevocations`
+  already had (found by grep before adding a second, duplicate parser of the same shape). Also added
+  `Marker`/`PageSize` pagination, previously absent here too.
+
+**Confirmed already correct, not touched**: `DescribeListeners` (`LoadBalancerArn`/`ListenerArns`/
+pagination), `DescribeRules` (`ListenerArn`/`RuleArns`/pagination), `DescribeTargetGroups`
+(`TargetGroupArns`/`Names`/`LoadBalancerArn`/pagination), and `DescribeLoadBalancers`
+(`LoadBalancerArns`/`Names`/pagination) all already read and apply every documented constraint field.
+**Restraint**: `DescribeSSLPolicies`'s `LoadBalancerType` filter (doc: "The default lists the SSL
+policies for all load balancers") is not applied -- `allSSLPolicies()` is a hardcoded 6-entry static
+catalog with no per-load-balancer-type availability modeled at all (a structural gap, not a filter
+bug); implementing it would mean fabricating which of the 6 policies is "available" per LB type, which
+this backend has no real basis for. Left alone and documented rather than invented.
+
+Gates: `go build ./services/elbv2/...`, `go vet ./...` (repo-wide), `go test ./services/elbv2/...
+-race -count=1` (pass), `golangci-lint run ./services/elbv2/...` (0 issues after fixing golines and two
+variable-shadow warnings). New tests in `list_filter_params_test.go` drive the real typed SDK client
+(`elbv2sdk.Client`) for every case covered.

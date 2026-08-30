@@ -3,6 +3,8 @@ package opensearch
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func migrationKeyFn(v *Migration) string { return v.MigrationID }
@@ -125,21 +127,25 @@ func (b *InMemoryBackend) GetMigration(migrationID string) (*Migration, error) {
 
 // ListMigrations returns every migration job for the given application,
 // optionally filtered by status.
-func (b *InMemoryBackend) ListMigrations(applicationID, statusFilter string) ([]*Migration, error) {
+func (b *InMemoryBackend) ListMigrations(
+	applicationID, statusFilter, nextToken string, maxResults int,
+) (page.Page[*Migration], error) {
 	b.mu.RLock("ListMigrations")
 	defer b.mu.RUnlock()
 
 	if applicationID == "" {
-		return nil, fmt.Errorf("%w: ApplicationId is required", ErrInvalidParameter)
+		return page.Page[*Migration]{}, fmt.Errorf("%w: ApplicationId is required", ErrInvalidParameter)
 	}
 
 	if !b.applications.Has(applicationID) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, applicationID)
+		return page.Page[*Migration]{}, fmt.Errorf(
+			"%w: application %s not found", ErrApplicationNotFound, applicationID,
+		)
 	}
 
 	group := b.migrationsByApp.Get(applicationID)
 	now := b.clock()
-	out := make([]*Migration, 0, len(group))
+	all := make([]*Migration, 0, len(group))
 
 	for _, m := range group {
 		cp := *m
@@ -149,8 +155,13 @@ func (b *InMemoryBackend) ListMigrations(applicationID, statusFilter string) ([]
 			continue
 		}
 
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out, nil
+	limit := maxResults
+	if limit <= 0 {
+		limit = len(all)
+	}
+
+	return page.New(all, nextToken, limit, limit), nil
 }
