@@ -215,6 +215,7 @@ func (b *InMemoryBackend) ListSessions(
 	clusterID string,
 	states []string,
 	marker string,
+	maxResults int32,
 ) ([]Session, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -245,7 +246,7 @@ func (b *InMemoryBackend) ListSessions(
 		return list[i].ID > list[j].ID
 	})
 
-	p := page.New(list, marker, listSessionsPageSize, listSessionsPageSize)
+	p := page.New(list, marker, int(maxResults), listSessionsPageSize)
 
 	return p.Data, p.Next, nil
 }

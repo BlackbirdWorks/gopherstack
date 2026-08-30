@@ -643,3 +643,63 @@ func TestListStudioSessionMappings_MarkerPaginates(t *testing.T) {
 			"second page (via Marker) repeated %q from the first page", awssdk.ToString(m.IdentityId))
 	}
 }
+
+// TestListSessions_MaxResultsCapsPage proves ListSessions honours a
+// caller-supplied MaxResults (real ListSessionsInput.MaxResults,
+// api_op_ListSessions.go: "The maximum number of sessions to return in each
+// page of results") instead of always paginating at this backend's fixed
+// listSessionsPageSize of 50, the same shape ListReleaseLabels had (see
+// TestListReleaseLabels_NextTokenPaginates above) until it was fixed --
+// ListSessions was not caught by that same pass.
+func TestListSessions_MaxResultsCapsPage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	clusterOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+		Name:           awssdk.String("list-sessions-page-cluster"),
+		Instances:      &emrtypes.JobFlowInstancesConfig{},
+		SessionEnabled: awssdk.Bool(true),
+	})
+	require.NoError(t, err)
+
+	const total = 10
+
+	for i := range total {
+		_, sessErr := client.StartSession(ctx, &emrsdk.StartSessionInput{
+			ClusterId: clusterOut.JobFlowId,
+			Name:      awssdk.String(fmt.Sprintf("session-%03d", i)),
+		})
+		require.NoError(t, sessErr)
+	}
+
+	first, err := client.ListSessions(ctx, &emrsdk.ListSessionsInput{
+		ClusterId:  clusterOut.JobFlowId,
+		MaxResults: awssdk.Int32(4),
+	})
+	require.NoError(t, err)
+	require.Len(t, first.Sessions, 4, "MaxResults=4 must cap the first page at 4 sessions")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, *first.NextToken, "a page short of all %d sessions must return a NextToken", total)
+
+	second, err := client.ListSessions(ctx, &emrsdk.ListSessionsInput{
+		ClusterId:  clusterOut.JobFlowId,
+		MaxResults: awssdk.Int32(4),
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.Sessions, 4, "MaxResults=4 must cap the second page at 4 sessions too")
+
+	seen := make(map[string]bool, len(first.Sessions))
+	for _, s := range first.Sessions {
+		seen[awssdk.ToString(s.Id)] = true
+	}
+
+	for _, s := range second.Sessions {
+		assert.False(t, seen[awssdk.ToString(s.Id)],
+			"second page (via NextToken) repeated %q from the first page -- "+
+				"NextToken was not actually applied, the listing restarted from the beginning", awssdk.ToString(s.Id))
+	}
+}
