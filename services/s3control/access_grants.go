@@ -271,8 +271,39 @@ func (b *InMemoryBackend) DeleteAccessGrant(accountID, grantID string) error {
 	return nil
 }
 
-// ListAccessGrants returns all access grants for an account, optionally filtered by locationScope.
-func (b *InMemoryBackend) ListAccessGrants(accountID, locationScope string) []*AccessGrant {
+// AccessGrantsFilter holds ListAccessGrants/ListCallerAccessGrants's query
+// filters (s3control@v1.73.4 api_op_ListAccessGrants.go /
+// api_op_ListCallerAccessGrants.go).
+type AccessGrantsFilter struct {
+	GrantScope        string
+	ApplicationArn    string
+	GranteeIdentifier string
+	GranteeType       string
+	Permission        string
+}
+
+func matchesAccessGrantFilter(g *AccessGrant, filter AccessGrantsFilter) bool {
+	if filter.GrantScope != "" && g.GrantScope != filter.GrantScope {
+		return false
+	}
+	if filter.ApplicationArn != "" && g.ApplicationArn != filter.ApplicationArn {
+		return false
+	}
+	if filter.GranteeIdentifier != "" && g.GranteeIdentifier != filter.GranteeIdentifier {
+		return false
+	}
+	if filter.GranteeType != "" && g.GranteeType != filter.GranteeType {
+		return false
+	}
+	if filter.Permission != "" && g.Permission != filter.Permission {
+		return false
+	}
+
+	return true
+}
+
+// ListAccessGrants returns all access grants for an account matching filter.
+func (b *InMemoryBackend) ListAccessGrants(accountID string, filter AccessGrantsFilter) []*AccessGrant {
 	b.mu.RLock("ListAccessGrants")
 	defer b.mu.RUnlock()
 
@@ -281,7 +312,7 @@ func (b *InMemoryBackend) ListAccessGrants(accountID, locationScope string) []*A
 		if g.AccountID != accountID {
 			continue
 		}
-		if locationScope != "" && g.GrantScope != locationScope {
+		if !matchesAccessGrantFilter(g, filter) {
 			continue
 		}
 		cp := *g
@@ -292,9 +323,10 @@ func (b *InMemoryBackend) ListAccessGrants(accountID, locationScope string) []*A
 	return out
 }
 
-// ListCallerAccessGrants returns access grants visible to the caller.
-func (b *InMemoryBackend) ListCallerAccessGrants(accountID string) []*AccessGrant {
-	return b.ListAccessGrants(accountID, "")
+// ListCallerAccessGrants returns access grants visible to the caller,
+// optionally filtered by grantScope.
+func (b *InMemoryBackend) ListCallerAccessGrants(accountID, grantScope string) []*AccessGrant {
+	return b.ListAccessGrants(accountID, AccessGrantsFilter{GrantScope: grantScope})
 }
 
 // GetAccessGrantsLocation returns an access grants location by ID.

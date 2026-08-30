@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/xml"
 	"net/url"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -414,7 +415,8 @@ func (h *Handler) handleRollbackStack(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleDescribeEvents(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.DescribeEvents(form.Get("StackName"), form.Get("NextToken"))
+	failedOnly, _ := strconv.ParseBool(form.Get("Filters.FailedEvents"))
+	p, _ := h.Backend.DescribeEvents(form.Get("StackName"), form.Get("NextToken"), failedOnly)
 	type evXML struct {
 		EventID   string `xml:"EventId"`
 		StackName string `xml:"StackName"`

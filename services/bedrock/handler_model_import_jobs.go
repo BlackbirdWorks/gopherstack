@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -58,15 +59,49 @@ func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, modelImportJobToOutput(job))
 }
 
+func parseListModelImportJobsQuery(c *echo.Context) *ListModelImportJobsInput {
+	q := c.Request().URL.Query()
+
+	maxResults, _ := strconv.ParseInt(q.Get("maxResults"), 10, 32)
+
+	in := &ListModelImportJobsInput{
+		StatusEquals: q.Get("statusEquals"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+		MaxResults:   int32(maxResults),
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListModelImportJobs(c *echo.Context) error {
-	jobs := h.Backend.ListModelImportJobs()
+	jobs, nextToken := h.Backend.ListModelImportJobs(parseListModelImportJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
 		summaries = append(summaries, modelImportJobToSummary(j))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": summaries})
+	resp := map[string]any{"modelImportJobSummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // modelImportJobToSummary mirrors types.ModelImportJobSummary: creationTime,

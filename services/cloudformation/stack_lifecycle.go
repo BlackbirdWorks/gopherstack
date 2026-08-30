@@ -168,8 +168,33 @@ func (b *InMemoryBackend) RollbackStack(_ context.Context, nameOrID string) (*St
 	return stack, nil
 }
 
+// isFailedResourceStatus reports whether status is one of CloudFormation's
+// failure states -- CREATE_FAILED/UPDATE_FAILED/DELETE_FAILED/
+// UPDATE_ROLLBACK_FAILED/ROLLBACK_FAILED/IMPORT_FAILED/
+// IMPORT_ROLLBACK_FAILED all follow the same "_FAILED" suffix convention.
+func isFailedResourceStatus(status string) bool {
+	return strings.HasSuffix(status, "_FAILED")
+}
+
+// filterFailedEvents applies DescribeEventsInput's Filters.FailedEvents
+// member (cloudformation@v1.76.1 types.EventFilter) when failedOnly is set.
+func filterFailedEvents(events []StackEvent, failedOnly bool) []StackEvent {
+	if !failedOnly {
+		return events
+	}
+	filtered := make([]StackEvent, 0, len(events))
+	for _, e := range events {
+		if isFailedResourceStatus(e.ResourceStatus) {
+			filtered = append(filtered, e)
+		}
+	}
+
+	return filtered
+}
+
 func (b *InMemoryBackend) DescribeEvents(
 	stackName, nextToken string,
+	failedOnly bool,
 ) (page.Page[StackEvent], error) {
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
@@ -185,6 +210,7 @@ func (b *InMemoryBackend) DescribeEvents(
 		sort.Slice(all, func(i, j int) bool {
 			return all[i].Timestamp.After(all[j].Timestamp)
 		})
+		all = filterFailedEvents(all, failedOnly)
 
 		return page.New(all, nextToken, 0, cfnDefaultPageSize), nil
 	}
@@ -200,6 +226,7 @@ func (b *InMemoryBackend) DescribeEvents(
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].Timestamp.After(all[j].Timestamp)
 	})
+	all = filterFailedEvents(all, failedOnly)
 
 	return page.New(all, nextToken, 0, cfnDefaultPageSize), nil
 }

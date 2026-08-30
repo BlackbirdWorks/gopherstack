@@ -179,11 +179,15 @@ func (b *InMemoryBackend) StackSetRegions(name string) []string {
 	return regions
 }
 
-func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSummary], error) {
+func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
 	result := make([]StackSetSummary, 0, b.stackSets.Len())
 	for _, ss := range b.stackSets.All() {
+		if status != "" && ss.Status != status {
+			continue
+		}
+
 		result = append(result, StackSetSummary{
 			StackSetID:   ss.StackSetID,
 			StackSetName: ss.StackSetName,

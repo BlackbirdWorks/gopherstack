@@ -234,12 +234,54 @@ func (b *InMemoryBackend) UpdateStackInstances(
 	return opID, nil
 }
 
+// ListStackInstancesFilter holds ListStackInstancesInput's optional
+// narrowing members (cloudformation@v1.76.1 api_op_ListStackInstances.go):
+// StackInstanceAccount/StackInstanceRegion match exactly, and Filters
+// entries with Name DRIFT_STATUS/LAST_OPERATION_ID match against the
+// instance's own DriftStatus/LastOperationID. DETAILED_STATUS is accepted on
+// the wire but not enforced here -- this backend has no separate detailed
+// status distinct from Status (see StackInstance in models.go), and
+// DetailedStatus's real values (PENDING/RUNNING/SUCCEEDED/FAILED/...) don't
+// correspond to StackInstanceStatus's (CURRENT/OUTDATED/INOPERABLE), so
+// mapping one onto the other would fabricate data rather than filter it.
+type ListStackInstancesFilter struct {
+	StackInstanceAccount string
+	StackInstanceRegion  string
+	DriftStatus          string
+	LastOperationID      string
+}
+
+func matchesStackInstanceFilter(inst *StackInstance, filter ListStackInstancesFilter) bool {
+	if filter.StackInstanceAccount != "" && inst.Account != filter.StackInstanceAccount {
+		return false
+	}
+	if filter.StackInstanceRegion != "" && inst.Region != filter.StackInstanceRegion {
+		return false
+	}
+	if filter.DriftStatus != "" && inst.DriftStatus != filter.DriftStatus {
+		return false
+	}
+	if filter.LastOperationID != "" && inst.LastOperationID != filter.LastOperationID {
+		return false
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) ListStackInstances(
 	stackSetName, nextToken string,
+	filter ListStackInstancesFilter,
 ) (page.Page[StackInstance], error) {
 	b.mu.RLock("ListStackInstances")
 	defer b.mu.RUnlock()
-	instances := append([]StackInstance(nil), b.stackInstances[stackSetName]...)
+
+	all := b.stackInstances[stackSetName]
+	instances := make([]StackInstance, 0, len(all))
+	for _, inst := range all {
+		if matchesStackInstanceFilter(&inst, filter) {
+			instances = append(instances, inst)
+		}
+	}
 
 	return page.New(instances, nextToken, 0, cfnDefaultPageSize), nil
 }

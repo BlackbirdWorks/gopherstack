@@ -76,23 +76,75 @@ func (b *InMemoryBackend) GetCustomModelDeployment(deployARN string) (*CustomMod
 	return &cp, nil
 }
 
-// ListCustomModelDeployments returns all deployments.
-func (b *InMemoryBackend) ListCustomModelDeployments() []*CustomModelDeployment {
+// ListCustomModelDeployments returns deployments matching in's filters,
+// sorted and paginated. in may be nil, matching an unfiltered call.
+// Structurally similar to ListModelCopyJobs/ListModelImportJobs/
+// ListProvisionedModelThroughputs (same filter/sort/paginate shape) but over
+// a distinct resource type and filter set; see
+// matchesCustomModelDeploymentFilter.
+//
+//nolint:dupl // see doc comment above.
+func (b *InMemoryBackend) ListCustomModelDeployments(
+	in *ListCustomModelDeploymentsInput,
+) ([]*CustomModelDeployment, string) {
 	b.mu.RLock("ListCustomModelDeployments")
 	defer b.mu.RUnlock()
 
 	deployments := make([]*CustomModelDeployment, 0, b.customModelDeployments.Len())
 	for _, d := range b.customModelDeployments.All() {
+		if !matchesCustomModelDeploymentFilter(d, in) {
+			continue
+		}
+
 		cp := *d
 		cp.Tags = copyTags(d.Tags)
 		deployments = append(deployments, &cp)
 	}
 
+	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(deployments, func(i, k int) bool {
+		if descending {
+			return deployments[i].CreationTime.After(deployments[k].CreationTime)
+		}
+
 		return deployments[i].CreationTime.Before(deployments[k].CreationTime)
 	})
 
-	return deployments
+	if in == nil {
+		deployments, _ = paginate(deployments, 0, "")
+
+		return deployments, ""
+	}
+
+	return paginate(deployments, int(in.MaxResults), in.NextToken)
+}
+
+// matchesCustomModelDeploymentFilter reports whether a custom model
+// deployment satisfies the list filters (statusEquals, modelArnEquals,
+// nameContains, createdAfter/Before).
+func matchesCustomModelDeploymentFilter(
+	d *CustomModelDeployment, in *ListCustomModelDeploymentsInput,
+) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && d.Status != in.StatusEquals {
+		return false
+	}
+	if in.ModelArnEquals != "" && d.ModelArn != in.ModelArnEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(d.ModelDeploymentName, in.NameContains) {
+		return false
+	}
+	if in.CreatedAfter != nil && !d.CreationTime.After(*in.CreatedAfter) {
+		return false
+	}
+	if in.CreatedBefore != nil && !d.CreationTime.Before(*in.CreatedBefore) {
+		return false
+	}
+
+	return true
 }
 
 // UpdateCustomModelDeployment updates mutable fields of a deployment.

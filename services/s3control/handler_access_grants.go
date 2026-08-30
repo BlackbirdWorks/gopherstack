@@ -658,11 +658,17 @@ type listAccessGrantsResponseXML struct {
 func (h *Handler) handleListAccessGrants(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	q := c.Request().URL.Query()
-	locationScope := q.Get("locationscope")
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	filter := AccessGrantsFilter{
+		GrantScope:        q.Get("grantscope"),
+		ApplicationArn:    q.Get("application_arn"),
+		GranteeIdentifier: q.Get("granteeidentifier"),
+		GranteeType:       q.Get("granteetype"),
+		Permission:        q.Get("permission"),
+	}
 
-	grants := h.Backend.ListAccessGrants(accountID, locationScope)
+	grants := h.Backend.ListAccessGrants(accountID, filter)
 	items := make([]listAccessGrantItemXML, 0, len(grants))
 	for _, g := range grants {
 		items = append(items, listAccessGrantItemXML{
@@ -698,7 +704,7 @@ func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
-	grants := h.Backend.ListCallerAccessGrants(accountID)
+	grants := h.Backend.ListCallerAccessGrants(accountID, q.Get("grantscope"))
 	items := make([]listCallerAccessGrantItemXML, 0, len(grants))
 	for _, g := range grants {
 		items = append(items, listCallerAccessGrantItemXML{
@@ -797,10 +803,15 @@ func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	locationScope := q.Get("locationscope")
 
 	locs := h.Backend.ListAccessGrantsLocations(accountID)
 	items := make([]listAccessGrantsLocationItemXML, 0, len(locs))
 	for _, loc := range locs {
+		if locationScope != "" && loc.LocationScope != locationScope {
+			continue
+		}
+
 		items = append(items, listAccessGrantsLocationItemXML{
 			AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
 			AccessGrantsLocationID:  loc.AccessGrantsLocationID,

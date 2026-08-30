@@ -2,7 +2,9 @@ package bedrock
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -124,9 +126,43 @@ type listProvisionedModelThroughputsOutput struct {
 	ProvisionedModelSummaries []provisionedModelSummaryOutput `json:"provisionedModelSummaries"`
 }
 
+// parseListProvisionedModelThroughputsQuery is structurally similar to
+// parseListCustomModelDeploymentsQuery (same query-parsing shape) but
+// targets a distinct Input type and query key set.
+//
+//nolint:dupl // see doc comment above.
+func parseListProvisionedModelThroughputsQuery(c *echo.Context) *ListProvisionedModelThroughputsInput {
+	q := c.Request().URL.Query()
+
+	maxResults, _ := strconv.ParseInt(q.Get("maxResults"), 10, 32)
+
+	in := &ListProvisionedModelThroughputsInput{
+		StatusEquals:   q.Get("statusEquals"),
+		ModelArnEquals: q.Get("modelArnEquals"),
+		NameContains:   q.Get("nameContains"),
+		SortBy:         q.Get("sortBy"),
+		SortOrder:      q.Get("sortOrder"),
+		NextToken:      q.Get("nextToken"),
+		MaxResults:     int32(maxResults),
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	pmts, outToken := h.Backend.ListProvisionedModelThroughputs(nextToken)
+	pmts, outToken := h.Backend.ListProvisionedModelThroughputs(parseListProvisionedModelThroughputsQuery(c))
 	summaries := make([]provisionedModelSummaryOutput, 0, len(pmts))
 
 	for _, pmt := range pmts {

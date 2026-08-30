@@ -735,6 +735,63 @@ type ListCustomModelsInput struct {
 	NextToken                string
 }
 
+// ListModelCopyJobsInput holds filter/pagination params for ListModelCopyJobs
+// (bedrock@v1.66.4 api_op_ListModelCopyJobs.go).
+type ListModelCopyJobsInput struct {
+	CreationTimeAfter       *time.Time
+	CreationTimeBefore      *time.Time
+	StatusEquals            string
+	SourceAccountEquals     string
+	SourceModelArnEquals    string
+	TargetModelNameContains string
+	SortBy                  string
+	SortOrder               string
+	NextToken               string
+	MaxResults              int32
+}
+
+// ListModelImportJobsInput holds filter/pagination params for
+// ListModelImportJobs (bedrock@v1.66.4 api_op_ListModelImportJobs.go).
+type ListModelImportJobsInput struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	StatusEquals       string
+	NameContains       string
+	SortBy             string
+	SortOrder          string
+	NextToken          string
+	MaxResults         int32
+}
+
+// ListCustomModelDeploymentsInput holds filter/pagination params for
+// ListCustomModelDeployments (bedrock@v1.66.4 api_op_ListCustomModelDeployments.go).
+type ListCustomModelDeploymentsInput struct {
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	StatusEquals   string
+	ModelArnEquals string
+	NameContains   string
+	SortBy         string
+	SortOrder      string
+	NextToken      string
+	MaxResults     int32
+}
+
+// ListProvisionedModelThroughputsInput holds filter/pagination params for
+// ListProvisionedModelThroughputs (bedrock@v1.66.4
+// api_op_ListProvisionedModelThroughputs.go).
+type ListProvisionedModelThroughputsInput struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	StatusEquals       string
+	ModelArnEquals     string
+	NameContains       string
+	SortBy             string
+	SortOrder          string
+	NextToken          string
+	MaxResults         int32
+}
+
 // Agent represents an Amazon Bedrock Agent.
 type Agent struct {
 	CreatedAt              time.Time `json:"createdAt"`

@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -419,4 +421,34 @@ func TestHandler_ImportedModel_ListAndGet(t *testing.T) {
 	// Get after delete
 	rec5 := doRequest(t, h, http.MethodGet, "/imported-models/"+url.PathEscape(modelARN), nil)
 	assert.Equal(t, http.StatusNotFound, rec5.Code)
+}
+
+// TestParity_ListModelImportJobs_NameContainsFilter locks in the
+// nameContains query filter (bedrock@v1.66.4
+// api_op_ListModelImportJobs.go's NameContains, wire query key
+// "nameContains" per serializers.go:7099-7101) -- ListModelImportJobs
+// previously took no arguments at all, so no filter, sort, or maxResults
+// query parameter reached the backend regardless of what a real client sent.
+func TestParity_ListModelImportJobs_NameContainsFilter(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestBedrockClient(t, bedrock.NewHandler(b))
+
+	_, err := b.CreateModelImportJob(
+		"other-job", "other-imported-model", "arn:aws:iam::123456789012:role/import-role", "", nil,
+	)
+	require.NoError(t, err)
+
+	wantJob, err := b.CreateModelImportJob(
+		"target-job", "target-imported-model", "arn:aws:iam::123456789012:role/import-role", "", nil,
+	)
+	require.NoError(t, err)
+
+	out, err := client.ListModelImportJobs(t.Context(), &bedrocksdk.ListModelImportJobsInput{
+		NameContains: aws.String("target"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ModelImportJobSummaries, 1)
+	assert.Equal(t, wantJob.JobArn, aws.ToString(out.ModelImportJobSummaries[0].JobArn))
 }

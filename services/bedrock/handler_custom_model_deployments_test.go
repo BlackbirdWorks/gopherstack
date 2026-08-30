@@ -257,3 +257,40 @@ func TestHandler_CustomModelDeployment_GetListUpdateDelete(t *testing.T) {
 	rec6 := doRequest(t, h, http.MethodGet, deployPath, nil)
 	assert.Equal(t, http.StatusNotFound, rec6.Code)
 }
+
+// TestParity_ListCustomModelDeployments_NameContainsFilter locks in the
+// nameContains query filter (bedrock@v1.66.4
+// api_op_ListCustomModelDeployments.go's NameContains) -- ListCustomModelDeployments
+// previously took no arguments at all, so no filter, sort, or maxResults
+// query parameter reached the backend regardless of what a real client sent.
+func TestParity_ListCustomModelDeployments_NameContainsFilter(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("123456789012", "us-east-1")
+	h := bedrock.NewHandler(b)
+
+	_, err := b.CreateCustomModelDeployment(
+		"arn:aws:bedrock:us-east-1:123456789012:custom-model/other-model", "other-deployment", nil,
+	)
+	require.NoError(t, err)
+
+	wantDeploy, err := b.CreateCustomModelDeployment(
+		"arn:aws:bedrock:us-east-1:123456789012:custom-model/target-model", "target-deployment", nil,
+	)
+	require.NoError(t, err)
+
+	rec := doRequest(
+		t, h, http.MethodGet, "/model-customization/custom-model-deployments?nameContains=target", nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	summaries, ok := out["modelDeploymentSummaries"].([]any)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+
+	summary, ok := summaries[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, wantDeploy.CustomModelDeploymentArn, summary["customModelDeploymentArn"])
+}

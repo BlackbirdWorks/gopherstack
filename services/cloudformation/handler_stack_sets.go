@@ -342,7 +342,7 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListStackSets(form.Get("NextToken"))
+	p, err := h.Backend.ListStackSets(form.Get("NextToken"), form.Get("Status"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -485,9 +485,36 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	)
 }
 
+// parseStackInstanceFilters parses Filters.member.N.{Name,Values} into a
+// ListStackInstancesFilter. DETAILED_STATUS entries are ignored (see
+// ListStackInstancesFilter's doc comment for why); unrecognized Name values
+// are ignored too rather than rejected, matching this handler's existing
+// leniency elsewhere.
+func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
+	filter := ListStackInstancesFilter{
+		StackInstanceAccount: form.Get("StackInstanceAccount"),
+		StackInstanceRegion:  form.Get("StackInstanceRegion"),
+	}
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		if name == "" {
+			break
+		}
+		value := form.Get(fmt.Sprintf("Filters.member.%d.Values", i))
+		switch name {
+		case "DRIFT_STATUS":
+			filter.DriftStatus = value
+		case "LAST_OPERATION_ID":
+			filter.LastOperationID = value
+		}
+	}
+
+	return filter
+}
+
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"))
+	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"), parseStackInstanceFilters(form))
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}

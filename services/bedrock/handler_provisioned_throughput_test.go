@@ -2,6 +2,7 @@ package bedrock_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -503,4 +504,38 @@ func TestAccuracy_PMT_TagsOnCreate(t *testing.T) {
 	assert.Len(t, pmt.Tags, 1)
 	assert.Equal(t, "cost-center", pmt.Tags[0].Key)
 	assert.Equal(t, "ml-team", pmt.Tags[0].Value)
+}
+
+// TestParity_ListProvisionedModelThroughputs_NameContainsFilter locks in the
+// nameContains query filter (bedrock@v1.66.4
+// api_op_ListProvisionedModelThroughputs.go's NameContains) --
+// ListProvisionedModelThroughputs previously only read nextToken, so
+// statusEquals, modelArnEquals, nameContains, creationTimeAfter/Before, and
+// sortOrder were silently ignored regardless of what a real client sent.
+func TestParity_ListProvisionedModelThroughputs_NameContainsFilter(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("123456789012", "us-east-1")
+	h := bedrock.NewHandler(b)
+
+	_, err := b.CreateProvisionedModelThroughput("other-throughput", "amazon.titan-text-express-v1", 1, "", nil)
+	require.NoError(t, err)
+
+	wantPMT, err := b.CreateProvisionedModelThroughput(
+		"target-throughput", "amazon.titan-text-express-v1", 1, "", nil,
+	)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/provisioned-model-throughputs?nameContains=target", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	summaries, ok := out["provisionedModelSummaries"].([]any)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+
+	summary, ok := summaries[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, wantPMT.ProvisionedModelArn, summary["provisionedModelArn"])
 }

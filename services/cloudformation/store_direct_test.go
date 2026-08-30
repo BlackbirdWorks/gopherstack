@@ -55,7 +55,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("drift-instance-ss", "")
+	instances, err := b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(
@@ -72,7 +72,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "")
+	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "IN_SYNC", instances.Data[0].DriftStatus)
@@ -87,7 +87,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "")
+	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "DRIFTED", instances.Data[0].DriftStatus)
@@ -627,7 +627,7 @@ func TestDescribeEvents_Global(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	p, err := b.DescribeEvents("", "")
+	p, err := b.DescribeEvents("", "", false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 }
