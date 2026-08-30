@@ -580,3 +580,31 @@ passthrough gap (unchanged, already disclosed above); a full re-diff of
 every non-status member across all 85 ops (out of scope -- this pass was
 scoped to enum values specifically, building on the 2026-08-20 sweep's
 member-presence/nesting coverage rather than repeating it).
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+Closed the blind spot `gopherstack-3dzb` was filed for: `cmd/enumcheck`
+resolved an enum value only when it appeared directly at the `map[string]any`
+call site (a literal, a same-package const, or a `types.EnumMember`
+selector/conversion) -- a value assigned to a struct field first, then read
+back into that position later (this repo's dominant status-field pattern,
+and exactly this comprehend package's own `Resource.Status` shape fixed
+2026-08-29), was invisible. `cmd/enumcheck/scan.go` now also resolves a
+single-hop `structVar.Field = <resolvable>` assignment, keyed by the
+(local variable, field name) pair -- not by field name alone, so two
+different local structs sharing a field name (e.g. two different `Status`
+fields) never collide within one function. Re-run across the whole repo
+produced the SAME 71 findings as before the fix (0 confident either way,
+only enum-list ordering differed, a map-iteration artifact) -- the fix
+closed a real, now-covered blind spot but found no new confident bug in the
+current tree.
+
+comprehend's single hit, `handler_detection.go`'s `batch()` helper (the
+`"ErrorCode": batchItemErrorCode(err)` entry, ~line 479), was manually
+verified against `comprehend@v1.43.4/types/types.go:150-153`:
+`BatchItemError.ErrorCode` is a plain `*string` ("The numeric error code of
+the error."), not `types.PageBasedErrorCode` -- the exact Polymorphic
+collision already documented in `cmd/enumcheck/wirekeys.go`'s own package
+doc comment (comprehend's "ErrorCode" is cited there by name as the
+original motivating case for tracking Polymorphic at all). FALSE POSITIVE,
+not fixed: this field has no SDK-declared legal-value set to check
+"TEXT_SIZE_LIMIT_EXCEEDED"/"UNSUPPORTED_LANGUAGE"/"INVALID_REQUEST" against.

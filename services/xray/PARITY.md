@@ -330,3 +330,19 @@ Ops NOT specifically re-audited this pass beyond the two directions above
 `GetInsightImpactGraph`/`GetInsightSummaries` (beyond re-confirming the
 6flj group-filter fix's own scope), `GetTraceSegmentDestination`/
 `UpdateTraceSegmentDestination`, and all three tag ops.
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+`cmd/enumcheck` gained struct-field-hop resolution (a value assigned to a
+local struct field, then read back into a `map[string]any` wire-key
+position, is now resolved the same way a direct literal/SDK-selector value
+already was). Re-run across the whole repo produced the SAME 71 findings as
+before the fix (0 confident either way) -- the fix closed a real blind spot
+but found nothing new here.
+
+xray's own single hit, `service_graph.go:164`'s `"State": "active"` under
+the ambiguous `State` key, was manually verified against
+`xray@v1.39.4/types/types.go:1213`: `Service.State` is a plain `*string`
+("The service's state.", no enum), not `types.InsightState` -- the exact
+Polymorphic collision already documented in `cmd/enumcheck/wirekeys.go`'s
+own package doc comment. FALSE POSITIVE, not fixed (nothing to fix: this
+field has no SDK-declared legal-value set to check "active" against).

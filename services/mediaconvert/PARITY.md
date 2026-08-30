@@ -496,3 +496,18 @@ coverage) is unaffected.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/mediaconvert/...`).
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+`cmd/enumcheck` gained struct-field-hop resolution (see xray/codepipeline/
+comprehend PARITY.md same-dated notes for the mechanics). Re-run across the
+whole repo produced the same findings as before the fix -- nothing new
+surfaced here or anywhere.
+
+mediaconvert's single hit, `handler_probe.go:33`'s
+`"container": {"format": "mp4"}` inside `handleProbe`, was manually
+verified against `mediaconvert@v1.97.1/types/types.go:2460`: `Container.Format`
+is typed `types.Format`, and `FormatMp4 Format = "mp4"`
+(`types/enums.go:4060`) -- an exact match. The finding only fired because
+the wire key "format" is ambiguous with the unrelated `WaveSettings.Format`
+(`types.WavFormat`: RIFF/RF64/EXTENSIBLE). FALSE POSITIVE, not fixed: the
+emitted value is correct for the struct actually being built here.

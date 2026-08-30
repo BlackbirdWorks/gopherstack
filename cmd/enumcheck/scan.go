@@ -5,6 +5,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -66,7 +67,10 @@ func scanPackage(dir string, reg *enumRegistry, wireKeys map[string]wireKeyFact,
 			}
 
 			localConsts := localStringConsts(fd)
+			maps.Copy(localConsts, localFieldConsts(fd, localConsts, pkgConsts, reg))
+
 			out = append(out, checkLiteralsInFunc(fd, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)...)
+			out = append(out, checkIndexAssignsInFunc(fd, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)...)
 		}
 	}
 
@@ -229,6 +233,64 @@ func recordLocalAssign(lhs ast.Expr, as *ast.AssignStmt, i int, vals map[string]
 	}
 }
 
+// localFieldConsts collects every single-assignment `structVar.Field = <expr>`
+// binding in fd whose RHS statically resolves (via identConsts/pkgConsts/reg,
+// the SAME single-hop resolution checkLiteralElt itself uses), keyed by
+// "structVar.Field" -- identity is the (local variable, field name) pair,
+// never the bare field name, so two different local structs that both happen
+// to declare a "Status" field (gopherstack-3dzb's comprehend shape: this repo's
+// dominant pattern is a domain struct field set once and marshalled later)
+// never collide within one function. A field assigned more than once is
+// dropped, same discipline as localStringConsts -- ambiguous dataflow
+// resolves to nothing, never a guess.
+func localFieldConsts(fd *ast.FuncDecl, identConsts, pkgConsts map[string]string, reg *enumRegistry) map[string]string {
+	vals := map[string]string{}
+	assignCount := map[string]int{}
+
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || as.Tok != token.ASSIGN || len(as.Lhs) != len(as.Rhs) {
+			return true
+		}
+
+		for i, lhs := range as.Lhs {
+			recordFieldAssign(lhs, as.Rhs[i], identConsts, pkgConsts, reg, vals, assignCount)
+		}
+
+		return true
+	})
+
+	for key, count := range assignCount {
+		if count > 1 {
+			delete(vals, key)
+		}
+	}
+
+	return vals
+}
+
+func recordFieldAssign(
+	lhs, rhs ast.Expr, identConsts, pkgConsts map[string]string, reg *enumRegistry,
+	vals map[string]string, assignCount map[string]int,
+) {
+	sel, ok := lhs.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+
+	varIdent, ok := sel.X.(*ast.Ident)
+	if !ok || varIdent.Name == sdkTypesPkgName {
+		return
+	}
+
+	key := varIdent.Name + "." + sel.Sel.Name
+	assignCount[key]++
+
+	if v, resolved := resolveConstString(rhs, identConsts, pkgConsts, reg); resolved {
+		vals[key] = v
+	}
+}
+
 // resolveConstString statically resolves expr to a concrete string, or
 // reports false when it depends on a runtime value this scan can't pin down
 // (a decoded request field, an unresolvable variable, ...) -- that is the
@@ -242,7 +304,7 @@ func resolveConstString(expr ast.Expr, localConsts, pkgConsts map[string]string,
 	case *ast.Ident:
 		return resolveIdentString(e, localConsts, pkgConsts)
 	case *ast.SelectorExpr:
-		return resolveSDKEnumSelector(e, reg)
+		return resolveSelectorString(e, localConsts, reg)
 	case *ast.CallExpr:
 		return resolveEnumConversionCall(e, localConsts, pkgConsts, reg)
 	default:
@@ -266,6 +328,26 @@ func resolveIdentString(id *ast.Ident, localConsts, pkgConsts map[string]string)
 	}
 
 	v, ok := pkgConsts[id.Name]
+
+	return v, ok
+}
+
+// resolveSelectorString resolves a SelectorExpr as either a
+// `types.SomeEnumMember` (resolveSDKEnumSelector) or, failing that, a
+// `structVar.Field` read of a field this function's own single-hop
+// localFieldConsts resolved earlier -- the struct-field blind spot
+// gopherstack-3dzb exists for.
+func resolveSelectorString(e *ast.SelectorExpr, localConsts map[string]string, reg *enumRegistry) (string, bool) {
+	if v, ok := resolveSDKEnumSelector(e, reg); ok {
+		return v, true
+	}
+
+	varIdent, ok := e.X.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+
+	v, ok := localConsts[varIdent.Name+"."+e.Sel.Name]
 
 	return v, ok
 }
@@ -341,12 +423,71 @@ func checkLiteralElt(
 		return finding{}, false
 	}
 
+	return evalKeyValue(key, kv.Value, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)
+}
+
+// checkIndexAssignsInFunc is CONFIDENT check A's sibling: an `out["wireKey"]
+// = value` index-assignment statement AFTER a map was already built --
+// this repo's other dominant map-mutation idiom (services/comprehend's
+// resourceMap: `out := cloneMap(resource.Configuration); out["Status"] =
+// resource.Status`, the real gopherstack-3dzb/8f6239230 bug's own shape),
+// invisible to checkLiteralsInFunc since nothing here is a composite-literal
+// element at all. Restricted to an Ident base with a statically
+// string-resolvable index -- in this repo's map[string]any convention, only
+// a map is ever indexed by a resolvable string literal (a slice/array index
+// is an int expression), so this cannot mistake a slice index for a map key.
+func checkIndexAssignsInFunc(
+	fd *ast.FuncDecl, fset *token.FileSet, reg *enumRegistry,
+	wireKeys map[string]wireKeyFact, localConsts, pkgConsts map[string]string, repoRoot string,
+) []finding {
+	var out []finding
+
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || as.Tok != token.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+
+		idx, ok := as.Lhs[0].(*ast.IndexExpr)
+		if !ok {
+			return true
+		}
+
+		if _, isIdent := idx.X.(*ast.Ident); !isIdent {
+			return true
+		}
+
+		key, ok := resolveConstString(idx.Index, localConsts, pkgConsts, reg)
+		if !ok {
+			return true
+		}
+
+		if f, found := evalKeyValue(key, as.Rhs[0], fset, reg, wireKeys, localConsts, pkgConsts, repoRoot); found {
+			out = append(out, f)
+		}
+
+		return true
+	})
+
+	return out
+}
+
+// evalKeyValue is the CONFIDENT/ambiguous-key decision shared by
+// checkLiteralElt (a composite-literal entry) and checkIndexAssignsInFunc
+// (an index-assignment statement): key is already resolved, valueExpr is
+// resolved here the same single-hop way (literal, const, SSK enum
+// selector/conversion, or -- gopherstack-3dzb -- a single-hop struct field
+// read via localConsts).
+func evalKeyValue(
+	key string, valueExpr ast.Expr, fset *token.FileSet, reg *enumRegistry,
+	wireKeys map[string]wireKeyFact, localConsts, pkgConsts map[string]string, repoRoot string,
+) (finding, bool) {
 	fact, known := wireKeys[key]
 	if !known {
 		return finding{}, false
 	}
 
-	val, ok := resolveConstString(kv.Value, localConsts, pkgConsts, reg)
+	val, ok := resolveConstString(valueExpr, localConsts, pkgConsts, reg)
 	// "" is this repo's overwhelming placeholder for "no backend/not set" (a
 	// degenerate fallback response, not a copy-pasted wrong enum value --
 	// confirmed live at services/cloudwatchlogs/handler_integrations.go:181,
@@ -356,7 +497,7 @@ func checkLiteralElt(
 		return finding{}, false
 	}
 
-	pos := fset.Position(kv.Value.Pos())
+	pos := fset.Position(valueExpr.Pos())
 	base := finding{
 		File: relPath(repoRoot, pos.Filename), Line: pos.Line,
 		Key: key, Enum: strings.Join(fact.Enums, "|"), Value: val,

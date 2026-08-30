@@ -410,3 +410,19 @@ documented as a correct-by-absence gap) and `ListActionTypes.ActionOwnerFilter`
 filter members in the real SDK to have dropped. The remaining ~35 ops were
 not re-read this pass (out of scope: this pass targeted the filter/sort/
 precondition bug class specifically, not a full re-sweep).
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+`cmd/enumcheck` gained struct-field-hop resolution (see xray/comprehend/
+mediaconvert PARITY.md same-dated notes for the mechanics). Re-run across
+the whole repo produced the same findings as before the fix -- nothing new
+surfaced here or anywhere.
+
+codepipeline's single hit, `rules.go:29`'s `"category": "Rule"` inside
+`ListRuleTypes`, was manually verified against
+`codepipeline@v1.49.4/types/types.go:2242-2248`: `RuleTypeId.Category` is
+typed `RuleCategory`, whose ONLY real member (`types/enums.go:501`) is
+`"Rule"` -- an exact match. The finding only fired because the wire key
+"category" is ambiguous with the unrelated `ActionTypeId.Category`
+(`ActionCategory`, Source/Build/Deploy/Test/Invoke/Approval/Compute, no
+"Rule"). FALSE POSITIVE, not fixed: the emitted value is correct for the
+struct actually being built here.

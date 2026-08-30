@@ -154,6 +154,147 @@ func build() map[string]any {
 			wantValue: "ENABLED",
 		},
 		{
+			// real shape: services/comprehend's Resource.Status
+			// (gopherstack-3dzb) -- the wrong value is assigned to a
+			// struct field, not written directly at the map[string]any
+			// call site, so the pre-fix scan's resolveConstString never
+			// sees a BasicLit/Ident/SelectorExpr it can resolve at the
+			// value position and silently skips this map entry entirely.
+			name: "value assigned to struct field then read into map is confident",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+func build() map[string]any {
+	r := Resource{}
+	r.Status = "DISSOCIATED"
+	return map[string]any{"DomainPackageStatus": r.Status}
+}`,
+			wireKeys:      map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+			wantKind:      kindLiteral,
+			wantConfident: true,
+			wantValue:     "DISSOCIATED",
+		},
+		{
+			name: "struct field assigned a member value is clean",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+func build() map[string]any {
+	r := Resource{}
+	r.Status = "ACTIVE"
+	return map[string]any{"DomainPackageStatus": r.Status}
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// two different local variables sharing a field name ("Status")
+			// must resolve independently -- field identity is scoped to the
+			// (variable, field) pair, not the bare field name, so this must
+			// NOT pick up dp.Status's DISSOCIATED value under other.Status's
+			// read.
+			name: "same field name on a different local variable does not collide",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+type Other struct {
+	Status string
+}
+func build() map[string]any {
+	dp := Resource{}
+	dp.Status = "DISSOCIATED"
+	other := Other{}
+	other.Status = "ACTIVE"
+	return map[string]any{"DomainPackageStatus": other.Status}
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// a field assigned more than once in the function is ambiguous
+			// dataflow (which assignment is live at the read?) -- single-hop
+			// resolution refuses rather than guessing, same discipline as
+			// the existing ident single-hop rule.
+			name: "struct field reassigned more than once is never flagged",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+func build(cond bool) map[string]any {
+	r := Resource{}
+	r.Status = "DISSOCIATED"
+	if cond {
+		r.Status = "ACTIVE"
+	}
+	return map[string]any{"DomainPackageStatus": r.Status}
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// real shape: an enum assigned via the SDK's own selector, then
+			// carried through a struct field before reaching the wire key --
+			// the value resolves as certainly as the direct-selector case
+			// already covered above, just one hop further away.
+			name: "sdk enum member selector assigned through a struct field is clean",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+func build() map[string]any {
+	r := Resource{}
+	r.Status = types.DomainPackageStatusActive
+	return map[string]any{"DomainPackageStatus": r.Status}
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// real shape: services/comprehend/handler_resources.go's
+			// resourceMap (the actual gopherstack-3dzb/8f6239230 bug site):
+			// `out := cloneMap(...); out["Status"] = ...` -- an
+			// index-assignment onto an already-built map, never a
+			// composite-literal KeyValueExpr, so checkLiteralsInFunc's
+			// ast.Inspect(*ast.CompositeLit) never visits it at all.
+			name: "index-assignment onto an existing map is confident",
+			src: `package svc
+func build() map[string]any {
+	out := map[string]any{}
+	out["DomainPackageStatus"] = "DISSOCIATED"
+	return out
+}`,
+			wireKeys:      map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+			wantKind:      kindLiteral,
+			wantConfident: true,
+			wantValue:     "DISSOCIATED",
+		},
+		{
+			name: "index-assignment with a member value is clean",
+			src: `package svc
+func build() map[string]any {
+	out := map[string]any{}
+	out["DomainPackageStatus"] = "ACTIVE"
+	return out
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
+			// combines both new resolution paths: a struct field assigned an
+			// SDK enum member, read back via index-assignment.
+			name: "struct field read through an index-assignment is clean",
+			src: `package svc
+type Resource struct {
+	Status string
+}
+func build() map[string]any {
+	r := Resource{}
+	r.Status = types.DomainPackageStatusActive
+	out := map[string]any{}
+	out["DomainPackageStatus"] = r.Status
+	return out
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
 			name: "unresolvable runtime value is never flagged",
 			src: `package svc
 func build(status string) map[string]any {

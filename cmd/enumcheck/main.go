@@ -32,14 +32,16 @@
 // THREE CHECKS, two confidence levels (see scan.go/reuse.go for the full
 // mechanics):
 //
-//   - CONFIDENT (literal-value): a map[string]any entry keyed to a resolved
-//     wire key with exactly ONE real SDK enum candidate and no Polymorphic
-//     plain-string sighting, whose value statically resolves (a string
-//     literal, a same-package string const, or a
-//     types.SomeEnumMember/types.SomeEnum("x") selector/conversion) to a
-//     string that is not a member of that key's real enum. Sound: both the
-//     value and which enum applies are fully known, and the enum's members
-//     are ground truth from the SDK itself.
+//   - CONFIDENT (literal-value): a map[string]any entry, OR an
+//     `out["wireKey"] = value` index-assignment onto one, keyed to a
+//     resolved wire key with exactly ONE real SDK enum candidate and no
+//     Polymorphic plain-string sighting, whose value statically resolves (a
+//     string literal, a same-package string const, a
+//     types.SomeEnumMember/types.SomeEnum("x") selector/conversion, or a
+//     `structVar.Field` read of a field this same function assigned exactly
+//     once) to a string that is not a member of that key's real enum.
+//     Sound: both the value and which enum applies are fully known, and the
+//     enum's members are ground truth from the SDK itself.
 //   - NEEDS REVIEW (cross-enum-reuse): the guardduty shape itself, where the
 //     wrong value is a runtime variable, not a literal, so check A can't see
 //     it. reuse.go detects the STRUCTURE instead: a package-level helper that
@@ -65,14 +67,44 @@
 //     all-or-nothing ambiguous-key filter dropped silently until this tier
 //     was added.
 //
+// A wire-key VALUE position is reached two ways in this repo, both covered:
+// a map[string]any composite-literal entry (checkLiteralElt) and an
+// `out["wireKey"] = value` index-assignment onto an already-built map
+// (checkIndexAssignsInFunc) -- the latter added for gopherstack-3dzb, whose
+// real bug (comprehend's resourceMap: `out := cloneMap(...); out["Status"] =
+// resource.Status`) is exactly this shape and was invisible to the former.
+// Either position's value resolves the same single-hop way: a literal, a
+// same-package const, a types.SomeEnumMember/types.SomeEnum("x") selector/
+// conversion, or -- also added for gopherstack-3dzb -- a `structVar.Field`
+// read of a field this same function assigned exactly once
+// (localFieldConsts), keyed by the (local variable, field name) pair so two
+// different local structs sharing a field name never collide within one
+// function. This closes the blind spot gopherstack-3dzb was filed for: an
+// enum-typed value assigned into a struct field and only later marshalled
+// onto the wire (this repo's dominant status-field pattern) previously
+// defeated resolution entirely -- confirmed empirically: re-running against
+// comprehend's actual pre-fix commit (caf2a5f9f^) produced no finding for
+// any of its four real wrong-enum bugs.
+//
 // SCOPE, disclosed rather than silently under-covered: only files directly
 // in services/<dir> are scanned (no recursion into subpackages); only
 // explicitly-typed `map[string]any`/`map[string]interface{}` composite
-// literals are examined (a *_test.go-free *Output struct literal, or an
-// elided inner literal in a slice of maps, is invisible to this scan); local
-// value resolution is a single hop (one `:=` with a literal RHS, or one
-// package-level const) -- a value assembled through more indirection than
-// that resolves to nothing and produces no finding, never a wrong one.
+// literals and index-assignments onto them are examined -- a value that only
+// ever reaches the wire through a NAMED Go struct's own composite literal
+// (e.g. `c.JSON(http.StatusOK, listApisOutput{...})`, a real and common
+// convention in this repo alongside map[string]any: roughly 372 such
+// `c.JSON(http.StatusOK, SomeType{...})` call sites exist across services/
+// against roughly 2812 map[string]any composite literals) is entirely
+// invisible to this scan, the same way an elided inner literal in a slice of
+// maps is. Local value resolution (including the new struct-field hop) is a
+// single hop each -- a value assembled through more indirection than that
+// (a field set in one function and read in another, e.g. this exact
+// scan can't see comprehend's actual historical bug, which crossed from
+// store.go's constructor into a different file's resourceMap) resolves to
+// nothing and produces no finding, never a wrong one. Attempting full
+// cross-function dataflow was considered and rejected (gopherstack-3dzb's
+// own recommendation): two other auditors in this campaign hit roughly 85
+// percent false positives on an ambitious first pass.
 //
 // Usage:
 //
