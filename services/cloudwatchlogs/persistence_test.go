@@ -306,7 +306,8 @@ func TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded(t *testing.
 	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
 		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
 
-	assert.Empty(t, b.DescribeIndexPolicies(),
+	survivors, _ := b.DescribeIndexPolicies([]string{"my-log-group"}, "", 0)
+	assert.Empty(t, survivors,
 		"incompatible-version snapshot must reset to empty, not partially decode")
 }
 
@@ -516,7 +517,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeIndexPolicies()
+				policies, _ := b.DescribeIndexPolicies([]string{"/aws/lambda/fn"}, "", 0)
 				require.Len(t, policies, 1)
 				assert.Equal(t, "/aws/lambda/fn", policies[0].LogGroupIdentifier)
 			},
@@ -620,12 +621,12 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "lookup_table_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("my_table", "id,name\n1,foo\n2,bar\n", "desc", "", "")
+				_, err := b.CreateLookupTable(t.Context(), "my_table", "id,name\n1,foo\n2,bar\n", "desc", "", "")
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				tables, _ := b.DescribeLookupTables("", "", 100)
+				tables, _ := b.DescribeLookupTables(t.Context(), "", "", 100)
 				require.Len(t, tables, 1)
 				assert.Equal(t, "my_table", tables[0].LookupTableName)
 				assert.Equal(t, int64(2), tables[0].RecordsCount)

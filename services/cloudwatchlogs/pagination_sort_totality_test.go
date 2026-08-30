@@ -347,3 +347,38 @@ func TestDescribeQueryDefinitionsSortIsTotal(t *testing.T) {
 		return ids, next
 	})
 }
+
+// TestDescribeAccountPoliciesSortIsTotal proves gopherstack-wksweep-cwl-4:
+// AccountPolicy is keyed by PolicyName+":"+PolicyType (accountPolicyKeyFn,
+// store_setup.go) -- a caller can legitimately have several account
+// policies sharing one PolicyName across different PolicyTypes (e.g. one
+// DATA_PROTECTION_POLICY and one SUBSCRIPTION_FILTER_POLICY both named
+// "default"). DescribeAccountPolicies sorted only by PolicyName, a key that
+// is deliberately non-unique in that scenario, over store.Table.All()'s
+// unordered map walk -- the same non-total-sort shape already fixed for
+// DescribeResourcePolicies (ResourceArn tiebreak) and DescribeQueryDefinitions.
+func TestDescribeAccountPoliciesSortIsTotal(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+
+	policyTypes := []string{"DATA_PROTECTION_POLICY", "SUBSCRIPTION_FILTER_POLICY", "FIELD_INDEX_POLICY"}
+
+	want := make(map[string]bool, len(policyTypes))
+	for _, pt := range policyTypes {
+		_, err := b.PutAccountPolicy("dup-name", pt, "{}", "", "")
+		require.NoError(t, err)
+		want["dup-name:"+pt] = true
+	}
+
+	walkAndVerify(t, want, func(token string) ([]string, string) {
+		page, next, err := b.DescribeAccountPolicies("", "", nil, 1, token)
+		require.NoError(t, err)
+		ids := make([]string, len(page))
+		for i, p := range page {
+			ids[i] = p.PolicyName + ":" + p.PolicyType
+		}
+
+		return ids, next
+	})
+}

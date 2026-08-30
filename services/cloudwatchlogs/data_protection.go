@@ -167,7 +167,13 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 		}
 		all = append(all, *p)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].PolicyName < all[j].PolicyName })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].PolicyName != all[j].PolicyName {
+			return all[i].PolicyName < all[j].PolicyName
+		}
+
+		return all[i].PolicyType < all[j].PolicyType
+	})
 
 	// Apply pagination.
 	startIdx := parseNextToken(nextToken)

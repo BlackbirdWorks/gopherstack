@@ -243,8 +243,11 @@ func (b *InMemoryBackend) GetDeliveryDestination(name string) (*DeliveryDestinat
 	return &cp, nil
 }
 
-// DescribeDeliveryDestinations returns all delivery destinations sorted by name.
-func (b *InMemoryBackend) DescribeDeliveryDestinations() []DeliveryDestination {
+// DescribeDeliveryDestinations returns delivery destinations with Limit/NextToken
+// pagination (real DescribeDeliveryDestinationsInput members, api_op_DescribeDeliveryDestinations.go
+// -- no documented default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeDeliveryDestinations(nextToken string, limit int) ([]DeliveryDestination, string) {
 	b.mu.RLock("DescribeDeliveryDestinations")
 	defer b.mu.RUnlock()
 
@@ -255,7 +258,9 @@ func (b *InMemoryBackend) DescribeDeliveryDestinations() []DeliveryDestination {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteDeliveryDestination removes a delivery destination by name.
@@ -396,8 +401,11 @@ func (b *InMemoryBackend) GetDeliverySource(name string) (*DeliverySource, error
 	return &cp, nil
 }
 
-// DescribeDeliverySources returns all delivery sources sorted by name.
-func (b *InMemoryBackend) DescribeDeliverySources() []DeliverySource {
+// DescribeDeliverySources returns delivery sources with Limit/NextToken
+// pagination (real DescribeDeliverySourcesInput members, api_op_DescribeDeliverySources.go
+// -- no documented default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeDeliverySources(nextToken string, limit int) ([]DeliverySource, string) {
 	b.mu.RLock("DescribeDeliverySources")
 	defer b.mu.RUnlock()
 
@@ -408,7 +416,9 @@ func (b *InMemoryBackend) DescribeDeliverySources() []DeliverySource {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteDeliverySource removes a delivery source by name.

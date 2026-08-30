@@ -197,19 +197,35 @@ func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument stri
 	return &p, nil
 }
 
-// DescribeIndexPolicies returns all index policies sorted by log group identifier.
-func (b *InMemoryBackend) DescribeIndexPolicies() []IndexPolicy {
+// DescribeIndexPolicies returns the index policies for the given log group
+// identifiers (DescribeIndexPoliciesInput.LogGroupIdentifiers is a required
+// member -- api_op_DescribeIndexPolicies.go), sorted by log group
+// identifier, with NextToken pagination (the real op has no documented
+// default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeIndexPolicies(
+	logGroupIdentifiers []string, nextToken string, limit int,
+) ([]IndexPolicy, string) {
 	b.mu.RLock("DescribeIndexPolicies")
 	defer b.mu.RUnlock()
 
-	out := make([]IndexPolicy, 0, b.indexPolicies.Len())
+	want := make(map[string]bool, len(logGroupIdentifiers))
+	for _, id := range logGroupIdentifiers {
+		want[id] = true
+	}
+
+	out := make([]IndexPolicy, 0, len(want))
 	for _, p := range b.indexPolicies.All() {
-		out = append(out, *p)
+		if want[p.LogGroupIdentifier] {
+			out = append(out, *p)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].LogGroupIdentifier < out[j].LogGroupIdentifier })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteIndexPolicy removes the index policy for a log group.

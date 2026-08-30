@@ -356,3 +356,156 @@ func TestListLogGroupsForQuery_FullPagination(t *testing.T) {
 
 	require.Equal(t, want, got)
 }
+
+// TestDescribeDeliveryDestinations_FullPagination proves gopherstack-wksweep-cwl-2:
+// DescribeDeliveryDestinationsInput.Limit/NextToken (api_op_DescribeDeliveryDestinations.go)
+// were previously decoded nowhere -- the handler discarded its whole request
+// body (`_ []byte`) and the backend method took no paging arguments at all,
+// so every call always returned the complete unpaginated list.
+func TestDescribeDeliveryDestinations_FullPagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	const total = 9
+
+	want := make(map[string]bool, total)
+
+	for i := range total {
+		name := fmt.Sprintf("dest-%02d", i)
+		_, err := client.PutDeliveryDestination(ctx, &cwlsdk.PutDeliveryDestinationInput{
+			Name: aws.String(name),
+			DeliveryDestinationConfiguration: &types.DeliveryDestinationConfiguration{
+				DestinationResourceArn: aws.String(fmt.Sprintf("arn:aws:s3:::bucket-%02d", i)),
+			},
+			DeliveryDestinationType: types.DeliveryDestinationTypeS3,
+		})
+		require.NoError(t, err)
+		want[name] = true
+	}
+
+	got := make(map[string]bool, total)
+
+	var nextToken *string
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, total, "pagination loop did not terminate")
+
+		out, err := client.DescribeDeliveryDestinations(ctx, &cwlsdk.DescribeDeliveryDestinationsInput{
+			Limit:     aws.Int32(4),
+			NextToken: nextToken,
+		})
+		require.NoError(t, err)
+		require.LessOrEqualf(t, len(out.DeliveryDestinations), 4,
+			"Limit must actually truncate the page; pre-fix it was silently ignored")
+
+		for _, d := range out.DeliveryDestinations {
+			name := aws.ToString(d.Name)
+			require.Falsef(t, got[name], "delivery destination %q returned twice across pages", name)
+			got[name] = true
+		}
+
+		if out.NextToken == nil {
+			break
+		}
+
+		nextToken = out.NextToken
+	}
+
+	require.Equal(t, want, got)
+}
+
+// TestDescribeDeliverySources_FullPagination is the same proof as
+// TestDescribeDeliveryDestinations_FullPagination for
+// DescribeDeliverySourcesInput.Limit/NextToken (api_op_DescribeDeliverySources.go).
+func TestDescribeDeliverySources_FullPagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	const total = 9
+
+	want := make(map[string]bool, total)
+
+	for i := range total {
+		name := fmt.Sprintf("src-%02d", i)
+		_, err := client.PutDeliverySource(ctx, &cwlsdk.PutDeliverySourceInput{
+			Name:        aws.String(name),
+			ResourceArn: aws.String(fmt.Sprintf("arn:aws:lambda:us-east-1:123456789012:function:fn-%02d", i)),
+			LogType:     aws.String("APPLICATION_LOGS"),
+		})
+		require.NoError(t, err)
+		want[name] = true
+	}
+
+	got := make(map[string]bool, total)
+
+	var nextToken *string
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, total, "pagination loop did not terminate")
+
+		out, err := client.DescribeDeliverySources(ctx, &cwlsdk.DescribeDeliverySourcesInput{
+			Limit:     aws.Int32(4),
+			NextToken: nextToken,
+		})
+		require.NoError(t, err)
+		require.LessOrEqualf(t, len(out.DeliverySources), 4,
+			"Limit must actually truncate the page; pre-fix it was silently ignored")
+
+		for _, s := range out.DeliverySources {
+			name := aws.ToString(s.Name)
+			require.Falsef(t, got[name], "delivery source %q returned twice across pages", name)
+			got[name] = true
+		}
+
+		if out.NextToken == nil {
+			break
+		}
+
+		nextToken = out.NextToken
+	}
+
+	require.Equal(t, want, got)
+}
+
+// TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers proves
+// gopherstack-wksweep-cwl-3: DescribeIndexPoliciesInput.LogGroupIdentifiers
+// is a required member (api_op_DescribeIndexPolicies.go) that scopes which
+// log groups' index policies come back. gopherstack previously discarded
+// its whole request body (`_ []byte`) and always returned every stored
+// index policy regardless of which log groups the caller asked about -- an
+// unfiltered full list rather than the requested subset, and a required
+// field silently accepted as absent.
+func TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.PutIndexPolicy(ctx, &cwlsdk.PutIndexPolicyInput{
+		LogGroupIdentifier: aws.String("/aws/lambda/wanted"),
+		PolicyDocument:     aws.String(`{"Fields":["@message"]}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutIndexPolicy(ctx, &cwlsdk.PutIndexPolicyInput{
+		LogGroupIdentifier: aws.String("/aws/lambda/other"),
+		PolicyDocument:     aws.String(`{"Fields":["@message"]}`),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeIndexPolicies(ctx, &cwlsdk.DescribeIndexPoliciesInput{
+		LogGroupIdentifiers: []string{"/aws/lambda/wanted"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.IndexPolicies, 1,
+		"must return only the requested log group's index policy, not every stored one")
+	assert.Equal(t, "/aws/lambda/wanted", aws.ToString(out.IndexPolicies[0].LogGroupIdentifier))
+
+	_, err = client.DescribeIndexPolicies(ctx, &cwlsdk.DescribeIndexPoliciesInput{})
+	require.Error(t, err, "LogGroupIdentifiers is required and must not be silently accepted as absent")
+}

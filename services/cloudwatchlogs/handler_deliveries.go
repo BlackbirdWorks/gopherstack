@@ -187,18 +187,31 @@ func (h *Handler) handleGetDeliveryDestination(
 	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
 }
 
+type describeDeliveryDestinationsInput struct {
+	NextToken string `json:"nextToken,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
 func (h *Handler) handleDescribeDeliveryDestinations(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var in describeDeliveryDestinationsInput
+	_ = json.Unmarshal(body, &in)
+
 	if b := cwlBackend(h); b != nil {
-		dests := b.DescribeDeliveryDestinations()
+		dests, next := b.DescribeDeliveryDestinations(in.NextToken, in.Limit)
 		out := make([]map[string]any, 0, len(dests))
 		for i := range dests {
 			out = append(out, deliveryDestinationWireShape(&dests[i]))
 		}
 
-		return map[string]any{"deliveryDestinations": out}, nil
+		resp := map[string]any{"deliveryDestinations": out}
+		if next != "" {
+			resp["nextToken"] = next
+		}
+
+		return resp, nil
 	}
 
 	return map[string]any{"deliveryDestinations": []any{}}, nil
@@ -382,18 +395,31 @@ func (h *Handler) handleGetDeliverySource(
 	return map[string]any{keyDeliverySource: map[string]any{}}, nil
 }
 
+type describeDeliverySourcesInput struct {
+	NextToken string `json:"nextToken,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
 func (h *Handler) handleDescribeDeliverySources(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var in describeDeliverySourcesInput
+	_ = json.Unmarshal(body, &in)
+
 	if b := cwlBackend(h); b != nil {
-		srcs := b.DescribeDeliverySources()
+		srcs, next := b.DescribeDeliverySources(in.NextToken, in.Limit)
 		out := make([]map[string]any, 0, len(srcs))
 		for i := range srcs {
 			out = append(out, deliverySourceWireShape(&srcs[i]))
 		}
 
-		return map[string]any{"deliverySources": out}, nil
+		resp := map[string]any{"deliverySources": out}
+		if next != "" {
+			resp["nextToken"] = next
+		}
+
+		return resp, nil
 	}
 
 	return map[string]any{"deliverySources": []any{}}, nil
