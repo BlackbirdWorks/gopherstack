@@ -114,7 +114,9 @@ type StorageBackend interface {
 	) (*DataSourceAttachment, error)
 	DetachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
 	DescribeDataSourceAttachment(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
-	ListDataSourceAttachments(applicationID string) []*DataSourceAttachment
+	ListDataSourceAttachments(
+		applicationID, nextToken string, maxResults int,
+	) (page.Page[*DataSourceAttachment], error)
 
 	// Capability operations
 	RegisterCapability(applicationID, capabilityName string) (*Capability, error)

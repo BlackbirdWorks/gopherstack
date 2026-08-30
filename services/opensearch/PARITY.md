@@ -48,9 +48,15 @@ overall: A            # RAISED from A- (parity-5, this pass). The two gaps that 
                       # too. ExportOptions/ConflictResolution are validated then intentionally discarded
                       # (never persisted), matching the same "parsed but not stored" precedent
                       # services/appconfig's StartExperimentRun DeploymentParameters already established,
-                      # since GetMigrationOutput/MigrationSummary never echo them back either. One
-                      # unrelated, pre-existing gap remains open and undisturbed by this pass (see gaps
-                      # below): ListDataSourceAttachments/ListMigrations still ignore maxResults/nextToken.
+                      # since GetMigrationOutput/MigrationSummary never echo them back either.
+                      # CORRECTION 2026-08-30: the "ListDataSourceAttachments/ListMigrations still
+                      # ignore maxResults/nextToken" gap this note used to point to is stale on both
+                      # halves -- ListMigrations was already fixed by the 2026-08-30
+                      # unstable-pagination-order sweep on this same branch (see the migrations family
+                      # note below), which never updated this earlier note; ListDataSourceAttachments
+                      # is now fixed too (gopherstack-6nr4-adjacent pass, see that family note below).
+                      # This is exactly the "PARITY manifests bury fix status" class (gopherstack-anjf):
+                      # a newer dated section sorted below this stale one. No open gap remains here.
 ops:
   CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes). FIXED gopherstack-5wj0: SoftwareUpdateOptions was read/written under the wrong wire key EnableSoftwareUpdateOptions (confirmed against serializers.go:1319-1321 and deserializers.go:21789-21790, aws-sdk-go-v2/service/opensearch@v1.75.4 -- both directions use object.Key(\"SoftwareUpdateOptions\")), so a real client's request value was silently discarded and any response value the backend did set was unparseable by a real SDK client's typed struct"}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -318,10 +324,23 @@ families:
       validate-and-track rather than a full CRUD resource (the SDK defines no
       Get/List/DeleteWorkspace operation and no output ever echoes a WorkspaceId, so nothing more
       is derivable from the real API). Cascade-deleted on DeleteApplication.
-      Remaining gap, unrelated to workspaces and unchanged this pass: ListDataSourceAttachments
-      accepts but ignores maxResults/nextToken (returns the full list unpaginated) -- consistent
-      with how most other List ops in this backend already treat pagination params, but flagged as
-      a real, not-hidden gap.
+      FIXED 2026-08-30: ListDataSourceAttachments previously ignored maxResults/nextToken entirely
+      (not query-bound on this op -- confirmed against its own
+      awsRestjson1_serializeOpDocumentListDataSourceAttachmentsInput, opensearch@v1.75.4
+      serializers.go: both are real JSON body members, "maxResults"/"nextToken", unlike
+      ListMigrations' HTTP-query binding for the same concept -- each op's own serializer settles
+      it, not a shared family convention). Now paginated via pkgs/page (default page size 50, per
+      ListDataSourceAttachmentsInput.MaxResults' documented default); b.dataSourceAttachmentsByApp
+      is a pkgs/store.Index, whose Get() is insertion-ordered and stable across calls, so no
+      additional sort was needed before paginating it. Also found and fixed alongside it: the
+      backend never validated the application existed at all (silently returned an empty list for
+      an unknown application ID instead of the ResourceNotFoundException every sibling op in this
+      family already returns -- AttachDataSource/DetachDataSource/DescribeDataSourceAttachment all
+      check b.applications.Has first). Proven via
+      handler_data_source_attachments_pagination_test.go's TestListDataSourceAttachments_SDKPagination
+      (real aws-sdk-go-v2 client, 5 attachments, MaxResults=2, asserts the union of every page
+      equals the seeded set) and TestListDataSourceAttachments_UnknownApplication; both confirmed
+      failing against pre-fix code.
   capabilities:
     status: ok
     note: >
@@ -386,10 +405,13 @@ families:
       validated, not stored" precedent services/appconfig's StartExperimentRun
       DeploymentParameters already established. See the "overall" grade note above for why the
       Workspace side of this stops at validate-and-track rather than full CRUD.
-      Remaining gap, unrelated to workspaces and unchanged this pass: ListMigrations accepts but
-      ignores maxResults/nextToken (returns the full filtered list unpaginated).
-gaps:
-  - "data_source_attachments and migrations: List ops (ListDataSourceAttachments/ListMigrations) accept but ignore maxResults/nextToken, always returning the full (filtered) result set unpaginated."
+      CORRECTION 2026-08-30: this note previously said ListMigrations still ignored
+      maxResults/nextToken. That was already stale when read -- the 2026-08-30
+      unstable-pagination-order sweep on this same branch fixed it (paginated via pkgs/page,
+      reading b.migrationsByApp -- a pkgs/store.Index, insertion-ordered and stable -- so no sort
+      was needed) but never updated this earlier note. No open gap remains here; see that sweep's
+      dated section below for the fix detail.
+gaps: []
 deferred:
   - serverless
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}

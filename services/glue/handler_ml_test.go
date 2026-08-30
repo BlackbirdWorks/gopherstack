@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -464,6 +467,108 @@ func TestGetMLTaskRuns(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.TaskRuns, 3)
 	})
+}
+
+// TestGetMLTaskRuns_SDKPagination_TotalOrderNoTiesLost drives the real
+// aws-sdk-go-v2 client. GetMLTaskRunsInput carries real MaxResults/NextToken
+// query members (api_op_GetMLTaskRuns.go) that the handler previously never
+// declared or read at all, so every call returned the full unpaginated set.
+// All runs here start within the same wall-clock second (StartedOn is a
+// whole-second epoch value), the same tie-prone-sort precondition already
+// fixed for five other glue listings (gopherstack-6nr4) -- the union of
+// every page must reproduce the seeded set exactly, with no drops or
+// duplicates from ties landing on a page boundary.
+func TestGetMLTaskRuns_SDKPagination_TotalOrderNoTiesLost(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestGlueClient(t, h)
+	transformID := createTestMLTransform(t, h, "paginated-transform")
+
+	const numRuns = 6
+
+	wantIDs := make(map[string]bool, numRuns)
+
+	for range numRuns {
+		rec := doGlueRequest(t, h, "StartMLEvaluationTaskRun", map[string]any{
+			"TransformId": transformID,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			TaskRunID string `json:"TaskRunId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NotEmpty(t, out.TaskRunID)
+		wantIDs[out.TaskRunID] = true
+	}
+
+	require.Len(t, wantIDs, numRuns, "task run IDs must be unique")
+
+	gotIDs := make(map[string]bool)
+
+	input := &gluesdk.GetMLTaskRunsInput{
+		TransformId: aws.String(transformID),
+		MaxResults:  aws.Int32(2),
+	}
+
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 10, "pagination did not terminate")
+
+		out, err := client.GetMLTaskRuns(t.Context(), input)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(out.TaskRuns), 2, "must honor MaxResults")
+
+		for _, r := range out.TaskRuns {
+			require.NotNil(t, r.TaskRunId)
+			gotIDs[*r.TaskRunId] = true
+		}
+
+		if out.NextToken == nil || *out.NextToken == "" {
+			break
+		}
+
+		input.NextToken = out.NextToken
+	}
+
+	assert.Equal(t, wantIDs, gotIDs,
+		"paginated union must equal the seeded set exactly despite same-second StartedOn ties")
+}
+
+// TestGetMLTaskRuns_SDKFilter_ByStatus proves Filter.Status (real
+// TaskRunFilterCriteria.Status) is honored, not silently dropped.
+func TestGetMLTaskRuns_SDKFilter_ByStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestGlueClient(t, h)
+	transformID := createTestMLTransform(t, h, "filtered-transform")
+
+	rec := doGlueRequest(t, h, "StartMLEvaluationTaskRun", map[string]any{"TransformId": transformID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var started struct {
+		TaskRunID string `json:"TaskRunId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+
+	cancelRec := doGlueRequest(t, h, "CancelMLTaskRun", map[string]any{
+		"TransformId": transformID,
+		"TaskRunId":   started.TaskRunID,
+	})
+	require.Equal(t, http.StatusOK, cancelRec.Code)
+
+	rec2 := doGlueRequest(t, h, "StartMLEvaluationTaskRun", map[string]any{"TransformId": transformID})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	out, err := client.GetMLTaskRuns(t.Context(), &gluesdk.GetMLTaskRunsInput{
+		TransformId: aws.String(transformID),
+		Filter:      &types.TaskRunFilterCriteria{Status: types.TaskStatusTypeStopped},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TaskRuns, 1, "Filter.Status must exclude the RUNNING run")
+	assert.Equal(t, started.TaskRunID, aws.ToString(out.TaskRuns[0].TaskRunId))
+	assert.Equal(t, types.TaskStatusTypeStopped, out.TaskRuns[0].Status)
 }
 
 // TestCancelMLTaskRun exercises CancelMLTaskRun error cases.

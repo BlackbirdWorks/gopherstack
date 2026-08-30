@@ -191,7 +191,7 @@ func (h *Handler) handleSearchAssets(_ context.Context, in *searchAssetsInput) (
 	sortAttr, sortDesc := "", false
 	if in.Sort != nil {
 		sortAttr = in.Sort.Attribute
-		sortDesc = in.Sort.Order == "DESCENDING"
+		sortDesc = in.Sort.Order == sortDirectionDescending
 	}
 
 	assets := h.Backend.SearchAssets(in.SearchText, in.FilterClause, sortAttr, sortDesc)

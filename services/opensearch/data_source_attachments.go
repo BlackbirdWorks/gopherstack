@@ -3,6 +3,8 @@ package opensearch
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dataSourceAttachmentKey builds the composite key shared by every data
@@ -203,11 +205,27 @@ func (b *InMemoryBackend) DescribeDataSourceAttachment(
 	return &cp, nil
 }
 
+// defaultListDataSourceAttachmentsLimit matches
+// ListDataSourceAttachmentsInput.MaxResults' documented default ("The
+// maximum number of results to return per page. The default is 50.",
+// api_op_ListDataSourceAttachments.go).
+const defaultListDataSourceAttachmentsLimit = 50
+
 // ListDataSourceAttachments returns every attachment (of any status) for the
-// given application.
-func (b *InMemoryBackend) ListDataSourceAttachments(applicationID string) []*DataSourceAttachment {
+// given application, paginated. b.dataSourceAttachmentsByApp is a
+// pkgs/store.Index, whose Get() is insertion-ordered and stable across
+// calls, so no additional sort is needed before paginating it.
+func (b *InMemoryBackend) ListDataSourceAttachments(
+	applicationID, nextToken string, maxResults int,
+) (page.Page[*DataSourceAttachment], error) {
 	b.mu.RLock("ListDataSourceAttachments")
 	defer b.mu.RUnlock()
+
+	if !b.applications.Has(applicationID) {
+		return page.Page[*DataSourceAttachment]{}, fmt.Errorf(
+			"%w: application %s not found", ErrApplicationNotFound, applicationID,
+		)
+	}
 
 	group := b.dataSourceAttachmentsByApp.Get(applicationID)
 	now := b.clock()
@@ -219,5 +237,5 @@ func (b *InMemoryBackend) ListDataSourceAttachments(applicationID string) []*Dat
 		out = append(out, &cp)
 	}
 
-	return out
+	return page.New(out, nextToken, maxResults, defaultListDataSourceAttachmentsLimit), nil
 }

@@ -170,11 +170,43 @@ func (h *Handler) handleDescribeDataSourceAttachment(w http.ResponseWriter, r *h
 	h.writeJSON(r, w, toDataSourceAttachmentJSON(att))
 }
 
-func (h *Handler) handleListDataSourceAttachments(w http.ResponseWriter, r *http.Request, appID string) {
-	attachments := h.Backend.ListDataSourceAttachments(appID)
+// listDataSourceAttachmentsRequest is the JSON request body for
+// ListDataSourceAttachments, field-diffed against ListDataSourceAttachmentsInput
+// (opensearch@v1.75.4 api_op_ListDataSourceAttachments.go): MaxResults/NextToken
+// are real body members on this op, sent as "maxResults"/"nextToken" per its
+// own awsRestjson1_serializeOpDocumentListDataSourceAttachmentsInput -- unlike
+// ListMigrations, which sends the same concept as HTTP query params.
+type listDataSourceAttachmentsRequest struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
 
-	items := make([]dataSourceAttachmentSummaryJSON, 0, len(attachments))
-	for _, att := range attachments {
+func (h *Handler) handleListDataSourceAttachments(w http.ResponseWriter, r *http.Request, appID string) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req listDataSourceAttachmentsRequest
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+			return
+		}
+	}
+
+	p, err := h.Backend.ListDataSourceAttachments(appID, req.NextToken, req.MaxResults)
+	if err != nil {
+		h.writeAttachmentError(r, w, err)
+
+		return
+	}
+
+	items := make([]dataSourceAttachmentSummaryJSON, 0, len(p.Data))
+	for _, att := range p.Data {
 		items = append(items, dataSourceAttachmentSummaryJSON{
 			AttachmentID:  att.AttachmentID,
 			DataSourceArn: att.DataSourceArn,
@@ -182,7 +214,12 @@ func (h *Handler) handleListDataSourceAttachments(w http.ResponseWriter, r *http
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{"attachments": items})
+	out := map[string]any{"attachments": items}
+	if p.Next != "" {
+		out["nextToken"] = p.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // dataSourceAttachmentSummaryJSON matches types.DataSourceAttachmentSummary
