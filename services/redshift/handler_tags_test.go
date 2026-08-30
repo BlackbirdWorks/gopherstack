@@ -62,7 +62,11 @@ func TestDescribeTags_FilterByTagKey(t *testing.T) {
 
 			body := "Action=DescribeTags&Version=2012-12-01"
 			if tt.tagKey != "" {
-				body += "&TagKey=" + tt.tagKey
+				// Real DescribeTagsInput.TagKeys is a []string, wire-encoded as the
+				// indexed list "TagKeys.TagKey.N" (query.NewEncoder / smithy-generated
+				// awsAwsquery_serializeDocumentTagKeyList, redshift@v1.65.4
+				// serializers.go) -- a real client never sends the bare "TagKey" key.
+				body += "&TagKeys.TagKey.1=" + tt.tagKey
 			}
 
 			rec := postRedshiftForm(t, h, body)
@@ -102,11 +106,17 @@ func TestDescribeTags_FilterByTagValue(t *testing.T) {
 			wantCode:   http.StatusOK,
 		},
 		{
-			name:       "filter_by_key_and_value",
+			// Real DescribeTags combines TagKeys and TagValues with OR, not AND
+			// (matches DescribeClusters' documented "any combination of the
+			// specified keys and values" semantics, mirrored by this repo's
+			// clusterMatchesTagKeysOrValues): a tag matches if its key is in
+			// TagKeys OR its value is in TagValues. So TagKeys=[env] alone
+			// already matches the env=prod tag, regardless of TagValues.
+			name:       "filter_by_key_or_value",
 			tagKey:     "env",
 			tagValue:   "staging",
-			wantInBody: []string{"staging"},
-			wantAbsent: []string{"prod", "team"},
+			wantInBody: []string{"staging", "prod"},
+			wantAbsent: []string{"team"},
 			wantCode:   http.StatusOK,
 		},
 	}
@@ -128,10 +138,10 @@ func TestDescribeTags_FilterByTagValue(t *testing.T) {
 
 			body := "Action=DescribeTags&Version=2012-12-01"
 			if tt.tagKey != "" {
-				body += "&TagKey=" + tt.tagKey
+				body += "&TagKeys.TagKey.1=" + tt.tagKey
 			}
 			if tt.tagValue != "" {
-				body += "&TagValue=" + tt.tagValue
+				body += "&TagValues.TagValue.1=" + tt.tagValue
 			}
 
 			rec := postRedshiftForm(t, h, body)

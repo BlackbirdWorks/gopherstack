@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,8 +22,12 @@ type redshiftTaggedResource struct {
 func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	resourceName := vals.Get("ResourceName")
 	resourceType := vals.Get("ResourceType")
-	tagKey := vals.Get("TagKey")
-	tagValue := vals.Get("TagValue")
+	// Real DescribeTagsInput.TagKeys/TagValues are []string, wire-encoded as the
+	// indexed lists "TagKeys.TagKey.N"/"TagValues.TagValue.N" (confirmed against
+	// awsAwsquery_serializeDocumentTagKeyList/TagValueList, redshift@v1.65.4
+	// serializers.go) -- a real client never sends the bare "TagKey"/"TagValue".
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	allTags := h.Backend.DescribeTags()
 
@@ -53,10 +58,7 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 		}
 
 		for k, v := range tags {
-			if tagKey != "" && k != tagKey {
-				continue
-			}
-			if tagValue != "" && v != tagValue {
+			if !tagMatchesFilter(k, v, tagKeys, tagValues) {
 				continue
 			}
 
@@ -154,6 +156,37 @@ func parseRedshiftTagKeysAt(vals url.Values, prefix string) []string {
 }
 
 const maxListItems = 1000
+
+// tagMatchesFilter reports whether a single tag (k, v) satisfies a
+// TagKeys/TagValues filter pair. Matches real AWS's documented OR semantics
+// (e.g. DescribeTags/DescribeUsageLimits/DescribeHsmClientCertificates docs:
+// "If you specify both tag keys and tag values ... returns ... resources that
+// have either or both of these tag keys/values"). Empty filter lists impose
+// no constraint; if only one list is non-empty, matching is on that list alone.
+func tagMatchesFilter(k, v string, tagKeys, tagValues []string) bool {
+	if len(tagKeys) == 0 && len(tagValues) == 0 {
+		return true
+	}
+
+	return slices.Contains(tagKeys, k) || slices.Contains(tagValues, v)
+}
+
+// anyTagMatchesFilter reports whether any tag in tags satisfies the
+// TagKeys/TagValues filter pair -- for resource-level (not per-tag-entry)
+// Describe* responses where the whole resource is included or excluded.
+func anyTagMatchesFilter(tags map[string]string, tagKeys, tagValues []string) bool {
+	if len(tagKeys) == 0 && len(tagValues) == 0 {
+		return true
+	}
+
+	for k, v := range tags {
+		if tagMatchesFilter(k, v, tagKeys, tagValues) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // tagMapToKVList converts a resource's stored tag map into the sorted []svcTags.KV
 // shape used for the wire-level "Tags>Tag" list embedded directly on many Redshift
