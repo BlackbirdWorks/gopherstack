@@ -325,6 +325,20 @@ executionId, and experimentReport) instead of `types.ExperimentSummary`
   `errors.go` literal is only ever used for `errors.Is` identity and the message text, never
   the wire `Type` field. No new fix needed.
 
+- **Re-verified independently, 2026-08-30 (gopherstack-r3pr, no code change)**: traced
+  `classifyError` (handler.go:407-426) against the pinned SDK directly — `types/errors.go`
+  declares exactly 4 exception types (`ConflictException`/`ResourceNotFoundException`/
+  `ServiceQuotaExceededException`/`ValidationException`), and `StopExperiment`'s own
+  `awsRestjson1_deserializeOpErrorStopExperiment` (deserializers.go) only switches on
+  `ResourceNotFoundException`/`ValidationException` — confirming `ErrExperimentNotRunning`'s
+  `ValidationException` mapping (no `ConflictException` on that op) is correct. Also checked
+  `experiments.go:991,1049` (`ActionExecutionFailed`/`MissingReportOutputConfiguration`,
+  flagged as weaker-signal): both are `ExperimentError.Code`/`ExperimentReportError.Code`,
+  plain `*string` fields (types.go) on `Experiment`/`ExperimentReport` state describing a
+  terminal status inside an ordinary success response, not a wire error envelope — same
+  free-form-field shape as the known glue/macie2/ce/xray false-positive class. Verdict
+  unchanged: this service's earlier false-positive claim stands.
+
 ## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
 
 **Bug found and fixed:** `paginatePage` (`handler.go`) sliced `items[start:end]` without

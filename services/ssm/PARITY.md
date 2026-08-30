@@ -1134,3 +1134,11 @@ Gates: `go build ./services/ssm/...`, `go vet ./services/ssm/...`,
 ./services/ssm/...` (0 issues; one `dupl` finding between `ListAssociations`
 and `ListOpsMetadata` — mirrored shapes are the fix itself, not copy-paste —
 suppressed with `//nolint:dupl` on both, not a banned type).
+
+**2026-08-30 (gopherstack-r3pr fabricated-error-code re-audit, no code change)**:
+re-ran `cmd/errcodeaudit`; both confident findings (`ErrExecutionPreviewNotFound`
+"ExecutionPreviewNotFoundException", `ErrInventoryNotFound` "InventoryTypeNotFound",
+errors.go:39/49) independently re-confirmed dead — `grep` across the package finds
+each only in `errors.go` and this file, never `errors.Is`-checked or raised at any
+call site, so the literal never reaches a response writer. Matches the existing
+"declared but never raised" record above; no correction needed.

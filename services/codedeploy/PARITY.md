@@ -302,3 +302,12 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
   - New coverage driving the real typed SDK client end-to-end, asserting the specific typed
     exception via `errors.As` (not string/presence checks):
     `error_codes_fixes_test.go`.
+
+- **Re-verified independently, 2026-08-30 (gopherstack-r3pr, no code change)**: re-ran
+  `cmd/errcodeaudit`; `errUnknownAction` → `InvalidRequestException` (handler.go:285) is
+  still the only confident finding. Confirmed against `types/errors.go`
+  (aws-sdk-go-v2/service/codedeploy@v1.38.4): no `InvalidRequestException` type exists
+  anywhere in the module, and none of its 47 `deserializeOpError<Op>` functions could —
+  an unrecognized routed `Action` string doesn't correspond to any real CodeDeploy
+  operation, so there is no operation's own deserializer to consult. Left unfixed, per
+  the existing comment at the call site; verdict unchanged.

@@ -1342,3 +1342,14 @@ masked an ID-level duplicate even had one occurred.
 Gates: `go build ./services/cognitoidp/...`, `go vet ./services/cognitoidp/...`,
 `go test -race -count=1 ./services/cognitoidp/...` (pass), `golangci-lint run
 ./services/cognitoidp/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-r3pr fabricated-error-code audit, no code change)**:
+`cmd/errcodeaudit` reports zero findings for this service — no invented error-code
+literal detected. Given this package's history of shadowed duplicate op
+registrations (27 removed in an earlier pass), independently checked whether any
+of the 39 `*Ops[A-Z]?()` group functions feeding `dispatchTable()`
+(`maps.Copy`, which silently lets a later group win) register the same op name
+twice, including via `op*` constants a literal grep would miss. Built each group
+map directly off a zero-value `*Handler` and diffed the 39 key sets against each
+other (temporary diagnostic, not committed): 130 distinct op names, zero
+collisions.

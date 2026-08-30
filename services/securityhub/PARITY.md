@@ -858,3 +858,19 @@ Proof: the added `negative offset token` subtest of `TestPaginateSlice_SevenChec
 ./services/securityhub/...`, `go vet ./services/securityhub/...`, `go test -race -count=1
 ./services/securityhub/...`, `golangci-lint run ./services/securityhub/...` (0 issues). Work
 left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-r3pr fabricated-error-code re-audit, no code change)**:
+`store.go:31`'s `errCodeInvalidInput` ("InvalidInput") re-checked against
+`cmd/errcodeaudit`. All three call sites (`standards.go:95,149`,
+`findings.go:458`) set it as a free-form `ErrorCode` map value inside a
+`Failures`/`UnprocessedFindings` array on an ordinary 200 response
+(`BatchEnableStandards`/`BatchDisableStandards`/`BatchUpdateFindings`), never
+as an HTTP error envelope's `__type` — same shape as the already-known
+false-positive class (glue/macie2/ce/xray free-form success-response
+`ErrorCode` fields), confirmed not a wire-error-envelope bug. Aside, not
+fixed here (out of scope for this class): the SDK doc comment on
+`BatchUpdateFindingsUnprocessedFinding.Code` (types.go) lists
+`FindingNotFound` as the specific documented value for the not-found case
+`findings.go:458` covers, which differs from the `InvalidInput` used there —
+a real inaccuracy, but a different bug class with no `errors.As` ground
+truth, deliberately not chased this pass per campaign scope.
