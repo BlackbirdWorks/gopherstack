@@ -329,3 +329,71 @@ func TestListPlatformVersions_FieldsFilterAndPagination(t *testing.T) {
 	require.Len(t, paged.PlatformSummaryList, 1)
 	require.NotNil(t, paged.NextToken)
 }
+
+// TestListPlatformVersions_FilterMultipleValues_OrMatch covers gopherstack-6flj
+// wrapper-key sweep (workspaces/codebuild/elasticbeanstalk pass): real
+// SearchFilter.Values (elasticbeanstalk@v1.37.4/types/types.go: "The list of
+// values applied to the Attribute and Operator attributes") is a list --
+// gopherstack's filter parsing only ever read Filters.member.N.Values.member.1,
+// silently dropping every value past the first. A caller filtering on
+// multiple candidate values (the standard AWS SearchFilter OR-list idiom, same
+// as EC2's Filter.N.Value.M) got a filter that matched at most the first
+// listed value and silently excluded platforms matching any other.
+func TestListPlatformVersions_FilterMultipleValues_OrMatch(t *testing.T) {
+	t.Parallel()
+
+	client := newWireFixClient(t)
+
+	for _, ver := range []string{"1.0.0", "2.0.0", "3.0.0"} {
+		_, err := client.CreatePlatformVersion(t.Context(), &ebsdk.CreatePlatformVersionInput{
+			PlatformName:    aws.String("eb-multi-filter-platform"),
+			PlatformVersion: aws.String(ver),
+			PlatformDefinitionBundle: &types.S3Location{
+				S3Bucket: aws.String("bucket"),
+				S3Key:    aws.String("key"),
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	filtered, err := client.ListPlatformVersions(t.Context(), &ebsdk.ListPlatformVersionsInput{
+		Filters: []types.PlatformFilter{
+			{Type: aws.String("PlatformVersion"), Values: []string{"1.0.0", "3.0.0"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, filtered.PlatformSummaryList, 2,
+		"filter must OR-match against every listed value, not just Values.member.1")
+
+	versions := []string{
+		aws.ToString(filtered.PlatformSummaryList[0].PlatformVersion),
+		aws.ToString(filtered.PlatformSummaryList[1].PlatformVersion),
+	}
+	assert.ElementsMatch(t, []string{"1.0.0", "3.0.0"}, versions)
+}
+
+// TestListPlatformBranches_FilterMultipleValues_OrMatch covers the same
+// Values-truncation bug (gopherstack-6flj) on ListPlatformBranches' filter
+// parsing, which shares the identical Filters.member.N.Values.member.1
+// pattern.
+func TestListPlatformBranches_FilterMultipleValues_OrMatch(t *testing.T) {
+	t.Parallel()
+
+	client := newWireFixClient(t)
+
+	out, err := client.ListPlatformBranches(t.Context(), &ebsdk.ListPlatformBranchesInput{
+		Filters: []types.SearchFilter{
+			{Attribute: aws.String("PlatformName"), Values: []string{"Java", "Ruby"}},
+		},
+	})
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(out.PlatformBranchSummaryList))
+	for _, b := range out.PlatformBranchSummaryList {
+		names = append(names, aws.ToString(b.PlatformName))
+	}
+	assert.Contains(t, names, "Java")
+	assert.Contains(t, names, "Ruby")
+	assert.NotContains(t, names, "Node.js",
+		"filter must exclude non-matching platforms while OR-matching every listed value")
+}

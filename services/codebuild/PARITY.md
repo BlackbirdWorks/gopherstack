@@ -42,6 +42,18 @@ overall: A                # 2026-08-28 pass (gopherstack-6flj write-only-state s
                            # delete) -- fixed all five. ListReportsForReportGroup was missing the
                            # same reportGroupArn existence check as GetReportGroupTrend/
                            # DescribeTestCases -- fixed.
+                           # 2026-08-30 pass (gopherstack-6flj wrapper-key sweep,
+                           # workspaces/codebuild/elasticbeanstalk batch): type-aware field-usage
+                           # scan of all 59 request structs (90 named XxxInput types minus dupes)
+                           # flagged 2 declared-but-never-referenced fields. Hand-verified against
+                           # the pinned SDK per this sweep's own rule: DeleteReportGroup.DeleteReports
+                           # was a genuine bug (fixed, see ops below); ImportSourceCredentials.Username
+                           # was NOT a bug on inspection -- already correctly disclosed as a
+                           # deliberate non-fix in the 2026-08-23 gopherstack-secp note below (real
+                           # SourceCredentialsInfo has no Username member to round-trip through any
+                           # response, same as the sibling Token field already discarded by design).
+                           # No other unread fields found across workspaces (0/90) or codebuild
+                           # (2/59, one real, one already-disclosed non-bug).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -66,7 +78,7 @@ ops:
   ListBuildBatchesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListBuildBatches; also newly documented here"}
   CreateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject"}
+  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject. FIXED 2026-08-30 (gopherstack-6flj wrapper-key sweep): DeleteReportGroupInput.DeleteReports (real, api_op_DeleteReportGroup.go) was parsed off the wire and never passed to the backend -- deleting a group with existing reports always silently succeeded (real AWS: 'If you call DeleteReportGroup for a report group that contains one or more reports, an exception is thrown' when DeleteReports is false) and DeleteReports=true never cascade-deleted the group's reports, leaving them orphaned. Now: DeleteReports=false + existing reports -> InvalidInputException; DeleteReports=true -> reports deleted along with the group."}
   BatchGetReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name"}
   ListReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder/maxResults via ListReportGroupsSortedBy + paginateIDs"}
   BatchGetReports: {wire: ok, errors: ok, state: ok, persist: ok}

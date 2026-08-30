@@ -112,7 +112,7 @@ func (h *Handler) handleDeleteReportGroup(
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteReportGroup(in.Arn); err != nil {
+	if err := h.Backend.DeleteReportGroup(in.Arn, in.DeleteReports); err != nil {
 		return nil, err
 	}
 

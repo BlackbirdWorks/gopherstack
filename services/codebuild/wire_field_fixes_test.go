@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	codebuildsdk "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -480,4 +481,102 @@ func TestStartCommandExecution_ExitCodeAndStandardErrContent_RealClient(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, "0", aws.ToString(exec.CommandExecution.ExitCode),
 		"ExitCode must decode as a string via the real client")
+}
+
+// TestDeleteReportGroup_RejectsWhenReportsExistAndDeleteReportsFalse covers
+// gopherstack-6flj wrapper-key sweep (workspaces/codebuild/elasticbeanstalk
+// pass): real DeleteReportGroupInput.DeleteReports
+// (codebuild@v1.72.4/api_op_DeleteReportGroup.go: "If false, you must delete
+// any reports in the report group... If you call DeleteReportGroup for a
+// report group that contains one or more reports, an exception is thrown")
+// was parsed off the wire and never passed to the backend at all --
+// InMemoryBackend.DeleteReportGroup always succeeded regardless of the
+// group's contents or the caller's DeleteReports value.
+func TestDeleteReportGroup_RejectsWhenReportsExistAndDeleteReportsFalse(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateReportGroup(ctx, &codebuildsdk.CreateReportGroupInput{
+		Name: aws.String("rg-with-reports"),
+		Type: types.ReportTypeTest,
+		ExportConfig: &types.ReportExportConfig{
+			ExportConfigType: types.ReportExportConfigTypeNoExport,
+		},
+	})
+	require.NoError(t, err)
+	rgArn := aws.ToString(created.ReportGroup.Arn)
+
+	backend.AddReportInternal(&codebuild.Report{
+		Arn:            rgArn + ":report-1",
+		ReportGroupArn: rgArn,
+		Type:           "TEST",
+		Status:         "SUCCEEDED",
+	})
+
+	_, err = client.DeleteReportGroup(ctx, &codebuildsdk.DeleteReportGroupInput{Arn: aws.String(rgArn)})
+	require.Error(
+		t, err,
+		"must reject deleting a report group that still has reports when DeleteReports is unset/false",
+	)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
+
+	got, _ := client.BatchGetReportGroups(
+		ctx, &codebuildsdk.BatchGetReportGroupsInput{ReportGroupArns: []string{rgArn}},
+	)
+	require.Len(t, got.ReportGroups, 1, "report group must still exist after the rejected delete")
+}
+
+// TestDeleteReportGroup_CascadeDeletesReportsWhenDeleteReportsTrue covers the
+// other half of gopherstack-6flj-codebuild-8 (same DeleteReports field):
+// setting DeleteReports=true must delete the group's reports along with the
+// group itself, per the real op's documented behavior.
+func TestDeleteReportGroup_CascadeDeletesReportsWhenDeleteReportsTrue(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateReportGroup(ctx, &codebuildsdk.CreateReportGroupInput{
+		Name: aws.String("rg-cascade-delete"),
+		Type: types.ReportTypeTest,
+		ExportConfig: &types.ReportExportConfig{
+			ExportConfigType: types.ReportExportConfigTypeNoExport,
+		},
+	})
+	require.NoError(t, err)
+	rgArn := aws.ToString(created.ReportGroup.Arn)
+	reportArn := rgArn + ":report-1"
+
+	backend.AddReportInternal(&codebuild.Report{
+		Arn:            reportArn,
+		ReportGroupArn: rgArn,
+		Type:           "TEST",
+		Status:         "SUCCEEDED",
+	})
+
+	_, err = client.DeleteReportGroup(ctx, &codebuildsdk.DeleteReportGroupInput{
+		Arn:           aws.String(rgArn),
+		DeleteReports: true,
+	})
+	require.NoError(t, err)
+
+	got, err := client.BatchGetReportGroups(
+		ctx,
+		&codebuildsdk.BatchGetReportGroupsInput{ReportGroupArns: []string{rgArn}},
+	)
+	require.NoError(t, err)
+	require.Empty(t, got.ReportGroups)
+	require.Len(t, got.ReportGroupsNotFound, 1)
+
+	reportsOut, err := client.BatchGetReports(ctx, &codebuildsdk.BatchGetReportsInput{ReportArns: []string{reportArn}})
+	require.NoError(t, err)
+	assert.Empty(t, reportsOut.Reports, "the group's report must be cascade-deleted, not left orphaned")
+	assert.Len(t, reportsOut.ReportsNotFound, 1)
 }
