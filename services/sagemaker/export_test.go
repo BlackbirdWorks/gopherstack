@@ -101,3 +101,18 @@ func SeedMonitoringAlertHistory(b *InMemoryBackend, region string, e *Monitoring
 
 	b.monitoringAlertHistory[region] = append(b.monitoringAlertHistory[region], e)
 }
+
+// AssociationTagCount returns the number of tags stored on the association
+// between sourceArn and destinationArn, for tests proving AddAssociation's
+// Tags field (not a real AddAssociationInput member) is never applied.
+func AssociationTagCount(b *InMemoryBackend, region, sourceArn, destinationArn string) int {
+	b.mu.RLock("AssociationTagCount")
+	defer b.mu.RUnlock()
+
+	a, ok := b.associationsStoreRO(region).Get(associationKey(sourceArn, destinationArn))
+	if !ok {
+		return -1
+	}
+
+	return len(a.Tags)
+}

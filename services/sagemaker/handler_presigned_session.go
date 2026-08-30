@@ -48,7 +48,15 @@ func (h *Handler) dispatchPresignedSessionOps(
 	return nil, false, nil
 }
 
-// createPresignedDomainURLRequest is the request body for CreatePresignedDomainUrl.
+// createPresignedDomainURLRequest is the request body for
+// CreatePresignedDomainUrl (api_op_CreatePresignedDomainUrl.go:50-92).
+// LandingUri/ExpiresInSeconds/SessionExpirationDurationInSeconds are real,
+// optional fields, decoded for wire visibility but disclosed no-ops:
+// CreatePresignedDomainUrlOutput is a bare {AuthorizedUrl}, and this
+// backend's synthetic URL (a token appended to the domain's stored URL)
+// carries no verified real query-parameter format to encode an expiry or
+// landing path into — the same disclosed-no-op stance as PartnerApps'
+// identical fields.
 type createPresignedDomainURLRequest struct {
 	DomainID                           string `json:"DomainId"`
 	UserProfileName                    string `json:"UserProfileName"`
