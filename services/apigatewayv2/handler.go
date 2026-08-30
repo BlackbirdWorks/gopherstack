@@ -660,7 +660,7 @@ func handleGetChildList[T any](
 	logMsg string,
 	logArgs []any,
 	backendFn func() ([]T, error),
-	wrapFn func([]T) any,
+	wrapFn func([]T, string) any,
 	notFoundErrs ...error,
 ) error {
 	log := logger.Load(c.Request().Context())
@@ -678,7 +678,10 @@ func handleGetChildList[T any](
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, wrapFn(items))
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, wrapFn(p.Data, p.Next))
 }
 
 // handleGetChild is a generic helper for GET-single handlers on a resource
@@ -743,7 +746,7 @@ func handleDeleteChild(
 type nestedResponseOps[T, U any] struct {
 	selfNotFound error
 	list         func(apiID, parentID string) ([]T, error)
-	wrapList     func([]T) any
+	wrapList     func([]T, string) any
 	get          func(apiID, parentID, id string) (*T, error)
 	del          func(apiID, parentID, id string) error
 	update       func(apiID, parentID, id string, input U) (*T, error)
@@ -786,10 +789,12 @@ func (ops nestedResponseOps[T, U]) handleUpdate(c *echo.Context, apiID, parentID
 // IntegrationResponse, nested under an integration.
 func (h *Handler) integrationResponseOps() nestedResponseOps[IntegrationResponse, UpdateIntegrationResponseInput] {
 	return nestedResponseOps[IntegrationResponse, UpdateIntegrationResponseInput]{
-		kind:         "integration response",
-		parentIDKey:  "integrationId",
-		list:         h.Backend.GetIntegrationResponses,
-		wrapList:     func(items []IntegrationResponse) any { return listIntegrationResponsesOutput{Items: items} },
+		kind:        "integration response",
+		parentIDKey: "integrationId",
+		list:        h.Backend.GetIntegrationResponses,
+		wrapList: func(items []IntegrationResponse, next string) any {
+			return listIntegrationResponsesOutput{Items: items, NextToken: next}
+		},
 		get:          h.Backend.GetIntegrationResponse,
 		del:          h.Backend.DeleteIntegrationResponse,
 		update:       h.Backend.UpdateIntegrationResponse,
@@ -802,10 +807,12 @@ func (h *Handler) integrationResponseOps() nestedResponseOps[IntegrationResponse
 // nested under a route.
 func (h *Handler) routeResponseOps() nestedResponseOps[RouteResponse, UpdateRouteResponseInput] {
 	return nestedResponseOps[RouteResponse, UpdateRouteResponseInput]{
-		kind:         "route response",
-		parentIDKey:  "routeId",
-		list:         h.Backend.GetRouteResponses,
-		wrapList:     func(items []RouteResponse) any { return listRouteResponsesOutput{Items: items} },
+		kind:        "route response",
+		parentIDKey: "routeId",
+		list:        h.Backend.GetRouteResponses,
+		wrapList: func(items []RouteResponse, next string) any {
+			return listRouteResponsesOutput{Items: items, NextToken: next}
+		},
 		get:          h.Backend.GetRouteResponse,
 		del:          h.Backend.DeleteRouteResponse,
 		update:       h.Backend.UpdateRouteResponse,

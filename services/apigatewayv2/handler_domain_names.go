@@ -173,7 +173,10 @@ func (h *Handler) handleGetDomainNames(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetDomainName(c *echo.Context, domainName string) error {

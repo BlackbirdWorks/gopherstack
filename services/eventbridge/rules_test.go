@@ -281,7 +281,7 @@ func TestListRuleNamesByTarget_FiltersToMatchingRules(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	names, _, err := b.ListRuleNamesByTarget(context.Background(), targetARN, "", "")
+	names, _, err := b.ListRuleNamesByTarget(context.Background(), targetARN, "", "", 0)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"rule-a", "rule-c"}, names)
 }
@@ -506,7 +506,7 @@ func TestListRuleNamesByTarget_TableDriven(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			got, _, err := b.ListRuleNamesByTarget(context.Background(), tt.targetARN, "", "")
+			got, _, err := b.ListRuleNamesByTarget(context.Background(), tt.targetARN, "", "", 0)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

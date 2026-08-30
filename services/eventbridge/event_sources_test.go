@@ -22,7 +22,7 @@ func TestEventSource_ActivateDeactivate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "aws.partner/example.com/myapp", src.Name)
 
-	srcs, _, err := b.ListPartnerEventSources(context.Background(), "aws.partner/", "")
+	srcs, _, err := b.ListPartnerEventSources(context.Background(), "aws.partner/", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, srcs, 1)
 
@@ -45,7 +45,7 @@ func TestEventSource_ActivateChangesState(t *testing.T) {
 		Account: "123456789012",
 	})
 
-	src, _, err := b.ListEventSources(context.Background(), "", "")
+	src, _, err := b.ListEventSources(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	_ = src // verify list works without panic
 }
@@ -72,7 +72,7 @@ func TestEventSourceCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "aws.partner.test", got.Name)
 
-		sources, _, err := b.ListEventSources(context.Background(), "aws.partner", "")
+		sources, _, err := b.ListEventSources(context.Background(), "aws.partner", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, sources, 1)
 	})

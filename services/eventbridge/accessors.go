@@ -434,14 +434,14 @@ func filterNamedItems[T any](
 // wrappers instead of near-duplicate functions.
 func listNamedItems[T any](
 	table *store.Table[T],
-	namePrefix, eventSourceArn, state, nextToken string,
+	namePrefix, eventSourceArn, state, nextToken string, limit int,
 	name, source, itemState func(*T) string,
 	less func(a, b T) bool,
 ) ([]T, string) {
 	all := filterNamedItems(table.All(), namePrefix, eventSourceArn, state, name, source, itemState)
 	sort.Slice(all, func(i, j int) bool { return less(all[i], all[j]) })
 
-	return paginate(all, nextToken)
+	return paginateN(all, nextToken, limit)
 }
 
 // paginate applies offset-based pagination to a pre-sorted slice with the default

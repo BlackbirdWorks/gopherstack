@@ -199,7 +199,7 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context, //nolint:revive //
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
 func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // existing issue.
-	registryName, namePrefix, nextToken string,
+	registryName, namePrefix, nextToken string, limit int,
 ) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -226,14 +226,14 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // ex
 
 	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
 func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // existing issue.
-	registryName, keywords, nextToken string,
+	registryName, keywords, nextToken string, limit int,
 ) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // 
 
 	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -339,7 +339,7 @@ func (b *InMemoryBackend) UpdateSchema(
 
 // ListSchemaVersions returns all versions of a schema.
 func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:revive // existing issue.
-	registryName, schemaName, nextToken string,
+	registryName, schemaName, nextToken string, limit int,
 ) ([]SchemaVersion, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -373,7 +373,7 @@ func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:reviv
 	}
 
 	// Versions are stored in insertion order (ascending version number).
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

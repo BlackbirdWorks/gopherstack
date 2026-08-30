@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func extractVpcLinksOp(path, method string) string {
@@ -47,7 +49,10 @@ func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error
 				return writeErr(c, http.StatusInternalServerError, err.Error())
 			}
 
-			return c.JSON(http.StatusOK, listVpcLinksOutput{Items: links})
+			maxResults, nextToken := apigwPaginationParams(c)
+			p := page.New(links, nextToken, maxResults, apigwDefaultPageSize)
+
+			return c.JSON(http.StatusOK, listVpcLinksOutput{Items: p.Data, NextToken: p.Next})
 		default:
 			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 		}

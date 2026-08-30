@@ -36,7 +36,7 @@ func TestPartnerEventSource_CreatesEventSourceAsPending(t *testing.T) {
 	require.NoError(t, err)
 
 	// The partner source should show up in ListEventSources as PENDING.
-	sources, _, err := b.ListEventSources(context.Background(), "aws.partner/", "")
+	sources, _, err := b.ListEventSources(context.Background(), "aws.partner/", "", 0)
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 	assert.Equal(t, "aws.partner/example.com/app", sources[0].Name)
@@ -122,7 +122,7 @@ func TestPartnerEventSourceCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "aws.partner.test.123", got.Name)
 
-		srcs, _, err := b.ListPartnerEventSources(context.Background(), "aws.partner", "")
+		srcs, _, err := b.ListPartnerEventSources(context.Background(), "aws.partner", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, srcs, 1)
 

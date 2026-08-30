@@ -291,7 +291,7 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 
 // ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
 func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
-	targetARN, eventBusName, nextToken string,
+	targetARN, eventBusName, nextToken string, limit int,
 ) ([]string, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
@@ -313,7 +313,7 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 
 	sort.Strings(names)
 
-	page, outToken := paginate(names, nextToken)
+	page, outToken := paginateN(names, nextToken, limit)
 
 	return page, outToken, nil
 }

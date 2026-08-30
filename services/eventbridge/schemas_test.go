@@ -43,7 +43,7 @@ func TestSchema_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2", updated.SchemaVersion)
 
-	schemas, _, err := b.ListSchemas(context.Background(), "schema-reg", "", "")
+	schemas, _, err := b.ListSchemas(context.Background(), "schema-reg", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, schemas, 1)
 
@@ -115,7 +115,7 @@ func TestSchema_SearchByKeyword(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	results, _, err := b.SearchSchemas(context.Background(), "search-reg", "Order", "")
+	results, _, err := b.SearchSchemas(context.Background(), "search-reg", "Order", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "OrderSchema", results[0].SchemaName)
@@ -150,7 +150,7 @@ func TestSchemaVersions_ListAndDescribe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	versions, _, err := b.ListSchemaVersions(context.Background(), "ver-reg", "VersionedSchema", "")
+	versions, _, err := b.ListSchemaVersions(context.Background(), "ver-reg", "VersionedSchema", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, versions, 3)
 	assert.Equal(t, "1", versions[0].SchemaVersion)
@@ -187,7 +187,7 @@ func TestSchemaVersions_DeleteSpecificVersion(t *testing.T) {
 	err = b.DeleteSchemaVersion(context.Background(), "delver-reg", "DelSchema", "1")
 	require.NoError(t, err)
 
-	versions, _, err := b.ListSchemaVersions(context.Background(), "delver-reg", "DelSchema", "")
+	versions, _, err := b.ListSchemaVersions(context.Background(), "delver-reg", "DelSchema", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, versions, 1)
 	assert.Equal(t, "2", versions[0].SchemaVersion)

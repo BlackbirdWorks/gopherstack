@@ -160,3 +160,34 @@ func TestTagResource_AllRegisteredResourceKinds(t *testing.T) {
 		})
 	}
 }
+
+// TestPaginateItems_NoSkipAcrossPages proves paginateItems' cursor resumes
+// AT the item findStartIndex names, not after it. nextToken is set to
+// items[limit] -- the first item of the next page, inclusive -- so decoding
+// it must land on that same item; landing one past it (as findStartIndex
+// previously did, returning i+1) silently drops exactly one item at every
+// page boundary.
+func TestPaginateItems_NoSkipAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	items := []string{"a", "b", "c", "d", "e"}
+	getName := func(s string) string { return s }
+
+	var seen []string
+
+	token := ""
+	one := int32(1)
+
+	for {
+		page, next := paginateItems(items, token, &one, getName)
+		seen = append(seen, page...)
+
+		if next == "" {
+			break
+		}
+
+		token = next
+	}
+
+	assert.Equal(t, items, seen, "pagination must visit every item exactly once, in order")
+}

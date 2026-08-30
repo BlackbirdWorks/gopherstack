@@ -97,16 +97,32 @@ type ruleIndexKey struct {
 type StorageBackend interface {
 	CreateEventBus(ctx context.Context, params CreateEventBusParams) (*EventBus, error)
 	DeleteEventBus(ctx context.Context, name string) error
-	ListEventBuses(ctx context.Context, namePrefix, nextToken string, limit int) ([]EventBus, string, error)
+	ListEventBuses(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]EventBus, string, error)
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
 	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
 	DeleteRule(ctx context.Context, name, eventBusName string) error
-	ListRules(ctx context.Context, eventBusName, namePrefix, nextToken string, limit int) ([]Rule, string, error)
+	ListRules(
+		ctx context.Context,
+		eventBusName, namePrefix, nextToken string,
+		limit int,
+	) ([]Rule, string, error)
 	DescribeRule(ctx context.Context, name, eventBusName string) (*Rule, error)
 	EnableRule(ctx context.Context, name, eventBusName string) error
 	DisableRule(ctx context.Context, name, eventBusName string) error
-	PutTargets(ctx context.Context, ruleName, eventBusName string, targets []Target) ([]FailedEntry, error)
-	RemoveTargets(ctx context.Context, ruleName, eventBusName string, ids []string) ([]FailedEntry, error)
+	PutTargets(
+		ctx context.Context,
+		ruleName, eventBusName string,
+		targets []Target,
+	) ([]FailedEntry, error)
+	RemoveTargets(
+		ctx context.Context,
+		ruleName, eventBusName string,
+		ids []string,
+	) ([]FailedEntry, error)
 	ListTargetsByRule(
 		ctx context.Context,
 		ruleName, eventBusName, nextToken string,
@@ -118,7 +134,10 @@ type StorageBackend interface {
 	DeactivateEventSource(ctx context.Context, name string) error
 	CreatePartnerEventSource(ctx context.Context, name, account string) (*PartnerEventSource, error)
 	CancelReplay(ctx context.Context, replayName string) (*Replay, error)
-	CreateAPIDestination(ctx context.Context, input CreateAPIDestinationInput) (*APIDestination, error)
+	CreateAPIDestination(
+		ctx context.Context,
+		input CreateAPIDestinationInput,
+	) (*APIDestination, error)
 	CreateArchive(ctx context.Context, input CreateArchiveInput) (*Archive, error)
 	CreateConnection(ctx context.Context, input CreateConnectionInput) (*Connection, error)
 	CreateEndpoint(ctx context.Context, input CreateEndpointInput) (*Endpoint, error)
@@ -126,7 +145,9 @@ type StorageBackend interface {
 	DeleteAPIDestination(ctx context.Context, name string) error
 	DeleteArchive(ctx context.Context, name string) error
 	DescribeArchive(ctx context.Context, name string) (*Archive, error)
-	ListArchives(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Archive, string, error)
+	ListArchives(
+		ctx context.Context, namePrefix, eventSourceArn, state, nextToken string, limit int,
+	) ([]Archive, string, error)
 	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
 	DeleteConnection(ctx context.Context, name string) error
 	DescribeConnection(ctx context.Context, name string) (*Connection, error)
@@ -136,24 +157,46 @@ type StorageBackend interface {
 	UpdateConnection(ctx context.Context, input UpdateConnectionInput) (*Connection, error)
 	DeleteEndpoint(ctx context.Context, name string) error
 	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
-	ListEndpoints(ctx context.Context, namePrefix, nextToken string, limit int) ([]Endpoint, string, error)
+	ListEndpoints(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]Endpoint, string, error)
 	UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error)
 	DescribeAPIDestination(ctx context.Context, name string) (*APIDestination, error)
 	ListAPIDestinations(
 		ctx context.Context, namePrefix, connectionArn, nextToken string, limit int,
 	) ([]APIDestination, string, error)
-	UpdateAPIDestination(ctx context.Context, input UpdateAPIDestinationInput) (*APIDestination, error)
+	UpdateAPIDestination(
+		ctx context.Context,
+		input UpdateAPIDestinationInput,
+	) (*APIDestination, error)
 	DescribeEventSource(ctx context.Context, name string) (*EventSource, error)
-	ListEventSources(ctx context.Context, namePrefix, nextToken string) ([]EventSource, string, error)
+	ListEventSources(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]EventSource, string, error)
 	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
 	DeletePartnerEventSource(ctx context.Context, name string) error
-	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
-	ListPartnerEventSourceAccounts(ctx context.Context, eventSourceName string) ([]PartnerEventSourceAccountInfo, error)
+	ListPartnerEventSources(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]PartnerEventSource, string, error)
+	ListPartnerEventSourceAccounts(
+		ctx context.Context,
+		eventSourceName string,
+	) ([]PartnerEventSourceAccountInfo, error)
 	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
-	ListReplays(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Replay, string, error)
+	ListReplays(
+		ctx context.Context, namePrefix, eventSourceArn, state, nextToken string, limit int,
+	) ([]Replay, string, error)
 	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
-	ListRuleNamesByTarget(ctx context.Context, targetARN, eventBusName, nextToken string) ([]string, string, error)
+	ListRuleNamesByTarget(
+		ctx context.Context, targetARN, eventBusName, nextToken string, limit int,
+	) ([]string, string, error)
 	TestEventPattern(ctx context.Context, pattern, event string) (bool, error)
 	UpdateEventBus(ctx context.Context, input UpdateEventBusInput) (*EventBus, error)
 	PutPermission(ctx context.Context, input PutPermissionInput) error
@@ -164,22 +207,48 @@ type StorageBackend interface {
 	CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error)
 	DeleteRegistry(ctx context.Context, registryName string) error
 	DescribeRegistry(ctx context.Context, registryName string) (*SchemaRegistry, error)
-	ListRegistries(ctx context.Context, namePrefix, nextToken string) ([]SchemaRegistry, string, error)
+	ListRegistries(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]SchemaRegistry, string, error)
 	UpdateRegistry(ctx context.Context, input UpdateRegistryInput) (*SchemaRegistry, error)
 	CreateSchema(ctx context.Context, input CreateSchemaInput) (*Schema, error)
 	DeleteSchema(ctx context.Context, registryName, schemaName string) error
-	DescribeSchema(ctx context.Context, registryName, schemaName, schemaVersion string) (*Schema, error)
-	ListSchemas(ctx context.Context, registryName, namePrefix, nextToken string) ([]Schema, string, error)
-	SearchSchemas(ctx context.Context, registryName, keywords, nextToken string) ([]Schema, string, error)
+	DescribeSchema(
+		ctx context.Context,
+		registryName, schemaName, schemaVersion string,
+	) (*Schema, error)
+	ListSchemas(
+		ctx context.Context,
+		registryName, namePrefix, nextToken string,
+		limit int,
+	) ([]Schema, string, error)
+	SearchSchemas(
+		ctx context.Context,
+		registryName, keywords, nextToken string,
+		limit int,
+	) ([]Schema, string, error)
 	UpdateSchema(ctx context.Context, input UpdateSchemaInput) (*Schema, error)
-	ListSchemaVersions(ctx context.Context, registryName, schemaName, nextToken string) ([]SchemaVersion, string, error)
-	DescribeSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) (*SchemaVersion, error)
+	ListSchemaVersions(
+		ctx context.Context, registryName, schemaName, nextToken string, limit int,
+	) ([]SchemaVersion, string, error)
+	DescribeSchemaVersion(
+		ctx context.Context,
+		registryName, schemaName, schemaVersion string,
+	) (*SchemaVersion, error)
 	DeleteSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) error
 	GetDiscoveredSchema(ctx context.Context, input GetDiscoveredSchemaInput) (string, error)
 	PutCodeBinding(ctx context.Context, input PutCodeBindingInput) (*CodeBinding, error)
 	DescribeCodeBinding(ctx context.Context, input DescribeCodeBindingInput) (*CodeBinding, error)
-	ListCodeBindings(ctx context.Context, input ListCodeBindingsInput) ([]CodeBinding, string, error)
-	GetCodeBindingSource(ctx context.Context, registryName, schemaName, language, schemaVersion string) (string, error)
+	ListCodeBindings(
+		ctx context.Context,
+		input ListCodeBindingsInput,
+	) ([]CodeBinding, string, error)
+	GetCodeBindingSource(
+		ctx context.Context,
+		registryName, schemaName, language, schemaVersion string,
+	) (string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

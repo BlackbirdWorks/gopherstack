@@ -95,12 +95,12 @@ ops:
   DeleteIntegration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetIntegrationResponses: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetIntegrationResponses: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetIntegrationResponsesOutput.NextToken (declared on both input and output, apigatewayv2@v1.37.4) was never populated -- the shared nestedResponseOps.wrapList closure took only the item slice, dropping the cursor entirely. handleGetChildList now applies pkgs/page.New (via apigwPaginationParams) like every other list op in this package."}
   UpdateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRouteResponses: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRouteResponses: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): same nestedResponseOps.wrapList gap as GetIntegrationResponses -- NextToken never populated. Fixed alongside it."}
   UpdateRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing clientCertificateId (WS-only) and Tags -- fixed"}
@@ -131,17 +131,17 @@ ops:
   DeleteModel: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing mutualTlsAuthentication and domainNameArn (fixed by a prior pass). This pass: routingMode was ALSO entirely absent -- fixed, see Notes #10."}
   GetDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "routingMode fix, see Notes #10"}
-  GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DomainName shape fix as GetDomainName"}
+  GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DomainName shape fix as GetDomainName. FIXED 2026-08-29 (cursor-pagination sweep): GetDomainNamesOutput.NextToken was never populated -- handler called h.Backend.GetDomainNames() and returned the full slice with no pagination at all. Now routed through apigwPaginationParams + pkgs/page.New like GetAPIs/GetDeployments/etc."}
   UpdateDomainName: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "routingMode fix, see Notes #10. This pass: was also mutating Tags/DomainNameConfigurations/MutualTLSAuthentication before validating RoutingMode, so a rejected update could leave those partially applied -- fixed, see Notes #13."}
   DeleteDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetApiMappings: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetApiMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetApiMappingsOutput.NextToken was never populated -- no pagination applied at all. Now routed through apigwPaginationParams + pkgs/page.New."}
   UpdateApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   GetVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetVpcLinksOutput.NextToken was never populated -- no pagination applied at all. Now routed through apigwPaginationParams + pkgs/page.New."}
   UpdateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "Actions/Conditions are now typed AWS union shapes (RoutingRuleAction/RoutingRuleActionInvokeAPI, RoutingRuleCondition/RoutingRuleMatchBasePaths/RoutingRuleMatchHeaders/RoutingRuleMatchHeaderValue) instead of []map[string]any passthrough, with required-subfield and FK (target api/stage must exist) validation, plus RoutingRulePriority's modeled [1,1000000] range -- gopherstack-e81, closed, see Notes #12."}
@@ -439,3 +439,39 @@ Traps for the next auditor (don't re-flag):
   `services/apigatewayv2/` at all (`git show --stat <hash>`). This pass's recorded baseline
   (`d6fae6df`) belonged entirely to the sibling `services/apigateway` (v1 REST API) service; the
   real baseline was recovered via `git log -- services/apigatewayv2/PARITY.md`.
+
+## 2026-08-29 cursor-pagination audit (declares-but-never-sets class)
+
+Enumerated every response struct declaring `NextToken` (17 total, in `models.go`) against
+this package's two shared pagination mechanisms: `handleGetList` (generic helper,
+`handler.go`) and direct `page.New(...)` calls (`pkgs/page`, the repo's shared opaque-cursor
+paginator). 12 of 17 were already correctly wired through one of the two. 5 were not:
+`GetDomainNames`, `GetApiMappings`, `GetIntegrationResponses`, `GetRouteResponses`,
+`GetVpcLinks` -- all real, genuinely-paginated ops (`apigatewayv2@v1.37.4`: each declares
+`MaxResults *string`/`NextToken *string` on input and `NextToken *string` on output) whose
+handlers called the backend and returned the full, unbounded result with no pagination logic
+at all -- not even a broken attempt, just absent. `GetIntegrationResponses`/
+`GetRouteResponses` share a generic `nestedResponseOps[T,U]` helper (two-levels-nested
+"response" resources under an integration/route); its `wrapList` closures took only the item
+slice, with no way to carry a cursor, so `handleGetChildList` (its backing implementation)
+never had a token to set. Widened `wrapList`'s signature to `func([]T, string) any` and moved
+the `apigwPaginationParams`/`page.New` call into `handleGetChildList` itself, matching
+`handleGetList`'s existing shape -- one fix covers both ops.
+
+Every one of these 5 also had the request-side `MaxResults`/`NextToken` completely unread
+(no query-string parsing at all before this fix), the same broken-both-sides pattern the
+brief predicted.
+
+No provably-bounded gaps found in this service -- every declared cursor corresponds to a
+genuinely user-growable collection (domain names, API mappings, integration/route responses,
+VPC links all accumulate via Create* calls with no compile-time cap).
+
+Tests: new `services/apigatewayv2/pagination_cursor_test.go`
+(`TestGetDomainNames_Limit`, `TestGetApiMappings_Limit`, `TestGetIntegrationResponses_Limit`,
+`TestGetRouteResponses_Limit`, `TestGetVpcLinks_Limit`), all driving the real
+`aws-sdk-go-v2/service/apigatewayv2` client via the existing `newTestAPIGatewayV2Client`
+helper, all confirmed failing against unmodified code before the fix.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/apigatewayv2/...` (pass), `golangci-lint run ./services/apigatewayv2/...`
+(0 issues after `gofmt -w` on `handler.go`).

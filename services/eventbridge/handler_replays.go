@@ -125,12 +125,13 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 				EventSourceArn string `json:"EventSourceArn"`
 				State          string `json:"State"`
 				NextToken      string `json:"NextToken"`
+				Limit          int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			replays, next, err := h.Backend.ListReplays(
-				ctx, input.NamePrefix, input.EventSourceArn, input.State, input.NextToken,
+				ctx, input.NamePrefix, input.EventSourceArn, input.State, input.NextToken, int(input.Limit),
 			)
 			if err != nil {
 				return nil, err

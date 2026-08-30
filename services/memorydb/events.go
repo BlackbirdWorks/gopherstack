@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -50,6 +51,20 @@ func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsR
 			}
 		}
 	}
+
+	// Deterministic order: map iteration over b.events (keyed by region) is
+	// randomized, and pagination requires a stable ordering across calls.
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].Date.Equal(result[j].Date) {
+			return result[i].Date.Before(result[j].Date)
+		}
+
+		if result[i].SourceName != result[j].SourceName {
+			return result[i].SourceName < result[j].SourceName
+		}
+
+		return result[i].Message < result[j].Message
+	})
 
 	return result, nil
 }

@@ -211,7 +211,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123456789012:my-queue", targets[0].Arn)
 
 	ruleNames, _, err := fresh.ListRuleNamesByTarget(
-		ctx, "arn:aws:sqs:us-east-1:123456789012:my-queue", "custom-bus", "",
+		ctx, "arn:aws:sqs:us-east-1:123456789012:my-queue", "custom-bus", "", 0,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, ruleNames, "custom-rule")

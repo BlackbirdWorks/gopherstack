@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,15 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+// schemasRESTLimit parses the "limit" query param (schemas@v1.37.4
+// serializers.go: encoder.SetQuery("limit").Integer(*v.Limit)). An absent or
+// unparseable value returns 0, which paginateN treats as its default page size.
+func schemasRESTLimit(q url.Values) int {
+	n, _ := strconv.Atoi(q.Get("limit"))
+
+	return n
+}
 
 // schemasRESTContentType is the real schemas@v1.37.4 REST-JSON1 wire content
 // type (serializers.go: restEncoder.SetHeader("Content-Type").String("application/json")
@@ -154,9 +165,16 @@ func parseSchemasSchemasPath(segs []string, registryName string) (schemasPathMat
 	return schemasPathMatch{}, false
 }
 
-func parseSchemasSchemaPath(segs []string, registryName, schemaName string) (schemasPathMatch, bool) {
+func parseSchemasSchemaPath(
+	segs []string,
+	registryName, schemaName string,
+) (schemasPathMatch, bool) {
 	if len(segs) == segCountSchema {
-		return schemasPathMatch{kind: schemasRouteSchema, registryName: registryName, schemaName: schemaName}, true
+		return schemasPathMatch{
+			kind:         schemasRouteSchema,
+			registryName: registryName,
+			schemaName:   schemaName,
+		}, true
 	}
 
 	if len(segs) == segCountSchemaVersionsList && segs[7] == "versions" {
@@ -185,7 +203,10 @@ func parseSchemasSchemaPath(segs []string, registryName, schemaName string) (sch
 // the whole package, not by meaning).
 const schemasPathSegSource = "source"
 
-func parseSchemasCodeBindingPath(segs []string, registryName, schemaName, language string) (schemasPathMatch, bool) {
+func parseSchemasCodeBindingPath(
+	segs []string,
+	registryName, schemaName, language string,
+) (schemasPathMatch, bool) {
 	if len(segs) == segCountSchemaVersionOrCodeBinding {
 		return schemasPathMatch{
 			kind: schemasRouteCodeBinding, registryName: registryName, schemaName: schemaName, language: language,
@@ -539,14 +560,20 @@ func codeBindingToREST(b *CodeBinding) codeBindingRESTOutput {
 func (h *Handler) handleSchemasREST(c *echo.Context, op string) error {
 	m, ok := parseSchemasPath(c.Request().URL.Path)
 	if !ok {
-		return h.writeSchemasRESTError(c, fmt.Errorf("%w: unrecognized schemas path", ErrInvalidParameter))
+		return h.writeSchemasRESTError(
+			c,
+			fmt.Errorf("%w: unrecognized schemas path", ErrInvalidParameter),
+		)
 	}
 
 	if fn, exists := h.schemasRESTOps()[op]; exists {
 		return fn(c, m)
 	}
 
-	return h.writeSchemasRESTError(c, fmt.Errorf("%w: unknown operation %s", ErrInvalidParameter, op))
+	return h.writeSchemasRESTError(
+		c,
+		fmt.Errorf("%w: unknown operation %s", ErrInvalidParameter, op),
+	)
 }
 
 type schemasRESTOpFunc func(*echo.Context, schemasPathMatch) error
@@ -645,7 +672,7 @@ func (h *Handler) schemaVersionCount(ctx context.Context, registryName, schemaNa
 
 	token := ""
 	for {
-		versions, next, err := h.Backend.ListSchemaVersions(ctx, registryName, schemaName, token)
+		versions, next, err := h.Backend.ListSchemaVersions(ctx, registryName, schemaName, token, 0)
 		if err != nil {
 			return count
 		}
@@ -665,7 +692,12 @@ func (h *Handler) schemasRESTListRegistries(c *echo.Context) error {
 	ctx := c.Request().Context()
 	q := c.Request().URL.Query()
 
-	regs, next, err := h.Backend.ListRegistries(ctx, q.Get("registryNamePrefix"), q.Get("nextToken"))
+	regs, next, err := h.Backend.ListRegistries(
+		ctx,
+		q.Get("registryNamePrefix"),
+		q.Get("nextToken"),
+		schemasRESTLimit(q),
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -743,7 +775,9 @@ func (h *Handler) schemasRESTListSchemas(c *echo.Context, m schemasPathMatch) er
 	ctx := c.Request().Context()
 	q := c.Request().URL.Query()
 
-	schemas, next, err := h.Backend.ListSchemas(ctx, m.registryName, q.Get("schemaNamePrefix"), q.Get("nextToken"))
+	schemas, next, err := h.Backend.ListSchemas(
+		ctx, m.registryName, q.Get("schemaNamePrefix"), q.Get("nextToken"), schemasRESTLimit(q),
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -769,14 +803,16 @@ func (h *Handler) schemasRESTSearchSchemas(c *echo.Context, m schemasPathMatch) 
 	ctx := c.Request().Context()
 	q := c.Request().URL.Query()
 
-	schemas, next, err := h.Backend.SearchSchemas(ctx, m.registryName, q.Get("keywords"), q.Get("nextToken"))
+	schemas, next, err := h.Backend.SearchSchemas(
+		ctx, m.registryName, q.Get("keywords"), q.Get("nextToken"), schemasRESTLimit(q),
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
 
 	summaries := make([]searchSchemaSummaryRESTOutput, 0, len(schemas))
 	for _, s := range schemas {
-		versions, _, verr := h.Backend.ListSchemaVersions(ctx, m.registryName, s.SchemaName, "")
+		versions, _, verr := h.Backend.ListSchemaVersions(ctx, m.registryName, s.SchemaName, "", 0)
 		if verr != nil {
 			return h.writeSchemasRESTError(c, verr)
 		}
@@ -836,7 +872,12 @@ func (h *Handler) schemasRESTDeleteSchema(c *echo.Context, m schemasPathMatch) e
 func (h *Handler) schemasRESTDescribeSchema(c *echo.Context, m schemasPathMatch) error {
 	schemaVersion := c.Request().URL.Query().Get("schemaVersion")
 
-	schema, err := h.Backend.DescribeSchema(c.Request().Context(), m.registryName, m.schemaName, schemaVersion)
+	schema, err := h.Backend.DescribeSchema(
+		c.Request().Context(),
+		m.registryName,
+		m.schemaName,
+		schemaVersion,
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -871,7 +912,9 @@ func (h *Handler) schemasRESTListSchemaVersions(c *echo.Context, m schemasPathMa
 	ctx := c.Request().Context()
 	q := c.Request().URL.Query()
 
-	versions, next, err := h.Backend.ListSchemaVersions(ctx, m.registryName, m.schemaName, q.Get("nextToken"))
+	versions, next, err := h.Backend.ListSchemaVersions(
+		ctx, m.registryName, m.schemaName, q.Get("nextToken"), schemasRESTLimit(q),
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -893,7 +936,12 @@ func (h *Handler) schemasRESTListSchemaVersions(c *echo.Context, m schemasPathMa
 }
 
 func (h *Handler) schemasRESTDeleteSchemaVersion(c *echo.Context, m schemasPathMatch) error {
-	err := h.Backend.DeleteSchemaVersion(c.Request().Context(), m.registryName, m.schemaName, m.schemaVersion)
+	err := h.Backend.DeleteSchemaVersion(
+		c.Request().Context(),
+		m.registryName,
+		m.schemaName,
+		m.schemaVersion,
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -907,7 +955,10 @@ func (h *Handler) schemasRESTGetDiscoveredSchema(c *echo.Context) error {
 		return h.writeSchemasRESTError(c, err)
 	}
 
-	content, err := h.Backend.GetDiscoveredSchema(c.Request().Context(), GetDiscoveredSchemaInput(in))
+	content, err := h.Backend.GetDiscoveredSchema(
+		c.Request().Context(),
+		GetDiscoveredSchemaInput(in),
+	)
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}

@@ -110,7 +110,7 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 // filtered subset.
 func (b *InMemoryBackend) ListArchives(
 	ctx context.Context,
-	namePrefix, eventSourceArn, state, nextToken string,
+	namePrefix, eventSourceArn, state, nextToken string, limit int,
 ) ([]Archive, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) ListArchives(
 	defer b.mu.RUnlock()
 
 	page, outToken := listNamedItems(
-		b.archivesTable(region), namePrefix, eventSourceArn, state, nextToken,
+		b.archivesTable(region), namePrefix, eventSourceArn, state, nextToken, limit,
 		func(a *Archive) string { return a.ArchiveName },
 		func(a *Archive) string { return a.EventSourceArn },
 		func(a *Archive) string { return a.State },

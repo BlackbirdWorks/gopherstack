@@ -85,7 +85,7 @@ ops:
   DescribeParameterGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeParameters: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: parameterObject dropped fabricated \"ChangeType\"/\"Source\" fields -- confirmed absent from types.Parameter's 6-key deserializer case list (AllowedValues, DataType, Description, MinimumEngineVersion, Name, Value)"}
+  DescribeParameters: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: parameterObject dropped fabricated \"ChangeType\"/\"Source\" fields -- confirmed absent from types.Parameter's 6-key deserializer case list (AllowedValues, DataType, Description, MinimumEngineVersion, Name, Value). FIXED 2026-08-29 (cursor-pagination sweep): DescribeParametersOutput.NextToken (declared on input and output, api_op_DescribeParameters.go) was never populated -- no pagination applied at all, and UpdateParameterGroup accepts arbitrary parameter names (not validated against the known catalogue), so the ~37-entry built-in default set is not provably bounded. Now routed through the shared paginateItems helper like every other list op in this package."}
   ResetParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -109,7 +109,7 @@ ops:
   # GetSupportedOperations() entry. Same resolution as DAX's
   # ResetParameterGroup and EMR's ListTagsForResource.
   DescribeEngineVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: engineVersionObject dropped a fabricated \"Description\" field -- confirmed absent from types.EngineVersionInfo's 4-key deserializer case list (Engine, EnginePatchVersion, EngineVersion, ParameterGroupFamily); kept internally on the EngineVersion model as seed-table documentation only. 2026-08-15 (gopherstack-6flj): MaxResults/NextToken were parsed but never consulted -- every call returned the full static catalog in one page. Fixed via paginateItems, cursor = Engine+\"|\"+EngineVersion (unique within the static catalog)."}
-  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified: eventObject (Date, Message, SourceName, SourceType) matches types.Event's 4-key deserializer case list exactly"}
+  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified: eventObject (Date, Message, SourceName, SourceType) matches types.Event's 4-key deserializer case list exactly. FIXED 2026-08-29 (cursor-pagination sweep): DescribeEventsOutput.NextToken was never populated -- no pagination applied at all, even though events accumulate up to maxEvents=1000 per region (store.go) and DescribeEvents concatenates across every region. Events have no unique name field, so this uses pkgs/page (index-offset cursor) rather than this package's name-keyed paginateItems; results are now sorted deterministically (Date, then SourceName, then Message) since map iteration over the per-region event store is otherwise randomized and pagination requires stable ordering across calls."}
   CreateMultiRegionCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: multiRegionClusterObject was missing the real \"Clusters\" ([]RegionalCluster) and \"TLSEnabled\" fields -- both confirmed on types.MultiRegionCluster. Clusters is now populated from actual per-Region Cluster records referencing this multi-Region cluster by name (RegionalClustersFor, multi_region_clusters.go). Also fixed (gopherstack-yusn): MultiRegionParameterGroupName was stored with no existence check, unlike the equivalent ACLName/SubnetGroupName/ParameterGroupName FKs on CreateCluster; now validated against b.multiRegionParameterGroups (ErrMultiRegionParameterGroupNotFound). 2026-08-15 (gopherstack-6flj): NumShards was a real CreateMultiRegionClusterInput member (confirmed via api_op_CreateMultiRegionCluster.go) that wasn't even in the request struct -- a discarded input, silently defaulting every multi-Region cluster to an unreported 0 shards. Added, defaults to 1 (matching CreateCluster's own default) when unset, validated 1-500 like CreateCluster."}
   DeleteMultiRegionCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMultiRegionClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ShowClusterDetails was parsed but never gated anything (multiRegionClusterObject had no Clusters field to gate); now mirrors DescribeClusters' ShowShardDetails convention -- Clusters is populated only when ShowClusterDetails is true. 2026-08-15 (gopherstack-6flj): multiRegionClusterObject was missing the real NumberOfShards response member entirely (types.MultiRegionCluster, confirmed via its 11-key deserializer case list) -- added, sourced from the new MultiRegionCluster.NumShards field (see CreateMultiRegionCluster). MaxResults/NextToken were also parsed but never consulted; fixed via paginateItems, cursor = MultiRegionClusterName."}
@@ -130,13 +130,13 @@ families:
   pointer_aliasing: {status: ok, note: "prior pass, still holds: Create*/Copy*/Export* ops clone before returning."}
   persistence: {status: ok, note: "Handler exposes Snapshot(ctx)/Restore(ctx,[]byte) delegating straight to InMemoryBackend; backendSnapshot versioning (memorydbSnapshotVersion, still 1) unaffected by this pass's field additions/removals -- all additive/subtractive struct field changes are backward/forward compatible with encoding/json's default zero-value behavior, no version bump needed."}
   route_matcher: {status: ok, note: "unchanged this pass: single X-Amz-Target-prefixed POST endpoint, all GetSupportedOperations entries reachable through dispatch (structurally immune to the path-segment-router bug class -- flat X-Amz-Target dispatch, not path-segment matching)."}
-  pagination: {status: partial, note: "2026-08-15 (gopherstack-6flj): 7 of 15 Describe ops parsed MaxResults/NextToken into their request struct but never called paginateItems (handler.go) -- every call returned the full result set in one page regardless of MaxResults. Fixed 6 (DescribeEngineVersions, DescribeReservedNodes, DescribeReservedNodesOfferings, DescribeMultiRegionClusters, DescribeMultiRegionParameterGroups, DescribeMultiRegionParameters), all backed by statically-ordered or explicitly-sorted results, so a name-based cursor is sound. DescribeEvents left unfixed and disclosed (see gaps) -- its result order is not deterministic across calls (unscoped region iteration over a Go map), so pagination on top of it would be unsound rather than just incomplete."}
+  pagination: {status: ok, note: "2026-08-15 (gopherstack-6flj): 7 of 15 Describe ops parsed MaxResults/NextToken into their request struct but never called paginateItems (handler.go) -- every call returned the full result set in one page regardless of MaxResults. Fixed 6 (DescribeEngineVersions, DescribeReservedNodes, DescribeReservedNodesOfferings, DescribeMultiRegionClusters, DescribeMultiRegionParameterGroups, DescribeMultiRegionParameters), all backed by statically-ordered or explicitly-sorted results, so a name-based cursor is sound. DescribeEvents left unfixed at the time -- see gaps for the 2026-08-29 resolution (deterministic sort added, pagination now wired). 2026-08-29 (cursor-pagination sweep): DescribeParameters was a previously-unnoticed 8th unpaginated op, now fixed (paginateItems). Also found and fixed a severe pre-existing bug in paginateItems itself: findStartIndex resumed one index past the matching item instead of at it, silently dropping exactly one item at every page boundary across all 14 paginated ops (not just the newly-fixed ones) since nextToken encodes the next page's first item inclusively, not the previous page's last item exclusively. See TestPaginateItems_NoSkipAcrossPages (whitebox_test.go)."}
 gaps:                     # known divergences NOT fixed this pass
   - "ClusterConfiguration.Shards ([]ShardDetail) is not modeled: real AWS's Snapshot.ClusterConfiguration carries a full per-shard array (Configuration/ShardConfiguration sub-object with Slots/ReplicaCount, Name, Size, SnapshotCreationTime -- confirmed via types.ShardDetail and its deserializer). snapshotClusterConfig has none of this. Re-checked 2026-08-10 (gopherstack-yusn): the backend DOES track a shard COUNT (Cluster.NumShards/NumReplicasPerShard) and derives synthetic Name/Slots/Nodes for DescribeClusters' ShowShardDetails (buildShards, handler_clusters.go) -- but ShardDetail.Size (the shard's snapshot data size) is never tracked anywhere and has no honest derivation, and reusing buildShards' evenly-split synthetic Slots for permanent snapshot metadata would fabricate historical per-shard data no real resharding/slot-migration event produced. Still not fixed: Size is genuinely absent, and Slots would have to be invented for this specific field even though a similar synthesis is tolerated for the live-cluster ShowShardDetails view; fabricating either violates the no-stub rule."
   - "ServiceUpdate.NodesUpdated is not modeled: real AWS's field lists which nodes a per-cluster service update instance has updated. This backend has no per-node update tracking (buildShards' node identities are synthesized per-request, not persisted per-node state), so there is nothing honest to report; the wire field exists (added 2026-08-10) but is always empty rather than fabricated. ClusterName/per-cluster fanout and the ClusterNames filter ARE now modeled -- see DescribeServiceUpdates/BatchUpdateCluster fixed in this pass."
   - "DescribeSnapshotsInput.ShowDetail (real field; per AWS's doc comment it gates whether the per-shard configuration -- ClusterConfiguration.Shards -- is included in the response, NOT ClusterConfiguration itself, which is always present) is not implemented. Tied to the Shards gap above: since Shards can't be honestly populated (Size/Slots not derivable without fabrication), wiring a ShowDetail flag that gates an always-empty Shards list would just be a second parsed-and-ignored request field: not implemented, rather than added as a no-op."
   - "2026-08-15 (gopherstack-6flj): ClusterPendingUpdates.Resharding (real member, types.ReshardingStatus{SlotMigration{ProgressPercentage}}, confirmed via deserializers.go's 3-key ClusterPendingUpdates case list -- ACLs/Resharding/ServiceUpdates) is not modeled on pendingUpdatesObject at all. Same root cause as the UpdateMultiRegionCluster ShardConfiguration gap above: UpdateCluster/UpdateMultiRegionCluster apply a shard-count change synchronously with no in-progress-resharding state (grep for \"reshard\" in this service: zero hits outside this note), so there is nothing to honestly report -- the field would always be absent/nil either way, identical to a real AWS response at rest with no resharding in flight. Not added as a dead always-nil field; disclosed instead."
-  - "2026-08-15 (gopherstack-6flj): DescribeEvents' MaxResults/NextToken are parsed but not consulted -- every call returns the full matching event log in one page. NOT fixed this pass: DescribeEvents (events.go) iterates b.events (a map keyed by region) without scoping to the calling request's region at all, and appends in map-iteration order across region keys, which is non-deterministic in Go -- adding cursor-based pagination on top of a non-deterministic base order would produce unsound pages (skips/repeats across calls). The region-scoping issue itself looks like a separate, real backend-logic bug (cross-region event leakage) rather than a wire-shape one; flagged for a follow-up bd issue rather than fixed here, since fixing it changes read semantics beyond this campaign's wire-shape scope."
+  - "2026-08-15 (gopherstack-6flj): DescribeEvents' MaxResults/NextToken are parsed but not consulted -- every call returns the full matching event log in one page. UPDATE 2026-08-29 (cursor-pagination sweep): the pagination half is now fixed -- DescribeEvents (events.go) now sorts its result deterministically (Date, then SourceName, then Message) before pkgs/page.New paginates it, resolving the 'non-deterministic order makes a cursor unsound' blocker this note originally raised. The cross-region leakage this note also flagged is UNCHANGED and still open: DescribeEvents still iterates b.events (a map keyed by region) without scoping to the calling request's region at all -- the new sort makes that already-cross-region result deterministically ORDERED, it does not stop the leak. Still flagged for a follow-up bd issue; fixing the leak itself remains out of this pass's cursor-pagination scope."
   - "2026-08-15 (gopherstack-6flj): DescribeUsersInput.Filters -- see DescribeUsers op note above."
 deferred:                 # consciously not audited this pass (scope) -- next pass targets
   - "Byte-for-byte audit of nested shardObject/nodeObject beyond the fields already spot-checked (Name, Status, Slots, Nodes, NumberOfNodes on Shard; AvailabilityZone, CreateTime, Endpoint, Name, Status on Node) -- these matched exactly against types.Shard/types.Node's deserializer case lists when checked this pass, but the full request-shape interaction with real Slots math (16384 keyspace distribution) was not independently verified against live AWS."
@@ -300,3 +300,59 @@ service.
 Gates: `go build ./services/memorydb/...`, `go vet ./services/memorydb/...` and `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/memorydb/...` (pass, no changes), `golangci-lint
 run ./services/memorydb/...` (0 issues). No code changed this pass.
+
+## 2026-08-29 cursor-pagination audit -- CRITICAL: shared paginateItems() dropped one item per page boundary
+
+This is the most severe finding of this pass, and it is not the "cursor never set" class the
+sweep was primarily hunting -- it is worse: the cursor WAS set, correctly advertised a next
+page, and following it silently dropped exactly one item at every single page boundary,
+across every one of this package's 14 paginated list operations.
+
+`paginateItems` (`handler.go`) is this service's one shared, generic list-pagination helper
+-- 13 pre-existing callers (`GetACLs`, `DescribeEngineVersions`, `DescribeClusters`,
+`DescribeMultiRegionClusters`, `DescribeMultiRegionParameterGroups`,
+`DescribeMultiRegionParameters`, `DescribeReservedNodes`,
+`DescribeReservedNodesOfferings`, `DescribeServiceUpdates`, `DescribeSnapshots`,
+`DescribeSubnetGroups`, `DescribeUsers`, `DescribeParameterGroups`) plus, as of this pass,
+`DescribeParameters` (14th). It encodes `NextToken` as the name of the first item of the
+*next* page (`nextToken = getName(items[limit])`, inclusive), but its decode half
+(`findStartIndex`) resumed at `i+1` -- the index *after* the matching item -- silently
+dropping the very item the token named. A 5-item `MaxResults=1` walk returned items
+`a, c, e`: `b` and `d` vanish with no error, no short page, nothing a client could detect.
+
+Caught by `TestDescribeParameters_Pagination` (added for the newly-fixed `DescribeParameters`
+op): expected the second page to hold the collection's remainder, got one fewer item than
+expected. Root-caused to `findStartIndex`, not `DescribeParameters` itself. Fixed
+`findStartIndex` to return `i` instead of `i+1`, which transitively fixes all 14 operations.
+Confirmed by temporarily reverting the one-line fix and re-running the new direct unit test
+(`TestPaginateItems_NoSkipAcrossPages`, `whitebox_test.go` -- in-package so it can call the
+unexported helper directly): fails with exactly the `a,c,e` skip pattern pre-fix, passes
+post-fix. Full `go test -race -count=1 ./services/memorydb/...` suite (all pre-existing
+tests, including every one of the 13 other `paginateItems` callers' own tests) still passes
+post-fix -- no existing test had the wrong skip-one behavior baked in as an expected result,
+meaning this bug shipped silently undetected until this pass.
+
+Two response cursors newly fixed to be populated at all (see per-op notes above and `gaps`):
+`DescribeEvents` (no pagination applied whatsoever; not provably bounded -- up to 1000 events
+per region, concatenated across every region; also required adding a deterministic sort,
+since the pre-existing PARITY note correctly identified that this op's un-region-scoped map
+iteration made ordering non-deterministic across calls, which this sweep's added sort now
+resolves for pagination soundness -- the underlying cross-region leak that note also flagged
+is separate and still open, not touched this pass) and `DescribeParameters` (no pagination
+applied whatsoever; not provably bounded because `UpdateParameterGroup` accepts arbitrary new
+parameter names with no validation against the known catalogue -- an adjacent gap, not fixed
+this pass, but it defeats the "compile-time catalogue" argument that would otherwise have let
+this cursor stay legitimately unpopulated).
+
+No other response structs declaring `NextToken` were found unaccounted for (16 total across
+`models_*.go`; all 16 now correctly populated: 14 pre-existing correct + 2 fixed this pass).
+
+Tests: `services/memorydb/events_test.go` gained `TestDescribeEvents_Pagination`;
+`services/memorydb/handler_parameter_groups_test.go` gained
+`TestDescribeParameters_Pagination`; `services/memorydb/whitebox_test.go` gained
+`TestPaginateItems_NoSkipAcrossPages`. All confirmed failing against unmodified code (the
+first two via feature absence, the third via a temporary one-line revert) before the fix.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/memorydb/...` (pass, full suite including all pre-existing pagination tests),
+`golangci-lint run ./services/memorydb/...` (0 issues).

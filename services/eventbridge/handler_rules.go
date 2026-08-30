@@ -153,6 +153,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				EventBusName string `json:"EventBusName"`
 				NextToken    string `json:"NextToken"`
 				TargetArn    string `json:"TargetArn"`
+				Limit        int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -162,6 +163,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				input.TargetArn,
 				input.EventBusName,
 				input.NextToken,
+				int(input.Limit),
 			)
 			if err != nil {
 				return nil, err
