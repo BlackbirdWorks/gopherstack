@@ -7,8 +7,38 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
-last_audit_date: 2026-08-29
-overall: A            # 2026-08-29 (cursor-population sweep, same day, separate pass from the constraint-
+last_audit_date: 2026-08-30
+overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
+                      # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
+                      # sort with no total-order comparator leaves ties to depend on that unspecified
+                      # order, varying call to call, which page.New's index-based cursor can't tolerate --
+                      # same bug class already fixed across cloudwatchlogs this same branch). Found and
+                      # fixed 2: ListPolicies (sorted by PolicySummary.Name alone; CreatePolicy enforces no
+                      # name uniqueness, so two same-type policies can tie -- added PolicySummary.ID as a
+                      # secondary key) and ListDelegatedAdministrators' unfiltered branch (sorted by
+                      # AccountID alone, but the table is keyed by ServicePrincipal+AccountID, so one
+                      # account delegated for multiple services ties -- added ServicePrincipal as a
+                      # secondary key). Every other List/Describe op's sort key was checked against its
+                      # own source and confirmed already a total order over that source: ListAccounts/
+                      # ListAccountsForParent (Account.ID, the table's own primary key), ListOrganizational-
+                      # UnitsForParent (OrganizationalUnit.Name, sibling-name uniqueness enforced at
+                      # CreateOrganizationalUnit), ListHandshakesForAccount/ListHandshakesForOrganization
+                      # (Handshake.ID), ListAWSServiceAccessForOrganization (ServicePrincipal, the table's
+                      # own primary key), ListTagsForResource (Tag.Key, map keys are inherently unique),
+                      # ListTargetsForPolicy (PolicyTargetSummary.TargetID, sourced from a
+                      # map[string][]string slice value -- deterministic insertion order, not a map walk,
+                      # so no sort-totality risk regardless of key uniqueness), ListPoliciesForTarget (no
+                      # sort at all, but same deterministic-slice source as ListTargetsForPolicy). Both
+                      # fixes proven via new pagination_sort_totality_test.go (TestListPoliciesSortIsTotal:
+                      # a real paginated HTTP walk with 3 same-named policies repeated 30x, proving the
+                      # drop/duplicate-across-page-boundary directly on the wire;
+                      # TestListDelegatedAdministratorsOrderIsStableAcrossCalls: asserts backend-internal
+                      # return-order stability directly, since the real DelegatedAdministrator wire type
+                      # has no ServicePrincipal member to distinguish same-account rows by, so a wire-level
+                      # drop/duplicate count can't observe this one), both hand-reverted and confirmed to
+                      # fail against unfixed code. See the ListPolicies/ListDelegatedAdministrators ops:
+                      # entries for detail.
+                      # --- 2026-08-29 (cursor-population sweep, same day, separate pass from the constraint-
                       # not-honoured one below -- this one reads response SHAPES, not filter semantics):
                       # every List/Describe op declaring a real NextToken (20 of 28, from the pinned SDK
                       # Output structs directly) already populates it through the shared page.New helper
@@ -66,7 +96,7 @@ ops:
   DescribePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content, when supplied, goes through the same validatePolicyContent() as CreatePolicy (syntax+size, corrected SCP/RCP limits) before ANY field (name/description/content) is mutated, matching AWS's atomic per-request failure semantics."}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects deletion while still attached to any target"}
-  ListPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires non-empty Filter, matches AWS; already paginated"}
+  ListPolicies: {wire: ok, errors: ok, state: fixed, persist: ok, note: "requires non-empty Filter, matches AWS; already paginated. 2026-08-30 (ordering pass): sort key was PolicySummary.Name alone, sourced from b.policies.All() (store.Table map walk, unspecified order); CreatePolicy enforces no name-uniqueness (real AWS Organizations doesn't require unique policy names either), so two same-type policies can tie on Name -- an untied comparator leaves relative order to depend on map-walk order, which varies call to call, and page.New's index-based cursor assumes a stably-ordered slice across calls. Fixed by adding PolicySummary.ID as a secondary sort key. TestListPoliciesSortIsTotal (pagination_sort_totality_test.go) reproduces the drop/duplicate-across-page-boundary via a real paginated HTTP walk with 3 same-named policies, repeated 30x; hand-reverted and confirmed to fail against unfixed code."}
   AttachPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "enforces AWS's 5-policies-per-type-per-target limit and duplicate-attachment rejection"}
   DetachPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPoliciesForTarget: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field was missing from the request DTO entirely and results were never truncated; added field + wired page.New"}
@@ -81,7 +111,7 @@ ops:
   ListAWSServiceAccessForOrganization: {wire: fixed, errors: ok, state: ok, persist: ok, note: "handler previously discarded the request body entirely (`_ []byte`), so MaxResults/NextToken were unreachable; added listAWSServiceAccessRequest + page.New wiring, guarded for empty body (matches ListHandshakesForAccount's pattern) since real SDK clients still send at least '{}'"}
   RegisterDelegatedAdministrator: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires EnableAWSServiceAccess first, matches AWS's ErrServiceNotEnabled behavior"}
   DeregisterDelegatedAdministrator: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDelegatedAdministrators: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field missing from request DTO, results never truncated; added field + wired page.New"}
+  ListDelegatedAdministrators: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field missing from request DTO, results never truncated; added field + wired page.New. 2026-08-30 (ordering pass): the unfiltered branch (ServicePrincipal==\"\") sources from b.delegatedAdmins.All() (store.Table map walk), keyed by ServicePrincipal+AccountID (delegatedAdminKeyFn), NOT by AccountID alone -- so a single account registered as delegated admin for multiple different service principals (RegisterDelegatedAdministrator only rejects a duplicate servicePrincipal+accountID pair, never a repeat AccountID across services) produces multiple DelegatedAdmin rows tied on AccountID under a sort keyed on AccountID alone. Real types.DelegatedAdministrator (organizations@v1.53.5 types/types.go:192) has no ServicePrincipal member, so this can't be proven through the wire response the way ListPolicies' sibling bug can (every row for one account is AccountID-indistinguishable, and the table's total entry count doesn't change with reordering, so a wire-level drop/duplicate count is unaffected either way) -- proven instead via TestListDelegatedAdministratorsOrderIsStableAcrossCalls asserting InMemoryBackend.ListDelegatedAdministrators(\"\")'s own return order (via the exported, wire-excluded DelegatedAdmin.ServicePrincipal field) is identical across repeated calls with nothing changed in between, which page.New's index-based cursor requires and the map-walk source doesn't provide unaided. Fixed by adding ServicePrincipal as a secondary sort key. Hand-reverted and confirmed to fail against unfixed code."}
   ListDelegatedServicesForAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same gap, fixed the same way"}
   AcceptHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelHandshake: {wire: ok, errors: ok, state: ok, persist: ok}

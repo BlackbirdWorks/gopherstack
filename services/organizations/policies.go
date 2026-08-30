@@ -230,10 +230,13 @@ func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 		}
 	}
 
-	slices.SortFunc(
-		out,
-		func(a, b *Policy) int { return cmp.Compare(a.PolicySummary.Name, b.PolicySummary.Name) },
-	)
+	slices.SortFunc(out, func(a, b *Policy) int {
+		if c := cmp.Compare(a.PolicySummary.Name, b.PolicySummary.Name); c != 0 {
+			return c
+		}
+
+		return cmp.Compare(a.PolicySummary.ID, b.PolicySummary.ID)
+	})
 
 	return out, nil
 }
