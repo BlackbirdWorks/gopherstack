@@ -51,7 +51,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	target := ce.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err = target.CreateCostCategoryDefinition(
-		"PreExisting", "CostCategoryExpression.v1", "", nil, nil,
+		"PreExisting", "CostCategoryExpression.v1", "", nil, nil, nil, "",
 	)
 	require.NoError(t, err)
 

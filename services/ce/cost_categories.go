@@ -20,10 +20,15 @@ func effectiveStart() string {
 }
 
 // CreateCostCategoryDefinition creates a new cost category and returns it.
+// requestedEffectiveStart, when non-empty, overrides the default "first day
+// of the current month" real AWS also defaults to when the field is
+// omitted (api_op_CreateCostCategoryDefinition.go).
 func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	name, ruleVersion, defaultValue string,
 	rules []CostCategoryRule,
 	resourceTags map[string]string,
+	splitChargeRules []SplitChargeRule,
+	requestedEffectiveStart string,
 ) (*CostCategory, error) {
 	b.mu.Lock("CreateCostCategoryDefinition")
 	defer b.mu.Unlock()
@@ -39,23 +44,48 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	rulesCopy := make([]CostCategoryRule, len(rules))
 	copy(rulesCopy, rules)
 
+	start := requestedEffectiveStart
+	if start == "" {
+		start = effectiveStart()
+	}
+
 	cat := &CostCategory{
-		ARN:            catARN,
-		Name:           name,
-		RuleVersion:    ruleVersion,
-		DefaultValue:   defaultValue,
-		Rules:          rulesCopy,
-		EffectiveStart: effectiveStart(),
-		CreationDate:   time.Now().UTC(),
-		Tags:           tagsCopy,
+		ARN:              catARN,
+		Name:             name,
+		RuleVersion:      ruleVersion,
+		DefaultValue:     defaultValue,
+		Rules:            rulesCopy,
+		SplitChargeRules: copySplitChargeRules(splitChargeRules),
+		EffectiveStart:   start,
+		CreationDate:     time.Now().UTC(),
+		Tags:             tagsCopy,
 	}
 	b.costCategories.Put(cat)
 
 	out := *cat
 	out.Rules = make([]CostCategoryRule, len(cat.Rules))
 	copy(out.Rules, cat.Rules)
+	out.SplitChargeRules = copySplitChargeRules(cat.SplitChargeRules)
 
 	return &out, nil
+}
+
+// copySplitChargeRules deep-copies rules (including each rule's own Targets
+// slice) so the caller can never alias backend-owned state.
+func copySplitChargeRules(rules []SplitChargeRule) []SplitChargeRule {
+	out := make([]SplitChargeRule, len(rules))
+
+	for i, r := range rules {
+		rc := r
+		if r.Targets != nil {
+			rc.Targets = make([]string, len(r.Targets))
+			copy(rc.Targets, r.Targets)
+		}
+
+		out[i] = rc
+	}
+
+	return out
 }
 
 // DeleteCostCategoryDefinition removes a cost category by ARN.
@@ -128,25 +158,13 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 	copy(rulesCopy, rules)
 	cat.Rules = rulesCopy
 
-	splitCopy := make([]SplitChargeRule, len(splitChargeRules))
-	for i, s := range splitChargeRules {
-		sc := s
-		if s.Targets != nil {
-			sc.Targets = make([]string, len(s.Targets))
-			copy(sc.Targets, s.Targets)
-		}
-
-		splitCopy[i] = sc
-	}
-
-	cat.SplitChargeRules = splitCopy
+	cat.SplitChargeRules = copySplitChargeRules(splitChargeRules)
 	cat.EffectiveStart = effectiveStart()
 
 	out := *cat
 	out.Rules = make([]CostCategoryRule, len(cat.Rules))
 	copy(out.Rules, cat.Rules)
-	out.SplitChargeRules = make([]SplitChargeRule, len(cat.SplitChargeRules))
-	copy(out.SplitChargeRules, cat.SplitChargeRules)
+	out.SplitChargeRules = copySplitChargeRules(cat.SplitChargeRules)
 
 	return &out, nil
 }

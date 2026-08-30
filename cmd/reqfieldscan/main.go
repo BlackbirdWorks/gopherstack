@@ -4,37 +4,77 @@
 // then silently ignored, discarding a parameter or a whole request.
 //
 // GROUND TRUTH is structural, go/ast only, no go/types: for each
-// services/<dir>, every `map[string]service.JSONOpFunc{...}` composite
-// literal (there can be several per service, merged at startup -- see
-// route53resolver/handler.go's buildOps, which unions 13 of them) gives the
-// dispatch table: an operation name mapped to a value expression. Two
-// decode paths are resolved:
+// services/<dir>, every dispatch-table construction that yields
+// service.JSONOpFunc values gives an operation name mapped to a value
+// expression. Two shapes are recognised (collectDispatchTableEntries),
+// possibly several per service, merged at startup -- see
+// route53resolver/handler.go's buildOps, which unions 13 map literals:
 //
-//   - service.WrapOp(fn): fn's own second parameter (context.Context, *In)
-//     -- REFLECTION-BASED decode, gopherstack-4shm's blind spot: no literal
-//     json.Unmarshal call anchors it anywhere. fn is resolved whether it's
-//     a bound method (h.handleFoo), a package-level func, or a func
-//     literal; *In's local struct type gives every wire field via its own
-//     json tags.
-//   - a literal `json.Unmarshal(body, &x)` inside some other function,
-//     where x's type is inferrable from its own declaration in that same
-//     function -- this repo's OTHER decode path (e.g. batch's
-//     handleTagResource, whose TagResource op is not in the WrapOp table
-//     at all: it is dispatched by HTTP method inside handleTags, never
-//     through h.ops). Linked to a same-named entry in
-//     GetSupportedOperations's own static []string{} literal, when it has
-//     one (batch-style; route53resolver, workspaces, and dms instead build
-//     that list from h.ops's own keys at runtime, contributing nothing
-//     extra here).
+//   - `map[string]service.JSONOpFunc{...}` composite literals, the common
+//     shape.
+//   - a slice-of-struct binder table -- glue's real shape:
+//     `[]struct{ name string; bind func(*Handler) service.JSONOpFunc }{...}`,
+//     ranged over at startup to build the actual map. Before
+//     gopherstack-43o8's fix this shape contributed no dispatch entries at
+//     all: 0 of 0, not a plausible small number but an invisible one.
+//
+// Each entry's own value expression is resolved directly to its handler's
+// request type (resolveValueExprToReqType) -- through service.WrapOp
+// itself, or through a local function whose entire body forwards to
+// service.WrapOp (cognitoidp's wrapAccuracy[I,O](fn), handler.go:484;
+// collectLocalWrapOpWrappers). Resolving the VALUE actually bound to an op,
+// rather than reconstructing "handle"+opName and searching for a
+// same-named handler, also means a handler's name -- handle<Op>Full,
+// handle<Op>Accurate, handle<Op>WithOpts, or anything else -- no longer
+// matters: gopherstack-43o8's blind spots 2 and 3 were really one gap
+// (matching the literal selector name "WrapOp" instead of the value
+// bound), closed by the same fix. The "handle"+opName reconstruction
+// (collectWrapOpFuncNames, matched case-insensitively) survives as a
+// FALLBACK, still needed for batch's dispatch table, which is keyed by REST
+// path ("/v1/createcomputeenvironment") rather than by the canonical
+// operation name its own GetSupportedOperations advertises -- a shape the
+// direct, op-keyed resolution above can never reach by construction.
+//
+// A THIRD decode path exists outside any dispatch table at all: a literal
+// `json.Unmarshal(body, &x)` inside some other function, where x's type is
+// inferrable from its own declaration in that same function (e.g. batch's
+// handleTagResource, whose TagResource op is dispatched by HTTP method
+// inside handleTags, never through h.ops). Linked to a same-named entry in
+// GetSupportedOperations's own static []string{} literal, when it has one
+// (batch-style; route53resolver, workspaces, and dms instead build that
+// list from h.ops's own keys at runtime, contributing nothing extra here).
+// x's declaration can be a named local struct type, OR an anonymous inline
+// one (`var req struct{...}`) -- opsworks's real shape: every handler there
+// IS a service.JSONOpFunc directly, no WrapOp anywhere, decoding into its
+// own anonymous struct literal. collectAnonReqStructs registers each such
+// declaration under a name derived purely from its file:line, so it
+// resolves through this same literal-decode path. Before this fix opsworks
+// reported 0 of 74 resolved.
 //
 // COVERAGE is reported as a fraction of the dispatch table -- every op name
-// found across all JSONOpFunc map literals, unioned with
+// found across all dispatch-table shapes above, unioned with
 // GetSupportedOperations's own static list when it has one -- specifically
 // so an implausible number is visible on its face. This is the lesson
 // gopherstack-4shm was filed for: a scan anchored on literal decode calls
 // alone found two types and five fields in a service that dispatches
 // nearly everything through WrapOp. Report that fraction plainly rather
 // than a bare finding count.
+//
+// THE COVERAGE GUARD (gopherstack-43o8): a fraction alone can still read as
+// a plausible result when it's actually a measurement failure -- glue's old
+// 0-of-0 and cognitoidp's old 62% both did, and both survived because an
+// agent's own judgment, not the tool, caught them. Any packageScan whose
+// files mention service.JSONOpFunc at all (packageMentionsJSONOpFunc) but
+// resolve zero dispatch entries, or resolve less than lowCoverageThreshold
+// (report.go) of them, now gets an explicit "*** COVERAGE WARNING ***" line
+// ahead of its numbers, and counts toward a nonzero exit code -- loud by
+// construction, not by an agent's judgment call. A package that never
+// mentions service.JSONOpFunc (this repo's Query/XML-protocol and
+// REST-routed services -- sns's map[string]snsActionFn, s3, ec2, iam, and
+// roughly 60 others) is legitimately outside this scan's ground truth; the
+// guard stays silent for those, the same way it always has. As of this fix,
+// nothing in this repo's services/ trips the guard -- it is a sentinel
+// against a FUTURE unrecognised shape, not a currently-firing warning.
 //
 // FIELD COVERAGE: for every function declared in the package (not only the
 // one function WrapOp was handed), a parameter or `:=`/`=`-bound local
@@ -66,6 +106,14 @@
 // hand-verification is still required before treating any flagged field as
 // a real bug, per gopherstack-4shm's own instruction.
 //
+// A GO TYPE ALIAS (`type X = Y`, or a defined type `type X Y`) whose target
+// is a known request struct now resolves too (resolveStructAliases): glue's
+// `type updateJobFromSourceControlInput = jobSourceControlInput`
+// (handler_jobs.go:386) reaches its request struct only through this
+// indirection, invisible to a struct collector that only ever registered
+// ast.StructType TypeSpecs by name. Two glue operations were hand-verified
+// clean but structurally invisible before this fix.
+//
 // BLIND SPOTS, disclosed rather than silently under-covered:
 //   - Only files directly in services/<dir> are scanned, no recursion into
 //     subpackages, and _test.go files are excluded from both the dispatch
@@ -76,13 +124,26 @@
 //     package resolves to whichever FuncDecl was encountered first while
 //     walking files in directory order. This repo's one-Handler-type-per-
 //     service convention makes that collision rare -- never observed
-//     across the four services this tool has been run against -- but it
-//     is not structurally impossible.
+//     across any service this tool has been run against -- but it is not
+//     structurally impossible.
 //   - An embedded (anonymous) struct field, a *In resolved to a type
 //     imported from another package, or a WrapOp argument shape other than
 //     a bound method / package function / func literal contributes no
 //     fields and surfaces as an unresolved dispatch entry in the report,
 //     never a silently dropped one.
+//   - A slice-of-struct binder element must be a KEYED composite literal
+//     (`{name: "...", bind: func(...) {...}}`, glue's real shape and the
+//     only one observed); a positional (unkeyed) element contributes
+//     nothing. A binder func literal's dispatch value must also be its
+//     first top-level return statement -- true for every binder in this
+//     repo today, but a binder with real branching logic before its
+//     return would not resolve.
+//   - A dispatch-table denominator built from GetSupportedOperations's own
+//     static []string{} literal (batch-style) is never cross-checked
+//     against collectDispatchTableEntries's own key set; a static list
+//     that has drifted out of sync with the table it describes would
+//     surface as unresolved ops, never a silently wrong count, but the
+//     two are not reconciled against each other.
 //   - A local variable reassigned with `=` to something the resolver can't
 //     statically type keeps its PRIOR binding rather than being cleared --
 //     a theoretical source of a missed field-write count. Never seen to
@@ -114,8 +175,9 @@
 //	go run ./cmd/reqfieldscan -dir route53resolver,batch      # scan only these
 //	go run ./cmd/reqfieldscan -json out.json                  # also write full report as JSON
 //
-// Exit codes: 0 no unread fields found, 1 a run error, 2 at least one
-// unread field flagged in at least one scanned service.
+// Exit codes: 0 no unread fields found and no coverage warning, 1 a run
+// error, 2 at least one unread field flagged, or at least one service
+// tripped the coverage guard above, in at least one scanned service.
 package main
 
 import (
@@ -155,13 +217,19 @@ func main() {
 	}
 
 	unread := 0
+	lowConfidence := 0
+
 	for _, r := range reports {
 		printServiceReport(r)
 
 		unread += len(r.FlaggedFields)
+
+		if r.LowConfidence != "" {
+			lowConfidence++
+		}
 	}
 
-	if unread > 0 {
+	if unread > 0 || lowConfidence > 0 {
 		os.Exit(exitFindings)
 	}
 
@@ -187,7 +255,7 @@ func run(dirFlag string) ([]serviceReport, error) {
 			return nil, fmt.Errorf("%s: %w", dir, scanErr)
 		}
 
-		if len(scan.Dispatch) == 0 {
+		if len(scan.Dispatch) == 0 && !scan.UsesJSONOpFunc {
 			continue
 		}
 

@@ -45,7 +45,7 @@ func collectFieldCoverage(
 				continue
 			}
 
-			bindings := collectLocalBindings(fd, structs)
+			bindings := collectLocalBindings(fd, fset, structs)
 			walkFuncForFieldReads(fd, fset, bindings, structs, declaredTypes, cov)
 		}
 	}
@@ -81,7 +81,7 @@ func collectAllTypeNames(files []*ast.File) map[string]bool {
 // full subtree before its next sibling), so a binding is visible to every
 // use that follows it -- the same single-assignment-style discipline
 // cmd/enumcheck uses for its own local constant resolution.
-func collectLocalBindings(fd *ast.FuncDecl, structs map[string]structDef) map[string]string {
+func collectLocalBindings(fd *ast.FuncDecl, fset *token.FileSet, structs map[string]structDef) map[string]string {
 	bindings := map[string]string{}
 
 	if fd.Type.Params != nil {
@@ -104,7 +104,7 @@ func collectLocalBindings(fd *ast.FuncDecl, structs map[string]structDef) map[st
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.DeclStmt:
-			recordVarDeclBindings(v, structs, bindings)
+			recordVarDeclBindings(v, fset, structs, bindings)
 		case *ast.AssignStmt:
 			recordAssignBindings(v, structs, bindings)
 		}
@@ -128,7 +128,12 @@ func underlyingIdentType(expr ast.Expr) string {
 	return ""
 }
 
-func recordVarDeclBindings(ds *ast.DeclStmt, structs map[string]structDef, bindings map[string]string) {
+func recordVarDeclBindings(
+	ds *ast.DeclStmt,
+	fset *token.FileSet,
+	structs map[string]structDef,
+	bindings map[string]string,
+) {
 	gd, declOK := ds.Decl.(*ast.GenDecl)
 	if !declOK || gd.Tok != token.VAR {
 		return
@@ -137,6 +142,15 @@ func recordVarDeclBindings(ds *ast.DeclStmt, structs map[string]structDef, bindi
 	for _, spec := range gd.Specs {
 		vs, specOK := spec.(*ast.ValueSpec)
 		if !specOK || vs.Type == nil {
+			continue
+		}
+
+		// `var req struct{...}` -- opsworks's shape: an inline anonymous
+		// struct type, pre-registered by collectAnonReqStructs under the
+		// same file:line-derived name recomputed here.
+		if _, isAnon := vs.Type.(*ast.StructType); isAnon && len(vs.Names) == 1 {
+			bindings[vs.Names[0].Name] = anonStructName(fset, vs)
+
 			continue
 		}
 

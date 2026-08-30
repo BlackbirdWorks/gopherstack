@@ -365,13 +365,21 @@ type anomalyDateInterval struct {
 	EndDate   string `json:"EndDate"`
 }
 
+// totalImpactFilterInput mirrors aws-sdk-go-v2/service/costexplorer/types.TotalImpactFilter:
+// filters anomalies by their total dollar impact, e.g. GREATER_THAN 200.00.
+type totalImpactFilterInput struct {
+	NumericOperator string  `json:"NumericOperator"`
+	StartValue      float64 `json:"StartValue"`
+	EndValue        float64 `json:"EndValue"`
+}
+
 type getAnomaliesInput struct {
-	DateInterval  anomalyDateInterval `json:"DateInterval"`
-	MonitorArn    string              `json:"MonitorArn"`
-	Feedback      string              `json:"Feedback"`
-	TotalImpact   map[string]any      `json:"TotalImpact"`
-	NextPageToken string              `json:"NextPageToken"`
-	MaxResults    int                 `json:"MaxResults"`
+	TotalImpact   *totalImpactFilterInput `json:"TotalImpact"`
+	MonitorArn    string                  `json:"MonitorArn"`
+	Feedback      string                  `json:"Feedback"`
+	NextPageToken string                  `json:"NextPageToken"`
+	DateInterval  anomalyDateInterval     `json:"DateInterval"`
+	MaxResults    int                     `json:"MaxResults"`
 }
 
 type anomalyImpact struct {
@@ -408,10 +416,19 @@ func (h *Handler) handleGetAnomalies(
 		return nil, fmt.Errorf("%w: DateInterval.StartDate is required", ErrValidation)
 	}
 
+	var totalImpact *TotalImpactFilter
+	if in.TotalImpact != nil {
+		totalImpact = &TotalImpactFilter{
+			NumericOperator: in.TotalImpact.NumericOperator,
+			StartValue:      in.TotalImpact.StartValue,
+			EndValue:        in.TotalImpact.EndValue,
+		}
+	}
+
 	anomalies, nextToken := h.Backend.GetAnomalies(
 		in.MonitorArn, in.Feedback,
 		in.DateInterval.StartDate, in.DateInterval.EndDate,
-		in.MaxResults, in.NextPageToken,
+		in.MaxResults, in.NextPageToken, totalImpact,
 	)
 	items := make([]anomalySummary, 0, len(anomalies))
 

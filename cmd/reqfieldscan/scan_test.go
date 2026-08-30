@@ -313,6 +313,323 @@ func (h *Handler) GetSupportedOperations() []string {
 	assert.Equal(t, []string{"Foo", "Bar"}, ops)
 }
 
+// TestSliceOfStructDispatchTableResolves covers gopherstack-43o8 blind spot
+// 1: glue's real shape, a []struct{name string; bind func(*Handler)
+// service.JSONOpFunc}{...} dispatch table instead of a map literal. Before
+// the fix this found no dispatch entries at all -- 0 of 0, not a plausible
+// small number but an invisible one -- and the field never got checked.
+func TestSliceOfStructDispatchTableResolves(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "github.com/blackbirdworks/gopherstack/pkgs/service"
+
+type getBarInput struct {
+	Name   string ` + "`json:\"Name\"`" + `
+	Unread string ` + "`json:\"Unread\"`" + `
+}
+type getBarOutput struct{}
+
+func (h *Handler) handleGetBar(ctx context.Context, in *getBarInput) (*getBarOutput, error) {
+	_ = in.Name
+	return nil, nil
+}
+
+//nolint:gochecknoglobals
+var opBindings = []struct {
+	bind func(*Handler) service.JSONOpFunc
+	name string
+}{
+	{
+		name: "GetBar",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetBar)
+		},
+	},
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	ops := make(map[string]service.JSONOpFunc, len(opBindings))
+	for _, b := range opBindings {
+		ops[b.name] = b.bind(h)
+	}
+	return ops
+}
+
+func (h *Handler) GetSupportedOperations() []string {
+	names := make([]string, len(opBindings))
+	for i, b := range opBindings {
+		names[i] = b.name
+	}
+	return names
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+
+	require.Len(t, scan.Dispatch, 1, "the slice-of-struct table must not report an empty (0-of-0) dispatch table")
+	entry := scan.Dispatch[0]
+	assert.Equal(t, "GetBar", entry.Op)
+	assert.Equal(t, "wrapop", entry.Anchor)
+	assert.Equal(t, "getBarInput", entry.ReqType)
+
+	assert.True(t, scan.Coverage[coverageKey{"getBarInput", "Name"}].Read)
+	assert.False(t, scan.Coverage[coverageKey{"getBarInput", "Unread"}].Read)
+}
+
+// TestLocalWrapOpWrapperResolves covers gopherstack-43o8 blind spot 2:
+// cognitoidp's wrapAccuracy[I,O](fn) generic wrapper (handler.go:484),
+// whose own body is `return service.WrapOp(fn)`. Before the fix, matching
+// only the literal selector name "WrapOp" made every call site reached
+// through the wrapper invisible.
+func TestLocalWrapOpWrapperResolves(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "github.com/blackbirdworks/gopherstack/pkgs/service"
+
+func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) service.JSONOpFunc {
+	return service.WrapOp(fn)
+}
+
+type signUpAccurateInput struct {
+	Username string ` + "`json:\"Username\"`" + `
+	Unread   string ` + "`json:\"Unread\"`" + `
+}
+type signUpAccurateOutput struct{}
+
+func (h *Handler) handleSignUpAccurate(ctx context.Context, in *signUpAccurateInput) (*signUpAccurateOutput, error) {
+	_ = in.Username
+	return nil, nil
+}
+
+func (h *Handler) authOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"SignUp": wrapAccuracy(h.handleSignUpAccurate),
+	}
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+
+	require.Len(t, scan.Dispatch, 1)
+	entry := scan.Dispatch[0]
+	assert.Equal(t, "SignUp", entry.Op)
+	assert.Equal(
+		t,
+		"wrapop",
+		entry.Anchor,
+		"a call through a local WrapOp-forwarding wrapper must resolve like a direct WrapOp call",
+	)
+	assert.Equal(t, "signUpAccurateInput", entry.ReqType)
+
+	assert.True(t, scan.Coverage[coverageKey{"signUpAccurateInput", "Username"}].Read)
+	assert.False(t, scan.Coverage[coverageKey{"signUpAccurateInput", "Unread"}].Read)
+}
+
+// TestSuffixedHandlerNameResolvesThroughDispatchBinder covers gopherstack-
+// 43o8 blind spot 3: a handler named handle<Op>Full/Accurate/WithOpts does
+// not match a reconstructed handle<Op>. Resolving an op through the value
+// actually bound to it in its own dispatch-table entry -- rather than by
+// reconstructing "handle"+opName and searching for a matching handler
+// name -- sidesteps the naming convention entirely, regardless of suffix.
+func TestSuffixedHandlerNameResolvesThroughDispatchBinder(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "github.com/blackbirdworks/gopherstack/pkgs/service"
+
+type createUserPoolInput struct {
+	PoolName string ` + "`json:\"PoolName\"`" + `
+	Unread   string ` + "`json:\"Unread\"`" + `
+}
+type createUserPoolOutput struct{}
+
+func (h *Handler) handleCreateUserPoolWithOpts(
+	ctx context.Context, in *createUserPoolInput,
+) (*createUserPoolOutput, error) {
+	_ = in.PoolName
+	return nil, nil
+}
+
+func (h *Handler) userPoolOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateUserPool": service.WrapOp(h.handleCreateUserPoolWithOpts),
+	}
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+
+	require.Len(t, scan.Dispatch, 1)
+	entry := scan.Dispatch[0]
+	assert.Equal(t, "CreateUserPool", entry.Op)
+	assert.Equal(t, "wrapop", entry.Anchor,
+		"handleCreateUserPoolWithOpts must resolve for CreateUserPool despite not matching handle+opName")
+	assert.Equal(t, "createUserPoolInput", entry.ReqType)
+}
+
+// TestTypeAliasResolvesToStruct covers gopherstack-43o8 blind spot 4:
+// glue's `type updateJobFromSourceControlInput = jobSourceControlInput`
+// (handler_jobs.go:386) -- a WrapOp handler's request type reached only
+// through a Go type alias, invisible to a struct collector that only
+// registers ast.StructType TypeSpecs by name.
+func TestTypeAliasResolvesToStruct(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "github.com/blackbirdworks/gopherstack/pkgs/service"
+
+type jobSourceControlInput struct {
+	JobName string ` + "`json:\"JobName\"`" + `
+	Unread  string ` + "`json:\"Unread\"`" + `
+}
+type updateJobFromSourceControlInput = jobSourceControlInput
+type updateJobFromSourceControlOutput struct{}
+
+func (h *Handler) handleUpdateJobFromSourceControl(
+	ctx context.Context, in *updateJobFromSourceControlInput,
+) (*updateJobFromSourceControlOutput, error) {
+	_ = in.JobName
+	return nil, nil
+}
+
+func (h *Handler) jobOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"UpdateJobFromSourceControl": service.WrapOp(h.handleUpdateJobFromSourceControl),
+	}
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+
+	require.Len(t, scan.Dispatch, 1)
+	entry := scan.Dispatch[0]
+	assert.Equal(t, "wrapop", entry.Anchor)
+	assert.Equal(t, "updateJobFromSourceControlInput", entry.ReqType,
+		"the handler's own alias type name must resolve, not just its underlying struct name")
+
+	assert.True(t, scan.Coverage[coverageKey{"updateJobFromSourceControlInput", "JobName"}].Read)
+	assert.False(t, scan.Coverage[coverageKey{"updateJobFromSourceControlInput", "Unread"}].Read)
+}
+
+// TestAnonymousInlineStructDecodeResolves covers a fifth dispatch shape
+// found while validating this fix, not in the original four: opsworks's
+// handlers implement service.JSONOpFunc directly (no WrapOp at all) and
+// decode their body into an anonymous `var req struct{...}` literal, which
+// never gets a name for either the struct collector or the existing
+// literal-decode-site linker to key coverage by. Before the fix this
+// service reported 0 of 74 resolved.
+func TestAnonymousInlineStructDecodeResolves(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "encoding/json"
+
+func (h *Handler) handleAssignInstance(_ context.Context, body []byte) (any, error) {
+	var req struct {
+		InstanceID string ` + "`json:\"InstanceId\"`" + `
+		Unread     string ` + "`json:\"Unread\"`" + `
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	_ = req.InstanceID
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{"AssignInstance"}
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+
+	require.Len(t, scan.Dispatch, 1)
+	entry := scan.Dispatch[0]
+	assert.Equal(t, "literal", entry.Anchor, "an anonymous-struct decode outside WrapOp resolves via the literal path")
+	require.NotEmpty(t, entry.ReqType)
+
+	assert.True(t, scan.Coverage[coverageKey{entry.ReqType, "InstanceID"}].Read)
+	assert.False(t, scan.Coverage[coverageKey{entry.ReqType, "Unread"}].Read)
+}
+
+// TestLowConfidenceGuard_ZeroDispatchWithJSONOpFunc proves the coverage
+// guard gopherstack-43o8 asked for: a package that mentions
+// service.JSONOpFunc but resolves to zero dispatch entries must say so
+// loudly rather than silently print (or be skipped as) a clean 0-of-0.
+func TestLowConfidenceGuard_ZeroDispatchWithJSONOpFunc(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+import "github.com/blackbirdworks/gopherstack/pkgs/service"
+
+var _ service.JSONOpFunc
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+	r := buildServiceReport("svc", scan)
+
+	assert.NotEmpty(t, r.LowConfidence)
+}
+
+// TestLowConfidenceGuard_SilentForNonJSONOpFuncPackage is the guard's own
+// false-positive check: a package that never mentions service.JSONOpFunc
+// at all (this repo's Query/XML-protocol and REST-routed services, e.g.
+// sns's map[string]snsActionFn) is legitimately outside this scan's
+// documented ground truth. A guard that fired on every such package would
+// repeat cmd/enumcheck's own over-broad-detector mistake.
+func TestLowConfidenceGuard_SilentForNonJSONOpFuncPackage(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+type actionFn func(body []byte) ([]byte, error)
+
+func (h *Handler) buildActions() map[string]actionFn {
+	return map[string]actionFn{}
+}
+`
+	files, fset := mustParseSrc(t, src)
+	scan := scanFiles(files, fset)
+	r := buildServiceReport("svc", scan)
+
+	assert.Empty(t, r.LowConfidence)
+}
+
+// TestLowConfidenceGuard_LowResolvedFraction proves the second guard
+// trigger: a JSONOpFunc-using package whose resolved fraction falls below
+// lowCoverageThreshold is flagged even when its denominator isn't zero --
+// cognitoidp's real pre-fix 62% is exactly this shape.
+func TestLowConfidenceGuard_LowResolvedFraction(t *testing.T) {
+	t.Parallel()
+
+	scan := &packageScan{
+		UsesJSONOpFunc: true,
+		Structs:        map[string]structDef{},
+		Coverage:       map[coverageKey]coverageInfo{},
+		Dispatch: []dispatchEntry{
+			{Op: "Resolved", Anchor: "wrapop", ReqType: "fooInput"},
+			{Op: "Unresolved1", Anchor: "unresolved", Reason: "no handler"},
+			{Op: "Unresolved2", Anchor: "unresolved", Reason: "no handler"},
+			{Op: "Unresolved3", Anchor: "unresolved", Reason: "no handler"},
+		},
+	}
+
+	r := buildServiceReport("svc", scan)
+
+	assert.NotEmpty(t, r.LowConfidence)
+}
+
 // TestCollectStaticOpList_EmptyWhenBuiltFromMapKeys covers route53resolver/
 // workspaces/dms's shape: GetSupportedOperations built at runtime from
 // h.ops's own keys has no static []string{} literal to find, so the

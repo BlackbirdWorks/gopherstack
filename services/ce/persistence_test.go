@@ -26,6 +26,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					"INHERITED_VALUE",
 					[]ce.CostCategoryRule{{Value: "Engineering"}},
 					nil,
+					nil,
+					"",
 				)
 				if err != nil {
 					return ""
@@ -108,7 +110,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "")
+				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "", nil)
 				require.Len(t, anomalies, 1)
 				assert.Equal(t, id, anomalies[0].AnomalyID)
 				assert.InDelta(t, 42.5, anomalies[0].TotalImpact, 0.0001)
@@ -177,7 +179,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				subs, _, err := b.GetAnomalySubscriptions(nil, "", 0, "")
 				require.NoError(t, err)
 				assert.Empty(t, subs)
-				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "")
+				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "", nil)
 				assert.Empty(t, anomalies)
 				assert.Empty(t, b.ListCostAllocationTags("", "", nil))
 				assert.Empty(t, b.ListCommitmentAnalyses())
@@ -216,7 +218,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 
 	cat, err := original.CreateCostCategoryDefinition(
 		"FullCat", "CostCategoryExpression.v1", "INHERITED_VALUE",
-		[]ce.CostCategoryRule{{Value: "Engineering"}}, nil,
+		[]ce.CostCategoryRule{{Value: "Engineering"}}, nil, nil, "",
 	)
 	require.NoError(t, err)
 
@@ -259,7 +261,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.Len(t, subs, 1)
 	assert.Equal(t, "FullSub", subs[0].SubscriptionName)
 
-	anomalies, _ := fresh.GetAnomalies("", "", "", "", 0, "")
+	anomalies, _ := fresh.GetAnomalies("", "", "", "", 0, "", nil)
 	require.Len(t, anomalies, 1)
 	assert.Equal(t, "full-anomaly", anomalies[0].AnomalyID)
 
@@ -292,7 +294,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	_, err := b.CreateAnomalyMonitor("Mon1", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateCostCategoryDefinition("Cat1", "CostCategoryExpression.v1", "", nil, nil)
+	_, err = b.CreateCostCategoryDefinition("Cat1", "CostCategoryExpression.v1", "", nil, nil, nil, "")
 	require.NoError(t, err)
 
 	b.Reset()

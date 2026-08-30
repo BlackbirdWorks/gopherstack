@@ -53,9 +53,15 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 		rules = append(rules, CostCategoryRule(r))
 	}
 
+	splitChargeRules := make([]SplitChargeRule, 0, len(in.SplitChargeRules))
+	for _, r := range in.SplitChargeRules {
+		splitChargeRules = append(splitChargeRules, SplitChargeRule(r))
+	}
+
 	cat, err := h.Backend.CreateCostCategoryDefinition(
 		in.Name, in.RuleVersion, in.DefaultValue,
 		rules, resourceTagsToMap(in.ResourceTags),
+		splitChargeRules, in.EffectiveStart,
 	)
 	if err != nil {
 		return nil, err
@@ -114,6 +120,7 @@ type costCategorySummary struct {
 	EffectiveEnd     string                         `json:"EffectiveEnd,omitempty"`
 	ProcessingStatus []costCategoryProcessingStatus `json:"ProcessingStatus,omitempty"`
 	Rules            []costCategoryRule             `json:"Rules"`
+	SplitChargeRules []splitChargeRule              `json:"SplitChargeRules,omitempty"`
 }
 
 type describeCostCategoryDefinitionOutput struct {
@@ -138,6 +145,11 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 		rules[i] = costCategoryRule(r)
 	}
 
+	splitChargeRules := make([]splitChargeRule, len(cat.SplitChargeRules))
+	for i, r := range cat.SplitChargeRules {
+		splitChargeRules[i] = splitChargeRule(r)
+	}
+
 	return &describeCostCategoryDefinitionOutput{
 		CostCategory: costCategorySummary{
 			CostCategoryArn: cat.ARN,
@@ -148,7 +160,8 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 			ProcessingStatus: []costCategoryProcessingStatus{
 				{Component: "COST_EXPLORER", Status: "APPLIED"},
 			},
-			Rules: rules,
+			Rules:            rules,
+			SplitChargeRules: splitChargeRules,
 		},
 	}, nil
 }

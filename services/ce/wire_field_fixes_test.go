@@ -172,6 +172,60 @@ func TestGetCostCategories_NamesVsValues_RealClient(t *testing.T) {
 	assert.Contains(t, noName.CostCategoryNames, "Env")
 }
 
+// TestCreateCostCategoryDefinition_SplitChargeRulesAndEffectiveStart_RealClient
+// covers gopherstack-4shm's own class on CreateCostCategoryDefinitionInput
+// (real fields: api_op_CreateCostCategoryDefinition.go): SplitChargeRules
+// and EffectiveStart were both parsed off the wire (SplitChargeRules typed
+// even on this package's own wire struct) and then completely discarded --
+// handleCreateCostCategoryDefinition never passed either to the backend, so
+// a real client's split-charge configuration silently vanished, and a
+// caller-supplied EffectiveStart was always overridden with "now" instead
+// of honored. UpdateCostCategoryDefinition already threaded
+// SplitChargeRules correctly; Create did not.
+func TestCreateCostCategoryDefinition_SplitChargeRulesAndEffectiveStart_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateCostCategoryDefinition(
+		t.Context(),
+		&costexplorersdk.CreateCostCategoryDefinitionInput{
+			Name:           aws.String("Splitter"),
+			RuleVersion:    cetypes.CostCategoryRuleVersionCostCategoryExpressionV1,
+			Rules:          []cetypes.CostCategoryRule{{Value: aws.String("Shared")}},
+			EffectiveStart: aws.String("2023-06-01T00:00:00Z"),
+			SplitChargeRules: []cetypes.CostCategorySplitChargeRule{
+				{
+					Source:  aws.String("Shared"),
+					Method:  cetypes.CostCategorySplitChargeMethodProportional,
+					Targets: []string{"Engineering", "Sales"},
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t, "2023-06-01T00:00:00Z", aws.ToString(createOut.EffectiveStart),
+		"a caller-supplied EffectiveStart must be honored, not silently overridden with now",
+	)
+
+	describeOut, err := client.DescribeCostCategoryDefinition(
+		t.Context(),
+		&costexplorersdk.DescribeCostCategoryDefinitionInput{CostCategoryArn: createOut.CostCategoryArn},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.CostCategory)
+	require.Len(
+		t, describeOut.CostCategory.SplitChargeRules, 1,
+		"SplitChargeRules must round-trip, not be silently dropped on create",
+	)
+	got := describeOut.CostCategory.SplitChargeRules[0]
+	assert.Equal(t, "Shared", aws.ToString(got.Source))
+	assert.Equal(t, cetypes.CostCategorySplitChargeMethodProportional, got.Method)
+	assert.Equal(t, []string{"Engineering", "Sales"}, got.Targets)
+}
+
 // TestGetRightsizingRecommendation_Configuration_RealClient proves
 // GetRightsizingRecommendationOutput always echoes Configuration (with
 // AWS-documented server-applied defaults when the request omits it). Before
@@ -422,4 +476,59 @@ func TestGetAnomalyMonitors_DimensionalValueCount_RealClient(t *testing.T) {
 		getOut.AnomalyMonitors[0].DimensionalValueCount,
 		"DimensionalValueCount must reflect the real distinct-SERVICE-value count, not be silently dropped",
 	)
+}
+
+// TestGetAnomalies_TotalImpactFilter_RealClient covers gopherstack-4shm's own
+// class: GetAnomaliesInput.TotalImpact (a real
+// types.TotalImpactFilter{NumericOperator, StartValue, EndValue} --
+// costexplorer@v1.67.4 api_op_GetAnomalies.go / types/types.go) was
+// previously typed as a bare map[string]any on this package's wire struct
+// and never read anywhere in handleGetAnomalies -- parsed off the wire,
+// then silently discarded, so GetAnomalies GREATER_THAN/BETWEEN dollar-
+// impact filtering never narrowed the result set regardless of what a real
+// client sent.
+func TestGetAnomalies_TotalImpactFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	h.Backend.AddAnomaly(ce.Anomaly{
+		AnomalyID:        "low-impact",
+		MonitorARN:       "arn:aws:ce::000000000000:anomalymonitor/test",
+		AnomalyStartDate: "2024-01-01",
+		AnomalyEndDate:   "2024-01-02",
+		TotalImpact:      50,
+	})
+	h.Backend.AddAnomaly(ce.Anomaly{
+		AnomalyID:        "high-impact",
+		MonitorARN:       "arn:aws:ce::000000000000:anomalymonitor/test",
+		AnomalyStartDate: "2024-01-01",
+		AnomalyEndDate:   "2024-01-02",
+		TotalImpact:      500,
+	})
+
+	out, err := client.GetAnomalies(t.Context(), &costexplorersdk.GetAnomaliesInput{
+		DateInterval: &cetypes.AnomalyDateInterval{StartDate: aws.String("2024-01-01")},
+		TotalImpact: &cetypes.TotalImpactFilter{
+			NumericOperator: cetypes.NumericOperatorGreaterThan,
+			StartValue:      100,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Anomalies, 1, "TotalImpact GREATER_THAN 100 must exclude the 50-impact anomaly")
+	assert.Equal(t, "high-impact", aws.ToString(out.Anomalies[0].AnomalyId))
+	assert.InDelta(t, 500, out.Anomalies[0].Impact.TotalImpact, 0)
+
+	betweenOut, err := client.GetAnomalies(t.Context(), &costexplorersdk.GetAnomaliesInput{
+		DateInterval: &cetypes.AnomalyDateInterval{StartDate: aws.String("2024-01-01")},
+		TotalImpact: &cetypes.TotalImpactFilter{
+			NumericOperator: cetypes.NumericOperatorBetween,
+			StartValue:      0,
+			EndValue:        100,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, betweenOut.Anomalies, 1, "TotalImpact BETWEEN 0 and 100 must exclude the 500-impact anomaly")
+	assert.Equal(t, "low-impact", aws.ToString(betweenOut.Anomalies[0].AnomalyId))
 }
