@@ -521,3 +521,68 @@ sorts by `PhoneNumber` (not obviously unique) but its source is a direct per-reg
 (`b.originationNumbers[b.region]`), not a map walk, so it is stable across calls independent
 of any tie. No pagination-reproducibility bug found; nothing changed. This confirms/extends
 (does not contradict) the negative-token pass above.
+
+**2026-08-30 (value-semantics audit, gopherstack-uox6)**: read `filter_match.go`/
+`filter_policy.go` (subscription `FilterPolicy` matching for both `MessageAttributes` and
+`MessageBody` scope) against their documented semantics. `FilterPolicy` is a freeform JSON
+string (`SubscribeInput.FilterPolicy` is `*string` in the pinned SDK, no typed matcher
+surface), so this was verified against SNS's own user-guide pages
+(`sns-subscription-filter-policies.html`, `numeric-value-matching.html`,
+`string-value-matching.html`) rather than SDK doc comments -- one exception:
+`MessageAttributeValue.DataType`'s own doc comment ("Amazon SNS supports the following
+logical data types: String, String.Array, Number, and Binary") is the authoritative type
+list, overriding a stray `"Number.Array"` example on the numeric-matching doc page that
+doesn't correspond to any type the SDK itself declares.
+
+Own count: 19 `match`/`Match`-prefixed functions in `filter_match.go`, all genuine filter
+predicates (no HTTP-routing false positives in this file -- `RouteMatcher`/`MatchPriority`
+live in `handler.go` and were excluded).
+
+Found and fixed one bug: `filter_policy.go`'s `validateNumericOperands` whitelisted `"<>"` as
+a sixth numeric operator, and `filter_match.go`'s `numericOpMatches` implemented a
+not-equal comparison for it. SNS's numeric-value-matching page documents exactly five
+operators -- `=`, `<`, `<=`, `>`, `>=` -- with no `"<>"` form anywhere on the page or its
+range-matching/anything-but sections; a `"<>"` operand should be rejected at Subscribe/
+SetSubscriptionAttributes time the same way `"??"` already is, not silently accepted and
+evaluated. `filter_policy_test.go`'s `TestNumericValidOperatorsAccepted` asserted `"<>"` as
+one of the valid, accepted operators -- the wrong-assertion-as-correct this audit class looks
+for. Fixed by removing `"<>"` from both the validation whitelist and the comparator switch;
+removed the `"<>"` entry from that test's table (6 -> 5 loop iterations, one assertion
+dropped -- it was asserting the bug) and added
+`TestNumericOperatorNotEqualRejectedAtSubscribeTime` asserting rejection in its place (1 new
+assertion), confirmed failing against unmodified code (subscribe succeeded with no error)
+before the fix. Net assertion count for the file is unchanged; the dropped assertion tested
+the wrong behavior and is replaced by a new one testing the correct behavior for the same
+input.
+
+Every other matcher in `filter_match.go` was checked against the same doc pages and is
+correct: `prefix`/`suffix`/`equals-ignore-case` (SNS does not document a nested
+`{"prefix": {"equals-ignore-case": ...}}` form the way EventBridge does, and this file
+correctly does not implement one), `wildcard` (only `*` is a metacharacter, matching the
+doc's single-character-wildcard-not-supported note already in this file's own comment --
+verified rather than trusted), `cidr` including the bare-host-IP case (doc's own wording
+"IP address or subnet" supports treating a bare IP as an implicit host route), `anything-but`
+in all its documented forms (scalar, list, and the three nested `prefix`/`suffix`/
+`equals-ignore-case`/`wildcard` forms -- correctly does NOT implement a nested `numeric`
+form, which SNS's `anything-but` docs also do not list), numeric range matching (multiple
+pairs AND, matching the range-matching example), and `String.Array`/`MessageBody`-array
+expansion (OR across elements, matching the doc's own "matches ... because it contains a
+value that isn't ..." examples for both `String.Array` attributes and JSON-array body
+values). `anything-but` combined with `"exists": false"` (documented as a supported
+combination) is not special-cased anywhere and needs none: it already falls out of
+`matchesConditions`' existing OR-across-conditions loop.
+
+Unrecognised filter keys: `parseFilterPolicy` already rejects any object-condition operator
+name outside `knownFilterPolicyOperators` at Subscribe/SetSubscriptionAttributes time
+(`validateConditionShapes`), so there is no silent-match-everything or silent-match-nothing
+path for this service -- confirmed by `TestSNS_FilterPolicyValidation/rejects_unknown_operator_name`
+already in the suite and unchanged by this pass.
+
+Tests: `filter_policy_test.go` gained one function (19 -> 20 `func Test...`);
+`TestNumericValidOperatorsAccepted` 6 -> 5 loop-driven assertions (1 dropped, see above, not
+a weakening); `TestNumericOperatorNotEqualRejectedAtSubscribeTime` added, 1 new assertion,
+confirmed failing pre-fix.
+
+Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race -count=1
+./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues, no new
+nolints). No backend/exported signature changed, so no repo-wide `go vet` was required.

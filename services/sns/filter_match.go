@@ -454,13 +454,14 @@ func matchNumericCondition(value string, raw json.RawMessage) bool {
 	return true
 }
 
-// numericOpMatches evaluates a single numeric comparison operator.
+// numericOpMatches evaluates a single numeric comparison operator. AWS's
+// numeric-value-matching page documents exactly these five operators
+// (docs.aws.amazon.com/sns/latest/dg/numeric-value-matching.html); "<>" is
+// not among them and is rejected earlier, at parseFilterPolicy time.
 func numericOpMatches(op string, value, threshold float64) bool {
 	switch op {
 	case "=":
 		return value == threshold
-	case "<>":
-		return value != threshold
 	case ">":
 		return value > threshold
 	case ">=":

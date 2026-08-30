@@ -160,7 +160,7 @@ func exactStringMatcherValues(pattern map[string]any, key string) []string {
 //	[{"numeric": [">", 5]}]        — numeric comparison
 //	[{"anything-but": ["v1","v2"]}]— negation
 //	[{"cidr": "10.0.0.0/24"}]      — CIDR IP range match
-//	[{"wildcard": "com.example.*"}]— wildcard string match (* and ?)
+//	[{"wildcard": "com.example.*"}]— wildcard string match ('*' only; '\*' and '\\' are literal escapes)
 //	Nested objects are matched recursively.
 //	If the event field value is an array, any element matching the pattern satisfies it.
 func matchPattern(patternJSON, event string) bool {
@@ -525,25 +525,66 @@ func matchCIDR(cidrVal, eventVal any) bool {
 	return ipNet.Contains(ip)
 }
 
-// matchWildcard returns true when the string s matches the glob pattern.
-// Supported meta-characters: '*' (any sequence) and '?' (any single character).
-// Uses a standard iterative two-pointer algorithm to avoid recursion.
+// wildcardToken is one unit of a tokenized wildcard pattern: either a
+// wildcard star or a literal byte to match exactly.
+type wildcardToken struct {
+	isStar bool
+	lit    byte
+}
+
+// tokenizeWildcardPattern splits pattern into literal bytes and stars,
+// resolving EventBridge's documented backslash escapes: '\*' is a literal
+// '*' and '\\' is a literal '\' ("EventBridge supports using the backslash
+// character (\) to specify the literal * and \ characters in wildcard
+// filters", eb-event-patterns-content-based-filtering.html#eb-filtering-wildcard-matching).
+// Only '*' is a wildcard meta-character; '?' has no special meaning and is
+// matched literally like any other byte.
+func tokenizeWildcardPattern(pattern string) []wildcardToken {
+	tokens := make([]wildcardToken, 0, len(pattern))
+
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+
+		if c == '\\' && i+1 < len(pattern) && (pattern[i+1] == '*' || pattern[i+1] == '\\') {
+			tokens = append(tokens, wildcardToken{lit: pattern[i+1]})
+			i++
+
+			continue
+		}
+
+		if c == '*' {
+			tokens = append(tokens, wildcardToken{isStar: true})
+
+			continue
+		}
+
+		tokens = append(tokens, wildcardToken{lit: c})
+	}
+
+	return tokens
+}
+
+// matchWildcard returns true when the string s matches the EventBridge
+// wildcard pattern. Uses a standard iterative two-pointer algorithm over the
+// tokenized pattern to avoid recursion.
 func matchWildcard(pattern, s string) bool {
-	patternIdx, stringIdx := 0, 0
+	tokens := tokenizeWildcardPattern(pattern)
+
+	tokenIdx, stringIdx := 0, 0
 	lastStarIdx := -1
 	lastStarMatch := 0
 
 	for stringIdx < len(s) {
 		switch {
-		case patternIdx < len(pattern) && (pattern[patternIdx] == '?' || pattern[patternIdx] == s[stringIdx]):
-			patternIdx++
+		case tokenIdx < len(tokens) && !tokens[tokenIdx].isStar && tokens[tokenIdx].lit == s[stringIdx]:
+			tokenIdx++
 			stringIdx++
-		case patternIdx < len(pattern) && pattern[patternIdx] == '*':
-			lastStarIdx = patternIdx
+		case tokenIdx < len(tokens) && tokens[tokenIdx].isStar:
+			lastStarIdx = tokenIdx
 			lastStarMatch = stringIdx
-			patternIdx++
+			tokenIdx++
 		case lastStarIdx != -1:
-			patternIdx = lastStarIdx + 1
+			tokenIdx = lastStarIdx + 1
 			lastStarMatch++
 			stringIdx = lastStarMatch
 		default:
@@ -551,9 +592,9 @@ func matchWildcard(pattern, s string) bool {
 		}
 	}
 
-	for patternIdx < len(pattern) && pattern[patternIdx] == '*' {
-		patternIdx++
+	for tokenIdx < len(tokens) && tokens[tokenIdx].isStar {
+		tokenIdx++
 	}
 
-	return patternIdx == len(pattern)
+	return tokenIdx == len(tokens)
 }

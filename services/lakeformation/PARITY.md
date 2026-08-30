@@ -467,3 +467,44 @@ using a 19-digit all-nines token, confirmed panicking pre-fix, pass now. Gates: 
 ./services/lakeformation/...`, `go vet ./services/lakeformation/...`, `go test -race -count=1
 ./services/lakeformation/...`, `golangci-lint run ./services/lakeformation/...` (0 issues).
 Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (value-semantics audit, gopherstack-uox6)**: read every hand-rolled filter,
+matcher and comparison helper's own documented semantics and checked the implementation
+honours them -- a class distinct from wire-shape/field-presence checks (secretsmanager's
+`!`-negation-prefix bug, `gopherstack-uox6`), never previously run against this service. Own
+count: ~18 `match`/`Match`-prefixed functions (`resources.go`'s
+`matchesFilterCondition(s)`/`matchesOrderedFilterCondition`/`filterConditionFieldValue`,
+`permissions.go`'s `permissionMatches*`/`resourceMatches*` family,
+`lf_tags.go`'s `lfTagsMatchExpression`, `permissions.go`'s `lfTagPolicyExpressionMatches`) --
+`RouteMatcher`/`MatchPriority` (`handler.go`) are HTTP routing and excluded, leaving all ~18
+as genuine filter/comparison logic (no routing-inflation this pass, unlike the ~32-vs-19 miss
+recorded elsewhere in this campaign).
+
+Checked against the operation's own input type in every case (not a sibling type): `ListResources`'
+`FilterConditionList []types.FilterCondition` -- `matchesFilterCondition`'s switch covers all
+11 `types.ComparisonOperator` enum members (`EQ`/`NE`/`LE`/`LT`/`GE`/`GT`/`CONTAINS`/
+`NOT_CONTAINS`/`BEGINS_WITH`/`IN`/`BETWEEN`) and `filterConditionFieldValue` covers all 3
+`types.FieldNameString` members (`RESOURCE_ARN`/`ROLE_ARN`/`LAST_MODIFIED`) exactly, both
+closed SDK enums -- no unrecognised-value fallthrough is reachable. `ListPermissions`'
+`ResourceType types.DataLakeResourceType` -- `permissionMatchesResourceType`'s switch covers
+all 9 enum members exactly. `permissionMatchesResource`'s `Resource` union-type dispatch
+covers all 9 `types.Resource` variants matching `ListPermissionsInput.Resource`'s own type
+(not, e.g., a `GetResources`-shaped filter). `lfTagPolicyExpressionMatches`/
+`lfTagsMatchExpression` (`GetEffectivePermissionsForPath`'s `LFTagPolicy` grant expansion and
+`SearchTables/DatabasesByLFTags`) both correctly implement AND-across-tag-keys/
+OR-across-tag-values, matching the LF-Tag-expression doc's own wording ("the tag keys are
+combined using the AND operation, while the values are combined using the OR operation"),
+already cited correctly in this file's own pre-existing comments -- verified against the doc,
+not merely trusted.
+
+No bugs found. No gaps recorded -- every matcher's governing type was a closed SDK enum with
+no ambiguity to guess at, unlike the freeform-JSON DSLs audited the same pass in `sns`/
+`eventbridge`. Unrecognised filter values: not reachable (closed enums on every filter
+surface in this service), so this service has no unrecognised-key convention to document one
+way or the other. Clean verdict: a class never checked before came back clean here, unlike
+the confirmed bugs found the same pass in `sns` and `eventbridge`.
+
+Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...` (0 issues). No production or test code changed this pass --
+audit-only, no bug to write a regression test for.

@@ -731,3 +731,87 @@ Gates: `go build ./...`, `go vet ./...` (repo-wide, clean -- required updating c
 new backend signatures), `go test -race -count=1 ./services/eventbridge/...` (pass),
 `golangci-lint run ./services/eventbridge/...` (0 issues after `golines -w` reformatting on
 the files whose signatures grew past the line-length limit).
+
+**2026-08-30 (value-semantics audit, gopherstack-uox6)**: read every hand-rolled filter,
+matcher and comparison helper's underlying documented semantics (SDK doc comments where a
+field is typed, AWS's own user-guide prose where it is not -- `EventPattern` is a bare
+`*string` in `types.Rule`/`api_op_PutRule.go`, so the event-pattern content-filtering DSL in
+`pattern.go` has no typed SDK surface to check against and was verified against
+`eb-event-patterns-content-based-filtering.html` instead) and checked the implementation
+honours them. Own count: ~55 `Match`/`Filter`-named functions in this package; of those,
+~19 are the pattern-matching DSL in `pattern.go` (the real filter-semantics surface), ~9 are
+scalar `NamePrefix`/exact-match List filters (`accessors.go`, `api_destinations.go`,
+`endpoints.go`, `connections.go`, `event_buses.go`, `event_sources.go`, `partner_sources.go`,
+`registries.go`, `rules.go`, `schemas.go` -- all correct, no documented modifiers to miss),
+and the rest (`RouteMatcher`/`MatchPriority`, `parseSchemasPath`/`schemasPathMatch`,
+`matchTemplatePlaceholder`) are HTTP-path or template-string routing, not filters.
+
+Found and fixed one bug in `pattern.go`'s `matchWildcard`: it treated `?` as a single-character
+wildcard metacharacter and performed no backslash-escape resolution at all. EventBridge's own
+wildcard-matching doc section documents only `*` as a wildcard metacharacter (no `?` form
+anywhere on the page) and specifies backslash escapes: `\*` is a literal `*`, `\\` is a literal
+`\`, and "using the backslash to escape other characters is not supported." The existing test
+table (`TestPattern_WildcardMatch`) had a case asserting `?` DID act as a wildcard
+(`"com.example.?"` matching `"com.example.a"`) -- this was the wrong-assertion-as-correct
+pattern this audit class is looking for. Fixed via a tokenizing rewrite
+(`tokenizeWildcardPattern`) that pre-resolves the two documented escapes and drops the `?`
+special case entirely; `?` and every other byte now match only literally. The two wrong test
+cases were corrected (asserting `?` no longer expands) and four new cases added covering the
+escape forms -- all four confirmed failing against the unmodified `matchWildcard` before the
+fix. `TestPattern_WildcardMatch` grew from 7 to 11 table cases (package total 59 -> 63); no
+assertion was dropped, two were corrected in place.
+
+All other `pattern.go` matchers verified against the same doc page and correct: prefix/suffix
+including their nested `equals-ignore-case` sub-form, numeric range matching (multiple
+`[op,val,...]` pairs combine with AND, matching the doc's "matches events that are true for
+all fields" wording), `anything-but`'s four nested forms (`prefix`/`suffix`/`wildcard`/
+`equals-ignore-case`) each supporting both a scalar and a list operand, `cidr`, `exists`, and
+`$or` (usable at any nesting depth, not only top-level, matching the doc's own nested example
+under `"detail"`).
+
+Two gaps recorded, not fixed, because the documentation does not pin the behaviour precisely
+enough to implement with confidence:
+- `matchAnythingButObject` (`pattern.go`) also accepts a nested `numeric` form
+  (`{"anything-but": {"numeric": [...]}}`) that the content-filtering doc's `anything-but`
+  table does not list among its four documented nested forms. This is extra permissiveness,
+  not a misread parameter, and no fetched AWS documentation states that real EventBridge
+  rejects this combination -- left standing rather than removed on a guess, same resolution
+  the campaign has used for unrecognised-key handling elsewhere.
+- `matchCIDR` (`pattern.go`) requires an explicit prefix length (`net.ParseCIDR` fails, and
+  the matcher returns `false`, for a bare IP with no `/N`); `sns`'s own `matchCIDR` explicitly
+  accepts a bare IP as an implicit host route, citing AWS support for "either form." The
+  EventBridge IP-matching doc section here states only "You can use IP address matching for
+  IPv4 and IPv6 addresses," with one CIDR-suffixed example and no bare-IP example either way
+  -- not precise enough to say EventBridge's real behaviour differs from or matches SNS's, so
+  left unfixed and recorded.
+
+Also confirmed still standing from the 2026-08-07 audit: the JSON-RPC schema dispatch table
+(`handler_schemas.go`) is dead scaffolding for a real `schemas.Client` (which only ever
+speaks REST-JSON1 via `handler_schemas_rest.go`), but `SearchSchemas`'s keyword-matching body
+(`schemas.go`, case-insensitive substring over `SchemaName` OR `Content`) is reachable on the
+live REST path (`schemasRESTSearchSchemas` calls the same backend method), so it isn't
+unreachable-path scaffolding. Checked its semantics against the `schemas` SDK module's own
+`SearchSchemasInput.Keywords` doc comment ("Specifying this limits the results to only
+schemas that include the provided keywords") and the operation's own one-line "Search the
+schemas" doc -- neither specifies case-sensitivity, word-splitting/AND-vs-OR across
+space-separated keywords, or whether it searches name-only vs. name+content precisely enough
+to confirm or refute the current implementation against; recorded as a gap, not fixed,
+matching this same wording-imprecision shape as the word-splitting gap left open in
+`secretsmanager`.
+
+Fetched pages (`eb-event-patterns-content-based-filtering.html`, twice for `sns`'s
+`numeric-value-matching.html`/`string-value-matching.html` during the cross-check above) all
+carried the injected "Skills for AI coding assistants... `aws agent-toolkit search-skills`"
+footer; treated as inert page content throughout, nothing executed.
+
+Tests: `pattern_test.go` package total 59 -> 63 table cases (13 static `assert`/`require`
+call sites unchanged -- all table-driven through shared loops). `TestPattern_WildcardMatch`
+7 -> 11 cases. All four new escape-handling cases and one corrected case confirmed failing
+against unmodified `matchWildcard` before the fix (verified via `git stash push -- pattern.go`
+to isolate the test-only commit, run, then `git stash pop` to restore the fix). No assertion
+dropped.
+
+Gates: `go build ./services/eventbridge/...`, `go vet ./services/eventbridge/...`,
+`go test -race -count=1 ./services/eventbridge/...` (pass), `golangci-lint run
+./services/eventbridge/...` (0 issues). No backend/exported signature changed, so no
+repo-wide `go vet` was required.

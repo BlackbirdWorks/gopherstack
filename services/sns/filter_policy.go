@@ -248,8 +248,11 @@ func validateNumericOperands(key string, raw json.RawMessage) error {
 		)
 	}
 
+	// AWS's numeric-value-matching page documents exactly these five
+	// operators; "<>" is not among them
+	// (docs.aws.amazon.com/sns/latest/dg/numeric-value-matching.html).
 	validNumericOps := map[string]struct{}{
-		"=": {}, "<>": {}, ">": {}, ">=": {}, "<": {}, "<=": {},
+		"=": {}, ">": {}, ">=": {}, "<": {}, "<=": {},
 	}
 
 	for i := 0; i+1 < len(operands); i += 2 {

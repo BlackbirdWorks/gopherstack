@@ -443,15 +443,19 @@ func TestPattern_WildcardMatch(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "wildcard single char - positive",
+			// '?' has no special meaning in EventBridge wildcard patterns --
+			// only '*' is a wildcard meta-character
+			// (eb-event-patterns-content-based-filtering.html#eb-filtering-wildcard-matching
+			// documents no '?' form). It must match literally.
+			name:    "wildcard question mark is literal - positive",
 			pattern: `{"source": [{"wildcard": "com.example.?"}]}`,
-			event:   `{"source": "com.example.a"}`,
+			event:   `{"source": "com.example.?"}`,
 			want:    true,
 		},
 		{
-			name:    "wildcard single char - negative (too long)",
+			name:    "wildcard question mark is literal - does not match arbitrary char",
 			pattern: `{"source": [{"wildcard": "com.example.?"}]}`,
-			event:   `{"source": "com.example.ab"}`,
+			event:   `{"source": "com.example.a"}`,
 			want:    false,
 		},
 		{
@@ -465,6 +469,36 @@ func TestPattern_WildcardMatch(t *testing.T) {
 			pattern: `{"source": [{"wildcard": ""}]}`,
 			event:   `{"source": ""}`,
 			want:    true,
+		},
+		{
+			// "EventBridge supports using the backslash character (\) to
+			// specify the literal * and \ characters in wildcard filters:
+			// The string \* represents the literal * character" (same doc
+			// section). An escaped star must not expand.
+			name:    "wildcard escaped star is literal - positive",
+			pattern: `{"source": [{"wildcard": "value\\*end"}]}`,
+			event:   `{"source": "value*end"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard escaped star is literal - does not expand",
+			pattern: `{"source": [{"wildcard": "value\\*end"}]}`,
+			event:   `{"source": "valueXend"}`,
+			want:    false,
+		},
+		{
+			// "The string \\ represents the literal \ character" (same doc
+			// section).
+			name:    "wildcard escaped backslash is literal - positive",
+			pattern: `{"source": [{"wildcard": "a\\\\b"}]}`,
+			event:   `{"source": "a\\b"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard escaped backslash is literal - no bare match",
+			pattern: `{"source": [{"wildcard": "a\\\\b"}]}`,
+			event:   `{"source": "ab"}`,
+			want:    false,
 		},
 	}
 
