@@ -161,7 +161,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	require.Len(t, dirConfigs, 1)
 	assert.Equal(t, []string{"OU=test,DC=example,DC=com"}, dirConfigs[0].OrganizationalUnitDistinguishedNames)
 
-	images, err := fresh.DescribeImages([]string{"image1"})
+	images, err := fresh.DescribeImages([]string{"image1"}, "")
 	require.NoError(t, err)
 	require.Len(t, images, 1)
 
@@ -189,7 +189,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 
 	// imagePermissions (the table given a real ImageName identity field --
 	// see storedImagePermissions in images.go).
-	perms, err := fresh.DescribeImagePermissions("image1")
+	perms, err := fresh.DescribeImagePermissions("image1", nil)
 	require.NoError(t, err)
 	require.Len(t, perms, 1)
 	assert.Equal(t, "111111111111", perms[0].SharedAccountID)
@@ -253,7 +253,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
 
-	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1")
+	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "session-0000000001", sessions[0].ID)

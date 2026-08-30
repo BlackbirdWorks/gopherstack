@@ -69,3 +69,138 @@ func TestCreateUsageReportSubscription_NoInputRealClient(t *testing.T) {
 	assert.Equal(t, aws.ToString(created.S3BucketName), aws.ToString(desc.UsageReportSubscriptions[0].S3BucketName))
 	assert.Equal(t, types.UsageReportScheduleDaily, desc.UsageReportSubscriptions[0].Schedule)
 }
+
+// TestDescribeImages_TypeFilterRealClient covers wrapper-key-sweep-appstream-1:
+// real DescribeImagesInput (appstream@v1.64.5 api_op_DescribeImages.go) carries
+// a Type field (types.VisibilityType, wire key "Type" -- confirmed against
+// serializeCBOR_DescribeImagesInput in the pinned SDK's serializers.go) that
+// gopherstack's handler never read at all. Every image this backend creates
+// is Visibility "PRIVATE" (images.go), so filtering by Type=PUBLIC must return
+// an empty list; before the fix the dropped filter meant a PUBLIC-only request
+// got back every private image instead.
+func TestDescribeImages_TypeFilterRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := appstream.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestAppStreamClient(t, appstream.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateImportedImage(ctx, &appstreamsdk.CreateImportedImageInput{
+		Name:        aws.String("my-private-image"),
+		SourceAmiId: aws.String("ami-0123456789abcdef0"),
+		IamRoleArn:  aws.String("arn:aws:iam::000000000000:role/import"),
+	})
+	require.NoError(t, err)
+
+	priv, err := client.DescribeImages(ctx, &appstreamsdk.DescribeImagesInput{
+		Type: types.VisibilityTypePrivate,
+	})
+	require.NoError(t, err)
+	assert.Len(t, priv.Images, 1, "Type=PRIVATE must return the private image")
+
+	pub, err := client.DescribeImages(ctx, &appstreamsdk.DescribeImagesInput{
+		Type: types.VisibilityTypePublic,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, pub.Images,
+		"Type=PUBLIC must return no images -- this backend never creates any; "+
+			"pre-fix the Type filter was dropped and every private image came back instead")
+}
+
+// TestDescribeSessions_AuthenticationTypeFilterRealClient covers
+// wrapper-key-sweep-appstream-2: real DescribeSessionsInput
+// (appstream@v1.64.5 api_op_DescribeSessions.go) carries an
+// AuthenticationType field (wire key "AuthenticationType") that
+// gopherstack's handler never read at all. Every session this backend
+// creates (CreateStreamingURL) has AuthenticationType "API"; before the
+// fix a USERPOOL-filtered request got back every API session instead of
+// an empty list.
+func TestDescribeSessions_AuthenticationTypeFilterRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := appstream.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestAppStreamClient(t, appstream.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateStack(ctx, &appstreamsdk.CreateStackInput{Name: aws.String("stack1")})
+	require.NoError(t, err)
+	_, err = client.CreateFleet(ctx, &appstreamsdk.CreateFleetInput{
+		Name:         aws.String("fleet1"),
+		InstanceType: aws.String("stream.standard.medium"),
+		ImageName:    aws.String("some-image"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStreamingURL(ctx, &appstreamsdk.CreateStreamingURLInput{
+		StackName: aws.String("stack1"),
+		FleetName: aws.String("fleet1"),
+		UserId:    aws.String("user1"),
+	})
+	require.NoError(t, err)
+
+	api, err := client.DescribeSessions(ctx, &appstreamsdk.DescribeSessionsInput{
+		StackName:          aws.String("stack1"),
+		FleetName:          aws.String("fleet1"),
+		AuthenticationType: types.AuthenticationTypeApi,
+	})
+	require.NoError(t, err)
+	assert.Len(t, api.Sessions, 1, "AuthenticationType=API must return the API session")
+
+	userpool, err := client.DescribeSessions(ctx, &appstreamsdk.DescribeSessionsInput{
+		StackName:          aws.String("stack1"),
+		FleetName:          aws.String("fleet1"),
+		AuthenticationType: types.AuthenticationTypeUserpool,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, userpool.Sessions,
+		"AuthenticationType=USERPOOL must return no sessions -- this backend only ever creates API "+
+			"sessions; pre-fix the filter was dropped and the API session came back instead")
+}
+
+// TestDescribeImagePermissions_SharedAwsAccountIdsFilterRealClient covers
+// wrapper-key-sweep-appstream-3: real DescribeImagePermissionsInput
+// (appstream@v1.64.5 api_op_DescribeImagePermissions.go) carries a
+// SharedAwsAccountIds field (wire key "SharedAwsAccountIds") that
+// gopherstack's handler never read at all. Before the fix, filtering by an
+// account the image was never shared with returned every shared account
+// instead of an empty list.
+func TestDescribeImagePermissions_SharedAwsAccountIdsFilterRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := appstream.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestAppStreamClient(t, appstream.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateImportedImage(ctx, &appstreamsdk.CreateImportedImageInput{
+		Name:        aws.String("my-image"),
+		SourceAmiId: aws.String("ami-0123456789abcdef0"),
+		IamRoleArn:  aws.String("arn:aws:iam::000000000000:role/import"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateImagePermissions(ctx, &appstreamsdk.UpdateImagePermissionsInput{
+		Name:            aws.String("my-image"),
+		SharedAccountId: aws.String("111111111111"),
+		ImagePermissions: &types.ImagePermissions{
+			AllowFleet:        aws.Bool(true),
+			AllowImageBuilder: aws.Bool(false),
+		},
+	})
+	require.NoError(t, err)
+
+	matching, err := client.DescribeImagePermissions(ctx, &appstreamsdk.DescribeImagePermissionsInput{
+		Name:                aws.String("my-image"),
+		SharedAwsAccountIds: []string{"111111111111"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, matching.SharedImagePermissionsList, 1, "filtering by the account it IS shared with must return it")
+
+	nonMatching, err := client.DescribeImagePermissions(ctx, &appstreamsdk.DescribeImagePermissionsInput{
+		Name:                aws.String("my-image"),
+		SharedAwsAccountIds: []string{"222222222222"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, nonMatching.SharedImagePermissionsList,
+		"filtering by an account the image was never shared with must return no results -- "+
+			"pre-fix the SharedAwsAccountIds filter was dropped and every shared account came back instead")
+}

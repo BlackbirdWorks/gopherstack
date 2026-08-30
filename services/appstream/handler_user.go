@@ -240,9 +240,10 @@ func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte
 // --- Session handlers ---
 
 type describeSessionsInput struct {
-	StackName string `json:"StackName"`
-	FleetName string `json:"FleetName"`
-	UserId    string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	StackName          string `json:"StackName"`
+	FleetName          string `json:"FleetName"`
+	UserId             string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	AuthenticationType string `json:"AuthenticationType"`
 }
 
 func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error) {
@@ -253,7 +254,7 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		}
 	}
 
-	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId)
+	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId, req.AuthenticationType)
 	if err != nil {
 		return nil, err
 	}
