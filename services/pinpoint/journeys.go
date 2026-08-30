@@ -118,7 +118,11 @@ func (b *InMemoryBackend) GetJourneys(appID string) ([]*Journey, error) {
 	}
 
 	sort.Slice(journeys, func(i, j int) bool {
-		return journeys[i].Name < journeys[j].Name
+		if journeys[i].Name != journeys[j].Name {
+			return journeys[i].Name < journeys[j].Name
+		}
+
+		return journeys[i].ID < journeys[j].ID
 	})
 
 	return journeys, nil

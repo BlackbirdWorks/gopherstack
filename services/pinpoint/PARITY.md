@@ -277,3 +277,52 @@ map-shaped state (`appSettings`, `campaignVersions`, `segmentVersions`,
 older-version (or otherwise shape-mismatched) snapshot is discarded and the backend starts
 empty rather than attempting a partial decode, same policy as before, now also resetting the
 map-shaped state to non-nil empty maps on that path.
+
+## 2026-08-30: paginated-listing reproducibility sweep (unstable page-boundary drop)
+
+Targeted class: an offset-based cursor (`pkgs/page.New` for `GetApps`, the hand-rolled
+`applyPageParams`/base64-offset scheme for `GetCampaigns`/`GetJourneys`/`GetSegments`)
+over a listing re-sorted from a `*store.Table` map walk on every call. Read all 6
+`sort.Slice` sites in the service.
+
+**Found and fixed, 4 sites**: `GetApps` (`apps.go`), `GetCampaigns` (`campaigns.go`),
+`GetJourneys` (`journeys.go`), `GetSegments` (`segments.go`) all sorted solely by `Name`.
+None of `CreateApp`/`CreateCampaign`/`CreateJourney`/`CreateSegment` checks for an
+existing `Name` -- real Pinpoint doesn't require these names to be unique either. Because
+these four use *offset*-based pagination (not a value cursor), the bug isn't a
+deterministic single-call drop like a Marker cursor -- it's that the full list gets
+re-sorted from a fresh, differently-ordered map walk on every page request, so a tie
+group's relative order can shuffle between the call serving page 1 and the call serving
+page 2, silently dropping or duplicating members at the offset boundary. Proven with
+`TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages` (`apps_test.go`),
+`TestHandler_GetCampaigns_DuplicateNames_NoDropOrDupAcrossPages` (`campaigns_test.go`),
+`TestHandler_GetJourneys_DuplicateNames_NoDropOrDupAcrossPages` (`journeys_test.go`), and
+`TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages` (`segments_test.go`),
+each looped 30x (map-iteration-dependent, so it doesn't reproduce every run) -- all four
+confirmed failing against unmodified code, passing after. Fixed by sorting on `(Name,
+ID)` in all four functions, `ID` being each table's own unique key
+(`appKeyFn`/`campaignKeyFn`/`journeyKeyFn`/`segmentKeyFn`).
+
+**Confirmed safe**: `GetRecommenderConfigurations` sorts by `ID` (`recommenderKeyFn`,
+unique) -- unaffected. The combined multi-type template listing (`templates.go`) sorts by
+`(TemplateName, TemplateType)`; `TemplateName` is each per-type table's own key
+(`emailTemplateKeyFn`/etc.), so within one type it's already unique, and the `TemplateType`
+tiebreak disambiguates across types -- confirmed already correct, no fix needed.
+
+**Confirmed ignoring pagination entirely** (a different, disclosed completeness gap, not
+this pass's target -- can't drop a record at a page boundary that never truncates):
+`GetExportJobs`, `GetImportJobs`, `ListTemplates`, `ListTemplateVersions`, `GetChannels`,
+`GetUserEndpoints`, `GetRecommenderConfigurations` all return every item unbounded, with
+no `maxResults`/`pageSize`/`NextToken` support at all (`grep -rln NextToken
+services/pinpoint/*.go` finds only `handler_apps.go`, `handler_campaigns.go`,
+`handler_journeys.go`, `handler_segments.go`). Real Pinpoint paginates several of these;
+left as-is, out of this pass's scope.
+
+**Test-suite gap this pass filled**: the pre-existing `TestHandler_GetAppsPagination` and
+`TestHandler_GetAppsContinuation` only ever used distinct app names
+(`app-a`/`app-b`/`app-c`) -- no existing test in the service constructed a tie or compared
+item identity across a paginated walk before this pass.
+
+Gate output (this pass, `services/pinpoint/` only): `go build ./services/pinpoint/...`
+clean; `go vet ./services/pinpoint/...` clean; `go test ./services/pinpoint/... -race
+-count=1` -- `ok`; `golangci-lint run ./services/pinpoint/...` -- `0 issues.`

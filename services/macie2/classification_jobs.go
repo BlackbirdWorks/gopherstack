@@ -94,7 +94,13 @@ type ListJobsSortCriteria struct {
 
 func sortJobSummaries(result []*ClassificationJobSummary, sortBy *ListJobsSortCriteria) {
 	if sortBy == nil {
-		sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+		sort.Slice(result, func(i, j int) bool {
+			if !result[i].CreatedAt.Equal(result[j].CreatedAt) {
+				return result[i].CreatedAt.Before(result[j].CreatedAt)
+			}
+
+			return result[i].JobID < result[j].JobID
+		})
 
 		return
 	}
@@ -102,19 +108,27 @@ func sortJobSummaries(result []*ClassificationJobSummary, sortBy *ListJobsSortCr
 	desc := sortBy.OrderBy == sortOrderDesc
 
 	sort.Slice(result, func(i, j int) bool {
-		var less bool
+		var less, tied bool
 
 		switch sortBy.AttributeName {
 		case keyCreatedAt:
 			less = result[i].CreatedAt.Before(result[j].CreatedAt)
+			tied = result[i].CreatedAt.Equal(result[j].CreatedAt)
 		case keyJobStatus:
-			less = result[i].JobStatus < result[j].JobStatus
+			less, tied = result[i].JobStatus < result[j].JobStatus, result[i].JobStatus == result[j].JobStatus
 		case "name":
-			less = result[i].Name < result[j].Name
+			less, tied = result[i].Name < result[j].Name, result[i].Name == result[j].Name
 		case "jobType":
-			less = result[i].JobType < result[j].JobType
+			less, tied = result[i].JobType < result[j].JobType, result[i].JobType == result[j].JobType
 		default:
 			return false
+		}
+
+		if tied {
+			// JobID is this table's unique key (classificationJobKeyFn); breaking
+			// ties on it keeps a total order so the offset-based page.NewHMAC cursor
+			// can't drop or duplicate jobs that tie on the requested attribute.
+			return result[i].JobID < result[j].JobID
 		}
 
 		if desc {

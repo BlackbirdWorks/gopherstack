@@ -142,7 +142,13 @@ func matchesBucketCriteria(bkt *S3BucketMetadata, criteria map[string]BucketCrit
 
 func sortBuckets(buckets []*S3BucketMetadata, sortBy *BucketSortCriteria) {
 	if sortBy == nil {
-		sort.Slice(buckets, func(i, k int) bool { return buckets[i].BucketName < buckets[k].BucketName })
+		sort.Slice(buckets, func(i, k int) bool {
+			if buckets[i].BucketName != buckets[k].BucketName {
+				return buckets[i].BucketName < buckets[k].BucketName
+			}
+
+			return buckets[i].BucketArn < buckets[k].BucketArn
+		})
 
 		return
 	}
@@ -150,26 +156,35 @@ func sortBuckets(buckets []*S3BucketMetadata, sortBy *BucketSortCriteria) {
 	desc := sortBy.OrderBy == sortOrderDesc
 
 	sort.Slice(buckets, func(i, k int) bool {
-		var less bool
+		var less, tied bool
 
 		switch sortBy.AttributeName {
 		case bucketFieldAccountID:
-			less = buckets[i].AccountID < buckets[k].AccountID
+			less, tied = buckets[i].AccountID < buckets[k].AccountID, buckets[i].AccountID == buckets[k].AccountID
 		case bucketFieldClassifiableObjectCount:
 			less = buckets[i].ClassifiableObjectCount < buckets[k].ClassifiableObjectCount
+			tied = buckets[i].ClassifiableObjectCount == buckets[k].ClassifiableObjectCount
 		case bucketFieldClassifiableSizeInBytes:
 			less = buckets[i].ClassifiableSizeInBytes < buckets[k].ClassifiableSizeInBytes
+			tied = buckets[i].ClassifiableSizeInBytes == buckets[k].ClassifiableSizeInBytes
 		case bucketFieldObjectCount:
-			less = buckets[i].ObjectCount < buckets[k].ObjectCount
+			less, tied = buckets[i].ObjectCount < buckets[k].ObjectCount, buckets[i].ObjectCount == buckets[k].ObjectCount
 		case bucketFieldSizeInBytes:
-			less = buckets[i].SizeInBytes < buckets[k].SizeInBytes
+			less, tied = buckets[i].SizeInBytes < buckets[k].SizeInBytes, buckets[i].SizeInBytes == buckets[k].SizeInBytes
 		case bucketFieldName:
-			less = buckets[i].BucketName < buckets[k].BucketName
+			less, tied = buckets[i].BucketName < buckets[k].BucketName, buckets[i].BucketName == buckets[k].BucketName
 		default:
 			// sensitivityScore is a documented AttributeName value, but this
 			// backend has no sensitivity-scan data to sort by -- leave order
 			// unchanged for it rather than inventing a score.
 			return false
+		}
+
+		if tied {
+			// BucketArn is this table's unique key (store_setup.go); breaking ties on
+			// it keeps a total order so the offset-based page.NewHMAC cursor can't
+			// drop or duplicate buckets that tie on the requested attribute.
+			return buckets[i].BucketArn < buckets[k].BucketArn
 		}
 
 		if desc {

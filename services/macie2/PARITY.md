@@ -380,3 +380,75 @@ pass (their backends were, in `buckets.go`/`administrator.go`/`members.go`/`orga
 **Gates:** `go build ./services/macie2/...`, `go vet ./services/macie2/...`,
 `go test -race -count=1 ./services/macie2/...` (pass), `golangci-lint run --fix
 ./services/macie2/...` (0 issues, reformatted one test call's line wrap only).
+
+## 2026-08-30: paginated-listing reproducibility sweep (unstable page-boundary drop)
+
+Targeted class: every `List*`/`DescribeBuckets` op routed through the shared
+`listPaginated`/`mapSortPaginate`/`paginate` helpers (`store.go`) -- an offset-based
+`page.NewHMAC` cursor over a `*store.Table` map walk re-sorted fresh on every call. Read
+all 15 `sort.Slice` sites in the service.
+
+**Found and fixed, 6 sites** (all: sort by a non-unique attribute with no tiebreak, fed
+into an offset cursor over an unstable map-walk source):
+- `sortBuckets` (`buckets.go`, feeds `DescribeBuckets`) -- default and every
+  `sortCriteria.attributeName` branch (`accountId`/`objectCount`/`sizeInBytes`/
+  `classifiable*`/`bucketName`) compared only the requested attribute; nothing stops two
+  buckets sharing an `ObjectCount` (or any of the others). Fixed: tiebreak on `BucketArn`,
+  this table's key.
+- `sortJobSummaries` (`classification_jobs.go`, feeds `ListClassificationJobs`) -- default
+  and every `sortBy.AttributeName` branch (`createdAt`/`jobStatus`/`name`/`jobType`)
+  likewise untied; job names have no uniqueness constraint. Fixed: tiebreak on `JobID`.
+- `ListCustomDataIdentifiers` (`custom_data_identifiers.go`) -- sorted by `Name` alone;
+  `CreateCustomDataIdentifier` never checks for an existing `Name`. Fixed: tiebreak on `ID`.
+- `ListAllowLists` (`allow_lists.go`) -- same shape, `CreateAllowList` never checks `Name`
+  either. Fixed: tiebreak on `ID`.
+- `ListFindingsFilters` (`findings_filters.go`) -- sorted by `Position`, which
+  `CreateFindingsFilter` defaults to `1` for every filter that doesn't specify one, so
+  multiple filters commonly tie by default. Fixed: tiebreak on `ID`.
+- `sortFindings`'s `sortBy != nil` branch (`findings.go`, feeds `ListFindings`) --
+  `count`/`createdAt`/`updatedAt`/`type`/`severity.score` all untied (the `sortBy == nil`
+  default path was already safe, sorting by `ID`). Fixed: tiebreak on `ID`.
+
+Each proven with a dedicated test in the new `pagination_tie_test.go`
+(`TestDescribeBuckets_TiedObjectCount_NoDropOrDupAcrossPages`,
+`TestListClassificationJobs_TiedName_NoDropOrDupAcrossPages`,
+`TestListCustomDataIdentifiers_TiedName_NoDropOrDupAcrossPages`,
+`TestListAllowLists_TiedName_NoDropOrDupAcrossPages`,
+`TestListFindingsFilters_TiedPosition_NoDropOrDupAcrossPages`,
+`TestListFindings_TiedType_NoDropOrDupAcrossPages`), each looped 30x (map-iteration
+dependent) -- all six confirmed failing against unmodified code (a genuine subset
+dropped, not a test artifact -- verified via the actual diff output before fixing), all
+six passing after. The `ListFindingsFilters`/`ListAllowLists` fixes made their two
+wrapper functions structurally identical enough to trip `dupl`; resolved with a paired
+`//nolint:dupl` (precedented 145x elsewhere in the repo, e.g.
+`services/backup/copy_jobs.go`/`backup_jobs.go`), not by weakening either fix.
+
+**Immune by construction, two mechanisms**: `ListClassificationScopes`
+(`classification_jobs.go:361`, sorts by `Name`) and `ListSensitivityInspectionTemplates`
+(`sensitivity_inspection.go:41`, sorts by `Name`) both back onto tables that
+`ensureDefaultScope`/`ensureDefaultTemplate` populate with exactly one row and nothing
+else ever calls `.Put` on -- confirmed via `grep -n "classScopes.Put\|sensitivityTemplates.Put"`,
+one hit each, both inside the guarded singleton-seed function. A one-row collection can't
+have a page boundary. `ListManagedDataIdentifiers` (`custom_data_identifiers.go`) returns
+a hardcoded, deterministic built-in catalog slice, never a map walk -- same shape as
+medialive's `offerings` catalog, immune. The `GroupKey` sort in `GetFindingStatistics`
+(`findings.go:314`) is built from a local Go map's own keys (`counts[key]++`, then
+`result = append(result, {GroupKey: k, ...})` for each `k`) -- unique by construction, no
+tiebreak needed.
+
+**Confirmed ignoring pagination entirely** (a different, disclosed completeness gap, not
+this pass's target): `ListAutomatedDiscoveryAccounts`, `ListOrganizationAdminAccounts`,
+`ListInvitations`, `ListResourceProfileArtifacts`, `ListResourceProfileDetections`,
+`ListTagsForResource` accept no `limit`/`token` at all and always return everything
+unbounded -- can't drop a record at a page boundary that never truncates. Left as-is.
+
+**Test-suite gap this pass filled**: `TestBuckets_DescribeBuckets_SortOrder` and
+`TestBuckets_StableSortOrder` (`handler_buckets_test.go`) only ever used distinct bucket
+names and repeated an unpaginated call -- no existing test in the service constructed a
+tie or compared item identity across a paginated walk before this pass.
+
+Gate output (this pass, `services/macie2/` only): `go build ./services/macie2/...` clean;
+`go vet ./services/macie2/...` clean; `go test ./services/macie2/... -race -count=1` --
+`ok`; `golangci-lint run ./services/macie2/...` -- `0 issues.` (one `dupl` finding caused
+by this pass's own edits, confirmed by temporarily reverting `allow_lists.go`/
+`findings_filters.go` and re-running lint clean, then resolved as described above).

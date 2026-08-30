@@ -132,6 +132,8 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 }
 
 // ListFindingsFilters returns summaries of all findings filters.
+//
+//nolint:dupl // structurally identical to ListAllowLists but operates on a different type
 func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error) {
 	return listPaginated(
 		b, "ListFindingsFilters", b.findingsFilters.All(),
@@ -147,7 +149,17 @@ func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*Findi
 			}, true
 		},
 		func(result []*FindingsFilterSummary) {
-			sort.Slice(result, func(i, j int) bool { return result[i].Position < result[j].Position })
+			// Position defaults to 1 for every filter that doesn't specify one
+			// (CreateFindingsFilter), so it's not unique; ID as a tiebreaker keeps a
+			// total order so the offset-based page.NewHMAC cursor can't drop or
+			// duplicate filters that tie on Position.
+			sort.Slice(result, func(i, j int) bool {
+				if result[i].Position != result[j].Position {
+					return result[i].Position < result[j].Position
+				}
+
+				return result[i].ID < result[j].ID
+			})
 		},
 		token, limit,
 	)

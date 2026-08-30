@@ -434,9 +434,14 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 		items = filterSlice(items, func(fn *ConnectionFunction) bool { return fn.Stage == req.Stage })
 	}
 
+	// Name alone is not a unique cursor key (ConnectionFunction names may repeat, see
+	// ListConnectionFunctions); Name+tab+ID matches the tiebreak that list applies and
+	// keeps same-named functions from being dropped when a tie group straddles a page
+	// boundary. Tab (not NUL) because Marker round-trips through the XML request/response
+	// body and NUL is not a valid XML 1.0 character.
 	page, _, isTruncated := paginateByMarkerValue(
 		items,
-		func(fn *ConnectionFunction) string { return fn.Name },
+		func(fn *ConnectionFunction) string { return fn.Name + "\t" + fn.ID },
 		req.Marker,
 		req.MaxItems,
 	)
@@ -474,7 +479,8 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	}
 	list := cfnList{XMLNS: cfNS, ConnectionFunctions: summaries}
 	if isTruncated && len(page) > 0 {
-		list.NextMarker = page[len(page)-1].Name
+		last := page[len(page)-1]
+		list.NextMarker = last.Name + "\t" + last.ID
 	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -946,4 +947,61 @@ func TestGetSegmentVersion_UnknownVersionNotFound(t *testing.T) {
 	var errResp map[string]any
 	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
 	assert.Equal(t, "NotFoundException", errResp["__type"])
+}
+
+// TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages proves GetSegments loses
+// (or repeats) segments at a page boundary when several segments in the same app share a
+// Name. Segment names have no uniqueness constraint (CreateSegment never checks for an
+// existing Name), yet GetSegments sorts solely by Name with no secondary key, over a
+// *store.Table map walk whose iteration order varies between calls; handleGetSegments
+// then pages that resort with an offset cursor (applyPageParams). Looped since this
+// depends on map iteration reshuffling a tie group between the calls backing page 1 and
+// page 2, which does not reproduce on every run.
+func TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "segment-pg-tie-app")
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
+				map[string]any{"Name": "dup-segment-name"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			created[resp["Id"].(string)] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+		path := "/v1/apps/" + appID + "/segments?page-size=2"
+
+		for range dupCount + 1 {
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, _ := resp["Item"].([]any)
+			for _, item := range items {
+				s, isMap := item.(map[string]any)
+				require.True(t, isMap)
+				seen[s["Id"].(string)] = true
+			}
+
+			nextToken, hasToken := resp["NextToken"].(string)
+			if !hasToken {
+				break
+			}
+
+			path = "/v1/apps/" + appID + "/segments?page-size=2&token=" + url.QueryEscape(nextToken)
+		}
+
+		assert.Equal(t, created, seen, "paged GetSegments dropped or duplicated same-named segments across pages")
+	}
 }

@@ -739,3 +739,54 @@ accurate. All three left as recorded.
 Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...` clean;
 `golangci-lint run services/cloudfront/...` -- `0 issues.`; `go test ./services/cloudfront/... -count=1`
 -- `ok github.com/blackbirdworks/gopherstack/services/cloudfront 0.170s`.
+
+## 2026-08-30: paginated-listing reproducibility sweep (unstable page-boundary drop)
+
+Targeted class: a Marker/MaxItems (or offset) cursor over a listing whose sort order isn't
+reproducible between calls -- a record dropped or duplicated at a page boundary with
+nothing changed in between. Read every `sort.Slice` (24 sites) feeding a `paginateByMarkerID`/
+`paginateByMarkerValue` call plus every direct caller of those two helpers.
+
+**Found and fixed**: `ListConnectionFunctions` (`connection.go`, `handler_connection.go`).
+`CreateConnectionFunctionWithCode`'s own comment says "AWS allows multiple connection
+functions to share the same Name -- they are keyed and uniqued by ID, not by name," yet
+`ListConnectionFunctions` sorted solely by `Name` and `handleListConnectionFunctions`'
+cursor used `getID(item) = fn.Name` -- once a group of same-named functions straddled a
+`MaxItems` boundary, page 2's `getID(item) <= marker` cutoff silently discarded the rest
+of the tied group forever (deterministic once a tie spans a boundary, not merely a
+map-iteration flake). Proven with `TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages`
+(`list_pagination_ignored_test.go`, looped 30x for extra confidence though the drop
+reproduces on the first iteration too) -- confirmed failing against unmodified code (2 of
+5 same-named functions survived pagination), passing after. Fixed by (1) sorting on
+`(Name, ID)` in `ListConnectionFunctions`, and (2) changing the cursor's `getID` and the
+emitted `NextMarker` to `Name + "\t" + ID` (tab, not NUL -- Marker round-trips through the
+XML request/response body and NUL is not a valid XML 1.0 character) so the cutoff can no
+longer land mid-tie-group. `Marker`/`NextMarker` are documented opaque tokens
+(`api_op_ListConnectionFunctions.go`), so exposing the composite key on the wire is safe;
+no existing test asserted the literal Marker content.
+
+**Confirmed safe, every other `sort.Slice` site checked**: all 23 remaining sort keys are
+either the sorted table's own `store.Table` key (`distributions`, `oais`,
+`anycastIPLists`, `cachePolicies`, `connectionGroups`, `continuousDeploymentPolicies`,
+`originAccessControls`, `responseHeadersPolicies`, `functions` (keyed by Name),
+`originRequestPolicies`, `fieldLevelEncryptions` x2, `publicKeys`, `keyGroups`,
+`realtimeLogConfigs` (keyed by ARN, sorted by Name -- see next), `vpcOrigins`,
+`trustStores`, `streamingDistributions`, `distributionTenants` x2, `invalidations`
+(composite `distID#ID`, filtered to one distribution so `ID` alone is unique in that
+subset)) or a field independently enforced unique at creation (`KeyValueStore.Name` --
+`CreateKeyValueStore` checks `keyValueStoreByName` and returns `AlreadyExists`;
+`RealtimeLogConfig.Name` -- same pattern via `realtimeLogConfigByName`). `ListKVSValues`
+sorts by `Key`, which is literally the underlying Go map's own key -- immune by
+construction. No "no sort at all" sites found (every truncating listing sorts first).
+
+**Confirmed ignoring MaxItems/Marker entirely** (re-verified, not re-trusted from the
+existing note -- see the sweep-methodology warning already on this file about a prior
+false "already correct" claim): the ~20 `List*` ops the 2026-08-29 filter/pagination audit
+already disclosed as hardcoding `MaxItems`/`Quantity` and never truncating are confirmed
+accurate on inspection -- since they never truncate, they can't drop or duplicate a record
+at a page boundary (a different, already-tracked completeness gap, not this pass's
+target); left as previously disclosed rather than re-fixed here.
+
+Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...`
+clean; `go vet ./services/cloudfront/...` clean; `go test ./services/cloudfront/... -race
+-count=1` -- `ok`; `golangci-lint run ./services/cloudfront/...` -- `0 issues.`

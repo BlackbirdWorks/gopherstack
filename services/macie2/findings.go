@@ -63,21 +63,31 @@ func sortFindings(findings []*storedFinding, sortBy *FindingSortCriteria) {
 	desc := sortBy.OrderBy == sortOrderDesc
 
 	sort.Slice(findings, func(i, k int) bool {
-		var less bool
+		var less, tied bool
 
 		switch sortBy.AttributeName {
 		case "count":
-			less = findings[i].Count < findings[k].Count
+			less, tied = findings[i].Count < findings[k].Count, findings[i].Count == findings[k].Count
 		case keyCreatedAt:
 			less = findings[i].CreatedAt.Before(findings[k].CreatedAt)
+			tied = findings[i].CreatedAt.Equal(findings[k].CreatedAt)
 		case keyUpdatedAt:
 			less = findings[i].UpdatedAt.Before(findings[k].UpdatedAt)
+			tied = findings[i].UpdatedAt.Equal(findings[k].UpdatedAt)
 		case "type":
-			less = findings[i].Type < findings[k].Type
+			less, tied = findings[i].Type < findings[k].Type, findings[i].Type == findings[k].Type
 		case "severity.score":
 			less = findings[i].Severity.Score < findings[k].Severity.Score
+			tied = findings[i].Severity.Score == findings[k].Severity.Score
 		default:
 			return false
+		}
+
+		if tied {
+			// ID is this table's unique key (storedFindingKeyFn); breaking ties on it
+			// keeps a total order so the offset-based page.NewHMAC cursor can't drop
+			// or duplicate findings that tie on the requested attribute.
+			return findings[i].ID < findings[k].ID
 		}
 
 		if desc {

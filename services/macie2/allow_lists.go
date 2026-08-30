@@ -117,6 +117,8 @@ func (b *InMemoryBackend) DeleteAllowList(id string) error {
 }
 
 // ListAllowLists returns summaries of all allow lists.
+//
+//nolint:dupl // structurally identical to ListFindingsFilters but operates on a different type
 func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error) {
 	return listPaginated(
 		b, "ListAllowLists", b.allowLists.All(),
@@ -132,7 +134,17 @@ func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListS
 			}, true
 		},
 		func(result []*AllowListSummary) {
-			sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+			// Name has no uniqueness constraint (CreateAllowList never checks for an
+			// existing Name); ID as a tiebreaker keeps a total order so the
+			// offset-based page.NewHMAC cursor can't drop or duplicate allow lists
+			// that tie on Name.
+			sort.Slice(result, func(i, j int) bool {
+				if result[i].Name != result[j].Name {
+					return result[i].Name < result[j].Name
+				}
+
+				return result[i].ID < result[j].ID
+			})
 		},
 		token, limit,
 	)

@@ -97,7 +97,11 @@ func (b *InMemoryBackend) GetSegments(appID string) ([]*Segment, error) {
 	}
 
 	sort.Slice(segments, func(i, j int) bool {
-		return segments[i].Name < segments[j].Name
+		if segments[i].Name != segments[j].Name {
+			return segments[i].Name < segments[j].Name
+		}
+
+		return segments[i].ID < segments[j].ID
 	})
 
 	return segments, nil

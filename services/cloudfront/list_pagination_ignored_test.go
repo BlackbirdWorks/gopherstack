@@ -340,3 +340,55 @@ func TestListKeyValueStores_SDKRoundTrip_Pagination(t *testing.T) {
 
 	assert.Len(t, seen, 20)
 }
+
+// TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages proves
+// handleListConnectionFunctions loses records at a page boundary when several
+// connection functions share a Name. CreateConnectionFunctionWithCode documents that
+// "AWS allows multiple connection functions to share the same Name -- they are keyed
+// and uniqued by ID, not by name" (connection.go), yet ListConnectionFunctions sorts
+// solely by Name and paginateByMarkerValue's cursor is `getID(item) <= marker`: once a
+// tie group of same-named functions straddles a MaxItems boundary, the members left
+// out of page 1 share the exact marker value emitted for page 1's last item, so page
+// 2's cutoff silently discards the rest of the group forever -- deterministically, not
+// just under map-iteration luck, so this is looped only for extra confidence.
+func TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		h := cloudfront.NewHandler(backend)
+		client := newTestCloudFrontClient(t, h)
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			fn, err := backend.CreateConnectionFunction("dup-fn-name", "pagination tie test")
+			require.NoError(t, err)
+			created[fn.ID] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+
+		marker := (*string)(nil)
+		for range dupCount + 1 {
+			out, err := client.ListConnectionFunctions(t.Context(), &cfsdk.ListConnectionFunctionsInput{
+				MaxItems: aws.Int32(2),
+				Marker:   marker,
+			})
+			require.NoError(t, err)
+
+			for _, fn := range out.ConnectionFunctions {
+				seen[aws.ToString(fn.Id)] = true
+			}
+
+			if out.NextMarker == nil {
+				break
+			}
+
+			marker = out.NextMarker
+		}
+
+		assert.Equal(t, created, seen, "paged ListConnectionFunctions dropped same-named functions across pages")
+	}
+}
