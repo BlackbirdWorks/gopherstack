@@ -39,13 +39,13 @@ ops:
   DescribeTargetHealth: {wire: ok, errors: ok, state: ok, persist: ok, note: "Targets.member.N filter now also defaults omitted Port before matching against registered targets"}
   CreateListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "fixed: AlpnPolicy was modeled/serialized as a bare string; real wire shape is a list (AlpnPolicy.member.N request, <AlpnPolicy><member> response). ERRORS FIXED (error-path sweep, 2026-08-29): CreateListener models TargetGroupNotFound, but never validated that DefaultActions' forward target group references actually exist -- a listener could be created pointing at a target group that was never created (missing-error). Now validates via the new validateForwardTargetGroupsExist, shared with ModifyListener/CreateRule/ModifyRule."}
   DeleteListener: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too"}
+  DescribeListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too. 2026-08-30: fixed a pagination-drop bug -- see Notes marker-cursor sweep."}
   ModifyListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too. ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener, now validated when DefaultActions is supplied."}
   ModifyListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener (see below); added fallback to the legacy top-level Values.member.N field for host-header/path-pattern conditions when the modern HostHeaderConfig/PathPatternConfig is absent (both are valid on the real wire). NEW 2026-08-07: Transforms (types.RuleTransform, host-header-rewrite/url-rewrite) now parsed/validated/stored/returned -- see families.rule-transforms"}
   DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-30: fixed a pagination-drop bug -- see Notes marker-cursor sweep."}
   ModifyRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener; same legacy-Values fallback as CreateRule. NEW 2026-08-07: Transforms/ResetTransforms now handled -- ResetTransforms clears Transforms, a non-empty Transforms replaces it, and specifying both is rejected (InvalidParameter), matching ModifyRuleInput's doc comment"}
   SetRulePriorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: the priority-conflict error code was fabricated (\"DuplicatePriority\"); real AWS code is \"PriorityInUse\" (PriorityInUseException)"}
   AddTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): AddTags models LoadBalancerNotFound/TargetGroupNotFound/ListenerNotFound/RuleNotFound/TrustStoreNotFound for an unknown resource ARN, but the backend silently skipped any ARN it couldn't find instead of raising (missing-error). Now raises the resource-type-specific NotFound via the new notFoundErrorForResourceARN, matching AddTags/RemoveTags/DescribeTags' shared not-found set."}
@@ -61,7 +61,7 @@ ops:
   DescribeAccountLimits: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static limits table verified against AWS defaults"}
   DescribeCapacityReservation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeSSLPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static policy list verified against real AWS SSL policy names/ciphers"}
-  DescribeTrustStoreAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeTrustStoreAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-30: fixed a pagination-drop bug (no sort at all) -- see Notes marker-cursor sweep."}
   DescribeTrustStores: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix (2026-07-05): response list field was named RevocationContents; real wire field (verified against the SDK deserializer) is TrustStoreRevocations. A real SDK client parsing this response would have silently received an EMPTY list on every call despite the mock holding real revocation data. RevocationId is now int64 (see AddTrustStoreRevocations note, 2026-07-23)."}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -389,3 +389,50 @@ Gates: `go build ./services/elbv2/...`, `go vet ./...` (repo-wide), `go test ./s
 -race -count=1` (pass), `golangci-lint run ./services/elbv2/...` (0 issues after fixing golines and two
 variable-shadow warnings). New tests in `list_filter_params_test.go` drive the real typed SDK client
 (`elbv2sdk.Client`) for every case covered.
+
+- **2026-08-30 marker-cursor-over-a-tie-prone-key sweep, 3 real bugs found and fixed.**
+  All 8 Marker-paginated Describe* ops go through the shared `applyMarkerPage`/inline
+  offset-by-marker helpers in `handler.go`. `DescribeLoadBalancers` (marks by
+  `LoadBalancerArn`), `DescribeTargetGroups` (`TargetGroupArn`), `DescribeTrustStores`
+  (`TrustStoreArn`) all mark by the `store.Table`'s own key -- structurally unique, safe.
+  `DescribeListenerCertificates` marks by `CertificateArn`; `AddListenerCertificates`
+  already de-dupes by that field before appending -- safe.
+  `DescribeTrustStoreRevocations` marks by `RevocationID`, a monotonically-increasing
+  global counter -- safe.
+
+  Two ops broke on a genuine tie: **`DescribeListeners`** sorts by `Port`, and
+  **`DescribeRules`** sorts by `Priority` -- both fields are only required unique
+  *per-load-balancer*/*per-listener* respectively (`checkDuplicateListenerPort` scopes to
+  `b.listenersByLB`; `CreateRule`'s duplicate-priority check scopes to
+  `b.rulesByListener`), so an unfiltered call (no `LoadBalancerArn`/`ListenerArn`, listing
+  across every listener/rule in the account) routinely produces ties. Both source lists
+  come from `b.listeners.All()`/`b.rules.All()` -- a map walk Go re-randomizes on every
+  call -- so tied entries could reorder between the call that issued a Marker and the
+  call that consumed it, silently dropping the reordered entry from the walk. Fixed by
+  adding `ListenerArn`/`RuleArn` (the marker field itself) as the final sort comparison,
+  making the order a stable total order regardless of input order. Reproduced first with
+  a 30-trial paginated-walk test per op (`handler_describe_listeners_pagination_test.go`,
+  `handler_describe_rules_pagination_test.go`) -- both fail reliably (trial 0, every run)
+  against unmodified code, pass after the fix.
+
+  A third op had no sort at all: **`DescribeTrustStoreAssociations`** builds its result by
+  scanning `b.listeners.All()` for `MutualAuthentication.TrustStoreArn` matches and never
+  sorted the resulting `[]string` before `applyMarkerPage` ran. Each `ListenerArn` in the
+  result is unique (each listener visited once), but with zero sort the *order* itself was
+  a fresh random permutation on every call, so the Marker-based resume could drop
+  associations with no tie required at all. Fixed with `sort.Strings`. Reproduced with the
+  same 30-trial pattern (`handler_describe_trust_store_associations_pagination_test.go`).
+
+  **Refuting a prior claim**: the "Confirmed already correct, not touched" note above
+  (this file, DescribeListeners/DescribeRules/DescribeTargetGroups/DescribeLoadBalancers)
+  was about constraint-field filtering (`LoadBalancerArn`/`ListenerArns`/etc. being read
+  and applied), which is still true -- but it did not cover cross-listener/cross-rule
+  marker-resume correctness on the unfiltered path, which was broken. Existing pagination
+  tests for these ops used a single load balancer/listener per test, so ties across
+  siblings never arose and the bug went uncaught.
+
+  `DescribeTargetGroups` (sorts by `TargetGroupName`) and `DescribeLoadBalancers` (sorts
+  by name) were re-verified, not assumed safe: both names are checked for global
+  uniqueness across every target group/load balancer at Create time (`b.targetGroups.All()`
+  / `b.loadBalancers.All()` scans in `CreateTargetGroup`/`CreateLoadBalancer`), so neither
+  sort key can tie.

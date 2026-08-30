@@ -163,6 +163,60 @@ func TestRuleGroupNotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateRuleGroup_RejectsDuplicateRuleId(t *testing.T) {
+	t.Parallel()
+
+	h := newWAFHandler(t)
+	ruleID := wafCreateRule(t, h, "DupRule")
+	rgID := wafCreateRuleGroup(t, h, "DupGroup")
+
+	token := wafGetToken(t, h)
+	rec := wafDo(t, h, "UpdateRuleGroup", map[string]any{
+		"ChangeToken": token,
+		"RuleGroupId": rgID,
+		"Updates": []map[string]any{
+			{
+				"Action": "INSERT",
+				"ActivatedRule": map[string]any{
+					"RuleId":   ruleID,
+					"Priority": 1,
+					"Type":     "REGULAR",
+					"Action":   map[string]any{"Type": "BLOCK"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateRuleGroup", map[string]any{
+		"ChangeToken": token,
+		"RuleGroupId": rgID,
+		"Updates": []map[string]any{
+			{
+				"Action": "INSERT",
+				"ActivatedRule": map[string]any{
+					"RuleId":   ruleID,
+					"Priority": 2,
+					"Type":     "REGULAR",
+					"Action":   map[string]any{"Type": "BLOCK"},
+				},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"inserting the same RuleId twice into a RuleGroup must be rejected: "+
+			"a duplicate RuleId in the group breaks ListActivatedRulesInRuleGroup's "+
+			"RuleId-marker pagination")
+
+	rec = wafDo(t, h, "ListActivatedRulesInRuleGroup", map[string]any{"RuleGroupId": rgID})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	activated, _ := listResp["ActivatedRules"].([]any)
+	assert.Len(t, activated, 1, "group must still contain only the one successfully-inserted rule")
+}
+
 func TestListSubscribedRuleGroups(t *testing.T) {
 	t.Parallel()
 

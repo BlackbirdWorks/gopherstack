@@ -178,6 +178,12 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 		result = []string{}
 	}
 
+	// b.listeners.All() is a randomized map walk. DescribeTrustStoreAssociations
+	// pagination resumes by matching a ListenerArn marker against this slice, so
+	// without a stable order here, associations can silently drop between the
+	// call that issued the marker and the call that consumes it.
+	sort.Strings(result)
+
 	return result, nil
 }
 

@@ -34,7 +34,7 @@ families:
   GeoMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteGeoMatchSet now also returns WAFNonEmptyEntityException while GeoMatchConstraints is non-empty."}
   RegexPatternSet: {status: ok, note: "ChangeToken validation; DeleteRegexPatternSet now returns WAFReferencedItemException if referenced by a RegexMatchSet tuple's RegexPatternSetId. This pass: DeleteRegexPatternSet now also returns WAFNonEmptyEntityException while RegexPatternStrings is non-empty."}
   RegexMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (a RegexMatchSet is itself a match set referenceable from a Rule Predicate). This pass: DeleteRegexMatchSet now also returns WAFNonEmptyEntityException while RegexMatchTuples is non-empty."}
-  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP. This pass: DeleteRuleGroup now also returns WAFNonEmptyEntityException while it still has activated rules."}
+  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP. DeleteRuleGroup also returns WAFNonEmptyEntityException while it still has activated rules. 2026-08-30 (marker-cursor sweep): UpdateRuleGroup's INSERT action now rejects a RuleId already active in the group (WAFInvalidParameterException) -- previously unchecked, so the same RuleId could be activated twice at different priorities, and since ListActivatedRulesInRuleGroup resumes pagination by matching a RuleId marker (handler_rule_groups.go), a duplicate RuleId broke that resume. Fixed at the mutation boundary rather than the read path, matching this repo's established pattern (e.g. wafv2 rate_based_rules.go rejecting duplicate Name/Priority on write)."}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against real shapes -- no ChangeToken involved in real AWS, correctly not required here"}
   Logging: {status: ok, note: "PutLoggingConfiguration/GetLoggingConfiguration/DeleteLoggingConfiguration/ListLoggingConfigurations -- no ChangeToken in real AWS, correctly not required"}
   PermissionPolicy: {status: ok, note: "no ChangeToken in real AWS, correctly not required"}
@@ -241,3 +241,21 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   representation choice. `ActivatedRule`/`WafAction`/`WafOverrideAction`/`ExcludedRule`/
   `LoggingConfiguration`/`RedactedFields` also spot-checked clean. No source changes this
   pass.
+
+- **2026-08-30 marker-cursor-over-a-tie-prone-key sweep.** Audited all 16 List ops'
+  marker/sort key for duplicate-admission. All 12 `store.Table`-keyed listings
+  (WebACLs/Rules/RateBasedRules/IPSets/ByteMatchSets/SizeConstraintSets/
+  SqlInjectionMatchSets/XssMatchSets/GeoMatchSets/RegexPatternSets/RegexMatchSets/
+  RuleGroups) sort/mark by their own `store.Table` key (`store_setup.go` `*KeyFn`
+  functions) — duplicates structurally impossible. `ListLoggingConfigurations` marks by
+  `ResourceArn`, also the table key. `ListTagsForResource` marks by `Tag.Key`, unique by
+  Go map-key construction. `ListSubscribedRuleGroups` is unpaginated (always empty,
+  documented in `structural_gaps`). The one exception: **`ListActivatedRulesInRuleGroup`**
+  marks by `ActivatedRule.RuleId`, a field of a *side slice* (`b.ruleGroupRules[id]`), not
+  a `store.Table` entry — `UpdateRuleGroup`'s INSERT action never checked for a
+  already-active RuleId, so two `ActivatedRule` entries could share the same RuleId and
+  break marker resume deterministically once a page boundary landed inside that pair.
+  Fixed (see `RuleGroup` family note above); reproduced first in
+  `rule_groups_test.go::TestUpdateRuleGroup_RejectsDuplicateRuleId` (fails against
+  unmodified code, passes after the fix). All existing pagination fixtures
+  (`pagination_test.go`) use distinct names/IDs throughout and could not have caught this.

@@ -247,8 +247,21 @@ func (b *InMemoryBackend) DescribeListeners(
 		result = append(result, *l)
 	}
 
+	// Port is only unique per-load-balancer (CreateListener checks
+	// checkDuplicateListenerPort against b.listenersByLB), so an unfiltered
+	// DescribeListeners call routinely sees ties across load balancers.
+	// ListenerArn breaks them so the sort order is a stable total order
+	// across calls -- required because DescribeListeners pagination resumes
+	// by matching a ListenerArn marker against this sorted slice, and that
+	// scan silently drops listeners if tied entries can reorder between the
+	// call that issued the marker and the call that consumes it (source
+	// rows come from a randomized map walk).
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Port < result[j].Port
+		if result[i].Port != result[j].Port {
+			return result[i].Port < result[j].Port
+		}
+
+		return result[i].ListenerArn < result[j].ListenerArn
 	})
 
 	if len(listenerArns) > 0 {
