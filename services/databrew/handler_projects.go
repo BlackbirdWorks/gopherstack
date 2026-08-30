@@ -199,8 +199,7 @@ func (h *Handler) handleStartProjectSession(ctx context.Context, body []byte) ([
 // rejecting a project name that doesn't exist.
 func (h *Handler) handleSendProjectSessionAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Action map[string]any `json:"Action"`
-		Name   string         `json:"Name"`
+		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

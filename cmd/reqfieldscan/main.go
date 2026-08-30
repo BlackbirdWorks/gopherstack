@@ -77,10 +77,16 @@
 // against a FUTURE unrecognised shape, not a currently-firing warning.
 //
 // FIELD COVERAGE: for every function declared in the package (not only the
-// one function WrapOp was handed), a parameter or `:=`/`=`-bound local
-// whose type is a known request struct -- by pointer, by value, or by a
-// single-hop alias (`x := in`, `x := *in`) -- binds that identifier to the
-// type for the rest of that function's body; every `ident.FieldName`
+// one function WrapOp was handed), a method RECEIVER, a parameter, or a
+// `:=`/`=`-bound local whose type is a known request struct -- by pointer,
+// by value, or by a single-hop alias (`x := in`, `x := *in`) -- binds that
+// identifier to the type for the rest of that function's body (method
+// body, for a receiver); codecommit's `func (r mergeBranchesRequest)
+// options()` reads r.TargetBranch, r.CommitMessage, r.AuthorName, and
+// r.Email this way -- before this fix, a request struct's own methods were
+// invisible to field coverage, a FALSE POSITIVE (over-reporting unread
+// fields), the opposite failure from this tool's earlier under-reporting
+// hardening passes. Every `ident.FieldName`
 // selector anywhere in the body then marks (type, field) covered. Identity
 // is the (struct TYPE, field name) pair, never a bare field name, so two
 // structs that happen to share a field name never collide. This is wider

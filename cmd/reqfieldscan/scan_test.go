@@ -630,6 +630,85 @@ func TestLowConfidenceGuard_LowResolvedFraction(t *testing.T) {
 	assert.NotEmpty(t, r.LowConfidence)
 }
 
+// TestMethodReceiverBindsRequestFields covers codecommit's real
+// mergeBranchesRequest shape: a request struct's own method
+// (`func (r mergeBranchesRequest) options()`) reads fields off its
+// receiver, never a parameter or a local. Before this fix
+// collectLocalBindings bound only a function's parameters and locals, never
+// its receiver, so every field read only this way was a FALSE POSITIVE --
+// flagged unread despite being read in production code. Table-driven: one
+// case for a value receiver (codecommit's real shape), one for a pointer
+// receiver, and a control case proving a field genuinely never read by
+// anything -- receiver included -- is still reported unread.
+func TestMethodReceiverBindsRequestFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		src      string
+		field    string
+		wantRead bool
+	}{
+		{
+			name: "value receiver reads field",
+			src: `package svc
+
+type mergeBranchesRequest struct {
+	TargetBranch string ` + "`json:\"targetBranch\"`" + `
+}
+
+func (r mergeBranchesRequest) options() string {
+	return r.TargetBranch
+}
+`,
+			field:    "TargetBranch",
+			wantRead: true,
+		},
+		{
+			name: "pointer receiver reads field",
+			src: `package svc
+
+type mergeBranchesRequest struct {
+	CommitMessage string ` + "`json:\"commitMessage\"`" + `
+}
+
+func (r *mergeBranchesRequest) options() string {
+	return r.CommitMessage
+}
+`,
+			field:    "CommitMessage",
+			wantRead: true,
+		},
+		{
+			name: "field never read anywhere, receiver included, is still flagged",
+			src: `package svc
+
+type mergeBranchesRequest struct {
+	Unread string ` + "`json:\"unread\"`" + `
+}
+
+func (r mergeBranchesRequest) options() string {
+	return "constant"
+}
+`,
+			field:    "Unread",
+			wantRead: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files, fset := mustParseSrc(t, tt.src)
+			scan := scanFiles(files, fset)
+
+			info := scan.Coverage[coverageKey{"mergeBranchesRequest", tt.field}]
+			assert.Equal(t, tt.wantRead, info.Read)
+		})
+	}
+}
+
 // TestCollectStaticOpList_EmptyWhenBuiltFromMapKeys covers route53resolver/
 // workspaces/dms's shape: GetSupportedOperations built at runtime from
 // h.ops's own keys has no static []string{} literal to find, so the

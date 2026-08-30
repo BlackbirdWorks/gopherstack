@@ -78,6 +78,47 @@ func TestSchemaExtensions_StateLifecycle(t *testing.T) {
 		assert.Equal(t, "CancelInProgress", ext["SchemaExtensionStatus"])
 	})
 
+	t.Run("CreateSnapshotBeforeSchemaExtension takes an Auto snapshot", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		dirID := mustCreateMicrosoftAD(t, h, "corp.example.com")
+
+		rec := doRequest(t, h, "StartSchemaExtension", map[string]any{
+			"DirectoryId":                         dirID,
+			"Description":                         "add attr",
+			"SchemaExtensionBody":                 "dn: CN=foo",
+			"CreateSnapshotBeforeSchemaExtension": true,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		listRec := doRequest(t, h, "DescribeSnapshots", map[string]any{"DirectoryId": dirID})
+		require.Equal(t, http.StatusOK, listRec.Code)
+		body := respBody(t, listRec)
+		snapshots, _ := body["Snapshots"].([]any)
+		require.Len(t, snapshots, 1, "CreateSnapshotBeforeSchemaExtension=true must take a snapshot")
+		assert.Equal(t, "Auto", snapshots[0].(map[string]any)["Type"])
+	})
+
+	t.Run("CreateSnapshotBeforeSchemaExtension=false takes no snapshot", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		dirID := mustCreateMicrosoftAD(t, h, "corp.example.com")
+
+		rec := doRequest(t, h, "StartSchemaExtension", map[string]any{
+			"DirectoryId":                         dirID,
+			"Description":                         "add attr",
+			"SchemaExtensionBody":                 "dn: CN=foo",
+			"CreateSnapshotBeforeSchemaExtension": false,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		listRec := doRequest(t, h, "DescribeSnapshots", map[string]any{"DirectoryId": dirID})
+		require.Equal(t, http.StatusOK, listRec.Code)
+		body := respBody(t, listRec)
+		snapshots, _ := body["Snapshots"].([]any)
+		assert.Empty(t, snapshots)
+	})
+
 	t.Run("start on unknown directory returns 400", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)

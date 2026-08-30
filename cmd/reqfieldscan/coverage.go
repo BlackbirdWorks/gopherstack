@@ -75,27 +75,21 @@ func collectAllTypeNames(files []*ast.File) map[string]bool {
 }
 
 // collectLocalBindings maps an identifier to a known request struct type
-// name for one function: its parameters (by pointer or by value), and any
-// `:=`/`=`-bound local resolved via rhsBoundType. Traversal order matches
-// source order for straight-line code (ast.Inspect visits each statement's
-// full subtree before its next sibling), so a binding is visible to every
-// use that follows it -- the same single-assignment-style discipline
-// cmd/enumcheck uses for its own local constant resolution.
+// name for one function: its receiver and parameters (by pointer or by
+// value), and any `:=`/`=`-bound local resolved via rhsBoundType. A
+// receiver binding is what makes a request struct's own method --
+// codecommit's `func (r mergeBranchesRequest) options()`, reading
+// r.TargetBranch -- visible; before this fix such reads were invisible,
+// flagging the field unread despite production code reading it. Traversal
+// order matches source order for straight-line code (ast.Inspect visits
+// each statement's full subtree before its next sibling), so a binding is
+// visible to every use that follows it -- the same single-assignment-style
+// discipline cmd/enumcheck uses for its own local constant resolution.
 func collectLocalBindings(fd *ast.FuncDecl, fset *token.FileSet, structs map[string]structDef) map[string]string {
 	bindings := map[string]string{}
 
-	if fd.Type.Params != nil {
-		for _, p := range fd.Type.Params.List {
-			typeName := underlyingIdentType(p.Type)
-			if _, known := structs[typeName]; !known {
-				continue
-			}
-
-			for _, n := range p.Names {
-				bindings[n.Name] = typeName
-			}
-		}
-	}
+	bindFieldList(fd.Recv, structs, bindings)
+	bindFieldList(fd.Type.Params, structs, bindings)
 
 	if fd.Body == nil {
 		return bindings
@@ -113,6 +107,26 @@ func collectLocalBindings(fd *ast.FuncDecl, fset *token.FileSet, structs map[str
 	})
 
 	return bindings
+}
+
+// bindFieldList binds every named identifier in fl (a receiver or a
+// parameter list; nil for a func with no receiver) to its type when that
+// type is a known request struct.
+func bindFieldList(fl *ast.FieldList, structs map[string]structDef, bindings map[string]string) {
+	if fl == nil {
+		return
+	}
+
+	for _, field := range fl.List {
+		typeName := underlyingIdentType(field.Type)
+		if _, known := structs[typeName]; !known {
+			continue
+		}
+
+		for _, n := range field.Names {
+			bindings[n.Name] = typeName
+		}
+	}
 }
 
 func underlyingIdentType(expr ast.Expr) string {

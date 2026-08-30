@@ -49,6 +49,22 @@ func (b *InMemoryBackend) CreateSnapshot(
 	return &cp, nil
 }
 
+// newAutoSnapshot stores an Auto-type snapshot for directoryID, AWS's own type for a
+// snapshot taken automatically ahead of another operation (e.g. StartSchemaExtension's
+// createSnapshotBeforeSchemaExtension) rather than requested directly via CreateSnapshot.
+// Callers must already hold b.mu and have confirmed directoryID exists.
+func (b *InMemoryBackend) newAutoSnapshot(region, directoryID, name string) {
+	b.snapshotPut(&storedSnapshot{
+		region:      region,
+		StartTime:   time.Now().UTC(),
+		SnapshotID:  b.newSnapshotID(),
+		DirectoryID: directoryID,
+		Name:        name,
+		Status:      string(SnapshotStatusCompleted),
+		SnapType:    string(SnapshotTypeAuto),
+	})
+}
+
 // DeleteSnapshot deletes a snapshot.
 func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 	region := getRegion(ctx, b.region)

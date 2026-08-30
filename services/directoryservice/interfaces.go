@@ -59,7 +59,9 @@ type StorageBackend interface {
 	RemoveRegion(ctx context.Context, directoryID string) error
 	DescribeRegions(ctx context.Context, directoryID, regionName, nextToken string) ([]RegionDescription, string, error)
 
-	StartSchemaExtension(ctx context.Context, directoryID, description, schemaExtensionBody string) (string, error)
+	StartSchemaExtension(
+		ctx context.Context, directoryID, description, schemaExtensionBody string, createSnapshotBeforeSchemaExtension bool,
+	) (string, error)
 	CancelSchemaExtension(ctx context.Context, directoryID, schemaExtensionID string) error
 	ListSchemaExtensions(
 		ctx context.Context,
@@ -266,6 +268,7 @@ type SnapshotType string
 
 const (
 	SnapshotTypeManual SnapshotType = "Manual"
+	SnapshotTypeAuto   SnapshotType = "Auto"
 )
 
 // TrustDirection matches the AWS TrustDirection enum.

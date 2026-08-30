@@ -63,7 +63,7 @@ ops:
   AddRegion: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "VPCSettings is a required AddRegionInput member (DirectoryVpcSettings{VpcId,SubnetIds}) that was silently dropped -- handler used the generic 2-field helper and never parsed it. Now required+parsed+stored+echoed. RegionType=Additional/Status=Active confirmed valid against types.RegionType/DirectoryStage enums (closes the deferred RegionType/RegionStatus item). gopherstack-wlo1 (2026-08-23): the already-in-Region check returned EntityAlreadyExistsException, a code AddRegion's own error switch does not type (only DirectoryAlreadyInRegionException is). Fixed."}
   RemoveRegion: {wire: ok, errors: FIXED, state: ok, persist: ok, note: "gopherstack-wlo1 (2026-08-23): directory-not-found returned EntityDoesNotExistException, a code this op's own deserializeOpError switch does not type (only DirectoryDoesNotExistException is) -- errors.As into the real client's typed exception failed. Fixed to DirectoryDoesNotExistException."}
   DescribeRegions: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "LaunchTime epoch fix (prior pass); this pass added the RegionDescription fields that were completely absent: VpcSettings, DesiredNumberOfDomainControllers (defaulted to 2, AddRegion has no request field for it), StatusLastUpdatedDateTime. gopherstack-wlo1 (2026-08-23): directory-not-found returned EntityDoesNotExistException, a code this op's own deserializeOpError switch does not type (only DirectoryDoesNotExistException is) -- errors.As into the real client's typed exception failed. Fixed to DirectoryDoesNotExistException."}
-  StartSchemaExtension: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartSchemaExtension: {wire: FIXED, errors: ok, state: FIXED, persist: ok, note: "2026-08-30 (reqfieldscan fifth-dispatch-shape sweep): CreateSnapshotBeforeSchemaExtension -- a required StartSchemaExtensionInput member -- was decoded and then silently dropped, never applied. Now takes a real Auto-type snapshot of the directory first when true (SnapshotTypeAuto added; visible via DescribeSnapshots, doesn't count against the manual-snapshot limit, matching the real op's documented behavior)."}
   CancelSchemaExtension: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchemaExtensions: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartDateTime/EndDateTime epoch fix"}
   CreateConditionalForwarder: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "Re-diffed against types.ConditionalForwarder; found and closed a real gap -- DnsIpv6Addrs (a genuine optional CreateConditionalForwarderInput/ConditionalForwarder member) was entirely absent. Now accepted on input and round-tripped through Describe."}
@@ -594,3 +594,22 @@ asserted the old wrong `EntityAlreadyExistsException` behavior and was
 corrected in place to assert the real idempotent-upsert behavior, not
 deleted. 8/8 dlm ops (separate service, same pass) were diffed and found
 already clean -- see gopherstack-wlo1 for the full cross-service report.
+
+## 2026-08-30 reqfieldscan fifth-dispatch-shape sweep
+
+Ran `cmd/reqfieldscan` (after its own method-receiver-binding fix) against this package's
+anonymous-inline-struct request decodes (opsworks-style handlers implementing
+`service.JSONOpFunc` directly). 2 fields flagged, both hand-verified against the pinned
+`directoryservice` SDK's real input shapes:
+
+- `handleStartSchemaExtension`'s `CreateSnapshotBeforeSchemaExtension bool`: REAL bug, a
+  required `StartSchemaExtensionInput` member silently dropped -- fixed, see
+  StartSchemaExtension's own note above.
+- `handleDescribeHybridADUpdate`'s `NextToken string`: confirmed real
+  (`DescribeHybridADUpdateInput.NextToken`) but an already-documented honest gap -- see this
+  op's existing ops-table note and the `overall` history above (DescribeHybridADUpdate never
+  truncates its result set, so an inbound NextToken has nothing to resume from; its absence
+  from the response is a truthful "no more pages"). No change needed.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
+(`./services/directoryservice/...`).

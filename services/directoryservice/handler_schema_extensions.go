@@ -36,6 +36,7 @@ func (h *Handler) handleStartSchemaExtension(c *echo.Context) error {
 		req.DirectoryID,
 		req.Description,
 		req.LdifContent,
+		req.CreateSnapshotBeforeSchemaExtension,
 	)
 	if startErr != nil {
 		return h.mapError(c, startErr)

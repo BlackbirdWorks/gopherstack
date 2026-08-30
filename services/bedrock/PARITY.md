@@ -402,3 +402,26 @@ page size) seed 105 tied items to force a real two-page boundary.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/bedrock/...`).
+
+## 2026-08-30 reqfieldscan fifth-dispatch-shape sweep
+
+This package is REST-routed (`dispatchOps`/path-based, not a `map[string]service.JSONOpFunc`
+table) so `cmd/reqfieldscan`'s dispatch-table ground truth only reaches the subset of handlers
+that decode into an anonymous inline struct and are also named in `GetSupportedOperations`'s
+static list (19 of 77 ops; the rest are legitimately outside this scan's ground truth, not a
+coverage failure -- see the tool's own package doc). After the tool's method-receiver-binding
+fix, 1 field flagged in that subset:
+
+- `handleUpdateAgentActionGroup`'s `ActionGroupName string`: REAL bug. The real
+  `UpdateAgentActionGroupInput.ActionGroupName` (bedrockagent SDK) is a REQUIRED member --
+  "Specifies a new name for the action group" -- decoded here but never forwarded to
+  `Backend.UpdateAgentActionGroupWithSchemas`, which had no parameter slot for it at all, so
+  UpdateAgentActionGroup could never actually rename an action group. Fixed: added an
+  `actionGroupName` parameter to `UpdateAgentActionGroup`/`UpdateAgentActionGroupWithSchemas`
+  (`agent_action_groups.go`), applied when non-empty (same tolerance as the existing
+  `description` field, for callers/tests predating this parameter), wired from the handler.
+  Proven via `TestAgentsHandler_UpdateActionGroup_RenamesActionGroup`
+  (`handler_agent_action_groups_test.go`).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
+(`./services/bedrock/...`).
