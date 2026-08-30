@@ -359,3 +359,43 @@ zquj's own warning that grep-derived scopes in this campaign have been
 wrong by as much as 11x, that gap is expected and is exactly why this
 sweep verified per-op against the real deserializer rather than trusting
 either number.
+
+## 2026-08-30 (wrapper-key sweep): exhaustive request-field-read audit, no new bugs
+
+Method: derived the operation list from the handler.go dispatch table
+(`handler.go` map-literal registrations, `(*Handler).handle*` entries) rather than
+trusting this file's prose or a naive whole-token regex over PARITY.md -- 79 dispatched
+ops, matching the zquj sweep's independently-derived count. For every request struct
+(named or `var req struct{...}`/`var body struct{...}` anonymous, both patterns used in
+this handler) across every non-test `.go` file, cross-referenced each JSON-tagged field
+against a combined-text search of the whole non-test package for `.FieldName` usage
+anywhere -- catching the "declared field never read at all" shape without trusting any
+single file's local context (a per-file-only version of this scan false-positived on
+structs whose fields are used in a different file). Confirmed protocol directly from the
+pinned SDK: `awsAwsjson11_*` prefix throughout `ssoadmin@v1.43.1/deserializers.go` --
+plain JSON-RPC 1.1 over `X-Amz-Target`, no legacy/query path reachable by any real client
+for this service.
+
+**Result: zero unread request fields found.** Every request struct's fields (including
+the six `Filter.*`/pagination fields already fixed by prior passes -- `ListApplications`'
+`Filter.ApplicationAccount`/`Filter.ApplicationProvider`, `ListAccountAssignmentsForPrincipal`'s
+`Filter.AccountId`, `ListApplicationAssignmentsForPrincipal`'s `Filter.ApplicationArn`, both
+`ProvisioningStatus` filters) are consumed. Consistent with this file's own extensive prior
+sweep history (2026-07-24 through 2026-08-30) already having driven this specific bug class to
+zero; this pass's contribution is an independent re-derivation confirming that, not new fixes.
+
+**Negative checks, explicitly:**
+- **Listing that never consults its store**: none -- every `handle(List|Describe|Get)*`
+  function reaches `h.Backend.*`, scripted check across every `handler_*.go`, zero
+  exceptions.
+- **Handler that discards its entire request**: none -- every `handle*(ctx, in *Type)`
+  function references at least one `in.Field`, scripted check, zero exceptions.
+- **Ordering / tie-prone sorts**: the three `ProvisioningStatus`-metadata list ops'
+  CreatedDate-tie-over-map-walk bug (see ops table, "wrapper-key-sweep
+  pagination-reproducibility pass" above) is this service's real instance of the class and
+  is already fixed this same day. `listPermissionSetSubItems`/`paginateBy`-backed lists sort
+  by each resource's own Name/Arn (unique), so no further tiebreak is needed.
+
+No code changed this pass. Gates: `go build ./services/ssoadmin/...`, `go vet
+./services/ssoadmin/...` and `go vet ./...` (repo-wide), `go test -race -count=1
+./services/ssoadmin/...`, `golangci-lint run ./services/ssoadmin/...`.

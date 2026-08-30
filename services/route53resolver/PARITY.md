@@ -525,3 +525,43 @@ structurally absent per the existing gap), `FirewallRule` (20 fields, `Status`/
 `ResolverQueryLogConfigAssociation` (7 fields), `FirewallConfig`/`ResolverConfig`/
 `ResolverDnssecConfig` (4 fields each, no `Arn` on any of the three, matching the
 2026-08-13 fix).
+
+## 2026-08-30 (wrapper-key sweep): exhaustive request-field-read audit, no new bugs
+
+Method: derived the operation list from the 13 `opsXxx()` map-literal registrations
+(`buildOps`, handler.go) rather than trusting this file's prose -- 69 real operations
+(the ALL_CAPS strings alongside them, e.g. `"DOMAIN_NAME"`/`"TYPE"`, are filter-name
+enum values consumed by `list_filters.go`'s alias tables, not operation names; excluded).
+For every `*Input` request struct across every non-test `.go` file, cross-referenced each
+JSON-tagged field against a combined-text search of the whole non-test package for
+`.FieldName` usage anywhere. Confirmed protocol directly from the pinned SDK:
+`awsAwsjson11_*` prefix throughout `route53resolver@v1.48.4/deserializers.go` -- plain
+JSON-RPC 1.1 over `X-Amz-Target`, no legacy/query path for this service.
+
+**Result: zero unread request fields found.** Read `ListResolverRules` end-to-end
+(`handler_resolver_rules.go`, `list_filters.go`) as a representative filter+pagination op:
+`Filters`/`NextToken`/`MaxResults` are all consumed, filtering happens strictly before
+`paginate()` (matching the "filter, then paginate" rule), and an unrecognized `Filter.Name`
+is rejected with `InvalidParameterException` rather than silently ignored (`applyFilters`,
+`list_filters.go:64-67`) -- matches the real op's modelled error, not fabricated. Its filter
+resume-cursor (`b.rulesByRegion`, a `*store.Index[ResolverRule]`) is `Index.Get()`,
+documented (pkgs memory) as insertion-ordered/stable -- a tie-prone sort (by `Name`, not
+unique) over this call-stable input needs no added tiebreak, consistent with this file's own
+2026-08-30 pagination-tie-sweep entry above having found no bug on the `Name`-sorted List ops
+for the identical reason.
+
+**Negative checks, explicitly:**
+- **Listing that never consults its store**: one apparent candidate,
+  `ListFirewallRuleTypes` (`handler_firewall_rules.go:747`), which never calls `h.Backend`.
+  Confirmed NOT a bug: real AWS's `ListFirewallRuleTypes` returns a fixed AWS-managed
+  catalog of DNS-threat-protection rule types, not account-specific data (the same shape
+  as e.g. RDS's `DescribeDBEngineVersions` defaults), and gopherstack backs it with a real
+  populated `firewallRuleTypeCatalog()` (with working `RuleType` filter + pagination), not
+  an empty stub. Every other `handle(List|Get)*` reaches `h.Backend.*`.
+- **Handler that discards its entire request**: none -- every `handle*(ctx, in *Type)`
+  function references at least one `in.Field`, scripted check across every `handler_*.go`,
+  zero exceptions.
+
+No code changed this pass. Gates: `go build ./services/route53resolver/...`, `go vet
+./services/route53resolver/...` and `go vet ./...` (repo-wide), `go test -race -count=1
+./services/route53resolver/...`, `golangci-lint run ./services/route53resolver/...`.

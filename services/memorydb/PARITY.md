@@ -145,6 +145,7 @@ families:
   route_matcher: {status: ok, note: "unchanged this pass: single X-Amz-Target-prefixed POST endpoint, all GetSupportedOperations entries reachable through dispatch (structurally immune to the path-segment-router bug class -- flat X-Amz-Target dispatch, not path-segment matching)."}
   pagination: {status: ok, note: "2026-08-15 (gopherstack-6flj): 7 of 15 Describe ops parsed MaxResults/NextToken into their request struct but never called paginateItems (handler.go) -- every call returned the full result set in one page regardless of MaxResults. Fixed 6 (DescribeEngineVersions, DescribeReservedNodes, DescribeReservedNodesOfferings, DescribeMultiRegionClusters, DescribeMultiRegionParameterGroups, DescribeMultiRegionParameters), all backed by statically-ordered or explicitly-sorted results, so a name-based cursor is sound. DescribeEvents left unfixed at the time -- see gaps for the 2026-08-29 resolution (deterministic sort added, pagination now wired). 2026-08-29 (cursor-pagination sweep): DescribeParameters was a previously-unnoticed 8th unpaginated op, now fixed (paginateItems). Also found and fixed a severe pre-existing bug in paginateItems itself: findStartIndex resumed one index past the matching item instead of at it, silently dropping exactly one item at every page boundary across all 14 paginated ops (not just the newly-fixed ones) since nextToken encodes the next page's first item inclusively, not the previous page's last item exclusively. See TestPaginateItems_NoSkipAcrossPages (whitebox_test.go)."}
 gaps:                     # known divergences NOT fixed this pass
+  - "2026-08-30 (wrapper-key sweep): CreateClusterInput.SnapshotArns ([]string, real field confirmed at api_op_CreateCluster.go -- 'the list of Amazon Resource Names (ARN) that uniquely identify the RDB snapshot files stored in Amazon S3 ... used to populate the new cluster') is declared on createClusterRequest (models_clusters.go) but never read anywhere in CreateCluster (clusters.go): a request-driven exhaustive-reference sweep of every *Request/*Input struct's fields across this service found this as the sole unread field. Not a misread key -- this is CreateCluster's second, S3-backed restore path, distinct from the fully-implemented SnapshotName path (an existing in-account Snapshot object, matched by name and applied via applySnapshotRestoreConfig). This backend has no S3 integration and holds no data for an externally-uploaded RDB file, so there is nothing honest to import; silently accepting and ignoring the ARNs (current behavior) is preferred over fabricating imported cluster state. Same missing-backend-data class as the pre-existing ClusterConfiguration.Shards/DescribeSnapshotsInput.ShowDetail gaps above, not fixed for the same reason."
   - "ClusterConfiguration.Shards ([]ShardDetail) is not modeled: real AWS's Snapshot.ClusterConfiguration carries a full per-shard array (Configuration/ShardConfiguration sub-object with Slots/ReplicaCount, Name, Size, SnapshotCreationTime -- confirmed via types.ShardDetail and its deserializer). snapshotClusterConfig has none of this. Re-checked 2026-08-10 (gopherstack-yusn): the backend DOES track a shard COUNT (Cluster.NumShards/NumReplicasPerShard) and derives synthetic Name/Slots/Nodes for DescribeClusters' ShowShardDetails (buildShards, handler_clusters.go) -- but ShardDetail.Size (the shard's snapshot data size) is never tracked anywhere and has no honest derivation, and reusing buildShards' evenly-split synthetic Slots for permanent snapshot metadata would fabricate historical per-shard data no real resharding/slot-migration event produced. Still not fixed: Size is genuinely absent, and Slots would have to be invented for this specific field even though a similar synthesis is tolerated for the live-cluster ShowShardDetails view; fabricating either violates the no-stub rule."
   - "ServiceUpdate.NodesUpdated is not modeled: real AWS's field lists which nodes a per-cluster service update instance has updated. This backend has no per-node update tracking (buildShards' node identities are synthesized per-request, not persisted per-node state), so there is nothing honest to report; the wire field exists (added 2026-08-10) but is always empty rather than fabricated. ClusterName/per-cluster fanout and the ClusterNames filter ARE now modeled -- see DescribeServiceUpdates/BatchUpdateCluster fixed in this pass."
   - "DescribeSnapshotsInput.ShowDetail (real field; per AWS's doc comment it gates whether the per-shard configuration -- ClusterConfiguration.Shards -- is included in the response, NOT ClusterConfiguration itself, which is always present) is not implemented. Tied to the Shards gap above: since Shards can't be honestly populated (Size/Slots not derivable without fabrication), wiring a ShowDetail flag that gates an always-empty Shards list would just be a second parsed-and-ignored request field: not implemented, rather than added as a no-op."
@@ -369,3 +370,51 @@ first two via feature absence, the third via a temporary one-line revert) before
 Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
 ./services/memorydb/...` (pass, full suite including all pre-existing pagination tests),
 `golangci-lint run ./services/memorydb/...` (0 issues).
+
+## 2026-08-30 wrapper-key sweep: exhaustive request-field-read audit, one gap found (no bugs)
+
+Method, independent of prior passes' per-op notes: derived the operation list straight from
+`GetSupportedOperations()` (handler.go:48-105) rather than trusting this file's own prose --
+46 strings registered, 45 real (`ExportSnapshot` deliberately unadvertised, see its own note
+above). Then, for every `*Request`/`*Input` struct across every non-test `.go` file in this
+package, cross-referenced each JSON-tagged field against a combined text search of the whole
+package for `.FieldName` usage anywhere (handler, backend, or elsewhere) -- catching the
+declared-but-never-read shape without trusting any single file's local context. Confirmed
+protocol directly from the pinned SDK: `awsAwsjson11_*` prefix throughout
+`memorydb@v1.36.4/deserializers.go` -- plain JSON-RPC 1.1 over `X-Amz-Target`, no legacy/query
+path exists for this service to be reachable through.
+
+**Result: exactly one unread field across the whole package** -- `createClusterRequest.
+SnapshotArns` (see `gaps` above); ruled a missing-backend-data gap, not a bug, and documented
+there rather than fixed. Everything else this sweep's structural scan flagged (`occ<=1`) turned
+out to be a normal single legitimate read once cross-checked against the combined-package text
+(the per-file-only version of this scan false-positived heavily on request structs defined in
+`models_*.go` and consumed in a different `handler_*.go`/`*.go` file -- corrected before trusting
+results).
+
+**Negative checks, explicitly (per campaign brief, not previously logged this way in this
+file):**
+- **Listing that never consults its store**: none. Every `handle(List|Describe|Get)*` function
+  calls `h.Backend.*`; scripted check across all `handler_*.go`, zero exceptions.
+- **Handler that discards its entire request**: none. Every handler with a `body []byte` +
+  `json.Unmarshal` decode path references at least one `req.Field` afterward; scripted check,
+  zero exceptions.
+- **Filter's value consumed without checking the filter's name**: `statusFilter`
+  (`service_updates.go`) was the one candidate with filter-shaped semantics; re-confirmed (see
+  2026-08-29 indexed-list-sweep note above) it uses `slices.Contains` over the full requested
+  set, not a single-name assumption.
+- **Ordering / tie-prone sorts**: the 14-op `paginateItems` cursor bug (see above) was this
+  service's real instance of the class and is already fixed. Did not find an additional
+  unfixed tie-prone sort this pass; every remaining paginated list's sort key (ClusterName,
+  ACLName, SubnetGroupName, UserName, ParameterGroupName, SnapshotName, ReservationId) is the
+  store's own unique key, so no tiebreak is needed regardless of walk order.
+
+**Go-type spot-check**: `DataTiering` is `*bool` on the request side
+(`createClusterRequest.DataTiering`, matching `CreateClusterInput.DataTiering *bool` in the
+pinned SDK) and correctly converted to the real response-side `DataTieringStatus` string enum
+("true"/"false") by `resolveDataTiering` before being written to `clusterObject.DataTiering
+string` -- confirmed not a bool-for-enum mismatch on either side of the wire.
+
+Gates: `go build ./services/memorydb/...`, `go vet ./services/memorydb/...` and `go vet ./...`
+(repo-wide), `go test -race -count=1 ./services/memorydb/...`, `golangci-lint run
+./services/memorydb/...`. No code changed this pass -- documentation-only (`gaps` entry above).
