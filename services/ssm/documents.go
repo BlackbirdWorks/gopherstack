@@ -325,23 +325,35 @@ func (b *InMemoryBackend) GetDocument(
 	return nil, ErrInvalidDocumentVersion
 }
 
-// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
-// Supported filter keys: DocumentType, Name.
+// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters
+// (types.DocumentKeyValuesFilter, api_op_ListDocuments.go: "valid keys include Owner,
+// Name, PlatformTypes, DocumentType, and TargetType"). Owner ("Self" vs. other
+// accounts) and tag:tagName keys aren't modeled -- there's no document-ownership or
+// tag-key data to filter on -- and fall through to unfiltered, matching this backend's
+// established unknown-key convention (matchesActivationFilter).
 func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 	for _, f := range filters {
-		var fieldValue string
-
 		switch f.Key {
 		case "DocumentType":
-			fieldValue = doc.DocumentType
+			if !slices.Contains(f.Values, doc.DocumentType) {
+				return false
+			}
 		case filterKeyName:
-			fieldValue = doc.Name
+			if !slices.Contains(f.Values, doc.Name) {
+				return false
+			}
+		case "TargetType":
+			if !slices.Contains(f.Values, doc.TargetType) {
+				return false
+			}
+		case "PlatformTypes":
+			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
+				return slices.Contains(f.Values, p)
+			}) {
+				return false
+			}
 		default:
 			continue
-		}
-
-		if !slices.Contains(f.Values, fieldValue) {
-			return false
 		}
 	}
 

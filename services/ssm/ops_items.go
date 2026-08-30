@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -279,7 +280,15 @@ func (b *InMemoryBackend) ListOpsMetadata(
 	return &ListOpsMetadataOutputFull{OpsMetadataList: page, NextToken: next}, nil
 }
 
-// opsItemMatchesFilters returns true when the item satisfies all provided filters.
+// opsItemMatchesFilters returns true when the item satisfies all provided
+// filters. Supported keys are the ones backed by fields this emulator's
+// OpsItem models: Status, Title, Source (real keys per
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_DescribeOpsItems.go doc
+// comment; the other ~25 documented keys, mostly AccessRequest/ChangeRequest
+// sub-filters, have no backing field). That same doc comment documents each
+// key's supported Operator(s): Status is Equals-only, but Title and Source
+// both also support Contains (substring), honored below rather than always
+// compared for exact equality.
 func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 	for _, f := range filters {
 		var fieldValue string
@@ -292,6 +301,14 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 		case "Source":
 			fieldValue = item.Source
 		default:
+			continue
+		}
+
+		if f.Operator == "Contains" {
+			if !slices.ContainsFunc(f.Values, func(v string) bool { return strings.Contains(fieldValue, v) }) {
+				return false
+			}
+
 			continue
 		}
 

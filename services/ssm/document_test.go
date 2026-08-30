@@ -275,6 +275,78 @@ func TestDocumentMatchesFilters(t *testing.T) {
 	}
 }
 
+// TestDocumentMatchesFilters_TargetTypeAndPlatformTypes exercises the two
+// documented ListDocuments filter keys (types.DocumentKeyValuesFilter,
+// api_op_ListDocuments.go: "valid keys include Owner, Name, PlatformTypes,
+// DocumentType, and TargetType") that documentMatchesFilters previously fell
+// through to its default case for, silently matching every document instead
+// of filtering. Asserts both that the matching document is present and that
+// the non-matching one is absent -- a count-only assertion would pass
+// against the unfixed default-matches-everything behavior too.
+func TestDocumentMatchesFilters_TargetTypeAndPlatformTypes(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:       "InstanceDoc",
+		Content:    `{"schemaVersion":"2.2"}`,
+		TargetType: "/AWS::EC2::Instance",
+	})
+	require.NoError(t, err)
+	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:       "ManagedInstanceDoc",
+		Content:    `{"schemaVersion":"2.2"}`,
+		TargetType: "/AWS::SSM::ManagedInstance",
+	})
+	require.NoError(t, err)
+	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:          "WindowsDoc",
+		Content:       `{"schemaVersion":"2.2"}`,
+		PlatformTypes: []string{"Windows"},
+	})
+	require.NoError(t, err)
+	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:          "LinuxDoc",
+		Content:       `{"schemaVersion":"2.2"}`,
+		PlatformTypes: []string{"Linux"},
+	})
+	require.NoError(t, err)
+
+	names := func(t *testing.T, filters []ssm.DocumentFilter) []string {
+		t.Helper()
+
+		out, listErr := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{Filters: filters})
+		require.NoError(t, listErr)
+
+		got := make([]string, 0, len(out.DocumentIdentifiers))
+		for _, d := range out.DocumentIdentifiers {
+			got = append(got, d.Name)
+		}
+
+		return got
+	}
+
+	t.Run("target_type", func(t *testing.T) {
+		t.Parallel()
+
+		got := names(t, []ssm.DocumentFilter{
+			{Key: "TargetType", Values: []string{"/AWS::EC2::Instance"}},
+		})
+		assert.Contains(t, got, "InstanceDoc")
+		assert.NotContains(t, got, "ManagedInstanceDoc")
+	})
+
+	t.Run("platform_types", func(t *testing.T) {
+		t.Parallel()
+
+		got := names(t, []ssm.DocumentFilter{
+			{Key: "PlatformTypes", Values: []string{"Windows"}},
+		})
+		assert.Contains(t, got, "WindowsDoc")
+		assert.NotContains(t, got, "LinuxDoc")
+	})
+}
+
 // TestProvider_NilContext exercises the nil-context error path.
 func TestProvider_NilContext(t *testing.T) {
 	t.Parallel()
