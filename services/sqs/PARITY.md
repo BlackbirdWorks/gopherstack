@@ -182,3 +182,23 @@ failures, `messages.go`'s `DeleteMessageBatch` for per-entry delete failures) wh
 still processing every other entry in the batch. No bugs found in this class; this
 sweep targets a different response field than the earlier error-code-selection pass
 noted above.
+
+**`cmd/errcodeaudit` no-near-miss sweep (gopherstack-r3pr, this pass):** 2 findings,
+both confirmed false positives, both on the JSON-RPC path (the pinned SDK's real
+protocol; query.go's Query/XML path is unreachable by a real client and was checked
+for relevance -- neither sentinel is referenced there). `ErrQueueAlreadyExists`
+("QueueAlreadyExists", errors.go:12) is matched only by `errors.Is` identity in
+`handler.go`'s central `errorDetails`/`sqsCoreErrorDetails` mapper, which emits the
+correct wire type `com.amazonaws.sqs#QueueNameExists` -- confirmed against
+`CreateQueue`'s own `deserializeOpError` (`case strings.EqualFold("QueueNameExists",
+errorCode)`), and `QueueNameExists.ErrorCode()` returns `"QueueNameExists"`. The
+sentinel's own literal never reaches the wire. `ErrMessageTooLarge` ("MessageTooLarge",
+errors.go:20) is the same mapper shape for `SendMessage` -- mapped to
+`com.amazonaws.sqs#InvalidMessageContents`, confirmed against `SendMessage`'s own
+`deserializeOpError` and `InvalidMessageContents.ErrorCode() == "InvalidMessageContents"`.
+Its raw sentinel text ("MessageTooLarge") does surface unmapped in
+`processSendMessageBatchEntries`'s `BatchResultErrorEntry.Code` field
+(`Code: err.Error()`, messages.go:641) for the `SendMessageBatch` per-entry-failure
+case -- but that field lives inside a 200-response `Failed` array, not a wire error
+envelope, so it has no `errors.As` ground truth (the free-form-ErrorCode-on-a-success-
+response false-positive class); recorded here, not changed.

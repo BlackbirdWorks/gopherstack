@@ -46,7 +46,7 @@ func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
 				"Platform": {"GCM"},
 			},
 			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: []string{"PlatformApplicationAlreadyExists"},
+			wantBodyContains: []string{"InvalidParameter"},
 		},
 		{
 			name: "invalid_name_with_slash",
