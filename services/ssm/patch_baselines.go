@@ -765,7 +765,16 @@ func (b *InMemoryBackend) DescribePatchProperties(
 		})
 	}
 
-	return &DescribePatchPropertiesOutput{Properties: props}, nil
+	sort.Slice(props, func(i, k int) bool { return props[i]["BaselineName"] < props[k]["BaselineName"] })
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(props, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribePatchPropertiesOutput{Properties: page, NextToken: next}, nil
 }
 
 // DescribeEffectivePatchesForPatchBaseline returns the effective patch set for

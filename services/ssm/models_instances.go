@@ -2,7 +2,9 @@ package ssm
 
 // DescribeEffectiveInstanceAssociationsInput is the request for DescribeEffectiveInstanceAssociations.
 type DescribeEffectiveInstanceAssociationsInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
 	InstanceID string `json:"InstanceId"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // DescribeEffectiveInstanceAssociationsOutput is the response for DescribeEffectiveInstanceAssociations.
@@ -10,7 +12,9 @@ type DescribeEffectiveInstanceAssociationsOutput struct{}
 
 // DescribeInstanceAssociationsStatusInput is the request for DescribeInstanceAssociationsStatus.
 type DescribeInstanceAssociationsStatusInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
 	InstanceID string `json:"InstanceId"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // DescribeInstanceAssociationsStatusOutput is the response for DescribeInstanceAssociationsStatus.

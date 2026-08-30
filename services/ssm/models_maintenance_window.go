@@ -44,7 +44,9 @@ type DescribeMaintenanceWindowExecutionTaskInvocationsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTasksInput is the request payload.
 type DescribeMaintenanceWindowExecutionTasksInput struct {
+	MaxResults        *int32 `json:"MaxResults,omitempty"`
 	WindowExecutionID string `json:"WindowExecutionId"`
+	NextToken         string `json:"NextToken,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTasksOutput is the response payload.
@@ -68,22 +70,28 @@ type DescribeMaintenanceWindowScheduleOutput struct{}
 
 // DescribeMaintenanceWindowTargetsInput is the request payload.
 type DescribeMaintenanceWindowTargetsInput struct {
-	WindowID string `json:"WindowId"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	WindowID   string `json:"WindowId"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // DescribeMaintenanceWindowTargetsOutput is the response payload.
 type DescribeMaintenanceWindowTargetsOutput struct {
-	Targets []MaintenanceWindowTarget `json:"Targets"`
+	NextToken string                    `json:"NextToken,omitempty"`
+	Targets   []MaintenanceWindowTarget `json:"Targets"`
 }
 
 // DescribeMaintenanceWindowTasksInput is the request payload.
 type DescribeMaintenanceWindowTasksInput struct {
-	WindowID string `json:"WindowId"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	WindowID   string `json:"WindowId"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // DescribeMaintenanceWindowTasksOutput is the response payload.
 type DescribeMaintenanceWindowTasksOutput struct {
-	Tasks []MaintenanceWindowTask `json:"Tasks"`
+	NextToken string                  `json:"NextToken,omitempty"`
+	Tasks     []MaintenanceWindowTask `json:"Tasks"`
 }
 
 // DescribeMaintenanceWindowsInput is the request payload for DescribeMaintenanceWindows.

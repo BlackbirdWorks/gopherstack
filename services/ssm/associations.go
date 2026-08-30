@@ -417,8 +417,16 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 	out := make([]AssociationExecution, len(execs))
 	copy(out, execs)
 
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeAssociationExecutionsOutputFull{
-		AssociationExecutions: out,
+		AssociationExecutions: page,
+		NextToken:             next,
 	}, nil
 }
 
@@ -470,8 +478,16 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 	out := make([]AssociationExecutionTarget, len(targets))
 	copy(out, targets)
 
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeAssociationExecutionTargetsOutputFull{
-		AssociationExecutionTargets: out,
+		AssociationExecutionTargets: page,
+		NextToken:                   next,
 	}, nil
 }
 

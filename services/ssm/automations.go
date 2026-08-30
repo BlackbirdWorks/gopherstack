@@ -306,7 +306,14 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		steps = []AutomationStepExec{}
 	}
 
-	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: steps}, nil
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(steps, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: page, NextToken: next}, nil
 }
 
 // StartChangeRequestExecution creates a change request automation execution.

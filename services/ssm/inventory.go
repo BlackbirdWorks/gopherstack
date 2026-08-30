@@ -357,8 +357,16 @@ func (b *InMemoryBackend) DescribeInventoryDeletions(
 		deletions = append(deletions, d)
 	}
 
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(deletions, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeInventoryDeletionsOutput{
-		InventoryDeletions: deletions,
+		InventoryDeletions: page,
+		NextToken:          next,
 	}, nil
 }
 

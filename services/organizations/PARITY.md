@@ -8,7 +8,21 @@ service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
 last_audit_date: 2026-08-29
-overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListHandshakesForAccount/
+overall: A            # 2026-08-29 (cursor-population sweep, same day, separate pass from the constraint-
+                      # not-honoured one below -- this one reads response SHAPES, not filter semantics):
+                      # every List/Describe op declaring a real NextToken (20 of 28, from the pinned SDK
+                      # Output structs directly) already populates it through the shared page.New helper
+                      # (handler_*.go). Two exceptions, both provably bounded and correctly left as-is:
+                      # ListParents (api_op_ListParents.go's own doc comment -- "In the current release, a
+                      # child can have only a single parent" -- so its declared-but-unset NextToken can
+                      # never observably matter) and ListRoots (this backend's ListRoots always returns
+                      # exactly b.root, a single value, matching AWS's real one-root-per-organization
+                      # model). ListEffectivePolicyValidationErrors/ListAccountsWithInvalidEffectivePolicy/
+                      # ListInboundResponsibilityTransfers are also unpaginated, but their backends always
+                      # return zero items (stub-shaped, a separate no-stub-rule concern, not a cursor bug)
+                      # so the gap is equally unobservable today -- not fixed, no code changed.
+                      # --- wrapper-key-sweep, constraint-not-honoured class (2026-08-29) history below, preserved ---
+                      # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListHandshakesForAccount/
                       # ListHandshakesForOrganization never read Filter.ParentHandshakeId at all --
                       # any client filtering by it got the full unfiltered handshake list back.
                       # Fixed; see the two ops: entries. Every other List op's own filter/pagination

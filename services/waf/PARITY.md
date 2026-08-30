@@ -8,7 +8,13 @@ service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
 last_audit_commit: 8c56f4eb9
 last_audit_date: 2026-08-07
-overall: A
+overall: A            # 2026-08-29 (cursor-population sweep): all 16 List ops declare a real NextMarker
+                      # (from the pinned SDK Output structs directly), and 15 of 16 already read
+                      # NextMarker/Limit from the request and set NextMarker on the response through the
+                      # shared paginate() helper (handler.go:124). The one exception, ListSubscribedRule-
+                      # Groups, is correctly left unpaginated: its backend (rule_groups.go) always returns
+                      # an empty slice -- there is no real AWS Marketplace subscription state for this
+                      # mock to page over, so the gap is unobservable. No code changed this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

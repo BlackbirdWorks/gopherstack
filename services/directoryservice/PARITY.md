@@ -8,7 +8,18 @@ service: directoryservice
 sdk_module: aws-sdk-go-v2/service/directoryservice@v1.41.4   # version audited against
 last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this and the 6flj pass; see last_audit_date
 last_audit_date: 2026-08-15
-overall: A            # gopherstack-6flj wrapper-key sweep (2026-08-15): 6 more real bugs found and fixed --
+overall: A            # 2026-08-29 (cursor-population sweep): every List/Describe op declaring a real
+                      # NextToken (17 of 23, from the pinned SDK Output structs directly, not by grep)
+                      # already reads NextToken/MaxResults from its request and populates NextToken on
+                      # its response -- each op's own backend method returns (items, nextToken) and the
+                      # handler sets resp["NextToken"] only when non-empty. One exception, correctly left
+                      # as-is: DescribeHybridADUpdate's backend (hybrid_ad.go) never truncates its
+                      # UpdateActivities result at all (no cap, no slicing), so its declared-but-unset
+                      # NextToken is a truthful "no more pages" rather than a silently-dropped tail --
+                      # already recorded by an existing comment on the handler explaining exactly this,
+                      # read before concluding it needed a fix. No code changed this pass.
+                      # --- gopherstack-6flj wrapper-key sweep (2026-08-15) history below, preserved ---
+                      # gopherstack-6flj wrapper-key sweep (2026-08-15): 6 more real bugs found and fixed --
 # AD-assessments' Delete/Describe wrongly required DirectoryId (real Input is {AssessmentId} only, so every
 # real client's request was rejected outright) and Describe/List's wrapper keys were fabricated
 # ("ADAssessment(s)" vs real "Assessment(s)", silent-empty); RegisterCertificate discarded the real

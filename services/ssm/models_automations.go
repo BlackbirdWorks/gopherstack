@@ -27,7 +27,9 @@ type DescribeAutomationExecutionsOutput struct{}
 
 // DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
 type DescribeAutomationStepExecutionsInput struct {
+	MaxResults            *int32 `json:"MaxResults,omitempty"`
 	AutomationExecutionID string `json:"AutomationExecutionId"`
+	NextToken             string `json:"NextToken,omitempty"`
 }
 
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.

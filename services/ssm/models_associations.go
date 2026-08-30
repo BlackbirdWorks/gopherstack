@@ -27,8 +27,10 @@ type DescribeAssociationOutput struct {
 
 // DescribeAssociationExecutionTargetsInput is the request for DescribeAssociationExecutionTargets.
 type DescribeAssociationExecutionTargetsInput struct {
+	MaxResults    *int32 `json:"MaxResults,omitempty"`
 	AssociationID string `json:"AssociationId"`
 	ExecutionID   string `json:"ExecutionId,omitempty"`
+	NextToken     string `json:"NextToken,omitempty"`
 }
 
 // DescribeAssociationExecutionTargetsOutput is the response for DescribeAssociationExecutionTargets.
@@ -36,7 +38,9 @@ type DescribeAssociationExecutionTargetsOutput struct{}
 
 // DescribeAssociationExecutionsInput is the request for DescribeAssociationExecutions.
 type DescribeAssociationExecutionsInput struct {
+	MaxResults    *int32 `json:"MaxResults,omitempty"`
 	AssociationID string `json:"AssociationId"`
+	NextToken     string `json:"NextToken,omitempty"`
 }
 
 // DescribeAssociationExecutionsOutput is the response for DescribeAssociationExecutions.
