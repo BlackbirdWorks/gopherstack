@@ -240,3 +240,62 @@ func TestAcceptInvitation_RelationshipStatus_RealClient(t *testing.T) {
 	require.NotNil(t, out.Administrator)
 	assert.Equal(t, types.RelationshipStatusEnabled, out.Administrator.RelationshipStatus)
 }
+
+// TestDisassociateMember_RelationshipStatus_RealClient proves GetMemberOutput.
+// RelationshipStatus decodes as a real types.RelationshipStatus member after
+// DisassociateMember. Pre-fix, gopherstack set the field to all-caps
+// "DISASSOCIATED", which is not a member of RelationshipStatus at all
+// (macie2@v1.54.4 types/enums.go:811-824); the value for an
+// administrator-disassociated member is "Removed".
+func TestDisassociateMember_RelationshipStatus_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := macie2.NewHandler(macie2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestMacie2SDKClient(t, h)
+
+	_, err := client.CreateMember(t.Context(), &macie2sdk.CreateMemberInput{
+		Account: &types.AccountDetail{
+			AccountId: aws.String("333333333333"),
+			Email:     aws.String("member3@example.com"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DisassociateMember(t.Context(), &macie2sdk.DisassociateMemberInput{
+		Id: aws.String("333333333333"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetMember(t.Context(), &macie2sdk.GetMemberInput{
+		Id: aws.String("333333333333"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.RelationshipStatusRemoved, out.RelationshipStatus)
+}
+
+// TestDeclineInvitations_RelationshipStatus_RealClient proves
+// ListInvitationsOutput's Invitation.RelationshipStatus decodes as a real
+// types.RelationshipStatus member after DeclineInvitations. Pre-fix,
+// gopherstack set the field to all-caps "RESIGNED", which is not a member of
+// RelationshipStatus at all; the real mixed-case value is "Resigned".
+func TestDeclineInvitations_RelationshipStatus_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := macie2.NewHandler(macie2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestMacie2SDKClient(t, h)
+
+	_, err := client.CreateInvitations(t.Context(), &macie2sdk.CreateInvitationsInput{
+		AccountIds: []string{"444444444444"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeclineInvitations(t.Context(), &macie2sdk.DeclineInvitationsInput{
+		AccountIds: []string{"444444444444"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListInvitations(t.Context(), &macie2sdk.ListInvitationsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.Invitations, 1)
+	assert.Equal(t, types.RelationshipStatusResigned, out.Invitations[0].RelationshipStatus)
+}

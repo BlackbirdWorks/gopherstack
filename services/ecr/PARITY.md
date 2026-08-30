@@ -35,7 +35,7 @@ ops:
   StartLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — previewResults was []ImageIdentifier (imageDigest/imageTag only); real GetLifecyclePolicyPreviewOutput.previewResults is []types.LifecyclePolicyPreviewResult carrying action{type}, appliedRulePriority, imageDigest, imagePushedAt (epoch), imageTags, storageClass — entirely missing action/priority/pushedAt/storageClass, and the top-level summary.expiringImageTotalCount field was absent too. Fixed: evaluateLifecyclePolicy now returns []LifecyclePolicyPreviewEntry carrying the full AWS-shaped detail. FIXED (round 3, genuinely new finding) — Start's own response was ALSO wrong: it reused the same lifecyclePolicyPreviewView as Get and therefore leaked previewResults/summary into Start's response, but direct diff of StartLifecyclePolicyPreviewOutput's real deserializer shows Start returns ONLY lifecyclePolicyText/registryId/repositoryName/status -- no previewResults/summary/nextToken at all (those belong to Get only). Fixed via a new, narrower lifecyclePolicyPreviewStartView. Start genuinely never had a Filter/ImageIds/MaxResults/NextToken gap in the first place (StartLifecyclePolicyPreviewInput has no such fields in the real SDK) -- the prior audit's gap note conflated Start and Get."}
   GetLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see StartLifecyclePolicyPreview note. FIXED (round 3) — Filter (tagStatus)/ImageIds/MaxResults/NextToken are now implemented at the handler layer (post-fetch filtering/pagination over the backend's full preview result, mirroring the DescribeImages/ListImages pattern): ImageIds restricts to exactly those images and (per the real API doc) is mutually exclusive with Filter/MaxResults/NextToken; otherwise Filter.tagStatus (TAGGED/UNTAGGED/ANY) filters and MaxResults/NextToken (default 100) paginate via the same base64(imageDigest)-cursor convention used elsewhere in this package."}
   GetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  SetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "'wire: ok' overstated (gopherstack-wks5 field-identity sweep, 2026-08-30): SetRepositoryPolicyInput's real Force bool member (api_op_SetRepositoryPolicy.go -- \"you must force the operation\" to override the lockout safety check) is parsed into repositoryPolicyInput.Force but never passed to Backend.SetRepositoryPolicy, which takes only (ctx, repositoryName, policyText). Not fixed: real Force gates a self-lockout evaluation (would the new policy deny the caller SetRepositoryPolicy/GetRepositoryPolicy in future) that requires an IAM policy-simulation engine this repo has no pkgs/ package for -- out of scope for a wire-identity fix, disclosed for a future pass. See efs PARITY.md's PutFileSystemPolicy entry for the identical pattern (BypassPolicyLockoutSafetyCheck)."}
   DeleteRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — RegistryPolicyResult carried a gopherstack-invented 'status' field (\"ACTIVE\"); the real GetRegistryPolicyOutput/PutRegistryPolicyOutput/DeleteRegistryPolicyOutput shapes have only policyText+registryId. Field deleted."}
   PutRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented 'status' field (\"SetComplete\") deleted; see GetRegistryPolicy note"}
@@ -69,6 +69,8 @@ families:
   mock-scanning: {status: ok, note: "deterministic per-digest CVE selection (sha256-seeded bitmask) so repeated scans of the same image are stable; BASIC and ENHANCED shapes are genuinely different data, not the same list reshaped"}
 gaps:
   - "ListImageReferrers (round 4, disclosed): PutImage never records an OCI-referrer edge from a pushed artifact manifest's 'subject' field back to the subject image, so this op is structurally always empty. Real AWS returns actual referrer artifacts here; gopherstack has no backing model for the relationship at all. Filter/MaxResults/NextToken deliberately left off the wire structs since there is nothing for them to affect."
+  - "SetRepositoryPolicy Force (gopherstack-wks5, 2026-08-30): see the ops entry above -- disclosed, not fixed, crosses into IAM policy simulation."
+  - "RegistryId (gopherstack-wks5, 2026-08-30, structural, not a per-op bug): a type-identity field scan (go/types, matching decode-target struct fields by object identity rather than name, covering every op registered via service.WrapOp -- the generic JSON-protocol dispatcher whose reflection-based decode is invisible to a literal Bind()/Unmarshal() grep) found the optional registryId request field parsed but never consulted in ~23 input structs across nearly every op (BatchCheckLayerAvailability, BatchDeleteImage, BatchGetImage, CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule, DeleteRepository, DescribeImageScanFindings, GetDownloadUrlForLayer, GetLifecyclePolicy, GetLifecyclePolicyPreview, ListImageReferrers, ListImages, PutImage, PutImageScanningConfiguration, PutImageTagMutability, PutLifecyclePolicy, GetRepositoryPolicy/SetRepositoryPolicy/DeleteRepositoryPolicy, UpdateImageStorageClass, UpdatePullThroughCacheRule, UploadLayerPart, ValidatePullThroughCacheRule). This is consistent across the entire service, not an isolated miss: gopherstack models exactly one account per backend instance and no op anywhere validates registryId against it, so accepting-and-ignoring a caller-supplied registryId that matches the caller's own account (the overwhelmingly common case -- registryId exists for rare cross-account resource-policy scenarios) is a no-op by construction, same reasoning as this file's own DeleteReplicationConfiguration-style single-account gaps in sibling services. The one behavioral edge this leaves open: a caller passing a registryId for a DIFFERENT (non-existent, in this single-account model) account currently still operates on the local account's resource instead of returning RepositoryNotFoundException/ImageNotFoundException, a narrow divergence from real cross-account semantics. Not fixed this pass -- would need a uniform per-op mismatch check across all ~23 sites, a design decision bigger than a wire-identity fix."
   # All other gaps documented through round 2 were closed for real in round 3
   # (2026-07-24), including the ImageAlreadyExistsException trigger condition
   # (previously deferred as unconfirmable without a live AWS account -- see
@@ -727,3 +729,41 @@ Proof: `TestDescribeImageScanFindings_NegativeOffsetToken` (`image_scanning_test
 panicking pre-fix, passes now. Gates: `go build ./services/ecr/...`, `go vet
 ./services/ecr/...`, `go test -race -count=1 ./services/ecr/...`, `golangci-lint run
 ./services/ecr/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-wks5, field-identity request-parameter sweep)**: exhaustive
+type-aware scan of every request-decode struct field across `ecr` and `efs`, using
+`go/types` to match field reads by object identity (not name) rather than a literal
+`Bind()`/`Unmarshal()` grep. Initial pass under-covered `ecr`: this service's dispatch
+goes through `pkgs/service.WrapOp[In, Out]` (the AWS JSON-protocol generic dispatcher),
+whose reflection-based decode is invisible to a literal-call scan; the scanner was
+extended to also resolve the 2nd parameter type of every `handleXxx` method registered
+via `service.WrapOp(h.handleXxx)`, after which it covered 127 decode-target types / 174
+fields (up from 2 types / 5 fields caught by the literal-call pass alone) -- confirming
+the task's own warning that a scanner's blind spot is where bugs hide, here in the
+scanner's *coverage* rather than in anonymous-struct decode targets (ecr/efs have none;
+every decode target is a named type).
+
+25 fields flagged zero-uses; 23 were hand-verified false positives from Go type
+conversion (`req := SomeRequest(in)`, structurally identical named types -- the
+converted-to type's own fields carry real reads the scanner's identity match correctly
+does not attribute back to the pre-conversion type; confirmed by reading
+`CreateMountTarget`/`UpdateFileSystem` in `services/efs`). 2 were genuine and are
+recorded above: `SetRepositoryPolicy`'s `Force` (this file) and `PutFileSystemPolicy`'s
+`BypassPolicyLockoutSafetyCheck` (`services/efs/PARITY.md`) -- both disclosed, not
+fixed (cross into IAM policy-lockout simulation this repo has no package for). The
+`registryId` structural finding is recorded in `gaps` above.
+
+Also checked and confirmed clean by hand, not by the scanner (which only sees
+zero-use fields, not misuse): every `.All()` map-walk in this package that feeds a
+client-visible list is `sort.Slice`d before return (`ListPullTimeUpdateExclusions`,
+`DescribePullThroughCacheRules`, `DescribeRepositoryCreationTemplates`,
+`DescribeRepositories`); `RunLifecycleExpiry`'s unsorted `.All()` walk is an internal
+sweep with no client-visible order to break. `DescribeImages`/`ListImages` both
+correctly reject an unknown `repositoryName` with `ErrRepositoryNotFound` before
+touching per-repo indexes (contrast with the `efs` existence-check bug fixed this same
+pass, `services/efs/PARITY.md`).
+
+Gates: `go build ./services/ecr/...`, `go vet ./services/ecr/...`, `go test -race
+-count=1 ./services/ecr/...` (no ecr code changed this pass, disclosure-only; suite
+green as a baseline check), `golangci-lint run ./services/ecr/...`. Work left
+uncommitted per this pass's instructions.

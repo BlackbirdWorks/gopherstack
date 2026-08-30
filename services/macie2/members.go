@@ -69,7 +69,7 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool, limit int, token stri
 	return listPaginated(
 		b, "ListMembers", b.members.All(),
 		func(m *Member) (*Member, bool) {
-			if onlyAssociated && m.RelationshipStatus == "DISASSOCIATED" {
+			if onlyAssociated && m.RelationshipStatus == "Removed" {
 				return nil, false
 			}
 
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) DisassociateMember(accountID string) error {
 		return ErrMemberNotFound
 	}
 
-	m.RelationshipStatus = "DISASSOCIATED"
+	m.RelationshipStatus = "Removed"
 	m.UpdatedAt = time.Now().UTC()
 
 	return nil
@@ -169,7 +169,7 @@ func (b *InMemoryBackend) DeclineInvitations(accountIDs []string) ([]Unprocessed
 
 	for _, inv := range b.invitations.All() {
 		if decline[inv.AccountID] {
-			inv.RelationshipStatus = "RESIGNED"
+			inv.RelationshipStatus = "Resigned"
 		}
 	}
 

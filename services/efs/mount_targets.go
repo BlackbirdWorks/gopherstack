@@ -164,6 +164,7 @@ func (b *InMemoryBackend) DescribeMountTargets(
 		b.mountTargetsByRegion.Get(region),
 		mountTargetID, ErrMountTargetNotFound,
 		fileSystemID,
+		func(fsID string) error { return b.requireFileSystem(region, fsID) },
 		func(mt *MountTarget) string { return mt.FileSystemID },
 		copyMountTarget,
 		func(mt *MountTarget) string { return mt.MountTargetID },

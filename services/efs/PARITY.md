@@ -2,8 +2,12 @@
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
 last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
-last_audit_date: 2026-08-29
-overall: A            # gopherstack-21my (2026-08-29, same-day continuation): parameter-honoring sweep
+last_audit_date: 2026-08-30
+overall: A            # gopherstack-wks5 (2026-08-30): field-identity request-parameter sweep found and
+                      # fixed 1 real bug (DescribeMountTargets/DescribeAccessPoints missing a
+                      # FileSystemId existence check) and disclosed 1 (PutFileSystemPolicy's
+                      # BypassPolicyLockoutSafetyCheck) -- see the dated section at the end of this file.
+                      # gopherstack-21my (2026-08-29, same-day continuation): parameter-honoring sweep
                       # (does a filter/pagination parameter, once correctly read, actually narrow the
                       # result -- distinct from the wrapper-key sweep below, which checked key NAMES).
                       # Came back genuinely clean, no changes -- see the dated section at the end of this
@@ -33,12 +37,12 @@ ops:
   UpdateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: ok, persist: ok}
   CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented. Also removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all."}
-  DescribeMountTargets:              {wire: ok, errors: ok, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes"}
+  DescribeMountTargets:              {wire: ok, errors: fixed, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes. FIXED (gopherstack-wks5, 2026-08-30) -- an unknown FileSystemId filter (not the MountTargetId identity path) silently returned an empty list instead of the real op's own declared FileSystemNotFound (efs@v1.44.4 deserializers.go, awsRestjson1_deserializeOpErrorDescribeMountTargets); see dated section below."}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyMountTargetSecurityGroups:   {wire: ok, errors: fixed, state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
   CreateAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAccessPoints:              {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
+  DescribeAccessPoints:              {wire: ok, errors: fixed, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes. FIXED (gopherstack-wks5, 2026-08-30) -- same unknown-FileSystemId-filter gap as DescribeMountTargets, see that entry and the dated section below."}
   DeleteAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below. Re-checked (wrapper-key sweep) against the sfn TagResource map/array bug class: efs's Tags is []types.Tag, array of {Key,Value} (api_op_TagResource.go:42, serializers.go:2883-2898), matching this emulator's []tagEntry{Key,Value} exactly -- genuinely clean, confirmed via a real-client round-trip test (tag_resource_sdk_test.go)."}
   UntagResource:                     {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
@@ -52,7 +56,7 @@ ops:
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified against efs@v1.44.4 serializers.go. deletionMode query param (serializers.go:906) never read -- gap, not a bug: this backend models a single account/region, so ALL_CONFIGURATIONS vs LOCAL_CONFIGURATION_ONLY has no distinguishable backing state to differ on"}
   DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse; 2026-08-29: shares CreateReplicationConfiguration's StatusMessage fix, see its entry"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
+  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState). 'wire: ok' overstated (gopherstack-wks5 field-identity sweep, 2026-08-30): the real BypassPolicyLockoutSafetyCheck bool request member (api_op_PutFileSystemPolicy.go) is parsed into putFileSystemPolicyBody but never passed to Backend.PutFileSystemPolicy, which takes only (ctx, fileSystemID, policy). Not fixed: real BypassPolicyLockoutSafetyCheck gates a self-lockout evaluation (would the new policy deny the caller PutFileSystemPolicy/DeleteFileSystemPolicy in future) that requires an IAM policy-simulation engine this repo has no pkgs/ package for -- out of scope for a wire-identity fix. See ecr PARITY.md's SetRepositoryPolicy entry for the identical pattern (Force)."}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBackupPolicy:              {wire: ok, errors: ok, state: ok, persist: ok}
   PutBackupPolicy:                   {wire: ok, errors: ok, state: ok, persist: ok}
@@ -525,3 +529,79 @@ to differ on). `DescribeAccountPreferences` returns a single per-account
 being unapplied is structurally correct (nothing to page over), not a gap.
 
 No code changes this pass -- every parameter-honoring check came back clean.
+
+### 2026-08-30: field-identity request-parameter sweep (gopherstack-wks5)
+
+Method: exhaustive type-aware scan (`go/types`) of every request-decode struct field
+across `efs` and `ecr`, matching field reads by object identity rather than name --
+built to catch a field shadowed by a name collision that a grep-based sweep would
+miss. Decode targets were found via two patterns: literal `json.Unmarshal(body, &x)`
+calls (this service's own dispatch style) and, for `ecr`, resolving the 2nd parameter
+type of every method registered through `pkgs/service.WrapOp` (that service's generic
+JSON-protocol dispatcher, whose reflection-based decode a literal-call scan cannot
+see -- see `ecr/PARITY.md`'s dated section for the coverage gap that exposed). No
+anonymous (unnamed) struct decode targets exist in either service -- every decode
+target is a named type, so the "13 handlers decoding into anonymous structs" blind
+spot this campaign warns about does not apply here.
+
+Combined scan: 127 decode-target types, 174 fields. 25 flagged zero-uses; 23 were
+hand-verified false positives -- both `efs`'s own findings among them
+(`createMountTargetBody`'s IPAddress/IPAddressType/Ipv6Address/SecurityGroups,
+`updateFileSystemBody`'s ThroughputMode/ProvisionedThroughputMib) are read via Go type
+conversion (`req := CreateMountTargetRequest(in)` / `UpdateFileSystemRequest(in)`),
+which the identity-based scanner correctly does not attribute back to the
+pre-conversion type since conversion requires structural (not identity) equivalence;
+confirmed by reading `CreateMountTarget`/`UpdateFileSystem` in `mount_targets.go`/
+`file_systems.go`, both of which read every one of these fields off the converted
+type. 2 fields were genuinely unread: `putFileSystemPolicyBody.BypassPolicyLockoutSafetyCheck`
+(this file, disclosed above, not fixed -- crosses into IAM policy-lockout simulation)
+and `ecr`'s `repositoryPolicyInput.Force` (see `ecr/PARITY.md`).
+
+**Bug found and fixed: `DescribeMountTargets`/`DescribeAccessPoints` missing a
+FileSystemId existence check.** Not caught by the field-identity scan (both ops
+correctly read every field on their input) -- found instead by hand-checking the
+task's "missing existence check" bug shape against the shared `describeByIDOrFilter`
+helper (`store.go`) both ops route through when filtering by `FileSystemId` (as
+opposed to the `MountTargetId`/`AccessPointId` identity-lookup path, which already
+raises not-found correctly). `efs@v1.44.4 deserializers.go`'s
+`awsRestjson1_deserializeOpErrorDescribeMountTargets` and
+`awsRestjson1_deserializeOpErrorDescribeAccessPoints` both declare `FileSystemNotFound`
+in their own error catalogs (confirmed by reading each op's generated error-switch
+directly, not inferred from a sibling), so a real client filtering by an unknown
+`FileSystemId` expects that error -- gopherstack's shared filter path instead silently
+returned an empty list, indistinguishable from "this file system exists and has zero
+mount targets/access points". Fixed by adding an existence check
+(`b.fileSystems.Get(regionKey(region, fileSystemID))`) in both `DescribeMountTargets`
+(`mount_targets.go`) and `DescribeAccessPoints` (`access_points.go`), guarded to the
+filter path only (`mountTargetID == "" && fileSystemID != ""` / the `AccessPointId`
+equivalent) so the identity-lookup path and the handler's `AccessPointId`-resolved-then-
+delegated path (which always passes an fsID already confirmed to exist) are untouched.
+
+Proven via `TestDescribeMountTargets_UnknownFileSystemID_ReturnsNotFound`
+(`mount_targets_test.go`) and `TestDescribeAccessPoints_UnknownFileSystemID_ReturnsNotFound`
+(`access_points_test.go`), both confirmed failing (`Expected error ... but got nil`)
+against unmodified code, passing after the fix. Full `services/efs` suite: 134 passing
+before this pass, 136 after (net +2, no drops) -- `go test ./services/efs/... -v |
+grep -c '^--- PASS'`.
+
+**Disclosed, not fixed: `PutFileSystemPolicy`'s `BypassPolicyLockoutSafetyCheck`.** See
+the ops entry above. Same pattern as `ecr`'s `SetRepositoryPolicy` `Force` -- both gate
+a self-lockout evaluation this repo has no IAM policy-simulation package for.
+
+Also checked and confirmed clean (task's other listed bug shapes, not caught by the
+field-identity scanner which only flags zero-use fields): every `.All()` map walk in
+this package either feeds a client-visible list through `paginate()`'s pre-sort (no
+unsorted output reaches a client) or is `Reset`/snapshot bookkeeping with no ordering
+contract, EXCEPT `TaggedResources()` (`tags.go`), which returns an unsorted `.All()`
+walk directly -- traced its only caller (`cli.go`'s ResourceGroupsTaggingAPI bridge) to
+`resourcegroupstaggingapi/get_resources.go:321`, which `sort.Slice`s the merged
+cross-service `all` list by `ResourceARN` before pagination; a tie-prone sort over a
+call-stable input is safe (per this campaign's own guidance), so not a bug. No whole-
+second-timestamp, wrong-key, or list-partially-consumed findings this pass -- those
+classes were already covered by the 2026-08-29 wrapper-key and parameter-honoring
+sweeps above.
+
+Gates: `go build ./services/efs/...`, `go vet ./services/efs/...`, `go vet ./...`
+(repo-wide, no signature changed outside this package), `go test -race -count=1
+./services/efs/...`, `golangci-lint run ./services/efs/...`. Work left uncommitted
+per this pass's instructions.

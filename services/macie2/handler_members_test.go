@@ -88,7 +88,7 @@ func TestMembers(t *testing.T) {
 				rec = doRequest(t, h, http.MethodGet, "/members/222222222222", nil)
 				var mem map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mem))
-				assert.Equal(t, "DISASSOCIATED", mem["relationshipStatus"])
+				assert.Equal(t, "Removed", mem["relationshipStatus"])
 			},
 		},
 		{
