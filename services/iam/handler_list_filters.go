@@ -3,6 +3,7 @@ package iam
 import (
 	"math"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -282,6 +283,177 @@ func (h *Handler) listAttachedPoliciesFiltered(
 	}
 
 	return page.New(filtered, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), iamDefaultMaxItems), nil
+}
+
+// policyEntityRow is one row of ListEntitiesForPolicy's combined
+// user+group+role result, tagged by entity kind so a single page.New call
+// paginates all three concatenated lists at once (see filteredPage above:
+// pagination must run over one deterministic global order, never per-kind,
+// or the boundary between kinds drops or duplicates rows).
+type policyEntityRow struct {
+	kind string
+	name string
+}
+
+// policyUsageFlags tracks, per entity, whether it holds a policy as a normal
+// attached permissions policy, as its permissions boundary, or both.
+type policyUsageFlags struct {
+	attached bool
+	boundary bool
+}
+
+// matchesUsageFilter applies ListEntitiesForPolicy's PolicyUsageFilter
+// (PermissionsPolicy | PermissionsBoundary | "" for both) to one entity's flags.
+func matchesUsageFilter(f policyUsageFlags, usageFilter string) bool {
+	switch usageFilter {
+	case "PermissionsPolicy":
+		return f.attached
+	case "PermissionsBoundary":
+		return f.boundary
+	default:
+		return true
+	}
+}
+
+// markUsage sets attached or boundary on name's flags in m, creating the
+// entry if needed.
+func markUsage(m map[string]*policyUsageFlags, name string, boundary bool) {
+	f := m[name]
+	if f == nil {
+		f = &policyUsageFlags{}
+		m[name] = f
+	}
+
+	if boundary {
+		f.boundary = true
+	} else {
+		f.attached = true
+	}
+}
+
+// filterEntityRows sorts flags' keys deterministically, applies usageFilter
+// and a path-prefix lookup, and returns matching rows tagged with kind.
+// Names are sorted before filtering so each kind's section keeps a fixed
+// order, and concatenating the three sections (handler_policies.go) yields
+// one well-defined order for pagination.
+func filterEntityRows(
+	kind string, flags map[string]*policyUsageFlags, prefix, usageFilter string, getPath func(string) (string, error),
+) []policyEntityRow {
+	names := make([]string, 0, len(flags))
+	for name := range flags {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	rows := make([]policyEntityRow, 0, len(names))
+
+	for _, name := range names {
+		if !matchesUsageFilter(*flags[name], usageFilter) {
+			continue
+		}
+
+		if prefix != "/" {
+			path, err := getPath(name)
+			if err != nil || !strings.HasPrefix(path, prefix) {
+				continue
+			}
+		}
+
+		rows = append(rows, policyEntityRow{kind: kind, name: name})
+	}
+
+	return rows
+}
+
+// listEntitiesForPolicyFiltered applies PathPrefix, PolicyUsageFilter and
+// Marker/MaxItems to ListEntitiesForPolicy (api_op_ListEntitiesForPolicy.go).
+// PathPrefix filters on each ENTITY's own path, not the policy's, resolved
+// per entry through GetUser/GetGroup/GetRole -- the same shape as
+// listAttachedPoliciesFiltered's GetPolicy lookup, in the other direction.
+// PolicyUsageFilter separates entities holding policyArn as a normal
+// attached policy from entities using it as their permissions boundary
+// (PermissionsBoundaryEntities); groups have no permissions boundary in real
+// IAM, so a group only ever matches PermissionsPolicy. The three entity
+// kinds are concatenated into one slice and paginated with a single
+// page.New call so Marker/IsTruncated reflect one consistent global order,
+// not three independently-cut halves.
+func (h *Handler) listEntitiesForPolicyFiltered(
+	policyArn, entityFilter string, vals url.Values,
+) (page.Page[policyEntityRow], error) {
+	attached, err := h.Backend.ListEntitiesForPolicy(policyArn, entityFilter)
+	if err != nil {
+		return page.Page[policyEntityRow]{}, err
+	}
+
+	boundaryUsers, boundaryRoles := h.Backend.PermissionsBoundaryEntities(policyArn)
+
+	userFlags := make(map[string]*policyUsageFlags)
+	groupFlags := make(map[string]*policyUsageFlags)
+	roleFlags := make(map[string]*policyUsageFlags)
+
+	for _, u := range attached.PolicyUsers {
+		markUsage(userFlags, u.UserName, false)
+	}
+
+	for _, g := range attached.PolicyGroups {
+		markUsage(groupFlags, g.GroupName, false)
+	}
+
+	for _, r := range attached.PolicyRoles {
+		markUsage(roleFlags, r.RoleName, false)
+	}
+
+	if entityFilter == "" || entityFilter == entityTypeUser {
+		for _, name := range boundaryUsers {
+			markUsage(userFlags, name, true)
+		}
+	}
+
+	if entityFilter == "" || entityFilter == entityTypeRole {
+		for _, name := range boundaryRoles {
+			markUsage(roleFlags, name, true)
+		}
+	}
+
+	prefix := normPath(vals.Get("PathPrefix"))
+	usageFilter := vals.Get("PolicyUsageFilter")
+
+	rows := make([]policyEntityRow, 0, len(userFlags)+len(groupFlags)+len(roleFlags))
+	rows = append(rows, filterEntityRows(entityTypeUser, userFlags, prefix, usageFilter, h.userPath)...)
+	rows = append(rows, filterEntityRows(entityTypeGroup, groupFlags, prefix, usageFilter, h.groupPath)...)
+	rows = append(rows, filterEntityRows(entityTypeRole, roleFlags, prefix, usageFilter, h.rolePath)...)
+
+	return page.New(rows, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), iamDefaultMaxItems), nil
+}
+
+// userPath, groupPath and rolePath resolve an entity name to its own Path,
+// for listEntitiesForPolicyFiltered's per-entity PathPrefix filtering.
+func (h *Handler) userPath(name string) (string, error) {
+	u, err := h.Backend.GetUser(name)
+	if err != nil {
+		return "", err
+	}
+
+	return u.Path, nil
+}
+
+func (h *Handler) groupPath(name string) (string, error) {
+	g, err := h.Backend.GetGroup(name)
+	if err != nil {
+		return "", err
+	}
+
+	return g.Path, nil
+}
+
+func (h *Handler) rolePath(name string) (string, error) {
+	r, err := h.Backend.GetRole(name)
+	if err != nil {
+		return "", err
+	}
+
+	return r.Path, nil
 }
 
 // filterByPath filters a slice of items to those whose path starts with prefix.

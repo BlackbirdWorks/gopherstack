@@ -127,6 +127,32 @@ func (b *InMemoryBackend) PermissionsBoundaryARNs() map[string]bool {
 	return arns
 }
 
+// PermissionsBoundaryEntities returns the names of users and roles that
+// currently use policyArn as their permissions boundary
+// (ListEntitiesForPolicy's PolicyUsageFilter=PermissionsBoundary side).
+// Groups have no permissions boundary in real IAM, so only users and roles
+// are checked.
+func (b *InMemoryBackend) PermissionsBoundaryEntities(policyArn string) ([]string, []string) {
+	b.mu.RLock("PermissionsBoundaryEntities")
+	defer b.mu.RUnlock()
+
+	var userNames, roleNames []string
+
+	for _, u := range b.users.All() {
+		if u.PermissionsBoundary == policyArn {
+			userNames = append(userNames, u.UserName)
+		}
+	}
+
+	for _, r := range b.roles.All() {
+		if r.PermissionsBoundary == policyArn {
+			roleNames = append(roleNames, r.RoleName)
+		}
+	}
+
+	return userNames, roleNames
+}
+
 // ListPolicies returns a paginated list of IAM policies sorted by name.
 func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[Policy], error) {
 	b.mu.RLock("ListPolicies")
@@ -438,7 +464,7 @@ func (b *InMemoryBackend) ListEntitiesForPolicy(policyArn, entityFilter string) 
 	refs := b.policyAttachments[policyArn]
 	result := &PolicyEntities{}
 
-	if entityFilter == "" || entityFilter == "User" {
+	if entityFilter == "" || entityFilter == entityTypeUser {
 		for userName := range refs.users {
 			result.PolicyUsers = append(result.PolicyUsers, PolicyEntityUser{UserName: userName})
 		}
@@ -448,7 +474,7 @@ func (b *InMemoryBackend) ListEntitiesForPolicy(policyArn, entityFilter string) 
 		})
 	}
 
-	if entityFilter == "" || entityFilter == "Group" {
+	if entityFilter == "" || entityFilter == entityTypeGroup {
 		for groupName := range refs.groups {
 			result.PolicyGroups = append(result.PolicyGroups, PolicyEntityGroup{GroupName: groupName})
 		}
@@ -458,7 +484,7 @@ func (b *InMemoryBackend) ListEntitiesForPolicy(policyArn, entityFilter string) 
 		})
 	}
 
-	if entityFilter == "" || entityFilter == "Role" {
+	if entityFilter == "" || entityFilter == entityTypeRole {
 		for roleName := range refs.roles {
 			result.PolicyRoles = append(result.PolicyRoles, PolicyEntityRole{RoleName: roleName})
 		}

@@ -68,6 +68,7 @@ type PolicyEntities struct {
 
 // ListEntitiesForPolicyResult contains the policy entity lists.
 type ListEntitiesForPolicyResult struct {
+	Marker       string              `xml:"Marker,omitempty"`
 	PolicyUsers  []PolicyEntityUser  `xml:"PolicyUsers>member"`
 	PolicyGroups []PolicyEntityGroup `xml:"PolicyGroups>member"`
 	PolicyRoles  []PolicyEntityRole  `xml:"PolicyRoles>member"`

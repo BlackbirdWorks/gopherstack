@@ -333,20 +333,36 @@ func (h *Handler) iamPolicyVersionMgmtDispatch() map[string]iamActionFn {
 func (h *Handler) iamEntitiesForPolicyDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListEntitiesForPolicy": func(vals url.Values, reqID string) (any, error) {
-			entities, err := h.Backend.ListEntitiesForPolicy(
-				vals.Get("PolicyArn"), vals.Get("EntityFilter"),
-			)
+			pg, err := h.listEntitiesForPolicyFiltered(vals.Get("PolicyArn"), vals.Get("EntityFilter"), vals)
 			if err != nil {
 				return nil, err
+			}
+
+			var users []PolicyEntityUser
+
+			var groups []PolicyEntityGroup
+
+			var roles []PolicyEntityRole
+
+			for _, row := range pg.Data {
+				switch row.kind {
+				case entityTypeUser:
+					users = append(users, PolicyEntityUser{UserName: row.name})
+				case entityTypeGroup:
+					groups = append(groups, PolicyEntityGroup{GroupName: row.name})
+				case entityTypeRole:
+					roles = append(roles, PolicyEntityRole{RoleName: row.name})
+				}
 			}
 
 			return &ListEntitiesForPolicyResponse{
 				Xmlns: iamXMLNS,
 				ListEntitiesForPolicyResult: ListEntitiesForPolicyResult{
-					PolicyUsers:  entities.PolicyUsers,
-					PolicyGroups: entities.PolicyGroups,
-					PolicyRoles:  entities.PolicyRoles,
-					IsTruncated:  false,
+					PolicyUsers:  users,
+					PolicyGroups: groups,
+					PolicyRoles:  roles,
+					IsTruncated:  pg.Next != "",
+					Marker:       pg.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

@@ -374,3 +374,235 @@ func TestListPolicies_PolicyUsageFilter(t *testing.T) {
 
 	require.Equal(t, []string{"identity-only"}, permNames)
 }
+
+// TestListEntitiesForPolicy_PathPrefix asserts PathPrefix filters on each
+// entity's OWN path (not the policy's path), per api_op_ListEntitiesForPolicy.go:
+// "The path prefix for filtering the results." Entities are attached to the
+// same policy under distinct paths; the filter must narrow to only those
+// entities whose own path matches, across all three entity kinds.
+func TestListEntitiesForPolicy_PathPrefix(t *testing.T) {
+	t.Parallel()
+
+	h := iam.NewHandler(iam.NewInMemoryBackend())
+	client := newTestIAMClient(t, h)
+
+	pol, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+		PolicyName:     aws.String("shared-policy"),
+		PolicyDocument: aws.String(testPolicyDoc),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
+		UserName: aws.String("u-team"), Path: aws.String("/team/"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
+		UserName: aws.String("u-other"), Path: aws.String("/other/"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateGroup(t.Context(), &iamsdk.CreateGroupInput{
+		GroupName: aws.String("g-team"), Path: aws.String("/team/"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateGroup(t.Context(), &iamsdk.CreateGroupInput{
+		GroupName: aws.String("g-other"), Path: aws.String("/other/"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName: aws.String("r-team"), Path: aws.String("/team/"),
+		AssumeRolePolicyDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName: aws.String("r-other"), Path: aws.String("/other/"),
+		AssumeRolePolicyDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	for _, name := range []string{"u-team", "u-other"} {
+		_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+			UserName: aws.String(name), PolicyArn: pol.Policy.Arn,
+		})
+		require.NoError(t, err)
+	}
+	for _, name := range []string{"g-team", "g-other"} {
+		_, err = client.AttachGroupPolicy(t.Context(), &iamsdk.AttachGroupPolicyInput{
+			GroupName: aws.String(name), PolicyArn: pol.Policy.Arn,
+		})
+		require.NoError(t, err)
+	}
+	for _, name := range []string{"r-team", "r-other"} {
+		_, err = client.AttachRolePolicy(t.Context(), &iamsdk.AttachRolePolicyInput{
+			RoleName: aws.String(name), PolicyArn: pol.Policy.Arn,
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+		PolicyArn:  pol.Policy.Arn,
+		PathPrefix: aws.String("/team/"),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.PolicyUsers, 1)
+	require.Equal(t, "u-team", aws.ToString(out.PolicyUsers[0].UserName))
+	require.Len(t, out.PolicyGroups, 1)
+	require.Equal(t, "g-team", aws.ToString(out.PolicyGroups[0].GroupName))
+	require.Len(t, out.PolicyRoles, 1)
+	require.Equal(t, "r-team", aws.ToString(out.PolicyRoles[0].RoleName))
+}
+
+// TestListEntitiesForPolicy_MarkerResumesAcrossPageBoundary drives a policy
+// attached to entities across all three kinds through ListEntitiesForPolicy
+// with MaxItems=1, so a single-item backend window straddles the
+// User/Group/Role boundary. Every entity must appear exactly once across the
+// full walk, matching real AWS's documented single Marker/IsTruncated pair
+// spanning the whole combined result (api_op_ListEntitiesForPolicy.go). Two
+// users force at least one page break inside the User section itself, not
+// just at a kind boundary.
+func TestListEntitiesForPolicy_MarkerResumesAcrossPageBoundary(t *testing.T) {
+	t.Parallel()
+
+	h := iam.NewHandler(iam.NewInMemoryBackend())
+	client := newTestIAMClient(t, h)
+
+	pol, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+		PolicyName:     aws.String("paginated-policy"),
+		PolicyDocument: aws.String(testPolicyDoc),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("u1")})
+	require.NoError(t, err)
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("u2")})
+	require.NoError(t, err)
+	_, err = client.CreateGroup(t.Context(), &iamsdk.CreateGroupInput{GroupName: aws.String("g1")})
+	require.NoError(t, err)
+	_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName: aws.String("r1"), AssumeRolePolicyDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	for _, name := range []string{"u1", "u2"} {
+		_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+			UserName: aws.String(name), PolicyArn: pol.Policy.Arn,
+		})
+		require.NoError(t, err)
+	}
+	_, err = client.AttachGroupPolicy(t.Context(), &iamsdk.AttachGroupPolicyInput{
+		GroupName: aws.String("g1"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+	_, err = client.AttachRolePolicy(t.Context(), &iamsdk.AttachRolePolicyInput{
+		RoleName: aws.String("r1"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	var users, groups, roles []string
+
+	marker := ""
+	pageCount := 0
+
+	for range 10 {
+		out, callErr := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+			PolicyArn: pol.Policy.Arn,
+			MaxItems:  aws.Int32(1),
+			Marker:    aws.String(marker),
+		})
+		require.NoError(t, callErr)
+		pageCount++
+
+		items := len(out.PolicyUsers) + len(out.PolicyGroups) + len(out.PolicyRoles)
+		require.LessOrEqual(t, items, 1, "MaxItems=1 must not return more than one entity per page")
+
+		for _, u := range out.PolicyUsers {
+			users = append(users, aws.ToString(u.UserName))
+		}
+		for _, g := range out.PolicyGroups {
+			groups = append(groups, aws.ToString(g.GroupName))
+		}
+		for _, r := range out.PolicyRoles {
+			roles = append(roles, aws.ToString(r.RoleName))
+		}
+
+		if !out.IsTruncated {
+			break
+		}
+
+		marker = aws.ToString(out.Marker)
+	}
+
+	require.Equal(t, 4, pageCount, "4 entities at MaxItems=1 must take exactly 4 pages")
+	require.Equal(t, []string{"u1", "u2"}, users)
+	require.Equal(t, []string{"g1"}, groups)
+	require.Equal(t, []string{"r1"}, roles)
+}
+
+// TestListEntitiesForPolicy_PolicyUsageFilter asserts PolicyUsageFilter
+// separates entities that hold policyArn as a normal attached policy from
+// entities that use it as their permissions boundary
+// (api_op_ListEntitiesForPolicy.go: PermissionsPolicy vs PermissionsBoundary).
+// Groups have no permissions boundary in real IAM, so this only exercises
+// users and roles.
+func TestListEntitiesForPolicy_PolicyUsageFilter(t *testing.T) {
+	t.Parallel()
+
+	h := iam.NewHandler(iam.NewInMemoryBackend())
+	client := newTestIAMClient(t, h)
+
+	pol, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+		PolicyName:     aws.String("usage-policy"),
+		PolicyDocument: aws.String(testPolicyDoc),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("u-attached")})
+	require.NoError(t, err)
+	_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+		UserName: aws.String("u-attached"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
+		UserName: aws.String("u-boundary"), PermissionsBoundary: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName:                 aws.String("r-boundary"),
+		AssumeRolePolicyDocument: aws.String("{}"),
+		PermissionsBoundary:      pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	permOut, err := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+		PolicyArn:         pol.Policy.Arn,
+		PolicyUsageFilter: types.PolicyUsageTypePermissionsPolicy,
+	})
+	require.NoError(t, err)
+	require.Len(t, permOut.PolicyUsers, 1)
+	require.Equal(t, "u-attached", aws.ToString(permOut.PolicyUsers[0].UserName))
+	require.Empty(t, permOut.PolicyRoles)
+
+	boundaryOut, err := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+		PolicyArn:         pol.Policy.Arn,
+		PolicyUsageFilter: types.PolicyUsageTypePermissionsBoundary,
+	})
+	require.NoError(t, err)
+	require.Len(t, boundaryOut.PolicyUsers, 1)
+	require.Equal(t, "u-boundary", aws.ToString(boundaryOut.PolicyUsers[0].UserName))
+	require.Len(t, boundaryOut.PolicyRoles, 1)
+	require.Equal(t, "r-boundary", aws.ToString(boundaryOut.PolicyRoles[0].RoleName))
+
+	allOut, err := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+		PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+	allUsers := make([]string, 0, len(allOut.PolicyUsers))
+	for _, u := range allOut.PolicyUsers {
+		allUsers = append(allUsers, aws.ToString(u.UserName))
+	}
+	require.ElementsMatch(t, []string{"u-attached", "u-boundary"}, allUsers)
+	require.Len(t, allOut.PolicyRoles, 1)
+	require.Equal(t, "r-boundary", aws.ToString(allOut.PolicyRoles[0].RoleName))
+}
