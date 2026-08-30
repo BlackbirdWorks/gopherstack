@@ -97,17 +97,24 @@ type listCommitmentPurchaseAnalysesOutput struct {
 
 func (h *Handler) handleListCommitmentPurchaseAnalyses(
 	_ context.Context,
-	_ *listCommitmentPurchaseAnalysesInput,
+	in *listCommitmentPurchaseAnalysesInput,
 ) (*listCommitmentPurchaseAnalysesOutput, error) {
-	analyses := h.Backend.ListCommitmentAnalyses()
+	analyses := h.Backend.ListCommitmentAnalyses(in.AnalysisStatus)
 
-	items := make([]analysisSummary, 0, len(analyses))
-	for _, a := range analyses {
+	// paginateOrdered, not paginateList: analyses is already in
+	// most-recently-started-first order, which re-sorting ascending by
+	// AnalysisID would discard.
+	page, nextToken := paginateOrdered(analyses, in.PageSize, in.NextPageToken,
+		func(a *CommitmentAnalysis) string { return a.AnalysisID })
+
+	items := make([]analysisSummary, 0, len(page))
+	for _, a := range page {
 		items = append(items, toAnalysisSummary(a))
 	}
 
 	return &listCommitmentPurchaseAnalysesOutput{
 		AnalysisSummaryList: items,
+		NextPageToken:       nextToken,
 	}, nil
 }
 

@@ -120,14 +120,25 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	return &out, nil
 }
 
-// ListCostCategoryDefinitions returns cost categories sorted by name with opaque pagination.
-func (b *InMemoryBackend) ListCostCategoryDefinitions(maxResults int, nextPageToken string) ([]*CostCategory, string) {
+// ListCostCategoryDefinitions returns cost categories sorted by name with
+// opaque pagination, optionally narrowed to categories whose EffectiveStart
+// is on or before effectiveOn -- see DescribeCostCategoryDefinition's
+// EffectiveOn handling for why this backend can only honor "existed by this
+// date", not real AWS's full historical-version lookup.
+func (b *InMemoryBackend) ListCostCategoryDefinitions(
+	maxResults int, nextPageToken, effectiveOn string,
+) ([]*CostCategory, string) {
 	b.mu.RLock("ListCostCategoryDefinitions")
 	defer b.mu.RUnlock()
 
 	all := b.costCategories.All()
 	result := make([]*CostCategory, 0, len(all))
+
 	for _, cat := range all {
+		if effectiveOn != "" && effectiveOn < cat.EffectiveStart {
+			continue
+		}
+
 		out := *cat
 		result = append(result, &out)
 	}

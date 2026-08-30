@@ -119,8 +119,14 @@ type CostAllocationTag struct {
 	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
-// BackfillJob represents a cost allocation tag backfill job.
+// BackfillJob represents a cost allocation tag backfill job. BackfillID is
+// internal-only -- real AWS's CostAllocationTagBackfillRequest has no unique
+// identifier field at all (NextToken is fully opaque), so this is not a
+// fabricated wire field, just a stable sort/pagination key this backend needs
+// since RequestedAt alone (second precision) can tie between jobs created in
+// the same second.
 type BackfillJob struct {
+	BackfillID     string `json:"backfillID"`
 	BackfillFrom   string `json:"backfillFrom"`
 	RequestedAt    string `json:"requestedAt"`
 	CompletedAt    string `json:"completedAt,omitempty"`
@@ -263,12 +269,18 @@ type ReservationCoverageCost struct {
 }
 
 // SavingsPlansUtilizationDetail is a per-plan utilization entry.
+// Utilization/AmortizedCommitment/Savings/Attributes are pointers so
+// GetSavingsPlansUtilizationDetailsInput.DataType (real
+// []types.SavingsPlansDataType -- ATTRIBUTES/UTILIZATION/
+// AMORTIZED_COMMITMENT/SAVINGS) can genuinely omit the sections a request
+// didn't ask for, matching real AWS's per-item selective population instead
+// of always emitting every section regardless of what was requested.
 type SavingsPlansUtilizationDetail struct {
-	Attributes          map[string]string          `json:"Attributes,omitempty"`
-	Utilization         SavingsPlansUtilizationAgg `json:"Utilization"`
-	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment"`
-	Savings             SavingsPlansSavings        `json:"Savings"`
-	SavingsPlanARN      string                     `json:"SavingsPlanArn"`
+	Attributes          map[string]string           `json:"Attributes,omitempty"`
+	Utilization         *SavingsPlansUtilizationAgg `json:"Utilization,omitempty"`
+	AmortizedCommitment *SavingsPlansAmortized      `json:"AmortizedCommitment,omitempty"`
+	Savings             *SavingsPlansSavings        `json:"Savings,omitempty"`
+	SavingsPlanARN      string                      `json:"SavingsPlanArn"`
 }
 
 // ReservationRecommendation holds a single RI recommendation group.

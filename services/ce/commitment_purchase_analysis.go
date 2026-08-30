@@ -47,20 +47,37 @@ func (b *InMemoryBackend) GetCommitmentAnalysis(analysisID string) (*CommitmentA
 	return &cp, nil
 }
 
-// ListCommitmentAnalyses returns all commitment analyses sorted by AnalysisStartedTime.
-func (b *InMemoryBackend) ListCommitmentAnalyses() []*CommitmentAnalysis {
+// ListCommitmentAnalyses returns commitment analyses sorted by
+// AnalysisStartedTime descending, optionally filtered to statusFilter.
+//
+// Table.All() walks the table's backing map in unspecified order, and
+// AnalysisStartedTime has only second precision, so two analyses started in
+// the same second tie under a plain sort.Slice: the tiebreak on AnalysisID
+// below makes the order fully deterministic across repeated calls instead of
+// depending on map iteration order, which matters once pagination cursors on
+// this same order (see handleListCommitmentPurchaseAnalyses).
+func (b *InMemoryBackend) ListCommitmentAnalyses(statusFilter string) []*CommitmentAnalysis {
 	b.mu.RLock("ListCommitmentAnalyses")
 	defer b.mu.RUnlock()
 
 	all := b.commitmentAnalyses.All()
 	result := make([]*CommitmentAnalysis, 0, len(all))
+
 	for _, a := range all {
+		if statusFilter != "" && a.AnalysisStatus != statusFilter {
+			continue
+		}
+
 		cp := *a
 		result = append(result, &cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].AnalysisStartedTime > result[j].AnalysisStartedTime
+		if result[i].AnalysisStartedTime != result[j].AnalysisStartedTime {
+			return result[i].AnalysisStartedTime > result[j].AnalysisStartedTime
+		}
+
+		return result[i].AnalysisID < result[j].AnalysisID
 	})
 
 	return result

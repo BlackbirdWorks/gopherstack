@@ -171,7 +171,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, _ string) {
 				t.Helper()
 
-				cats, _ := b.ListCostCategoryDefinitions(0, "")
+				cats, _ := b.ListCostCategoryDefinitions(0, "", "")
 				assert.Empty(t, cats)
 				monitors, _, err := b.GetAnomalyMonitors(nil, 0, "")
 				require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "", nil)
 				assert.Empty(t, anomalies)
 				assert.Empty(t, b.ListCostAllocationTags("", "", nil))
-				assert.Empty(t, b.ListCommitmentAnalyses())
+				assert.Empty(t, b.ListCommitmentAnalyses(""))
 				assert.Empty(t, b.ListBackfillHistory())
 			},
 		},
@@ -299,7 +299,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 
 	b.Reset()
 
-	cats, _ := b.ListCostCategoryDefinitions(0, "")
+	cats, _ := b.ListCostCategoryDefinitions(0, "", "")
 	assert.Empty(t, cats)
 	monitors, _, err := b.GetAnomalyMonitors(nil, 0, "")
 	require.NoError(t, err)

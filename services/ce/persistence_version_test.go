@@ -61,7 +61,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, monitors, "mismatched-version snapshot data must not be adopted")
 
-	cats, _ := target.ListCostCategoryDefinitions(0, "")
+	cats, _ := target.ListCostCategoryDefinitions(0, "", "")
 	assert.Empty(t, cats, "pre-existing state must be reset on version mismatch")
 }
 
