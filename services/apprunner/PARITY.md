@@ -432,3 +432,41 @@ fields, 1 counted bug, 2 fixed-but-not-counted findings, 1 disclosed
     all clean on `./services/apprunner/...` (0 issues). Full existing suite (`go test
     ./services/apprunner/...`) green throughout -- no existing test asserted the old
     (missing-field) shape, so none needed correcting.
+
+## Notes (2026-08-30 pass — pagination map-order audit)
+
+Audited every `pkgs/page.New` call site in this service (9 call sites: `vpc_ingress_
+connections.go`, `services.go`, `operations.go`, `observability_configurations.go`,
+`auto_scaling_configurations.go` x2, `custom_domains.go`, `vpc_connectors.go`,
+`connections.go`) for the class of bug confirmed in `services/opsworks`: a paginator
+consuming an unspecified-order Go map walk (`pkgs/store.Table.All()`/`.Range()`)
+with no total sort.
+
+Verdict: 0 bugs. Every call site sources its pre-pagination slice from one of three
+safe mechanisms, none of which is a raw map walk:
+- `Table.Snapshot()` (`ListVpcIngressConnections`, `ListServices`,
+  `ListObservabilityConfigurations`, `ListAutoScalingConfigurations`,
+  `ListServicesForAutoScalingConfiguration`, `ListVpcConnectors`, `ListConnections`)
+  -- per `pkgs/store.Table.Snapshot`'s doc comment this is already sorted by the
+  table's own (definitionally unique) primary key, unlike `Table.All()`;
+- a plain append-only Go slice, not a `Table` at all (`ListOperations` reads
+  `svc.Operations []*storedOperation`, bounded to 200 and only ever grown via
+  `append`; `DescribeCustomDomains` reads `b.customDomains[serviceArn]`, same
+  append/splice-only shape) -- deterministic order requires no sort;
+- filtering (`nameFilter`/`latestOnly`/ARN match) is applied to the
+  already-deterministic `Snapshot()`/slice output and always precedes the
+  `page.New` call -- no filter-after-pagination bug found.
+
+Empirically proved the `Table.Snapshot()` mechanism (the most novel of the three,
+new since the opsworks fix predates `pkgs/store`) with a full-walk test rather than
+trusting the doc comment alone: added `pagination_full_walk_test.go`'s
+`TestListServices_FullWalk_NoDropsOrDuplicates`, seeding 25 services via the real
+`aws-sdk-go-v2` client, walking `ListServices` to completion at `MaxResults=5`, and
+asserting the union of every page is exactly the seed set with no drop or
+duplicate. Passed 10/10 runs under `-race -count=10`.
+
+No sort found non-total on a map-walk-sourced call site (none of the 9 sites
+touch a map walk at all); no MaxResults/NextToken-accepting op found that
+silently returns everything untruncated. Gates on `./services/apprunner/...`:
+`go build`, `go vet`, `go test -race -count=1` (all pass), `golangci-lint run`
+(0 issues).

@@ -488,3 +488,44 @@ helper, all confirmed failing against unmodified code before the fix.
 Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
 ./services/apigatewayv2/...` (pass), `golangci-lint run ./services/apigatewayv2/...`
 (0 issues after `gofmt -w` on `handler.go`).
+
+## Notes (2026-08-30 pass — pagination map-order audit)
+
+Audited every `pkgs/page.New`/`NewHMAC` call site in this service (11 literal call
+sites, covering 17 list operations via `handleGetList`/`handleGetChildList`/
+`nestedResponseOps`) for the class of bug confirmed in `services/opsworks`: a
+paginator consuming `Table.All()`/`Table.Range()` (an unspecified-order Go map
+walk, per `pkgs/store.Table.All`'s doc comment) with no total sort, so a
+cursor-token round-trip drops/duplicates records.
+
+Verdict: 0 bugs. Every call site is safe by construction, by one of two
+mechanisms:
+- filtered to a single parent via a `pkgs/store.Index.Get` lookup (stable,
+  insertion-derived order, not a map walk) -- `ListRoutingRules`,
+  `GetApiMappings`, `GetModels`, `GetDeployments`, `GetIntegrations`,
+  `GetRoutes`, `GetStages`, `GetAuthorizers`, `GetIntegrationResponses`,
+  `GetRouteResponses`, `ListProductPages`, `ListProductRestEndpointPages`; and
+- `Table.All()` re-sorted by the table's own primary key (`sort.Slice` on the
+  same field the table's `keyFn` returns), which is definitionally unique --
+  `GetDomainNames` (sorted by `DomainNameValue`, the `domainNames` table key),
+  `GetVpcLinks` (`VpcLinkID`), `GetAPIs` (`APIID`), `ListPortals` (`PortalID`),
+  `ListPortalProducts` (`PortalProductID`).
+
+Empirically proved the riskiest case (`GetDomainNames`, `Table.All()` + sort)
+with a new full-walk test rather than trusting the reasoning alone: added
+`pagination_full_walk_test.go`'s `TestGetDomainNames_FullWalk_NoDropsOrDuplicates`,
+which seeds 25 domain names via the real `aws-sdk-go-v2` client, walks
+`GetDomainNames` to completion at `MaxResults=5`, and asserts the union of
+every page is exactly the seed set with no drop or duplicate. Passed 10/10
+runs under `-race -count=10`. Existing `pagination_cursor_test.go` tests
+(`TestGetDomainNames_Limit` etc.) only ever fetch one page and assert
+`len==1`/`NextToken != ""` -- structurally unable to see a map-order
+drop/duplicate, since that only manifests across a second `GetDomainNames`
+call re-walking the same (re-randomized) map iteration.
+
+No sort found non-total on a call site sourced from a map walk (the actual bug
+condition); no filter-after-pagination; no MaxResults/NextToken-accepting op
+found that silently returns everything untruncated. `PARITY.md` claims not
+re-verified beyond what this pass touched. Gates on `./services/apigatewayv2/...`:
+`go build`, `go vet`, `go test -race -count=1` (all pass, existing suite
+unmodified/ungrown-except-the-1-new-file), `golangci-lint run` (0 issues).

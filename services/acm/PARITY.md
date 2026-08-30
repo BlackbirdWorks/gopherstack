@@ -787,3 +787,52 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
 - **Gates**: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
   `go test -race` (all pass), `golangci-lint run` (0 issues) all clean on
   `services/acm/...` after the fix.
+
+## Notes (2026-08-30 pass — pagination map-order audit)
+
+Audited every `pkgs/page.New` call site in this service (5 call sites:
+`acme_endpoints.go` (`ListAcmeEndpoints`), `acme_models.go` (the shared
+`listOwnedByEndpoint[V]` generic, covering `ListAcmeExternalAccountBindings`
+and `ListAcmeDomainValidations`), `search_certificates.go`
+(`SearchCertificates`), `certificates.go` (`ListCertificates`),
+`acme_accounts.go` (`ListAcmeAccounts`)) for the class of bug confirmed in
+`services/opsworks`: a paginator consuming an unspecified-order Go map walk
+(`pkgs/store.Table.All()`/`.Range()`) with no total sort.
+
+Verdict: 0 bugs. Every call site sources its pre-pagination slice from a
+`pkgs/store.Index.Get` lookup filtered to a single parent (region for
+`ListAcmeEndpoints`/`SearchCertificates`/`ListCertificates`; ACME endpoint ARN
+for `listOwnedByEndpoint`/`ListAcmeAccounts`) -- stable, insertion-derived
+order across calls, never a map walk, matching the `pkgs/page` doc comment's
+"fully sorted slice" precondition without needing a map-walk-safe sort at all.
+
+Two of the five (`SearchCertificates`' `SortBy`-driven comparator, and
+`ListCertificates`' `CREATED_AT` branch) additionally re-sort the `Index.Get`
+result on a field that is not a unique key (`CommonName`, `CreatedAt`,
+`CERTIFICATE_KEY_PAIR_ORIGIN`, etc.) with no id tiebreak -- on its face this
+looks like the "sort exists but isn't total" bug class this campaign flags.
+It is not a bug here: Go's `sort.Slice` is a deterministic function of
+(input order, less func) with no randomization, so when the *input* order is
+already stable across calls (as `Index.Get`'s is), a non-unique sort key
+still resolves ties identically on every call -- the actual precondition for
+the bug is that the *pre-sort* input differs between calls, which only a raw
+`Table.All()`/`.Range()` map walk causes. Left alone deliberately: adding an
+ARN tiebreak here would be redundant, not a correctness fix. (`CreatedAt` is
+also full nanosecond-precision `time.Now().UTC()`, not the truncated
+`Unix()`-seconds shape that has caused real ties elsewhere in this repo, so
+even the theoretical tie window doesn't apply.)
+
+Empirically proved this reasoning rather than trusting it, on the trickiest
+case (`ListCertificates`, `SortBy=CREATED_AT`, the one non-unique-key sort):
+added `pagination_full_walk_test.go`'s
+`TestListCertificates_FullWalk_NoDropsOrDuplicates`, seeding 25 certificates
+via the real `aws-sdk-go-v2` client, walking `ListCertificates` to completion
+at `MaxItems=5` with `SortBy=CREATED_AT`/`SortOrder=DESCENDING`, and asserting
+the union of every page is exactly the seed set with no drop or duplicate.
+Passed 10/10 runs under `-race -count=10`.
+
+No filter-after-pagination found (`SearchCertificates`/`ListCertificates`
+filter before `page.New`); no MaxResults/NextToken-accepting op found that
+silently returns everything untruncated. Gates on `./services/acm/...`:
+`go build`, `go vet`, `go test -race -count=1` (all pass), `golangci-lint run`
+(0 issues).
