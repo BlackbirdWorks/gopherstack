@@ -223,3 +223,111 @@ func build() *GetThingOutput {
 		})
 	}
 }
+
+// TestCheckStructResponsesInFunc_PhantomField is gopherstack-7fps's Class B:
+// cloudtrail's Event.EventCategory (real types.Event has no such field; a
+// naive key-name match against "EventCategory" elsewhere in the SDK found
+// EventCategoryAggregation's unrelated enum) and sagemaker's
+// PipelineExecutionStep.StepType (same shape, matched enum was Inference
+// Recommender's). Mirrors that shape directly against
+// enumRegistry.wireFieldsByType.
+func TestCheckStructResponsesInFunc_PhantomField(t *testing.T) {
+	t.Parallel()
+
+	wireKeys := map[string]wireKeyFact{"EventCategory": {Enums: []string{"EventCategoryAggregation"}}}
+
+	regWithRealType := func() *enumRegistry {
+		reg := statusReg()
+		reg.wireFieldsByType = map[string]map[string]bool{
+			// real types.Event's own field set -- no EventCategory at all.
+			"Event": {"EventId": true, "EventName": true, "EventSource": true},
+		}
+
+		return reg
+	}
+
+	t.Run("field absent from the real same-named type is a phantom field, not a wrong value", func(t *testing.T) {
+		t.Parallel()
+
+		const src = `package svc
+type Event struct {
+	EventCategory string ` + "`json:\"EventCategory\"`" + `
+}
+func build() *Event {
+	return &Event{EventCategory: "Management"}
+}`
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, regWithRealType(), wireKeys, dir)
+		require.NoError(t, err)
+		require.Len(t, findings, 1)
+
+		got := findings[0]
+		assert.False(
+			t,
+			got.Confident,
+			"phantom-field is never confident: the enum it would compare against is unrelated",
+		)
+		assert.Equal(t, kindPhantomField, got.Kind)
+		assert.Equal(t, "EventCategory", got.Key)
+		assert.Equal(t, "Management", got.Value)
+		assert.Equal(t, "Event", got.Enum)
+	})
+
+	t.Run("field present on the real same-named type is checked normally, not treated as phantom", func(t *testing.T) {
+		t.Parallel()
+
+		const src = `package svc
+type Event struct {
+	EventId string ` + "`json:\"EventId\"`" + `
+}
+func build() *Event {
+	return &Event{EventId: "abc"}
+}`
+
+		reg := regWithRealType()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, reg, map[string]wireKeyFact{}, dir)
+		require.NoError(t, err)
+		assert.Empty(
+			t,
+			findings,
+			"EventId is a real field on Event -- no phantom finding, and no wireKeys entry to check it against",
+		)
+	})
+
+	t.Run("struct type with no real same-named type gets no phantom finding", func(t *testing.T) {
+		t.Parallel()
+
+		const src = `package svc
+type ImageReferenceEntry struct {
+	EventCategory string ` + "`json:\"EventCategory\"`" + `
+}
+func build() *ImageReferenceEntry {
+	return &ImageReferenceEntry{EventCategory: "Management"}
+}`
+
+		reg := regWithRealType()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, reg, wireKeys, dir)
+		require.NoError(t, err)
+		require.Len(
+			t,
+			findings,
+			1,
+			"no real-type ground truth for ImageReferenceEntry, so this falls through to the ordinary check",
+		)
+
+		got := findings[0]
+		assert.Equal(t, kindLiteral, got.Kind)
+		assert.True(t, got.Confident)
+	})
+}

@@ -27,10 +27,61 @@
 //     SomeEnum", with no name matching at all. query/EC2-query/REST-XML
 //     protocols use an xml.Decoder with no such switch, so this resolves
 //     zero wire keys for them -- same disclosed protocol scope as
-//     cmd/keycheck.
+//     cmd/keycheck. The same parse pass also records, per real SDK type
+//     (from a deserializeDocument<Type> function's own `**types.Type`
+//     parameter, structural again, never a name guess off the function
+//     identifier, whose prefix varies by protocol), the FULL wire-key set
+//     that type's deserializer handles, enum-typed or not -- ground truth
+//     for the phantom-field check below, and for which SDK module actually
+//     proved a given (wire key, enum type) pair, ground truth for the
+//     cross-module check below.
 //
-// THREE CHECKS, two confidence levels (see scan.go/reuse.go for the full
-// mechanics):
+// gopherstack-7fps hand-triaged this tool's own confident tier (21
+// findings, 7 real, 14 false positives) against the pinned SDK and found
+// two of the four false-positive shapes were structural, fixable here
+// rather than requiring human judgement each time:
+//
+//   - CROSS-MODULE CONTAMINATION: a directory that imports more than one
+//     aws-sdk-go-v2 service module (services/ec2 imports both ec2 and
+//     outposts) can have a wire key's only real enum candidate come from
+//     the SECONDARY module, not the one the directory is actually about --
+//     confirmed live: ec2's own ec2query/XML protocol contributes nothing
+//     to wire-key ground truth (outside this tool's JSON-family scope), so
+//     outposts' unrelated restjson1 "ResourceType" enum (OUTPOST/ORDER)
+//     was the ONLY candidate for an ec2 "ResourceType" key, even though
+//     real ec2 enums (ImageReferenceResourceType,
+//     TransitGatewayAttachmentResourceType) legally contain every value
+//     actually emitted. The confident check now refuses to promote a
+//     single-candidate finding whose (wire key, enum type) pair was proved
+//     ONLY by a module that isn't native to the directory being scanned
+//     (enumRegistry.confidentModuleOK; nativeModuleSet in this file decides
+//     "native" by directory-basename equality, not import location -- see
+//     its own doc comment for why import location can't be the signal in
+//     this repo). This only ever refuses a candidate, never invents one:
+//     the cost is a directory that legitimately emits a second SDK's enum
+//     under a wire key its OWN SDK never deserializes at all would have
+//     that real bug suppressed too, same as the false positive this exists
+//     to remove.
+//   - PHANTOM FIELD: a gopherstack response-struct field whose wire key
+//     resolves to some real SDK enum, but the REAL SDK type of the exact
+//     same name as the gopherstack struct has NO field under that wire key
+//     at all -- meaning the matched enum belongs to an entirely unrelated
+//     real operation. Confirmed live: cloudtrail's Event.EventCategory
+//     (real types.Event has no such field; the match was
+//     EventCategoryAggregation's) and sagemaker's
+//     PipelineExecutionStep.StepType (real type has no such field; the
+//     match was Inference Recommender's). Rather than silently discard
+//     these -- a field with no real counterpart is itself either dead code
+//     or a fabricated capability, both worth a human's judgement -- they
+//     are reported as a distinct NEEDS REVIEW kind (kindPhantomField,
+//     checkPhantomField in structresp.go) instead of a wrong-value claim
+//     that was never the real defect. Scope: only checked for a struct
+//     type name that has known real-type ground truth at all; most
+//     gopherstack response structs don't share their exact name with a
+//     real SDK type and get no finding here.
+//
+// FOUR CHECKS, two confidence levels (see scan.go/reuse.go/structresp.go
+// for the full mechanics):
 //
 //   - CONFIDENT (literal-value): a map[string]any entry, OR an
 //     `out["wireKey"] = value` index-assignment onto one, keyed to a
@@ -39,9 +90,15 @@
 //     string literal, a same-package string const, a
 //     types.SomeEnumMember/types.SomeEnum("x") selector/conversion, or a
 //     `structVar.Field` read of a field this same function assigned exactly
-//     once) to a string that is not a member of that key's real enum.
+//     once) to a string that is not a member of that key's real enum, AND
+//     whose (wire key, enum type) pair is backed by a module native to this
+//     directory (confidentModuleOK; see the cross-module bullet above).
 //     Sound: both the value and which enum applies are fully known, and the
 //     enum's members are ground truth from the SDK itself.
+//   - NEEDS REVIEW (phantom-field): the struct-literal position only (see
+//     the phantom-field bullet above) -- a wire key that resolves to a real
+//     enum somewhere in the SDK, but not on the real type of the same name
+//     as the gopherstack struct actually being built here.
 //   - NEEDS REVIEW (cross-enum-reuse): the guardduty shape itself, where the
 //     wrong value is a runtime variable, not a literal, so check A can't see
 //     it. reuse.go detects the STRUCTURE instead: a package-level helper that
@@ -126,6 +183,25 @@
 // cross-function dataflow was considered and rejected (gopherstack-3dzb's
 // own recommendation): two other auditors in this campaign hit roughly 85
 // percent false positives on an ambitious first pass.
+//
+// checkPhantomField's own blind spot, disclosed rather than fixed: it
+// matches a gopherstack struct against a real SDK type of the EXACT same
+// name only, expanded one hop through that type's own field references
+// (expandOneHopNestedFields, for gopherstack's common "flatten a wrapper +
+// summary type into one local struct" pattern -- confirmed live, amplify's
+// Job wraps Steps/Summary with Status/Type actually on the nested
+// JobSummary). It does NOT follow the AWS naming convention where a List
+// operation's summary type carries a "Summary"/"Detail" suffix the full
+// type lacks (confirmed live: securityhub's real
+// ConfigurationPolicyAssociationSummary has AssociationStatus/AssociationType,
+// but gopherstack's local ConfigurationPolicyAssociation -- matched against
+// the real ConfigurationPolicyAssociation, a different, smaller type --
+// reports both as phantom; same shape for swf's ActivityType/WorkflowType).
+// This yields a small residual false-positive rate in the phantom-field
+// kind specifically, not chased further: fuzzy suffix matching against
+// every type in a module risks trading one systematic false-positive class
+// for another, and phantom-field is NEEDS REVIEW, not CONFIDENT -- a human
+// judgement call was always the intended outcome here.
 //
 // Usage:
 //
@@ -249,7 +325,11 @@ func auditServiceDir(dir, repoRoot, cache string, goModVersions map[string]strin
 		return nil, err
 	}
 
-	reg := &enumRegistry{membersByType: map[string]map[string]bool{}, constByIdent: map[string]enumConst{}}
+	reg := &enumRegistry{
+		membersByType: map[string]map[string]bool{},
+		constByIdent:  map[string]enumConst{},
+		nativeModules: nativeModuleSet(dir, mods),
+	}
 	wireKeys := map[string]wireKeyFact{}
 
 	for _, mod := range mods {
@@ -268,6 +348,40 @@ func auditServiceDir(dir, repoRoot, cache string, goModVersions map[string]strin
 	}
 
 	return scanPackage(dir, reg, wireKeys, repoRoot)
+}
+
+// nativeModuleSet is this directory's SDK module ground truth for
+// enumRegistry.confidentModuleOK: the subset of mods whose OWN module name
+// equals dir's own basename exactly -- a live structural comparison of two
+// already-known strings, never a hand-maintained dir->module override
+// table (see resolveServiceModules's own doc comment for why this repo
+// avoids those). Import location (production vs test file) was tried and
+// rejected: this repo's dominant convention -- confirmed for guardduty by
+// the package doc comment, and equally true of ec2 itself -- is that even a
+// directory's OWN eponymous SDK is referenced only from a *_test.go
+// round-trip client, never production code, so "does a non-test file
+// import it" cannot tell a directory's own SDK apart from an incidental
+// second one. Name equality can: services/ec2 and its ec2 SDK share a name,
+// services/ec2 and the outposts SDK it also imports (only in
+// cross_service_test.go, aws-sdk-go-v2/service/outposts) do not.
+//
+// When dir's basename matches none of mods at all (this repo's directory
+// names frequently diverge from their SDK module's own name -- cognitoidp
+// vs cognitoidentityprovider, ...), the result is empty, which
+// confidentModuleOK treats as "nothing to prefer over" and refuses
+// nothing: this only ever narrows an already-multi-module directory whose
+// own name it can positively identify, never a single-module one.
+func nativeModuleSet(dir string, mods []string) map[string]bool {
+	base := filepath.Base(dir)
+	native := map[string]bool{}
+
+	for _, m := range mods {
+		if m == base {
+			native[m] = true
+		}
+	}
+
+	return native
 }
 
 func mergeModuleGroundTruth(cache, mod, ver string, reg *enumRegistry, wireKeys map[string]wireKeyFact) error {
@@ -294,16 +408,50 @@ func mergeModuleGroundTruth(cache, mod, ver string, reg *enumRegistry, wireKeys 
 		return statErr
 	}
 
-	modWireKeys, err := wireEnumKeys(deserPath, modReg)
+	modWireKeys, modWireFields, err := wireGroundTruth(deserPath, modReg)
 	if err != nil {
 		return err
 	}
 
 	for key, fact := range modWireKeys {
 		wireKeys[key] = mergeWireKeyFact(wireKeys[key], fact)
+
+		for _, enumType := range fact.Enums {
+			reg.recordKeyEnumModule(key, enumType, mod)
+		}
 	}
 
+	typesPath := filepath.Join(modPath, sdkTypesPkgName, "types.go")
+	if _, statErr := os.Stat(typesPath); statErr == nil {
+		nestedRefs, nerr := loadNestedTypeRefs(typesPath)
+		if nerr != nil {
+			return nerr
+		}
+
+		modWireFields = expandOneHopNestedFields(modWireFields, nestedRefs)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+
+	mergeWireFields(reg, modWireFields)
+
 	return nil
+}
+
+func mergeWireFields(reg *enumRegistry, add map[string]map[string]bool) {
+	if reg.wireFieldsByType == nil {
+		reg.wireFieldsByType = map[string]map[string]bool{}
+	}
+
+	for typeName, keys := range add {
+		if reg.wireFieldsByType[typeName] == nil {
+			reg.wireFieldsByType[typeName] = map[string]bool{}
+		}
+
+		for k := range keys {
+			reg.wireFieldsByType[typeName][k] = true
+		}
+	}
 }
 
 func mergeWireKeyFact(existing, add wireKeyFact) wireKeyFact {

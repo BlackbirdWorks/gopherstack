@@ -125,7 +125,7 @@ func TestWireEnumKeys(t *testing.T) {
 		constByIdent: map[string]enumConst{},
 	}
 
-	got, err := wireEnumKeys(filepath.Join(dir, "deserializers.go"), reg)
+	got, fields, err := wireGroundTruth(filepath.Join(dir, "deserializers.go"), reg)
 	require.NoError(t, err)
 
 	require.Contains(t, got, "dataSource")
@@ -137,4 +137,65 @@ func TestWireEnumKeys(t *testing.T) {
 	assert.True(t, got["feature"].Polymorphic, "feature also deserializes as a plain *string on FreeTrialFeature")
 
 	assert.NotContains(t, got, "total", "a nested-object case contributes no enum candidate")
+
+	assert.Equal(t, map[string]bool{"dataSource": true, "total": true}, fields["UsageDataSourceResult"])
+	assert.Equal(t, map[string]bool{"feature": true}, fields["UsageFeatureResult"])
+	assert.Equal(t, map[string]bool{"feature": true}, fields["FreeTrialFeature"])
+}
+
+// jobTypesFixture mirrors amplify's real shape: Job wraps Steps []Step and
+// Summary *JobSummary, and Job's own Status/Type fields actually live on
+// the nested JobSummary, never on Job directly.
+const jobTypesFixture = `package types
+
+type Job struct {
+	Steps   []Step
+	Summary *JobSummary
+	noSmithyDocumentSerde
+}
+
+type JobSummary struct {
+	Status JobStatus
+	Type   JobType
+}
+
+type Step struct {
+	StepName *string
+}
+`
+
+func TestLoadNestedTypeRefs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "types.go"), []byte(jobTypesFixture), 0o600))
+
+	refs, err := loadNestedTypeRefs(filepath.Join(dir, "types.go"))
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"Step", "JobSummary"}, refs["Job"])
+	// namedTypeRef doesn't distinguish an enum type name from a struct type
+	// name -- harmless, since expandOneHopNestedFields only ever looks up
+	// direct[refType], and an enum type name is never a key in direct (only
+	// deserializeDocument<Type> functions -- one per real STRUCT type --
+	// populate it).
+	assert.ElementsMatch(t, []string{"JobStatus", "JobType"}, refs["JobSummary"])
+}
+
+func TestExpandOneHopNestedFields(t *testing.T) {
+	t.Parallel()
+
+	direct := map[string]map[string]bool{
+		"Job":        {"steps": true, "summary": true},
+		"JobSummary": {"status": true, "type": true},
+	}
+	refs := map[string][]string{"Job": {"Step", "JobSummary"}}
+
+	got := expandOneHopNestedFields(direct, refs)
+
+	assert.Equal(
+		t, map[string]bool{"steps": true, "summary": true, "status": true, "type": true}, got["Job"],
+		"Job's flattened field set includes its one-hop nested JobSummary's own fields",
+	)
+	assert.Equal(t, map[string]bool{"status": true, "type": true}, got["JobSummary"], "unaffected: no refs of its own")
 }

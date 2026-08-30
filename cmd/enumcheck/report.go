@@ -78,6 +78,16 @@ func printFinding(f finding) {
 		return
 	}
 
+	if f.Kind == kindPhantomField {
+		fmt.Fprintf(
+			os.Stdout,
+			"%s:%d  key=%q value=%q assigned on %s, but the real wire type has no such field -- dead or fabricated\n",
+			f.File, f.Line, f.Key, f.Value, f.Enum,
+		)
+
+		return
+	}
+
 	fmt.Fprintf(
 		os.Stdout,
 		"%s:%d  key=%q value=%q is not a member of %s\n",

@@ -17,11 +17,12 @@ const (
 	kindLiteral      = "literal-value"
 	kindReuse        = "cross-enum-reuse"
 	kindAmbiguousKey = "ambiguous-key"
+	kindPhantomField = "phantom-field"
 )
 
 // finding is one enumcheck result. CONFIDENT findings (kindLiteral) show a
 // statically-resolved value that is provably not a member of the enum its
-// wire key deserializes into. NEEDS REVIEW findings come in two kinds:
+// wire key deserializes into. NEEDS REVIEW findings come in three kinds:
 // kindReuse shows the same dynamic value source feeding two wire keys whose
 // real SDK enums have different declared member sets -- structurally
 // suspicious, but the actual runtime values are never inspected, so this is
@@ -29,8 +30,13 @@ const (
 // value under a wire key with 2+ real SDK enum candidates (or a Polymorphic
 // one, also a plain non-enum string somewhere) that fails membership in at
 // least one candidate -- real, but which candidate sense actually applies at
-// this emission site is unknown, so this can never be confident either. See
-// scan.go's doc comments for why.
+// this emission site is unknown, so this can never be confident either.
+// kindPhantomField (gopherstack-7fps) shows a gopherstack response struct
+// field whose real same-named SDK type has NO field under this wire key at
+// all -- the enum a naive key-name match would apply belongs to some
+// entirely unrelated real operation, so this is never a "wrong value" claim
+// and never confident; Enum carries the struct type name (not an enum type)
+// for this kind. See scan.go's and structresp.go's doc comments for why.
 type finding struct {
 	File      string `json:"file"`
 	Kind      string `json:"kind"`
@@ -510,9 +516,17 @@ func evalKeyValue(
 
 	// An UNAMBIGUOUS single enum candidate with no Polymorphic plain-string
 	// sighting is CONFIDENT: the emitted value's own enum type is known for
-	// certain, so a non-member value is sound proof of a bug.
+	// certain, so a non-member value is sound proof of a bug -- UNLESS that
+	// one candidate's own SDK module is not native to this directory (see
+	// enumRegistry.confidentModuleOK): gopherstack-7fps's ec2/outposts
+	// contamination, where the sole candidate came from a module this
+	// directory's own production code never imports at all.
 	if len(fact.Enums) == 1 && !fact.Polymorphic {
 		if reg.isMemberOfAny(val, fact.Enums) {
+			return finding{}, false
+		}
+
+		if !reg.confidentModuleOK(key, fact.Enums[0]) {
 			return finding{}, false
 		}
 

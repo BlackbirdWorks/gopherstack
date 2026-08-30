@@ -53,20 +53,47 @@ type wireKeyFact struct {
 // query/EC2-query/REST-XML protocols use an xml.Decoder with no
 // map[string]interface{} switch at all, so this parses zero cases for them
 // -- same disclosed scope as cmd/keycheck.
-func wireEnumKeys(deserializersGoPath string, reg *enumRegistry) (map[string]wireKeyFact, error) {
+//
+// wireGroundTruth also returns, in the same parse pass, every real SDK
+// type's own wire-key field set (typeWireFields) -- gopherstack-7fps's
+// phantom-field ground truth, read from the same deserializers.go so this
+// never parses the file twice.
+func wireGroundTruth(
+	deserializersGoPath string, reg *enumRegistry,
+) (map[string]wireKeyFact, map[string]map[string]bool, error) {
 	fset := token.NewFileSet()
 
 	f, err := parser.ParseFile(fset, deserializersGoPath, nil, 0)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	enums := map[string]map[string]bool{}
 	polymorphic := map[string]bool{}
+	fields := map[string]map[string]bool{}
 
-	ast.Inspect(f, func(n ast.Node) bool {
-		sw, ok := n.(*ast.SwitchStmt)
-		if !ok {
+	for _, decl := range f.Decls {
+		fd, isFunc := decl.(*ast.FuncDecl)
+		if !isFunc || fd.Body == nil || fd.Recv != nil {
+			continue
+		}
+
+		collectFuncEnumCases(fd, reg, enums, polymorphic)
+		collectFuncWireFields(fd, fields)
+	}
+
+	return wireKeyFactsFromEnums(enums, polymorphic), fields, nil
+}
+
+func collectFuncEnumCases(
+	fd *ast.FuncDecl,
+	reg *enumRegistry,
+	enums map[string]map[string]bool,
+	polymorphic map[string]bool,
+) {
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		sw, isSwitch := n.(*ast.SwitchStmt)
+		if !isSwitch {
 			return true
 		}
 
@@ -74,7 +101,29 @@ func wireEnumKeys(deserializersGoPath string, reg *enumRegistry) (map[string]wir
 
 		return true
 	})
+}
 
+func collectFuncWireFields(fd *ast.FuncDecl, fields map[string]map[string]bool) {
+	typeName, ok := deserializeDocumentTargetType(fd)
+	if !ok {
+		return
+	}
+
+	keys := collectAllCaseKeys(fd.Body)
+	if len(keys) == 0 {
+		return
+	}
+
+	if fields[typeName] == nil {
+		fields[typeName] = map[string]bool{}
+	}
+
+	for k := range keys {
+		fields[typeName][k] = true
+	}
+}
+
+func wireKeyFactsFromEnums(enums map[string]map[string]bool, polymorphic map[string]bool) map[string]wireKeyFact {
 	result := make(map[string]wireKeyFact, len(enums))
 
 	for key, types := range enums {
@@ -86,7 +135,78 @@ func wireEnumKeys(deserializersGoPath string, reg *enumRegistry) (map[string]wir
 		result[key] = wireKeyFact{Enums: list, Polymorphic: polymorphic[key]}
 	}
 
-	return result, nil
+	return result
+}
+
+// deserializeDocumentTargetType reports the real SDK type name fd decodes
+// into, read from its own first parameter's static type (**types.TypeName)
+// -- every deserializeDocument<Type> function in this codegen shape takes
+// exactly this signature, structural ground truth rather than a name guess
+// off the function identifier (whose prefix varies by protocol:
+// awsAwsjson11_, awsRestjson1_, ...).
+func deserializeDocumentTargetType(fd *ast.FuncDecl) (string, bool) {
+	if fd.Type.Params == nil || len(fd.Type.Params.List) == 0 {
+		return "", false
+	}
+
+	star1, ok := fd.Type.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return "", false
+	}
+
+	star2, ok := star1.X.(*ast.StarExpr)
+	if !ok {
+		return "", false
+	}
+
+	sel, ok := star2.X.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+
+	pkgIdent, ok := sel.X.(*ast.Ident)
+	if !ok || pkgIdent.Name != sdkTypesPkgName {
+		return "", false
+	}
+
+	return sel.Sel.Name, true
+}
+
+// collectAllCaseKeys returns every case-clause literal string of any switch
+// statement in body, regardless of what the case assigns -- ground truth
+// for "this real type has A FIELD under this wire key at all", not just its
+// enum-typed fields.
+func collectAllCaseKeys(body *ast.BlockStmt) map[string]bool {
+	out := map[string]bool{}
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		sw, isSwitch := n.(*ast.SwitchStmt)
+		if !isSwitch || sw.Body == nil {
+			return true
+		}
+
+		for _, stmt := range sw.Body.List {
+			cc, isCase := stmt.(*ast.CaseClause)
+			if !isCase {
+				continue
+			}
+
+			for _, expr := range cc.List {
+				lit, isLit := expr.(*ast.BasicLit)
+				if !isLit || lit.Kind != token.STRING {
+					continue
+				}
+
+				if v, err := strconv.Unquote(lit.Value); err == nil {
+					out[v] = true
+				}
+			}
+		}
+
+		return true
+	})
+
+	return out
 }
 
 func collectSwitchEnumCases(
@@ -249,4 +369,122 @@ func enumConversionType(expr ast.Expr, reg *enumRegistry) string {
 	}
 
 	return sel.Sel.Name
+}
+
+// loadNestedTypeRefs parses a pinned SDK's types/types.go and returns, for
+// every top-level `type X struct { ... }`, the set of other locally
+// declared type names referenced by X's own field types (through *T, []T,
+// or map[K]T, unwrapped to their base named type) -- ground truth for
+// expandOneHopNestedFields's one-hop flattening tolerance: gopherstack
+// routinely flattens a real API's parent+child nesting into one local
+// struct -- confirmed live, amplify's real Job wraps `Steps []Step` and
+// `Summary *JobSummary`; Job's own Status/Type fields actually live on the
+// nested JobSummary, not on Job itself, so without this a locally-flattened
+// gopherstack Job{Status: ...} was wrongly flagged phantom. An embedded
+// field (no Names, e.g. the generated noSmithyDocumentSerde marker) is
+// skipped -- same discipline collectStructFieldWireNames already applies to
+// gopherstack's own structs.
+func loadNestedTypeRefs(typesGoPath string) (map[string][]string, error) {
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, typesGoPath, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string][]string{}
+
+	for _, decl := range f.Decls {
+		gd, isGenDecl := decl.(*ast.GenDecl)
+		if !isGenDecl || gd.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range gd.Specs {
+			addStructTypeRefs(spec, out)
+		}
+	}
+
+	return out, nil
+}
+
+func addStructTypeRefs(spec ast.Spec, out map[string][]string) {
+	ts, isType := spec.(*ast.TypeSpec)
+	if !isType {
+		return
+	}
+
+	st, isStruct := ts.Type.(*ast.StructType)
+	if !isStruct || st.Fields == nil {
+		return
+	}
+
+	var refs []string
+
+	for _, field := range st.Fields.List {
+		if len(field.Names) == 0 {
+			continue
+		}
+
+		if name, ok := namedTypeRef(field.Type); ok {
+			refs = append(refs, name)
+		}
+	}
+
+	if len(refs) > 0 {
+		out[ts.Name.Name] = refs
+	}
+}
+
+// namedTypeRef unwraps expr's pointer/slice/map wrapping to its base type
+// and reports its name if that base type is an exported identifier (a
+// locally declared struct type this SDK module might independently know
+// wire fields for) -- an unexported/builtin type (string, int32, a
+// lowercase-named type) is never a struct this scan tracks, so it is
+// excluded by IsExported alone, no separate builtin list needed.
+func namedTypeRef(expr ast.Expr) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.StarExpr:
+		return namedTypeRef(e.X)
+	case *ast.ArrayType:
+		return namedTypeRef(e.Elt)
+	case *ast.MapType:
+		return namedTypeRef(e.Value)
+	case *ast.Ident:
+		if e.IsExported() {
+			return e.Name, true
+		}
+
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// expandOneHopNestedFields returns direct's wire-field sets each unioned,
+// one hop only, with the wire-field sets of every type its own struct
+// fields reference (refs) -- see loadNestedTypeRefs's doc comment. Only
+// expands a type that already has SOME direct wire-field ground truth of
+// its own (from its own deserializeDocument<Type> function); a type with
+// no direct ground truth at all gains none here either, same "resolves to
+// nothing new" discipline as the rest of this scan.
+func expandOneHopNestedFields(direct map[string]map[string]bool, refs map[string][]string) map[string]map[string]bool {
+	out := make(map[string]map[string]bool, len(direct))
+
+	for typeName, fields := range direct {
+		merged := map[string]bool{}
+		for k := range fields {
+			merged[k] = true
+		}
+
+		for _, refType := range refs[typeName] {
+			for k := range direct[refType] {
+				merged[k] = true
+			}
+		}
+
+		out[typeName] = merged
+	}
+
+	return out
 }

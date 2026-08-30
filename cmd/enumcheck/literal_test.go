@@ -336,3 +336,82 @@ func build() map[string]any {
 		})
 	}
 }
+
+// TestCheckLiteralsInFunc_CrossModuleContamination is gopherstack-7fps's
+// Class A: services/ec2 imports both the ec2 SDK and the outposts SDK;
+// outposts' unrelated "ResourceType" enum (OUTPOST/ORDER) was the ONLY
+// candidate the tool could see for an ec2 "ResourceType" wire key, since
+// ec2's own ec2query/XML deserializers.go contributes nothing (outside this
+// tool's JSON-family scope). These cases mirror that shape directly against
+// enumRegistry.confidentModuleOK rather than real SDK fixtures.
+func TestCheckLiteralsInFunc_CrossModuleContamination(t *testing.T) {
+	t.Parallel()
+
+	const src = `package svc
+func build() map[string]any {
+	return map[string]any{"ResourceType": "ec2:Instance"}
+}`
+	wireKeys := map[string]wireKeyFact{"ResourceType": {Enums: []string{"ResourceType"}}}
+
+	baseReg := func() *enumRegistry {
+		return &enumRegistry{
+			membersByType: map[string]map[string]bool{
+				"ResourceType": {"OUTPOST": true, "ORDER": true},
+			},
+			constByIdent: map[string]enumConst{},
+		}
+	}
+
+	t.Run("sole candidate from a non-native secondary import is refused", func(t *testing.T) {
+		t.Parallel()
+
+		reg := baseReg()
+		reg.nativeModules = map[string]bool{"ec2": true}
+		reg.recordKeyEnumModule("ResourceType", "ResourceType", "outposts")
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, reg, wireKeys, dir)
+		require.NoError(t, err)
+		assert.Empty(t, findings, "outposts' ResourceType is not native to an ec2 directory")
+	})
+
+	t.Run("sole candidate from the native module is still confident", func(t *testing.T) {
+		t.Parallel()
+
+		reg := baseReg()
+		reg.nativeModules = map[string]bool{"ec2": true}
+		reg.recordKeyEnumModule("ResourceType", "ResourceType", "ec2")
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, reg, wireKeys, dir)
+		require.NoError(t, err)
+		require.Len(t, findings, 1, "a legitimate second-SDK enum native to this directory must still be caught")
+
+		got := findings[0]
+		assert.True(t, got.Confident)
+		assert.Equal(t, kindLiteral, got.Kind)
+		assert.Equal(t, "ec2:Instance", got.Value)
+	})
+
+	t.Run("empty nativeModules never refuses", func(t *testing.T) {
+		t.Parallel()
+
+		reg := baseReg()
+		reg.recordKeyEnumModule("ResourceType", "ResourceType", "outposts")
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+		findings, err := scanPackage(dir, reg, wireKeys, dir)
+		require.NoError(t, err)
+		require.Len(
+			t, findings, 1,
+			"a directory whose own SDK module can't be positively named keeps its prior coverage",
+		)
+		assert.True(t, findings[0].Confident)
+	})
+}

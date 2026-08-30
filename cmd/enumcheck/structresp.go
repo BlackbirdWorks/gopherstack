@@ -173,7 +173,9 @@ func checkStructResponsesInFunc(
 		}
 
 		for _, elt := range cl.Elts {
-			f, found := checkStructFieldElt(elt, fset, reg, wireKeys, localConsts, pkgConsts, fields, repoRoot)
+			f, found := checkStructFieldElt(
+				elt, fset, reg, wireKeys, localConsts, pkgConsts, typeIdent.Name, fields, repoRoot,
+			)
 			if found {
 				out = append(out, f)
 			}
@@ -187,7 +189,7 @@ func checkStructResponsesInFunc(
 
 func checkStructFieldElt(
 	elt ast.Expr, fset *token.FileSet, reg *enumRegistry, wireKeys map[string]wireKeyFact,
-	localConsts, pkgConsts map[string]string, fields map[string]string, repoRoot string,
+	localConsts, pkgConsts map[string]string, structTypeName string, fields map[string]string, repoRoot string,
 ) (finding, bool) {
 	kv, ok := elt.(*ast.KeyValueExpr)
 	if !ok {
@@ -204,5 +206,75 @@ func checkStructFieldElt(
 		return finding{}, false
 	}
 
+	// Gate phantom-field detection on wireKeys[wireKey] already being
+	// known, same as evalKeyValue's own precondition: without this, the
+	// check runs for EVERY field of every struct that merely shares a name
+	// with a real SDK type, most of which are gopherstack's own
+	// persistence-struct fields (e.g. dax's models.go Parameter, tagged
+	// json:"isModifiable" lowercase for its own snapshot, distinct from
+	// the real wire-response struct) that were never going to be checked
+	// at all before this fix -- confirmed live: without this gate, this
+	// check alone added over 300 needs-review findings, the overwhelming
+	// majority of them exactly this shape, not the phantom-field defect it
+	// exists to report. With the gate, this only ever runs for a field
+	// checkStructFieldElt was about to check anyway (matches the package
+	// doc's original claim).
+	if _, keyKnown := wireKeys[wireKey]; !keyKnown {
+		return finding{}, false
+	}
+
+	if f, found := checkPhantomField(
+		structTypeName, wireKey, kv.Value, fset, reg, localConsts, pkgConsts, repoRoot,
+	); found {
+		return f, true
+	}
+
 	return evalKeyValue(wireKey, kv.Value, fset, reg, wireKeys, localConsts, pkgConsts, repoRoot)
+}
+
+// checkPhantomField is gopherstack-7fps's phantom-field NEEDS REVIEW check:
+// structTypeName names a gopherstack response struct declared in this same
+// package; when a real SDK type of that EXACT SAME NAME exists (known from
+// that module's own deserializeDocument<Type> ground truth,
+// enumRegistry.wireFieldsByType) but has NO field under wireKey at all, the
+// Go field being written here has no real wire counterpart whatsoever --
+// confirmed live at cloudtrail's Event.EventCategory (real types.Event has
+// no such field; a naive key-name match against "EventCategory" elsewhere
+// in the SDK found EventCategoryAggregation's unrelated enum) and
+// sagemaker's PipelineExecutionStep.StepType (real type has no such field;
+// the matched enum was Inference Recommender's). Either the field is dead
+// (never actually read back out) or it fabricates capability the real API
+// never had -- both worth a human's judgement, so this reports rather than
+// silently discarding, but as a DISTINCT kind: the "value not a member of
+// enum X" claim evalKeyValue would otherwise make is meaningless here, since
+// X was never this field's real enum in the first place.
+//
+// Scope: only fires when structTypeName has known real-type ground truth at
+// all. Most gopherstack response structs don't share their exact name with
+// a real SDK type and get no finding here -- the same "no counterpart to
+// compare against, so no finding" discipline this whole scan already
+// applies everywhere else, not a new risk of flooding every internal-only
+// struct field that was never going to be checked in the first place: this
+// only runs for a field whose wire key ALSO resolves to a real cross-SDK
+// enum, i.e. only for fields checkStructFieldElt was about to check anyway.
+func checkPhantomField(
+	structTypeName, wireKey string, valueExpr ast.Expr, fset *token.FileSet,
+	reg *enumRegistry, localConsts, pkgConsts map[string]string, repoRoot string,
+) (finding, bool) {
+	realFields, known := reg.wireFieldsByType[structTypeName]
+	if !known || realFields[wireKey] {
+		return finding{}, false
+	}
+
+	val, ok := resolveConstString(valueExpr, localConsts, pkgConsts, reg)
+	if !ok || val == "" {
+		return finding{}, false
+	}
+
+	pos := fset.Position(valueExpr.Pos())
+
+	return finding{
+		File: relPath(repoRoot, pos.Filename), Line: pos.Line,
+		Kind: kindPhantomField, Key: wireKey, Value: val, Enum: structTypeName,
+	}, true
 }
