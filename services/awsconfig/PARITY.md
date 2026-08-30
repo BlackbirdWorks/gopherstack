@@ -509,3 +509,16 @@ at all -- no `NextToken` read anywhere in the handler -- so there is no cursor f
 bug to hide behind.
 
 Zero ordering-bug findings; no files changed.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged both `DescribeConformancePackStatus`
+call sites: `ConformancePackState: "COMPLETE"` isn't a member of real
+`types.ConformancePackState`, which only defines `CREATE_IN_PROGRESS` /
+`CREATE_COMPLETE` / `CREATE_FAILED` / `DELETE_IN_PROGRESS` / `DELETE_FAILED`
+(configservice@v1.68.4 types/enums.go:232). Fixed
+`conformancePackStateComplete` from `"COMPLETE"` to `"CREATE_COMPLETE"`
+(`conformance_packs.go`; the constant has no other callers). Covered by
+`TestDescribeConformancePackStatus_State_RealClient`
+(`handler_conformance_packs_test.go`), driven through the real SDK client
+and asserted against `types.ConformancePackStateCreateComplete`.

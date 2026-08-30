@@ -457,3 +457,40 @@ Gate output (this pass, `services/macie2/` only): `go build ./services/macie2/..
 `ok`; `golangci-lint run ./services/macie2/...` -- `0 issues.` (one `dupl` finding caused
 by this pass's own edits, confirmed by temporarily reverting `allow_lists.go`/
 `findings_filters.go` and re-running lint clean, then resolved as described above).
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged three `RelationshipStatus` literals
+in `members.go` as not members of `types.RelationshipStatus`. Real
+`RelationshipStatus` is mixed-case (`Enabled`/`Paused`/`Invited`/`Created`/
+`Removed`/`Resigned`/... -- macie2@v1.54.4 types/enums.go:811), unlike this
+service's other status-shaped fields (`MacieStatus`, `RevealStatus`), which
+really are all-caps `ENABLED`/`PAUSED`/`DISABLED`. All three were genuine
+value bugs:
+
+- `CreateMember`: `"CREATED"` -> `"Created"`.
+- `CreateInvitations`: `"INVITED"` -> `"Invited"`.
+- `AcceptInvitation`: reused the shared `statusEnabled` constant
+  (`"ENABLED"`, correct for `MacieStatus`/`RevealStatus`) for this
+  `RelationshipStatus` field too -- switched to a literal `"Enabled"` at
+  this one call site rather than changing the shared constant, which is
+  still correct everywhere else it's used.
+
+`GetInvitationsCount`'s own `inv.RelationshipStatus == "INVITED"` comparison
+had to be updated to `"Invited"` in the same pass -- it filters the same
+`Invitation.RelationshipStatus` field `CreateInvitations` now sets, so the
+literal-value fix alone would have silently broken invitation counting.
+
+**Left unfixed, out of scope for the confident tier** (both are direct field
+mutations on an existing struct, not one of the three literal/composite
+positions `cmd/enumcheck` covers, so the tool never flagged them):
+`DisassociateMember` sets `RelationshipStatus = "DISASSOCIATED"`, and
+`DeclineInvitations` sets `"RESIGNED"` -- neither is a real
+`RelationshipStatus` member either (real values are `Removed` and
+`Resigned` respectively). Flagged here for a future pass.
+
+Covered by `TestCreateMember_RelationshipStatus_RealClient`,
+`TestCreateInvitations_RelationshipStatus_RealClient`, and
+`TestAcceptInvitation_RelationshipStatus_RealClient` (all in
+`wire_field_fixes_test.go`), each driven through the real SDK client and
+asserted against the real `types.RelationshipStatus` constants.

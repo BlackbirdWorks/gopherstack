@@ -373,3 +373,15 @@ existing `TestListPermissionVersions_Pagination`/
 string values and slice length via `[]any`/anonymous structs, never the
 leaked/missing `permission` field or the `arn`/`permissionArn` key) -- so
 nothing needed correcting, only new coverage added.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged `DeletePermissionVersion`'s
+`PermissionStatus: "UPDATING"`: real `types.PermissionStatus` only defines
+`ATTACHABLE`/`UNATTACHABLE`/`DELETING`/`DELETED` (ram@v1.39.4
+types/enums.go:26) -- `"UPDATING"` isn't a member, and doesn't even
+semantically fit an operation that deletes rather than updates. Fixed to
+`"DELETING"`, the correct in-progress status for an asynchronous delete.
+Covered by `Test_SDKRoundTrip_DeletePermissionVersion_PermissionStatus`
+(`permission_version_shape_test.go`), asserted against
+`types.PermissionStatusDeleting`.

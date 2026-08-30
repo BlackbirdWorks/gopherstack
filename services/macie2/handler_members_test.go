@@ -41,7 +41,7 @@ func TestMembers(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getMem))
 				assert.Equal(t, "111111111111", getMem["accountId"])
 				assert.Equal(t, "member@example.com", getMem["email"])
-				assert.Equal(t, "CREATED", getMem["relationshipStatus"])
+				assert.Equal(t, "Created", getMem["relationshipStatus"])
 				// Real GetMemberOutput always includes arn and masterAccountId
 				// (the deprecated wire name for administratorAccountId).
 				assert.Contains(t, getMem["arn"], "arn:aws:macie2:")

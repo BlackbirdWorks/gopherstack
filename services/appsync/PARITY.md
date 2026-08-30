@@ -375,3 +375,17 @@ disclosed in code as a structural gap (`handler_schema_types.go`'s
 `getType`/`listTypes`/`listTypesByAssociation` doc comments) instead of the
 previous "accepted for AWS SDK compatibility" comment, which read as though
 the behavior were intentional and complete.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged `GetApiAssociation`'s
+`AssociationStatus: "NOT_FOUND"`: real `types.AssociationStatus` only
+defines `PROCESSING`/`FAILED`/`SUCCESS` (appsync@v1.56.4
+types/enums.go:96). The real bug wasn't the enum value alone -- when a
+domain name exists but has no API association, `GetApiAssociation` returned
+a synthetic 200-OK `ApiAssociation` body instead of the `NotFoundException`
+real AWS returns, matching every other appsync "not found" path in this
+backend. Fixed to return `ErrNotFound` (404 `NotFoundException`); three
+pre-existing tests that asserted the old 200/`"NOT_FOUND"` behavior were
+updated to expect the error
+(`TestGetApiAssociation_NoAssociation_NotFound`, `wire_field_fixes_test.go`).

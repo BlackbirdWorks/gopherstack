@@ -151,10 +151,7 @@ func (b *InMemoryBackend) GetAPIAssociation(domainName string) (*APIAssociation,
 
 	assoc, ok := b.apiAssociations.Get(domainName)
 	if !ok {
-		return &APIAssociation{
-			DomainName:        domainName,
-			AssociationStatus: "NOT_FOUND",
-		}, nil
+		return nil, fmt.Errorf("%w: no API associated with domain name %s", ErrNotFound, domainName)
 	}
 
 	cp := *assoc

@@ -7,11 +7,41 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	appsyncsdk "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
+
+// TestGetApiAssociation_NoAssociation_NotFound proves GetApiAssociation
+// returns NotFoundException, matching real AWS, when a domain name exists
+// but has no API association -- not a 200 body carrying a synthetic
+// AssociationStatus. Real ApiAssociation.AssociationStatus is
+// types.AssociationStatus (PROCESSING/FAILED/SUCCESS only, appsync@v1.56.4
+// types/enums.go:96); pre-fix, gopherstack fabricated "NOT_FOUND", a value
+// no member of that enum names.
+func TestGetApiAssociation_NoAssociation_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	client := newTestAppsyncClient(t, h)
+
+	_, err := client.CreateDomainName(t.Context(), &appsyncsdk.CreateDomainNameInput{
+		DomainName:     aws.String("no-assoc.example.com"),
+		CertificateArn: aws.String("arn:aws:acm:us-east-1:000000000000:certificate/abc"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetApiAssociation(t.Context(), &appsyncsdk.GetApiAssociationInput{
+		DomainName: aws.String("no-assoc.example.com"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+}
 
 // TestSourceApiAssociation_StatusWireKey proves SourceApiAssociation's status
 // field round-trips through the real SDK client. Before the fix, the wire key

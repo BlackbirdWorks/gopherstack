@@ -1646,3 +1646,17 @@ each hand-confirmed to fail against the pre-fix handler):
 Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, clean), `go test -race
 -count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...` (0 issues).
 Work left uncommitted per this pass's instructions.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged `PurchaseReservedNodeOffering`'s
+`State: "payment-pending"`. Not actually an enum-class bug: real
+`types.ReservedNode.State` is a plain `*string`
+(redshift@v1.65.4 types/types.go), not a typed enum, so `cmd/enumcheck`'s
+match against an unrelated `State` enum sharing the wire key name was a
+false positive for that tool's class. But the doc comment on that field
+enumerates AWS's own legal values, and gopherstack's word order was
+backwards: real AWS's pending-payment value is `"pending-payment"` (state,
+then reason), not `"payment-pending"` (reason, then state). Fixed the
+literal. Covered by `TestPurchaseReservedNodeOffering_State`
+(`handler_sdk_roundtrip_test.go`), driven through the real SDK client.

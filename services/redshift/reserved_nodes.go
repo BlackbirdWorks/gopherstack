@@ -192,7 +192,7 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 		UsagePrice:             offering.UsagePrice,
 		CurrencyCode:           offering.CurrencyCode,
 		NodeCount:              nodeCount,
-		State:                  "payment-pending",
+		State:                  "pending-payment",
 		OfferingType:           offering.OfferingType,
 	}
 	b.reservedNodes.Put(node)

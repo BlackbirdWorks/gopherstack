@@ -53,6 +53,32 @@ func newTestRedshiftClient(t *testing.T, h *redshift.Handler) *redshiftsdk.Clien
 
 const rtTestRegion = "us-east-1"
 
+// TestPurchaseReservedNodeOffering_State proves the newly purchased
+// ReservedNode.State value matches real AWS's documented wire string. Real
+// ReservedNode.State is a plain *string (redshift@v1.65.4 types/types.go),
+// not an enum, but its doc comment enumerates the legal values, and the
+// pending-payment one is "pending-payment" (word order: state then reason);
+// pre-fix, gopherstack emitted "payment-pending" (reason then state).
+func TestPurchaseReservedNodeOffering_State(t *testing.T) {
+	t.Parallel()
+
+	h := redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", rtTestRegion))
+	client := newTestRedshiftClient(t, h)
+
+	offerings, err := client.DescribeReservedNodeOfferings(
+		t.Context(), &redshiftsdk.DescribeReservedNodeOfferingsInput{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, offerings.ReservedNodeOfferings)
+
+	out, err := client.PurchaseReservedNodeOffering(t.Context(), &redshiftsdk.PurchaseReservedNodeOfferingInput{
+		ReservedNodeOfferingId: offerings.ReservedNodeOfferings[0].ReservedNodeOfferingId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ReservedNode)
+	assert.Equal(t, "pending-payment", aws.ToString(out.ReservedNode.State))
+}
+
 // TestSDKRoundTrip_ListWrapperFixes covers six independent list-decoding
 // bugs found by diffing every gopherstack redshift XML list tag against the
 // pinned SDK's deserializer (redshift@v1.65.4): each handler wrapped list
