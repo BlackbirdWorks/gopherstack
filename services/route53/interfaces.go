@@ -54,7 +54,7 @@ type StorageBackend interface {
 	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
 	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
 	ListVPCAssociations(zoneID string) ([]vpcAssociation, error)
-	ListHostedZonesByVPC(vpcID, vpcRegion string, maxItems int) ([]HostedZone, error)
+	ListHostedZonesByVPC(vpcID, vpcRegion, token string, maxItems int) (page.Page[HostedZone], error)
 	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
 	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
 	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)

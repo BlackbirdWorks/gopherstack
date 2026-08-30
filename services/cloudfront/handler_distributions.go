@@ -134,7 +134,7 @@ func (h *Handler) handleGetDistributionConfig(c *echo.Context, id string) error 
 
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusOK, string(d.RawConfig))
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(d.RawConfig))
 }
 
 func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {

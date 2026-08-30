@@ -7,6 +7,25 @@ last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delet
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
+# XML DECLARATION doubling fixed 2026-08-29 (wrapper-key-sweep pass): xmlResp
+# handed bodies that already began with `<?xml version="1.0" encoding="UTF-8"?>`
+# (every body builder in this package embeds one) to echo's c.XMLBlob, which
+# prepends its own copy of the same declaration -- every single XML response
+# this service ever emitted, success AND error path alike, carried two
+# back-to-back declarations. A declaration is legal only as the very first
+# construct in a document, so strict parsers reject the whole body; confirmed
+# with botocore ("Unable to parse response") against ListDistributions. The
+# aws-sdk-go-v2 client's own smithy-go XML decoder is lenient about it and
+# does NOT fail, which is why no existing test (including ones driving the
+# real Go SDK client) ever caught this -- only a raw-response-bytes assertion
+# does. Fixed by making xmlResp write bytes directly instead of through
+# XMLBlob, so the body's own declaration is the one and only source; the sole
+# body that never carried its own declaration (GetDistributionConfig's
+# RawConfig passthrough -- RawConfig is stored from either the raw client
+# request body or xml.Marshal output, neither of which ever emits one) now
+# gets one prepended explicitly at that call site, matching the convention
+# GetStreamingDistributionConfig's RawConfig passthrough already used. See
+# handler_xml_declaration_test.go.
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (cloudfront@v1.67.4 deserializers.go,
 # 167 ops N-of-N) against errCodeMapping/notFoundCode (handler_dispatch.go)

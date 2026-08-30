@@ -436,12 +436,14 @@ type listHZByVPCResponse struct {
 	XMLName     xml.Name               `xml:"ListHostedZonesByVPCResponse"`
 	Xmlns       string                 `xml:"xmlns,attr"`
 	MaxItems    string                 `xml:"MaxItems"`
+	NextToken   string                 `xml:"NextToken,omitempty"`
 	HostedZones []xmlHostedZoneSummary `xml:"HostedZoneSummaries>HostedZoneSummary"`
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	vpcID := c.Request().URL.Query().Get("vpcid")
 	vpcRegion := c.Request().URL.Query().Get("vpcregion")
+	nextToken := c.Request().URL.Query().Get("nexttoken")
 	maxItems := maxHZByVPC
 	if v := c.Request().URL.Query().Get("maxitems"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -453,13 +455,13 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
 	}
 
-	zones, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion, maxItems)
+	p, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion, nextToken, maxItems)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	xmlZones := make([]xmlHostedZoneSummary, 0, len(zones))
-	for _, z := range zones {
+	xmlZones := make([]xmlHostedZoneSummary, 0, len(p.Data))
+	for _, z := range p.Data {
 		xmlZones = append(xmlZones, xmlHostedZoneSummary{
 			HostedZoneID: "/hostedzone/" + z.ID,
 			Name:         z.Name,
@@ -471,6 +473,7 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		Xmlns:       route53Namespace,
 		HostedZones: xmlZones,
 		MaxItems:    strconv.Itoa(maxItems),
+		NextToken:   p.Next,
 	})
 }
 

@@ -615,15 +615,15 @@ func TestListHostedZonesByVPC(t *testing.T) {
 
 	require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))
 
-	zones, err := b.ListHostedZonesByVPC("vpc-123", "", 0)
+	p, err := b.ListHostedZonesByVPC("vpc-123", "", "", 0)
 	require.NoError(t, err)
-	require.Len(t, zones, 1)
-	assert.Equal(t, hz.ID, zones[0].ID)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, hz.ID, p.Data[0].ID)
 
 	// Different VPC — no results.
-	zones, err = b.ListHostedZonesByVPC("vpc-other", "", 0)
+	p, err = b.ListHostedZonesByVPC("vpc-other", "", "", 0)
 	require.NoError(t, err)
-	assert.Empty(t, zones)
+	assert.Empty(t, p.Data)
 }
 
 func TestRoute53Handler(t *testing.T) {
