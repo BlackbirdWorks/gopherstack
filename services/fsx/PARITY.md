@@ -373,3 +373,44 @@ Gates: `go build ./...`, `go vet ./services/fsx/...`, `gofmt -l`/`golines -l`
 shape changed (`storedVolume`'s `StorageVirtualMachineID` field already
 existed; only how it's populated changed) — `fsxSnapshotVersion` correctly
 left unbumped.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed, Class B:** `paginate` (`store.go`), the single generic
+offset paginator behind all 7 `Describe*` list operations
+(`DescribeDataRepositoryAssociations`, `DescribeFileCaches`,
+`DescribeDataRepositoryTasks`, `DescribeStorageVirtualMachines`,
+`DescribeSnapshots`, `DescribeS3AccessPointAttachments`, `DescribeVolumes`),
+searched for the `nextToken`'s named item by exact equality and left `start`
+at its zero-value default on a miss. A token naming an item deleted between
+calls, or any hand-built/tampered token, reset pagination to the first page
+instead of resuming past it or terminating — a client following the cursor
+would see page one, forever.
+
+Every caller sorts its slice ascending by the same key `paginate`'s `keyFn`
+returns (confirmed per call site, not assumed), so the fix searches for the
+first surviving key `>= nextToken` instead of `==`, defaulting `start = n`
+(not `0`) when nothing matches. This can no longer resolve a miss to zero by
+construction, so a future edit that forgets to handle "not found" still gets
+the safe answer without a signature change.
+
+Proof: `TestPaginate_StaleCursor_DeletedItem` and
+`TestPaginate_TamperedCursor_NoMatch`
+(`pagination_arithmetic_internal_test.go`, unit, call `paginate` directly)
+both reproduce the bug pre-fix (returning the stale duplicate/full list
+instead of the correct remainder); `TestDescribeVolumes_SDKRoundTrip_StaleCursorResumesPastDeletedItem`
+(`pagination_sdk_roundtrip_test.go`) ties it to the real
+`aws-sdk-go-v2/service/fsx` client — deletes the volume the cursor names
+between calls, then asserts the resumed page holds neither the already-seen
+first item nor the deleted one.
+
+All seven checks (boundary walk, final page, single page, empty collection,
+exact division, cursor round trip, stale cursor) pass post-fix; no Class A
+(panic) or Class C shape found — `maxResults <= 0` is normalized to a
+positive default at every call site before reaching `paginate`, so a
+negative limit can't drive `end < start` either.
+
+Gates: `go build ./services/fsx/...`, `go vet ./services/fsx/...` and
+`go vet ./...` (repo-wide, clean — no signature changed),
+`go test -race -count=1 ./services/fsx/...`, `golangci-lint run
+./services/fsx/...` (0 issues).

@@ -42,7 +42,7 @@ func TestSDKRoundTrip_ResourceWrapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, client := newTestHandlerAndClient(t)
+			client := newTestHandlerAndClient(t)
 			tc.run(t, client)
 		})
 	}

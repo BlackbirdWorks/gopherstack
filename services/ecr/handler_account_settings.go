@@ -109,17 +109,26 @@ func (h *Handler) handleListPullTimeUpdateExclusions(
 // when unset.
 func paginatePullTimeUpdateExclusions(arns []string, nextToken string, maxResults int) ([]string, string) {
 	if nextToken != "" {
+		start := len(arns)
+
 		if decoded, err := base64.StdEncoding.DecodeString(nextToken); err == nil {
 			cursor := string(decoded)
 
+			// arns is sorted ascending; an ARN removed from the exclusion
+			// list since the token was issued still sorts between two
+			// survivors, so resume at the first one >= it. A miss defaults
+			// to len(arns), not 0 -- defaulting to 0 on an equality miss
+			// would restart at page one on every stale or tampered token.
 			for i, arn := range arns {
-				if arn == cursor {
-					arns = arns[i:]
+				if arn >= cursor {
+					start = i
 
 					break
 				}
 			}
 		}
+
+		arns = arns[start:]
 	}
 
 	if maxResults <= 0 {

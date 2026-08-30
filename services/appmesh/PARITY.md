@@ -432,3 +432,38 @@ match a quota). **Not reached this pass:** the opaque
 and explicitly deferred by the 2026-08-10 sweep, not re-examined here) and
 the `meshOwner` cross-account gap (also `gaps`, unchanged). No files in
 this service were modified this pass; only this note was added.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found — this is the one hand-rolled
+paginator across all eight services audited this pass whose cursor design
+structurally can't take the equality-miss-defaults-to-zero shape at all.
+
+`paginateStrings` (`store.go`) backs 7 List operations (`meshes.go`,
+`virtual_gateways.go` x2, `virtual_services.go`, `virtual_nodes.go`,
+`virtual_routers.go` x2). Its token is the **last** item returned on a page
+(not the next page's first item, unlike every other cursor convention seen
+this pass), and resuming searches for the first sorted name **strictly
+greater than** the token — a threshold, not an exact match. A name deleted
+since the token was issued still resolves correctly to the next surviving
+name (nothing to match, so nothing to silently default to 0); an
+exhausted or entirely-tampered cursor is caught by an explicit guard
+(`start == 0 && (empty || sorted[0] <= nextToken)`) that returns no items
+and no cursor, never a restart at page one.
+
+All seven checks pass, including a stale cursor naming a genuinely deleted
+item between the resume point and the next survivor
+(`pagination_arithmetic_internal_test.go`), and a real
+`aws-sdk-go-v2/service/appmesh` `ListMeshes` round trip that deletes such
+an item between calls (`pagination_sdk_roundtrip_test.go`).
+
+Gates: `go build ./services/appmesh/...`, `go vet ./services/appmesh/...`
+and `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/appmesh/...`, `golangci-lint run ./services/appmesh/...` — 0
+issues introduced this pass; one pre-existing, unrelated `unparam` finding
+on `newTestHandlerAndClient` (`sdk_roundtrip_helper_test.go`, present in
+HEAD before this pass, its only other caller already ignores the same
+return value) was left untouched as out of this pass's scope. No
+production code changed this pass — test-only additions confirming
+correctness.

@@ -552,3 +552,54 @@ still the same `ReadBody`-failure branch, same fix.
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServerException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Two bugs found and fixed** in `paginateStrings` (`handler_databases.go` —
+`ListDatabases`, `ListSchemas`, 2 ops) and `paginateMaps`
+(`handler_tables.go` — `ListTables`, 1 op), both sharing identical logic:
+
+1. **A new off-by-one, not matching Class A/B/C** — found by the boundary
+   walk check itself, independent of any staleness: the encoder emits
+   `page[limit]`, the name of the **first item of the next page**, as the
+   token, but the decoder treated a match as "the last item already seen"
+   and resumed at `i + 1`. Every page boundary silently dropped exactly one
+   item, even on a plain, non-stale, back-to-back walk with nothing deleted
+   in between — the "silent truncation" shape this whole campaign started
+   from, not the stale-cursor shape its two later passes have mostly found.
+   `TestPaginateStrings_BoundaryWalk`/`TestPaginateMaps_BoundaryWalk`
+   (`pagination_arithmetic_internal_test.go`) fail pre-fix on this alone,
+   with no cursor tampering involved.
+2. **Class B** — a token naming no known item (a tampered/garbage
+   `NextToken`; both backing lists are hardcoded, never-shrinking demo data,
+   so a real deletion can't trigger this here, but a malformed client token
+   can) left `start` at its zero-value default, restarting at page one
+   instead of terminating.
+
+Both are one root cause read two ways: the resume index should be "the
+matched position, inclusive" (fixing #1), and the miss default should be
+`len(all)`, not `0` (fixing #2). Fixed both helpers identically: on a
+match, `start = i` (was `i + 1`); on a miss, `start` defaults to `len(all)`
+(was `0`).
+
+3 operations affected. Proven by unit tests against each helper directly,
+all failing pre-fix (boundary walk, exact division, and cursor round trip
+all failed due to the off-by-one; tampered-cursor failed separately), and
+by `TestListDatabases_SDKRoundTrip_BoundaryWalkNoDrop` /
+`_TamperedTokenTerminates` (`pagination_sdk_roundtrip_test.go`) through the
+real `aws-sdk-go-v2/service/redshiftdata` client. The existing
+`TestHandler_ListDatabases_NextToken_ResumesFromCursor` only asserted
+`page2[0] != page1[0]`, which is still true when an item is silently
+dropped in between — it would not have caught either bug.
+
+All seven checks pass post-fix. `statementPageStart`/`sessionPageStart`
+(`statements.go`/`sessions.go`) were also read as part of this census: both
+already return `(int, error)` and error on a cursor miss instead of
+defaulting to 0 — the found-flag-equivalent pattern this campaign
+recommends elsewhere — so no change needed there.
+
+Gates: `go build ./services/redshiftdata/...`,
+`go vet ./services/redshiftdata/...` and `go vet ./...` (repo-wide, clean —
+no signature changed), `go test -race -count=1
+./services/redshiftdata/...`, `golangci-lint run ./services/redshiftdata/...`
+(0 issues).

@@ -603,3 +603,33 @@ old token still valid" genuinely needs a storage-model change (multiple tokens p
 not a quick fix. (2) `grep -rn DryRun services/kms/*.go` (excluding tests) returns nothing
 -- still entirely absent, still a broad multi-op feature addition. No code changed for
 either item this pass.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's marker-based pagination for the Class A (panic)/B/C
+(stale-cursor-resets-to-zero) shapes found in five services during this
+campaign's first pass. No bug found — this pattern is correct, verified
+directly rather than assumed from reading.
+
+`paginateTagList` (`handler_tags.go`) and `parseMarker` (`store.go`) back
+this package's single pagination shape, duplicated inline (not via a shared
+function) across `custom_key_stores.go`, `aliases.go`, `grants.go` (x2),
+`keys.go`, `key_policies.go` and `rotation.go` — 8 operations total sharing
+the identical `startIdx`/`end`/`NextMarker` structure. It's an offset-token
+paginator matching `pkgs/page`'s algorithm exactly (this package hand-rolls
+it rather than importing `pkgs/page`): `parseMarker` returns 0 on
+empty/invalid/negative input (never a raw, unclamped index), and every call
+site checks `startIdx >= len(...)` before slicing.
+
+All seven checks pass, including the stale/tampered-marker case (a marker
+past the current count safely returns an empty, non-truncated page — proven
+directly against `paginateTagList` and, through the real
+`aws-sdk-go-v2/service/kms` client, against `ListAliases`) — see
+`pagination_arithmetic_internal_test.go` and
+`pagination_sdk_roundtrip_test.go`.
+
+Gates: `go build ./services/kms/...`, `go vet ./services/kms/...` and
+`go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/kms/...`, `golangci-lint run ./services/kms/...` (0 issues). No
+production code changed this pass — test-only additions confirming
+correctness.

@@ -416,3 +416,36 @@ tag's allowed values, while still applying every other pair in the same call;
 validation failures from `grantPermissionsLocked`/`revokePermissionsLocked` (nil
 principal/resource, invalid permission enum, grant-option-not-a-subset-of-permissions)
 per entry, continuing to process the rest of the batch. No bugs found in this class.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found.
+
+The generic `paginate[T]` (`store.go`) is a thin, direct wrapper over
+`pkgs/page.New` — this package is the one of the eight audited this pass
+that actually reuses the shared helper rather than reimplementing it, at 9
+call sites (`data_cells_filter.go`, `lf_tag_expression.go`, `opt_ins.go`,
+`table_storage.go`, `resources.go`, `lf_tags.go`, `permissions.go` x2,
+`transactions.go`). `pkgs/page` carries its own exhaustive suite
+(`pkgs/page/page_test.go`), not re-derived here; a boundary walk and
+tampered-token round trip against `ListLFTags` through the real
+`aws-sdk-go-v2/service/lakeformation` client
+(`pagination_sdk_roundtrip_test.go`) ties that reuse to observable
+behaviour.
+
+The two helpers this package hand-rolls instead —
+`paginateTaggedTables`/`paginateTaggedDatabases` (`lf_tags.go`, backing
+`SearchTablesByLFTags`/`SearchDatabasesByLFTags`, 1 op each) — parse an
+offset token via a manual decimal-digit loop rather than `strconv`/
+`pkgs/page`, but land on the same offset-clamp algorithm (`startIdx >=
+len(list)` before slicing), correct and near-duplicative of `pkgs/page`
+rather than buggy. All seven checks pass directly against both
+(`pagination_arithmetic_internal_test.go`), including a stale/malformed
+token past the end (clamps to an empty page, doesn't panic or restart).
+
+Gates: `go build ./services/lakeformation/...`, `go vet
+./services/lakeformation/...` and `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...` (0 issues). No production code changed this
+pass — test-only additions confirming correctness.

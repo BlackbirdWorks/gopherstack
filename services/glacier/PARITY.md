@@ -480,3 +480,34 @@ correct throughout (`formatDate` in models.go).
   path, not a replacement for it. Do not remove the S3 write-back thinking
   GetJobOutput alone is sufficient; do not "fix" GetJobOutput by rejecting
   Select jobs without a cited real error code to match.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's marker-based pagination for the Class A/B/C shapes
+found elsewhere in this campaign. No bug found.
+
+Three helpers — `paginateUploadList`/`paginatePartList`
+(`handler_multipart_uploads.go` — `ListMultipartUploads`/`ListParts`) and
+`paginateJobList` (`handler_jobs.go` — `ListJobs`), explicitly marked
+`//nolint:dupl` as sharing identical structure — search for the marker's
+named item by exact equality (`MultipartUploadID`/`RangeInBytes`/`JobID`)
+and, on a miss, set `items = items[:0]`: an **empty** result, not index 0.
+That's already the safe default this campaign's Class B/C fix recommends
+elsewhere, so a stale or tampered marker terminates instead of looping —
+this is the one hand-rolled pattern of the eight services audited this pass
+that got the miss case right on the first try.
+
+All three take `*echo.Context` directly rather than a value that's cheap to
+unit-test, so this was verified through the real
+`aws-sdk-go-v2/service/glacier` client (`pagination_arithmetic_test.go`) —
+a boundary walk of `ListJobs` one item at a time reproduces every seeded
+job, and a marker naming no known job returns an empty page rather than
+restarting. `ListJobs` was taken as representative of all three given the
+identical, `nolint:dupl`-acknowledged structure; the other two were not
+independently unit-tested this pass.
+
+Gates: `go build ./services/glacier/...`, `go vet ./services/glacier/...`
+and `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/glacier/...`, `golangci-lint run ./services/glacier/...` (0
+issues). No production code changed this pass — test-only additions
+confirming correctness.

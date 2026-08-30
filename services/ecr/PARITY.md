@@ -664,3 +664,54 @@ unmodified code first: `TestDescribeImages_DefaultPageSize`,
 `TestDescribeImages_ImageStatusFilter_DefaultsToActiveOnly`,
 `TestDescribeImages_ImageStatusFilter_Explicit`,
 `TestListImages_ImageStatusFilter_DefaultsToActiveOnly`.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Four Class B bugs found and fixed**, all the same shape: a `nextToken`
+cursor compared to each item by exact equality, defaulting to index 0 (the
+whole collection) when nothing matched instead of the correct resume point
+or an empty page.
+
+- `filterAndPaginateImages` (`handler_images.go` — `DescribeImages`, 1 op):
+  images are sorted ascending by `ImageDigest`; a digest deleted since the
+  token was issued has no exact match. Fixed by searching for the first
+  `ImageDigest >= cursorKey` and defaulting `start = len(imgs)` on a miss.
+- `handleListImages`'s inline cursor logic (`handler_images.go` —
+  `ListImages`, 1 op): identical shape, hand-rolled rather than routed
+  through a shared helper (see "operations bypassing a helper" below). Its
+  composite `digest:tag` cursor is still monotonic with the list's
+  `(digest, tag)` sort order, so the same `>=`/default-to-`len` fix applies.
+- `paginatePullTimeUpdateExclusions` (`handler_account_settings.go` —
+  `ListPullTimeUpdateExclusions`, 1 op): ARNs are sorted ascending
+  (documented in the existing comment); same `>=`/default-to-`len` fix.
+- `paginateLifecyclePreviewEntries` (`handler_lifecycle_policy.go` —
+  `GetLifecyclePolicyPreview`, 1 op): entries are sorted by `ImagePushedAt`
+  (push time), **not** by the `ImageDigest` the cursor names — digest order
+  has no relationship to list position here, so the `>=` threshold used
+  above doesn't apply. Extracted into `advanceToDigestCursor`, which now
+  returns no items (not a restart at page one) on either an unmatched digest
+  or an undecodable token — the previous code silently used the
+  full unfiltered list on a decode failure, a second miss path the tests
+  below also cover.
+
+4 operations affected total. None of the four helpers permits a silent
+default to zero any more — three by construction (the miss default is now
+`len(...)`, not `0`) and the fourth (`advanceToDigestCursor`) by being
+factored into a function whose only two return paths are "found, from here"
+or "not found, none" (no signature change needed to force this; the
+extraction itself removes the mistake's foothold).
+
+Every fix is proven by a table-driven unit test against the helper directly
+(`pagination_arithmetic_internal_test.go`) with a stale-cursor (deleted
+item) and, where applicable, a tampered/malformed-token case, both failing
+pre-fix; plus two real `aws-sdk-go-v2/service/ecr` client round trips
+(`pagination_sdk_roundtrip_test.go`: `DescribeImages` and `ListImages`,
+each deleting the cursor's target between calls).
+
+All seven checks pass post-fix for all four helpers. No Class A or C shape
+found in this package.
+
+Gates: `go build ./services/ecr/...`, `go vet ./services/ecr/...` and
+`go vet ./...` (repo-wide, clean — no signature changed),
+`go test -race -count=1 ./services/ecr/...`, `golangci-lint run
+./services/ecr/...` (0 issues).

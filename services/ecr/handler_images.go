@@ -296,19 +296,28 @@ func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextTok
 	imgs = filtered
 
 	if nextToken != "" {
+		start := len(imgs)
+
 		decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
 		if decErr == nil {
 			cursorKey := string(decoded)
-			start := 0
+
+			// imgs is sorted ascending by ImageDigest (DescribeImages); a
+			// digest deleted since the token was issued still sorts between
+			// two survivors, so resume at the first one >= it. A miss
+			// defaults to len(imgs), not 0 -- defaulting to 0 on an
+			// equality miss would restart at page one on every stale or
+			// tampered token.
 			for i, img := range imgs {
-				if img.ImageDigest == cursorKey {
+				if img.ImageDigest >= cursorKey {
 					start = i
 
 					break
 				}
 			}
-			imgs = imgs[start:]
 		}
+
+		imgs = imgs[start:]
 	}
 
 	return imgs
@@ -351,20 +360,28 @@ func (h *Handler) handleListImages(
 
 	// Apply nextToken cursor: token is base64(digest:tag) of the first image on this page.
 	if in.NextToken != "" {
+		start := len(imageIDs)
+
 		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
 		if decErr == nil {
 			cursorKey := string(decoded)
-			start := 0
+
+			// imageIDs is sorted ascending by (digest, tag); an entry
+			// deleted since the token was issued still sorts between two
+			// survivors, so resume at the first one >= it. A miss defaults
+			// to len(imageIDs), not 0 -- defaulting to 0 on an equality
+			// miss would restart at page one on every stale or tampered
+			// token.
 			for i, id := range imageIDs {
-				if id.ImageDigest+":"+id.ImageTag == cursorKey {
+				if id.ImageDigest+":"+id.ImageTag >= cursorKey {
 					start = i
 
 					break
 				}
 			}
-
-			imageIDs = imageIDs[start:]
 		}
+
+		imageIDs = imageIDs[start:]
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(digest:tag).

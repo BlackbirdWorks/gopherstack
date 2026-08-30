@@ -595,3 +595,35 @@ frozen field via `syncResourceTagsFromARN` in `backend.go`.
 - `groupByResource`'s `resourceId` is always `""` -- this is a genuine,
   documented backend limitation (no per-resource-type identifier is
   tracked), not an oversight to silently "fix" by fabricating IDs.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found.
+
+`paginate[T]` (`pagination.go`), an offset-token paginator matching
+`pkgs/page`'s algorithm exactly (hand-rolled rather than imported), backs
+14 operations: `entity_sets.go` (x2), `filters.go`, `findings.go`,
+`investigations.go`, `members.go` (x2), `organization.go`,
+`publishing_destinations.go`, `ip_and_threatintel_sets.go` (x2), and
+`malware_protection.go` (x2, via `paginateMalwareScans` — one shared call
+site serving both `DescribeMalwareScans` and `ListMalwareScans`, plus a
+separate direct call for `ListMalwareProtectionPlans`). `decodeToken`
+defaults to offset 0 only on an empty token; a malformed one returns an
+error the caller surfaces as `ErrValidation` rather than silently treating
+as 0, and `paginate` itself clamps `offset >= len(items)` before slicing.
+
+All seven checks pass directly against `paginate` and against
+`paginateMalwareScans`'s extra error path
+(`pagination_arithmetic_internal_test.go`), including an offset far past
+the current count (empty page, no panic) and a malformed token (surfaced
+as an error, not silently ignored). A boundary walk and stale-offset
+round trip against `ListFilters` through the real
+`aws-sdk-go-v2/service/guardduty` client
+(`pagination_sdk_roundtrip_test.go`) ties this to observable behaviour.
+
+Gates: `go build ./services/guardduty/...`, `go vet
+./services/guardduty/...` and `go vet ./...` (repo-wide, clean), `go test
+-race -count=1 ./services/guardduty/...`, `golangci-lint run
+./services/guardduty/...` (0 issues). No production code changed this pass
+— test-only additions confirming correctness.
