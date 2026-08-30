@@ -144,15 +144,24 @@ func (h *Handler) handleGetResponseHeadersPolicyConfig(c *echo.Context, id strin
 	return xmlResp(c, http.StatusOK, resp)
 }
 
+// handleListResponseHeadersPolicies paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real ResponseHeadersPolicyList has no IsTruncated
+// field -- NextMarker's presence alone signals truncation (types/types.go:5729-5749).
+//
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListResponseHeadersPolicies(c *echo.Context) error {
 	policies := h.Backend.ListResponseHeadersPolicies()
 	policies = filterByManagedType(
 		c.QueryParam("Type"), func(p *ResponseHeadersPolicy) bool { return p.Managed }, policies,
 	)
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c, policies, func(p *ResponseHeadersPolicy) string { return p.ID },
+	)
+
 	var sb strings.Builder
 
-	for _, p := range policies {
+	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<ResponseHeadersPolicySummary><Type>%s</Type><ResponseHeadersPolicy><Id>%s</Id>`+
 				`<ResponseHeadersPolicyConfig>%s</ResponseHeadersPolicyConfig>`+
@@ -160,13 +169,18 @@ func (h *Handler) handleListResponseHeadersPolicies(c *echo.Context) error {
 			policyTypeString(p.Managed), p.ID, rhpConfigXMLBlock(p))
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ResponseHeadersPolicyList xmlns="%s">`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
-		`<Items>%s</Items>`+
+		`<Items>%s</Items>%s`+
 		`</ResponseHeadersPolicyList>`,
-		cfNS, maxItems, len(policies), sb.String())
+		cfNS, pageSize, len(page), sb.String(), nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

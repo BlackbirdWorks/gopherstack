@@ -108,8 +108,16 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 
 	result := b.scheduledActionsInTimeRangeLocked(groupName, startTime, endTime)
 
+	// ScheduledActionName is unique only within a group (scheduledActions is keyed by
+	// scopedKey(groupName, name)), not account-wide -- when groupName is empty this ranges every
+	// group's actions, so two different groups can share a name and need AutoScalingGroupName as
+	// a tiebreak for a stable pagination cursor.
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ScheduledActionName < result[j].ScheduledActionName
+		if result[i].ScheduledActionName != result[j].ScheduledActionName {
+			return result[i].ScheduledActionName < result[j].ScheduledActionName
+		}
+
+		return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
 	})
 
 	return result, nil

@@ -101,6 +101,11 @@ func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID, excludeDi
 		}
 	}
 
+	// ResourceID is the pagination cursor key (handleListDomainConflicts); it must be
+	// sorted ascending across both resource types, not just within the distribution
+	// half built above.
+	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].ResourceID < conflicts[j].ResourceID })
+
 	return conflicts
 }
 

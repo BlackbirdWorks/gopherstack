@@ -4,7 +4,14 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// defaultASIMaxRecords is DescribeAutoScalingInstances's documented default/max page size
+// (api_op_DescribeAutoScalingInstances.go: "The default value is 50 and the maximum value is
+// 50" -- default equals max for this operation, unlike most other Describe ops in this service).
+const defaultASIMaxRecords = 50
 
 func (h *Handler) handleAttachInstances(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
@@ -46,8 +53,17 @@ func (h *Handler) handleDescribeAutoScalingInstances(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	members := make([]xmlInstanceDetails, 0, len(instances))
-	for _, inst := range instances {
+	maxRecords := defaultASIMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), defaultASIMaxRecords)
+		}
+	}
+
+	p := page.New(instances, vals.Get("NextToken"), maxRecords, defaultASIMaxRecords)
+
+	members := make([]xmlInstanceDetails, 0, len(p.Data))
+	for _, inst := range p.Data {
 		members = append(members, xmlInstanceDetails{
 			InstanceID:              inst.InstanceID,
 			AutoScalingGroupName:    inst.AutoScalingGroupName,
@@ -63,6 +79,7 @@ func (h *Handler) handleDescribeAutoScalingInstances(vals url.Values) (any, erro
 	return &describeAutoScalingInstancesResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeAutoScalingInstancesResult{
+			NextToken:            p.Next,
 			AutoScalingInstances: xmlInstanceDetailsList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-instances"},

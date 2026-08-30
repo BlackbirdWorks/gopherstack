@@ -73,10 +73,12 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 				t.Fatal("expected non-empty distribution ID from create")
 			}
 
-			// Found: the distribution referencing the ID must appear in the list.
+			// Found: the distribution referencing the ID must appear in the list. These three
+			// operations return DistributionIdList (bare IDs), not DistributionList (full
+			// DistributionSummary objects) -- cloudfront@v1.67.4 api_op_ListDistributionsBy*.go.
 			foundResp := cfOK(t, h, http.MethodGet, tc.listPath(tc.configValue), "")
-			if !strings.Contains(foundResp, "DistributionList") {
-				t.Fatalf("expected DistributionList, got: %s", foundResp)
+			if !strings.Contains(foundResp, "DistributionIdList") {
+				t.Fatalf("expected DistributionIdList, got: %s", foundResp)
 			}
 			if strings.Contains(foundResp, "<Quantity>0</Quantity>") {
 				t.Fatalf("expected non-empty list for matching id, got: %s", foundResp)
@@ -87,8 +89,8 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 
 			// Not found: an unrelated ID must return an empty list, not an error.
 			notFoundResp := cfOK(t, h, http.MethodGet, tc.listPath("no-such-id-xyz"), "")
-			if !strings.Contains(notFoundResp, "DistributionList") {
-				t.Fatalf("expected DistributionList for empty result, got: %s", notFoundResp)
+			if !strings.Contains(notFoundResp, "DistributionIdList") {
+				t.Fatalf("expected DistributionIdList for empty result, got: %s", notFoundResp)
 			}
 			if !strings.Contains(notFoundResp, "<Quantity>0</Quantity>") {
 				t.Fatalf("expected empty list for non-matching id, got: %s", notFoundResp)
@@ -541,10 +543,12 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 	</DistributionConfig>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 
-	// List by key group - should find the distribution
+	// List by key group - should find the distribution. ListDistributionsByKeyGroup returns
+	// DistributionIdList (bare IDs), not DistributionList -- cloudfront@v1.67.4
+	// api_op_ListDistributionsByKeyGroup.go: Output.DistributionIdList.
 	resp := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/key-group-abc123", "")
-	if !strings.Contains(resp, "DistributionList") {
-		t.Errorf("expected DistributionList, got: %s", resp)
+	if !strings.Contains(resp, "DistributionIdList") {
+		t.Errorf("expected DistributionIdList, got: %s", resp)
 	}
 	// Should have quantity > 0
 	if strings.Contains(resp, "<Quantity>0</Quantity>") {
@@ -553,8 +557,8 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 
 	// Different key group should return empty list
 	resp2 := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/nonexistent-key-group", "")
-	if !strings.Contains(resp2, "DistributionList") {
-		t.Errorf("expected DistributionList for empty result, got: %s", resp2)
+	if !strings.Contains(resp2, "DistributionIdList") {
+		t.Errorf("expected DistributionIdList for empty result, got: %s", resp2)
 	}
 }
 

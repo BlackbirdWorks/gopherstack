@@ -144,8 +144,41 @@ func (h *Handler) handleGetTrustStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, trustStoreXML(cfNS, ts))
 }
 
+// listTrustStoresRequestXML matches ListTrustStoresInput: Marker/MaxItems travel in the XML
+// request body, not the query string (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpDocumentListTrustStoresInput; ListTrustStores is a POST).
+type listTrustStoresRequestXML struct {
+	Marker   string `xml:"Marker"`
+	MaxItems int    `xml:"MaxItems"`
+}
+
+// handleListTrustStores paginates via body-bound Marker/MaxItems.
 func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	items := h.Backend.ListTrustStores()
+
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listTrustStoresRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid ListTrustStoresRequest XML"))
+		}
+	}
+
+	page, _, isTruncated := paginateByMarkerValue(
+		items,
+		func(ts *TrustStore) string { return ts.ID },
+		req.Marker,
+		req.MaxItems,
+	)
+
+	nextMarker := ""
+	if isTruncated && len(page) > 0 {
+		nextMarker = page[len(page)-1].ID
+	}
 
 	type tsSummary struct {
 		XMLName xml.Name `xml:"TrustStoreSummary"`
@@ -163,17 +196,21 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	// ListTrustStoresOutput has no httpPayload member (it carries both TrustStoreList and
 	// NextMarker), so the real deserializer
 	// (awsRestxml_deserializeOpDocumentListTrustStoresOutput) reads TrustStoreList as a CHILD
-	// of the response root, not as the root itself.
+	// of the response root, not as the root itself. NextMarker is a sibling of TrustStoreList,
+	// not a field on it.
 	type tsListResult struct {
 		XMLName        xml.Name `xml:"ListTrustStoresResult"`
 		XMLNS          string   `xml:"xmlns,attr"`
+		NextMarker     string   `xml:"NextMarker,omitempty"`
 		TrustStoreList tsList   `xml:"TrustStoreList"`
 	}
-	summaries := make([]tsSummary, 0, len(items))
-	for _, ts := range items {
+	summaries := make([]tsSummary, 0, len(page))
+	for _, ts := range page {
 		summaries = append(summaries, tsSummary{ID: ts.ID, ARN: ts.ARN, Name: ts.Name})
 	}
-	result := tsListResult{XMLNS: cfNS, TrustStoreList: tsList{Quantity: len(summaries), Items: summaries}}
+	result := tsListResult{
+		XMLNS: cfNS, NextMarker: nextMarker, TrustStoreList: tsList{Quantity: len(summaries), Items: summaries},
+	}
 	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)

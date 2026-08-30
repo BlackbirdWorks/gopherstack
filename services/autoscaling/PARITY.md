@@ -825,11 +825,18 @@ by reading every one of the 13 Input structs directly:
 
 **Confirmed already correct, not touched**: `DescribeTags`'s `Filters` (`handler_tags.go`'s
 `parseTagFilters`/`tagMatchesFilters`) was already correctly applied per-tag; `DescribeScheduledActions`'s
-`ScheduledActionNames` and `DescribeLaunchConfigurations`'s pagination were already correct. Did not
-touch `DescribeLaunchConfigurations`/`DescribeNotificationConfigurations`/`DescribeAutoScalingInstances`/
+`ScheduledActionNames` was already correct.
+
+**CORRECTED 2026-08-30 (gopherstack-zslr)**: the claim two lines above that
+`DescribeLaunchConfigurations`'s pagination "were already correct" and that
+`DescribeLaunchConfigurations`/`DescribeNotificationConfigurations`/`DescribeAutoScalingInstances`/
 `DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`/`DescribeWarmPool`/`DescribeInstanceRefreshes`
-beyond confirming their only constraint fields are `MaxRecords`/`NextToken` pagination, which the
-existing handler code already implements correctly for each (spot-checked, not re-litigated in full).
+"already implements [pagination] correctly for each" was wrong -- re-reading each handler directly
+(not spot-checked this time) found all ten ignored `MaxRecords`/`NextToken` entirely: every one read
+the backend's full result and returned it in one unbounded response, several with a `NextToken` XML
+field already declared on the result struct and never populated. `DescribeScalingActivities` above this
+note is the one op in the file that legitimately already had correct pagination (it's cited, correctly,
+as the pattern to copy). See "MaxRecords/NextToken pagination sweep" below for the fix.
 
 Gates: `go build ./services/autoscaling/...`, `go vet ./...` (repo-wide -- also required a call-site fix
 in `/cli_asg_ec2_wiring_test.go`, outside this service, since `DescribeAutoScalingGroups`'s signature
@@ -840,3 +847,117 @@ typed SDK client (`assdk.Client`) for every read path under test; fixture setup 
 `InProgress` status and the traffic-source-type cases goes through the backend directly (lifecycle-hook
 wait state and raw `TrafficSource` structs are awkward to reach through the SDK's own input validation),
 consistent with the narrow exception for setup that doesn't touch the code path being tested.
+
+## 2026-08-30: MaxRecords/NextToken pagination sweep, 10 operations (gopherstack-zslr)
+
+Corrects the false "already implements [pagination] correctly" claim two sections above (see the
+CORRECTED note there) for the ten Describe ops that carry `MaxRecords`/`NextToken` on their real Input
+(`go doc github.com/aws/aws-sdk-go-v2/service/autoscaling.Describe*Input`, one op at a time) but whose
+handlers never read either field: `DescribeLaunchConfigurations`, `DescribeAutoScalingInstances`,
+`DescribeScheduledActions`, `DescribeTags`, `DescribeLoadBalancers`, `DescribeLoadBalancerTargetGroups`,
+`DescribeNotificationConfigurations`, `DescribeTrafficSources`, `DescribeWarmPool`,
+`DescribeInstanceRefreshes`, `DescribePolicies` (11 operations; `DescribeWarmPool` turned out to be a
+partial exception, see below). `handler_launch_configurations.go`'s `describeLaunchConfigurationsResult`
+already declared a `NextToken` XML field that was never populated -- the tell this campaign has seen
+several times now (a shape that promises a cursor the handler never fills in).
+
+All now paginate via `pkgs/page.New` (the repo's generic opaque-index-token pager -- see
+`pkgs-catalog.md`: "use instead of hand-rolled NextToken/cursor logic"), matching the existing
+`DescribeScalingActivities` reference (not `DescribeAutoScalingGroups`'s older hand-rolled
+base64-last-name marker, predating `pkgs/page`). Each op's own documented default/max page size was
+read individually (`go doc`, not assumed uniform): `DescribeLoadBalancers`/
+`DescribeLoadBalancerTargetGroups` are 100/100; `DescribeAutoScalingInstances`/`DescribeTrafficSources`/
+`DescribeWarmPool` are 50/50 (no distinct default documented for the latter two); the other seven are
+50/100.
+
+**The two listings that ranged a map with zero sort calls** (flagged going in, confirmed by reading both
+before touching either):
+- **`DescribeNotificationConfigurations`** (`notifications.go`): account-wide (`groupNames` empty)
+  ranged `b.notificationConfigs` (a `map[string][]*NotificationConfiguration]`) directly into the result
+  slice. Fixed: sorted by `(AutoScalingGroupName, TopicARN, NotificationType)` -- `NotificationConfiguration`
+  has no single-field unique key, but that triple is: `PutNotificationConfiguration` replaces any existing
+  config for exactly that combination. Verified end-to-end via the real SDK client (real
+  `DescribeNotificationConfigurationsInput.AutoScalingGroupNames` is optional, so the account-wide branch
+  is reachable through the typed client, unlike the case below).
+- **`DescribeInstanceRefreshes`** (`instance_refreshes.go`): same pattern over
+  `b.instanceRefreshes` when `groupName` is empty. Fixed: sorted by `InstanceRefreshID`, a
+  `uuid.NewString()` value (`StartInstanceRefreshWithInput`) -- globally unique, no tiebreak needed,
+  matching the existing `DescribeScalingActivities` UUID-sort precedent. **Not reachable through the real
+  SDK client**: `go doc` confirms `DescribeInstanceRefreshesInput.AutoScalingGroupName` is `*string` with
+  "This member is required", so a real client refuses to build the account-wide request that exercises
+  this branch at all -- the bug is real (a raw HTTP caller bypassing SDK-side validation can still hit
+  it) but untestable through `assdk.Client`. Covered instead by
+  `TestDescribeInstanceRefreshes_AccountWide_SortIsDeterministic`, which calls
+  `backend.DescribeInstanceRefreshes("", nil)` directly 21 times against the same seeded state and
+  asserts identical order every time; the SDK-reachable single-group path (deterministic already, since
+  `b.instanceRefreshes[groupName]` is a plain slice, not a map) is covered separately by
+  `TestDescribeInstanceRefreshes_SDKRoundTrip_Pagination`, seeded via the existing test-only
+  `AddInstanceRefresh` helper to get 25 refreshes onto one group without tripping
+  `StartInstanceRefresh`'s one-active-refresh-per-group rule.
+
+**Two more sort-uniqueness gaps found while wiring pagination, not in the original two flagged sites**,
+same failure shape (a sort key that's only unique within a group, exposed once an account-wide query
+scans every group):
+- **`DescribeScheduledActions`** (`scheduled_actions.go`): sorted by `ScheduledActionName` alone when
+  `groupName` is empty (`scheduledActionsInTimeRangeLocked` then scans `b.scheduledActions.All()` across
+  every group), but `ScheduledActionName` is unique only within a group (`scheduledActions` is keyed by
+  `scopedKey(groupName, name)`) -- two different groups can share an action name. Tiebroken with
+  `AutoScalingGroupName`.
+- **`DescribePolicies`** (`scaling_policies.go`): same shape, sorted by `PolicyName` alone
+  (`scalingPolicies` keyed by `scopedKey(groupName, PolicyName)`). Tiebroken with
+  `AutoScalingGroupName`. `TestDescribePolicies_SDKRoundTrip_Pagination` seeds all 25 policies on
+  distinct groups with the SAME `PolicyName` specifically to force this tie and prove the tiebreak
+  makes the pagination cursor deterministic.
+
+Both are timestamp/name-shaped keys admitting ties exactly as the task brief predicted ("A name...
+admits ties and needs the id appended"), found by reading each backend method's `sort.Slice` while
+wiring its handler's pagination rather than trusting the handler-level fix alone.
+
+**`DescribeWarmPool` is a structural partial exception**, not a full fix like the other nine: real
+`DescribeWarmPoolOutput` carries `Instances []types.Instance` (the pool's actual member instances) plus
+`NextToken`, but this backend's `WarmPool` model has no instance list at all -- `PutWarmPool` only
+stores pool-level config (`MinSize`/`MaxGroupPreparedCapacity`/`PoolState`/`Status`), and nothing
+anywhere provisions simulated warm-pool instances into it (confirmed: no `Warmed:`-prefixed
+`LifecycleState` anywhere in the package, which is how real AWS represents warm-pool instances within
+the ASG's own instance list). `Instances` is therefore always empty, so pagination over it is correctly
+a no-op today -- not a bug I could reproduce, and not something to fabricate fixture data for. Fixed the
+part that's real: `MaxRecords`/`NextToken` are read and threaded through `pkgs/page.New` (an empty slice)
+so a client supplying either doesn't error, and the previously entirely-absent `Instances`/`NextToken`
+XML fields were added to the response for wire completeness. Unlike the other nine,
+`TestDescribeWarmPool_MaxRecordsNextToken_Wired` does **not** fail against the pre-fix handler (both
+versions produce an equivalently-empty/absent `Instances`/`NextToken` on the wire, since there was
+nothing to truncate either way) -- it only proves the new plumbing doesn't error, not that it fixes an
+observable bug. Genuine warm-pool instance modeling (so this pagination has something real to page over)
+is out of scope here; noted as a separate, larger gap.
+
+**Restraint**: `DescribeLoadBalancers`, `DescribeLoadBalancerTargetGroups`, and `DescribeTrafficSources`
+are all scoped to a single `AutoScalingGroupName` (not account-wide) and already read from a plain
+`[]string`/`[]TrafficSource` slice field on the group (`LoadBalancerNames`/`TargetGroupARNs`/
+`TrafficSources`), not a map -- insertion-ordered and already deterministic across calls with no sort
+needed. No filter had to move ahead of pagination in this service (unlike the iam sweep referenced in
+the task brief): every filter already in these handlers (`DescribeTags`'s `Filters`,
+`DescribeTrafficSources`'s `TrafficSourceType`, `DescribePolicies`'s `PolicyNames`/`PolicyTypes`,
+`DescribeScheduledActions`'s name/time-range filtering) already runs inside the backend method, before
+the handler's new `page.New` call -- there was no pre-existing "paginate then filter" ordering bug to
+fix.
+
+Every fix except `DescribeInstanceRefreshes`'s account-wide sort (see above) is proven with a
+`TestDescribe*_SDKRoundTrip_Pagination` test in `list_pagination_ignored_test.go`: 25 records seeded,
+`MaxRecords`=10, asserts page 1 is full and carries a `NextToken`, the remainder comes back exactly once
+across however many follow-up pages with no duplicates, confirmed failing against the pre-fix handler
+via a scoped `git stash` of only the ten source files (test file untouched, so it compiles against both
+versions) -- 11 of the 12 new tests failed pre-fix as expected;
+`TestDescribeWarmPool_MaxRecordsNextToken_Wired` passed both before and after, per the structural
+exception above.
+
+No AWS documentation was fetched for this pass (all wire-shape facts came from `go doc` against the
+pinned `aws-sdk-go-v2` module and from reading this service's own source), so the security note about an
+injected `aws agent-toolkit search-skills` footer in fetched docs does not apply here.
+
+Gates: `go build ./services/autoscaling/...` clean; `go vet ./services/autoscaling/...` clean (repo-wide
+`go vet ./...` also clean -- no call-site fix needed in any root `cli_*_test.go`, unlike the constraint-
+parameter sweep above); `go test ./services/autoscaling/... -race -count=1 -shuffle=on` -- `ok`;
+`golangci-lint run ./services/autoscaling/...` -- `0 issues` (after adding `//nolint:dupl` to
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`, newly flagged once both shared the same
+`page.New` pagination shape -- confirmed pre-existing "different resource types, same list-XML
+structure" duplication, not new debt, before suppressing).

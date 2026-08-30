@@ -88,6 +88,8 @@ last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delet
 # shape -- a wire-shape question distinct from parameter-honouring, flagged but not
 # investigated further; needs its own dedicated pass reading each op's own Output
 # struct and deserializer, not a mechanical pagination patch.
+# BOTH GAPS ABOVE CLOSED 2026-08-30 (gopherstack-lkng) -- see "List pagination +
+# ListDistributionsBy* shape fix" section near the end of this file.
 overall: A            # gopherstack-o31x: first FULL route diff of all 167 real cloudfront
                        # control-plane ops (method+path) against cloudfront@v1.67.4
                        # serializers.go, not just the ops other work happened to touch.
@@ -790,3 +792,115 @@ target); left as previously disclosed rather than re-fixed here.
 Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...`
 clean; `go vet ./services/cloudfront/...` clean; `go test ./services/cloudfront/... -race
 -count=1` -- `ok`; `golangci-lint run ./services/cloudfront/...` -- `0 issues.`
+
+## 2026-08-30 (part 2): List pagination + ListDistributionsBy* shape fix (gopherstack-lkng)
+
+Closes both gaps the 2026-08-29 filter/pagination audit disclosed and explicitly left unfixed
+(see the header note above, now marked closed).
+
+**16 single-shape listings wired to real Marker/MaxItems pagination**, each verified with its
+own `TestList*_SDKRoundTrip_Pagination` test in `list_pagination_ignored_more_test.go` (25
+records seeded, MaxItems=10, asserts page 1 is full + carries a cursor, the remainder comes
+back exactly once with no duplicates, confirmed failing against the pre-fix handler via a
+scoped `git stash` of only the source files, tests reapplied after):
+`ListCachePolicies`, `ListOriginRequestPolicies`, `ListResponseHeadersPolicies` (query-bound,
+`paginateByMarkerID`, `Type` filter applied before pagination -- already correct, not moved);
+`ListOAIs` (`ListCloudFrontOriginAccessIdentities`), `ListOriginAccessControls`,
+`ListFieldLevelEncryptionConfigs`, `ListFieldLevelEncryptionProfiles`, `ListPublicKeys`,
+`ListKeyGroups`, `ListVpcOrigins`, `ListContinuousDeploymentPolicies`,
+`ListStreamingDistributions` (all query-bound, `paginateByMarkerID`, sort key = the backend's
+own unique ID); `ListRealtimeLogConfigs` (query-bound, sort/cursor key = `Name`, unique per
+`CreateRealtimeLogConfig`'s own uniqueness check -- left un-retouched, matches the "one such
+sort was correctly left alone" pattern); `ListTrustStores` (body-bound --
+`awsRestxml_serializeOpDocumentListTrustStoresInput`, `paginateByMarkerValue`; real
+`ListTrustStoresOutput.NextMarker` is a sibling of `TrustStoreList`, not a field on it, and
+`TrustStoreList` itself has no `MaxItems` -- both preserved); `ListConflictingAliases`
+(query-bound, `paginateByMarkerID`; `ListConflictingAliasesByDomain` ranged
+`b.distributionAliases` -- a map -- with no sort, now sorted by distribution ID, its own
+unique key); `ListDomainConflicts` (body-bound alongside `Domain`/
+`DomainControlValidationResource`, `paginateByMarkerValue` keyed on `ResourceID`;
+`findDomainConflicts` builds its result as one tenant match followed by a separately-sorted
+list of distribution IDs -- two orderings concatenated, not one total order -- so a final
+`sort.Slice` by `ResourceID` was added to give the pagination cursor a single stable order
+across both halves).
+
+Real wire-shape check for each (`go doc`/pinned SDK `types/types.go`): 8 of the 16
+(`CachePolicyList`, `OriginRequestPolicyList`, `ResponseHeadersPolicyList`,
+`FieldLevelEncryptionList`, `FieldLevelEncryptionProfileList`, `PublicKeyList`,
+`KeyGroupList`, `ContinuousDeploymentPolicyList`) have **no `IsTruncated` field at all** --
+`NextMarker`'s presence alone signals truncation -- so the handlers were rewritten to that
+shape rather than keeping the previous always-`false` `IsTruncated` element every one of them
+carried (harmless to a real client, which ignores unknown elements, but not wire-accurate);
+`ConflictingAliasesList` is the same no-`IsTruncated` shape. The other 5
+(`OriginAccessControlList`, `CloudFrontOriginAccessIdentityList`, `RealtimeLogConfigs`,
+`VpcOriginList`, `StreamingDistributionList`) do carry `IsTruncated`, now populated for real.
+`RealtimeLogConfigs` additionally has no `Quantity` field in the real type (`Items`/
+`IsTruncated`/`MaxItems`/`NextMarker` only) -- the handler's phantom `Quantity` element was
+dropped to match. None of the 16 echo the request's `Marker` value back on the response
+(a `Marker` field the real Group-B types also carry) -- deliberately, to match this file's own
+two pre-existing reference implementations (`handleListDistributions`,
+`handleListAnycastIPLists`), which already omit it.
+
+**`ListDistributionsBy*` family (12 ops, not 11 -- `ls` on the pinned SDK's
+`api_op_ListDistributionsBy*.go` files gives 12: Anycast­IpListId, CachePolicyId,
+ConnectionFunction, ConnectionMode, KeyGroup, OriginRequestPolicyId, OwnedResource,
+RealtimeLogConfig, ResponseHeadersPolicyId, TrustStore, VpcOriginId, WebACLId) now marshal
+through the correct one of three real output shapes instead of the one shared
+`marshalDistributionList` every op previously used regardless of its actual `Output` struct:
+- **`DistributionIdList`** (bare `Items []string` of distribution IDs) --
+  `ByCachePolicyId`, `ByKeyGroup`, `ByOriginRequestPolicyId`, `ByResponseHeadersPolicyId`,
+  `ByVpcOriginId`. New `marshalDistributionIDList`.
+- **`DistributionList`** (full `DistributionSummary` objects, the shape every op previously
+  used) -- `ByAnycastIpListId`, `ByConnectionFunction`, `ByConnectionMode`, `ByTrustStore`,
+  `ByWebACLId`, `ByRealtimeLogConfig`. Existing `marshalDistributionList`, now paginated
+  (previously hardcoded `MaxItems`/never truncated here too).
+- **`DistributionIdOwnerList`** (`Items []DistributionIdOwner`, pairing a distribution ID with
+  an owning account ID) -- `ByOwnedResource` only. New `marshalDistributionIDOwnerList`;
+  `OwnerAccountId` is always this backend's own account (single-account emulator), read via a
+  new `(*InMemoryBackend).AccountID()` accessor (`store.go`, mirrors the existing `Region()`).
+
+Confirmed each op's real binding and Output type by reading its own
+`awsRestxml_serializeOpHttpBindings*Input`/`serializeOpDocument*Input` and `*Output` struct in
+the pinned SDK rather than assuming the family is uniform: 11 of the 12 bind Marker/MaxItems to
+the query string (`paginateByMarkerID`); `ByRealtimeLogConfig` alone binds them in the XML
+request body alongside `RealtimeLogConfigArn` (`paginateByMarkerValue`) -- the existing
+`extractRealtimeLogConfigArn` body-reader was replaced with
+`decodeListDistributionsByRealtimeLogConfigBody`, since the old one only read the ARN and the
+body can be read exactly once; the `handler_dispatch.go` call site updated accordingly (its
+signature change is internal to this package, no repo-root call-site fix needed).
+`distributionsByConfigSearch` (`search_index.go`, backs 9 of these 12 plus
+`ListDistributionsByCachePolicyID`/`OriginRequestPolicyID`/`ResponseHeadersPolicyID` used
+elsewhere) and `ListDistributionsByWebACLID` (`distributions.go`) both range a map with no
+sort -- added `sort.Slice` by distribution ID (the map's own key, already unique) to both.
+
+Two pre-existing tests (`TestListDistributionsByPolicyID_RoundTrip`,
+`TestListDistributionsByKeyGroup`) asserted `strings.Contains(resp, "DistributionList")` for
+ops that actually return `DistributionIdList` -- passed only because the DistributionList-shape
+handler these ops previously shared happened to satisfy that substring check by coincidence,
+not because the shape was right (a real client decoding these fields against `DistributionIdList`
+would read `Items` as bare ID strings vs `DistributionSummary` structs -- silently wrong data,
+not a decode error). Both updated to assert `DistributionIdList` instead, matching the corrected
+shape; this is exactly the "existing tests that could not have caught these" class the task
+description warned about.
+
+All 12 family ops covered by their own `TestListDistributionsBy*_SDKRoundTrip_Pagination` test
+(same 25-record/MaxItems=10 pattern as above), including a positive assertion on the correct
+shape's `Items` field (`DistributionIdList.Items []string` vs `DistributionList.Items
+[]types.DistributionSummary` vs `DistributionIdOwnerList.Items []types.DistributionIdOwner`) so
+a future shape regression fails a type-check, not just a substring check.
+
+No AWS documentation was fetched for this pass (all wire-shape facts came from the pinned
+`aws-sdk-go-v2` module in the local Go module cache, not the web), so the security note about
+an injected `aws agent-toolkit search-skills` footer in fetched docs (flagged elsewhere in this
+campaign) does not apply here.
+
+Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...`
+clean; `go vet ./services/cloudfront/...` clean (repo-wide `go vet ./...` also clean -- no
+call-site fix needed in any root `cli_*_test.go`); `go test ./services/cloudfront/... -race
+-count=1 -shuffle=on` -- `ok`; `golangci-lint run ./services/cloudfront/...` -- `0 issues`
+(after restoring `//nolint:dupl` on four handlers whose doc-comment rewrite had dropped the
+existing directive, and adding it to two newly-`dupl`-flagged pairs --
+`ListOriginRequestPolicies`/`ListResponseHeadersPolicies` and, in `services/autoscaling`,
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups` -- confirmed these are pre-existing
+"different resource types sharing the same list-XML shape" duplication, not new debt, before
+adding the suppression).

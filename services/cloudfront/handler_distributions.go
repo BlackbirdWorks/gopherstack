@@ -638,13 +638,13 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 func (h *Handler) handleListDistributionsByKeyGroup(c *echo.Context, keyGroupID string) error {
 	dists := h.Backend.ListDistributionsByKeyGroup(keyGroupID)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDList(c, dists)
 }
 
 func (h *Handler) handleListDistributionsByVpcOriginID(c *echo.Context, vpcOriginID string) error {
 	dists := h.Backend.ListDistributionsByVpcOriginID(vpcOriginID)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDList(c, dists)
 }
 
 func (h *Handler) handleListDistributionsByAnycastIPListID(c *echo.Context, anycastID string) error {
@@ -671,19 +671,29 @@ func (h *Handler) handleListDistributionsByTrustStore(c *echo.Context, trustStor
 	return h.marshalDistributionList(c, dists)
 }
 
+// handleListDistributionsByOwnedResource returns a DistributionIdOwnerList, not the
+// DistributionList/DistributionIdList shapes the other ListDistributionsBy* operations use --
+// it's the only one in the family (cloudfront@v1.67.4 api_op_ListDistributionsByOwnedResource.go:
+// Output.DistributionList is *types.DistributionIdOwnerList).
 func (h *Handler) handleListDistributionsByOwnedResource(c *echo.Context, resourceARN string) error {
 	dists := h.Backend.ListDistributionsByOwnedResource(resourceARN)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDOwnerList(c, dists)
 }
 
 // ---------------------------------------------------------------------------
 // ListConflictingAliases handler
 // ---------------------------------------------------------------------------
 
+// handleListConflictingAliases paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOpHttpBindingsListConflictingAliasesInput).
+// Real ConflictingAliasesList has no IsTruncated field -- NextMarker's presence alone signals
+// truncation (types/types.go:1129-1146).
 func (h *Handler) handleListConflictingAliases(c *echo.Context) error {
 	alias := c.Request().URL.Query().Get("Alias")
 	dists := h.Backend.ListConflictingAliasesByDomain(alias)
+
+	page, pageSize, _, nextMarker := paginateByMarkerID(c, dists, func(d *Distribution) string { return d.ID })
 
 	type conflictingSummary struct {
 		XMLName   xml.Name `xml:"ConflictingAlias"`
@@ -692,23 +702,29 @@ func (h *Handler) handleListConflictingAliases(c *echo.Context) error {
 		AccountID string   `xml:"AccountId"`
 	}
 	type conflictList struct {
-		XMLName     xml.Name             `xml:"ConflictingAliasesList"`
-		XMLNS       string               `xml:"xmlns,attr"`
-		Items       []conflictingSummary `xml:"Items>ConflictingAlias"`
-		MaxItems    int                  `xml:"MaxItems"`
-		Quantity    int                  `xml:"Quantity"`
-		IsTruncated bool                 `xml:"IsTruncated"`
+		XMLName    xml.Name             `xml:"ConflictingAliasesList"`
+		XMLNS      string               `xml:"xmlns,attr"`
+		NextMarker string               `xml:"NextMarker,omitempty"`
+		Items      []conflictingSummary `xml:"Items>ConflictingAlias"`
+		MaxItems   int                  `xml:"MaxItems"`
+		Quantity   int                  `xml:"Quantity"`
 	}
 
-	summaries := make([]conflictingSummary, 0, len(dists))
-	for _, d := range dists {
+	summaries := make([]conflictingSummary, 0, len(page))
+	for _, d := range page {
 		summaries = append(summaries, conflictingSummary{
 			Alias:     alias,
 			DistID:    d.ID,
 			AccountID: "",
 		})
 	}
-	list := conflictList{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := conflictList{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
@@ -730,51 +746,72 @@ func (h *Handler) handleListDistributionsByWebACLID(c *echo.Context, webACLID st
 func (h *Handler) handleListDistributionsByCachePolicyID(c *echo.Context, policyID string) error {
 	dists := h.Backend.ListDistributionsByCachePolicyID(policyID)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDList(c, dists)
 }
 
 func (h *Handler) handleListDistributionsByOriginRequestPolicyID(c *echo.Context, policyID string) error {
 	dists := h.Backend.ListDistributionsByOriginRequestPolicyID(policyID)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDList(c, dists)
 }
 
 func (h *Handler) handleListDistributionsByResponseHeadersPolicyID(c *echo.Context, policyID string) error {
 	dists := h.Backend.ListDistributionsByResponseHeadersPolicyID(policyID)
 
-	return h.marshalDistributionList(c, dists)
+	return h.marshalDistributionIDList(c, dists)
 }
 
-// listDistributionsByRealtimeLogConfigBody decodes the ARN out of the request
-// body. Real ListDistributionsByRealtimeLogConfig is POST with no URI label
-// or query binding at all -- RealtimeLogConfigArn travels as an XML element
-// under the root ListDistributionsByRealtimeLogConfigRequest (cloudfront@v1.67.4
-// serializers.go: awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput).
+// listDistributionsByRealtimeLogConfigBody decodes ListDistributionsByRealtimeLogConfigInput.
+// Real ListDistributionsByRealtimeLogConfig is POST with no URI label or query binding at all --
+// RealtimeLogConfigArn, Marker and MaxItems all travel as XML elements under the root
+// ListDistributionsByRealtimeLogConfigRequest (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput), unlike every other
+// operation in the ListDistributionsBy* family, which binds Marker/MaxItems to the query string.
 type listDistributionsByRealtimeLogConfigBody struct {
 	RealtimeLogConfigArn string `xml:"RealtimeLogConfigArn"`
+	Marker               string `xml:"Marker"`
+	MaxItems             int    `xml:"MaxItems"`
 }
 
-func extractRealtimeLogConfigArn(c *echo.Context) string {
+func decodeListDistributionsByRealtimeLogConfigBody(c *echo.Context) listDistributionsByRealtimeLogConfigBody {
 	body, err := readBody(c)
 	if err != nil {
-		return ""
+		return listDistributionsByRealtimeLogConfigBody{}
 	}
 
 	var req listDistributionsByRealtimeLogConfigBody
-	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-		return ""
-	}
+	_ = xml.Unmarshal(body, &req)
 
-	return req.RealtimeLogConfigArn
+	return req
 }
 
-func (h *Handler) handleListDistributionsByRealtimeLogConfig(c *echo.Context, arn string) error {
-	dists := h.Backend.ListDistributionsByRealtimeLogConfigARN(arn)
+func (h *Handler) handleListDistributionsByRealtimeLogConfig(
+	c *echo.Context, req listDistributionsByRealtimeLogConfigBody,
+) error {
+	dists := h.Backend.ListDistributionsByRealtimeLogConfigARN(req.RealtimeLogConfigArn)
 
-	return h.marshalDistributionList(c, dists)
+	page, pageSize, isTruncated := paginateByMarkerValue(
+		dists,
+		func(d *Distribution) string { return d.ID },
+		req.Marker,
+		req.MaxItems,
+	)
+
+	return h.writeDistributionList(c, page, pageSize, isTruncated)
 }
 
+// marshalDistributionList paginates via Marker/MaxItems (both query-bound for every caller
+// except ListDistributionsByRealtimeLogConfig, which calls writeDistributionList directly with
+// its own body-bound pagination) and writes the DistributionList shape (cloudfront@v1.67.4
+// types/types.go:2522-2554): ListDistributionsByAnycastIpListId, ByConnectionFunction,
+// ByConnectionMode, ByTrustStore, ByWebACLId, and ByRealtimeLogConfig all return this shape.
 func (h *Handler) marshalDistributionList(c *echo.Context, dists []*Distribution) error {
+	page, pageSize, isTruncated, _ := paginateByMarkerID(c, dists, func(d *Distribution) string { return d.ID })
+
+	return h.writeDistributionList(c, page, pageSize, isTruncated)
+}
+
+func (h *Handler) writeDistributionList(c *echo.Context, page []*Distribution, pageSize int, isTruncated bool) error {
 	type distSummary struct {
 		XMLName    xml.Name `xml:"DistributionSummary"`
 		ID         string   `xml:"Id"`
@@ -785,18 +822,104 @@ func (h *Handler) marshalDistributionList(c *echo.Context, dists []*Distribution
 	type distList struct {
 		XMLName     xml.Name      `xml:"DistributionList"`
 		XMLNS       string        `xml:"xmlns,attr"`
+		NextMarker  string        `xml:"NextMarker,omitempty"`
 		Items       []distSummary `xml:"Items>DistributionSummary"`
 		MaxItems    int           `xml:"MaxItems"`
 		Quantity    int           `xml:"Quantity"`
 		IsTruncated bool          `xml:"IsTruncated"`
 	}
-	summaries := make([]distSummary, 0, len(dists))
-	for _, d := range dists {
+	summaries := make([]distSummary, 0, len(page))
+	for _, d := range page {
 		summaries = append(summaries, distSummary{
 			ID: d.ID, ARN: d.ARN, Status: d.Status, DomainName: d.DomainName,
 		})
 	}
-	list := distList{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	nextMarker := ""
+	if isTruncated && len(page) > 0 {
+		nextMarker = page[len(page)-1].ID
+	}
+	list := distList{
+		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
+		Items: summaries, IsTruncated: isTruncated,
+	}
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+// marshalDistributionIDList paginates via Marker/MaxItems (query-bound) and writes the
+// DistributionIdList shape (cloudfront@v1.67.4 types/types.go:2429-2459): used by
+// ListDistributionsByCachePolicyId, ByKeyGroup, ByOriginRequestPolicyId,
+// ByResponseHeadersPolicyId, and ByVpcOriginId -- these return only distribution IDs, not full
+// DistributionSummary objects.
+func (h *Handler) marshalDistributionIDList(c *echo.Context, dists []*Distribution) error {
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		dists,
+		func(d *Distribution) string { return d.ID },
+	)
+
+	type distIDList struct {
+		XMLName     xml.Name `xml:"DistributionIdList"`
+		XMLNS       string   `xml:"xmlns,attr"`
+		NextMarker  string   `xml:"NextMarker,omitempty"`
+		Items       []string `xml:"Items>DistributionId"`
+		MaxItems    int      `xml:"MaxItems"`
+		Quantity    int      `xml:"Quantity"`
+		IsTruncated bool     `xml:"IsTruncated"`
+	}
+	ids := make([]string, 0, len(page))
+	for _, d := range page {
+		ids = append(ids, d.ID)
+	}
+	list := distIDList{
+		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(ids),
+		Items: ids, IsTruncated: isTruncated,
+	}
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+// marshalDistributionIDOwnerList paginates via Marker/MaxItems (query-bound) and writes the
+// DistributionIdOwnerList shape (cloudfront@v1.67.4 types/types.go:2482-2520), used only by
+// ListDistributionsByOwnedResource. This emulator is single-account, so OwnerAccountId is
+// always the backend's own account.
+func (h *Handler) marshalDistributionIDOwnerList(c *echo.Context, dists []*Distribution) error {
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		dists,
+		func(d *Distribution) string { return d.ID },
+	)
+
+	type distIDOwner struct {
+		XMLName        xml.Name `xml:"DistributionIdOwner"`
+		DistributionID string   `xml:"DistributionId"`
+		OwnerAccountID string   `xml:"OwnerAccountId"`
+	}
+	type distIDOwnerList struct {
+		XMLName     xml.Name      `xml:"DistributionIdOwnerList"`
+		XMLNS       string        `xml:"xmlns,attr"`
+		NextMarker  string        `xml:"NextMarker,omitempty"`
+		Items       []distIDOwner `xml:"Items>DistributionIdOwner"`
+		MaxItems    int           `xml:"MaxItems"`
+		Quantity    int           `xml:"Quantity"`
+		IsTruncated bool          `xml:"IsTruncated"`
+	}
+	items := make([]distIDOwner, 0, len(page))
+	for _, d := range page {
+		items = append(items, distIDOwner{DistributionID: d.ID, OwnerAccountID: h.Backend.AccountID()})
+	}
+	list := distIDOwnerList{
+		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(items),
+		Items: items, IsTruncated: isTruncated,
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)

@@ -238,8 +238,16 @@ func (b *InMemoryBackend) DescribePolicies(
 		}
 	}
 
+	// PolicyName is unique only within a group (scalingPolicies is keyed by
+	// scopedKey(groupName, PolicyName)), not account-wide -- when groupName is empty this scans
+	// every group's policies, so two different groups can share a policy name and need
+	// AutoScalingGroupName as a tiebreak for a stable pagination cursor.
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].PolicyName < result[j].PolicyName
+		if result[i].PolicyName != result[j].PolicyName {
+			return result[i].PolicyName < result[j].PolicyName
+		}
+
+		return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
 	})
 
 	return result, nil

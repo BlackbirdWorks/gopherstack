@@ -878,6 +878,8 @@ type listDomainConflictsXML struct {
 	DomainControlValidationResource *distributionResourceIDXML `xml:"DomainControlValidationResource"`
 	XMLName                         xml.Name                   `xml:"ListDomainConflictsRequest"`
 	Domain                          string                     `xml:"Domain"`
+	Marker                          string                     `xml:"Marker"`
+	MaxItems                        int                        `xml:"MaxItems"`
 }
 
 // handleListDomainConflicts reports every existing distribution or distribution tenant that
@@ -942,11 +944,25 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	// Marker/MaxItems travel in the request body alongside Domain (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpDocumentListDomainConflictsInput), so pagination
+	// uses paginateByMarkerValue, not the query-bound paginateByMarkerID. ResourceID is the
+	// cursor key -- findDomainConflicts sorts by it.
+	page, _, isTruncated := paginateByMarkerValue(
+		conflicts, func(dc DomainConflict) string { return dc.ResourceID }, req.Marker, req.MaxItems,
+	)
+
+	nextMarker := ""
+	if isTruncated && len(page) > 0 {
+		nextMarker = page[len(page)-1].ResourceID
+	}
+
 	// The real deserializer (awsRestxml_deserializeDocumentDomainConflictsList,
 	// cloudfront@v1.67.4) wraps the list in <DomainConflicts>, and each entry
-	// is ALSO named <DomainConflicts> (not <Items>/<DomainConflict>).
+	// is ALSO named <DomainConflicts> (not <Items>/<DomainConflict>). NextMarker is a
+	// sibling of the DomainConflicts entries, not nested inside them.
 	var items strings.Builder
-	for _, dc := range conflicts {
+	for _, dc := range page {
 		fmt.Fprintf(
 			&items,
 			`<DomainConflicts><Domain>%s</Domain><ResourceType>%s</ResourceType>`+
@@ -955,11 +971,16 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		)
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainConflictList xmlns="%s">`+
-		`<DomainConflicts>%s</DomainConflicts>`+
+		`<DomainConflicts>%s</DomainConflicts>%s`+
 		`</DomainConflictList>`,
-		cfNS, items.String())
+		cfNS, items.String(), nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

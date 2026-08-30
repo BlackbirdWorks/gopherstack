@@ -122,8 +122,18 @@ func (h *Handler) handleGetFieldLevelEncryption(c *echo.Context, id string) erro
 	return xmlResp(c, http.StatusOK, fleResponseXML(fle))
 }
 
+// handleListFieldLevelEncryptions implements ListFieldLevelEncryptionConfigs, paginated via
+// Marker/MaxItems (both query-bound, cloudfront@v1.67.4 serializers.go). Real
+// FieldLevelEncryptionList has no IsTruncated field -- NextMarker's presence alone signals
+// truncation (types/types.go:3054-3074).
 func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
 	items := h.Backend.ListFieldLevelEncryptions()
+
+	page, pageSize, _, nextMarker := paginateByMarkerID(
+		c,
+		items,
+		func(fle *FieldLevelEncryption) string { return fle.ID },
+	)
 
 	type fleSummaryXML struct {
 		XMLName xml.Name `xml:"FieldLevelEncryptionSummary"`
@@ -132,20 +142,26 @@ func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
 	}
 
 	type fleListXML struct {
-		XMLName     xml.Name        `xml:"FieldLevelEncryptionList"`
-		XMLNS       string          `xml:"xmlns,attr"`
-		Items       []fleSummaryXML `xml:"Items>FieldLevelEncryptionSummary"`
-		MaxItems    int             `xml:"MaxItems"`
-		Quantity    int             `xml:"Quantity"`
-		IsTruncated bool            `xml:"IsTruncated"`
+		XMLName    xml.Name        `xml:"FieldLevelEncryptionList"`
+		XMLNS      string          `xml:"xmlns,attr"`
+		NextMarker string          `xml:"NextMarker,omitempty"`
+		Items      []fleSummaryXML `xml:"Items>FieldLevelEncryptionSummary"`
+		MaxItems   int             `xml:"MaxItems"`
+		Quantity   int             `xml:"Quantity"`
 	}
 
-	summaries := make([]fleSummaryXML, 0, len(items))
-	for _, fle := range items {
+	summaries := make([]fleSummaryXML, 0, len(page))
+	for _, fle := range page {
 		summaries = append(summaries, fleSummaryXML{ID: fle.ID, Comment: fle.Comment})
 	}
 
-	list := fleListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := fleListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
@@ -340,9 +356,17 @@ func (h *Handler) handleGetFieldLevelEncryptionProfile(c *echo.Context, id strin
 	return xmlResp(c, http.StatusOK, fleProfileResponseXML(p))
 }
 
+// handleListFieldLevelEncryptionProfiles paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real FieldLevelEncryptionProfileList has no IsTruncated
+// field -- NextMarker's presence alone signals truncation (types/types.go:3129-3149).
+//
 //nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error {
 	items := h.Backend.ListFieldLevelEncryptionProfiles()
+
+	page, pageSize, _, nextMarker := paginateByMarkerID(
+		c, items, func(p *FieldLevelEncryptionProfile) string { return p.ID },
+	)
 
 	type flePSummaryXML struct {
 		XMLName xml.Name `xml:"FieldLevelEncryptionProfileSummary"`
@@ -352,20 +376,26 @@ func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error 
 	}
 
 	type flePListXML struct {
-		XMLName     xml.Name         `xml:"FieldLevelEncryptionProfileList"`
-		XMLNS       string           `xml:"xmlns,attr"`
-		Items       []flePSummaryXML `xml:"Items>FieldLevelEncryptionProfileSummary"`
-		MaxItems    int              `xml:"MaxItems"`
-		Quantity    int              `xml:"Quantity"`
-		IsTruncated bool             `xml:"IsTruncated"`
+		XMLName    xml.Name         `xml:"FieldLevelEncryptionProfileList"`
+		XMLNS      string           `xml:"xmlns,attr"`
+		NextMarker string           `xml:"NextMarker,omitempty"`
+		Items      []flePSummaryXML `xml:"Items>FieldLevelEncryptionProfileSummary"`
+		MaxItems   int              `xml:"MaxItems"`
+		Quantity   int              `xml:"Quantity"`
 	}
 
-	summaries := make([]flePSummaryXML, 0, len(items))
-	for _, p := range items {
+	summaries := make([]flePSummaryXML, 0, len(page))
+	for _, p := range page {
 		summaries = append(summaries, flePSummaryXML{ID: p.ID, Name: p.Name, Comment: p.Comment})
 	}
 
-	list := flePListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := flePListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

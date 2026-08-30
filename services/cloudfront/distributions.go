@@ -446,6 +446,8 @@ func (b *InMemoryBackend) ListConflictingAliasesByDomain(domain string) []*Distr
 		}
 	}
 
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+
 	return out
 }
 
@@ -463,6 +465,8 @@ func (b *InMemoryBackend) ListDistributionsByWebACLID(webACLID string) []*Distri
 			}
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }

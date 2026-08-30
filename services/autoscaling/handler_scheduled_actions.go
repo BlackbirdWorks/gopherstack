@@ -5,6 +5,16 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultSAMaxRecords and maxSAMaxRecords are DescribeScheduledActions's documented
+// default/max page size (api_op_DescribeScheduledActions.go: "The default value is 50 and the
+// maximum value is 100").
+const (
+	defaultSAMaxRecords = 50
+	maxSAMaxRecords     = 100
 )
 
 func (h *Handler) handleBatchDeleteScheduledAction(vals url.Values) (any, error) {
@@ -64,8 +74,17 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlScheduledAction, 0, len(actions))
-	for _, action := range actions {
+	maxRecords := defaultSAMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxSAMaxRecords)
+		}
+	}
+
+	p := page.New(actions, vals.Get("NextToken"), maxRecords, defaultSAMaxRecords)
+
+	members := make([]xmlScheduledAction, 0, len(p.Data))
+	for _, action := range p.Data {
 		startTime := ""
 		if !action.StartTime.IsZero() {
 			startTime = action.StartTime.UTC().Format(time.RFC3339)
@@ -93,6 +112,7 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	return &describeScheduledActionsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeScheduledActionsResult{
+			NextToken:                   p.Next,
 			ScheduledUpdateGroupActions: xmlScheduledActionList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-scheduled-actions"},

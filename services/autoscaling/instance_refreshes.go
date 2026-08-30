@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -148,6 +149,12 @@ func (b *InMemoryBackend) DescribeInstanceRefreshes(groupName string, refreshIDs
 			result = append(result, *r)
 		}
 	}
+
+	// groups is b.instanceRefreshes (a map) when groupName is empty, so account-wide iteration
+	// order is randomized run to run; a stable total order is required for pagination to not
+	// drop or duplicate records across a page boundary. InstanceRefreshID is a uuid.NewString()
+	// value (see StartInstanceRefresh below) -- globally unique, so no tiebreak is needed.
+	sort.Slice(result, func(i, j int) bool { return result[i].InstanceRefreshID < result[j].InstanceRefreshID })
 
 	return result, nil
 }

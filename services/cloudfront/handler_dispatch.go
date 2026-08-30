@@ -665,7 +665,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByWebACLID:
 		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributionsByWebACLId/"))
 	case opListDistributionsByRealtimeLogConfig:
-		return h.handleListDistributionsByRealtimeLogConfig(c, extractRealtimeLogConfigArn(c))
+		return h.handleListDistributionsByRealtimeLogConfig(c, decodeListDistributionsByRealtimeLogConfigBody(c))
 	case opListDistributionsByKeyGroup:
 		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributionsByKeyGroupId/"))
 	case opListDistributionsByVpcOriginID:
