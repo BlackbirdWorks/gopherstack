@@ -78,6 +78,7 @@ const (
 	listNotebookExecPageSize     = 50
 	listBootstrapActionsPageSize = 50
 	listSessionsPageSize         = 50
+	listStudioMappingsPageSize   = 50
 
 	instanceGroupStateRunning = "RUNNING"
 

@@ -7,8 +7,46 @@
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 8c56f4eb9                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26). HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
-last_audit_date: 2026-08-29
-overall: A                # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
+last_audit_date: 2026-08-30
+overall: A                # 2026-08-30 (transfer/emr/elasticache Describe/List rigor pass, same wrapper-key-sweep
+                           # branch): independently re-derived the 22-op Describe/List surface from handler.go's
+                           # dispatch table (not PARITY.md prose) and read each op's own api_op_<Op>.go against its
+                           # handler. Found and fixed two real bugs the 2026-08-28/29 sweeps on this same branch
+                           # missed because they are a variant of the request-parameter class, not the exact shape
+                           # either prior pass searched for: (1) ListReleaseLabelsInput's pagination token
+                           # serializes as "NextToken" (serializers.go's awsAwsjson11_serializeOpDocumentListRelease
+                           # LabelsInput -- object.Key("NextToken")), but gopherstack's listReleaseLabelsInput read
+                           # a field tagged "Marker" -- copy-pasted from the sibling ListSupportedInstanceTypesInput,
+                           # which genuinely does use "Marker". A real client's NextToken was silently dropped
+                           # (unknown JSON field ignored by encoding/json), so a second page always restarted from
+                           # the beginning. The same handler also parsed MaxResults but never passed it to the
+                           # backend, which paginated at a hardcoded size of 50 regardless of what the caller asked
+                           # for. Both fixed together (Backend.ListReleaseLabels now takes nextToken+maxResults);
+                           # proven via TestListReleaseLabels_NextTokenPaginates (wire_field_fixes_test.go, real SDK
+                           # client, confirmed failing pre-fix: 15 labels returned instead of the requested 5, no
+                           # NextToken). (2) ListStudioSessionMappings had no Marker field anywhere in its request
+                           # or response structs at all (its sibling ListStudios already threads Marker correctly)
+                           # -- a real client's Marker was silently dropped and the op always returned every mapping
+                           # for the studio unbounded, in one page, regardless of how many existed. Added Marker to
+                           # both listStudioSessionMappingsInput/Output and wired page.New in the backend (same
+                           # pattern as ListStudios/ListSessions). Proven via
+                           # TestListStudioSessionMappings_MarkerPaginates (55 mappings created via a real SDK
+                           # client, confirmed failing pre-fix: first page returned all 55, nil Marker). Both are
+                           # request-parameter-misread bugs (PRIMARY CLASS), not silent-drop-on-response bugs, which
+                           # is why the two prior 6flj/21my and 8-11 sweeps -- which grepped serializer *response*
+                           # cases and RunJobFlow/Cluster field diffs specifically -- didn't surface them; this pass
+                           # instead read every remaining List/Describe op's own request Input struct field-by-field
+                           # against its handler. Independently re-verified (no bug, no fix, spot read against
+                           # api_op_<Op>.go) as part of the same 22-op sweep: DescribeCluster, ListClusters,
+                           # DescribeJobFlows, ListSteps, DescribeStep, ListInstanceGroups, ListInstanceFleets,
+                           # ListBootstrapActions, DescribeSecurityConfiguration, DescribeNotebookExecution,
+                           # DescribePersistentAppUI, DescribeReleaseLabel, DescribeStudio, ListInstances,
+                           # ListReleaseLabels (post-fix), ListSecurityConfigurations, ListStudios,
+                           # ListSupportedInstanceTypes, ListSessions, ListNotebookExecutions,
+                           # ListStudioSessionMappings (post-fix). 22 of 22. No listing found that skips its store;
+                           # no handler found discarding its whole request; no wrong Go type found beyond what prior
+                           # passes already fixed.
+                           # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
                            # ListNotebookExecutionsInput.ExecutionEngineId/From/To (real query members,
                            # api_op_ListNotebookExecutions.go) were declared on the wire but had no field at all in
                            # gopherstack's request struct -- only EditorId/Status/Marker were read. Fixed: all three
@@ -105,7 +143,7 @@ ops:
   DeleteStudio: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime same fix"}
   GetStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListStudioSessionMappings: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListStudioSessionMappings: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-30: real ListStudioSessionMappingsInput/Output both declare a Marker pagination token (api_op_ListStudioSessionMappings.go) that had no field anywhere in this handler's request/response structs at all -- a real client's Marker was silently dropped, and the op always returned every mapping for the studio unbounded in one page. Added Marker to both structs and wired page.New (listStudioMappingsPageSize=50, matching the sibling ListStudios/ListSessions pattern). Proven via TestListStudioSessionMappings_MarkerPaginates (wire_field_fixes_test.go), hand-confirmed failing pre-fix (55 created, all 55 returned in one page, nil Marker)."}
   UpdateStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   StartNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartTime/EndTime were raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31 SEVERE FIX: the input's cluster reference was declared with JSON tag \"ExecutionEngineConfig\" (the real *type* name, types.ExecutionEngineConfig) instead of the real top-level *field* name \"ExecutionEngine\" -- a real client's ExecutionEngine was silently dropped by json.Unmarshal (unknown fields are ignored, not errored), so NotebookExecution.ExecutionEngineId was ALWAYS empty regardless of what cluster the caller named. Six existing tests sent the wrong \"ExecutionEngineConfig\" key and none asserted ExecutionEngineId was actually populated, so the bug passed silently; all six corrected to the real \"ExecutionEngine\" key and a new wire-shape test now asserts ExecutionEngineId round-trips."}
@@ -136,7 +174,7 @@ ops:
   # exist for this client.
   ListBootstrapActions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListInstances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-07: two real bugs fixed. (1) buildInstanceList only ever iterated cluster.instanceGroups -- a cluster built with Instances.InstanceFleets (InstanceCollectionType=INSTANCE_FLEET) had zero instances synthesized ever, regardless of ProvisionedOnDemandCapacity/ProvisionedSpotCapacity; ListInstances now also synthesizes fleet instances from that real per-fleet state, split ON_DEMAND/SPOT by the provisioned counts. (2) InstanceFleetId was accepted on the wire and silently ignored (real filter, real backend state, just never wired); also added the previously-entirely-missing InstanceFleetType filter (real ListInstancesInput member) and wired the previously-accepted-but-ignored InstanceStates filter. Remaining simplification: fleet-synthesized instances leave InstanceType blank (omitempty) -- see gaps, not structural_gaps, since it is buildable, just deferred (see note there). EbsVolumes/PublicIpAddress/etc. on group instances unchanged from prior pass (optional, correctly nil)."}
-  ListReleaseLabels: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListReleaseLabels: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED 2026-08-30: the real pagination token serializes as \"NextToken\" (serializers.go's awsAwsjson11_serializeOpDocumentListReleaseLabelsInput), but listReleaseLabelsInput read a field tagged \"Marker\" -- copy-pasted from the sibling ListSupportedInstanceTypesInput/Output, which genuinely does use \"Marker\" (confirmed both ways from api_op_ListSupportedInstanceTypes.go) -- so a field-name-driven blanket rename would have broken that sibling. A real client's NextToken was silently dropped (unknown JSON field). MaxResults was also parsed but never passed to the backend, which paginated at a fixed size of 50 regardless of the caller's request. Both fixed: field renamed to NextToken, MaxResults threaded through Backend.ListReleaseLabels into the existing page.New call. Proven via TestListReleaseLabels_NextTokenPaginates (wire_field_fixes_test.go, real SDK client), confirmed failing pre-fix (MaxResults=5 returned all 15 labels, no NextToken)."}
   DescribeReleaseLabel: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListSupportedInstanceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   SetTerminationProtection: {wire: ok, errors: ok, state: ok, persist: ok}

@@ -2,6 +2,7 @@ package emr_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -531,4 +532,114 @@ func TestListNotebookExecutions_FromToFilter(t *testing.T) {
 		awssdk.ToString(started.NotebookExecutionId),
 		awssdk.ToString(included.NotebookExecutions[0].NotebookExecutionId),
 	)
+}
+
+// TestListReleaseLabels_NextTokenPaginates proves ListReleaseLabels' request
+// pagination token round-trips under its real wire key. ListReleaseLabelsInput
+// serializes the token as "NextToken" (emr@v1.64.4 serializers.go's
+// awsAwsjson11_serializeOpDocumentListReleaseLabelsInput -- object.Key("NextToken")),
+// not "Marker" -- the sibling key ListSupportedInstanceTypesInput/Output
+// genuinely does use (api_op_ListSupportedInstanceTypes.go), which this handler's
+// listReleaseLabelsInput had copy-pasted. A real client's second-page NextToken was
+// silently dropped by encoding/json (unknown field ignored), so the second call
+// always restarted from the beginning instead of advancing. This test also proves
+// MaxResults is honoured (a real, sibling bug: it was parsed but never passed to
+// the backend, which paginated at a fixed size of 50 regardless of the caller's
+// requested page size).
+func TestListReleaseLabels_NextTokenPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	first, err := client.ListReleaseLabels(t.Context(), &emrsdk.ListReleaseLabelsInput{
+		MaxResults: awssdk.Int32(5),
+	})
+	require.NoError(t, err)
+	require.Len(t, first.ReleaseLabels, 5, "MaxResults=5 must cap the first page at 5 items")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, *first.NextToken, "a page short of the full catalog must return a NextToken")
+
+	second, err := client.ListReleaseLabels(t.Context(), &emrsdk.ListReleaseLabelsInput{
+		MaxResults: awssdk.Int32(5),
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.ReleaseLabels, 5, "MaxResults=5 must cap the second page at 5 items too")
+
+	seen := make(map[string]bool, 10)
+	for _, l := range first.ReleaseLabels {
+		seen[l] = true
+	}
+
+	for _, l := range second.ReleaseLabels {
+		assert.False(t, seen[l], "second page (via NextToken) repeated %q from the first page -- "+
+			"NextToken was not actually applied, the listing restarted from the beginning", l)
+	}
+}
+
+// TestListStudioSessionMappings_MarkerPaginates proves ListStudioSessionMappings
+// honours its real Marker pagination token (api_op_ListStudioSessionMappings.go
+// declares both a request Marker and a response Marker) instead of silently
+// returning every mapping for the studio in one unbounded page -- previously
+// neither field existed anywhere in this handler's request or response structs
+// at all, unlike every sibling List op in this file (ListStudios, ListSessions),
+// which already threaded Marker/NextToken through to pkgs/page.
+func TestListStudioSessionMappings_MarkerPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateStudio(ctx, &emrsdk.CreateStudioInput{
+		Name:                     awssdk.String("mapping-page-studio"),
+		AuthMode:                 emrtypes.AuthModeSso,
+		DefaultS3Location:        awssdk.String("s3://bucket/studio"),
+		EngineSecurityGroupId:    awssdk.String("sg-eng"),
+		ServiceRole:              awssdk.String("arn:aws:iam::000000000000:role/service"),
+		VpcId:                    awssdk.String("vpc-1"),
+		WorkspaceSecurityGroupId: awssdk.String("sg-workspace"),
+		SubnetIds:                []string{"subnet-1"},
+	})
+	require.NoError(t, err)
+
+	const total = 55 // exceeds this op's 50-item page size
+
+	for i := range total {
+		_, mapErr := client.CreateStudioSessionMapping(ctx, &emrsdk.CreateStudioSessionMappingInput{
+			StudioId:         createOut.StudioId,
+			IdentityType:     emrtypes.IdentityTypeUser,
+			IdentityId:       awssdk.String(fmt.Sprintf("user-%03d", i)),
+			IdentityName:     awssdk.String(fmt.Sprintf("user-%03d", i)),
+			SessionPolicyArn: awssdk.String("arn:aws:iam::000000000000:policy/session"),
+		})
+		require.NoError(t, mapErr)
+	}
+
+	first, err := client.ListStudioSessionMappings(ctx, &emrsdk.ListStudioSessionMappingsInput{
+		StudioId: createOut.StudioId,
+	})
+	require.NoError(t, err)
+	assert.Less(t, len(first.SessionMappings), total,
+		"a single ListStudioSessionMappings page must not return all %d mappings unbounded", total)
+	require.NotNil(t, first.Marker)
+	require.NotEmpty(t, *first.Marker, "a short page must return a Marker")
+
+	second, err := client.ListStudioSessionMappings(ctx, &emrsdk.ListStudioSessionMappingsInput{
+		StudioId: createOut.StudioId,
+		Marker:   first.Marker,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, second.SessionMappings)
+
+	seen := make(map[string]bool, len(first.SessionMappings))
+	for _, m := range first.SessionMappings {
+		seen[awssdk.ToString(m.IdentityId)] = true
+	}
+
+	for _, m := range second.SessionMappings {
+		assert.False(t, seen[awssdk.ToString(m.IdentityId)],
+			"second page (via Marker) repeated %q from the first page", awssdk.ToString(m.IdentityId))
+	}
 }

@@ -79,7 +79,7 @@ var supportedInstanceTypes = []SupportedInstanceType{ //nolint:gochecknoglobals 
 
 // ListReleaseLabels returns release labels optionally filtered by prefix and application.
 func (b *InMemoryBackend) ListReleaseLabels(
-	_ context.Context, prefix, application, marker string,
+	_ context.Context, prefix, application, nextToken string, maxResults int,
 ) ([]string, string) {
 	var labels []string
 
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) ListReleaseLabels(
 
 	sort.Strings(labels)
 
-	p := page.New(labels, marker, listReleaseLabelsPage, listReleaseLabelsPage)
+	p := page.New(labels, nextToken, maxResults, listReleaseLabelsPage)
 
 	return p.Data, p.Next
 }

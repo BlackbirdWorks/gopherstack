@@ -6,8 +6,24 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
-last_audit_commit: 58b3ad76d                         # HEAD when this manifest was written
-last_audit_date: 2026-08-28
+last_audit_commit: 33ef0db22
+last_audit_date: 2026-08-30                          # 2026-08-30 (transfer/emr/elasticache Describe/List rigor
+                                                       # pass, same wrapper-key-sweep branch): independently
+                                                       # re-derived this service's 27-op Describe/List surface from
+                                                       # handler.go's dispatch table (not PARITY.md prose): 13
+                                                       # Describe + 14 List. Read all 27 handlers field-by-field
+                                                       # against their own api_op_<Op>.go Input structs (transfer
+                                                       # is awsAwsjson1.1, X-Amz-Target: TransferService.<Op>,
+                                                       # reconfirmed via serializers.go). No new bug found -- every
+                                                       # op already correctly reads its declared filters
+                                                       # (ListProfiles.ProfileType, ListExecutions/ListAgreements/
+                                                       # ListAccesses/ListHostKeys/ListUsers's required By-ID
+                                                       # selectors, ListFileTransferResults's required
+                                                       # ConnectorId+TransferId), no listing skips its store, no
+                                                       # handler discards its whole request, no wrong Go type. This
+                                                       # corroborates rather than supersedes the 2026-08-29 wrapper-
+                                                       # key-sweep and filter/pagination audits already recorded
+                                                       # below -- independently re-verified, not re-fixed.
 overall: A                # WebApp create/wire rewrite to real shape, SecurityPolicy catalog rewrite to real names/algos, Start* op wire fixes, epoch-timestamp bug class fixed across Certificate/HostKey/SSHPublicKey
                            # 2026-08-29 wrapper-key sweep (query/path/header key hunt, cross-service with
                            # apigateway/efs/appconfig): the class this sweep hunts (a handler reading a

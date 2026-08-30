@@ -1,9 +1,28 @@
 ---
 service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.56.4
-last_audit_commit: 95db4e412
-last_audit_date: 2026-08-10
-overall: A            # gopherstack-nojq: wired UserGroup.ServerlessCaches (real
+last_audit_commit: 33ef0db22
+last_audit_date: 2026-08-30
+overall: A            # 2026-08-30 (transfer/emr/elasticache Describe/List rigor pass, same wrapper-key-sweep
+                       # branch): independently re-derived this service's 21-op Describe/List surface from
+                       # handler.go's dispatch table (not PARITY.md prose): 19 Describe + 2 List. Re-verified the
+                       # 2026-08-29 list-filter-params sweep's four fixes (DescribeUpdateActions, DescribeUsers,
+                       # DescribeReservedCacheNodes/Offerings) by reading their handlers directly -- all four
+                       # genuinely correct, not re-fixed. Spot-read the remaining ops not given a filter-by-filter
+                       # note in that sweep (DescribeCacheSubnetGroups, DescribeSnapshots, DescribeCacheSecurityGroups,
+                       # DescribeGlobalReplicationGroups, DescribeEvents, DescribeCacheParameterGroups,
+                       # DescribeEngineDefaultParameters, DescribeCacheEngineVersions) against their own
+                       # api_op_<Op>.go Input structs -- all correctly wired except DescribeCacheParameters (see its
+                       # own ops-table row, new gap found and disclosed, not fixed -- missing backend data, not a
+                       # misread key). Confirmed ListAllowedNodeTypeModifications's already-disclosed structural gap
+                       # by independently reading api_op_ListAllowedNodeTypeModificationsInput/Output and the
+                       # backend method -- not re-fixed, correctly characterized already. No listing found that
+                       # skips its store; no handler found discarding its whole request; no wrong Go type found. The
+                       # Query/XML protocol (confirmed via aws/protocol/query import in serializers.go, Action= form
+                       # field) has no NextToken-vs-Marker sibling-key-mismatch class the way emr's awsjson1.1 did
+                       # (this service's Marker key is genuinely uniform across every op) -- checked and ruled out,
+                       # not assumed.
+                       # gopherstack-nojq: wired UserGroup.ServerlessCaches (real
                        # reverse-association, same pattern as ReplicationGroups); added
                        # published-quota enforcement for CacheSubnetGroupQuotaExceeded/
                        # CacheSubnetQuotaExceededFault/ServerlessCacheQuotaForCustomer
@@ -75,7 +94,7 @@ ops:
   DescribeCacheParameterGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked"}
   ModifyCacheParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ResetCacheParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCacheParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CacheParameterGroupNotFound 400->404; MaxRecords [20,100] now enforced"}
+  DescribeCacheParameters: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed: CacheParameterGroupNotFound 400->404; MaxRecords [20,100] now enforced. GAP found 2026-08-30 (transfer/emr/elasticache rigor pass): DescribeCacheParametersInput.Source (real, Valid Values user|system|engine-default, api_op_DescribeCacheParameters.go) is declared on the wire and never read by the handler at all. Not fixed: this backend's CacheParameterGroup.Parameters only ever stores explicitly-overridden values (every stored entry is unconditionally IsModifiable:true, i.e. always 'user' source) -- there is no modeled 'system'/'engine-default' parameter state to differentiate by Source in the first place (DescribeEngineDefaultParameters is a separate, unrelated static catalog, not merged into a group's own parameter list). Implementing Source faithfully needs the same class of full-default-parameter-catalog-merge work already deferred elsewhere in this manifest (see ListAllowedNodeTypeModifications, snapshot data-plane fidelity) -- a missing-backend-data gap per parity-principles.md #4, not a quick key fix; fabricating a Source split over undifferentiated data would be worse than leaving it unfiltered."}
   DescribeEngineDefaultParameters: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "MaxRecords [20,100] now enforced"}
   CreateCacheSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "(2026-08-10) now enforces CacheSubnetGroupQuotaExceeded (300/Region) and CacheSubnetQuotaExceededFault (20/group) -- AWS's documented default quotas, docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html"}
   DeleteCacheSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: code CacheSubnetGroupNotFound -> CacheSubnetGroupNotFoundFault (Fault suffix kept on the wire for this one; status stays 400)"}
