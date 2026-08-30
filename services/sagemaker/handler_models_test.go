@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -467,4 +468,41 @@ func TestDeleteModel_NotFound(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_ListModels_CreationTimeAfterInclusive asserts CreationTimeAfter
+// is an INCLUSIVE bound -- ListModelsInput's own doc: "a creation time
+// greater than or equal to the specified time" -- not the family's default
+// strict bound, so a model filtered by a CreationTimeAfter EQUAL to its own
+// CreationTime must still be returned. CreationTime is seeded to an exact
+// whole second: a wire-level round trip (epoch-seconds JSON, which floors
+// the true sub-second CreationTime) would almost never land the query
+// value and the stored value on the same instant otherwise.
+func TestHandler_ListModels_CreationTimeAfterInclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateModel", map[string]any{
+		"ModelName": "boundary-model",
+		"PrimaryContainer": map[string]any{
+			"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+		},
+	})
+
+	boundary := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	sagemaker.SeedModelCreationTime(h.Backend, "us-east-1", "boundary-model", boundary)
+
+	rec := doSageMakerRequest(t, h, "ListModels", map[string]any{"CreationTimeAfter": float64(boundary.Unix())})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	models, ok := resp["Models"].([]any)
+	require.True(t, ok)
+	require.Len(t, models, 1)
+
+	m, ok := models[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "boundary-model", m["ModelName"])
 }

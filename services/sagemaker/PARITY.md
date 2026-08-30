@@ -5536,3 +5536,102 @@ New tests: `services/sagemaker/pagination_arithmetic_test.go`.
 Gates: `go build ./services/sagemaker/...` (clean), `go vet ./services/sagemaker/...`
 (clean, no signature changes), `go test -race -count=1 ./services/sagemaker/...`
 (pass). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 filter-semantics sweep (gopherstack-uox6): Search, and CreationTimeAfter boundary
+
+Audited for the class this issue tracks: a filter field that is read and
+applied but implements the WRONG semantics for what the SDK documents —
+invisible to every shape/enum/field-coverage sweep this campaign has run,
+since the field exists, is read, and the value is a legal enum member.
+
+**`Search` (the richest target: `types.SearchExpression`'s `Filters`,
+`NestedFilters`, `Operator`, `SubExpressions`).** Two real bugs, both
+under-matching turning into over-accepting once combined with the empty-list
+default:
+
+- `handler_automl_search.go`'s `searchInput.SearchExpression` decoded only
+  `Operator` and `Filters` — `NestedFilters` and `SubExpressions` were never
+  read from the wire at all. Since `matchesSearchExpression` returned `true`
+  for an empty filter list, a request expressed purely via `NestedFilters`
+  or `SubExpressions` (no top-level `Filters`) matched **every** resource of
+  the requested type instead of the ones the caller asked for — an
+  over-accept masking an under-match. Fixed by decoding both into a proper
+  recursive `SearchExpression`/`SearchNestedFilter` domain type
+  (`automl_search.go`) and combining every condition across all three lists
+  by `SearchExpression`'s single documented `Operator` (`api_op_Search.go`:
+  "every conditional statement in all lists ... The default value is And"),
+  not per-list. `NestedFilters` is evaluated per its own doc and the SDK's
+  `API_NestedFilters.html` worked example: satisfied if a single object in
+  the `NestedPropertyName` list satisfies every one of its `Filters`, whose
+  `Name` carries the FULL dotted path including the `NestedPropertyName`
+  prefix (e.g. `InputDataConfig.DataSource.S3DataSource.S3Uri`) — verified
+  against `TrainingJob.InputDataConfig`, the one nested list-of-objects field
+  this backend's Search view actually exposes.
+- `matchesSearchFilter` (`automl_search.go`) implemented only 5 of
+  `types.Operator`'s 10 documented values (`Equals`/`NotEquals`/`Contains`/
+  `Exists`/`NotExists`) and matched **unconditionally** (`return true`) for
+  any of the other 5 (`GreaterThan`, `GreaterThanOrEqualTo`, `LessThan`,
+  `LessThanOrEqualTo`, `In`) — over-accepting exactly this campaign's SNS
+  shape (an operator outside the documented behaviour matches everything
+  instead of nothing). Fixed by implementing all five, and changing the
+  default case to reject (no match) rather than accept, matching the
+  established fix pattern for this shape.
+- **Self-inconsistency found and fixed alongside the above**: the response's
+  `CreationTime`/`LastModifiedTime`/`TrainingStartTime`/`TrainingEndTime`
+  are emitted as epoch-seconds numbers (correct for the JSON protocol,
+  `awstime.Epoch`-equivalent), but `Filter.Value`'s own doc states timestamp
+  properties compare as ISO 8601 strings
+  (`YYYY-mm-dd'T'HH:MM:SS`) — a filter built in the documented format could
+  never match this API's own emitted timestamp. Fixed by detecting the four
+  timestamp field names and converting both sides to epoch-seconds before
+  comparing, for `Equals`/`NotEquals` and the four range operators.
+- **Confirmed correct, not fabricated**: the pre-existing default-`Operator`
+  (empty string → `And`) already matched
+  `SearchExpression.Operator`'s documented default exactly; left unchanged.
+
+**Other hand-rolled matchers audited**: `list_helpers.go`'s
+`nameTimeFilter`/`filterSortPaginateByName` (shared by `ListModels`,
+`ListEndpointConfigs`, `ListAlgorithms`, `ListMonitoringExecutions`) treated
+every `CreationTimeAfter` as a strict exclusive (`>`) bound. Checked each
+consuming operation's own SDK doc text individually rather than assuming a
+uniform rule: `ListModelsInput`/`ListEndpointConfigsInput` document
+`CreationTimeAfter` as "**greater than or equal to** the specified time"
+(inclusive), while `ListAlgorithmsInput`/`ListMonitoringExecutionsInput` say
+plain "created after" (exclusive) — a real inconsistency in AWS's own
+generated doc text across sibling operations sharing this emulator's one
+helper. Fixed narrowly: added `nameTimeFilter.AfterInclusive`, set only by
+`ListModels`/`ListEndpointConfigs` (the two call sites whose own doc is
+explicit), leaving `ListAlgorithms` and every other `timeWindowOK`/
+`filterSortPaginateByName*` consumer (~20 other files) untouched and
+unaudited for the same wording variance — named here rather than implied,
+since checking each of the ~12 further sagemaker `List*` operations whose
+pinned-SDK doc also says "greater than or equal"/"on or after"
+(`ListActions`, `ListArtifacts`, `ListContexts`, `ListAssociations`,
+`ListAppImageConfigs`, `ListMonitoringAlertHistory`, `ListEndpoints`,
+`ListHumanTaskUis`, `ListImageVersions`, `ListImages`,
+`ListStudioLifecycleConfigs`) was out of scope for this pass.
+
+**Gap recorded, not guessed**: `NestedFilters`' own SDK type doc gives one
+concrete worked example (`InputDataConfig`/`S3Uri`) but does not state
+whether `Filter.Name`'s dotted path is always exactly
+`NestedPropertyName + "." + <path-within-the-nested-object>` for every
+possible `NestedPropertyName`, or whether some nested properties use a
+different addressing convention. Implemented for the one case both the SDK
+doc and TrainingJob's own field shape confirm; not extended beyond it.
+
+New/changed tests (all confirmed to fail against unmodified code first, 0
+existing assertions weakened or dropped):
+`handler_automl_search_test.go` (58→86 assertions, +28),
+`handler_models_test.go` (41→47, +6), `handler_endpoint_configs_test.go`
+(54→60, +6), `handler_algorithms_test.go` (41→44, +3).
+`export_test.go` gained `SeedModelCreationTime`/`SeedEndpointConfigCreationTime`/
+`SeedAlgorithmCreationTime` — the epoch-seconds wire round trip floors a
+resource's true CreationTime, so a wire-level test can't reliably land on
+the exact boundary second an inclusive-vs-exclusive test needs.
+
+Gates: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go test -race -count=1 ./services/sagemaker/...`, `golangci-lint run
+./services/sagemaker/...` all clean. `go vet ./...` (repo-wide, since
+`SearchParams`/`nameTimeFilter` signatures changed) also clean; no external
+callers of either type exist outside this package. Work left uncommitted
+per this pass's instructions.

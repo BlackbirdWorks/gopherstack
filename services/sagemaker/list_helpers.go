@@ -212,6 +212,12 @@ type nameTimeFilter struct {
 	SortBy             string
 	SortOrder          string
 	MaxResults         int32
+	// AfterInclusive makes CreationTimeAfter an inclusive (>=) bound instead
+	// of the family's default strict (>) bound. ListModelsInput and
+	// ListEndpointConfigsInput's own doc text reads "a creation time greater
+	// than or equal to the specified time", unlike ListAlgorithmsInput's
+	// plain "created after" -- callers for those two set this true.
+	AfterInclusive bool
 }
 
 // nameTimeListRequest is the request body shape shared by ListModels,
@@ -241,6 +247,17 @@ func (r nameTimeListRequest) toFilter() nameTimeFilter {
 	}
 }
 
+// nameTimeWindowOK reports whether ct satisfies filter's CreationTime
+// window: like timeWindowOK, except the lower bound honours
+// filter.AfterInclusive (see nameTimeFilter's doc).
+func nameTimeWindowOK(ct time.Time, filter nameTimeFilter) bool {
+	afterOK := filter.CreationTimeAfter == nil ||
+		(filter.AfterInclusive && !ct.Before(*filter.CreationTimeAfter)) ||
+		(!filter.AfterInclusive && ct.After(*filter.CreationTimeAfter))
+
+	return afterOK && (filter.CreationTimeBefore == nil || ct.Before(*filter.CreationTimeBefore))
+}
+
 // filterSortPaginateByName filters all by filter.NameContains/creation-time
 // window, sorts by filter.SortBy (keyGenericName, else CreationTime) and
 // filter.SortOrder (falling back to defaultDescending when SortOrder is
@@ -260,7 +277,7 @@ func filterSortPaginateByName[T any](
 			continue
 		}
 
-		if !timeWindowOK(creationTimeOf(item), filter.CreationTimeAfter, filter.CreationTimeBefore) {
+		if !nameTimeWindowOK(creationTimeOf(item), filter) {
 			continue
 		}
 
