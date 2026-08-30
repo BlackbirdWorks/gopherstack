@@ -603,3 +603,48 @@ Gates: `go build ./services/redshiftdata/...`,
 no signature changed), `go test -race -count=1
 ./services/redshiftdata/...`, `golangci-lint run ./services/redshiftdata/...`
 (0 issues).
+
+## 2026-08-30 anonymous-struct-decode sweep (gopherstack-4a8v): re-verified clean, no code change
+
+`cmd/reqfieldscan`'s fifth dispatch shape (`service.JSONOpFunc` implemented
+directly with anonymous inline request structs, no `WrapOp`) made this
+service newly visible to that scanner and flagged 25 fields as unread.
+Dispatch coverage: 12/12 (100%), both coverage lines identical, no guard
+warning. The originating bd issue (gopherstack-4a8v) spot-checked
+`ListDatabases`/`ListTables`/`DescribeTable`'s `WorkgroupName`/
+`ClusterIdentifier`/`SecretArn`/`DBUser` fields and called them "genuine,
+not tool noise" — that verdict does NOT survive re-verification against
+this file's own 2026-08-21 audit (`last_audit_commit: ee8d5788f`): every
+one of the 25 flagged fields across `ListDatabases`/`ListSchemas`/
+`ListTables`/`DescribeTable` (`WorkgroupName`/`ClusterIdentifier`/
+`SecretArn`/`DBUser`/`ConnectedDatabase`/`Schema`) is already the
+documented `ops:` gap "accepted-but-unused... this mock's demo
+[list/schema/table/column data] is not per-database/cluster/workgroup,
+consistent with how ClusterIdentifier/WorkgroupName/DbUser/SecretArn are
+already accepted-but-unused identity/auth fields here" (see the
+`ListDatabases`/`ListSchemas`/`ListTables`/`DescribeTable` rows above).
+Confirmed structurally, not just by the comment: `store.go`'s
+`InMemoryBackend`/`regionStore` hold only `statements` (and, via
+`sessions.go`, sessions derived from them) — there is no per-cluster or
+per-workgroup database/schema/table registry to filter against at all, and
+this API family (unlike `ExecuteStatement`'s real `ClusterIdentifier`/
+`WorkgroupName` statement filtering in `statements.go:198,202`, which DOES
+use them) has no Create/Register operation for databases/schemas/tables in
+the real AWS API either — they're a live catalog query against a real
+cluster this mock doesn't have.
+
+The remaining flagged fields (`ListSessions`/`ListStatements.RoleLevel`,
+`ExecuteStatement`/`BatchExecuteStatement.SessionKeepAliveSeconds`,
+`GetStatementResultV2.NextToken`) are likewise pre-existing, already-dated
+`gaps:` entries (RoleLevel: no per-IAM-identity model to filter on;
+SessionKeepAliveSeconds: no session-expiry state machine; NextToken: this
+mock's result sets are always exactly one row, so pagination is a
+structural no-op, the same shape as `GetStatementResult`'s sibling gap).
+
+**No code or test changes made to this service this pass.** All 25 flagged
+fields are honest, already-documented structural limitations, not new
+bugs — restraint per this campaign's own instructions, not a fabricated
+clean bill. This service's earlier A-grade verdict holds.
+
+Gates: not re-run (no change); `go build`/`go vet ./...` confirmed clean as
+part of this session's repo-wide checks.

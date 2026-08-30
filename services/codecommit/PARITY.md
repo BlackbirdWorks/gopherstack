@@ -75,19 +75,19 @@ ops:
   CreatePullRequestApprovalRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePullRequestApprovalRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "rule-not-found now ApprovalRuleDoesNotExistException, was RepositoryDoesNotExistException"}
   UpdatePullRequestApprovalRuleContent: {wire: ok, errors: fixed, state: ok, persist: ok, note: "rule-not-found now ApprovalRuleDoesNotExistException, was RepositoryDoesNotExistException"}
-  UpdatePullRequestApprovalState: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetPullRequestApprovalStates: {wire: ok, errors: ok, state: ok, persist: ok}
-  EvaluatePullRequestApprovalRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response emitted evaluationResults, an array of {approvalRuleName,satisfied} objects; the real required key (deserializers.go EvaluatePullRequestApprovalRulesOutput) is a single evaluation object (types.Evaluation: approved/overridden/approvalRulesSatisfied/approvalRulesNotSatisfied). Prior wire: ok was false. Handler now splits the backend's per-rule []RuleEvaluation into satisfied/not-satisfied name lists and folds in the existing prOverrides/prOverriders override state (approved := overridden || no unsatisfied rules). Backend still marks every rule Satisfied: true unconditionally (never checks a rule's real approval-pool/numberOfApprovalsNeeded content against actual approvals) — that evaluation-logic gap is pre-existing and out of this pass's scope (a wrong-key bug, not a wrong-logic one), tracked separately"}
-  OverridePullRequestApprovalRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetPullRequestOverrideState: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdatePullRequestApprovalState: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): revisionId is a required UpdatePullRequestApprovalStateInput member (codecommit@v1.36.4 api_op_UpdatePullRequestApprovalState.go) that was decoded and never validated. Added a required-field check. NOT fixed (gap): no staleness/mismatch check against the PR's real, tracked RevisionID (models.go/pull_requests.go) -- real AWS can also return InvalidRevisionIdException/RevisionNotCurrentException for a wrong or stale value; only the RevisionIdRequiredException case is covered, to avoid inventing which of those two codes an unmodeled mismatch should map to."}
+  GetPullRequestApprovalStates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): same revisionId-required fix and same NOT-fixed staleness-check gap as UpdatePullRequestApprovalState above (GetPullRequestApprovalStatesInput.RevisionId is also required)."}
+  EvaluatePullRequestApprovalRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response emitted evaluationResults, an array of {approvalRuleName,satisfied} objects; the real required key (deserializers.go EvaluatePullRequestApprovalRulesOutput) is a single evaluation object (types.Evaluation: approved/overridden/approvalRulesSatisfied/approvalRulesNotSatisfied). Prior wire: ok was false. Handler now splits the backend's per-rule []RuleEvaluation into satisfied/not-satisfied name lists and folds in the existing prOverrides/prOverriders override state (approved := overridden || no unsatisfied rules). Backend still marks every rule Satisfied: true unconditionally (never checks a rule's real approval-pool/numberOfApprovalsNeeded content against actual approvals) — that evaluation-logic gap is pre-existing and out of this pass's scope (a wrong-key bug, not a wrong-logic one), tracked separately. FIXED 2026-08-30 (gopherstack-4a8v): same revisionId-required fix and same NOT-fixed staleness-check gap as UpdatePullRequestApprovalState above (see its note)."}
+  OverridePullRequestApprovalRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): same revisionId-required fix and same NOT-fixed staleness-check gap as UpdatePullRequestApprovalState (see its note)."}
+  GetPullRequestOverrideState: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): same revisionId-required fix and same NOT-fixed staleness-check gap as UpdatePullRequestApprovalState (see its note)."}
   MergePullRequestByFastForward: {wire: ok, errors: ok, state: ok, persist: ok}
   MergePullRequestBySquash: {wire: ok, errors: ok, state: ok, persist: ok, note: "status transition is real; content-level squash semantics are not modeled (see gaps)"}
   MergePullRequestByThreeWay: {wire: ok, errors: ok, state: ok, persist: ok, note: "status transition is real; content-level 3-way merge semantics are not modeled (see gaps)"}
   MergeBranchesByFastForward: {wire: ok, errors: ok, state: ok, persist: ok, note: "OUT-OF-SCOPE FINDING (not fixed this pass, flagging per audit brief): same TargetBranch/source-dest-existence-validation gaps found and fixed in Squash/ThreeWay this pass also apply here — TargetBranch is accepted by the real MergeBranchesByFastForwardInput but never read (always updates destinationCommitSpecifier's literal string as if it were the target branch name), and neither source nor destination specifier is validated to exist before creating a commit and moving a branch. Also creates a brand-new zero-parent commit unconditionally, where real AWS fast-forward semantics would typically just move the branch pointer to the existing source commit without fabricating a new one. This op was graded ok by two prior audits and is outside this pass's assigned scope (codecommit-3bsb was Squash/ThreeWay/GetMergeConflicts specifically); left as-is, not re-graded, but noted for a future pass."}
-  MergeBranchesBySquash: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — was calling the FastForward backend method verbatim; now a real distinct method: resolves+validates both specifiers exist (CommitDoesNotExistException if not, previously unvalidated), creates a commit with exactly ONE parent (the destination tip, matching real squash-merge shape vs. 3-way's two), and honors TargetBranch/CommitMessage/AuthorName/Email request fields that were previously silently dropped. Content-level squash (combining file changes) still not modeled — see gaps."}
-  MergeBranchesByThreeWay: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — same as MergeBranchesBySquash, but the created commit has TWO parents ([destination, source]), a real merge-commit shape FastForward's zero-parent commit and Squash's one-parent commit both lack. Content-level 3-way merge still not modeled — see gaps."}
-  CreateUnreferencedMergeCommit: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 — decode struct dropped CreateUnreferencedMergeCommitInput's authorName/commitMessage/email entirely (the exact bug class PutFile/DeleteFile were fixed for, gopherstack-n3zi's flagged lead): the resulting commit always carried the hardcoded 'Unreferenced merge commit' message and an anonymous author, even though Commit.AuthorName/AuthorEmail/Message are real tracked fields populated correctly by CreateCommit and MergeBranchesBySquash/ByThreeWay. Now threaded through the backend signature and set on the commit, defaulting to the prior hardcoded message only when the client omits commitMessage (matching MergeBranchesBySquash/ByThreeWay's own default-message pattern)."}
-  GetMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok}
+  MergeBranchesBySquash: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — was calling the FastForward backend method verbatim; now a real distinct method: resolves+validates both specifiers exist (CommitDoesNotExistException if not, previously unvalidated), creates a commit with exactly ONE parent (the destination tip, matching real squash-merge shape vs. 3-way's two), and honors TargetBranch/CommitMessage/AuthorName/Email request fields that were previously silently dropped. Content-level squash (combining file changes) still not modeled — see gaps. CHECKED 2026-08-30 (gopherstack-4a8v): mergeBranchesRequest.{TargetBranch,CommitMessage,AuthorName,Email} were flagged unread by cmd/reqfieldscan's anonymous-struct-decode scan -- FALSE POSITIVE, confirmed by reading handler_merges.go: they ARE read, via mergeBranchesRequest's own options() method (r.TargetBranch etc., handler_merges.go:388-391), which the tool's collectLocalBindings doesn't bind because it only tracks a function's own parameters/locals, never a method receiver. No code change."}
+  MergeBranchesByThreeWay: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — same as MergeBranchesBySquash, but the created commit has TWO parents ([destination, source]), a real merge-commit shape FastForward's zero-parent commit and Squash's one-parent commit both lack. Content-level 3-way merge still not modeled — see gaps. Same false-positive check as MergeBranchesBySquash above (shares mergeBranchesRequest)."}
+  CreateUnreferencedMergeCommit: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 — decode struct dropped CreateUnreferencedMergeCommitInput's authorName/commitMessage/email entirely (the exact bug class PutFile/DeleteFile were fixed for, gopherstack-n3zi's flagged lead): the resulting commit always carried the hardcoded 'Unreferenced merge commit' message and an anonymous author, even though Commit.AuthorName/AuthorEmail/Message are real tracked fields populated correctly by CreateCommit and MergeBranchesBySquash/ByThreeWay. Now threaded through the backend signature and set on the commit, defaulting to the prior hardcoded message only when the client omits commitMessage (matching MergeBranchesBySquash/ByThreeWay's own default-message pattern). FIXED 2026-08-30 (gopherstack-4a8v): mergeOption is a required CreateUnreferencedMergeCommitInput member (api_op_CreateUnreferencedMergeCommit.go) that was parsed and never validated OR forwarded to the backend at all -- the backend method has no mergeOption parameter to receive it. Added the same required+valid-enum check BatchDescribeMergeConflicts/GetMergeConflicts already had. Not threaded into the backend beyond validation: like GetMergeConflicts's own blank-discarded mergeOption (merges.go), this backend has no per-branch content model to actually compute a differing squash/3-way/fast-forward result, so there's nothing for the value to drive once it's valid."}
+  GetMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): the decode struct declared a mergeOption field that is not a real GetMergeCommitInput member at all (confirmed against api_op_GetMergeCommit.go and awsAwsjson11_serializeOpDocumentGetMergeCommitInput in serializers.go -- a real client never sends it). Deleted rather than wired up, per this campaign's fabricated-field convention. No observable runtime behavior changed (the field was already never read), so no new regression test was written for the deletion itself -- existing tests (TestHandler_GetMergeCommit et al.) still pass sending the now-ignored key, since an unrecognized JSON key is silently dropped by encoding/json either way."}
   GetMergeConflicts: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED this pass — three bugs: (1) required-field/mergeOption-enum validation was entirely missing (repositoryName/sourceCommitSpecifier/destinationCommitSpecifier/mergeOption all 'This member is required' per the real SDK's validateOpGetMergeConflictsInput); (2) sourceCommitId/destinationCommitId echoed the raw request specifier instead of the resolved commit ID (now resolved via resolveCommitSpecifier, CommitDoesNotExistException if unresolvable); (3) SEVERE — mergeable was hardcoded to `false` (inverted: this emulator never computes real conflicts, so every merge was actually mergeable, but every real client polling this op before merging would have seen mergeable:false and refused to proceed). Now true. conflicts/mergeHunks remain always empty — no content-diff engine (see gaps); this is AWS-correct for FAST_FORWARD_MERGE specifically (doc-guaranteed empty) but a documented gap for SQUASH_MERGE/THREE_WAY_MERGE. FIXED (gopherstack-lx5h) — response key was also wrong: emitted \"conflicts\", real required key (deserializers.go) is conflictMetadataList. Confirmed the always-empty list itself is the deliberate, documented stub described above (no content-diff engine) and left that behavior untouched; only the key name changed, which is a zero-behavior-change fix since the value is always []"}
   GetMergeOptions: {wire: ok, errors: ok, state: n/a, persist: n/a}
   DescribeMergeConflicts: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was a disguised no-op that echoed the request and never checked the repository existed; now delegates to the same backend logic as BatchDescribeMergeConflicts with full validation"}
@@ -105,7 +105,7 @@ ops:
   GetDifferences: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "was a documented deferred item (nextToken/maxResults accepted but not enforced); now paginated via pkgs/page. Also fixed a wire-shape bug: this op is the one CodeCommit exception to lowercase pagination field names — both request and response use MaxResults/NextToken (capital), verified against the SDK's generated (de)serializers; the handler previously used lowercase and so real pagination requests/responses were silently no-ops"}
   GetRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
-  TestRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always-succeed simulation; matches AWS's own TestRepositoryTriggers semantics (it doesn't invoke real destinations either)"}
+  TestRepositoryTriggers: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "always-succeed simulation; matches AWS's own TestRepositoryTriggers semantics (it doesn't invoke real destinations either). FIXED 2026-08-30 (gopherstack-4a8v): the request's own, required \"triggers\" list (TestRepositoryTriggersInput.Triggers, api_op_TestRepositoryTriggers.go) was decoded and then discarded -- the backend tested whatever was currently saved via PutRepositoryTriggers instead, even though real AWS's own doc comment says testing \"does not change or create a repository trigger\", i.e. the two must be independent inputs. A request testing zero triggers against a repo with saved triggers wrongly reported the saved ones as successful; a request testing triggers no one had ever PUT reported nothing. Backend signature now takes the request's trigger list directly. An existing test (TestHandler_TestRepositoryTriggers) asserted exactly the old wrong behavior (sent triggers:[] in the request, asserted 1 success from a prior PutRepositoryTriggers call) -- corrected to assert on the request's own triggers instead of dropping it; a second existing test in wire_field_fixes_y1zn_test.go had the same shape and was corrected the same way, both hand-confirmed failing against unmodified code first."}
 families:
   approval_rule_template_crud: {status: ok, note: "Create/Get/Delete/List/Update* all verified against real SDK shapes"}
   pull_request_lifecycle: {status: ok, note: "create/list/get/update/status/events verified"}
@@ -579,3 +579,70 @@ wire, was used for the SDK-level pagination proof instead
 
 Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/codecommit/...`).
+
+## 2026-08-30 anonymous-struct-decode sweep (gopherstack-4a8v)
+
+`cmd/reqfieldscan` gained a fifth dispatch shape (handlers implementing
+`service.JSONOpFunc` directly, decoding into anonymous inline structs, no
+`WrapOp` anywhere) that made real findings newly visible in this service.
+Dispatch coverage: 78/79 (99%), literal-decode-only and WrapOp-resolved
+lines identical; no coverage-guard warning. The one unresolved op
+(`ListApprovalRuleTemplates`) is a pre-existing dispatch-resolution gap
+unrelated to this campaign, not investigated here (out of scope: no
+request-body fields to flag on an op the scanner can't even reach).
+
+12 fields flagged, hand-verified against `codecommit@v1.36.4`'s own `Input`
+structs and serializers:
+
+- **6 real bugs, fixed** (see `ops:` notes above for each): `TestRepositoryTriggers`
+  (tested saved triggers instead of the request's own, required list — the
+  dominant "parsed parameter never passed on" shape this campaign keeps
+  finding); `CreateUnreferencedMergeCommit.mergeOption` (required, never
+  validated or forwarded); `GetMergeCommit.mergeOption` (fabricated — not a
+  real `GetMergeCommitInput` member at all, deleted); `revisionId` on
+  `GetPullRequestApprovalStates`, `GetPullRequestOverrideState`,
+  `OverridePullRequestApprovalRules`, `UpdatePullRequestApprovalState`,
+  `EvaluatePullRequestApprovalRules` (all five require it per the SDK, none
+  validated it — one fix covering 5 ops).
+- **1 false positive** (4 flagged fields): `mergeBranchesRequest.{TargetBranch,
+  CommitMessage,AuthorName,Email}` — a SIXTH tool blind spot, distinct from
+  the five already known: the scanner's `collectLocalBindings` only binds a
+  function's own parameters and `:=`/`=` locals, never a method *receiver*
+  (`func (r mergeBranchesRequest) options()`). All four fields are read via
+  `r.FieldName` inside that receiver method. Reported per the campaign's
+  "report, don't patch the tool" instruction rather than fixed here.
+
+**Explicitly checked and not found this pass:** no handler discarding its
+entire request body; no listing found to skip its own store outside the
+one already-fixed case (TestRepositoryTriggers, which *was* skipping its
+own request in favor of stored state — arguably this shape rather than
+"parameter never passed on", noted here since it doesn't cleanly fit either
+bucket); the "missing existence check" shape (empty result vs. real
+not-found) — RevisionID's own required-field gap is closer to a
+validation gap than an existence check, and a genuine staleness/mismatch
+check (InvalidRevisionIdException/RevisionNotCurrentException) was
+deliberately NOT added, see the `ops:` notes, to avoid inventing which
+error code an unmodeled mismatch should map to; no "required field
+dropped, no wire member to put it in" case beyond what's covered above; no
+list consumed only at its first element; no value-semantics/timestamp-format
+mismatch found in this scan's flagged set.
+
+**redshiftdata was NOT touched this pass** — see its own PARITY.md's
+2026-08-30 note; the campaign's own spot-check verdict for it (genuine bug)
+did not survive re-verification against redshiftdata's existing, dated
+PARITY.md entries.
+
+Tests: `TestHandler_CreateUnreferencedMergeCommit_MergeOptionRequired`,
+`TestHandler_CreateUnreferencedMergeCommit_InvalidMergeOption` (new,
+`handler_merges_test.go`); `TestHandler_RevisionIDRequired` (new, 5
+subtests, `handler_pull_request_approvals_test.go`);
+`TestHandler_TestRepositoryTriggers` (corrected, was asserting the old
+wrong behavior — now asserts the request's own triggers are tested, plus a
+new empty-request-with-saved-triggers case) and
+`TestTestRepositoryTriggers_SuccessfulExecutionsIsStringArray_RealClient`
+(corrected the same way, in `wire_field_fixes_y1zn_test.go`) — both
+hand-confirmed failing against unmodified code before the fix. No other
+existing test assertions were weakened; 0 dropped.
+
+Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/codecommit/...`).

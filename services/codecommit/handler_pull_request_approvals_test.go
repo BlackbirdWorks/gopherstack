@@ -2,6 +2,7 @@ package codecommit_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -24,6 +25,53 @@ func TestHandler_GetPullRequestApprovalStates(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["approvals"])
+}
+
+// TestHandler_RevisionIDRequired verifies revisionId is enforced as
+// required on the five pull-request-approval operations that all declare
+// it "This member is required" in the real SDK (codecommit@v1.36.4:
+// api_op_GetPullRequestApprovalStates.go, api_op_GetPullRequestOverrideState.go,
+// api_op_OverridePullRequestApprovalRules.go,
+// api_op_UpdatePullRequestApprovalState.go,
+// api_op_EvaluatePullRequestApprovalRules.go). All five previously decoded
+// revisionId off the wire and never validated or used it at all.
+func TestHandler_RevisionIDRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		extra  map[string]any
+		name   string
+		action string
+	}{
+		{name: "get_approval_states", action: "GetPullRequestApprovalStates"},
+		{name: "get_override_state", action: "GetPullRequestOverrideState"},
+		{
+			name:   "override_approval_rules",
+			action: "OverridePullRequestApprovalRules",
+			extra:  map[string]any{"overrideStatus": "OVERRIDE"},
+		},
+		{
+			name:   "update_approval_state",
+			action: "UpdatePullRequestApprovalState",
+			extra:  map[string]any{"approvalState": "APPROVE"},
+		},
+		{name: "evaluate_approval_rules", action: "EvaluatePullRequestApprovalRules"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			prID := setupPR(t, h, "repo")
+
+			body := map[string]any{"pullRequestId": prID}
+			maps.Copy(body, tt.extra)
+
+			rec := doRequest(t, h, tt.action, body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 func TestHandler_GetPullRequestApprovalStates_TableDriven(t *testing.T) {

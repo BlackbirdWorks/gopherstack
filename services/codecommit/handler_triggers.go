@@ -60,7 +60,7 @@ func (h *Handler) handleTestRepositoryTriggers(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	names, err := h.Backend.TestRepositoryTriggers(req.RepositoryName)
+	names, err := h.Backend.TestRepositoryTriggers(req.RepositoryName, req.Triggers)
 	if err != nil {
 		return nil, err
 	}
