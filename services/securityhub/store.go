@@ -384,10 +384,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// filterOrAll returns values from m for the given arns, or all values if arns is empty.
+// filterOrAll returns values from m for the given arns, or all values if arns
+// is empty. The "all" branch uses Snapshot (sorted by key), not All (map
+// order): callers pass the result straight into paginateSlice, and an
+// unordered read would drop or duplicate items across two separate
+// DescribeActionTargets/GetEnabledStandards calls that straddle a page
+// boundary.
 func filterOrAll[V any](arns []string, t *store.Table[V]) []*V {
 	if len(arns) == 0 {
-		return t.All()
+		return t.Snapshot()
 	}
 
 	var results []*V

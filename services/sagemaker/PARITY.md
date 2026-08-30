@@ -5475,3 +5475,63 @@ none needed correcting.
 Gates: `go build ./services/sagemaker/...` (clean), `go vet ./...` (repo-wide, clean — no
 signature changes), `go test -race -count=1 ./services/sagemaker/...` (pass), `golangci-lint run
 --fix ./services/sagemaker/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-29 pagination arithmetic sweep
+
+Audited every List* pagination path in sagemaker for the five known
+gopherstack pagination-arithmetic bug classes (panic on stale offset,
+infinite loop on stale equality-matched cursor, guarded-but-unused index,
+encoder/decoder disagreement, unsorted collection). Census: every pagination
+site in this service (~90+ List ops) funnels through one of six shared
+helpers in `list_helpers.go` (`paginateSlice`, `sagemakerListPagedSlice`/
+`sagemakerListPaged`, `sagemakerListKeyPagedMap`, `sagemakerListKeyPagedN`,
+`filterSortPaginateByName`, `filterSortPaginateByNameWindow`,
+`filterSortPaginateByNameOrTime`) plus one hand-rolled implementation
+(`hub.go`'s `ListHubs`/`ListHubContents`/`ListHubContentVersions`, which
+already breaks sort ties on `HubName` correctly). No inline
+`for i, x := range all { if x.ID == token { start = i } }` site exists
+outside `list_helpers.go` itself. Found and fixed two real bugs:
+
+- **Class B (infinite loop).** `sagemakerListKeyPagedMap` (used by
+  `ListMonitoringAlerts`) and `sagemakerListKeyPagedN` (used by
+  `ListPartnerApps`) matched the token against keys by equality and left
+  `start` at its zero value on a miss — a client whose cursor names an
+  alert/app deleted since it was issued gets served page one forever
+  instead of an empty final page. Fixed by defaulting the miss to
+  `len(keys)`/`len(items)` (glacier's "default to end of collection"
+  pattern), matching the shape already used correctly elsewhere in this
+  repo. `paginateSlice`/`sagemakerListPagedSlice` (offset tokens, ~90+
+  call sites) were already safe — clamped, no equality search.
+- **Sixth class, not A-E: tied sort key re-sorted from an unspecified input
+  order across two separate calls.** `filterSortPaginateByName` (6 call
+  sites: ListEndpointConfigs/ListAlgorithms/ListModels) and
+  `filterSortPaginateByNameOrTime` (ListContexts/ListActions) build `all`
+  fresh from `store.Table.All()` (iteration order explicitly unspecified)
+  and re-sort with `sort.Slice` (not stable) on every call. When two items
+  tie on the active sort key (CreationTime is the default sort for both;
+  ties are plausible under time-resolution collisions), the tied items'
+  relative order is not guaranteed identical between the call that issued
+  page N's token and the call serving page N+1 — each rebuilds and re-sorts
+  from a differently-ordered map read. Proven with a probe that sorts the
+  same tied-CreationTime item set from two different input orderings and
+  shows a concatenated two-page walk duplicates items. This is a *different*
+  failure than Class E (E has no sort at all): here the code does sort, but
+  the comparator lacks a deterministic tiebreak, so two honest,
+  independently-correct calls can still disagree. Fixed by adding a
+  `nameOf`-based tiebreak whenever the primary key compares equal (also
+  used to make the `desc`/`!less` flip well-defined on ties, which was
+  otherwise an invalid `sort.Interface.Less` for both orderings).
+  `filterSortPaginateByNameWindow`'s existing name-only sort needed no
+  change (name is already the sole/unique key there).
+
+All seven checks (non-dividing boundary walk, exact division, single page,
+final page, empty collection, cursor round trip, stale cursor) pass for
+`paginateSlice`, `sagemakerListPagedSlice`, `sagemakerListKeyPagedMap`,
+`sagemakerListKeyPagedN` post-fix; both new tests failed against the
+pre-fix code first, confirmed by the stale-cursor and tied-key assertions.
+
+New tests: `services/sagemaker/pagination_arithmetic_test.go`.
+
+Gates: `go build ./services/sagemaker/...` (clean), `go vet ./services/sagemaker/...`
+(clean, no signature changes), `go test -race -count=1 ./services/sagemaker/...`
+(pass). Work left uncommitted per this pass's instructions.

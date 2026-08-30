@@ -80,7 +80,7 @@ func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]
 	b.mu.RLock("ListConnectorsV2")
 	defer b.mu.RUnlock()
 
-	snap := b.connectorsV2.All()
+	snap := b.connectorsV2.Snapshot()
 	all := make([]*ConnectorV2, 0, len(snap))
 
 	for _, c := range snap {

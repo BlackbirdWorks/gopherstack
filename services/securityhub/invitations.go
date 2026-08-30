@@ -113,7 +113,7 @@ func (b *InMemoryBackend) ListInvitations(nextToken string, maxResults int) ([]*
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
-	snap := b.invitations.All()
+	snap := b.invitations.Snapshot()
 	all := make([]*Invitation, 0, len(snap))
 
 	for _, inv := range snap {

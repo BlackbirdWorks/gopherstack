@@ -866,3 +866,108 @@ Gates: `go build ./services/s3/...`, `go vet ./...` (repo-wide; no signature cha
 package needed updating), `go test ./services/s3/... -race -count=1` (pass), `golangci-lint run
 ./services/s3/...` (0 issues). New test in `list_filter_params_test.go` drives the real typed SDK
 client (`sdk_s3.Client`, path-style) via the existing `newRealS3ClientTest` helper.
+
+## 2026-08-30 pagination arithmetic sweep
+
+s3 is structurally different from the other services audited in this sweep:
+every real listing here is prefix/delimiter/marker-based (no equality-matched
+opaque cursor), so Classes B and C (miss-defaults-to-zero infinite loop) do
+not apply to any site found. Census: `ListObjects`/`ListObjectsV2`
+(`listing.go`), `ListObjectVersions` (`listing.go`), `ListMultipartUploads`
+(`multipart.go`), `ListParts` (`multipart.go`), `ListBuckets` (`buckets.go`,
+via `pkgs/page`), `ListObjectAnnotations` (`annotations.go`, a
+gopherstack-only API, not real AWS), and `GetObjectAttributes`'s embedded
+Parts list (`objects.go`). No inline `for i, x := range all { if x.ID ==
+token { start = i } }` site exists — every marker seek in this service is
+either a `sort.Search` threshold search or a linear scan with a `>`
+comparison, both safe-by-construction against a stale marker.
+
+**Found and fixed 3 real bugs, all in the delimiter-truncation path — a bug
+shape not on the A–E list.** `ListObjects`, `ListObjectVersions`, and
+`ListMultipartUploads` each computed `Contents`/`Versions`/`Uploads` and
+`CommonPrefixes` as **two independently truncated lists** instead of one
+list cut in true lexicographic order:
+
+- `ListObjects` (`truncateVersionResults`) filled the page from
+  non-grouped keys first and only padded with CommonPrefixes if room
+  remained. A CommonPrefix whose flat neighbors on both sides fit within
+  MaxKeys got skipped entirely, and because the resulting NextMarker landed
+  past the CommonPrefix's own key range, every later page's `key > marker`
+  seek excluded it too — the CommonPrefix was **dropped from the listing
+  permanently**, not merely reordered. Reproduced with `{a, b/x, c}` at
+  MaxKeys=2 (page 1 = `{a, c}`, `b/` never returned) and a 10-key/3-group
+  case where all 3 groups vanished.
+- `ListObjectVersions` had the same shape but worse: `CommonPrefixes` were
+  **never truncated or counted toward MaxKeys at all** (`buildVersionPage`'s
+  `count` loop only ran over the non-grouped snapshot list), so a response
+  could silently exceed MaxKeys, and `NextKeyMarker` — derived purely from
+  the truncated non-grouped list — again ignored where a CommonPrefix fell
+  in true order.
+- `ListMultipartUploads` had the identical CommonPrefix-truncation gap
+  (`groupUploadsByDelimiter`'s CommonPrefixes were never passed to
+  `truncateUploads` at all) **plus a separate, independent bug covered
+  below.**
+
+Fixed all three the same way: built one ordered sequence of
+tagged entries (`listObjectEntry` / `versionListEntry` / `uploadListEntry`
+— an object-or-delete-marker-or-CommonPrefix union, in the same sorted
+order the raw key list was already in), cut that single sequence at
+MaxKeys/MaxUploads, and derived NextMarker from the last entry actually
+included, whichever kind it was. Also fixed the marker-seek side to match:
+a NextMarker that is itself a CommonPrefix (recognizable because every
+CommonPrefix this package emits ends with `delimiter`, by construction) now
+excludes every key sharing that prefix (`key > marker && !HasPrefix(key,
+marker)`), not just keys greater than the bare prefix string — without this,
+a plain `key > marker` resumes *inside* the very subtree the prior page
+already summarized and the client sees the same CommonPrefix duplicated on
+the next page (confirmed as the failure mode once the truncation-order fix
+alone was applied and tested).
+
+**Fourth bug, `ListMultipartUploads`, Class D — textbook shape, no delimiter
+needed.** `truncateUploads` derived `NextKeyMarker`/`NextUploadIdMarker`
+from `uploads[maxUploads]` — the first upload **not** returned on the page,
+i.e. the token names the first item of the next page — while
+`seekMultipartMarker`'s decoder resumes strictly after the item matching
+the marker. Naming the next page's first item and then skipping past
+whatever matches it drops that exact upload on *every* truncation boundary.
+Reproduced with 23 uploads at MaxUploads=5: `upload-05`, `upload-11`,
+`upload-17` (indices 5, 11, 17 — exactly the marker-named item at each
+boundary) silently vanished on a plain walk, no delimiter, deletion, or
+tampering involved. Fixed by switching the encoder to name the *last
+included* item (matching `ListParts`' and the fixed `ListObjects`'
+convention), folded into the same combined-entries rewrite above.
+
+**Safe-by-construction patterns confirmed already correct, no bug:**
+`ListParts` (threshold search `partNumbers[i] > partNumberMarker`,
+NextMarker = last item on page); `GetObjectAttributes`'s parts list
+(`objects.go`, same shape); `ListBuckets` (sorts by Name, then delegates to
+`pkgs/page.New` — out of this pass's scope to re-audit `pkgs/`);
+`ListObjectAnnotations` (a gopherstack-only API: sorted names, threshold
+search, NextContinuationToken = last name on page — clean end to end).
+
+Seven checks run via real boundary walks through the exported SDK-shaped
+backend methods (not synthetic unit tests of an isolated helper): boundary
+walk with a non-dividing page size (10 keys / 3 groups at MaxKeys=2),
+delimiter interleaving of flat keys and groups, cursor round trip, and the
+Class-D drop reproduction above. All failed against the pre-fix code first
+(shown in the diffs above) and pass post-fix. Full existing `services/s3`
+suite (multipart list/round-trip tests, `ListObjects`/`ListObjectVersions`
+unit and HTTP-driven tests) re-run with `-race` and shows no regression.
+
+New tests: `services/s3/pagination_arithmetic_test.go`.
+
+**Left unaudited, unchanged from the 2026-08-15 note above:**
+`ListBucketAnalyticsConfigurations`/`ListBucketInventoryConfigurations`/
+`ListBucketMetricsConfigurations`'s `ContinuationToken`-only pagination —
+still not pursued this pass either, same restraint reasoning (small,
+admin-configured collections; AWS itself caps them low). `pkgs/page`
+(backing `ListBuckets`) is outside this pass's scope (`pkgs/` is off limits)
+and was not independently re-verified.
+
+Gates: `go build ./services/s3/...` (clean), `go vet ./services/s3/...`
+(clean, no exported signature changed — `truncateVersionResults`,
+`applyDelimiterToVersions`, `seekVersionMarker`, `applyVersionDelimiter`,
+`buildVersionPage`, `seekMultipartMarker`, `groupUploadsByDelimiter`,
+`truncateUploads` are all unexported), `go test -race -count=1
+./services/s3/...` (pass, full package). Work left uncommitted per this
+pass's instructions.

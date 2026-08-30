@@ -202,8 +202,15 @@ func (b *InMemoryBackend) GetFindings(
 // sortFindings sorts findings in place per sortCriteria, each element of
 // which is the ASFF wire shape {"Field": string, "SortOrder": "asc"|"desc"}
 // (types.SortCriterion). Earlier criteria take precedence; later criteria
-// break ties, matching AWS's documented multi-field sort semantics. A no-op
-// for empty/malformed criteria (results keep their prior order).
+// break ties, matching AWS's documented multi-field sort semantics.
+//
+// findings is always freshly collected from a `map[string]map[string]any`
+// (b.findings), so it arrives in no defined order at all -- not any
+// meaningful "prior order" -- and GetFindings/GetFindingsV2 paginate this
+// same slice across separate calls. Without a final deterministic tiebreak
+// (also the entire ordering when sortCriteria is empty, the common case),
+// two calls serving consecutive pages can independently land tied/unordered
+// findings on either side of the boundary and drop or duplicate results.
 func sortFindings(findings []map[string]any, sortCriteria []map[string]any) {
 	type criterion struct {
 		field string
@@ -222,10 +229,6 @@ func sortFindings(findings []map[string]any, sortCriteria []map[string]any) {
 		criteria = append(criteria, criterion{field: field, desc: order == "desc"})
 	}
 
-	if len(criteria) == 0 {
-		return
-	}
-
 	sort.SliceStable(findings, func(i, j int) bool {
 		for _, c := range criteria {
 			vi := findingSortValue(findings[i], c.field)
@@ -242,7 +245,8 @@ func sortFindings(findings []map[string]any, sortCriteria []map[string]any) {
 			return vi < vj
 		}
 
-		return false
+		return findingSortValue(findings[i], keyProductArn)+"|"+findingSortValue(findings[i], "Id") <
+			findingSortValue(findings[j], keyProductArn)+"|"+findingSortValue(findings[j], "Id")
 	})
 }
 

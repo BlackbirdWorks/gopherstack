@@ -120,6 +120,8 @@ func sagemakerListKeyPagedMap[T any](
 
 	start := 0
 	if nextToken != "" {
+		start = len(keys)
+
 		for i, k := range keys {
 			if k == nextToken {
 				start = i
@@ -167,6 +169,8 @@ func sagemakerListKeyPagedN[T any](
 
 	start := 0
 	if nextToken != "" {
+		start = len(items)
+
 		for i, item := range items {
 			if keyFn(item) == nextToken {
 				start = i
@@ -269,20 +273,31 @@ func filterSortPaginateByName[T any](
 	}
 
 	sort.Slice(list, func(i, k int) bool {
-		var less bool
+		var primaryLess, primaryEqual bool
 
 		switch filter.SortBy {
 		case keyGenericName:
-			less = nameOf(list[i]) < nameOf(list[k])
+			a, b := nameOf(list[i]), nameOf(list[k])
+			primaryLess, primaryEqual = a < b, a == b
 		default:
-			less = creationTimeOf(list[i]).Before(creationTimeOf(list[k]))
+			c := compareTimes(creationTimeOf(list[i]), creationTimeOf(list[k]))
+			primaryLess, primaryEqual = c < 0, c == 0
+		}
+
+		if primaryEqual {
+			// Tiebreak on name: without a deterministic total order, a tied
+			// primary key's relative position depends on the unspecified
+			// input order from Table.All(), so two separate List calls that
+			// each re-sort from a different order can drop or duplicate an
+			// item straddling a page boundary.
+			return nameOf(list[i]) < nameOf(list[k])
 		}
 
 		if desc {
-			return !less
+			return !primaryLess
 		}
 
-		return less
+		return primaryLess
 	})
 
 	return paginateSlice(list, nextToken, filter.MaxResults)
@@ -488,18 +503,28 @@ func filterSortPaginateByNameOrTime[T any](
 
 	desc := !strings.EqualFold(params.SortOrder, "Ascending")
 	sort.Slice(list, func(i, j int) bool {
-		var less bool
+		var primaryLess, primaryEqual bool
+
 		if params.SortBy == keyGenericName {
-			less = nameOf(list[i]) < nameOf(list[j])
+			a, b := nameOf(list[i]), nameOf(list[j])
+			primaryLess, primaryEqual = a < b, a == b
 		} else {
-			less = creationTimeOf(list[i]).Before(creationTimeOf(list[j]))
+			c := compareTimes(creationTimeOf(list[i]), creationTimeOf(list[j]))
+			primaryLess, primaryEqual = c < 0, c == 0
+		}
+
+		if primaryEqual {
+			// See filterSortPaginateByName: a deterministic tiebreak keeps
+			// tied-key results stable across two separate List calls that
+			// each re-sort from Table.All()'s unspecified input order.
+			return nameOf(list[i]) < nameOf(list[j])
 		}
 
 		if desc {
-			return !less
+			return !primaryLess
 		}
 
-		return less
+		return primaryLess
 	})
 
 	return paginateSlice(list, params.NextToken, params.MaxResults)

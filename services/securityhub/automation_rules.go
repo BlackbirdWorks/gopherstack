@@ -350,7 +350,7 @@ func (b *InMemoryBackend) ListAutomationRulesV2(nextToken string, maxResults int
 	b.mu.RLock("ListAutomationRulesV2")
 	defer b.mu.RUnlock()
 
-	snap := b.automationRulesV2.All()
+	snap := b.automationRulesV2.Snapshot()
 	all := make([]*AutomationRuleV2, 0, len(snap))
 
 	for _, rule := range snap {

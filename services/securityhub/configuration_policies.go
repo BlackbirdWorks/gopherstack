@@ -141,7 +141,7 @@ func (b *InMemoryBackend) ListConfigurationPolicies(nextToken string, maxResults
 	b.mu.RLock("ListConfigurationPolicies")
 	defer b.mu.RUnlock()
 
-	snap := b.configPolicies.All()
+	snap := b.configPolicies.Snapshot()
 	all := make([]*ConfigurationPolicy, 0, len(snap))
 
 	for _, p := range snap {
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) ListConfigurationPolicyAssociations(
 
 	var all []*ConfigurationPolicyAssociation
 
-	for _, assoc := range b.configPolicyAssocs.All() {
+	for _, assoc := range b.configPolicyAssocs.Snapshot() {
 		if filterPolicyID != "" && assoc.ConfigurationPolicyId != filterPolicyID {
 			continue
 		}

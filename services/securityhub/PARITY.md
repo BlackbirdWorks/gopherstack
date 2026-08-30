@@ -761,3 +761,83 @@ Two things worth recording, neither a bug:
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## 2026-08-30 pagination arithmetic sweep
+
+Audited every paginated listing for the five known gopherstack
+pagination-arithmetic bug classes (panic on stale offset, infinite loop on
+stale equality-matched cursor, guarded-but-unused index, encoder/decoder
+disagreement, unsorted collection). Census: one shared offset-token helper
+(`store.go`'s `paginateSlice`, 15 call sites) plus two supporting helpers
+(`filterOrAll`, `sortFindings`) feed every List/Describe/Get* op in this
+service; no inline `for i, x := range all { if x.ID == token { start = i } }`
+site exists outside `store.go`. `paginateSlice` itself was already correct
+(clamped offset decode, no equality search — all seven checks pass).
+
+**This service came back with a real, repo-wide Class E problem, not clean.**
+11 of the 15 `paginateSlice` call sites fed it a collection read straight
+from a `map` or a `store.Table.All()` (explicitly documented as unspecified
+iteration order) with no sort in between:
+
+- `filterOrAll`'s "return everything" branch (`arns` empty) called
+  `t.All()` — affects `DescribeActionTargets` and `GetEnabledStandards`.
+- `sortFindings` was a no-op when `sortCriteria` was empty (`if
+  len(criteria) == 0 { return }`) — affects `GetFindings` and
+  `GetFindingsV2`, whose backing store (`b.findings`) is itself a
+  `map[string]map[string]any`, so the *common* no-sort-criteria call shape
+  hit this on every listing.
+- 8 more `.All()`-straight-into-`paginateSlice` sites with zero sort:
+  `ListAutomationRulesV2`, `ListAggregatorsV2`, `ListInvitations`,
+  `ListConnectors` (CSPM), `ListConnectorsV2`, `ListFindingAggregators`,
+  `ListConfigurationPolicies`, `ListConfigurationPolicyAssociations`,
+  `ListMembers`.
+- 2 sites ranging a raw (non-`store.Table`) map with zero sort:
+  `ListOrganizationAdminAccounts` (`b.orgAdminAccounts`), `GetResourcesV2`
+  (a locally-built `map[string]map[string]any` keyed by resource Id).
+
+All are Class E: a plain two-page walk with no deletion or tampering drops
+or duplicates results whenever Go's map iteration reorders between the two
+calls (confirmed empirically — reverting one fix and rerunning its
+regression test failed 5/5 times).
+
+Fixed 9 of the `store.Table`-backed sites by swapping `.All()` for
+`.Snapshot()` (same package, sorted by the table's own key, already the
+established idiom in this repo for exactly this purpose). Fixed the 2
+raw-map sites with an explicit `sort.Slice` by account ID / resource Id.
+Fixed `filterOrAll` the same way (`.Snapshot()`). Fixed `sortFindings` by
+removing the empty-criteria early return and adding a final deterministic
+tiebreak (`ProductArn|Id`, both ASFF-required fields) that always runs,
+whether or not the caller supplied real sort criteria — this also make the
+existing sort well-defined on ties within real criteria, which previously
+had no tiebreak either.
+
+Safe-by-construction pattern applied throughout: **default a miss/no-sort
+case to a genuinely sorted read** (`Table.Snapshot()`, or an explicit
+`sort.Slice` for the two raw-map sites) — the same pattern already used
+correctly elsewhere in this repo. No threshold-search or found-flag pattern
+was applicable here since none of these sites use an equality-matched
+cursor (offset tokens throughout).
+
+7 checks run against `paginateSlice` directly (all pass, both before and
+after — it was never the bug) plus a stale-cursor probe on `filterOrAll` and
+a tied-order probe on `sortFindings`, both of which failed against the
+pre-fix code and pass post-fix. 10 end-to-end boundary-walk regression tests
+drive the real exported backend methods (23 items, page size 5, non-dividing
+count) for a representative sample: `ListAggregatorsV2`,
+`ListAutomationRulesV2`, `ListFindingAggregators`,
+`ListConfigurationPolicies`, `ListMembers`, `ListOrganizationAdminAccounts`,
+`ListConnectorsV2`, `ListConnectors`, `DescribeActionTargets`, `GetFindings`
+(no SortCriteria). `ListInvitations`, `ListConfigurationPolicyAssociations`,
+and `GetResourcesV2` got the identical, already-proven `.Snapshot()`/explicit-sort
+fix but no bespoke end-to-end test — lower priority given the pattern was
+independently verified nine other times in this same sweep; flagged here for
+anyone auditing this note.
+
+New tests: `services/securityhub/pagination_arithmetic_test.go` (internal,
+unexported-helper unit tests), `services/securityhub/pagination_arithmetic_e2e_test.go`
+(external, real-API boundary walks).
+
+Gates: `go build ./services/securityhub/...` (clean), `go vet
+./services/securityhub/...` (clean, no signature changes), `go test -race
+-count=1 ./services/securityhub/...` (pass). Work left uncommitted per this
+pass's instructions.

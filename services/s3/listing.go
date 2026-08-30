@@ -13,13 +13,61 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// listObjectEntry is one lexicographically-ordered slot in a delimited
+// listing: either a plain object (version set) or a common-prefix group,
+// never both. Keeping the two kinds in a single ordered slice (rather than
+// two separately-truncated lists) is what lets truncateVersionEntries cut
+// the page and compute NextMarker in the same order AWS actually returns
+// results in.
+type listObjectEntry struct {
+	version *StoredObjectVersion
+	prefix  string
+}
+
+// key returns the entry's sort/marker key: the object's Key, or the
+// common-prefix string.
+func (e listObjectEntry) key() string {
+	if e.version != nil {
+		return e.version.Key
+	}
+
+	return e.prefix
+}
+
+// afterMarkerPredicate returns whether a key comes strictly after marker on
+// a delimited listing. A plain object-key marker (the common case) only
+// needs key > marker: resume right after it. But NextMarker can also be a
+// CommonPrefix string -- and every CommonPrefix this package emits ends
+// with delimiter (applyDelimiterToVersions's `rest[:idx+len(delimiter)]`
+// always keeps the delimiter) -- and a CommonPrefix marker means "the whole
+// b/* subtree was already summarized and returned as one entry, not just
+// keys up to some point." key > "b/" is true for every "b/..." key, so a
+// plain > comparison resumes inside the very subtree the prior page already
+// covered, re-emitting the same CommonPrefix on the next page (duplicated,
+// not dropped -- the mirror-image bug from truncating without checking a
+// prefix boundary). Excluding any key sharing that prefix fixes it, and is
+// safe to apply only when marker itself ends with delimiter: an ordinary
+// object-key marker not ending in delimiter must not use HasPrefix (e.g.
+// marker "c" would wrongly exclude the unrelated later key "c2").
+func afterMarkerPredicate(marker, delimiter string) func(key string) bool {
+	if delimiter != "" && strings.HasSuffix(marker, delimiter) {
+		return func(key string) bool {
+			return key > marker && !strings.HasPrefix(key, marker)
+		}
+	}
+
+	return func(key string) bool {
+		return key > marker
+	}
+}
+
 func applyDelimiterToVersions(
 	prefix, delimiter string,
 	versions []*StoredObjectVersion,
-) ([]*StoredObjectVersion, []types.CommonPrefix) {
-	filtered := make([]*StoredObjectVersion, 0, len(versions))
-	var cpList []types.CommonPrefix
+) []listObjectEntry {
+	entries := make([]listObjectEntry, 0, len(versions))
 	var lastCP string
+	haveCP := false
 
 	for _, v := range versions {
 		rest := v.Key[len(prefix):]
@@ -27,16 +75,17 @@ func applyDelimiterToVersions(
 
 		if idx != -1 {
 			cp := prefix + rest[:idx+len(delimiter)]
-			if len(cpList) == 0 || cp != lastCP {
+			if !haveCP || cp != lastCP {
 				lastCP = cp
-				cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
+				haveCP = true
+				entries = append(entries, listObjectEntry{prefix: cp})
 			}
 		} else {
-			filtered = append(filtered, v)
+			entries = append(entries, listObjectEntry{version: v})
 		}
 	}
 
-	return filtered, cpList
+	return entries
 }
 
 func (b *InMemoryBackend) processListObjects(
@@ -62,11 +111,14 @@ func (b *InMemoryBackend) processListObjects(
 		return cmp.Compare(a.Key, b.Key)
 	})
 
+	delimiter := aws.ToString(input.Delimiter)
+
 	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
 	marker := aws.ToString(input.Marker)
 	if marker != "" {
+		afterMarker := afterMarkerPredicate(marker, delimiter)
 		startIndex := sort.Search(len(objectSnapshots), func(i int) bool {
-			return objectSnapshots[i].Key > marker
+			return afterMarker(objectSnapshots[i].Key)
 		})
 		if startIndex >= len(objectSnapshots) {
 			objectSnapshots = nil
@@ -79,8 +131,6 @@ func (b *InMemoryBackend) processListObjects(
 	if input.MaxKeys != nil {
 		maxKeys = *input.MaxKeys
 	}
-
-	delimiter := aws.ToString(input.Delimiter)
 
 	// No delimiter: CommonPrefixes is always empty, so truncation is a plain
 	// slice cut on the already-sorted, marker-seeked object list. Truncate
@@ -108,8 +158,8 @@ func (b *InMemoryBackend) processListObjects(
 	// pointers first, so objectsFromVersions only allocates wire structs for the
 	// elements actually returned on the page.
 	versions := b.snapshotLatestVersions(objectSnapshots)
-	filteredVersions, cpList := applyDelimiterToVersions(prefix, delimiter, versions)
-	truncatedVersions, cpList, isTruncated, nextMarker := b.truncateVersionResults(filteredVersions, cpList, maxKeys)
+	entries := applyDelimiterToVersions(prefix, delimiter, versions)
+	truncatedVersions, cpList, isTruncated, nextMarker := truncateVersionEntries(entries, maxKeys)
 
 	return objectsFromVersions(truncatedVersions), cpList, isTruncated, nextMarker, maxKeys
 }
@@ -328,18 +378,13 @@ func (b *InMemoryBackend) ListObjectVersions(
 		return snapshots[i].lastModified.After(snapshots[j].lastModified)
 	})
 
-	snapshots = seekVersionMarker(snapshots, keyMarker, versionIDMarker)
-	filteredSnapshots, commonPrefixes := applyVersionDelimiter(snapshots, prefix, delimiter)
+	snapshots = seekVersionMarker(snapshots, keyMarker, versionIDMarker, delimiter)
+	entries := buildVersionEntries(snapshots, prefix, delimiter)
 
-	versions, deleteMarkers, isTruncated, nextKeyMarker, nextVersionIDMarker := buildVersionPage(
-		filteredSnapshots,
+	versions, deleteMarkers, cpList, isTruncated, nextKeyMarker, nextVersionIDMarker := buildVersionPage(
+		entries,
 		maxKeys,
 	)
-
-	var cpList []types.CommonPrefix
-	for _, cp := range commonPrefixes {
-		cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
-	}
 
 	return &s3.ListObjectVersionsOutput{
 		Name:                aws.String(bucketName),
@@ -397,16 +442,34 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 	return snapshots
 }
 
-// seekVersionMarker advances the snapshot slice past the (keyMarker, versionIDMarker) cursor.
+// seekVersionMarker advances the snapshot slice past the (keyMarker,
+// versionIDMarker) cursor. When keyMarker itself is a CommonPrefix boundary
+// (it ends with delimiter -- every CommonPrefix buildVersionEntries emits
+// does, by construction), every version whose key falls under that prefix
+// must also be skipped: it was already summarized and returned as that one
+// CommonPrefix entry, not individually. A plain `key > keyMarker` alone
+// would resume inside that same prefix's key range and re-emit the
+// CommonPrefix on the next page (see
+// TestListObjectVersions_DelimiterTruncation_BoundaryWalk).
 func seekVersionMarker(
 	snapshots []versionSnapshot,
-	keyMarker, versionIDMarker string,
+	keyMarker, versionIDMarker, delimiter string,
 ) []versionSnapshot {
 	if keyMarker == "" {
 		return snapshots
 	}
 
+	skipWholePrefix := delimiter != "" && strings.HasSuffix(keyMarker, delimiter)
+
 	for i, s := range snapshots {
+		if skipWholePrefix {
+			if s.key > keyMarker && !strings.HasPrefix(s.key, keyMarker) {
+				return snapshots[i:]
+			}
+
+			continue
+		}
+
 		if s.key > keyMarker {
 			return snapshots[i:]
 		}
@@ -416,69 +479,107 @@ func seekVersionMarker(
 		}
 
 		// Skip all versions of keyMarker when no versionIDMarker specified.
-		if s.key == keyMarker && versionIDMarker == "" {
-			continue
-		}
 	}
 
 	return nil
 }
 
-// applyVersionDelimiter groups snapshot keys that share a common prefix
-// (when delimiter is set) and returns the remaining non-grouped snapshots
-// together with the sorted list of discovered common-prefix strings.
-func applyVersionDelimiter(
-	snapshots []versionSnapshot,
-	prefix, delimiter string,
-) ([]versionSnapshot, []string) {
+// versionListEntry is one lexicographically-ordered slot in a delimited
+// ListObjectVersions listing: either one version/delete-marker snapshot or
+// one common-prefix group, never both. See listObjectEntry (ListObjects'
+// analog) for why this must be a single ordered sequence rather than two
+// separately-truncated lists: cutting them independently -- or, as this
+// function's predecessor did, never truncating CommonPrefixes against
+// maxKeys at all -- can drop or duplicate an entire common-prefix group
+// across a page boundary.
+type versionListEntry struct {
+	snap   *versionSnapshot
+	prefix string
+}
+
+// buildVersionEntries groups snapshots that share a common prefix (when
+// delimiter is set) into ordered versionListEntry values, preserving the
+// input's sorted order.
+func buildVersionEntries(snapshots []versionSnapshot, prefix, delimiter string) []versionListEntry {
+	entries := make([]versionListEntry, 0, len(snapshots))
+
 	if delimiter == "" {
-		return snapshots, nil
+		for i := range snapshots {
+			entries = append(entries, versionListEntry{snap: &snapshots[i]})
+		}
+
+		return entries
 	}
 
-	seenCommonPrefixes := make(map[string]struct{})
-	var filtered []versionSnapshot
-	var commonPrefixes []string
+	var lastCP string
+	haveCP := false
 
-	for _, snap := range snapshots {
+	for i := range snapshots {
+		snap := &snapshots[i]
 		rest := strings.TrimPrefix(snap.key, prefix)
+
 		if idx := strings.Index(rest, delimiter); idx != -1 {
 			cp := prefix + rest[:idx+len(delimiter)]
-			if _, seen := seenCommonPrefixes[cp]; !seen {
-				seenCommonPrefixes[cp] = struct{}{}
-				commonPrefixes = append(commonPrefixes, cp)
+			if !haveCP || cp != lastCP {
+				lastCP = cp
+				haveCP = true
+				entries = append(entries, versionListEntry{prefix: cp})
 			}
 
 			continue
 		}
 
-		filtered = append(filtered, snap)
+		entries = append(entries, versionListEntry{snap: snap})
 	}
 
-	return filtered, commonPrefixes
+	return entries
 }
 
-// buildVersionPage builds the Versions and DeleteMarkers page from snapshots,
-// enforcing maxKeys. It returns the pagination flags for the next request.
-func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
+// buildVersionPage cuts entries at maxKeys (already in true lexicographic
+// order) and splits the retained prefix into the Versions/DeleteMarkers/
+// CommonPrefixes wire lists, deriving NextKeyMarker/NextVersionIdMarker from
+// the last entry actually included, whichever kind it is.
+func buildVersionPage(entries []versionListEntry, maxKeys int32) (
 	[]types.ObjectVersion,
 	[]types.DeleteMarkerEntry,
+	[]types.CommonPrefix,
 	bool,
 	string,
 	string,
 ) {
+	if maxKeys <= 0 {
+		return nil, nil, nil, len(entries) > 0, "", ""
+	}
+
+	isTruncated := int64(len(entries)) > int64(maxKeys)
+	page := entries
+
+	var nextKeyMarker, nextVersionIDMarker string
+
+	if isTruncated {
+		page = entries[:maxKeys]
+
+		last := page[len(page)-1]
+		if last.snap != nil {
+			nextKeyMarker = last.snap.key
+			nextVersionIDMarker = last.snap.versionID
+		} else {
+			nextKeyMarker = last.prefix
+		}
+	}
+
 	var versions []types.ObjectVersion
 	var deleteMarkers []types.DeleteMarkerEntry
-	count := int32(0)
-	var lastKey, lastVersionID string
+	var cpList []types.CommonPrefix
 
-	for _, snap := range snapshots {
-		if count >= maxKeys {
-			// NextKeyMarker is the last key returned (follow-up uses key-marker=last).
-			return versions, deleteMarkers, true, lastKey, lastVersionID
+	for _, e := range page {
+		if e.snap == nil {
+			cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(e.prefix)})
+
+			continue
 		}
 
-		lastKey = snap.key
-		lastVersionID = snap.versionID
+		snap := e.snap
 
 		if snap.deleted {
 			deleteMarkers = append(deleteMarkers, types.DeleteMarkerEntry{
@@ -491,68 +592,71 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 					DisplayName: aws.String(gopherstackName),
 				},
 			})
-		} else {
-			var checksumAlgos []types.ChecksumAlgorithm
-			if snap.checksumAlgorithm != "" {
-				checksumAlgos = []types.ChecksumAlgorithm{types.ChecksumAlgorithm(snap.checksumAlgorithm)}
-			}
 
-			owner := types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)}
-			versions = append(versions, types.ObjectVersion{
-				Key:               aws.String(snap.key),
-				VersionId:         aws.String(snap.versionID),
-				IsLatest:          aws.Bool(snap.isLatest),
-				LastModified:      aws.Time(snap.lastModified),
-				ETag:              aws.String(snap.etag),
-				Size:              aws.Int64(snap.size),
-				StorageClass:      types.ObjectVersionStorageClass(snap.storageClass),
-				ChecksumAlgorithm: checksumAlgos,
-				Owner:             &owner,
-			})
+			continue
 		}
 
-		count++
+		var checksumAlgos []types.ChecksumAlgorithm
+		if snap.checksumAlgorithm != "" {
+			checksumAlgos = []types.ChecksumAlgorithm{types.ChecksumAlgorithm(snap.checksumAlgorithm)}
+		}
+
+		owner := types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)}
+		versions = append(versions, types.ObjectVersion{
+			Key:               aws.String(snap.key),
+			VersionId:         aws.String(snap.versionID),
+			IsLatest:          aws.Bool(snap.isLatest),
+			LastModified:      aws.Time(snap.lastModified),
+			ETag:              aws.String(snap.etag),
+			Size:              aws.Int64(snap.size),
+			StorageClass:      types.ObjectVersionStorageClass(snap.storageClass),
+			ChecksumAlgorithm: checksumAlgos,
+			Owner:             &owner,
+		})
 	}
 
-	return versions, deleteMarkers, false, "", ""
+	return versions, deleteMarkers, cpList, isTruncated, nextKeyMarker, nextVersionIDMarker
 }
 
-func (b *InMemoryBackend) truncateVersionResults(
-	versions []*StoredObjectVersion,
-	cpList []types.CommonPrefix,
-	maxKeys int32,
-) ([]*StoredObjectVersion, []types.CommonPrefix, bool, string) {
+// truncateVersionEntries cuts entries (already in true lexicographic key
+// order -- objects and common-prefix groups interleaved, not two separately
+// truncated lists) at maxKeys, splitting the retained prefix back into
+// Contents/CommonPrefixes wire lists and deriving NextMarker from the last
+// entry actually included, whichever kind it is.
+//
+// Cutting the two kinds independently (an earlier version of this function
+// took every object first and only padded with CommonPrefixes if page room
+// remained) can silently drop an entire common-prefix group: if the flat
+// object keys before and after it both fit within maxKeys, the object-only
+// cut takes both of them, sets NextMarker past the CommonPrefix's key range,
+// and every future page's `key > marker` seek then skips that prefix
+// forever -- not merely reordered, permanently missing from the listing.
+func truncateVersionEntries(entries []listObjectEntry, maxKeys int32) (
+	[]*StoredObjectVersion, []types.CommonPrefix, bool, string,
+) {
 	// AWS clamps MaxKeys to [0, 1000]; a zero value means return no objects.
 	if maxKeys <= 0 {
-		return nil, nil, len(versions)+len(cpList) > 0, ""
+		return nil, nil, len(entries) > 0, ""
 	}
 
-	totalCount64 := int64(len(versions)) + int64(len(cpList))
-	if totalCount64 <= int64(maxKeys) {
-		return versions, cpList, false, ""
-	}
+	isTruncated := int64(len(entries)) > int64(maxKeys)
+	page := entries
 
-	isTruncated := true
 	var nextMarker string
 
-	if int64(len(versions)) > int64(maxKeys) {
-		nextMarker = versions[maxKeys-1].Key
-		versions = versions[:maxKeys]
-		cpList = nil
-	} else {
-		remaining := int64(maxKeys) - int64(len(versions))
-		if remaining > 0 {
-			// Some CommonPrefixes fit on this page; the marker is the last prefix
-			// we return so the next page resumes after it.
-			nextMarker = aws.ToString(cpList[remaining-1].Prefix)
-			cpList = cpList[:remaining]
+	if isTruncated {
+		page = entries[:maxKeys]
+		nextMarker = page[len(page)-1].key()
+	}
+
+	versions := make([]*StoredObjectVersion, 0, len(page))
+	var cpList []types.CommonPrefix
+
+	for _, e := range page {
+		if e.version != nil {
+			versions = append(versions, e.version)
 		} else {
-			// The page is filled exactly by object keys with CommonPrefixes still
-			// pending. Resume from the last returned key and defer the prefixes to
-			// the next page, otherwise IsTruncated=true would carry an empty marker
-			// and the client could never fetch the remaining prefixes.
-			nextMarker = versions[len(versions)-1].Key
-			cpList = nil
+			cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(e.prefix)})
 		}
 	}
 

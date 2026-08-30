@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"maps"
+	"sort"
 	"time"
 )
 
@@ -28,7 +29,7 @@ func (b *InMemoryBackend) GetResourcesV2(
 		}
 	}
 
-	var all []map[string]any //nolint:prealloc // existing issue.
+	all := make([]map[string]any, 0, len(resourceMap))
 
 	for _, r := range resourceMap {
 		cp := make(map[string]any)
@@ -36,6 +37,17 @@ func (b *InMemoryBackend) GetResourcesV2(
 
 		all = append(all, cp)
 	}
+
+	// resourceMap is a plain map: range order is unspecified and
+	// re-randomized per call, so an unsorted result would drop or duplicate
+	// resources across two separate GetResourcesV2 calls that straddle a
+	// page boundary (Class E).
+	sort.Slice(all, func(i, j int) bool {
+		ii, _ := all[i]["Id"].(string)
+		jj, _ := all[j]["Id"].(string)
+
+		return ii < jj
+	})
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
 }
