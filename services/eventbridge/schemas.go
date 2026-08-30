@@ -17,6 +17,23 @@ const (
 	schemaTypeJSONSchemaDraft4 = "JSONSchemaDraft4"
 )
 
+// effectiveSchemaVersion resolves a possibly-empty requested SchemaVersion to
+// the schema's current version, as PutCodeBinding/DescribeCodeBinding/
+// GetCodeBindingSource all do (real SDK: SchemaVersion is optional on each,
+// "Specifying this limits the results to only this schema version").
+func (b *InMemoryBackend) effectiveSchemaVersion(registryName, schemaName, requested string) (string, error) {
+	if requested != "" {
+		return requested, nil
+	}
+
+	schema, ok := b.getSchema(registryName, schemaName)
+	if !ok {
+		return "", fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+	}
+
+	return schema.SchemaVersion, nil
+}
+
 // CreateSchema creates a new schema (version "1") within a registry.
 func (b *InMemoryBackend) CreateSchema(
 	ctx context.Context, //nolint:revive // existing issue.
@@ -565,7 +582,7 @@ func (b *InMemoryBackend) PutCodeBinding(
 		Status:        "CREATE_COMPLETE",
 	}
 
-	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	b.codeBindings[key] = binding
 
 	cp := *binding
@@ -592,11 +609,16 @@ func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context, //nolint:revi
 	b.mu.RLock("DescribeCodeBinding")
 	defer b.mu.RUnlock()
 
-	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	schemaVer, err := b.effectiveSchemaVersion(input.RegistryName, input.SchemaName, input.SchemaVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	binding, exists := b.codeBindings[key]
 	if !exists {
-		return nil, fmt.Errorf("%w: code binding for %s/%s language=%s not found",
-			ErrNotFound, input.RegistryName, input.SchemaName, input.Language)
+		return nil, fmt.Errorf("%w: code binding for %s/%s language=%s version=%s not found",
+			ErrNotFound, input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	}
 
 	cp := *binding
@@ -661,15 +683,20 @@ func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context, //nolint:rev
 	b.mu.RLock("GetCodeBindingSource")
 	defer b.mu.RUnlock()
 
-	key := b.codeBindingKey(registryName, schemaName, language)
+	effectiveVer, err := b.effectiveSchemaVersion(registryName, schemaName, schemaVersion)
+	if err != nil {
+		return "", err
+	}
+
+	key := b.codeBindingKey(registryName, schemaName, language, effectiveVer)
 	if _, exists := b.codeBindings[key]; !exists {
-		return "", fmt.Errorf("%w: code binding for %s/%s language=%s not found",
-			ErrNotFound, registryName, schemaName, language)
+		return "", fmt.Errorf("%w: code binding for %s/%s language=%s version=%s not found",
+			ErrNotFound, registryName, schemaName, language, effectiveVer)
 	}
 
 	// Return a minimal placeholder; real codegen is AWS-side only.
 	src := fmt.Sprintf("// Generated code binding for %s/%s (%s)\n// Schema version: %s\n",
-		registryName, schemaName, language, schemaVersion)
+		registryName, schemaName, language, effectiveVer)
 
 	return src, nil
 }

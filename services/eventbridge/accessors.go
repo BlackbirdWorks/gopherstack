@@ -486,6 +486,6 @@ func (b *InMemoryBackend) schemaVersionKey(registryName, schemaName string) stri
 	return registryName + "/" + schemaName
 }
 
-func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language string) string {
-	return registryName + "/" + schemaName + "/" + language
+func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language, schemaVersion string) string {
+	return registryName + "/" + schemaName + "/" + language + "/" + schemaVersion
 }

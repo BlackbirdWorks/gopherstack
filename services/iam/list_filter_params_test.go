@@ -143,6 +143,136 @@ func TestListRolesGroupsInstanceProfiles_PathPrefix(t *testing.T) {
 	})
 }
 
+// TestListAttachedPolicies_PathPrefix asserts ListAttachedUserPolicies,
+// ListAttachedGroupPolicies and ListAttachedRolePolicies all honor
+// PathPrefix (real AWS: "the returned list contains only the policies that
+// have their path matching this parameter", api_op_ListAttachedUserPolicies.go
+// et al) -- each of the three previously read no PathPrefix/Marker/MaxItems
+// at all and returned every attached policy unfiltered and unpaginated.
+func TestListAttachedPolicies_PathPrefix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("user", func(t *testing.T) {
+		t.Parallel()
+
+		h := iam.NewHandler(iam.NewInMemoryBackend())
+		client := newTestIAMClient(t, h)
+
+		matchPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("match-policy"),
+			Path:           aws.String("/team/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		otherPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("other-policy"),
+			Path:           aws.String("/other/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("u1")})
+		require.NoError(t, err)
+
+		for _, arn := range []*string{matchPolicy.Policy.Arn, otherPolicy.Policy.Arn} {
+			_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+				UserName: aws.String("u1"), PolicyArn: arn,
+			})
+			require.NoError(t, err)
+		}
+
+		out, err := client.ListAttachedUserPolicies(t.Context(), &iamsdk.ListAttachedUserPoliciesInput{
+			UserName:   aws.String("u1"),
+			PathPrefix: aws.String("/team/"),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.AttachedPolicies, 1)
+		require.Equal(t, "match-policy", aws.ToString(out.AttachedPolicies[0].PolicyName))
+	})
+
+	t.Run("group", func(t *testing.T) {
+		t.Parallel()
+
+		h := iam.NewHandler(iam.NewInMemoryBackend())
+		client := newTestIAMClient(t, h)
+
+		matchPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("match-policy"),
+			Path:           aws.String("/team/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		otherPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("other-policy"),
+			Path:           aws.String("/other/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateGroup(t.Context(), &iamsdk.CreateGroupInput{GroupName: aws.String("g1")})
+		require.NoError(t, err)
+
+		for _, arn := range []*string{matchPolicy.Policy.Arn, otherPolicy.Policy.Arn} {
+			_, err = client.AttachGroupPolicy(t.Context(), &iamsdk.AttachGroupPolicyInput{
+				GroupName: aws.String("g1"), PolicyArn: arn,
+			})
+			require.NoError(t, err)
+		}
+
+		out, err := client.ListAttachedGroupPolicies(t.Context(), &iamsdk.ListAttachedGroupPoliciesInput{
+			GroupName:  aws.String("g1"),
+			PathPrefix: aws.String("/team/"),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.AttachedPolicies, 1)
+		require.Equal(t, "match-policy", aws.ToString(out.AttachedPolicies[0].PolicyName))
+	})
+
+	t.Run("role", func(t *testing.T) {
+		t.Parallel()
+
+		h := iam.NewHandler(iam.NewInMemoryBackend())
+		client := newTestIAMClient(t, h)
+
+		matchPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("match-policy"),
+			Path:           aws.String("/team/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		otherPolicy, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+			PolicyName:     aws.String("other-policy"),
+			Path:           aws.String("/other/"),
+			PolicyDocument: aws.String(testPolicyDoc),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+			RoleName:                 aws.String("r1"),
+			AssumeRolePolicyDocument: aws.String("{}"),
+		})
+		require.NoError(t, err)
+
+		for _, arn := range []*string{matchPolicy.Policy.Arn, otherPolicy.Policy.Arn} {
+			_, err = client.AttachRolePolicy(t.Context(), &iamsdk.AttachRolePolicyInput{
+				RoleName: aws.String("r1"), PolicyArn: arn,
+			})
+			require.NoError(t, err)
+		}
+
+		out, err := client.ListAttachedRolePolicies(t.Context(), &iamsdk.ListAttachedRolePoliciesInput{
+			RoleName:   aws.String("r1"),
+			PathPrefix: aws.String("/team/"),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.AttachedPolicies, 1)
+		require.Equal(t, "match-policy", aws.ToString(out.AttachedPolicies[0].PolicyName))
+	})
+}
+
 // TestListPolicies_OnlyAttached asserts ListPoliciesInput.OnlyAttached (real
 // AWS: "the returned list contains only the policies that are attached to an
 // IAM user, group, or role") excludes an unattached policy.

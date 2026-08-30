@@ -294,11 +294,14 @@ func (b *InMemoryBackend) GetPolicyVersion(
 
 // policyNameFromARN extracts the policy name from an ARN.
 // arn:aws:iam::<account>:policy/<name> → <name>
+// policyNameFromARN extracts the bare policy name from an ARN. The ARN
+// resource is "policy" + Path + PolicyName, and Path always starts and ends
+// with "/" (arn.Build via CreatePolicy), so the name is always the text
+// after the final "/" -- not everything after "policy/", which for a
+// non-default Path (e.g. "/team/") wrongly includes the path segments too.
 func policyNameFromARN(arn string) string {
-	const prefix = "policy/"
-
-	if i := strings.LastIndex(arn, prefix); i >= 0 {
-		return arn[i+len(prefix):]
+	if i := strings.LastIndex(arn, "/"); i >= 0 {
+		return arn[i+1:]
 	}
 
 	return arn

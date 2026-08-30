@@ -246,6 +246,82 @@ func TestSchemasCodeBinding_RealSDKClient(t *testing.T) {
 	assert.Contains(t, string(source.Body), "sdk-cb-registry")
 }
 
+// TestSchemasDescribeCodeBinding_VersionScoped_RealSDKClient verifies that
+// PutCodeBinding for one schema version does not clobber a code binding
+// generated for a different version, and that DescribeCodeBinding /
+// GetCodeBindingSource honor the requested SchemaVersion (real SDK:
+// DescribeCodeBindingInput.SchemaVersion "Specifying this limits the results
+// to only this schema version.", api_op_DescribeCodeBinding.go).
+func TestSchemasDescribeCodeBinding_VersionScoped_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchemasHandler(t)
+	client := newTestSchemasClient(t, h)
+
+	_, err := client.CreateRegistry(t.Context(), &schemas.CreateRegistryInput{
+		RegistryName: aws.String("sdk-cbv-registry"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateSchema(t.Context(), &schemas.CreateSchemaInput{
+		RegistryName: aws.String("sdk-cbv-registry"),
+		SchemaName:   aws.String("sdk-cbv-schema"),
+		Type:         schemastypes.TypeOpenApi3,
+		Content:      aws.String(`{"openapi":"3.0.0","info":{"version":"1"}}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutCodeBinding(t.Context(), &schemas.PutCodeBindingInput{
+		RegistryName:  aws.String("sdk-cbv-registry"),
+		SchemaName:    aws.String("sdk-cbv-schema"),
+		Language:      aws.String("Go"),
+		SchemaVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateSchema(t.Context(), &schemas.UpdateSchemaInput{
+		RegistryName: aws.String("sdk-cbv-registry"),
+		SchemaName:   aws.String("sdk-cbv-schema"),
+		Content:      aws.String(`{"openapi":"3.0.0","info":{"version":"2"}}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutCodeBinding(t.Context(), &schemas.PutCodeBindingInput{
+		RegistryName:  aws.String("sdk-cbv-registry"),
+		SchemaName:    aws.String("sdk-cbv-schema"),
+		Language:      aws.String("Go"),
+		SchemaVersion: aws.String("2"),
+	})
+	require.NoError(t, err)
+
+	describedV1, err := client.DescribeCodeBinding(t.Context(), &schemas.DescribeCodeBindingInput{
+		RegistryName:  aws.String("sdk-cbv-registry"),
+		SchemaName:    aws.String("sdk-cbv-schema"),
+		Language:      aws.String("Go"),
+		SchemaVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1", aws.ToString(describedV1.SchemaVersion))
+
+	describedV2, err := client.DescribeCodeBinding(t.Context(), &schemas.DescribeCodeBindingInput{
+		RegistryName:  aws.String("sdk-cbv-registry"),
+		SchemaName:    aws.String("sdk-cbv-schema"),
+		Language:      aws.String("Go"),
+		SchemaVersion: aws.String("2"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "2", aws.ToString(describedV2.SchemaVersion))
+
+	sourceV1, err := client.GetCodeBindingSource(t.Context(), &schemas.GetCodeBindingSourceInput{
+		RegistryName:  aws.String("sdk-cbv-registry"),
+		SchemaName:    aws.String("sdk-cbv-schema"),
+		Language:      aws.String("Go"),
+		SchemaVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(sourceV1.Body), "Schema version: 1")
+}
+
 // TestSchemasGetDiscoveredSchema_RealSDKClient drives GetDiscoveredSchema,
 // the one op that carries no path parameters at all (POST /v1/discover).
 func TestSchemasGetDiscoveredSchema_RealSDKClient(t *testing.T) {

@@ -146,40 +146,8 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 
 			return &DetachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListAttachedUserPolicies": func(vals url.Values, reqID string) (any, error) {
-			policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))
-			if err != nil {
-				return nil, err
-			}
-
-			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
-			for _, p := range policies {
-				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
-			}
-
-			return &ListAttachedUserPoliciesResponse{
-				Xmlns:                          iamXMLNS,
-				ListAttachedUserPoliciesResult: ListAttachedUserPoliciesResult{AttachedPolicies: xmlPolicies},
-				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"ListAttachedRolePolicies": func(vals url.Values, reqID string) (any, error) {
-			policies, err := h.Backend.ListAttachedRolePolicies(vals.Get("RoleName"))
-			if err != nil {
-				return nil, err
-			}
-
-			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
-			for _, p := range policies {
-				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
-			}
-
-			return &ListAttachedRolePoliciesResponse{
-				Xmlns:                          iamXMLNS,
-				ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{AttachedPolicies: xmlPolicies},
-				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		"ListAttachedUserPolicies": h.handleListAttachedUserPolicies,
+		"ListAttachedRolePolicies": h.handleListAttachedRolePolicies,
 		"ListRolePolicies": func(vals url.Values, reqID string) (any, error) {
 			names, err := h.Backend.ListRolePolicies(vals.Get("RoleName"))
 			if err != nil {
@@ -194,6 +162,60 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 		},
 		opListInstanceProfilesForRole: h.handleListInstanceProfilesForRole,
 	}
+}
+
+func (h *Handler) handleListAttachedUserPolicies(vals url.Values, reqID string) (any, error) {
+	policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))
+	if err != nil {
+		return nil, err
+	}
+
+	pg, err := h.listAttachedPoliciesFiltered(policies, vals)
+	if err != nil {
+		return nil, err
+	}
+
+	xmlPolicies := make([]AttachedPolicyXML, 0, len(pg.Data))
+	for _, p := range pg.Data {
+		xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+	}
+
+	return &ListAttachedUserPoliciesResponse{
+		Xmlns: iamXMLNS,
+		ListAttachedUserPoliciesResult: ListAttachedUserPoliciesResult{
+			AttachedPolicies: xmlPolicies,
+			IsTruncated:      pg.Next != "",
+			Marker:           pg.Next,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
+}
+
+func (h *Handler) handleListAttachedRolePolicies(vals url.Values, reqID string) (any, error) {
+	policies, err := h.Backend.ListAttachedRolePolicies(vals.Get("RoleName"))
+	if err != nil {
+		return nil, err
+	}
+
+	pg, err := h.listAttachedPoliciesFiltered(policies, vals)
+	if err != nil {
+		return nil, err
+	}
+
+	xmlPolicies := make([]AttachedPolicyXML, 0, len(pg.Data))
+	for _, p := range pg.Data {
+		xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+	}
+
+	return &ListAttachedRolePoliciesResponse{
+		Xmlns: iamXMLNS,
+		ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{
+			AttachedPolicies: xmlPolicies,
+			IsTruncated:      pg.Next != "",
+			Marker:           pg.Next,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
 }
 
 func toPolicyXML(p *Policy) PolicyXML {

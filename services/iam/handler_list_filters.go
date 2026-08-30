@@ -258,6 +258,32 @@ func policyMatchesListFilters(
 	}
 }
 
+// listAttachedPoliciesFiltered applies PathPrefix and Marker/MaxItems to a
+// ListAttached{User,Group,Role}Policies result (api_op_ListAttachedUserPolicies.go
+// et al: all three take PathPrefix, Marker, MaxItems). AttachedPolicy itself
+// carries no Path, so PathPrefix is resolved through GetPolicy per entry.
+func (h *Handler) listAttachedPoliciesFiltered(
+	all []AttachedPolicy, vals url.Values,
+) (page.Page[AttachedPolicy], error) {
+	prefix := normPath(vals.Get("PathPrefix"))
+
+	filtered := all
+	if prefix != "/" {
+		filtered = make([]AttachedPolicy, 0, len(all))
+		for _, ap := range all {
+			pol, err := h.Backend.GetPolicy(ap.PolicyArn)
+			if err != nil {
+				return page.Page[AttachedPolicy]{}, err
+			}
+			if strings.HasPrefix(pol.Path, prefix) {
+				filtered = append(filtered, ap)
+			}
+		}
+	}
+
+	return page.New(filtered, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), iamDefaultMaxItems), nil
+}
+
 // filterByPath filters a slice of items to those whose path starts with prefix.
 // When prefix is "/" (default) all items are returned.
 func filterByPath[T any](items []T, prefix string, getPath func(T) string) []T {
