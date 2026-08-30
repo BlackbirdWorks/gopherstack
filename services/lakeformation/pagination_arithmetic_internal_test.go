@@ -111,6 +111,31 @@ func TestPaginateTaggedTables_StaleCursor_PastEnd(t *testing.T) {
 	})
 }
 
+// lfOverflowingToken is 19 decimal digits: long enough that the manual
+// n = n*10 + digit loop in paginateTaggedTables/paginateTaggedDatabases
+// overflows Go's signed int and wraps around to a negative value (unlike
+// strconv.Atoi, which would reject this with ErrRange). A single '-' byte
+// does NOT reproduce this: byte is unsigned in Go, so '-'-'0' wraps to 253,
+// not -3.
+const lfOverflowingToken = "9999999999999999999"
+
+// TestPaginateTaggedTables_NegativeOffsetToken reproduces a token long
+// enough to overflow the manual decimal-digit loop into a negative offset.
+// The `startIdx >= len(list)` guard does not catch a negative offset, so
+// list[startIdx:end] previously panicked.
+func TestPaginateTaggedTables_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	all := taggedTables("t0", "t1", "t2")
+
+	require.NotPanics(t, func() {
+		page, tok := paginateTaggedTables(all, 10, lfOverflowingToken)
+		assert.Equal(t, []string{"t0", "t1", "t2"}, taggedTableNames(page),
+			"a token that decodes to a negative offset must be treated like offset=0")
+		assert.Empty(t, tok)
+	})
+}
+
 func taggedDatabases(names ...string) []TaggedDatabase {
 	out := make([]TaggedDatabase, 0, len(names))
 	for _, n := range names {
@@ -182,6 +207,22 @@ func TestPaginateTaggedDatabases_StaleCursor_PastEnd(t *testing.T) {
 	require.NotPanics(t, func() {
 		page, tok := paginateTaggedDatabases(all, 10, strconv.Itoa(100))
 		assert.Empty(t, page)
+		assert.Empty(t, tok)
+	})
+}
+
+// TestPaginateTaggedDatabases_NegativeOffsetToken is the same reproduction
+// for paginateTaggedDatabases, which shares the identical manual decimal
+// parser and lacks an overflow guard.
+func TestPaginateTaggedDatabases_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	all := taggedDatabases("d0", "d1", "d2")
+
+	require.NotPanics(t, func() {
+		page, tok := paginateTaggedDatabases(all, 10, lfOverflowingToken)
+		assert.Equal(t, []string{"d0", "d1", "d2"}, taggedDatabaseNames(page),
+			"a token that decodes to a negative offset must be treated like offset=0")
 		assert.Empty(t, tok)
 	})
 }

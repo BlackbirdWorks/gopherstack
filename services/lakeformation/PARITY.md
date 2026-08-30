@@ -449,3 +449,21 @@ Gates: `go build ./services/lakeformation/...`, `go vet
 `go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
 ./services/lakeformation/...` (0 issues). No production code changed this
 pass — test-only additions confirming correctness.
+
+**2026-08-30 (negative-continuation-token sweep)**: `lf_tags.go`'s `paginateTaggedTables`/
+`paginateTaggedDatabases` decoded `nextToken` with a hand-rolled `n = n*10 + int(b-'0')`
+decimal-digit loop instead of `strconv.Atoi`. A leading `-` byte does *not* make this go
+negative (`byte` is unsigned in Go, so `'-'-'0'` wraps to 253, not -3) — but a sufficiently
+long all-digit token (19+ nines) overflows Go's signed `int` and wraps around to a negative
+value, the same way `strconv.Atoi` would reject it with `ErrRange` but this manual loop
+silently accepted. `startIdx >= len(list)` does not catch a negative `startIdx`, so
+`list[startIdx:end]` panicked. Fixed at the decode site: both functions now call a new shared
+`decodeLFPageToken` (`strconv.Atoi` plus a `< 0` guard) instead of the manual loop; the dead
+`lfDecimalBase` const was removed.
+
+Proof: `TestPaginateTaggedTables_NegativeOffsetToken` and
+`TestPaginateTaggedDatabases_NegativeOffsetToken` (`pagination_arithmetic_internal_test.go`),
+using a 19-digit all-nines token, confirmed panicking pre-fix, pass now. Gates: `go build
+./services/lakeformation/...`, `go vet ./services/lakeformation/...`, `go test -race -count=1
+./services/lakeformation/...`, `golangci-lint run ./services/lakeformation/...` (0 issues).
+Work left uncommitted per this pass's instructions.

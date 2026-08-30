@@ -841,3 +841,20 @@ Gates: `go build ./services/securityhub/...` (clean), `go vet
 ./services/securityhub/...` (clean, no signature changes), `go test -race
 -count=1 ./services/securityhub/...` (pass). Work left uncommitted per this
 pass's instructions.
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s `decodeToken` used a bare
+`fmt.Sscanf(token, "%d", &offset)` with no bounds check at all; `paginateSlice`'s `start >=
+len(results)` guard does not catch a negative `start`, so `results[start:end]` panicked given
+`"-5"` as a NextToken, across all 15 call sites (`action_targets.go`, `aggregators_v2.go`,
+`connectors.go`, `finding_aggregators.go`, `configuration_policies.go` x2, `connectors_v2.go`,
+`automation_rules.go`, `findings.go`, `findings_v2.go`, `invitations.go`, `resources_v2.go`,
+`organizations.go`, `members.go`, `standards.go`). Fixed at the decode site: `decodeToken` now
+returns 0 for a negative offset, so all 15 callers inherit the fix. The existing
+`TestPaginateSlice_SevenChecks` table in `pagination_arithmetic_test.go` exercised stale/
+past-end/malformed-non-numeric tokens but never a negative one.
+
+Proof: the added `negative offset token` subtest of `TestPaginateSlice_SevenChecks`
+(`pagination_arithmetic_test.go`) confirmed panicking pre-fix, passes now. Gates: `go build
+./services/securityhub/...`, `go vet ./services/securityhub/...`, `go test -race -count=1
+./services/securityhub/...`, `golangci-lint run ./services/securityhub/...` (0 issues). Work
+left uncommitted per this pass's instructions.

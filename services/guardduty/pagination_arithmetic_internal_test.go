@@ -103,6 +103,34 @@ func TestPaginate_StaleOffset_PastEnd(t *testing.T) {
 	})
 }
 
+// TestDecodeToken_NegativeOffset reproduces a token decoding to a negative
+// offset -- paginate's `offset >= len(items)` guard does not catch a
+// negative offset, so items[offset:end] panics with a negative slice bound.
+// LTU= is base64 for "-5".
+func TestDecodeToken_NegativeOffset(t *testing.T) {
+	t.Parallel()
+
+	const negativeToken = "LTU="
+
+	_, err := decodeToken(negativeToken)
+	require.Error(t, err, "a negative-offset token must be rejected, not accepted as -5")
+}
+
+func TestPaginate_NegativeOffset_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	items := []string{"a0", "a1", "a2"}
+
+	require.NotPanics(t, func() {
+		offset, err := decodeToken("LTU=")
+		if err != nil {
+			return
+		}
+
+		paginate(items, offset, 10)
+	})
+}
+
 func TestDecodeToken_EmptyInvalidRoundTrip(t *testing.T) {
 	t.Parallel()
 

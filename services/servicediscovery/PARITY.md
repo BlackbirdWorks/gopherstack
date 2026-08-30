@@ -380,3 +380,19 @@ request: ServiceArn is required` (hand-reverted via `cp`, md5sum-identical
 restore after). Existing tests (`services_test.go`,
 `persistence_test.go`) updated to send the real `ServiceId` key instead of
 the bug-matching `ServiceArn` key.
+
+**2026-08-30 (negative-continuation-token sweep)**: `handler.go`'s `decodeCursor` base64-decoded
+a token and `fmt.Sscanf`'d it to an int with no bounds check; all 5 callers
+(`handler_operations.go`, `handler_namespaces.go`, `handler_instances.go` x2,
+`handler_services.go`) only check `offset >= len(items)`, which does not catch a negative
+offset, so `items[offset:end]` panicked given a token base64-decoding to `-5`. Fixed at the
+decode site: `decodeCursor` now returns 0 for a negative offset, so all 5 callers inherit the
+fix. No existing test supplied a hostile token for any of these listings before this pass.
+
+Proof: `TestApplyPaginationNamespaces_NegativeOffsetToken` and
+`TestApplyPaginationInstances_NegativeOffsetToken` (new file
+`pagination_negative_token_internal_test.go`) confirmed panicking pre-fix, pass now. Gates:
+`go build ./services/servicediscovery/...`, `go vet ./services/servicediscovery/...`, `go test
+-race -count=1 ./services/servicediscovery/...`, `golangci-lint run
+./services/servicediscovery/...` (0 issues). Work left uncommitted per this pass's
+instructions.

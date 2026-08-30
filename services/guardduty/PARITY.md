@@ -627,3 +627,20 @@ Gates: `go build ./services/guardduty/...`, `go vet
 -race -count=1 ./services/guardduty/...`, `golangci-lint run
 ./services/guardduty/...` (0 issues). No production code changed this pass
 — test-only additions confirming correctness.
+
+**2026-08-30 (negative-continuation-token sweep)**: `pagination.go`'s `decodeToken` (its own
+doc comment says it "Mirrors services/sns's decodeToken") had the identical defect as SNS's
+pre-fix version: it accepted a token that base64-decoded to a negative integer and returned it
+verbatim, and `paginate`'s `offset >= len(items)` guard does not catch a negative offset, so
+`items[offset:end]` (16 call sites across `entity_sets.go` x2, `findings.go`, `filters.go`,
+`investigations.go`, `ip_and_threatintel_sets.go` x2, `members.go` x2, `organization.go`,
+`malware_protection.go` x2, `publishing_destinations.go`) panicked given a negative-decoding
+token. Fixed at the decode site, same as SNS. The existing
+`pagination_arithmetic_internal_test.go` documents a past-the-end-offset clamp test but never
+supplied a negative-offset token before this pass.
+
+Proof: `TestDecodeToken_NegativeOffset` and `TestPaginate_NegativeOffset_DoesNotPanic`
+(`pagination_arithmetic_internal_test.go`) confirmed panicking pre-fix, pass now. Gates: `go
+build ./services/guardduty/...`, `go vet ./services/guardduty/...`, `go test -race -count=1
+./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0 issues). Work left
+uncommitted per this pass's instructions.

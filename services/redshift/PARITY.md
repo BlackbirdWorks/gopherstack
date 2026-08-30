@@ -1491,3 +1491,23 @@ binding, not just handler logic over an already-correct value).
 Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, `DescribeClusters` signature
 changed), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
 ./services/redshift/...` (0 issues after fixing a `govet` shadow and an `nlreturn` finding).
+
+**2026-08-30 (negative-continuation-token sweep)**: Redshift Serverless's 11 `List*` ops
+(`serverless_namespaces.go`, `serverless_table_restore.go`, `serverless_workgroups.go`,
+`serverless_snapshots.go`, `serverless_recovery.go`, `serverless_snapshot_copy_config.go`,
+`serverless_endpoint_access.go`, `serverless_usage_limits.go`, `serverless_custom_domains.go`,
+`serverless_tracks.go`, `serverless_scheduled_actions.go`) each copy-pasted an identical
+inline `nextToken` decode with a bare `strconv.Atoi` and no negative check; each caller's
+`startIdx >= len(list)` guard does not catch a negative `startIdx`, so `list[startIdx:end]`
+panicked given `nextToken="-5"`. No shared decode function existed to fix in one place — this
+was 11 duplicated inline blocks, not one helper — so this pass extracted a new shared
+`decodeServerlessPageToken` (`serverless.go`, next to the existing `serverlessDefaultPageSize`
+helper) and replaced all 11 inline blocks with a single call, consolidating what should always
+have been one decode site.
+
+Proof: `TestServerlessNamespaceIndex_NegativeToken` (`serverless_index_test.go`) confirmed
+panicking pre-fix, passes now (the fix in `serverless.go` covers all 11 ops via one function,
+so this single reproduction stands for the class). Gates: `go build ./services/redshift/...`,
+`go vet ./services/redshift/...`, `go test -race -count=1 ./services/redshift/...`,
+`golangci-lint run ./services/redshift/...` (0 issues). Work left uncommitted per this pass's
+instructions.

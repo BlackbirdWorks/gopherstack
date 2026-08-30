@@ -715,3 +715,15 @@ Gates: `go build ./services/ecr/...`, `go vet ./services/ecr/...` and
 `go vet ./...` (repo-wide, clean — no signature changed),
 `go test -race -count=1 ./services/ecr/...`, `golangci-lint run
 ./services/ecr/...` (0 issues).
+
+**2026-08-30 (negative-continuation-token sweep)**: `image_scanning.go`'s
+`DescribeImageScanFindings` parsed `nextToken` with a bare `strconv.Atoi` and no bounds check;
+its `startIdx >= total` guard does not catch a negative `startIdx`, so
+`cp.Findings[startIdx:endIdx]` / `cp.EnhancedFindings[startIdx:endIdx]` panicked given a
+negative `nextToken`. Fixed at the decode site: the parsed value is now validated `>= 0`
+before being assigned.
+
+Proof: `TestDescribeImageScanFindings_NegativeOffsetToken` (`image_scanning_test.go`) confirmed
+panicking pre-fix, passes now. Gates: `go build ./services/ecr/...`, `go vet
+./services/ecr/...`, `go test -race -count=1 ./services/ecr/...`, `golangci-lint run
+./services/ecr/...` (0 issues). Work left uncommitted per this pass's instructions.

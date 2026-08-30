@@ -117,12 +117,7 @@ func (b *InMemoryBackend) ListRecoveryPointsSL(p ListRecoveryPointsParams) ([]*R
 		maxResults = serverlessDefaultPageSize()
 	}
 
-	startIdx := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil {
-			startIdx = n
-		}
-	}
+	startIdx := decodeServerlessPageToken(nextToken)
 
 	if startIdx >= len(list) {
 		return []*RecoveryPoint{}, ""

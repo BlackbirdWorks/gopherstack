@@ -119,6 +119,21 @@ func TestPaginateSlice_SevenChecks(t *testing.T) {
 		assert.Len(t, out, 3)
 		assert.NotEmpty(t, next)
 	})
+
+	// negative-offset token: decodeToken has no `< 0` guard, and paginateSlice's
+	// `start >= len(results)` check does not catch a negative start, so
+	// results[start:end] previously panicked with a negative slice bound.
+	t.Run("negative offset token", func(t *testing.T) {
+		t.Parallel()
+
+		items := makeStrPage(5)
+
+		require.NotPanics(t, func() {
+			out, next := paginateSlice(items, "-5", 5, 100)
+			assert.Equal(t, items, out, "a negative-offset token must be treated like start=0")
+			assert.Empty(t, next)
+		})
+	})
 }
 
 // TestFilterOrAll_ListAllIsSorted proves filterOrAll's "list everything"

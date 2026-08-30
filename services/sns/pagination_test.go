@@ -157,6 +157,32 @@ func TestListPhoneNumbersOptedOutNoNextToken(t *testing.T) {
 	assert.NotContains(t, body, "<nextToken>", "ListPhoneNumbersOptedOut must omit nextToken on last page")
 }
 
+// TestSNSPagination_NegativeToken verifies that a continuation token decoding
+// to a negative offset is rejected rather than reaching items[offset:end] and
+// panicking with "slice bounds out of range". LTU= is base64 for "-5".
+func TestSNSPagination_NegativeToken(t *testing.T) {
+	t.Parallel()
+
+	const negativeToken = "LTU="
+
+	b := sns.NewInMemoryBackend()
+
+	_, err := b.CreateTopic("topic-0", nil)
+	require.NoError(t, err)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("ListTopics panicked on negative-offset token: %v", r)
+			}
+		}()
+
+		_, _, err = b.ListTopics(negativeToken)
+	}()
+
+	require.Error(t, err, "a negative-offset token must be rejected, not silently accepted")
+}
+
 // TestSNS_MaxResultsListSandbox validates that ListSMSSandboxPhoneNumbers and
 // ListPhoneNumbersOptedOut respect the MaxResults parameter via the HTTP handler.
 func TestSNS_MaxResultsListSandbox(t *testing.T) {

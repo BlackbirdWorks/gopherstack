@@ -489,3 +489,19 @@ guard, plus the full `-race` suite confirms none of the `FormValue` call sites r
 Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race ./services/sns/...` (pass,
 ~21s), `golangci-lint run ./services/sns/...` (0 issues, 0 new nolints). No exported
 signature changed.
+
+**2026-08-30 (negative-continuation-token sweep)**: `pagination.go`'s `decodeToken` accepted
+a token that base64-decoded to a negative integer and returned it verbatim; `paginate`'s
+`offset >= len(items)` guard does not catch a negative offset, so `items[offset:end]`
+(the 8 call sites: `origination_numbers.go`, `platform_endpoints.go`,
+`platform_applications.go`, `sms.go` x2, `subscriptions.go` x2, `topics.go`) panicked with
+`slice bounds out of range [-5:]` given `LTU=` (base64 for `-5`) as `NextToken`. Fixed at the
+decode site: `decodeToken` now rejects a negative offset the same way it already rejects
+malformed base64 or a non-integer payload, so all 8 callers inherit the fix without change.
+`pagination_test.go`'s existing suite asserted page contents/token presence only — no test
+supplied a hostile token before this pass.
+
+Proof: `TestSNSPagination_NegativeToken` (`pagination_test.go`) confirmed panicking pre-fix,
+passes now. Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race
+-count=1 ./services/sns/...`, `golangci-lint run ./services/sns/...` (0 issues). Work left
+uncommitted per this pass's instructions.

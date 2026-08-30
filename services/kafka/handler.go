@@ -659,7 +659,10 @@ func encodeKafkaPageToken(offset int) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
-// decodeKafkaPageToken decodes a base64url-encoded JSON token. Returns 0 on any failure.
+// decodeKafkaPageToken decodes a base64url-encoded JSON token. Returns 0 on any
+// failure, including a negative offset: every call site only clamps the upper
+// bound via min(offset, len(all)) before slicing all[offset:], so a negative
+// offset must be rejected here rather than left to the caller.
 func decodeKafkaPageToken(token string) int {
 	if token == "" {
 		return 0
@@ -675,7 +678,7 @@ func decodeKafkaPageToken(token string) int {
 	}
 
 	err = json.Unmarshal(data, &t)
-	if err != nil {
+	if err != nil || t.O < 0 {
 		return 0
 	}
 

@@ -510,3 +510,19 @@ signed request's path from `/collaborations` to
 confirmed the test fails with `*json.SyntaxError: "invalid character 'o' in
 literal null (expecting 'u')"`, restored the fix, `md5sum`-confirmed
 byte-identical.
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s shared `paginate` helper
+(backing every `List*` op via `listItems`/`listNestedItems`, 8 call sites across
+`configured_tables.go`, `configured_table_associations.go`, `intermediate_tables.go`,
+`collaborations.go`, `protected_jobs.go`, `memberships.go`, `protected_queries.go`) used a bare
+`fmt.Sscanf(nextToken, "%d", &start)` with no bounds check; `start >= len(items)` does not
+catch a negative `start`, so `items[start:end]` panicked given `"-5"` as a NextToken. Fixed at
+the decode site: the scanned value is now validated `>= 0` before being assigned to `start`
+(so a negative-decoding token falls back to `start=0`, matching every other malformed-token
+case), so all 8 callers inherit the fix.
+
+Proof: `TestPaginate_NegativeOffsetToken` (new file
+`pagination_negative_token_internal_test.go`) confirmed panicking pre-fix, passes now. Gates:
+`go build ./services/cleanrooms/...`, `go vet ./services/cleanrooms/...`, `go test -race
+-count=1 ./services/cleanrooms/...`, `golangci-lint run ./services/cleanrooms/...` (0 issues).
+Work left uncommitted per this pass's instructions.

@@ -211,7 +211,10 @@ func paginate[T any](items []T, maxResultsStr, nextToken string) ([]T, string) {
 	}
 	start := 0
 	if nextToken != "" {
-		_, _ = fmt.Sscanf(nextToken, "%d", &start)
+		var n int
+		if _, err := fmt.Sscanf(nextToken, "%d", &n); err == nil && n >= 0 {
+			start = n
+		}
 	}
 	if start >= len(items) {
 		return []T{}, ""

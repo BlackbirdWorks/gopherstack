@@ -615,3 +615,18 @@ JobRun/ValidationConfigurations lesson this method exists to catch).
   SDK line references, and this session's time budget went to the
   Cluster/ClusterOperation/Nodes families named in the mk3t lead instead of
   re-verifying already-recent work.
+
+**2026-08-30 (negative-continuation-token sweep)**: `handler.go`'s `decodeKafkaPageToken`
+JSON-decoded a base64url token's `{"o": int}` payload and returned the offset verbatim,
+including a negative one; all 8 call sites (`handler_clusters.go` x2, `handler_channels.go`,
+`handler_configurations.go` x2, `handler_topics.go` x2, `handler_replicators.go`) only clamp
+the upper bound via `min(offset, len(all))`, which does not catch a negative offset, so
+`all[offset:]` panicked given a token encoding `{"o":-5}`. Fixed at the decode site:
+`decodeKafkaPageToken` now returns 0 for a negative offset, matching its existing
+malformed-JSON/malformed-base64 handling, so all 8 callers inherit the fix. No existing test
+file covered a hostile `nextToken` for any of these listings before this pass.
+
+Proof: `TestListClusters_NegativeOffsetToken` (`handler_clusters_test.go`) confirmed
+panicking pre-fix, passes now. Gates: `go build ./services/kafka/...`, `go vet
+./services/kafka/...`, `go test -race -count=1 ./services/kafka/...`, `golangci-lint run
+./services/kafka/...` (0 issues). Work left uncommitted per this pass's instructions.

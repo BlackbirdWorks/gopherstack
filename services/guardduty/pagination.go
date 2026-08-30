@@ -2,9 +2,12 @@ package guardduty
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"strconv"
 )
+
+var errNegativeToken = errors.New("guardduty: pagination token decodes to a negative offset")
 
 // paginationParamsFromQuery parses a raw HTTP query string's maxResults and
 // nextToken parameters, the real HTTP query bindings shared by every
@@ -28,8 +31,12 @@ func paginationParamsFromQuery(query string) (int32, string) {
 }
 
 // decodeToken decodes a base64 pagination token into an integer offset. An
-// empty token is treated as offset 0. Mirrors services/sns's decodeToken
-// (this package can't import that unexported helper directly).
+// empty token is treated as offset 0. A token decoding to a negative offset
+// is rejected like any other malformed token, since paginate's
+// `offset >= len(items)` guard does not catch a negative offset and would
+// otherwise slice items[offset:end] with a negative bound and panic. Mirrors
+// services/sns's decodeToken (this package can't import that unexported
+// helper directly).
 func decodeToken(token string) (int, error) {
 	if token == "" {
 		return 0, nil
@@ -43,6 +50,10 @@ func decodeToken(token string) (int, error) {
 	offset, err := strconv.Atoi(string(decoded))
 	if err != nil {
 		return 0, err
+	}
+
+	if offset < 0 {
+		return 0, errNegativeToken
 	}
 
 	return offset, nil

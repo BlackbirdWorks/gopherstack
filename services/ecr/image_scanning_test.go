@@ -91,6 +91,34 @@ func TestStartImageScan_ThenDescribeFindings(t *testing.T) {
 	assert.Equal(t, digest, findings.ImageID.ImageDigest)
 }
 
+// TestDescribeImageScanFindings_NegativeOffsetToken reproduces a nextToken
+// decoding to a negative offset. DescribeImageScanFindings parses nextToken
+// with a bare strconv.Atoi and no `< 0` guard, and its `startIdx >= total`
+// check does not catch a negative offset, so
+// cp.Findings[startIdx:endIdx]/cp.EnhancedFindings[startIdx:endIdx]
+// previously panicked with a negative slice bound.
+func TestDescribeImageScanFindings_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.CreateRepoInternal("scan-repo")
+
+	digest := "sha256:deadbeef"
+	b.AddImageInternal("scan-repo", makeImage(digest, "latest"))
+
+	_, err := b.StartImageScan(context.Background(), "scan-repo",
+		ecr.ImageIdentifier{ImageDigest: digest})
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		findings, next, findErr := b.DescribeImageScanFindings(context.Background(), "scan-repo",
+			ecr.ImageIdentifier{ImageDigest: digest}, 10, "-5")
+		require.NoError(t, findErr)
+		assert.Equal(t, "COMPLETE", findings.Status, "a negative-offset token must be treated like start=0")
+		_ = next
+	})
+}
+
 func TestScanNotFoundException_HTTPHandler(t *testing.T) {
 	t.Parallel()
 

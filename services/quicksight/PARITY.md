@@ -1089,3 +1089,22 @@ the walk never terminating) against unfixed code.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/quicksight/...`).
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s `decodePageToken` accepted a
+token that base64-decoded to a negative integer and returned it verbatim; 6 of its 7 callers
+(`brands.go`, `folders.go`'s `paginateFolders`, `templates.go`, `vpcconnections.go`,
+`namespace.go`'s `paginateNamespaces`, `themes.go`) only clamp the upper bound (`if start >
+len(all) { start = len(all) }`), which does not catch a negative `start`, so
+`all[start:end]` panicked given `LTU=` (base64 for `-5`) as `next-token`. (The 7th caller,
+`dashboard.go`'s `ListDashboardVersions`, doesn't slice — it synthesizes version numbers from
+a counter range, so a negative `start` produced nonsensical negative `VersionNumber` entries
+rather than a panic; also fixed by the same decode-site change.) Fixed at the decode site, so
+all 7 callers inherit the fix. The existing `TestPaginationTokensAreOpaque` table in
+`pagination_test.go` covers all 7 of these operations but never supplied a hostile token.
+
+Proof: `TestPagination_NegativeOffsetToken` (`pagination_test.go`, table-driven over all 6
+slicing operations) confirmed panicking pre-fix for every subtest, passes now. Gates: `go
+build ./services/quicksight/...`, `go vet ./services/quicksight/...`, `go test -race -count=1
+./services/quicksight/...`, `golangci-lint run ./services/quicksight/...` (0 issues — one
+`err113` finding from the fix's first draft, a dynamic `fmt.Errorf`, was replaced with the
+existing `ErrValidation` sentinel). Work left uncommitted per this pass's instructions.

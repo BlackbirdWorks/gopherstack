@@ -429,6 +429,10 @@ func encodeToken(offset int) string {
 	return strconv.Itoa(offset)
 }
 
+// decodeToken decodes a pagination token to an integer offset. A negative
+// offset is rejected like any other malformed token: paginateSlice's
+// `start >= len(results)` guard does not catch a negative offset and would
+// otherwise slice results[start:end] with a negative bound and panic.
 func decodeToken(token string) int {
 	if token == "" {
 		return 0
@@ -436,7 +440,7 @@ func decodeToken(token string) int {
 
 	var offset int
 
-	if _, err := fmt.Sscanf(token, "%d", &offset); err != nil {
+	if _, err := fmt.Sscanf(token, "%d", &offset); err != nil || offset < 0 {
 		return 0
 	}
 
