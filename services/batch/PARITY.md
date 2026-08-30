@@ -500,3 +500,43 @@ must return an empty page, not error or hang).
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/batch/...`).
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+batch dispatches every op through `service.WrapOp` (44 entries in `buildOps()`,
+keyed by lowercase REST path, plus 3 tag ops handled outside that map
+entirely). A field scan anchored on literal decode calls alone -- what
+earlier campaign passes ran -- would resolve only `TagResource`'s own
+`json.Unmarshal` and see **1 of 45 operations (2%)**: the rest of this
+service was effectively invisible to that method, gopherstack-4shm's exact
+class. The new `cmd/reqfieldscan` tool (built this pass, resolves
+`WrapOp`'s second type parameter directly from each `handle*` function's
+own signature) reaches **43 of 45 (96%)**; the remaining 2
+(`ListTagsForResource`, `UntagResource`) are GET/DELETE requests with no
+JSON body to decode at all, correctly unresolved rather than silently
+dropped from the denominator.
+
+**One real bug found and fixed**: `UpdateJobQueueInput.SchedulingPolicyArn`
+(batch@v1.68.4 `api_op_UpdateJobQueue.go`: "Once a job queue is created,
+the fair-share scheduling policy can be replaced but not removed") was
+decoded and never passed to `InMemoryBackend.UpdateJobQueue` at all -- every
+other field on that same call (`Priority`, `State`,
+`ComputeEnvironmentOrder`, `JobStateTimeLimitActions`,
+`ServiceEnvironmentOrder`) was threaded through correctly, this one alone
+was dropped. Fixed by adding a `schedulingPolicyArn string` parameter to
+the backend method (only overwrites when non-empty, matching "replaced but
+not removed"). New test
+`TestHandler_UpdateJobQueue_SchedulingPolicyArn`
+(`handler_job_queues_test.go`) confirmed failing against unmodified code,
+then passing; drives `DescribeJobQueues` afterward to assert on the
+decoded value, not `err == nil`.
+
+After the fix, `cmd/reqfieldscan -dir batch` reports **0 unread fields**
+across all 43 resolved request types (161 fields). The prior clean verdicts
+for `JobQueue`/`JobDefinition`/`Job`/`ConsumableResource`/
+`SchedulingPolicy`/`QuotaShare`/`ServiceEnvironment`/`ServiceJob` families
+(marked "not independently re-verified" in the 2026-08-29 entry above) now
+have a mechanical re-scan behind them and hold, this one field excepted.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/batch/...` and `./cmd/reqfieldscan/...`).

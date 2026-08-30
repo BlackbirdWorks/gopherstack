@@ -197,7 +197,7 @@ type registerWorkspaceDirectoryOutput struct {
 func (h *Handler) handleRegisterWorkspaceDirectory(
 	_ context.Context, req *registerWorkspaceDirectoryInput,
 ) (*registerWorkspaceDirectoryOutput, error) {
-	if err := h.Backend.RegisterWorkspaceDirectory(req.DirectoryId, req.SubnetIds); err != nil {
+	if err := h.Backend.RegisterWorkspaceDirectory(req.DirectoryId, req.SubnetIds, tagsToMap(req.Tags)); err != nil {
 		return nil, err
 	}
 

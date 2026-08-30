@@ -494,11 +494,15 @@ func (h *Handler) handleDescribeRefreshSchemasStatus(
 	}, nil
 }
 
+// describeSchemasInput has no ReplicationInstanceArn field: the real
+// DescribeSchemasInput (databasemigrationservice@v1.66.4
+// api_op_DescribeSchemas.go) declares only EndpointArn/Marker/MaxRecords --
+// a prior revision here fabricated a ReplicationInstanceArn field that no
+// client would ever send under this operation.
 type describeSchemasInput struct {
-	EndpointArn            *string `json:"EndpointArn"`
-	ReplicationInstanceArn *string `json:"ReplicationInstanceArn"`
-	Marker                 *string `json:"Marker"`
-	MaxRecords             *int32  `json:"MaxRecords"`
+	EndpointArn *string `json:"EndpointArn"`
+	Marker      *string `json:"Marker"`
+	MaxRecords  *int32  `json:"MaxRecords"`
 }
 
 type describeSchemasOutput struct {
@@ -602,6 +606,10 @@ type refreshSchemasOutput struct {
 func (h *Handler) handleRefreshSchemas(
 	ctx context.Context, in *refreshSchemasInput,
 ) (*refreshSchemasOutput, error) {
+	if ptrconv.String(in.ReplicationInstanceArn) == "" {
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
+	}
+
 	if err := h.Backend.RefreshSchemas(ctx, ptrconv.String(in.EndpointArn)); err != nil {
 		return nil, err
 	}

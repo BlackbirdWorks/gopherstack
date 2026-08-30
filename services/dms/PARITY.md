@@ -712,3 +712,100 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   `UpgradeDependencyFailureFault` (no engine-version upgrade-path modeling
   exists). Each would require adding new business-logic simulation, not
   swapping a wrong sentinel, so left out of scope for this pass.
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+This service dispatches every op through `service.WrapOp` (119 entries).
+Any earlier "exhaustive request-field sweep" or "spot-checked, not
+rescanned" verdict that anchored on literal decode calls alone resolves
+**0 of 119 operations (0%)**: this service was entirely invisible to that
+method, gopherstack-4shm's exact class -- the worst blind spot measured
+across the four services covered this pass.
+
+The new `cmd/reqfieldscan` tool reaches **119 of 119 (100%)**, 383 fields
+across 119 distinct request types initially, **42 fields flagged**. Every
+flagged field was hand-verified against its own operation's real
+`databasemigrationservice@v1.66.4` Input struct before being called
+anything.
+
+**4 real bugs found and fixed this pass:**
+- **`RebootReplicationInstanceInput.ForceFailover`/`ForcePlannedFailover`**
+  (`api_op_RebootReplicationInstance.go`: "`--force-planned-failover` and
+  `--force-failover` can't both be set to true") were decoded and never
+  read at all -- a request setting both got a 200, not a rejection. This is
+  distinct from this file's existing "`RebootReplicationInstance` is
+  correctly a state no-op" note above, which is about *state* (no field on
+  `ReplicationInstance` changes after a real reboot) and still holds; the
+  new finding is about *input validation*, never addressed by that note.
+  Fixed with a validation check ahead of the backend call. New test
+  `TestRebootReplicationInstance_ForceFailoverMutuallyExclusive`
+  confirmed failing (200 instead of 400) against unmodified code.
+- **`describeSchemasInput.ReplicationInstanceArn` was a fabricated field**
+  -- the real `DescribeSchemasInput` (`api_op_DescribeSchemas.go`) declares
+  only `EndpointArn`/`Marker`/`MaxRecords`; no client would ever send this
+  key under this operation. Deleted rather than wired up, per the
+  fabricated-capability shape.
+- **`refreshSchemasInput.ReplicationInstanceArn`** is real and "This member
+  is required" (`api_op_RefreshSchemas.go`) but was decoded and never read
+  -- a request omitting it got a 200. Fixed with a required-field
+  validation check. New test
+  `TestRefreshSchemas_ReplicationInstanceArnRequired` confirmed failing
+  against unmodified code; the pre-existing `TestDescribeSchemas` (which
+  already sent a non-empty `ReplicationInstanceArn: "arn:fake"`) needed no
+  change and still passes.
+
+**38 fields remain unread, judged as follows:**
+- **3 confirmed stubs, not fixed this pass** (feature additions, not field
+  wiring): `handleDescribeRecommendationLimitations` and
+  `handleDescribeEndpointSettings` both hardcode an empty envelope with
+  **no backend call at all** (`describeRecommendationLimitationsInput`'s
+  `NextToken`/`MaxRecords`/`Filters` and `describeEndpointSettingsInput`'s
+  `EngineName`/`Marker`/`MaxRecords`) -- the "listing never consults its
+  store" shape, parity-principles rule 1/4. Notably,
+  `DescribeRecommendations` (this same family) WAS fixed for the identical
+  shape on 2026-08-29 (`Filters`/pagination applied against real
+  `Recommendation` fields); its sibling `DescribeRecommendationLimitations`
+  was not caught by that pass. `handleDescribePendingMaintenanceActions`
+  is the same shape but likely structural: this backend has no
+  "pending maintenance action" data model anywhere (confirmed --
+  `ApplyPendingMaintenanceAction` only validates and returns, no state is
+  ever recorded to later list), so "always empty" may be a legitimate
+  answer rather than a stub; left unresolved for a follow-up to confirm
+  against real AWS behavior.
+- **Fleet Advisor family (11 fields across
+  `DescribeFleetAdvisorLsaAnalysis`/`DescribeFleetAdvisorSchemaObjectSummary`/
+  `DescribeFleetAdvisorSchemas`) and the metadata-model export family (5
+  fields: `ExportMetadataModelAssessment.FileName`/`AssessmentReportTypes`,
+  `StartMetadataModelExportAsScript.FileName`,
+  `StartMetadataModelExportToTarget.OverwriteExtensionPack`,
+  `StartMetadataModelImport.Refresh`)** -- both already explicitly
+  deprioritized in this file's "Fleet Advisor and Schema Conversion
+  (metadata-model) op families are low future value" note above (AWS's own
+  Fleet Advisor end-of-support notice, dated 2026-05-20, has passed). Not
+  re-litigated this pass; `exportMetadataModelAssessmentInput`'s own
+  in-code comment ("No schema-conversion engine or S3 integration exists
+  in this emulation") already gives the reason correctly and stopped this
+  pass from "fixing" it.
+- **`DescribePendingMaintenanceActionsInput`'s remaining 3 fields
+  (`ReplicationInstanceArn`/`Marker`/`MaxRecords`)** -- same stub as above.
+- **`describeEndpointTypesInput.Marker`/`MaxRecords`,
+  `describeReplication*StatisticsInput`/`describeReplicationConfigsInput`'s
+  `Filters`/`Marker`/`MaxRecords`, `describeMetadataModelChildrenInput`'s
+  `Marker`/`MaxRecords`, `describeReplicationInstanceTaskLogsInput`'s
+  `Marker`/`MaxRecords`** -- real, unimplemented pagination/filtering on
+  otherwise-real listings (each does call its backend). Genuine gaps, not
+  fabricated fields; left open as a pagination-completeness follow-up
+  rather than fixed piecemeal in this pass.
+- **`batchStartRecommendationsInput.Data`,
+  `startRecommendationsInput.Settings`,
+  `updateSubscriptionsToEventBridgeInput.ForceMove`** -- `BatchStartRecommendations`
+  is explicitly noted above as void-envelope-correct
+  ("seeds a recommendation per source endpoint; pre-existing, unchanged").
+  `UpdateSubscriptionsToEventBridge` (`handleUpdateSubscriptionsToEventBridge`)
+  is a full no-op (`_ context.Context, _ *updateSubscriptionsToEventBridgeInput`,
+  always returns `Applied: false`) -- likely structural (no EventBridge
+  migration-event integration exists here), not independently re-verified
+  against a real AWS trace this pass.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/dms/...` and `./cmd/reqfieldscan/...`).

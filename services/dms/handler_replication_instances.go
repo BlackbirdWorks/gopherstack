@@ -439,6 +439,13 @@ type rebootReplicationInstanceOutput struct {
 func (h *Handler) handleRebootReplicationInstance(
 	ctx context.Context, in *rebootReplicationInstanceInput,
 ) (*rebootReplicationInstanceOutput, error) {
+	if ptrconv.Bool(in.ForceFailover) && ptrconv.Bool(in.ForcePlannedFailover) {
+		return nil, fmt.Errorf(
+			"%w: ForceFailover and ForcePlannedFailover can't both be set to true",
+			ErrValidation,
+		)
+	}
+
 	ri, err := h.Backend.RebootReplicationInstance(ctx, ptrconv.String(in.ReplicationInstanceArn))
 	if err != nil {
 		return nil, err

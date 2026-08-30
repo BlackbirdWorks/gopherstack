@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -128,11 +129,22 @@ type createWorkspaceBundleOutput struct {
 func (h *Handler) handleCreateWorkspaceBundle(
 	_ context.Context, req *createWorkspaceBundleInput,
 ) (*createWorkspaceBundleOutput, error) {
+	userStorageGiB, err := storageCapacityGiB(req.UserStorage.Capacity)
+	if err != nil {
+		return nil, awserr.New("UserStorage.Capacity must be numeric", awserr.ErrInvalidParameter)
+	}
+
+	rootStorageGiB, err := storageCapacityGiB(req.RootStorage.Capacity)
+	if err != nil {
+		return nil, awserr.New("RootStorage.Capacity must be numeric", awserr.ErrInvalidParameter)
+	}
+
 	bun, err := h.Backend.CreateWorkspaceBundle(
 		req.BundleName,
 		req.BundleDescription,
 		req.ImageId,
 		req.ComputeType.Name,
+		userStorageGiB, rootStorageGiB,
 		tagsToMap(req.Tags),
 	)
 	if err != nil {
@@ -146,8 +158,29 @@ func (h *Handler) handleCreateWorkspaceBundle(
 		ImageId:     bun.ImageID,
 	}
 	resp.ComputeType.Name = bun.ComputeType
+	resp.UserStorage.Capacity = strconv.Itoa(int(bun.UserStorageGiB))
+	resp.RootStorage.Capacity = strconv.Itoa(int(bun.RootStorageGiB))
 
 	return &createWorkspaceBundleOutput{WorkspaceBundle: resp}, nil
+}
+
+// storageCapacityGiB parses a bundle's Capacity wire value ("50", a decimal
+// string per workspaces@v1.73.1 types.go) into GiB. An empty string is
+// legitimately absent (RootStorage.Capacity, unlike UserStorage.Capacity,
+// isn't required) and parses as 0, not an error.
+const int32Bits = 32
+
+func storageCapacityGiB(capacity string) (int32, error) {
+	if capacity == "" {
+		return 0, nil
+	}
+
+	v, err := strconv.ParseInt(capacity, 10, int32Bits)
+	if err != nil {
+		return 0, err
+	}
+
+	return int32(v), nil
 }
 
 type deleteWorkspaceBundleInput struct {

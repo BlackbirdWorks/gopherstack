@@ -165,6 +165,7 @@ func advanceBundleCursor(bundles []*WorkspaceBundle, nextToken string) []*Worksp
 // deserializers.go's awsAwsjson11_deserializeOpErrorCreateWorkspaceBundle).
 func (b *InMemoryBackend) CreateWorkspaceBundle(
 	name, description, imageID, computeType string,
+	userStorageGiB, rootStorageGiB int32,
 	tags map[string]string,
 ) (*storedCustomBundle, error) {
 	b.mu.Lock("CreateWorkspaceBundle")
@@ -177,12 +178,14 @@ func (b *InMemoryBackend) CreateWorkspaceBundle(
 	id := b.nextID("wsb-")
 	stored := cloneTags(tags)
 	bun := &storedCustomBundle{
-		BundleID:    id,
-		Name:        name,
-		Description: description,
-		ImageID:     imageID,
-		ComputeType: computeType,
-		Tags:        stored,
+		BundleID:       id,
+		Name:           name,
+		Description:    description,
+		ImageID:        imageID,
+		ComputeType:    computeType,
+		UserStorageGiB: userStorageGiB,
+		RootStorageGiB: rootStorageGiB,
+		Tags:           stored,
 	}
 	b.customBundles.Put(bun)
 	b.tags[id] = stored

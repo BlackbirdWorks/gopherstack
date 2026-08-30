@@ -178,6 +178,34 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 	}
 }
 
+// TestCreateWorkspaceBundle_StoresStorageCapacity covers gopherstack-4shm's
+// class: CreateWorkspaceBundleInput.UserStorage (workspaces@v1.73.1
+// api_op_CreateWorkspaceBundle.go: "This member is required") and
+// RootStorage were decoded but never passed to the backend at all -- every
+// custom bundle silently reported an empty Capacity regardless of what the
+// client requested.
+func TestCreateWorkspaceBundle_StoresStorageCapacity(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
+		"BundleName":  "StorageBundle",
+		"ImageId":     createImage(t, h),
+		"ComputeType": map[string]any{"Name": "STANDARD"},
+		"UserStorage": map[string]any{"Capacity": "50"},
+		"RootStorage": map[string]any{"Capacity": "80"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	bun := resp["WorkspaceBundle"].(map[string]any)
+
+	assert.Equal(t, "50", bun["UserStorage"].(map[string]any)["Capacity"])
+	assert.Equal(t, "80", bun["RootStorage"].(map[string]any)["Capacity"])
+}
+
 func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 	t.Parallel()
 

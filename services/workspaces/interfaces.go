@@ -95,6 +95,7 @@ type StorageBackend interface {
 	// Custom Bundles
 	CreateWorkspaceBundle(
 		name, description, imageID, computeType string,
+		userStorageGiB, rootStorageGiB int32,
 		tags map[string]string,
 	) (*storedCustomBundle, error)
 	DeleteWorkspaceBundle(bundleID string) error
@@ -165,7 +166,7 @@ type StorageBackend interface {
 	TerminateWorkspacesPoolSession(sessionID string) error
 
 	// Directories
-	RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error
+	RegisterWorkspaceDirectory(directoryID string, subnetIDs []string, tags map[string]string) error
 	DeregisterWorkspaceDirectory(directoryID string) error
 
 	// Account

@@ -31,7 +31,7 @@ func TestDescribeWorkspacesConnectionStatus_UnfilteredPageWalksExactly(t *testin
 	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := context.Background()
 
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil, nil))
 
 	const n = 130 // > connectionStatusPageSize (100), so the walk spans 2 pages.
 
@@ -81,7 +81,7 @@ func TestDescribeWorkspacesConnectionStatus_UnfilteredOrderIsDeterministic(t *te
 	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := context.Background()
 
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil, nil))
 
 	for i := range 12 {
 		_, err := b.CreateWorkspace(ctx, &workspaces.WorkspaceCreationSpec{

@@ -565,3 +565,31 @@ for the identical reason.
 No code changed this pass. Gates: `go build ./services/route53resolver/...`, `go vet
 ./services/route53resolver/...` and `go vet ./...` (repo-wide), `go test -race -count=1
 ./services/route53resolver/...`, `golangci-lint run ./services/route53resolver/...`.
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+This service dispatches every op through `service.WrapOp`, assembled from
+13 per-family `map[string]service.JSONOpFunc` literals merged in
+`buildOps()` (`handler.go`). A field scan anchored on literal decode calls
+alone -- what earlier passes reporting "0 of N request shapes flagged" ran
+-- resolves **0 of 72 operations (0%)**: this service was entirely
+invisible to that method, gopherstack-4shm's exact class, and any prior
+"zero misread keys" verdict measured against it was measuring nothing.
+
+The new `cmd/reqfieldscan` tool (resolves `WrapOp`'s second type parameter
+directly from each handler's own signature, falling back to a
+case-insensitive `handle` + opName match for the 3 ops whose Go handler
+name capitalizes an AWS acronym the operation name itself does not --
+`handleAssociateResolverEndpointIPAddress` for
+`AssociateResolverEndpointIpAddress`, etc.) reaches **72 of 72 (100%)**,
+213 fields across 70 distinct request types.
+
+**Result: zero unread fields.** The earlier field-sweep's "no misread
+keys" verdict, and this file's own "handler that discards its entire
+request: none" negative check above, both hold under the corrected
+WrapOp-aware scan -- the blind spot was in measurement coverage, not in
+this service's own handlers.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/route53resolver/...` and
+`./cmd/reqfieldscan/...`). No code changed in this service this pass.

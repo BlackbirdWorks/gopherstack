@@ -519,3 +519,68 @@ are all clean.
   image/bundle<->application association at all (only
   `AssociateWorkspaceApplication`, which is WorkSpace-only). Don't "fix" this by
   inventing a fake association-creation pathway.
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+This service dispatches every op through `service.WrapOp` (91 entries,
+`GetSupportedOperations` derived from `h.ops`'s own keys at runtime). A
+field scan anchored on literal decode calls alone -- what an earlier pass's
+"0 of 90 request shapes flagged" verdict was measured against -- resolves
+**0 of 91 operations (0%)**: this service was entirely invisible to that
+method, gopherstack-4shm's exact class, and the prior clean verdict was
+measuring nothing at all.
+
+The new `cmd/reqfieldscan` tool reaches **91 of 91 (100%)**, 218 fields
+across 91 distinct request types, and found **6 unread fields, 3 real bugs,
+2 fixed this pass**:
+
+- **`CreateWorkspaceBundleInput.UserStorage`/`RootStorage`**
+  (workspaces@v1.73.1 `api_op_CreateWorkspaceBundle.go`: `UserStorage` is
+  "This member is required") were decoded and dropped entirely --
+  `storedCustomBundle` had no field to hold them at all, and every custom
+  bundle silently reported an empty `Capacity` string regardless of what
+  was requested, even though the seeded default bundles (PowerPro,
+  Performance, ...) already populate and marshal these same
+  `UserStorage`/`RootStorage` output fields correctly. Fixed: added
+  `UserStorageGiB`/`RootStorageGiB int32` to `storedCustomBundle`, threaded
+  `Capacity` string parsing (`storageCapacityGiB`, `ParseInt` base 10, bit
+  size 32 -- not `Atoi`+cast, which `gosec` correctly flags as a possible
+  overflow) through `CreateWorkspaceBundle`, and populated the response.
+  New test `TestCreateWorkspaceBundle_StoresStorageCapacity`
+  (`bundles_test.go`) confirmed failing (`""` instead of `"50"`/`"80"`)
+  against unmodified code, then passing.
+- **`RegisterWorkspaceDirectoryInput.Tags`** was decoded and dropped
+  entirely -- every sibling `Create*` op in this package (connection alias,
+  IP group, bundle, image, pool, nested workspace tags) already applies its
+  `Tags` via the shared `b.tags` map (`TestCreateOpsWithTags_RoundTrip`,
+  `handler_create_tags_test.go`), but `RegisterWorkspaceDirectory` never
+  did. Fixed by mirroring that established pattern
+  (`b.tags[directoryID] = cloneTags(tags)`). Extended
+  `TestCreateOpsWithTags_RoundTrip` with a `"workspace directory"` subtest
+  (real SDK client, asserts on `DescribeTags`'s decoded `TagList`) --
+  confirmed failing against unmodified code, then passing; the other 6
+  subtests in that same test function were unaffected (still pass).
+- **`RegisterWorkspaceDirectoryInput.EnableSelfService`** is also decoded
+  and dropped. NOT fixed this pass: the real field is a single bool toggle,
+  while this backend already models self-service as the fine-grained
+  `SelfservicePermissions` struct (5 independent members, set later via
+  `ModifySelfservicePermissions`) -- mapping one bool onto five named
+  permissions needs a semantic decision (which permissions does "enabled"
+  actually turn on?) this pass didn't have grounds to make. Left for a
+  follow-up with that decision made explicit.
+
+**3 unread fields left unfixed, judged not to be bugs or out of scope for
+this pass**:
+- `CreateAccountLinkInvitationInput.ClientToken` -- a standard AWS
+  idempotency token; this backend follows the same convention as its other
+  `Create*` ops in never enforcing idempotency-token semantics.
+- `DescribeWorkspaceSnapshotsInput.WorkspaceId` -- `handleDescribeWorkspaceSnapshots`
+  is a full stub (`return &describeWorkspaceSnapshotsOutput{RebuildSnapshots:
+  []any{}, RestoreSnapshots: []any{}}, nil`, no backend call at all); this
+  backend has no snapshot data model anywhere to report from. A real fix is
+  a feature addition (a snapshot store), not a field-wiring fix, and is
+  left as a known stub rather than attempted here.
+- `RegisterWorkspaceDirectoryInput.EnableSelfService` -- see above.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/workspaces/...` and `./cmd/reqfieldscan/...`).

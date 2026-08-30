@@ -134,7 +134,7 @@ func (rc *ResourceCreator) deleteBatchJobQueue(ctx context.Context, arnOrName st
 	// AWS requires DISABLED state before deletion.
 	disabled := "DISABLED"
 	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(
-		ctx, arnOrName, nil, disabled, nil, nil, nil,
+		ctx, arnOrName, nil, disabled, "", nil, nil, nil,
 	); err != nil {
 		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}

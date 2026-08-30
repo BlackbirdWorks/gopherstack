@@ -229,7 +229,11 @@ func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*Workspace
 // Returns ResourceAlreadyExistsException when the directory is already
 // registered, matching real AWS: you cannot re-register an already-registered
 // directory.
-func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error {
+func (b *InMemoryBackend) RegisterWorkspaceDirectory(
+	directoryID string,
+	subnetIDs []string,
+	tags map[string]string,
+) error {
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
@@ -244,6 +248,10 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetI
 
 	if len(subnetIDs) > 0 {
 		ds.Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
+	}
+
+	if len(tags) > 0 {
+		b.tags[directoryID] = cloneTags(tags)
 	}
 
 	return nil
