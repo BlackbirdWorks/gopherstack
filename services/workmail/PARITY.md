@@ -476,3 +476,54 @@ specific typed exception; confirmed failing against unmodified code
 Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/workmail/...` (pass),
 `golangci-lint run ./services/workmail/...` (0 issues).
+
+## 2026-08-31 errtargetaudit re-sweep: all 12 findings re-verified as the prior pass's recorded refusals
+
+`errtargetaudit -dir workmail` (post-reachability-fix, post-sentinel-collision-fix)
+reports 12 class-A findings (11 `EntityNotFoundException`, 1
+`MailDomainStateException`): `DeleteAccessControlRule`,
+`DeleteAvailabilityConfiguration`, `DeleteGroup`,
+`DeleteIdentityCenterApplication`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeletePersonalAccessToken`,
+`DeleteResource`, `DeleteRetentionPolicy`, `DeleteUser`, and
+`DeregisterMailDomain` (both its `EntityNotFoundException` and
+`MailDomainStateException` findings). These are exactly the 12 sites the
+prior pass above ("2026-08-31 Error-envelope sweep") already found, checked
+against each op's own declared error set, and deliberately left unchanged
+with an explanatory comment at each site -- not a new backlog.
+
+Independently re-verified all 12 directly against
+`workmail@v1.39.4/deserializers.go`'s per-op
+`awsAwsjson11_deserializeOpError<Op>` switch (not just re-reading the prior
+PARITY note): none of `DeleteAccessControlRule`,
+`DeleteAvailabilityConfiguration`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeletePersonalAccessToken`,
+`DeleteRetentionPolicy`, or `DeregisterMailDomain` declare
+`EntityNotFoundException`/`ResourceNotFoundException` at all (each declares
+only `{OrganizationNotFoundException, OrganizationStateException}`, plus
+`InvalidParameterException` on most); `DeleteGroup`/`DeleteUser`/
+`DeleteResource` add `{DirectoryServiceAuthenticationFailedException,
+DirectoryUnavailableException, EntityStateException,
+UnsupportedOperationException}` but still no not-found type for the
+entity itself; `DeleteIdentityCenterApplication` declares only
+`{InvalidParameterException, OrganizationStateException}` -- no
+`OrganizationNotFoundException` either, confirming the prior note's "not
+even organization-scoped" claim; `DeregisterMailDomain` declares
+`{InvalidCustomSesConfigurationException, InvalidParameterException,
+MailDomainInUseException, OrganizationNotFoundException,
+OrganizationStateException}` -- no `MailDomainNotFoundException` and no
+`MailDomainStateException`, confirming both of its findings. Spot-checked
+the source comments at each of `access_control.go:65` and
+`mail_domains.go:96,105` -- still present, still accurate, no drift since
+the prior pass.
+
+**Verdict: 0 new findings, 12/12 previously-recorded refusals, no code
+changed this pass.**
+
+Gates: `go build ./services/workmail/...` (clean), `go vet
+./services/iot/... ./services/workmail/...` (clean; repo-wide `go vet ./...`
+was broken at the time of this pass by a concurrent, out-of-scope edit to
+`services/codeconnections/handler_hosts.go` from another agent -- confirmed
+via `git status`/`git diff --stat`, unrelated to this pass), `go test -race
+-count=1 ./services/workmail/...` (pass, no new tests -- nothing to prove),
+`golangci-lint run ./services/workmail/...` (0 issues).

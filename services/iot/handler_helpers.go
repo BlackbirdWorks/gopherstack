@@ -124,6 +124,25 @@ func respondAsInvalidRequest(c *echo.Context, err, sentinel error) error {
 	return writeIoTError(c, err)
 }
 
+// respondAsConflictCode renders err as the given AWS wire code (HTTP 409)
+// when it wraps sentinel, falling through to the shared writeIoTError
+// mapping otherwise. Same rationale as respondAsInvalidRequest: a
+// per-call-site override, because ErrAlreadyExists (writeIoTError's
+// default: ResourceAlreadyExistsException) is shared with operations
+// elsewhere that genuinely declare that code -- CreateCommand/
+// CreatePackage/CreatePackageVersion/CreateJobTemplate declare
+// ConflictException instead (iot@v1.77.4 deserializers.go, confirmed
+// per-op), and StartAuditMitigationActionsTask/
+// StartDetectMitigationActionsTask declare TaskAlreadyExistsException, a
+// code writeIoTError has never rendered.
+func respondAsConflictCode(c *echo.Context, err, sentinel error, code string) error {
+	if errors.Is(err, sentinel) {
+		return c.JSON(http.StatusConflict, awsErrBody{code, err.Error()})
+	}
+
+	return writeIoTError(c, err)
+}
+
 func parseInt32(s string, out *int32) error {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)

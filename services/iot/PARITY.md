@@ -1634,3 +1634,93 @@ in the note was wrong.
 Gates: `go build ./services/iot/...` (clean), `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/iot/...` (pass), `golangci-lint run
 ./services/iot/...` (0 issues).
+
+## 2026-08-31 errtargetaudit re-sweep: 6 of the 9 recorded-deferred fabricated codes fixed
+
+`errtargetaudit -dir iot` (post-reachability-fix, post-sentinel-collision-fix)
+reports 11 class-A findings, all falling inside the prior pass's "9 more
+confirmed real bugs, found but NOT fixed" list above (Commands API +
+Software Package Catalog + CreateJobTemplate + Start*MitigationActionsTask).
+Re-verified every one directly against `iot@v1.77.4/deserializers.go`'s
+per-op `awsRestjson1_deserializeOpError<Op>` switch rather than trusting the
+prior pass's grouping.
+
+**6 fixed, real ConflictException/TaskAlreadyExistsException gaps**:
+`CreateCommand` (`commands.go:52`), `CreatePackage` (`packages.go:63`),
+`CreatePackageVersion` (`packages.go:200`), `CreateJobTemplate`
+(`jobs.go:856`) all declare `ConflictException` for the AlreadyExists case
+(confirmed: `CreatePackage`/`CreatePackageVersion`'s full declared set is
+`{ConflictException, InternalServerException, ServiceQuotaExceededException,
+ThrottlingException, ValidationException}`, `CreateJobTemplate`'s is
+`{ConflictException, InternalFailureException, InvalidRequestException,
+LimitExceededException, ResourceNotFoundException, ThrottlingException}`) --
+not `ResourceAlreadyExistsException`, the code `writeIoTError`'s shared
+`ErrAlreadyExists` case renders by default (correct for ~150 other Create
+ops in this service). `StartAuditMitigationActionsTask`
+(`device_defender.go:158`) and `StartDetectMitigationActionsTask`
+(`device_defender.go:477`) both declare `TaskAlreadyExistsException`
+instead (their not-found halves already correctly declare/render
+`ResourceNotFoundException` and are untouched). New per-call-site override
+`respondAsConflictCode(c, err, sentinel, code)` (`handler_helpers.go`, same
+pattern as the existing `respondAsInvalidRequest`) added rather than
+changing `writeIoTError`'s shared `ErrAlreadyExists` mapping, since that
+mapping is correct for every other caller. Proven fail-before/pass-after
+with a real `aws-sdk-go-v2` client (`errors.As` on the specific typed
+exception): `wire_error_code_already_exists_test.go`, 6 subtests, all
+confirmed failing (asserting `*types.GenericAPIError`
+`ResourceAlreadyExistsException` in the chain) against the pre-fix call
+sites, passing after.
+
+**CORRECTION to the prior pass's grouping**: the remaining 4 findings
+(`DeleteCommand` `commands.go:111`, `DeleteCommandExecution`
+`commands.go:254`, `DeletePackage` `packages.go:121`,
+`DeletePackageVersion` `packages.go:316`/`319`) were filed alongside the 6
+above as "needs new wire infrastructure" -- re-verified and that framing is
+wrong for these four specifically. `DeleteCommand`/`DeleteCommandExecution`'s
+full declared set is `{ConflictException, InternalServerException,
+ThrottlingException, ValidationException}`; `DeletePackage`/
+`DeletePackageVersion`'s is `{InternalServerException, ThrottlingException,
+ValidationException}`. None of the four declare *any* not-found-capable
+type, and no new infrastructure would help -- `ConflictException`/
+`ValidationException` don't fit "resource does not exist" semantically, and
+neither operation's own doc comment describes idempotent-delete behavior
+for an unknown ID (unlike some AWS delete ops). Reclassified as the same
+"operation's own model declares no type for this condition" refusal as
+the TopicRule family above, not an infrastructure gap. Left unchanged
+(still renders `ResourceAlreadyExistsException`-family's sibling
+`ResourceNotFoundException`, itself equally undeclared -- no available code
+is more correct).
+
+**Fixed by deletion**: `DeleteCommandExecution`'s `executionID == ""`
+pre-check (`commands.go:233-235`, now removed) returned `ErrValidation` ->
+`InvalidRequestException`, a code this operation also does not declare
+(`InvalidRequestException` is absent from its 4-member set above). The real
+SDK client's `validateOpDeleteCommandExecutionInput` only rejects a nil
+`*string`, not an empty string, so an empty-but-present `executionId`
+reached this check -- same empty-but-present-identifier shape as the prior
+pass's 8 deletions. Unlike those 8, the natural not-found fallback this
+check short-circuited is *also* undeclared (see correction above), so this
+deletion does not fully close the class-A gap -- it consolidates two
+distinct wrong emissions (`InvalidRequestException` for the empty case,
+`ResourceNotFoundException` for the not-found case) into one, removing the
+invented validation check rather than leaving it beside an equally-wrong
+neighbor. Regression: `TestDeleteCommandExecution_EmptyExecutionID`
+(`handler_commands_test.go`), confirms `ErrResourceNotFound` fires and
+`ErrValidation` does not.
+
+**Confirmed unchanged from the prior pass**: the "25 operations fixed" /
+"9 recorded refusals" history above still holds; this sweep only refined
+the refusal reasoning for 4 of those 9-10 items, it did not reopen any of
+the 25 fixed ones or the topic-rule/gopherstack-oc9v family's separate
+refusals.
+
+Gates: `go build ./services/iot/...` (clean), `go vet ./services/iot/...
+./services/workmail/...` (clean; a concurrent, out-of-scope edit to
+`services/codeconnections/handler_hosts.go` by another agent broke
+repo-wide `go vet ./...` at the time of this pass -- confirmed via `git
+status`/`git diff --stat` to be someone else's in-progress change, not
+caused by or related to this pass), `go test -race -count=1
+./services/iot/...` (pass), `golangci-lint run ./services/iot/...` (0
+issues; one `unparam` finding on the first-draft `respondAsCode(..., status
+int)` was fixed by dropping the always-409 `status` parameter and renaming
+to `respondAsConflictCode`, not suppressed).

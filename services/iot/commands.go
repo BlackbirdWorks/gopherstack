@@ -230,10 +230,6 @@ func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, s
 // AWS's real request shape where executions are addressed by
 // executionId+targetArn rather than commandId.
 func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) error {
-	if executionID == "" {
-		return fmt.Errorf("%w: executionId is required", ErrValidation)
-	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

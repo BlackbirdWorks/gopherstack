@@ -427,7 +427,7 @@ func (h *Handler) handleCreateJobTemplate(c *echo.Context) error {
 	input.JobTemplateID = id
 	jt, err := h.Backend.CreateJobTemplate(&input)
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

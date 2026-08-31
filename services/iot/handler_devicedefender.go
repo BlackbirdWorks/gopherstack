@@ -156,7 +156,7 @@ func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
 		AuditCheckToActionsMapping: req.AuditCheckToActionsMapping,
 	})
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "TaskAlreadyExistsException")
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyTaskID: task.TaskID})
@@ -278,7 +278,7 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 		ViolationEventOccurrenceRange: req.ViolationEventOccurrenceRange,
 	})
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "TaskAlreadyExistsException")
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyTaskID: task.TaskID})
