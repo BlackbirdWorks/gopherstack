@@ -192,17 +192,29 @@ func (b *InMemoryBackend) ListSessions(workGroup, stateFilter string) ([]Session
 			continue
 		}
 
-		out = append(out, SessionSummary{
-			SessionID:       s.SessionID,
-			Description:     s.Description,
-			NotebookVersion: s.NotebookVersion,
-			Status:          s.Status,
-		})
+		out = append(out, sessionSummaryOf(s))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })
 
 	return out, nil
+}
+
+// sessionSummaryOf builds the list-view SessionSummary for a Session. EngineVersion is a
+// nested {SelectedEngineVersion, EffectiveEngineVersion} object on SessionSummary
+// (athena@v1.60.4 deserializers.go awsAwsjson11_deserializeDocumentEngineVersion), unlike
+// GetSessionOutput's flat EngineVersion string -- see handler_sessions.go's GetSession.
+func sessionSummaryOf(s *Session) SessionSummary {
+	return SessionSummary{
+		SessionID:       s.SessionID,
+		Description:     s.Description,
+		NotebookVersion: s.NotebookVersion,
+		Status:          s.Status,
+		EngineVersion: &EngineVersion{
+			SelectedEngineVersion:  pysparkEngineV3,
+			EffectiveEngineVersion: pysparkEngineV3,
+		},
+	}
 }
 
 // ListNotebookSessions returns sessions associated with a notebook.
@@ -225,12 +237,7 @@ func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]SessionSumm
 			continue
 		}
 
-		out = append(out, SessionSummary{
-			SessionID:       s.SessionID,
-			Description:     s.Description,
-			NotebookVersion: s.NotebookVersion,
-			Status:          s.Status,
-		})
+		out = append(out, sessionSummaryOf(s))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })

@@ -270,3 +270,45 @@ func TestStartSession_ExecutionRoleRealClient(t *testing.T) {
 		"SessionConfiguration.ExecutionRole must round-trip; pre-fix it was always empty")
 	assert.Equal(t, int64(idleSeconds), aws.ToInt64(got.SessionConfiguration.IdleTimeoutSeconds))
 }
+
+// TestSession_EngineVersion_RealClient covers two bugs in the same field, found by
+// the "unnamed in PARITY.md" sweep for ListSessions:
+//
+//  1. GetSessionOutput.EngineVersion (athena@v1.60.4 api_op_GetSession.go) is a
+//     *string real member (e.g. "PySpark engine version 3"), but the handler emitted
+//     s.NotebookVersion under the "EngineVersion" key -- a wrong VALUE under a correct
+//     key/type, not a naming mismatch, so no wrapper-key sweep would have caught it.
+//  2. SessionSummary.EngineVersion (athena@v1.60.4 deserializers.go
+//     awsAwsjson11_deserializeDocumentSessionSummary, case "EngineVersion") is a
+//     *types.EngineVersion OBJECT (SelectedEngineVersion/EffectiveEngineVersion), the
+//     same nested shape ListEngineVersions already uses -- gopherstack's SessionSummary
+//     model had no EngineVersion field at all, so ListSessions/ListNotebookSessions
+//     always decoded it nil.
+func TestSession_EngineVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	start, err := client.StartSession(ctx, &athenasdk.StartSessionInput{
+		WorkGroup: aws.String("primary"),
+		EngineConfiguration: &types.EngineConfiguration{
+			CoordinatorDpuSize: aws.Int32(1),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, start.SessionId)
+
+	got, err := client.GetSession(ctx, &athenasdk.GetSessionInput{SessionId: start.SessionId})
+	require.NoError(t, err)
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(got.EngineVersion),
+		"GetSession.EngineVersion must be a real engine version string, not the notebook version")
+
+	listed, err := client.ListSessions(ctx, &athenasdk.ListSessionsInput{WorkGroup: aws.String("primary")})
+	require.NoError(t, err)
+	require.Len(t, listed.Sessions, 1)
+	require.NotNil(t, listed.Sessions[0].EngineVersion, "SessionSummary.EngineVersion must round-trip, not decode nil")
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(listed.Sessions[0].EngineVersion.SelectedEngineVersion))
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(listed.Sessions[0].EngineVersion.EffectiveEngineVersion))
+}

@@ -398,3 +398,79 @@ not a gap.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/athena/...`).
+
+## 2026-08-31: PARITY-gap targeting (gopherstack-6flj/21my)
+
+Queue derivation: real `List*` ops in athena@v1.60.4 (16 total, athena has zero `Describe*`
+ops) whose full name never appears verbatim anywhere in this file. Mechanical grep gave 5:
+`ListCalculationExecutions`, `ListDatabases`, `ListNotebookMetadata`, `ListSessions`,
+`ListTableMetadata`. All 5 turned out to be false positives from this file's grouped-row
+notation (e.g. `Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions)` names
+`ListSessions` only as the bare abbreviation `List`) -- the rows themselves already carry
+`wire: ok`. Per this session's explicit "do not trust existing notes" mandate, verified
+each independently against athena@v1.60.4's own deserializers/types rather than accepting
+the `wire: ok` claim at face value.
+
+`ListCalculationExecutions`, `ListDatabases`, `ListTableMetadata`, `ListNotebookMetadata`
+came back genuinely clean: wrapper keys (`Calculations`/`DatabaseList`/`TableMetadataList`/
+`NotebookMetadataList`) and every per-item field name verified byte-exact against
+`awsAwsjson11_deserializeDocument*` (JSON protocol, case-sensitive, confirmed from
+deserializers.go's function prefix -- no case-folding risk here unlike cloudfront's XML).
+
+**`ListSessions` was not clean.** One real bug spanning both `GetSession` and
+`ListSessions`, found by diffing the List item type against its singular Get sibling per
+this issue's core heuristic:
+
+1. **`GetSession`'s response (`handler_sessions.go`) emitted `s.NotebookVersion` under the
+   `"EngineVersion"` key.** Real `GetSessionOutput.EngineVersion` (api_op_GetSession.go) is
+   a distinct required-shape `*string` member (e.g. `"PySpark engine version 3"`), unrelated
+   to `NotebookVersion` -- a wrong VALUE under a correct key and correct Go type (both
+   strings), so no wrapper-key or type-mismatch sweep would have caught it; only a real
+   client asserting the decoded value does. Fixed to emit the `pysparkEngineV3` constant
+   (this backend's Sessions API is Spark-only, matching real Athena-for-Spark semantics).
+
+2. **`SessionSummary` (`models.go`) had no `EngineVersion` field at all.** Real
+   `types.SessionSummary.EngineVersion` (deserializers.go
+   `awsAwsjson11_deserializeDocumentSessionSummary`, case `"EngineVersion"`) is a NESTED
+   `*types.EngineVersion` OBJECT (`SelectedEngineVersion`/`EffectiveEngineVersion`) --  the
+   same shape `ListEngineVersions` already returns -- not the flat string `GetSession` uses
+   for the same English name. A genuine Get/List type divergence in the real API itself,
+   not a gopherstack bug in isolation, but gopherstack modeled neither side's version of the
+   field for `SessionSummary`, so `ListSessions`/`ListNotebookSessions` always decoded
+   `EngineVersion` nil. Fixed: added the field, factored a shared `sessionSummaryOf` builder
+   (`sessions.go`) used by both list ops, populated with
+   `{SelectedEngineVersion: pysparkEngineV3, EffectiveEngineVersion: pysparkEngineV3}`.
+
+Test: `TestSession_EngineVersion_RealClient` (`wire_field_fixes_test.go`), drives the real
+aws-sdk-go-v2 client through StartSession -> GetSession -> ListSessions and asserts both the
+flat `GetSession.EngineVersion` string and the nested `ListSessions[].EngineVersion` object.
+Verified failing pre-fix by hand-revert (`GetSession.EngineVersion` decoded empty string;
+`ListSessions[0].EngineVersion` decoded nil).
+
+**Recorded, not fixed** (different axis -- state never tracked at all, not a naming
+mismatch, so out of this issue's wire-shape scope): `TableMetadata.CreateTime`/
+`.LastAccessTime` (real, optional `*time.Time` members, confirmed present in gopherstack's
+own model with correct JSON tags) are never populated by any of the 3 call sites that
+construct a `TableMetadata` (`ddl.go` x2, `store.go` x1) -- always the float64 zero value,
+which `omitempty` then drops from the wire entirely. Right key, right type, just never
+computed; a real client's `GetTableMetadata`/`ListTableMetadata.CreateTime` is always absent
+regardless of when the table was actually created. Also recorded: `ListDatabases`/
+`ListTableMetadata` (`handler_databases.go`) read no `NextToken`/`MaxResults` from their
+request at all and the backend methods take no pagination parameters -- a real client's
+`MaxResults` is silently ignored and every result page is unbounded. This is the same
+never-honoured-pagination class already tracked in the `families: pagination` section above
+for other ops, not a wrapper-key/per-item-name bug; not fixed this pass (bd: unfiled).
+
+No hard-decode-error or panic findings this batch. No case-only mismatches (JSON protocol
+here, not XML -- a case mismatch would be a hard failure, not silently tolerated, and none
+was found). Pages fetched this batch: 0 (module cache used throughout).
+
+Gates (`services/athena/` only, plus repo-wide `go vet`): `go build ./...` clean;
+`go vet ./...` clean; `go test -race -count=1 ./services/athena/...` clean;
+`golangci-lint run ./services/athena/...` 0 issues (one `golines -m 120` reformat applied
+to `sessions.go` after the fix, scoped to the touched lines only). No `nolint` directives in
+any file touched this batch (`models.go`, `sessions.go`, `handler_sessions.go`,
+`wire_field_fixes_test.go`). `models.go` was touched (new `SessionSummary.EngineVersion`
+field) -- `SessionSummary` is a derived list-view type, not part of `backendSnapshot`
+(confirmed against `persistence.go`), so no snapshot version bump was needed;
+`TestSnapshotVersionGuard` run anyway per this session's mandate and passed.

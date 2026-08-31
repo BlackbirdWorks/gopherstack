@@ -87,7 +87,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 				keySessionID:              s.SessionID,
 				"Description":             s.Description,
 				"WorkGroup":               s.WorkGroup,
-				"EngineVersion":           s.NotebookVersion,
+				"EngineVersion":           pysparkEngineV3,
 				"NotebookVersion":         s.NotebookVersion,
 				"EngineConfiguration":     s.EngineConfiguration,
 				"SessionConfiguration":    s.SessionConfiguration,

@@ -1156,3 +1156,80 @@ all seven new real-client tests above), `golangci-lint run
 `handleListFieldLevelEncryptionProfiles` were removed as unused by
 `nolintlint` once those two functions' item shapes grew enough to no longer
 duplicate their neighbors).
+
+## 2026-08-31: PARITY-gap targeting, batch 5 (gopherstack-6flj/21my)
+
+Queue derivation for this pass: real `List*`/`Describe*` ops in cloudfront@v1.67.4 (42
+total) whose full name never appears verbatim anywhere in this file. Mechanical grep gave
+5 (the entire `ListDistributionsBy{AnycastIpListId,CachePolicyId,OriginRequestPolicyId,
+ResponseHeadersPolicyId,VpcOriginId}` set) — all 5 turned out to be false positives: the
+"2026-08-31 per-item exact-case sweep, batch 2" section above already re-verified all 12
+`ListDistributionsBy*` ops (just under abbreviated `By*` names, never the full contiguous
+op name), and explicitly states it completes this issue's cloudfront queue. Re-derived by
+hand instead: read every op still marked "not reached at item level" or only
+pagination/spot-checked, cross-referenced against later passes. Genuinely-unswept-at-item-
+level ops covered this batch: `ListStreamingDistributions`, `ListCloudFrontOriginAccessIdentities`,
+`ListOriginAccessControls`, `ListConflictingAliases`, `ListInvalidations`,
+`ListInvalidationsForDistributionTenant`, `DescribeConnectionFunction`. All checked
+byte-for-byte against cloudfront@v1.67.4 deserializers.go (`awsRestxml_deserializeDocument*`
+switch cases). `ListStreamingDistributions`, `ListCloudFrontOriginAccessIdentities`,
+`ListOriginAccessControls`, `ListInvalidations`, `ListInvalidationsForDistributionTenant`,
+`DescribeConnectionFunction` came back clean — every emitted field name, nesting, and
+LastModifiedTime/CreatedTime timestamp format matched.
+
+Two real bugs found and fixed, both layer-2 (correct wrapper key, wrong/missing per-item
+shape), found while diffing `ListConnectionFunctions`/`ListConnectionGroups` against their
+already-fixed wrapper-level history from 2026-08-13 (gopherstack-4ara) -- those fixes only
+addressed the wrapper, never the per-item field set, and neither had a "not reached"
+marker anywhere in this file, so the naive queue-derivation step above would have skipped
+them entirely:
+
+1. **`ListConnectionFunctions`' `cfnSummary` (`handler_connection.go`) omitted `CreatedTime`
+   and `LastModifiedTime` entirely** -- both real, required `ConnectionFunctionSummary`
+   members (cloudfront@v1.67.4 deserializers.go, 8-of-8 case match otherwise), both backed
+   by real state (`ConnectionFunction.CreatedTime`/`.LastModifiedTime`), and both already
+   emitted correctly by the sibling `DescribeConnectionFunction`
+   (`connectionFunctionSummaryXML`) from the same fields -- the "Get right, List wrong"
+   trap. Test: `TestListConnectionFunctions_ItemShape_RealClient`
+   (`handler_sdk_route_fixes_test.go`), verified failing pre-fix by hand-revert
+   (`CreatedTime`/`LastModifiedTime` decode nil).
+
+2. **`ListConnectionGroups`' `cgSummary` (`handler_connection.go`) omitted `AnycastIpListId`,
+   `CreatedTime`, `Enabled`, `IsDefault`, and `LastModifiedTime` entirely** -- 5 of the real
+   11-member `ConnectionGroupSummary`'s fields, all backed by real state
+   (`ConnectionGroup.AnycastIPListID`/`.CreatedTime`/`.LastModifiedTime`/`.Enabled`/
+   `.IsDefault`), all already emitted correctly by `GetConnectionGroup`
+   (`connectionGroupXML`) from the same fields. Same trap as above, worse: right item
+   count, 5 of 11 fields permanently blank/false/zero for every group regardless of
+   backend state. Test: `TestListConnectionGroups_ItemShape_RealClient`
+   (`handler_sdk_route_fixes_test.go`), verified failing pre-fix by hand-revert.
+   **Case-only mismatch fixed alongside** (not independently observable, folded into the
+   same struct edit): `cgSummary.ARN` was tagged `xml:"ARN"`; the real
+   `ConnectionGroupSummary` deserializer matches on `"Arn"` -- decoded fine either way
+   (smithyxml folds case), retagged to match the real casing for consistency with
+   `connectionGroupXML`'s own `"ARN"` tag being independently harmless (Get's tag was never
+   checked against the real deserializer this pass; not re-verified).
+
+One more real bug found, also layer-2 but a "state tracked, never surfaced" absence rather
+than a Get/List sibling gap (`ListConflictingAliases` has no singular `Get` sibling to
+compare against):
+
+3. **`ListConflictingAliases`' `conflictingSummary.AccountID` (`handler_distributions.go`)
+   was hardcoded to `""`**, despite `h.Backend.AccountID()` already existing and already
+   used correctly for the identical real `AccountId` field on `ListVpcOrigins` and
+   `ListDistributionsByOwnedResource`'s `DistributionIdOwner.OwnerAccountId`. Real
+   `ConflictingAlias.AccountId` (cloudfront@v1.67.4 deserializers.go, 3-of-3 case match
+   otherwise: `AccountId`/`Alias`/`DistributionId`) permanently blank regardless of backend
+   state. Test: `TestListConflictingAliases_AccountID_RealClient`
+   (`handler_distributions_test.go`), verified failing pre-fix by hand-revert.
+
+No hard-decode-error or panic findings this batch. No wrapper-key mismatches this batch
+(all 3 fixes are per-item, layer 2). No transpositions, no elements absent from the real
+type, no fields existing both nested and top-level. Pages fetched this batch: 0 (module
+cache used throughout; no live AWS docs fetched, so no footer-injection risk to report).
+
+Gates (`services/cloudfront/` only, plus repo-wide `go vet`): `go build ./...` clean;
+`go vet ./...` clean; `go test -race -count=1 ./services/cloudfront/...` clean;
+`golangci-lint run ./services/cloudfront/...` 0 issues. No `nolint` directives in any file
+touched this batch (`handler_connection.go`, `handler_distributions.go`,
+`handler_distributions_test.go`, `handler_sdk_route_fixes_test.go`).

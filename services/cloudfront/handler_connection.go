@@ -253,13 +253,18 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 	)
 
 	type cgSummary struct {
-		XMLName         xml.Name `xml:"ConnectionGroupSummary"`
-		ID              string   `xml:"Id"`
-		Name            string   `xml:"Name"`
-		ARN             string   `xml:"ARN"`
-		ETag            string   `xml:"ETag"`
-		RoutingEndpoint string   `xml:"RoutingEndpoint"`
-		Status          string   `xml:"Status"`
+		XMLName          xml.Name `xml:"ConnectionGroupSummary"`
+		ID               string   `xml:"Id"`
+		Name             string   `xml:"Name"`
+		ARN              string   `xml:"Arn"`
+		ETag             string   `xml:"ETag"`
+		RoutingEndpoint  string   `xml:"RoutingEndpoint"`
+		Status           string   `xml:"Status"`
+		AnycastIPListID  string   `xml:"AnycastIpListId,omitempty"`
+		CreatedTime      string   `xml:"CreatedTime"`
+		LastModifiedTime string   `xml:"LastModifiedTime"`
+		Enabled          bool     `xml:"Enabled"`
+		IsDefault        bool     `xml:"IsDefault"`
 	}
 	// Real ListConnectionGroupsOutput (api_op_ListConnectionGroups.go) is
 	// ConnectionGroups []ConnectionGroupSummary + NextMarker, no Quantity/Items
@@ -277,6 +282,8 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 		summaries = append(summaries, cgSummary{
 			ID: cg.ID, Name: cg.Name, ARN: cg.ARN, ETag: cg.ETag,
 			RoutingEndpoint: cg.RoutingEndpoint, Status: cg.Status,
+			AnycastIPListID: cg.AnycastIPListID, CreatedTime: cg.CreatedTime,
+			LastModifiedTime: cg.LastModifiedTime, Enabled: cg.Enabled, IsDefault: cg.IsDefault,
 		})
 	}
 	list := cgList{XMLNS: cfNS, ConnectionGroups: summaries}
@@ -451,13 +458,15 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 		Runtime string `xml:"Runtime"`
 	}
 	type cfnSummary struct {
-		XMLName xml.Name  `xml:"ConnectionFunctionSummary"`
-		ID      string    `xml:"Id"`
-		ARN     string    `xml:"ConnectionFunctionArn"`
-		Name    string    `xml:"Name"`
-		Config  cfnConfig `xml:"ConnectionFunctionConfig"`
-		Stage   string    `xml:"Stage"`
-		Status  string    `xml:"Status"`
+		XMLName          xml.Name  `xml:"ConnectionFunctionSummary"`
+		ID               string    `xml:"Id"`
+		ARN              string    `xml:"ConnectionFunctionArn"`
+		Name             string    `xml:"Name"`
+		Config           cfnConfig `xml:"ConnectionFunctionConfig"`
+		Stage            string    `xml:"Stage"`
+		Status           string    `xml:"Status"`
+		CreatedTime      string    `xml:"CreatedTime"`
+		LastModifiedTime string    `xml:"LastModifiedTime"`
 	}
 	// Real ListConnectionFunctionsOutput (api_op_ListConnectionFunctions.go) is
 	// ConnectionFunctions []ConnectionFunctionSummary + NextMarker, no
@@ -474,7 +483,9 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	for _, fn := range page {
 		summaries = append(summaries, cfnSummary{
 			ID: fn.ID, ARN: fn.ARN, Name: fn.Name, Stage: fn.Stage, Status: fn.Status,
-			Config: cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+			Config:           cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+			CreatedTime:      fn.CreatedTime,
+			LastModifiedTime: fn.LastModifiedTime,
 		})
 	}
 	list := cfnList{XMLNS: cfNS, ConnectionFunctions: summaries}

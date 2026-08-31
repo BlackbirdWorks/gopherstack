@@ -732,7 +732,7 @@ func (h *Handler) handleListConflictingAliases(c *echo.Context) error {
 		summaries = append(summaries, conflictingSummary{
 			Alias:     alias,
 			DistID:    d.ID,
-			AccountID: "",
+			AccountID: h.Backend.AccountID(),
 		})
 	}
 	list := conflictList{

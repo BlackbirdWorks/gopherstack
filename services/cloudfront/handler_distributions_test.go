@@ -934,3 +934,30 @@ func TestListDistributionsByWebACLId_ItemShape_RealClient(t *testing.T) {
 	require.Len(t, item2.Aliases.Items, 1)
 	assert.Equal(t, "two.example.com", item2.Aliases.Items[0])
 }
+
+// TestListConflictingAliases_AccountID_RealClient covers the per-item AccountId field: the
+// backend has an AccountID() accessor (used correctly by ListVpcOrigins and
+// ListDistributionsByOwnedResource for the same real field), but handleListConflictingAliases
+// hardcoded AccountId to "" instead of reading it.
+func TestListConflictingAliases_AccountID_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "555566667777", "us-east-1")
+	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
+
+	first, err := backend.CreateDistribution("ca-acct-owner", "", true, nil)
+	require.NoError(t, err)
+	other, err := backend.CreateDistribution("ca-acct-other", "", true, nil)
+	require.NoError(t, err)
+	require.NoError(t, backend.AssociateAlias(other.ID, "ca-acct.example.com"))
+
+	out, listErr := client.ListConflictingAliases(t.Context(), &cfsdk.ListConflictingAliasesInput{
+		Alias:          aws.String("ca-acct.example.com"),
+		DistributionId: aws.String(first.ID),
+	})
+	require.NoError(t, listErr)
+	require.NotNil(t, out.ConflictingAliasesList)
+	require.Len(t, out.ConflictingAliasesList.Items, 1)
+
+	assert.Equal(t, "555566667777", aws.ToString(out.ConflictingAliasesList.Items[0].AccountId))
+}

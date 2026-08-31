@@ -428,10 +428,11 @@ type Session struct {
 
 // SessionSummary is the list view of a session.
 type SessionSummary struct {
-	SessionID       string        `json:"SessionId"`
-	Description     string        `json:"Description,omitempty"`
-	NotebookVersion string        `json:"NotebookVersion,omitempty"`
-	Status          SessionStatus `json:"Status,omitzero"`
+	EngineVersion   *EngineVersion `json:"EngineVersion,omitempty"`
+	SessionID       string         `json:"SessionId"`
+	Description     string         `json:"Description,omitempty"`
+	NotebookVersion string         `json:"NotebookVersion,omitempty"`
+	Status          SessionStatus  `json:"Status,omitzero"`
 }
 
 // CalculationStatistics holds calculation runtime stats. Progress is a
