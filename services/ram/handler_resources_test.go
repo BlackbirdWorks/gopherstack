@@ -94,8 +94,8 @@ func TestResourceRegionScope_InListResources(t *testing.T) {
 			require.NoError(t, err)
 
 			rec := doRAMRequest(t, h, "/listresources", map[string]any{
-				"resourceOwner":    "SELF",
-				"resourceShareArn": rs.ARN,
+				"resourceOwner":     "SELF",
+				"resourceShareArns": []string{rs.ARN},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -113,6 +113,47 @@ func TestResourceRegionScope_InListResources(t *testing.T) {
 			assert.Equal(t, tt.wantScope, resp.Resources[0].ResourceRegionScope)
 		})
 	}
+}
+
+// TestListResources_ResourceShareArnsFilter proves ListResources' resourceShareArns
+// filter (a list, per the pinned SDK's ListResourcesInput.ResourceShareArns) actually
+// scopes results to the requested share(s), rather than being a no-op that returns
+// resources from every share the caller owns.
+func TestListResources_ResourceShareArnsFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rsA, err := h.Backend.CreateResourceShare(
+		"share-a", false, nil, nil,
+		[]string{"arn:aws:ec2:us-east-1:123456789012:subnet/subnet-a"},
+	)
+	require.NoError(t, err)
+
+	_, err = h.Backend.CreateResourceShare(
+		"share-b", false, nil, nil,
+		[]string{"arn:aws:ec2:us-east-1:123456789012:subnet/subnet-b"},
+	)
+	require.NoError(t, err)
+
+	rec := doRAMRequest(t, h, "/listresources", map[string]any{
+		"resourceOwner":     "SELF",
+		"resourceShareArns": []string{rsA.ARN},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Resources []struct {
+			Arn              string `json:"arn"`
+			ResourceShareArn string `json:"resourceShareArn"`
+		} `json:"resources"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(
+		t, resp.Resources, 1,
+		"resourceShareArns must scope results to the requested share, not return every share",
+	)
+	assert.Equal(t, rsA.ARN, resp.Resources[0].ResourceShareArn)
 }
 
 func TestResourceTypeDerivation(t *testing.T) {
@@ -164,8 +205,8 @@ func TestResourceTypeDerivation(t *testing.T) {
 			require.NoError(t, err)
 
 			rec := doRAMRequest(t, h, "/listresources", map[string]any{
-				"resourceOwner":    "SELF",
-				"resourceShareArn": rs.ARN,
+				"resourceOwner":     "SELF",
+				"resourceShareArns": []string{rs.ARN},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 

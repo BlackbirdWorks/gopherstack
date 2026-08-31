@@ -216,9 +216,9 @@ func (b *InMemoryBackend) ListResourceSharePermissions(shareARN string) []*Resou
 }
 
 // ListPermissionAssociations returns all share-permission associations filtered optionally
-// by permissionARN, sorted by share ARN + permission ARN.
+// by permissionARN and permissionVersion, sorted by share ARN + permission ARN.
 func (b *InMemoryBackend) ListPermissionAssociations(
-	permissionARN string,
+	permissionARN string, permissionVersion *int32,
 ) []SharePermissionAssociation {
 	b.mu.RLock("ListPermissionAssociations")
 	defer b.mu.RUnlock()
@@ -228,6 +228,10 @@ func (b *InMemoryBackend) ListPermissionAssociations(
 	for shareARN, perms := range b.sharePermissions {
 		for pARN, ver := range perms {
 			if permissionARN != "" && pARN != permissionARN {
+				continue
+			}
+
+			if permissionVersion != nil && ver != *permissionVersion {
 				continue
 			}
 

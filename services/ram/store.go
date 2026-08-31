@@ -35,6 +35,10 @@ const (
 	// permissionTypeCreatedFromPolicy is the type for permissions auto-created from
 	// resource policies, promotable to CUSTOMER_MANAGED via PromotePermissionCreatedFromPolicy.
 	permissionTypeCreatedFromPolicy = "CREATED_FROM_POLICY"
+	// permissionTypeFilterAll is ListPermissionsInput.PermissionType's "both types" value
+	// (types.PermissionTypeFilterAll) -- distinct from any actual Permission.PermissionType,
+	// so it must be special-cased rather than compared for equality against stored values.
+	permissionTypeFilterAll = "ALL"
 	// resourceOwnerSelf is the owner filter for resources owned by the calling account.
 	resourceOwnerSelf = "SELF"
 	// resourceOwnerOtherAccounts is the owner filter for resources shared by other accounts.

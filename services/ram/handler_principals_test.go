@@ -130,6 +130,58 @@ func TestListPrincipals_Pagination(t *testing.T) {
 	}
 }
 
+// TestListPrincipals_ResourceShareArnsFilter proves ListPrincipals' resourceShareArns
+// filter (a list, per the pinned SDK's ListPrincipalsInput.ResourceShareArns) actually
+// scopes results to the requested share(s), rather than being a no-op that returns
+// principals from every share the caller owns.
+func TestListPrincipals_ResourceShareArnsFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createA := doRAMRequest(t, h, "/createresourceshare", map[string]any{
+		"name":                    "principal-share-a",
+		"allowExternalPrincipals": true,
+		"principals":              []string{"111111111111"},
+	})
+	require.Equal(t, http.StatusOK, createA.Code)
+
+	var respA struct {
+		ResourceShare struct {
+			ResourceShareArn string `json:"resourceShareArn"`
+		} `json:"resourceShare"`
+	}
+	require.NoError(t, json.Unmarshal(createA.Body.Bytes(), &respA))
+	shareArnA := respA.ResourceShare.ResourceShareArn
+	require.NotEmpty(t, shareArnA)
+
+	createB := doRAMRequest(t, h, "/createresourceshare", map[string]any{
+		"name":                    "principal-share-b",
+		"allowExternalPrincipals": true,
+		"principals":              []string{"222222222222"},
+	})
+	require.Equal(t, http.StatusOK, createB.Code)
+
+	rec := doRAMRequest(t, h, "/listprincipals", map[string]any{
+		"resourceOwner":     "SELF",
+		"resourceShareArns": []string{shareArnA},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Principals []struct {
+			ID               string `json:"id"`
+			ResourceShareArn string `json:"resourceShareArn"`
+		} `json:"principals"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(
+		t, resp.Principals, 1,
+		"resourceShareArns must scope results to the requested share, not return every share",
+	)
+	assert.Equal(t, shareArnA, resp.Principals[0].ResourceShareArn)
+}
+
 func TestListPrincipals_ResourceOwnerFilter(t *testing.T) {
 	t.Parallel()
 

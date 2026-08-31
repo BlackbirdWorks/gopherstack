@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // AddPermissionInternal inserts a permission directly, bypassing validation.
@@ -155,7 +156,7 @@ func (b *InMemoryBackend) ListPermissions(resourceType string) []*Permission {
 			continue
 		}
 
-		if resourceType != "" && p.ResourceType != resourceType {
+		if resourceType != "" && !strs.Equal(p.ResourceType, resourceType) {
 			continue
 		}
 

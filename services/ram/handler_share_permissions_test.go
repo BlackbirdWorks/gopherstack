@@ -540,6 +540,55 @@ func TestListResourceSharePermissions_Pagination(t *testing.T) {
 	}
 }
 
+// TestListPermissionAssociations_PermissionVersionFilter proves the documented
+// permissionVersion filter (ListPermissionAssociationsInput.PermissionVersion: "list only
+// those associations with resource shares that use this version of the managed
+// permission") actually scopes results, rather than being unmarshaled and dropped.
+func TestListPermissionAssociations_PermissionVersionFilter(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ram.NewHandler(b)
+
+	perm, err := b.CreatePermission("VersionFilterPerm", "ec2:Subnet", "{}", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreatePermissionVersion(perm.ARN, "{}")
+	require.NoError(t, err)
+
+	shareV1 := ram.NewTestResourceShare(
+		"arn:aws:ram:us-east-1:000000000000:resource-share/version-filter-v1", "version-filter-v1",
+	)
+	ram.AddResourceShareInternal(b, shareV1)
+	require.NoError(t, b.AssociateResourceSharePermission(shareV1.ARN, perm.ARN, false, ptr32(1)))
+
+	shareV2 := ram.NewTestResourceShare(
+		"arn:aws:ram:us-east-1:000000000000:resource-share/version-filter-v2", "version-filter-v2",
+	)
+	ram.AddResourceShareInternal(b, shareV2)
+	require.NoError(t, b.AssociateResourceSharePermission(shareV2.ARN, perm.ARN, false, ptr32(2)))
+
+	rec := doRAMRequest(t, h, "/listpermissionassociations", map[string]any{
+		"permissionArn":     perm.ARN,
+		"permissionVersion": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Permissions []struct {
+			ResourceShareArn  string `json:"resourceShareArn"`
+			PermissionVersion string `json:"permissionVersion"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(
+		t, resp.Permissions, 1,
+		"permissionVersion must scope results to shares pinned to that version",
+	)
+	assert.Equal(t, shareV1.ARN, resp.Permissions[0].ResourceShareArn)
+	assert.Equal(t, "1", resp.Permissions[0].PermissionVersion)
+}
+
 // TestRAMPagination_ListPermissionAssociations covers association pagination.
 func TestListPermissionAssociations_Pagination(t *testing.T) {
 	t.Parallel()

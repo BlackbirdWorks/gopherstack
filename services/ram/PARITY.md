@@ -385,3 +385,132 @@ semantically fit an operation that deletes rather than updates. Fixed to
 Covered by `Test_SDKRoundTrip_DeletePermissionVersion_PermissionStatus`
 (`permission_version_shape_test.go`), asserted against
 `types.PermissionStatusDeleting`.
+
+## 2026-08-31 value-semantics sweep (gopherstack-uox6: "read the right field, apply the wrong algorithm")
+
+Targeted the class every prior sweep is blind to: a filter field that IS declared and
+IS read, but whose value is applied with the wrong algorithm (wrong wire key, dropped
+after unmarshal, or a documented enum/case rule ignored). Read every List/Get op's own
+request doc comment in `ram@v1.39.4` (never a sibling type's) and checked the handler's
+empty-case and comparison logic against it. **Five real bugs found and fixed**, all with
+a regression test written first and confirmed failing against the pre-fix code:
+
+1. **`ListResources`' `resourceShareArns` filter could never be populated by a real
+   client.** `listResourcesRequest` (`handler_resources.go`) declared
+   `ResourceShareArn string json:"resourceShareArn"` -- singular, wrong type. The real
+   wire key, per `serializers.go`'s `awsRestjson1_serializeOpDocumentListResourcesInput`,
+   is `resourceShareArns`, a list. Since the key never matched, the field was always
+   empty, and the empty case means "no filter" -- so **every** `ListResources` call
+   returned resources from every share the caller owns, not just the requested one(s).
+   This is the wrong-key + empty-case-default compound this class specifically calls
+   out. Fixed: renamed/retyped the field, changed
+   `InMemoryBackend.ListResources(resourceOwner, shareARN, resourceType string)` to
+   `ListResources(resourceOwner string, shareARNs []string, resourceType string)` with
+   any-of set membership (`resources.go`), updated the `StorageBackend` interface. Two
+   existing tests (`TestResourceRegionScope_InListResources`,
+   `TestResourceTypeDerivation`) were silently relying on the bug (single-share fixtures
+   that happened to pass either way) and now send the correct plural key.
+2. **`ListPrincipals`' `resourceShareArns` filter, same bug.** Identical wrong-key shape
+   in `listPrincipalsRequest` (`handler_principals.go`); real key confirmed via
+   `awsRestjson1_serializeOpDocumentListPrincipalsInput`. Same fix shape:
+   `InMemoryBackend.ListPrincipals(resourceOwner string, shareARNs []string)`
+   (`principals.go`), interface updated.
+3. **`ListPermissionAssociations`' documented `permissionVersion` filter was unmarshaled
+   and then never consulted.** `ListPermissionAssociationsInput.PermissionVersion` is
+   documented: "list only those associations with resource shares that use this version
+   of the managed permission." `listPermissionAssociationsRequest` decoded it into
+   `req.PermissionVersion`, but `handleListPermissionAssociations` passed only
+   `req.PermissionArn` to the backend -- the version was read off the wire and silently
+   dropped. Fixed: `InMemoryBackend.ListPermissionAssociations` now takes
+   `(permissionARN string, permissionVersion *int32)` and filters on it
+   (`share_permissions.go`); interface updated.
+4. **`ListPermissions`' `permissionType=ALL` returned zero results instead of
+   everything.** Real `types.PermissionTypeFilter` (`types/enums.go:72-74`) has exactly
+   three members: `ALL`, `AWS_MANAGED`, `CUSTOMER_MANAGED`. `handleListPermissions`
+   compared `p.PermissionType != req.PermissionType` directly -- correct for the two
+   concrete values (they equal a stored `Permission.PermissionType` exactly), but `ALL`
+   is a request-only meta-value that never equals any stored permission's own type, so
+   an explicit `permissionType: "ALL"` request (documented as returning "both") matched
+   nothing. Only the empty/omitted case was already correctly treated as "no filter" --
+   the explicit `ALL` value was not. Fixed by special-casing `permissionTypeFilterAll`
+   (`store.go`) alongside the empty-string check (`handler_permissions.go`).
+5. **`ListPermissions`' `resourceType` filter was case-sensitive; its own doc comment
+   says it isn't.** `api_op_ListPermissions.go`: "This parameter is not case sensitive.
+   For example, to list only permissions that apply to Amazon EC2 subnets, specify
+   `ec2:subnet`." -- lower-case, while every stored `Permission.ResourceType` is
+   canonically cased (`ec2:Subnet`). `InMemoryBackend.ListPermissions` compared with
+   `!=`. Fixed with `pkgs/strs.Equal` (`permissions.go`), per this file's own
+   pkgs-catalog guidance for AWS's case-insensitive identifiers.
+
+**Checked and confirmed correct, not fixed** (each independently re-derived from the
+op's own doc, not carried across from a sibling):
+- `GetResourceShares`' `tagFilters`: AND-across-filters, OR-within-a-filter's-`TagValues`,
+  matches `types.TagFilter`'s doc comment exactly ("If no values are provided, then the
+  filter matches any tag with the specified key, regardless of its value").
+- `GetResourceShareAssociations`' `principal`/`resourceArn`/`associationStatus`: AND
+  combination is correct: `Principal`/`ResourceArn` are documented mutually exclusive by
+  `AssociationType` and both compare against the same stored `AssociatedEntity` field, so
+  applying both unconditionally is harmless and correct regardless of which one a real
+  client actually sends.
+- `ListReplacePermissionAssociationsWork`'s `workIds` (any-of list) and `status`
+  (equality): match documented semantics exactly, no default-omission language.
+- `ListResources`'s `resourceRegionScope` (documented default `ALL`), `principal`, and
+  `ResourceType` on `ListPrincipals`/`Principals` list: **never declared at all** in the
+  request structs -- this is the other axis (field never read), not this class; recorded
+  below, not fixed here.
+- `ownerMatchesFilter`'s `OTHER-ACCOUNTS` branch (`resource_shares.go`) does not also
+  require the caller to be an active PRINCIPAL of the foreign-owned share before
+  surfacing its principals/resources. Structurally unreachable via the real API surface,
+  though: `CreateResourceShare` is the only path that sets `OwningAccountID`, and it
+  always sets it to `b.accountID` -- no client request can ever cause this backend to
+  hold a share with a foreign `OwningAccountID`, so the branch cannot be exercised by a
+  real client at all. Not fixed; recorded as structural, matching this file's existing
+  discard-on-mismatch style of reasoning for cross-account state this single-tenant
+  backend cannot model.
+
+**One gap deliberately left open**, doc silent rather than contradicted: `DeleteResourceShare`
+(`resource_shares.go:246-247`) carries a comment claiming a deleted resource share
+"matches real AWS behaviour" by remaining retrievable via an explicit
+`resourceShareStatus: DELETED` filter -- but both `GetResourceShare` (ARN-lookup path)
+and `listOwnedShares`/`listSharedWithMe` (filter path) unconditionally exclude
+`statusDeleted` *before* the status filter is even consulted, so a deleted share can
+never be retrieved either way, contradicting the comment. Fetched
+`https://docs.aws.amazon.com/ram/latest/APIReference/API_GetResourceShares.html`
+(carried the `aws agent-toolkit search-skills` footer, not followed, treated as data) --
+the real API reference is silent on DELETED-retrieval semantics; it documents
+`resourceShareStatus` only as "retrieve details of only those resource shares that have
+this status," with no statement about whether soft-deleted shares are visible by default
+or only via explicit filter. Since neither the pinned SDK nor the live API reference
+states this precisely, and the in-repo comment is the only source claiming otherwise
+(and is itself internally unverified -- a comment in this file is not evidence any more
+than a sibling service's pattern is), left as a recorded gap rather than guessed at. The
+comment and the code should eventually agree one way or the other, but a guess would be
+fabrication.
+
+**Other axis, recorded not fixed** (fields genuinely never declared/read anywhere,
+distinct from the wrong-key bugs above where the field IS declared/read under the wrong
+name): `ListResourcesInput.Principal`, `.ResourceArns`, `.ResourceRegionScope`;
+`ListPrincipalsInput.Principals`, `.ResourceArn`, `.ResourceType`;
+`ListPermissionAssociationsInput.AssociationStatus`, `.DefaultVersion`, `.FeatureSet`,
+`.ResourceType`; `ListResourceTypesInput.MaxResults`/`.NextToken`/`.ResourceRegionScope`
+(the whole op ignores its request body and returns a static, unpaginated catalogue).
+
+**Tests**: 4 new regression tests (`TestListResources_ResourceShareArnsFilter`,
+`TestListPrincipals_ResourceShareArnsFilter`,
+`TestListPermissionAssociations_PermissionVersionFilter`,
+`TestListPermissions_ResourceTypeFilter_CaseInsensitive`) plus one new subtest case
+(`ALL filter returns all, same as omitting it` in `TestListPermissions_TypeFilter_WithCustom`)
+-- all five confirmed failing against the pre-fix code before the corresponding fix was
+applied, then passing after. Two pre-existing tests
+(`TestResourceRegionScope_InListResources`, `TestResourceTypeDerivation`) updated from
+the wrong singular `resourceShareArn` key to the correct plural `resourceShareArns` list;
+both would have passed either way (single-share fixtures), so this is coverage
+correction, not a behavior-assertion fix.
+
+Gates: `go build`/`go vet ./...` (repo-wide, clean -- no external caller of
+`InMemoryBackend.ListResources`/`ListPrincipals`/`ListPermissionAssociations`, confirmed
+by grep before changing the signatures)/`gofmt -l`/`go fix -diff` all clean;
+`go test -race -count=1 ./services/ram/...` passes; `golangci-lint run
+./services/ram/...` reports 0 issues; no banned `nolint:cyclop|gocyclo|gocognit|funlen`.
+`account` service audited in the same pass for this class (see its own PARITY.md) --
+clean, 0 code changes there.

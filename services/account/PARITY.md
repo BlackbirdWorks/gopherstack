@@ -316,3 +316,47 @@ no banned `nolint:cyclop|gocyclo|gocognit|funlen` present. `test/integration/acc
 already drives every op through a real `aws-sdk-go-v2/service/account` client against the
 running server (not just this package's own handler-level tests) — the strongest wire-parity
 proof available, and it already existed from the 2026-08-07 pass.
+
+## 2026-08-31 value-semantics sweep (gopherstack-uox6: "read the right field, apply the wrong algorithm")
+
+Checked this service's only filtered list operation, `ListRegions`, for the class every
+prior sweep is blind to: a documented default/comparison rule silently mishandled even
+though the field is correctly read. `account` had never had this class of audit before
+(unlike `ram`, which had one prior filter-adjacent enumcheck pass but no dedicated
+value-semantics sweep either).
+
+- **`RegionOptStatusContains`** (`regions.go` `ListRegions`): any-of list filter over
+  `[]RegionOptStatus`, empty means no filter (`len(statusFilter) == 0 ||
+  slices.Contains(...)`). Matches the pinned SDK doc exactly ("A list of Region statuses
+  ... to use to filter the list of Regions ... passing in a value of ENABLING will only
+  return a list of Regions with a Region status of ENABLING") and the live API reference
+  fetched this pass (same wording, no additional omission-default language). Correct,
+  not fixed.
+- **`MaxResults`** (`handler.go` `handleListRegions`): bounds-checked against
+  `minMaxResults`/`maxMaxResults` (1/50), matching both the pinned SDK doc comment and
+  the live API reference's "Valid Range: Minimum value of 1. Maximum value of 50."
+  exactly. When omitted, `ListRegions` (`regions.go`) returns the *entire* filtered list
+  unbounded (`maxResults <= 0` short-circuits to no pagination) -- checked against both
+  sources for a documented default page size (the pattern that produced three
+  hundred-vs-fifty bugs in a sibling service two passes ago) and found **no such
+  language in either source** for this operation: the doc states the valid range but
+  never states what happens if the parameter is omitted beyond "defaults to a value
+  specific to the operation" (boilerplate present on every List op in this SDK,
+  including `ram`'s, and not itself a concrete default). Since no concrete default is
+  documented, returning everything is not a narrowing-default-widened bug; recorded as
+  correct.
+- Every other operation (`GetContactInformation`, `PutContactInformation`,
+  `GetAlternateContact`, `PutAlternateContact`, `DeleteAlternateContact`,
+  `GetAccountInformation`, `GetGovCloudAccountInformation`, `GetPrimaryEmail`,
+  `GetPrimaryEmailUpdateStatus`, `StartPrimaryEmailUpdate`, `AcceptPrimaryEmailUpdate`,
+  `PutAccountName`, `EnableRegion`, `DisableRegion`, `GetRegionOptStatus`) takes no
+  filter, range, or list-valued optional parameter at all -- no surface for this class.
+
+**Zero code changes.** One page fetched
+(`https://docs.aws.amazon.com/accounts/latest/APIReference/API_ListRegions.html`),
+carried the `aws agent-toolkit search-skills` footer (not followed, treated as data,
+consistent with every prior page fetched in this campaign).
+
+Gates: `go build`/`go vet ./...`/`gofmt -l`/`go fix -diff` all clean; `go test -race
+-count=1 ./services/account/...` passes (unchanged, since no code changed);
+`golangci-lint run ./services/account/...` reports 0 issues.
