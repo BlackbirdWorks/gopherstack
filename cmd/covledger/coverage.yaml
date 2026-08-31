@@ -1,0 +1,1661 @@
+# Bug-class coverage ledger -- gopherstack-7q13.
+#
+# One row per (service, class): which service has been checked for which
+# bug class, the verdict, and the commit that establishes it. This is a
+# TARGETING INPUT for the next audit pass, not proof of completeness --
+# see cmd/covledger's package doc for exactly what it can and cannot tell
+# you before using it to decide where to look next.
+#
+# verdict: fixed        -- a real bug of this class was found and corrected
+#                           in the named commit.
+#          clean         -- checked against this class; no bug found.
+#          inapplicable  -- the service has no surface for this class (e.g.
+#                           no filter parameters exist to have filter-value
+#                           bugs); recorded so it is never re-dispatched.
+#
+# Populated by reading git log on this branch (main..HEAD, ~300 commits)
+# plus bd comments on gopherstack-6flj and gopherstack-uox6, cross-checked
+# against PARITY.md where present. Absence of a row means "unknown", not
+# "clean" -- see the package doc for known gaps in this pass.
+
+rows:
+  - service: accessanalyzer
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9304cdc4c
+  - service: accessanalyzer
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 8d0810bd2
+  - service: acm
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: e263119ce
+  - service: acm
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 4cc1b6238
+  - service: acmpca
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8aad0f887
+  - service: acmpca
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: acmpca
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: amplify
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e2e87a8be
+  - service: amplify
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 399bc9455
+  - service: apigateway
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0119faf88
+  - service: apigateway
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 73a4acb39
+  - service: apigateway
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: c27027d54
+  - service: apigatewayv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 3e835cb9c
+  - service: apigatewayv2
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: e263119ce
+  - service: apigatewayv2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 43eab7be5
+  - service: appconfig
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 059c485c9
+  - service: appconfig
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 059c485c9
+  - service: apprunner
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 40fb84d6b
+  - service: apprunner
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: e263119ce
+  - service: apprunner
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 40fb84d6b
+  - service: appstream
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 646d60385
+  - service: appstream
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: f7e0fe876
+  - service: appsync
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 119d0f4f1
+  - service: appsync
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 6ab03d116
+  - service: athena
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 39a65e3fd
+  - service: athena
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: f7e0fe876
+  - service: autoscaling
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 72a539739
+  - service: autoscaling
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ea6fd462b
+  - service: autoscaling
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8829272d0
+  - service: autoscaling
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f96b6324a
+  - service: awsconfig
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: ffba4afa4
+  - service: awsconfig
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 43ade6079
+  - service: awsconfig
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 6ab03d116
+  - service: backup
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: fc17d3d7d
+  - service: backup
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ede638895
+  - service: backup
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e3a19f13e
+  - service: backup
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 982f50f31
+  - service: batch
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: aa4ec0ad2
+  - service: bedrock
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 992e83937
+  - service: bedrock
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: dc2121e77
+  - service: bedrock
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 98a1391f6
+  - service: bedrock
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 98a1391f6
+  - service: bedrockagent
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 9f1a35363
+  - service: bedrockagent
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 43eab7be5
+  - service: ce
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9022f4b4f
+  - service: ce
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 18399ff36
+  - service: ce
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 18399ff36
+  - service: ce
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 18399ff36
+  - service: cleanrooms
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: cleanrooms
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 9f7b9d67e
+  - service: cloudformation
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: aebb13d0f
+  - service: cloudformation
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: fa0e68c21
+  - service: cloudformation
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 82ce19314
+  - service: cloudformation
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ccf0a6d08
+  - service: cloudformation
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: a19bab2cb
+  - service: cloudfront
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9fd3308f2
+  - service: cloudfront
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8829272d0
+  - service: cloudfront
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 8392d8da6
+  - service: cloudfront
+    class: wrong_wire_key
+    verdict: clean
+    date: "2026-08-28"
+    commit: dd3cbde76
+  - service: cloudtrail
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: f07e3ddbc
+  - service: cloudtrail
+    class: wrong_wire_key
+    verdict: clean
+    date: "2026-08-28"
+    commit: b4e78db01
+  - service: cloudwatch
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9124abd54
+  - service: cloudwatch
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a89bd1102
+  - service: cloudwatch
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: b900df944
+  - service: cloudwatch
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: d7cc58638
+  - service: cloudwatch
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a89bd1102
+  - service: cloudwatchlogs
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8163440bb
+  - service: cloudwatchlogs
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 7287af814
+  - service: cloudwatchlogs
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 7287af814
+  - service: cloudwatchlogs
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: f7e0fe876
+  - service: codeartifact
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c75ee725b
+  - service: codebuild
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0c9b33a27
+  - service: codebuild
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: e50f52dce
+  - service: codecommit
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c38b737b5
+  - service: codecommit
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9304cdc4c
+  - service: codecommit
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c38b737b5
+  - service: codedeploy
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 5e0b4978a
+  - service: codepipeline
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 1a0a56758
+  - service: codepipeline
+    class: wrong_enum_value
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9f1ac5a22
+  - service: cognitoidp
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 215cea195
+  - service: cognitoidp
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 3e2998719
+  - service: cognitoidp
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8dca28d69
+  - service: comprehend
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 8163440bb
+  - service: comprehend
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: aa971935f
+  - service: comprehend
+    class: wrong_enum_value
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9f1ac5a22
+  - service: databrew
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: dc2121e77
+  - service: databrew
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: d8196c5ce
+  - service: datasync
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 849c04289
+  - service: datasync
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: de2f34318
+  - service: dax
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 71f43bd4a
+  - service: detective
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: directconnect
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: 646d60385
+  - service: directconnect
+    class: request_field_never_read
+    verdict: clean
+    date: "2026-08-30"
+    commit: 646d60385
+  - service: directoryservice
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f1771df41
+  - service: dms
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: ffba4afa4
+  - service: dms
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 059c485c9
+  - service: dms
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: aa4ec0ad2
+  - service: docdb
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: a19bab2cb
+  - service: dynamodb
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: aebb13d0f
+  - service: dynamodb
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 40c1d5379
+  - service: dynamodb
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 20ac224ab
+  - service: dynamodb
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 0a9c5887c
+  - service: dynamodb
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 88ed7f0dd
+  - service: ec2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 87c65447e
+  - service: ec2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: bfbc46f0b
+  - service: ec2
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 786fa7ae7
+  - service: ecr
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8163440bb
+  - service: ecr
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: ecs
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 3fe3abca1
+  - service: ecs
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8aad0f887
+  - service: ecs
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0fdecf5cc
+  - service: ecs
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: cb5dac6ff
+  - service: ecs
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8dca28d69
+  - service: efs
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 50582e7b0
+  - service: eks
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 72a539739
+  - service: eks
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ccf0a6d08
+  - service: eks
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 9f7b9d67e
+  - service: elasticache
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ea6fd462b
+  - service: elasticache
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: 4a58e4ce1
+  - service: elasticache
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f1771df41
+  - service: elasticbeanstalk
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0c9b33a27
+  - service: elasticbeanstalk
+    class: wrong_wire_key
+    verdict: clean
+    date: "2026-08-28"
+    commit: b4e78db01
+  - service: elasticsearch
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: d5cc36da2
+  - service: elasticsearch
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 8d0810bd2
+  - service: elbv2
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: c28ace2d3
+  - service: elbv2
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 82ce19314
+  - service: elbv2
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 911b87ba9
+  - service: elbv2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f96b6324a
+  - service: emr
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 4a58e4ce1
+  - service: emr
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e3a19f13e
+  - service: emr
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: fa4b10c6b
+  - service: emrserverless
+    class: wrong_wire_key
+    verdict: clean
+    date: "2026-08-29"
+    commit: a69d5793e
+  - service: eventbridge
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c89b314c1
+  - service: eventbridge
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 6fe7fd0d4
+  - service: eventbridge
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 80623da31
+  - service: eventbridge
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 2c8e09e67
+  - service: firehose
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 399bc9455
+  - service: fis
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 71f43bd4a
+  - service: fis
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: d93c59220
+  - service: forecast
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: d5cc36da2
+  - service: fsx
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 39d671395
+  - service: fsx
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e3a19f13e
+  - service: glacier
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e2e87a8be
+  - service: glacier
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 7a19b01be
+  - service: glue
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 3fe3abca1
+  - service: glue
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 53b12b4c9
+  - service: glue
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 99f19e599
+  - service: glue
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 43ade6079
+  - service: glue
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 43ade6079
+  - service: glue
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 9f2fd8769
+  - service: glue
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 73318ba72
+  - service: guardduty
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9022f4b4f
+  - service: guardduty
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c8cee6727
+  - service: guardduty
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: e3a19f13e
+  - service: guardduty
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: caf2a5f9f
+  - service: guardduty
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: caf2a5f9f
+  - service: iam
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 40c1d5379
+  - service: iam
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 80623da31
+  - service: iam
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: cb5dac6ff
+  - service: iam
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 50eaf5ee9
+  - service: inspector2
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: fc17d3d7d
+  - service: inspector2
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 994cb62d8
+  - service: inspector2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 22461eec6
+  - service: inspector2
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 78d9fdf9f
+  - service: iot
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 34ecb09d0
+  - service: iot
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 354218ab3
+  - service: iotanalytics
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 91c21900f
+  - service: iotanalytics
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: c27027d54
+  - service: kafka
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: c28ace2d3
+  - service: kafka
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: kafka
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 2998dea81
+  - service: kinesis
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: kinesis
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: kinesis
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 58b3ad76d
+  - service: kinesisanalyticsv2
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 96313e68a
+  - service: kms
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c38b737b5
+  - service: kms
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 2c8e09e67
+  - service: lakeformation
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: lakeformation
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 4f7056719
+  - service: lambda
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: fa0e68c21
+  - service: lambda
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: fc17d3d7d
+  - service: lambda
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: c27027d54
+  - service: lightsail
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0119faf88
+  - service: lightsail
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 992e83937
+  - service: macie2
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 5a0f0b57a
+  - service: macie2
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0a4438b9b
+  - service: macie2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0a4438b9b
+  - service: macie2
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c4071698c
+  - service: macie2
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c8cee6727
+  - service: managedblockchain
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: b9dc74b1a
+  - service: mediaconvert
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 354218ab3
+  - service: mediaconvert
+    class: wrong_enum_value
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9f1ac5a22
+  - service: mediaconvert
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: c27027d54
+  - service: medialive
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0119faf88
+  - service: medialive
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: ac5c674d2
+  - service: medialive
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 39a3c1453
+  - service: medialive
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 39a3c1453
+  - service: medialive
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 9f2fd8769
+  - service: medialive
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 73318ba72
+  - service: mediatailor
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-29"
+    commit: fd7c39ac3
+  - service: mediatailor
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: aa971935f
+  - service: memorydb
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 6fe7fd0d4
+  - service: mgn
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 8e1cd2100
+  - service: mgn
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 43eab7be5
+  - service: mgn
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: d93c59220
+  - service: mq
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 059c485c9
+  - service: mq
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 059c485c9
+  - service: mq
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: d8196c5ce
+  - service: mwaa
+    class: wrong_wire_key
+    verdict: clean
+    date: "2026-08-29"
+    commit: a69d5793e
+  - service: neptune
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 2a2b0506f
+  - service: neptune
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0a4438b9b
+  - service: neptune
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 2a2b0506f
+  - service: networkmanager
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 5591e3014
+  - service: omics
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 71f43bd4a
+  - service: opensearch
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 72a539739
+  - service: opensearch
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: ac5c674d2
+  - service: opensearch
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 3e2998719
+  - service: opensearch
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c8ee0e29b
+  - service: opensearch
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 8d0810bd2
+  - service: opensearch
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: a576f56ca
+  - service: opsworks
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 646d60385
+  - service: opsworks
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 646d60385
+  - service: organizations
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 269da5df7
+  - service: outposts
+    class: request_field_never_read
+    verdict: clean
+    date: "2026-08-29"
+    commit: b94d74fe6
+  - service: personalize
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-29"
+    commit: fd7c39ac3
+  - service: personalize
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: ac5c674d2
+  - service: personalize
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 994cb62d8
+  - service: personalize
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 119d0f4f1
+  - service: personalize
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 5591e3014
+  - service: pinpoint
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0119faf88
+  - service: pinpoint
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: bfd3d25cf
+  - service: pinpoint
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: c27027d54
+  - service: pipes
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 20ac224ab
+  - service: pipes
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: d93c59220
+  - service: quicksight
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0119faf88
+  - service: quicksight
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 215cea195
+  - service: quicksight
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: quicksight
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 119d0f4f1
+  - service: ram
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 6f26ac97a
+  - service: ram
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9f06bd3fc
+  - service: ram
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9f06bd3fc
+  - service: ram
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 6ab03d116
+  - service: ram
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 9f06bd3fc
+  - service: rds
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9124abd54
+  - service: rds
+    class: fabricated_error_code
+    verdict: clean
+    date: "2026-08-30"
+    commit: a4395bfce
+  - service: rds
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 41afa3c88
+  - service: rds
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: df771b420
+  - service: redshift
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ea6fd462b
+  - service: redshift
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 3e2998719
+  - service: redshift
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 426f5d3c6
+  - service: redshift
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 6ab03d116
+  - service: redshift
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 2c892cc29
+  - service: redshiftdata
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 39d671395
+  - service: redshiftdata
+    class: request_field_never_read
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9304cdc4c
+  - service: rekognition
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: f07e3ddbc
+  - service: rekognition
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8dca28d69
+  - service: resiliencehub
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 22461eec6
+  - service: resourcegroups
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9022f4b4f
+  - service: resourcegroups
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 6160e4dad
+  - service: rolesanywhere
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 994cb62d8
+  - service: route53
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 215cea195
+  - service: route53
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: d7cc58638
+  - service: route53
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f1771df41
+  - service: route53
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: d7cc58638
+  - service: route53resolver
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 50582e7b0
+  - service: s3
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 50c3bfa04
+  - service: s3
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: f96b6324a
+  - service: s3control
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 0a9c5887c
+  - service: s3control
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: a19bab2cb
+  - service: sagemaker
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 53b12b4c9
+  - service: sagemaker
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: d4588f3f2
+  - service: sagemaker
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 50c3bfa04
+  - service: sagemaker
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: d4588f3f2
+  - service: sagemaker
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 5864ef92a
+  - service: secretsmanager
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 26cc5ebae
+  - service: securityhub
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-29"
+    commit: fd7c39ac3
+  - service: securityhub
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 6c73794e2
+  - service: securityhub
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: securityhub
+    class: wrong_enum_value
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 98a1391f6
+  - service: securityhub
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 98a1391f6
+  - service: serverlessrepo
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 994cb62d8
+  - service: servicediscovery
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c38b737b5
+  - service: servicediscovery
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: ses
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: aa971935f
+  - service: sesv2
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: ffba4afa4
+  - service: sesv2
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 19766c65c
+  - service: sesv2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 119d0f4f1
+  - service: sesv2
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: d93c59220
+  - service: sns
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9124abd54
+  - service: sns
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a4395bfce
+  - service: sns
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c89b314c1
+  - service: sns
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: a51f55a64
+  - service: sqs
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9124abd54
+  - service: sqs
+    class: fabricated_error_code
+    verdict: clean
+    date: "2026-08-30"
+    commit: a4395bfce
+  - service: ssm
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 215cea195
+  - service: ssm
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 34ecb09d0
+  - service: ssm
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: ccf0a6d08
+  - service: ssm
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 80623da31
+  - service: ssm
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: b494ef90c
+  - service: ssoadmin
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: b900df944
+  - service: ssoadmin
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 4cc1b6238
+  - service: stepfunctions
+    class: error_envelope_shape
+    verdict: fixed
+    date: "2026-08-29"
+    commit: c28ace2d3
+  - service: stepfunctions
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 34ecb09d0
+  - service: stepfunctions
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: c568851a9
+  - service: swf
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 4ad94a2e4
+  - service: swf
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 4ad94a2e4
+  - service: textract
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 71f43bd4a
+  - service: transfer
+    class: pagination_ordering
+    verdict: clean
+    date: "2026-08-30"
+    commit: 4a58e4ce1
+  - service: transfer
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 8392d8da6
+  - service: transfer
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: de2f34318
+  - service: translate
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: translate
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 994cb62d8
+  - service: translate
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 00e5ae2c7
+  - service: verifiedpermissions
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: f07e3ddbc
+  - service: vpclattice
+    class: error_envelope_shape
+    verdict: clean
+    date: "2026-08-29"
+    commit: fd7c39ac3
+  - service: vpclattice
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: be37c23b4
+  - service: waf
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 911b87ba9
+  - service: wafv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 0a4438b9b
+  - service: wafv2
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 4fb5818af
+  - service: wafv2
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 4f7056719
+  - service: workmail
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-29"
+    commit: 6f26ac97a
+  - service: workmail
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 43ade6079
+  - service: workspaces
+    class: pagination_ordering
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 97940f589
+  - service: workspaces
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-30"
+    commit: aa4ec0ad2
+  - service: workspaces
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-28"
+    commit: 120691582
+  - service: xray
+    class: fabricated_error_code
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 8aad0f887
+  - service: xray
+    class: request_field_never_read
+    verdict: fixed
+    date: "2026-08-29"
+    commit: d3ca97b80
+  - service: xray
+    class: wrong_enum_value
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9f1ac5a22
