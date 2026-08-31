@@ -529,3 +529,61 @@ found that silently returns everything untruncated. `PARITY.md` claims not
 re-verified beyond what this pass touched. Gates on `./services/apigatewayv2/...`:
 `go build`, `go vet`, `go test -race -count=1` (all pass, existing suite
 unmodified/ungrown-except-the-1-new-file), `golangci-lint run` (0 issues).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+`cmd/reqfielddiff`/`cmd/reqfieldscan` used to break ties among
+case-insensitive handler-name matches by whichever Go's randomized map
+iteration visited first (ef0eef041 fixed it repo-wide; appsync, e2643a6dd,
+was the first measured victim). This package's REST-path dispatch (no
+`service.JSONOpFunc` table at all) means `reqfielddiff` relies entirely on
+name-convention resolution here, and its `Api`/`API` acronym casing gives it
+39 op/handler pairs that need the ambiguous fold, 10 of them genuine
+collisions between an exported `*InMemoryBackend` method and the real
+unexported handler: `CreateApi`, `DeleteApi`, `DeleteApiMapping`,
+`ExportApi`, `GetApi`, `GetApiMapping`, `GetApiMappings`, `GetApis`,
+`UpdateApi`, `UpdateApiMapping`.
+
+Verified the damage directly: ran the unpatched tool from `ef0eef041~1` five
+times and diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was
+byte-identical across all 5 runs and HEAD -- zero damage (this service's
+dispatch table has no `WrapOp` entries for `reqfieldscan` to resolve
+ambiguously at all). `cmd/reqfielddiff` was not: findings ranged 245-253
+across the 5 old runs (5 distinct counts) vs 238 at HEAD, with 31 op.field
+keys flickering.
+
+29 of the 31 were the safe direction -- present in some old (misresolved)
+run, never at HEAD: `CreateApi.{ApiKeySelectionExpression, CorsConfiguration,
+Description, DisableExecuteApiEndpoint, DisableSchemaValidation,
+IpAddressType, Name, ProtocolType, RouteSelectionExpression, Tags,
+Version}`, `ExportApi.{IncludeExtensions, OutputType}`, `GetApi.ApiId`,
+`GetApiMapping.ApiMappingId`, most of `UpdateApi`'s flickering fields, and
+`UpdateApiMapping.{ApiId, ApiMappingId, ApiMappingKey, Stage}`. Read the
+source for every one of these (apis.go:13-90's `CreateAPI`/`UpdateAPI`,
+handler_apis.go's `ExportApi`/`GetApi` query- and path-param handling,
+handler_api_mappings.go's `GetAPIMapping`/`UpdateAPIMapping`): all genuinely
+declared and threaded to the backend. The tool's own "declared" signal for
+`CreateApi`/`UpdateApi` is itself an artifact of `matchReturnsStructCall`
+picking up the `*API` domain struct `h.Backend.CreateAPI`/`.UpdateAPI`
+returns (which happens to mirror most Input field names) rather than genuine
+recognition of the `json.NewDecoder(...).Decode(&input)` call this tool's
+`decodeCallVerbs` list doesn't match at all -- but the underlying claim
+(field genuinely handled) checks out by direct source read regardless.
+
+2 of the 31 went the other way -- present at HEAD, absent from some old
+(misresolved) runs, the direction that would hide a real bug:
+`UpdateApi.RouteKey`, `UpdateApi.Target`. Investigated specifically for that
+reason. Confirmed genuine and fully applied: `UpdateAPIInput.RouteKey`/
+`.Target` (models.go:250-256, wire keys `routeKey`/`target`, matching
+apigatewayv2@v1.37.4 api_op_UpdateApi.go:80,93's "part of quick create"
+fields) are validated and applied by
+`validateQuickCreateUpdateLocked`/`applyQuickCreateUpdateMutateLocked`
+(apis.go:363-431). Not a bug -- the same tool artifact in reverse (the
+exported `UpdateAPI`'s return-type match doesn't happen to carry these two
+quick-create-only field names, since they're not mirrored onto the `API`
+struct itself).
+
+Verdict: zero real bugs. Every moved finding traces to either the
+determinism fix (safe direction, now resolved) or a separate, pre-existing
+`reqfielddiff` blind spot (`Decode` not in `decodeCallVerbs`) that reading
+the actual source -- rather than trusting either tool -- neutralizes.

@@ -609,3 +609,21 @@ Test: `TestDescribeAgentVersions_ConfigurationManagerFilterRealClient`,
 (wire_field_fixes_test.go), both driven through the real SDK client and
 confirmed to fail against pre-fix code (the pagination-order test failed on
 5/5 runs pre-fix; passed 8/8 post-fix).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `ElasticIp`/`ElasticIP` and `RdsDb`/`RdsDB` acronym casing
+gives it 9 op/handler pairs needing the ambiguous fold, 9 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `AssociateElasticIp`, `DeregisterElasticIp`, `DeregisterRdsDbInstance`, `DescribeRdsDbInstances`, `DisassociateElasticIp`, `RegisterElasticIp`, `RegisterRdsDbInstance`, `UpdateElasticIp`, `UpdateRdsDbInstance`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (74 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

@@ -544,3 +544,40 @@ Gates: `go build ./services/servicediscovery/...`, `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/servicediscovery/...`,
 `golangci-lint run ./services/servicediscovery/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Http`/`HTTP` and
+`PrivateDns`/`PublicDns` vs `PrivateDNS`/`PublicDNS` acronym casing gives it
+6 op/handler pairs needing the ambiguous fold, all genuine collisions
+between an exported backend method and the real unexported handler:
+`CreateHttpNamespace`, `CreatePrivateDnsNamespace`, `CreatePublicDnsNamespace`,
+`UpdateHttpNamespace`, `UpdatePrivateDnsNamespace`, `UpdatePublicDnsNamespace`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. (That identical output includes
+8 pre-existing "declared but never read" findings for `CreatorRequestId`/
+`UpdaterRequestId` across the Create/Update/RegisterInstance handlers in
+this package -- AWS's idempotency-token field, which this emulator has
+never modeled deduplication for. Unchanged before and after this defect's
+fix, so out of scope for this sweep: noted, not fixed.)
+
+`cmd/reqfielddiff` was the largest swing measured in this batch: old runs
+found between 10 and 15 findings (3 distinct counts across 5 runs) vs 4 at
+HEAD, with 14 fields flickering, all in the safe direction (present in some
+old misresolved run, never at HEAD): `CreatePublicDnsNamespace.{CreatorRequestId,
+Description, Name, Properties, Tags}`, `UpdateHttpNamespace.{Id, Namespace,
+UpdaterRequestId}`, `UpdatePrivateDnsNamespace.{Id, Namespace,
+UpdaterRequestId}`, `UpdatePublicDnsNamespace.{Id, Namespace,
+UpdaterRequestId}`. Read the source (handler_namespaces.go:84-119,
+286-390): `Id`/`Name`/`Description`/`Properties`/`Tags`/`Namespace` are all
+genuinely declared and threaded to the backend on every one of these ops.
+`CreatorRequestId`/`UpdaterRequestId` are declared but genuinely unread --
+the same pre-existing idempotency-token gap `reqfieldscan` already flags
+identically before and after this fix, not something this defect hid.
+
+Verdict: zero bugs caused or hidden by the collision defect. One
+pre-existing, already-flagged, out-of-scope gap noted (idempotency token is
+a no-op across 8 create/update/register operations in this package).

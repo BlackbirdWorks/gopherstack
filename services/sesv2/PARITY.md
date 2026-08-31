@@ -695,3 +695,45 @@ real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
   or sending-pause simulation) to ever raise them, so implementing any would
   mean adding new business-logic simulation from scratch, not fixing a wrong
   sentinel -- out of scope for a sentinel-correctness pass.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Ip`/`IP` acronym casing
+(dedicated-IP pool operations) gives it 9 op/handler pairs needing the
+ambiguous fold, all genuine collisions between an exported backend method
+and the real unexported handler: `CreateDedicatedIpPool`,
+`DeleteDedicatedIpPool`, `GetDedicatedIp`, `GetDedicatedIpPool`,
+`ListDedicatedIpPools`, `PutAccountDedicatedIpWarmupAttributes`,
+`PutDedicatedIpInPool`, `PutDedicatedIpPoolScalingAttributes`,
+`PutDedicatedIpWarmupAttributes`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. `cmd/reqfielddiff`'s finding
+COUNT matched exactly (209 both), but 3 fields flickered inconsistently
+run to run rather than settling: `PutDedicatedIpInPool.Ip`,
+`PutDedicatedIpWarmupAttributes.{Ip, WarmupPercentage}`.
+
+Built an instrumented copy of the unpatched tool (scratch space, discarded,
+`cmd/` itself untouched) to see the actual winning candidate per run: when
+old resolution nondeterministically picked the exported
+`PutDedicatedIPInPool` backend method instead of the real handler, an
+unrelated coincidental signal produced an `ip`-named field that happened to
+suppress the finding on some runs -- not a signal this tool's decode
+detection is actually designed to recognise. Read the real source
+(handler_dedicated_ips.go:37-71, handler_dispatch.go:181-187): `Ip` is a URL
+path segment threaded into the handler as a plain function parameter (never
+read via a body-decode call this tool's signals cover), and
+`WarmupPercentage` IS decoded, via `json.NewDecoder(...).Decode(&in)` -- a
+call this tool's `decodeCallVerbs` list doesn't match (only
+`Unmarshal`/`Bind`/`ReadJSON`). Confirmed with the debug instrumentation
+that BOTH the correct handler and its exported namesake resolve to
+`HasSignal=false` here regardless of which wins the fold -- this finding is
+a standing, pre-existing `reqfielddiff` blind spot, unrelated to and
+unaffected by the collision defect itself.
+
+Verdict: zero real bugs. Both `Ip` and `WarmupPercentage` are genuinely
+handled; the flicker is a coincidental interaction between the collision
+defect and this tool's separate `Decode()`/path-param-as-argument blind
+spot, not a service bug.

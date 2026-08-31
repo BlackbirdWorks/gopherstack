@@ -410,3 +410,21 @@ gaps.**
 No code changes this pass -- PARITY.md documentation only. Gates unaffected
 (no source touched): `go build`, `go vet`, `go test -race`, `golangci-lint
 run` all still green per the entries above.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Sql`/`SQL` acronym casing
+gives it 1 op/handler pairs needing the ambiguous fold, 1 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `ExecuteSql`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (6 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

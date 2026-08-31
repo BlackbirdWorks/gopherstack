@@ -202,3 +202,22 @@ Its raw sentinel text ("MessageTooLarge") does surface unmapped in
 case -- but that field lives inside a 200-response `Failed` array, not a wire error
 envelope, so it has no `errors.As` ground truth (the free-form-ErrorCode-on-a-success-
 response false-positive class); recorded here, not changed.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `QueueUrl`/`QueueURL`
+acronym casing gives it 1 op/handler pair needing the ambiguous fold, a
+genuine collision between an exported backend method and the real
+unexported handler: `GetQueueUrl`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. `cmd/reqfielddiff` was not: old
+runs found 1 or 2 findings vs 1 at HEAD; `GetQueueUrl.QueueName` flickered,
+present only in some old (misresolved) runs, never at HEAD. Read the source
+(handler_queues.go:137-154): `jsonGetQueueURLReq` declares `QueueName`
+(`json.Unmarshal`'d) and forwards it into `GetQueueURLInput`. Confirmed
+genuine -- not a bug.
+
+Verdict: zero real bugs, safe direction only.

@@ -203,3 +203,21 @@ the instance that started the campaign.
   against unfixed code (`InvalidRequestException: Status must be COMPLETE
   or EXCEPTION, got "SUCCESS"`), restored, `md5sum`-verified
   byte-identical.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Ssh`/`SSH` acronym casing
+gives it 2 op/handler pairs needing the ambiguous fold, 2 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `DeleteSshPublicKey`, `ImportSshPublicKey`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (71 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

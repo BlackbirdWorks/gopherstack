@@ -377,3 +377,24 @@ No `nolint` directives exist in any file touched this pass. Gates: `go
 build`, `go vet` (repo-wide, clean), `go test -race -count=1`, `golangci-lint
 run` all pass. No production code changed; `permissions_test.go` gained one
 new test (assertions: +9 `require`, 0 dropped).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `ApiKey`/`APIKey` acronym
+casing gives it 2 op/handler pairs needing the ambiguous fold, both genuine
+collisions between an exported `*InMemoryBackend` method and the real
+unexported handler: `CreateWorkspaceApiKey`, `DeleteWorkspaceApiKey`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. `cmd/reqfielddiff` was not: old
+runs found 39 or 43 findings vs 39 at HEAD, with 4 fields flickering, all
+only in old (misresolved) runs, never at HEAD: `CreateWorkspaceApiKey.{KeyName,
+KeyRole, SecondsToLive, WorkspaceId}`. Read the source
+(handler_api_keys.go:16-27): `createWorkspaceAPIKeyRequest` declares
+`KeyName`/`KeyRole`/`SecondsToLive` (`json.Unmarshal`'d), all three passed to
+`h.Backend.CreateWorkspaceAPIKey`; `WorkspaceId` comes from the URL path
+segment. Confirmed genuine -- not a bug.
+
+Verdict: zero real bugs, safe direction only.

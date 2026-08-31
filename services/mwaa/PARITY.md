@@ -418,3 +418,22 @@ counts, and checked write-only state both directions:
 Verdict: no bugs found this pass. This is the second independent
 confirmation (after 2026-08-20's sweep) that this service's wire shape is
 correct in both directions.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `RestApi`/`RestAPI` acronym
+casing gives it 1 op/handler pair needing the ambiguous fold, a genuine
+collision between an exported backend method and the real unexported
+handler: `InvokeRestApi`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. `cmd/reqfielddiff` was not: old
+runs found 11 or 15 findings vs 11 at HEAD, with 4 fields flickering, all
+only in old (misresolved) runs, never at HEAD: `InvokeRestApi.{Body, Method,
+Path, QueryParameters}`. Read the source (handler_rest_api.go:14-26):
+`invokeRestAPIRequest` is `json.Unmarshal`'d (a recognized decode verb) and
+forwarded whole to `h.Backend.InvokeRestAPI`. Confirmed genuine -- not a bug.
+
+Verdict: zero real bugs, safe direction only.

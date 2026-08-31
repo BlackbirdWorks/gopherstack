@@ -85,3 +85,21 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; RWMutex-gu
 - `MemberId` is a union with exactly one variant (`UserId`); `GroupMembershipExistenceResult`'s wire field names (`GroupId`, `MemberId`, `MembershipExists`) match the real `types.GroupMembershipExistenceResult` exactly.
 
 - **gopherstack-6flj constrained-parameter sweep (2026-08-29): confirmed already correct, no code changes.** Re-measured all 4 real collection ops (`ListGroupMemberships`, `ListGroupMembershipsForMember`, `ListGroups`, `ListUsers`) against their own Input structs in `identitystore@v1.39.4`. Every constraining parameter was already correctly plumbed and this pass found nothing new to fix: `Filters` on `ListUsers`/`ListGroups` (exact-match, unrecognized-path-matches-nothing already fixed in the 2026-07-25 pass above), `MemberId` on `ListGroupMembershipsForMember` (O(1) `membershipsByMember` index lookup, `group_memberships.go`), and `MaxResults`/`NextToken` on all four (`paginateSlice`, `store.go`, correctly defaults an unset/out-of-range `MaxResults` to `defaultMaxResults=100` — note none of these four ops' own `MaxResults` doc comments state an explicit numeric default the way ecr's/glacier's do, so 100 is an invented-but-reasonable choice, not a documented-default violation). `ListUsers`' `Extensions` field remains a deliberately deferred gap (already disclosed above) — it selects additional attributes to include per user, not a filter/sort/page-limit constraint, so it is out of this sweep's class regardless. No test changes needed.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Id`/`ID` acronym casing
+gives it 3 op/handler pairs needing the ambiguous fold, 3 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `GetGroupId`, `GetGroupMembershipId`, `GetUserId`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (19 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.
