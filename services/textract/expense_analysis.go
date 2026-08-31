@@ -177,7 +177,7 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 	}()
 
 	if result == nil {
-		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
+		return nil, fmt.Errorf("%w: expense job %s", errJobEvictedBeforeReadback, jobID)
 	}
 
 	return result, nil

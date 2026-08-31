@@ -814,6 +814,17 @@ func (h *Handler) schemasRESTSearchSchemas(c *echo.Context, m schemasPathMatch) 
 	for _, s := range schemas {
 		versions, _, verr := h.Backend.ListSchemaVersions(ctx, m.registryName, s.SchemaName, "", 0)
 		if verr != nil {
+			// ListSchemaVersions legitimately declares NotFoundException, but
+			// SearchSchemas' own deserializeOpError switch does not -- and
+			// the only way this per-item lookup can fail here is a schema
+			// deleted between SearchSchemas' own listing and this call
+			// (both take/release the lock separately). Skip the vanished
+			// entry rather than fail the whole search with a code
+			// SearchSchemas can't declare (gopherstack-uox6 sweep).
+			if errors.Is(verr, ErrNotFound) {
+				continue
+			}
+
 			return h.writeSchemasRESTError(c, verr)
 		}
 

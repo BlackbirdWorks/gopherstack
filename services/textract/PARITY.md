@@ -309,3 +309,54 @@ pre-fix and pass post-fix.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/textract/...`).
+
+## 2026-08-31: error-envelope sweep (gopherstack-uox6, errtargetaudit)
+
+`errtargetaudit -dir textract` reported 4 class-A findings, all
+`code=InvalidJobIdException mechanism=sentinel reference`, ops
+`[StartDocumentAnalysis StartDocumentTextDetection StartExpenseAnalysis
+StartLendingAnalysis]`. This service's error matching is
+`awsAwsjson11_deserializeOpError<Op>` (per-op switch in
+`deserializers.go`). Verified each Start op's own switch
+(textract@v1.43.4): all four declare exactly `[AccessDeniedException,
+BadDocumentException, DocumentTooLargeException,
+IdempotentParameterMismatchException, InternalServerError,
+InvalidKMSKeyException, InvalidParameterException,
+InvalidS3ObjectException* (StartDocumentAnalysis only), LimitExceededException,
+ProvisionedThroughputExceededException, ThrottlingException,
+UnsupportedDocumentException]` — no `InvalidJobIdException`; only the
+Get* ops declare that. All 4 real, 0 false positives.
+
+**Root cause (1 shape, all 4 ops)**: each `StartXWithOptions` backend
+method (`document_analysis.go`, `document_detection.go`,
+`expense_analysis.go`, `lending_analysis.go`) has a post-write readback
+guard — `if result == nil { return ..., ErrJobNotFound }` — for the case
+where the job just stored under `b.mu.Lock` is gone by the time a second,
+independent `b.mu.RLock` reads it back (`trimJobsIfNeeded` evicting it,
+e.g. `maxJobs==0`). This is a server-side invariant violation (a race, not
+a client-supplied bad job ID), traced to gopherstack-0ho6's original nil-
+deref fix, which picked `ErrJobNotFound` as "the reasonable existing
+sentinel" without checking it against these ops' own declared set. Fixed
+by introducing `errJobEvictedBeforeReadback` (`errors.go`), which
+deliberately matches none of `handleError`'s `errors.Is` cases and so
+falls through to the pre-existing `default: InternalServerError` branch —
+already correct and declared by all four ops — rather than inventing a new
+mapping.
+
+4 existing table tests
+(`TestInMemoryBackend_Start{DocumentAnalysis,DocumentTextDetection,
+Expense Analysis,LendingAnalysis}WithOptions_TrimmedBeforeReadback`) had a
+`zero_cap` case asserting `require.ErrorIs(t, err, awserr.ErrNotFound)`;
+corrected to `require.Error` + `require.NotErrorIs(t, err,
+awserr.ErrNotFound)` (2 assertions instead of 1 — the original single
+`ErrorIs` call implicitly also required `err != nil`, which a bare
+`NotErrorIs` would not have caught on its own). New
+`TestStartOps_TrimmedBeforeReadback_RealClient`
+(`errtargetaudit_start_ops_test.go`, 4 subtests) drives the real
+`aws-sdk-go-v2/service/textract` client with `NewInMemoryBackendWithCap(0)`
+and asserts `errors.As` unwraps to `*types.InternalServerError`, not
+`*types.InvalidJobIdException`; confirmed all 4 fail against unmodified
+code.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/textract/...`).

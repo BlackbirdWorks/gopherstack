@@ -68,8 +68,13 @@ func (b *InMemoryBackend) CreateSchema(
 	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
+	// CreateSchema's own deserializeOpError switch (schemas deserializers.go)
+	// declares neither NotFoundException nor ConflictException -- only
+	// BadRequestException/ForbiddenException/InternalServerErrorException/
+	// ServiceUnavailableException -- unlike most sibling ops, so both checks
+	// below use ErrInvalidParameter (gopherstack-uox6 sweep).
 	if !b.registriesTable().Has(input.RegistryName) {
-		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+		return nil, fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, input.RegistryName)
 	}
 
 	schemaTable := b.schemasTableFor(input.RegistryName)
@@ -77,7 +82,7 @@ func (b *InMemoryBackend) CreateSchema(
 	if schemaTable.Has(input.SchemaName) {
 		return nil, fmt.Errorf(
 			"%w: schema %s already exists in registry %s",
-			ErrAlreadyExists,
+			ErrInvalidParameter,
 			input.SchemaName,
 			input.RegistryName,
 		)
@@ -225,8 +230,10 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // ex
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
+	// ListSchemas' own deserializeOpError switch declares no
+	// NotFoundException (unlike most sibling ops) -- gopherstack-uox6 sweep.
 	if !b.registriesTable().Has(registryName) {
-		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, registryName)
 	}
 
 	schemaTable := b.schemas[registryName]
@@ -259,8 +266,10 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // 
 	b.mu.RLock("SearchSchemas")
 	defer b.mu.RUnlock()
 
+	// SearchSchemas' own deserializeOpError switch declares no
+	// NotFoundException either -- gopherstack-uox6 sweep.
 	if !b.registriesTable().Has(registryName) {
-		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, registryName)
 	}
 
 	all := make([]Schema, 0)

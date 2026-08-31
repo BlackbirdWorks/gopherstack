@@ -50,7 +50,11 @@ func TestInMemoryBackend_StartLendingAnalysisWithOptions_TrimmedBeforeReadback(t
 			)
 
 			if tt.wantErr {
-				require.ErrorIs(t, err, awserr.ErrNotFound)
+				// gopherstack-uox6: a job evicted mid-write is a server
+				// invariant violation, not a client-supplied bad job ID --
+				// must not be ErrNotFound.
+				require.Error(t, err)
+				require.NotErrorIs(t, err, awserr.ErrNotFound)
 				assert.Nil(t, job)
 
 				return

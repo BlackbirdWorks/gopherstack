@@ -71,8 +71,11 @@ func TestSchema_DuplicateCreateFails(t *testing.T) {
 	_, err = b.CreateSchema(context.Background(), input)
 	require.NoError(t, err)
 
+	// CreateSchema's own deserializeOpError switch declares no
+	// ConflictException (gopherstack-uox6 sweep): ErrInvalidParameter ->
+	// BadRequestException, not ErrAlreadyExists -> ConflictException.
 	_, err = b.CreateSchema(context.Background(), input)
-	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
 func TestSchema_RegistryDeleteCascadeSchemas(t *testing.T) {

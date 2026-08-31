@@ -355,3 +355,45 @@ confirming this service's error envelope was already wire-correct.
 
 Gates (this pass, `services/pinpoint/` only): `go build`, `go vet`,
 `go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-08-31: error-envelope sweep (gopherstack-uox6, errtargetaudit)
+
+`errtargetaudit -dir pinpoint` reported 5 class-A findings, all
+`code=ConflictException mechanism=sentinel reference`, ops
+`[CreateEmailTemplate CreateInAppTemplate CreatePushTemplate
+CreateSmsTemplate CreateVoiceTemplate]`. This service's error matching is
+`awsRestjson1_deserializeOpError<Op>` (per-op switch in
+`deserializers.go`). Verified each op's own switch
+(pinpoint@v1.42.4): all five declare exactly `[BadRequestException,
+ForbiddenException, InternalServerErrorException,
+MethodNotAllowedException, TooManyRequestsException]` — no
+`ConflictException` at all. `UpdateJourney` is the package's only op that
+legitimately declares `ConflictException`. All 5 real, 0 false positives.
+
+**Root cause (1 shared call site, all 5 ops)**: `handleCreateTemplate`
+(`handler_templates.go`) has a single `errors.Is(creationErr,
+ErrAlreadyExists)` case shared by all five `CreateXTemplate` REST paths,
+writing `409 ConflictException`. `ErrAlreadyExists` has exactly 5 emission
+sites (`templates.go`, one per Create op) and this is its only consumer
+in the package, so this is not really a "sentinel correct for most
+callers" case — 0 legitimate callers exist for the code this site was
+emitting. Fixed by changing the one shared case to `400
+BadRequestException` (the closest declared client-error type, same
+resolution as this campaign's other "no NotFound/Conflict type declared"
+findings). `ErrAlreadyExists` itself is untouched.
+
+5 existing tests asserted only the HTTP status
+(`TestDuplicateEmailTemplate`, `TestDuplicateInAppTemplate`,
+`TestVoiceTemplate_DuplicateRejected`, `TestDuplicatePushTemplate`,
+`TestDuplicateSmsTemplate` — `templates_email_test.go`,
+`templates_test.go`, `templates_push_test.go`), each a single
+`assert.Equal(t, http.StatusConflict, rec2.Code)`; corrected in place to
+`http.StatusBadRequest`, assertion count unchanged (1 each). New
+`TestCreateTemplate_DuplicateName_RealClient`
+(`errtargetaudit_duplicate_template_test.go`, 5 subtests) drives the real
+`aws-sdk-go-v2/service/pinpoint` client and asserts `errors.As` unwraps to
+`*types.BadRequestException`, not `*types.ConflictException`; confirmed
+all 5 fail against unmodified code (`api error ConflictException`).
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/pinpoint/...`).

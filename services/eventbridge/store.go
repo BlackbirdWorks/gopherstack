@@ -49,7 +49,14 @@ var (
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
-	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
+	// ErrReplayNotCancellable is returned when CancelReplay targets a replay
+	// that has already reached a terminal state. CancelReplay's own
+	// deserializeOpError switch declares IllegalStatusException, not
+	// InvalidStateException (which IS correct for
+	// ActivateEventSource/CreateEventBus/DeactivateEventSource, ErrInvalidState's
+	// legitimate callers) -- verified against eventbridge deserializers.go.
+	ErrReplayNotCancellable  = errors.New("IllegalStatusException")
+	ErrResourceLimitExceeded = errors.New("ResourceLimitExceededException")
 	// ErrForbiddenOperation is returned when an operation is forbidden (e.g., modifying built-in registries).
 	ErrForbiddenOperation = errors.New("ForbiddenException")
 	// ErrManagedRule is returned when an operation attempts to modify a rule

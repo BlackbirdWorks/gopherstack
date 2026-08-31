@@ -25,7 +25,7 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 	if replay.State != "RUNNING" && replay.State != replayStateStarting {
 		return nil, fmt.Errorf(
 			"%w: replay %s is not in a cancellable state (current: %s)",
-			ErrInvalidState,
+			ErrReplayNotCancellable,
 			replayName,
 			replay.State,
 		)

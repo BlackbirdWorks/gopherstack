@@ -815,3 +815,95 @@ Gates: `go build ./services/eventbridge/...`, `go vet ./services/eventbridge/...
 `go test -race -count=1 ./services/eventbridge/...` (pass), `golangci-lint run
 ./services/eventbridge/...` (0 issues). No backend/exported signature changed, so no
 repo-wide `go vet` was required.
+
+## 2026-08-31: error-envelope sweep (gopherstack-uox6, errtargetaudit)
+
+`errtargetaudit -dir eventbridge` reported 24 class-A findings (16
+`ConflictException`, 6 `NotFoundException`, 2 `InvalidStateException`, the
+last a duplicate attribution of one bug). Two SDK modules host operations in
+this package: core EventBridge (`eventbridge@v1.48.4`,
+`awsAwsjson11_deserializeOpError<Op>` per-op switches in `deserializers.go`)
+and Schemas (`schemas@v1.37.4`, `awsRestjson1_deserializeOpError<Op>`). All
+24 findings route through one of two shared mappers: `writeSchemasRESTError`
+(`handler_schemas_rest.go`, reached only by the 17 REST handlers in
+`schemasRESTOps()` — verified this map's reachability is not shared with
+core EventBridge's own JSON-RPC dispatch) and `handleError`
+(`handler_dispatch.go`, shared across every core op). Every one of the 17
+Schemas REST handlers was read individually to confirm each is a single
+`h.Backend.<Op>` call with no secondary fan-out — except `SearchSchemas`,
+which does fan out (see below).
+
+**6 real bugs, all fixed:**
+
+- `CreateSchema` (`schemas.go`): its own switch declares
+  `[BadRequestException, ForbiddenException, InternalServerErrorException,
+  ServiceUnavailableException]` — neither `ConflictException` nor
+  `NotFoundException`. The registry-not-found check and the duplicate-name
+  check both used `ErrNotFound`/`ErrAlreadyExists`; both now use
+  `ErrInvalidParameter` (-> `BadRequestException`, the only declared
+  client-error code), matching this campaign's now-familiar "closest
+  declared type" resolution.
+- `ListSchemas`/`SearchSchemas` (`schemas.go`): same declared set (no
+  `NotFoundException`); their registry-not-found checks were also
+  `ErrNotFound` and are now `ErrInvalidParameter`.
+- `SearchSchemas`'s handler (`handler_schemas_rest.go`,
+  `schemasRESTSearchSchemas`) has a second, independent bug: after listing
+  schemas via `Backend.SearchSchemas` (its own RLock, released), it calls
+  `Backend.ListSchemaVersions` per schema name (a second, independent
+  RLock) to build each summary's version list. `ListSchemaVersions`
+  legitimately declares `NotFoundException` — but if a schema is deleted in
+  the window between the two calls, that `NotFoundException` reaches the
+  wire under `SearchSchemas`, which doesn't declare it. Fixed by skipping a
+  vanished entry (`errors.Is(verr, ErrNotFound) { continue }`) instead of
+  failing the whole search. Proven with a genuine concurrency test
+  (`errtargetaudit_search_schemas_race_test.go`): 8 goroutines hammer
+  `SearchSchemas` while one goroutine repeatedly deletes/recreates one
+  schema for 500ms; reliably reproduces the undeclared `NotFoundException`
+  pre-fix (a bare `*smithy.GenericAPIError` — `SearchSchemas`'s own switch
+  has no case for the code, so a real client can't even decode it into the
+  typed exception; asserting `errors.As` into the typed exception would
+  have passed trivially on both pre- and post-fix code) and never recurs
+  post-fix.
+- `CancelReplay` (`replays.go`): its own switch declares
+  `[ConcurrentModificationException, IllegalStatusException,
+  InternalException, ResourceNotFoundException]` — `InvalidStateException`
+  is real and correctly spelled (declared by
+  `ActivateEventSource`/`CreateEventBus`/`DeactivateEventSource`, the
+  shared `ErrInvalidState` sentinel's only other legitimate use — currently
+  0 other call sites in this package actually emit it, so nothing else was
+  affected), but `CancelReplay` needs the differently-named sibling code
+  for the same "wrong state" condition. Added `ErrReplayNotCancellable`
+  (-> `IllegalStatusException`, reusing the wire code
+  `ErrCannotDeleteDefaultBus` already emits for an unrelated condition) and
+  switched the not-cancellable-state check to it, leaving `ErrInvalidState`
+  itself untouched for its legitimate future callers.
+
+**18 false positives, all the unreachable-branch shape** (this repo's now
+third-documented instance): 15 of the 16 `ConflictException` findings
+(every flagged op except `CreateSchema`) and 3 of the 6 `NotFoundException`
+findings (`CreateRegistry`, `GetDiscoveredSchema`, `ListRegistries`). All 17
+Schemas REST handlers funnel through the one `writeSchemasRESTError`
+mapper, whose switch genuinely contains both cases — but `ErrAlreadyExists`
+has exactly 2 emission sites in the whole package (`registries.go:45`,
+`CreateRegistry`; `schemas.go`, `CreateSchema`) and `ErrNotFound` is never
+emitted by `CreateRegistry`, `GetDiscoveredSchema`, or `ListRegistries`'s
+own backend methods (confirmed by reading every flagged op's backend
+method body, not just grepping the sentinel).
+
+**A new, related blind-spot shape surfaced post-fix**: re-running the
+audit after the `SearchSchemas` fix still reports 1 finding at the exact
+same `schemas.go:382`/`386` lines (`ListSchemaVersions`'s own, legitimate
+`ErrNotFound` emissions) attributed to `op=SearchSchemas`, because
+`ListSchemaVersions` is still reachable from `SearchSchemas`'s handler and
+its switch case still exists structurally in `writeSchemasRESTError`. The
+tool cannot see that the new `continue` guard *consumes* the error before
+it reaches that mapper at all. Verified false via the race test above
+(zero occurrences across the stress run, post-fix). This is a sibling of
+the documented unreachable-branch shape, not the same one: there the
+backend method can never produce the sentinel; here it legitimately can,
+but the specific caller's own handling now intercepts it first.
+
+Gates: `go build`, `go vet` (repo-wide, clean — no exported signature
+changed except adding `ErrReplayNotCancellable`, whose only new caller is
+`replays.go`), `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/eventbridge/...`).
