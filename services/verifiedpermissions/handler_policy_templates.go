@@ -131,7 +131,12 @@ func (h *Handler) handleListPolicyTemplates(
 		return nil, err
 	}
 
-	templates, nextToken, err := h.Backend.ListPolicyTemplates(resolvedID, in.NextToken, in.MaxResults)
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultListPageSize
+	}
+
+	templates, nextToken, err := h.Backend.ListPolicyTemplates(resolvedID, in.NextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}

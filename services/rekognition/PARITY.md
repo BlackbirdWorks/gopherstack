@@ -47,7 +47,7 @@ ops:
   CopyProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now stores SourceProjectVersionArn on the destination version (echoed by DescribeProjectVersions)"}
   StartProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now accepts and stores the optional MaxInferenceUnits (StartProjectVersionInput member; was parsed nowhere, so MinInferenceUnits was the only value ever recorded)"}
   StopProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListProjectPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
+  ListProjectPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1. FIXED 2026-08-31 (gopherstack-uox6): MaxResults omission default was 100 (this service's general default/cap), but this op's own doc comment states 'The largest value you can specify is 5 ... The default value is 5' — the only List/Describe op in this service with a 5-item default instead of 100. See Notes #7."}
   PutProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now rejects a duplicate (ProjectArn,DatasetType) pair with ResourceAlreadyExistsException (via an explicit b.datasets.Range scan, since datasetARN is still always uuid-suffixed so the table key itself never collides) — see Notes #5"}
@@ -63,7 +63,7 @@ ops:
   GetMediaAnalysisJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
   ListMediaAnalysisJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
 families:
-  detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against"
+  detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against. FIXED 2026-08-31 (gopherstack-uox6): DetectLabels' omitted-MinConfidence default was 50.0 but the op's own doc comment states 'The default is 55%.' — had zero observable effect against the current 7-entry synthetic label set (lowest confidence 55.4, above both values) but is now correct at the source (resolveMinConfidence, handler_labels.go) for any future addition to that set. See Notes #7."
   async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred"}
 routing: {status: ok, note: "single X-Amz-Target: RekognitionService.<Op> POST endpoint (awsjson1.1), verified every op in the dispatch map (buildOps + appendixAOps) against a real op name in aws-sdk-go-v2/service/rekognition; no name mismatches found"}
 gaps:
@@ -409,3 +409,43 @@ clean), `go vet ./services/rekognition/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/rekognition/...` (pass),
 `golangci-lint run ./services/rekognition/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+7. **2026-08-31 (gopherstack-uox6, value-semantics sweep): two wrong-default
+   bugs, both a right-shaped value at the wrong number.** Swept the pinned
+   SDK (`aws-sdk-go-v2/service/rekognition@v1.54.4`) for omission-default
+   language ("If you do not specify ... the operation defaults to").
+   - `DetectLabels.MinConfidence`: doc "The default is 55%." Code
+     (`handler_labels.go`) applied 50.0 when omitted. Extracted into
+     `resolveMinConfidence` and exposed via `export_test.go` for a direct
+     regression test (`TestDetectLabels_MinConfidenceDefault`, confirmed
+     failing at 50 against unmodified code); no request-behavior test could
+     observe the difference because every synthetic label in
+     `plausibleLabels`'s 7-entry set sits at or above 55.4, so both the wrong
+     and correct default returned every label — fixed anyway since the value
+     is objectively wrong per the doc, and now correct for any future label
+     added in the 50–55 range.
+   - `ListProjectPolicies.MaxResults`: doc "The largest value you can specify
+     is 5 ... The default value is 5" — the only List/Describe op in this
+     service with a default other than 100 (verified `ListDatasetLabels`,
+     `ListMediaAnalysisJobs`, `DescribeProjects`, `DescribeProjectVersions`,
+     `ListDatasetEntries` all correctly use 100, matching their own doc
+     comments). `projects.go`'s `ListProjectPolicies` used `maxPerPage = 100`
+     for both the default and the cap — a 20x-too-wide page. Fixed to 5.
+     Regression test `TestListProjectPolicies_DefaultPageSize`
+     (`omission_defaults_test.go`) creates 6 policies and asserts a 5-item
+     page with a non-empty `NextToken`; failed against unmodified code with a
+     6-item page and empty token.
+
+   **Checked and confirmed correct, not fixed:** `ListDatasetEntries`'
+   `ContainsLabels` (OR-across-values, matching "the response includes an
+   entry only if one or more of the labels ... exist" — `matchesDatasetEntryFilter`,
+   `datasets.go`), its `HasErrors`/`Labeled`/`SourceRefContains` filters, and
+   its `MaxResults` default (100, matching doc).
+
+   **Recorded as the other axis (never read), not fixed here:**
+   `QualityFilter` on `IndexFaces`/`CompareFaces`/`SearchFacesByImage` is
+   declared on no request struct in this backend at all — not a wrong
+   algorithm, a field with no code path at all.
+
+   No web pages fetched this pass; everything resolved from the pinned
+   module cache.

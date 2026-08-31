@@ -532,3 +532,51 @@ round-trips. `BatchGetPolicy` already reports real per-item `POLICY_NOT_FOUND`/
 attribute absent from the request) surfaces from the real `cedar-go` engine itself,
 not a gopherstack-side computation that could be silently dropped. All five ops
 clean; no bugs found in this class.
+
+**2026-08-31 (gopherstack-uox6, value-semantics sweep):** targeted omission-default
+language in the pinned SDK (`aws-sdk-go-v2/service/verifiedpermissions@v1.36.4`) --
+value read, applied, but wrong because it ignores what the doc says an *absent*
+optional parameter means. Two real bugs, both fixed with regression tests proven to
+fail against the unmodified code first:
+
+- **Page-size defaults, five List ops.** `ListPolicyStores`/`ListPolicies`/
+  `ListPolicyTemplates`/`ListIdentitySources` document `MaxResults`: "If you do not
+  specify this parameter, the operation defaults to 10 ... per response." (max 50).
+  `ListPolicyStoreAliases` documents 5 (max 50). The shared `paginate`/
+  `listByPolicyStore` helpers (`store.go`) treat `maxResults <= 0` as *no cap at all*
+  -- an omitted `MaxResults` returned every item unbounded with no `nextToken`,
+  instead of the documented 10/5-item page. Fixed at each handler's call site
+  (`handler_policy_stores.go`, `handler_policies.go`, `handler_policy_templates.go`,
+  `handler_identity_sources.go`, `handler_policy_store_aliases.go`): a zero/absent
+  `MaxResults` now resolves to `defaultListPageSize` (10) or `defaultAliasListPageSize`
+  (5), both defined in `store.go`, before reaching the backend. Regression tests:
+  `omission_defaults_test.go`, one per operation, creating 11 (6 for aliases) items
+  and asserting the page caps at 10 (5) with a non-empty `nextToken`; all five failed
+  against the unmodified code with an 11/6-item page and empty token.
+- **CognitoGroupConfiguration.GroupEntityType default.** Doc: "Defaults to
+  AWS::CognitoGroup." (`types.CognitoGroupConfiguration`/`...Detail`/`...Item`, and
+  `UpdateCognitoGroupConfiguration`). `configJSONToBackend` (`handler_identity_sources.go`)
+  copied the wire value verbatim when `groupConfiguration` was present but its
+  `groupEntityType` key was omitted, storing/echoing `""` instead of
+  `"AWS::CognitoGroup"` on `CreateIdentitySource`/`UpdateIdentitySource`/
+  `GetIdentitySource`/`ListIdentitySources`. Fixed by defaulting to
+  `"AWS::CognitoGroup"` when `GroupEntityType == ""` inside a present
+  `groupConfiguration` object (the pointer on the wire-decode struct still
+  distinguishes "no groupConfiguration at all" from "groupConfiguration present,
+  entityType omitted"). Note: this value is round-tripped only -- no code path in
+  this backend resolves Cognito group membership into Cedar parent entities during
+  `IsAuthorized*`, so the bug had zero effect on authorization decisions, only on the
+  wire shape a real client reads back via Get/List. Regression test:
+  `TestVPHandler_CreateIdentitySource_CognitoGroupEntityTypeDefault`, failed against
+  unmodified code (`nil`/absent instead of `"AWS::CognitoGroup"`).
+
+**Checked and confirmed correct, not fixed:** `ListPolicies`' filter combining rule
+(AND across `policyType`/`policyTemplateId`/principal/resource fields, matching
+their individual "Filters the output to only..." doc wording; `EntityReference`'s
+`unspecified` variant correctly excludes any policy with a non-empty principal or
+resource).
+
+**Gates:** `go build ./services/verifiedpermissions/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/verifiedpermissions/...` (all pass),
+`golangci-lint run ./services/verifiedpermissions/...` (0 issues). No other service's
+files touched.

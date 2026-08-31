@@ -31,11 +31,7 @@ type detectLabelsResp struct {
 }
 
 func (h *Handler) handleDetectLabels(_ context.Context, req *detectLabelsReq) (*detectLabelsResp, error) {
-	minConf := req.MinConfidence
-	if minConf <= 0 {
-		minConf = 50.0
-	}
-	labels := plausibleLabels(minConf, req.MaxLabels)
+	labels := plausibleLabels(resolveMinConfidence(req.MinConfidence), req.MaxLabels)
 
 	return &detectLabelsResp{
 		Labels:                labels,
@@ -52,7 +48,21 @@ const (
 	confSky        = 68.9
 	confVegetation = 62.1
 	confAnimal     = 55.4
+
+	// defaultMinConfidence is DetectLabelsInput.MinConfidence's documented
+	// default: "you can specify MinConfidence to control the confidence
+	// threshold for the labels returned. The default is 55%.".
+	defaultMinConfidence = 55.0
 )
+
+// resolveMinConfidence returns the MinConfidence to apply when the client omitted it (zero value).
+func resolveMinConfidence(v float64) float64 {
+	if v <= 0 {
+		return defaultMinConfidence
+	}
+
+	return v
+}
 
 // plausibleLabels returns a set of generic scene labels above the confidence threshold.
 func plausibleLabels(minConfidence float64, maxLabels int32) []labelEntry {

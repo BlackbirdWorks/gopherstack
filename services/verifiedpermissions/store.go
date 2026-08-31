@@ -17,6 +17,16 @@ import (
 // timeFormat is the ISO 8601 timestamp format used by Verified Permissions API responses.
 const timeFormat = "2006-01-02T15:04:05.000Z"
 
+// Real SDK MaxResults doc comments: "If you do not specify this parameter,
+// the operation defaults to N ... per response" -- N is 10 for policy
+// stores/policies/policy templates/identity sources, 5 for policy store
+// aliases. defaultListPageSize applies to every List op except
+// ListPolicyStoreAliases.
+const (
+	defaultListPageSize      = 10
+	defaultAliasListPageSize = 5
+)
+
 // arnNoRegion builds an ARN with empty region (verifiedpermissions uses global ARNs).
 func arnNoRegion(accountID, resourceType, resourceID string) string {
 	return arn.Build("verifiedpermissions", "", accountID, fmt.Sprintf("%s/%s", resourceType, resourceID))

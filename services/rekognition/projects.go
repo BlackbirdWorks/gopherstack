@@ -174,7 +174,10 @@ func (b *InMemoryBackend) ListProjectPolicies(
 		}
 	}
 
-	const maxPerPage = 100
+	// ListProjectPoliciesInput.MaxResults doc: "The largest value you can
+	// specify is 5 ... The default value is 5" -- unlike every other
+	// List/Describe op in this service, which default/cap at 100.
+	const maxPerPage = 5
 	limit := int32(maxPerPage)
 	if maxResults > 0 && maxResults < limit {
 		limit = maxResults
