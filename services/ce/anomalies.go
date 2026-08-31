@@ -443,12 +443,14 @@ func (b *InMemoryBackend) GetAnomalies(
 			continue
 		}
 
-		// Filter by date interval: anomaly must overlap [startDate, endDate].
+		// Filter by AnomalyEndDate alone, per GetAnomaliesInput.DateInterval's doc
+		// comment: "The returned anomaly object will have an AnomalyEndDate in the
+		// specified time range." AnomalyStartDate plays no part in the match.
 		if startDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate < startDate {
 			continue
 		}
 
-		if endDate != "" && a.AnomalyStartDate != "" && a.AnomalyStartDate > endDate {
+		if endDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate > endDate {
 			continue
 		}
 

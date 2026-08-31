@@ -683,3 +683,53 @@ No other findings in this slice. Gates: `go build ./services/guardduty/...`,
 `go vet ./services/guardduty/...`, `go test -race -count=1
 ./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0
 issues).
+
+### 2026-08-30 value-semantics pass (gopherstack-uox6, bug class: field read/applied but wrong)
+
+Scope: filter/condition *matching semantics*, not wire shape (already swept and
+disclosed elsewhere in this file) -- part of a 3-service pass (guardduty,
+resourcegroups, ce). Audited `finding_criteria.go`'s `Condition` matcher (used by
+`ListFindings`/`GetFindingsStatistics`) and `malware_scan_filter.go`'s
+`FilterCondition`/`FilterCriterion` matcher (used by `DescribeMalwareScans`/
+`ListMalwareScans`), both against `aws-sdk-go-v2/service/guardduty@v1.85.4/types`.
+
+**Confirmed correct, no bug found:**
+- `Condition`'s eight numeric fields (`GreaterThan`/`GreaterThanOrEqual`/`LessThan`/
+  `LessThanOrEqual` and their deprecated `Gt`/`Gte`/`Lt`/`Lte` aliases) each honour their
+  own inclusive/exclusive wording exactly (`GreaterThan` strict, `GreaterThanOrEqual`
+  inclusive, etc. -- checked field by field against `types.go:548`); all eight AND
+  together within one condition, matching the type's "one or more filter condition
+  properties" model.
+- `Equals`/`Eq` OR within their own value list; `NotEquals`/`Neq` AND (must not equal
+  any); `Matches`/`NotMatches` wildcard (`*`) OR/AND respectively -- the `*` wildcard
+  itself is the one confirmed via AWS's suppression-rules user guide ("you can ... use
+  wildcard patterns for Matches or NotMatches conditions"); no second wildcard character
+  (`?`) is documented anywhere fetched this pass, so none was added -- restraint, not an
+  oversight.
+- `malware_scan_filter.go`'s `FilterCondition` has only `GreaterThan`/`LessThan` (no
+  `OrEqual` variants) per `types.FilterCondition` (`types.go:1617`), and the code
+  implements both strict, matching the type shape exactly. All 7 real `CriterionKey`/
+  `ListMalwareScansCriterionKey` enum values are switched on explicitly.
+- No time-window/boundary filter exists in `usage.go` or `coverage_statistics.go` --
+  `GetUsageStatistics` fabricates no real accounting, `ListCoverage` never tracks real
+  coverage resources (both already disclosed structural gaps, unrelated to this pass).
+
+**Gap recorded, not fixed** (validation-shaped, not value-semantics -- out of this
+pass's scope, closer to the separate required-field/validation sweep,
+`gopherstack-43o8`-style): `types.Condition`'s doc comment states "The matches condition
+is available only for create-filter and update-filter APIs" -- i.e. real GuardDuty
+should reject a `Matches`/`NotMatches` criterion supplied directly to
+`ListFindings`/`GetFindingsStatistics`'s `FindingCriteria`. `matchesFindingCriteria` is
+shared across both call sites and evaluates `Matches`/`NotMatches` unconditionally
+regardless of caller. Not fixed this pass: it is a missing-validation gap (an
+undocumented-for-this-API criterion is silently accepted rather than rejected), not an
+already-accepted parameter being matched with the wrong algorithm -- the class this
+pass targets. Left open with this wording rather than guessed at.
+
+Two AWS pages fetched this pass (`API_CreateFilter.html`, the suppression-rules user
+guide) -- both carried the "aws agent-toolkit search-skills" footer described in
+`gopherstack-uox6`; treated as inert content, not followed.
+
+No bugs found in this slice; `finding_criteria.go`/`malware_scan_filter.go` unchanged.
+Gates unaffected (no code touched): `go build`, `go vet`, `go test -race -count=1`,
+`golangci-lint run`, all `./services/guardduty/...`, all clean.

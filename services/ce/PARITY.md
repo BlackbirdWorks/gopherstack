@@ -528,3 +528,54 @@ would have silently discarded that order.
   omit a section. Any new code constructing one of these (only
   `savings_plans.go`'s `GetSavingsPlansUtilizationDetails` does today) must
   take the address, not assign a bare struct literal.
+
+### 2026-08-30 value-semantics pass (gopherstack-uox6, bug class: field read/applied but wrong)
+
+Scope: `services/ce` only, as part of a 3-service pass (guardduty, resourcegroups, ce)
+hunting parameters that are read and applied but implement the wrong algorithm --
+invisible to field-shape/enum-value sweeps. `guardduty` and `resourcegroups` came back
+clean (see their own PARITY.md files); two real bugs found and fixed here:
+
+1. **`GetAnomalies`' `DateInterval` filtered on the wrong field for its upper bound.**
+   `GetAnomaliesInput.DateInterval`'s own doc comment (`api_op_GetAnomalies.go`,
+   costexplorer@v1.67.4): "The returned anomaly object will have an `AnomalyEndDate` in
+   the specified time range." The filter is defined purely against `AnomalyEndDate` --
+   `AnomalyStartDate` plays no part. `anomalies.go`'s `GetAnomalies` instead implemented
+   an interval-*overlap* test, excluding only when `AnomalyStartDate > endDate`. Net
+   effect: an anomaly that started inside the requested window but whose
+   `AnomalyEndDate` fell after `endDate` was wrongly included (over-matching) -- e.g. a
+   window of `[2024-05-01, 2024-07-01]` wrongly returned an anomaly spanning
+   `2024-04-01..2024-08-01`. Fixed to compare `AnomalyEndDate` against both bounds only.
+   Upper bound is inclusive (`AnomalyEndDate == EndDate` matches), matching the doc's
+   plain "in the specified time range" (no exclusive-end language, unlike the unrelated
+   `DateInterval` type `GetCostAndUsage` etc. use). See
+   `TestGetAnomalies_DateIntervalMatchesOnAnomalyEndDateOnly`.
+
+2. **`ListCostCategoryDefinitions` treated an omitted `EffectiveOn` as "no filter"
+   instead of "today".** `ListCostCategoryDefinitionsInput.EffectiveOn`'s doc comment:
+   "If there is no `EffectiveOn` specified, you'll see cost categories that are
+   effective on the current date." `cost_categories.go`'s `ListCostCategoryDefinitions`
+   only applied the `EffectiveStart` filter when `effectiveOn != ""`, so an unfiltered
+   call returned every category ever created, including ones not yet effective. Real
+   `CreateCostCategoryDefinitionInput.EffectiveStart` can never be in the future ("Dates
+   can't be ... in the future"), so a real client can't usually trigger this, but this
+   backend does not itself enforce that constraint on `CreateCostCategoryDefinition`
+   (a separate, disclosed gap -- see the required-field/validation sweep, not this
+   pass), so the bug is independently observable through this emulator's own API. Fixed
+   by defaulting `effectiveOn` to `time.Now().UTC()` (RFC3339, matching
+   `EffectiveStart`'s own `YYYY-MM-DDTHH:MM:SSZ` format so the string comparison stays
+   valid) when the caller omits it. See
+   `TestListCostCategoryDefinitions_OmittedEffectiveOnDefaultsToCurrentDate`.
+
+**Also checked and confirmed correct (not touched):** `TotalImpactFilter`'s six
+`NumericOperator` cases (`EQUAL`/`GREATER_THAN`/`GREATER_THAN_OR_EQUAL`/`LESS_THAN`/
+`LESS_THAN_OR_EQUAL`/`BETWEEN`, all inclusive/exclusive per
+`types.NumericOperator`'s own enum, no doc text needed beyond the operator names
+themselves); `costLedgerInBucket`'s `Start`-inclusive/`End`-exclusive bucket boundary
+(matches `types.DateInterval`'s doc comment verbatim, reused consistently by
+`GetCostAndUsage`, forecasts, reservation coverage/utilization, and
+`GetCostAndUsageComparisons`' baseline/comparison periods); `normalizeMetricName`'s
+case-fold across the plural/singular metric-name conventions; `filter.go`'s documented
+single-clause `Dimensions`/`Tags`/`CostCategories` simplification (real
+`And`/`Or`/`Not` composition not modeled -- pre-existing, disclosed, not attempted this
+pass, out of scope for a single-service value-semantics slice).

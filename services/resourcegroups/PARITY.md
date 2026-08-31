@@ -317,3 +317,42 @@ unreachable in this backend and is already tracked as such (see `gaps:` above,
 `bd: gopherstack-rg-cfn-queryerrors`) -- confirmed the reasoning still holds and left
 alone, consistent with this sweep's scope boundary against touching
 `services/cloudformation`.
+
+### 2026-08-30 value-semantics pass (gopherstack-uox6, bug class: field read/applied but wrong)
+
+Scope: filter *matching* semantics (not shape) for `ListGroups.Filters`,
+`ListGroupResources.Filters`, and `ListGroupingStatuses.Filters` -- part of a
+3-service pass (guardduty, resourcegroups, ce). Checked against
+`aws-sdk-go-v2/service/resourcegroups@v1.36.4/types` directly (`GroupFilter`/
+`GroupFilterName`, `ResourceFilter`/`ResourceFilterName`,
+`ListGroupingStatusesFilter`/`ListGroupingStatusesFilterName`).
+
+**Confirmed correct, no bug found:**
+- `groupMatchesFilters` (`groups.go`) exhaustively switches on all 5 real
+  `GroupFilterName` values (`resource-type`, `configuration-type`, `owner`,
+  `display-name`, `criticality`) -- no gap, no default fallthrough needed since every
+  enum member is handled. AND across filter entries, OR within one entry's `Values`,
+  matching the `Name`/`Values` filter contract every one of these three filter types
+  documents identically ("One or more filter values ... Filter names are case-sensitive
+  ... filter values ... are case-sensitive"). String comparisons throughout are plain
+  `==`/`slices.Contains` (case-sensitive), matching that documented case-sensitivity --
+  no `EqualFold` leniency introduced anywhere in these three matchers.
+- `ListGroupResourcesFilter`'s only real `ResourceFilterName` value is `resource-type`
+  (confirmed: `types.ResourceFilterName.Values()` returns exactly one member) --
+  `resources.go`'s `ListGroupResources` only recognizes that one name, correctly
+  matching the enum's full extent.
+- `groupingStatusMatchesFilters` (`resources.go`, added in the prior 2026-08-29
+  sweep noted above) exhaustively switches on both real `ListGroupingStatusesFilterName`
+  values (`status`, `resource-arn`); AND-across-entries/OR-within-values re-verified
+  against the same `GroupFilter`-family doc text.
+- No range/bound/time-window filter exists anywhere in this service's filter surface --
+  every filter here is a plain string-equality allow-list, so the boundary-inclusivity
+  check this pass prioritizes does not apply to `resourcegroups`.
+
+No web pages fetched this pass -- everything resolved from the pinned SDK's Go doc
+comments and `types/enums.go`.
+
+No bugs found; no files changed. The one pre-existing, already-disclosed gap in this
+area (`TAG_FILTERS_1_0`'s `TagFilters` parsed but never applied to narrow membership --
+see `gaps:` above) is a field-never-read gap, not a wrong-algorithm one, so it is
+outside this pass's class and was re-confirmed rather than touched.

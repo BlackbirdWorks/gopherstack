@@ -145,6 +145,34 @@ func TestCostCategoryEffectiveOn_RealClient(t *testing.T) {
 	assert.Equal(t, "EffectiveOnTest", aws.ToString(listAfter.CostCategoryReferences[0].Name))
 }
 
+// TestListCostCategoryDefinitions_OmittedEffectiveOnDefaultsToCurrentDate proves
+// ListCostCategoryDefinitionsInput's own doc comment: "If there is no EffectiveOn
+// specified, you'll see cost categories that are effective on the current date."
+// A category not yet effective must be excluded from an unfiltered (EffectiveOn
+// omitted) listing exactly as it would be from one pinned to today.
+func TestListCostCategoryDefinitions_OmittedEffectiveOnDefaultsToCurrentDate(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	_, err := client.CreateCostCategoryDefinition(
+		t.Context(),
+		&costexplorersdk.CreateCostCategoryDefinitionInput{
+			Name:           aws.String("NotYetEffective"),
+			RuleVersion:    cetypes.CostCategoryRuleVersionCostCategoryExpressionV1,
+			Rules:          []cetypes.CostCategoryRule{{Value: aws.String("x")}},
+			EffectiveStart: aws.String("2099-01-01T00:00:00Z"),
+		},
+	)
+	require.NoError(t, err)
+
+	listOut, err := client.ListCostCategoryDefinitions(t.Context(), &costexplorersdk.ListCostCategoryDefinitionsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, listOut.CostCategoryReferences,
+		"a category effective only in 2099 must be excluded when EffectiveOn is omitted (defaults to today)")
+}
+
 // TestListCostAllocationTagBackfillHistory_Pagination_RealClient proves
 // NextToken/MaxResults pagination over backfill jobs walks every job exactly
 // once, in most-recently-requested-first order, across page boundaries.
