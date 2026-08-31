@@ -27,6 +27,7 @@ func toIDNamespaceAssociationSummary(a *IDNamespaceAssociation) *IDNamespaceAsso
 		MembershipArn:                    a.MembershipArn,
 		MembershipIdentifier:             a.MembershipIdentifier,
 		Name:                             a.Name,
+		Description:                      a.Description,
 		InputReferenceConfig:             a.InputReferenceConfig,
 		InputReferenceProperties:         a.InputReferenceProperties,
 		CreateTime:                       a.CreateTime,
