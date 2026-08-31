@@ -895,3 +895,130 @@ Gates: `go build ./services/ecs/...`, `go build ./...` (repo-wide, clean),
 -race -count=1 ./services/ecs/...` (pass), `golangci-lint run
 ./services/ecs/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+## 2026-08-31 (gopherstack-4glf, never-declared-field sweep, `cmd/reqfielddiff`)
+
+`go run ./cmd/reqfielddiff -dir ecs` reported 15 tier-1 findings ("documented
+default", the axis `reqfieldscan` structurally cannot see: a field never
+declared anywhere in this backend has no struct member for that scanner to
+enumerate). All 15 judged genuinely fixable and fixed -- store the field
+(declaring it for the first time) and, where the SDK names one fixed default
+value, fill it on omission; where the SDK's own doc explicitly says the
+behaviour is contingent (not a fixed value), the field is stored/echoed but
+no default is fabricated.
+
+- **`CreateCluster`/`UpdateCluster.ServiceConnectDefaults`** -- entirely
+  undeclared; a prior pass's comment on `updateClusterInput` explicitly said
+  "not modeled by this backend" (still true for `configuration`, now stale
+  for this field). Added `Cluster.ServiceConnectDefaults`
+  (`*ClusterServiceConnectDefaults{Namespace}`), stored on create, updated
+  only when explicitly supplied on update (mirrors `Settings`'
+  if-non-nil precedent), echoed on Create/Update/DescribeClusters. Config-only
+  -- this backend does not model Service Connect namespace resolution at
+  CreateService time (no `ServiceConnectConfiguration.Namespace` fallback is
+  simulated either), matching the existing config-only precedent already
+  accepted for `Service.LoadBalancers`/`AutoScalingGroupProvider`.
+- **`CreateService`/`UpdateService.AvailabilityZoneRebalancing`** -- own doc
+  comment: create defaults to `ENABLED` when unspecified; update defaults to
+  the existing service's value (a no-op update naturally falls out of
+  "only overwrite when the update input is non-empty", once the field is
+  stored at all). Added `Service.AvailabilityZoneRebalancing`.
+- **`CreateService`/`UpdateService.HealthCheckGracePeriodSeconds`** -- own
+  doc comment: "If you do not specify a health check grace period value, the
+  default value of 0 is used." Added `Service.HealthCheckGracePeriodSeconds
+  *int`; create defaults to a non-nil `0` (not left nil/omitted -- the same
+  vanishing-default shape as the `StartRun.NetworkingMode` omics bug fixed
+  earlier this campaign), update applies only when the pointer is non-nil.
+- **`CreateService`/`UpdateService.Monitoring`** -- own doc comment
+  describes a default CloudWatch resolution, but real AWS echoes this field
+  on `types.ServiceRevision`, not on `types.Service` itself (verified against
+  `ecs@v1.90.0/types/types.go`). Added `Service.Monitoring
+  *MonitoringConfiguration` (new type, mirrors `types.MonitoringConfiguration`/
+  `types.MetricConfiguration`) threaded through to `ServiceRevision.Monitoring`
+  in `buildServiceRevision`. Stored/echoed only -- this backend emits no real
+  CloudWatch metrics, so no resolution behaviour is simulated (config-only,
+  same precedent as above).
+- **`UpdateService.ForceNewDeployment`** -- own doc comment: "you can use
+  this option to start a new deployment with no service definition changes."
+  `UpdateService` previously rotated the PRIMARY deployment (`newActiveDeployment`
+  demoting the prior PRIMARY to ACTIVE) only when `TaskDefinition` itself
+  changed, so `ForceNewDeployment=true` with no other change was silently a
+  no-op. Fixed: the deployment is now rotated whenever `TaskDefinition`
+  changed OR `ForceNewDeployment` is true (reusing the current task
+  definition in the latter case, matching real AWS's "same image/tag"
+  example). This affects a rotation decision the backend already makes,
+  not a new capability.
+- **`RegisterDaemonTaskDefinition.IpcMode`/`.PidMode`** -- own doc comments:
+  "The default is `none`." for both. Added `DaemonTaskDefinition.IpcMode`/
+  `.PidMode`, defaulted to `"none"` on omission, echoed on
+  Register/DescribeDaemonTaskDefinition. Config-only (see `RegisterTaskDefinition`
+  entry below for why real per-container namespace sharing isn't attempted).
+- **`RegisterTaskDefinition.IpcMode`/`.PidMode`** -- own doc comments
+  describe the *un*-set behaviour as contingent ("depends on the Docker
+  daemon setting on the container instance" for IpcMode; no named enum value
+  for PidMode's "private namespace" case), not a single fixed value, so no
+  default is fabricated on omission. Added `TaskDefinition.IpcMode`/`.PidMode`,
+  stored/echoed as given. This service's `docker_runner.go` does run real
+  Docker containers, so actually enforcing shared IPC/PID namespaces across a
+  task's containers (Docker `HostConfig.IpcMode`/`.PidMode`
+  `"container:<id>"` chaining, ordering the first container's creation before
+  the rest) is a real capability this backend could eventually grow into --
+  deliberately not attempted this pass: the multi-container chaining is
+  enough additional surface (creation ordering, partial-failure handling)
+  that a rushed version risked shipping a subtly wrong simulation, which the
+  campaign's own guidance rates worse than the gap. Recorded as a genuine
+  follow-up, not a refusal.
+- **`RegisterTaskDefinition.EnableFaultInjection`** -- own doc comment:
+  default `false`, which is Go's zero value, so no explicit defaulting code
+  is needed. Added `TaskDefinition.EnableFaultInjection bool`, stored/echoed.
+  Config-only -- this is real AWS FIS's inbound fault-injection-from-within-
+  the-task-agent capability, unrelated to this repo's own `pkgs/chaos`/
+  `aws:ecs:stop-task` FIS action already wired in `fis.go`; no such inbound
+  agent endpoint exists here to gate.
+- **`ListAccountSettings.EffectiveSettings`** -- own doc comment: "If true,
+  the account settings for the root user or the default setting for the
+  principalArn are returned." This is the campaign's flagged strong
+  candidate: it changes which records a listing returns, and the backend
+  already has the records (`PutAccountSettingDefault` already stores an
+  account-level default under an empty `PrincipalArn`). Implemented:
+  `effectiveSettings=true` returns `principalArn`'s own explicit setting per
+  name, falling back to the empty-`PrincipalArn` default for any name
+  `principalArn` has no explicit value for; `effectiveSettings=false`
+  (default) is unchanged -- exact-match filtering only, no fallback.
+  `Backend.ListAccountSettings` gained a third `effectiveSettings bool`
+  parameter (interface + one internal test call site updated).
+
+15 of 15 tier-1 findings judged genuinely fixable (0 recorded as
+unmodellable) -- unlike prior sweeps in this campaign, every one of these
+fell into the "reflect back a stored value" or "affects a decision the
+backend already makes" categories the campaign's own guidance calls
+honourable, and none required simulating a capability (real Cloud Map
+namespace resolution, real CloudWatch metric emission, real per-container
+Docker namespace sharing, a real inbound FIS agent endpoint) that this
+backend structurally lacks -- those remain config-only/stored-and-echoed,
+consistent with this service's existing `LoadBalancers`/
+`AutoScalingGroupProvider` precedent, and are disclosed as such above rather
+than silently claimed as enforced.
+
+New tests: `wire_field_additions_ecssweep_test.go`, all driving the real
+`aws-sdk-go-v2/service/ecs` client. Every default-value test (`AvailabilityZoneRebalancing`
+create-default, `HealthCheckGracePeriodSeconds` create-default, daemon
+`IpcMode`/`PidMode` default) omits the field entirely rather than setting it
+explicitly. Confirmed failing pre-fix by temporarily reverting the specific
+defaulting/rotation/fallback logic under test (not by removing the new
+struct fields, since most of these fields did not exist before this pass and
+removing them would fail the whole package to compile rather than
+demonstrate a behavioural gap): `AvailabilityZoneRebalancing` create-default,
+`AvailabilityZoneRebalancing` update-preserves-existing,
+`HealthCheckGracePeriodSeconds` create-default, `ForceNewDeployment`
+rotation, and `EffectiveSettings` fallback all reproduced their expected
+pre-fix failures, then were restored byte-identical (`md5sum`-verified) and
+re-confirmed green. Assertion count: 0 existing assertions changed or
+dropped; all new.
+
+Gates: `go build ./services/ecs/...`, `go vet ./services/ecs/...` (both
+clean), `go test -race -count=1 ./services/ecs/...` (pass), `golangci-lint
+run ./services/ecs/...` (0 issues, after decomposing `CreateService`
+(funlen) into `createServiceDefaults` and `ListAccountSettings` (gocognit)
+into `filterAccountSettings`/`effectiveAccountSettings`). Work left
+uncommitted per this pass's instructions.

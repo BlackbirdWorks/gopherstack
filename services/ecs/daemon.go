@@ -30,6 +30,11 @@ const (
 	daemonDeploymentStatusSuccessful = "SUCCESSFUL"
 )
 
+// daemonNamespaceModeNone is the documented default for both
+// RegisterDaemonTaskDefinitionInput.IpcMode and .PidMode (types.DaemonIpcMode,
+// types.DaemonPidMode), which both state: "The default is none".
+const daemonNamespaceModeNone = "none"
+
 // maxDaemonTaskDefinitionRevisions caps the number of retained revisions per
 // daemon task definition family, mirroring the ordinary task definition cap.
 const maxDaemonTaskDefinitionRevisions = 100
@@ -132,6 +137,8 @@ type DaemonTaskDefinition struct {
 	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
 	RegisteredBy            string                      `json:"registeredBy,omitempty"`
 	Status                  string                      `json:"status"`
+	IpcMode                 string                      `json:"ipcMode,omitempty"`
+	PidMode                 string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes                 []DaemonVolume              `json:"volumes,omitempty"`
 	Revision                int                         `json:"revision"`
@@ -194,6 +201,8 @@ type RegisterDaemonTaskDefinitionInput struct {
 	Memory               string
 	ExecutionRoleArn     string
 	TaskRoleArn          string
+	IpcMode              string
+	PidMode              string
 	ContainerDefinitions []DaemonContainerDefinition
 	Volumes              []DaemonVolume
 	Tags                 []Tag
@@ -584,6 +593,18 @@ func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 		revision = revisions[len(revisions)-1].Revision + 1
 	}
 
+	// RegisterDaemonTaskDefinitionInput.IpcMode/.PidMode's own doc comments:
+	// "The default is none."
+	ipcMode := input.IpcMode
+	if ipcMode == "" {
+		ipcMode = daemonNamespaceModeNone
+	}
+
+	pidMode := input.PidMode
+	if pidMode == "" {
+		pidMode = daemonNamespaceModeNone
+	}
+
 	td := &DaemonTaskDefinition{
 		RegisteredAt:            time.Now(),
 		DaemonTaskDefinitionArn: b.daemonTaskDefinitionARN(input.Family, revision),
@@ -593,6 +614,8 @@ func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 		ExecutionRoleArn:        input.ExecutionRoleArn,
 		TaskRoleArn:             input.TaskRoleArn,
 		Status:                  daemonTaskDefStatusActive,
+		IpcMode:                 ipcMode,
+		PidMode:                 pidMode,
 		ContainerDefinitions:    input.ContainerDefinitions,
 		Volumes:                 input.Volumes,
 		Revision:                revision,

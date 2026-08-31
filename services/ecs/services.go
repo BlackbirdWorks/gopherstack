@@ -99,6 +99,7 @@ func buildServiceRevision(svc *Service, d Deployment) ServiceRevision {
 		LaunchType:                  d.LaunchType,
 		LoadBalancers:               svc.LoadBalancers,
 		NetworkConfiguration:        svc.NetworkConfiguration,
+		Monitoring:                  svc.Monitoring,
 		PlatformVersion:             d.PlatformVersion,
 		ServiceArn:                  svc.ServiceArn,
 		ServiceConnectConfiguration: svc.ServiceConnectConfiguration,
@@ -106,6 +107,33 @@ func buildServiceRevision(svc *Service, d Deployment) ServiceRevision {
 		ServiceRevisionArn:          d.ServiceRevisionArn,
 		TaskDefinition:              d.TaskDefinition,
 	}
+}
+
+// createServiceDefaults resolves CreateServiceInput's own documented
+// per-field defaults for launchType, schedulingStrategy, propagateTags, and
+// AvailabilityZoneRebalancing (which defaults to ENABLED when unspecified).
+func createServiceDefaults(input CreateServiceInput) (string, string, string, string) {
+	launchType := input.LaunchType
+	if launchType == "" {
+		launchType = launchTypeFargate
+	}
+
+	schedulingStrategy := input.SchedulingStrategy
+	if schedulingStrategy == "" {
+		schedulingStrategy = "REPLICA"
+	}
+
+	propagateTags := input.PropagateTags
+	if propagateTags == "" {
+		propagateTags = propagateTagsNone
+	}
+
+	azRebalancing := input.AvailabilityZoneRebalancing
+	if azRebalancing == "" {
+		azRebalancing = azRebalancingEnabled
+	}
+
+	return launchType, schedulingStrategy, propagateTags, azRebalancing
 }
 
 // CreateService creates a new ECS service.
@@ -142,20 +170,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
-	launchType := input.LaunchType
-	if launchType == "" {
-		launchType = launchTypeFargate
-	}
-
-	schedulingStrategy := input.SchedulingStrategy
-	if schedulingStrategy == "" {
-		schedulingStrategy = "REPLICA"
-	}
-
-	propagateTags := input.PropagateTags
-	if propagateTags == "" {
-		propagateTags = propagateTagsNone
-	}
+	launchType, schedulingStrategy, propagateTags, azRebalancing := createServiceDefaults(input)
 
 	svc := &Service{
 		CreatedAt: time.Now(),
@@ -173,23 +188,26 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			b.accountID,
 			fmt.Sprintf("cluster/%s", clusterName),
 		),
-		TaskDefinition:              td.TaskDefinitionArn,
-		Status:                      statusActive,
-		LaunchType:                  launchType,
-		SchedulingStrategy:          schedulingStrategy,
-		PropagateTags:               propagateTags,
-		Tags:                        input.Tags,
-		LoadBalancers:               input.LoadBalancers,
-		ServiceRegistries:           input.ServiceRegistries,
-		DeploymentConfiguration:     input.DeploymentConfiguration.withAWSDefaults(),
-		DeploymentController:        input.DeploymentController,
-		NetworkConfiguration:        input.NetworkConfiguration,
-		CapacityProviderStrategy:    input.CapacityProviderStrategy,
-		PlacementConstraints:        input.PlacementConstraints,
-		PlacementStrategy:           input.PlacementStrategy,
-		ServiceConnectConfiguration: input.ServiceConnectConfiguration,
-		DesiredCount:                input.DesiredCount,
-		EnableExecuteCommand:        input.EnableExecuteCommand,
+		TaskDefinition:                td.TaskDefinitionArn,
+		Status:                        statusActive,
+		LaunchType:                    launchType,
+		SchedulingStrategy:            schedulingStrategy,
+		PropagateTags:                 propagateTags,
+		AvailabilityZoneRebalancing:   azRebalancing,
+		Tags:                          input.Tags,
+		LoadBalancers:                 input.LoadBalancers,
+		ServiceRegistries:             input.ServiceRegistries,
+		DeploymentConfiguration:       input.DeploymentConfiguration.withAWSDefaults(),
+		DeploymentController:          input.DeploymentController,
+		NetworkConfiguration:          input.NetworkConfiguration,
+		CapacityProviderStrategy:      input.CapacityProviderStrategy,
+		PlacementConstraints:          input.PlacementConstraints,
+		PlacementStrategy:             input.PlacementStrategy,
+		ServiceConnectConfiguration:   input.ServiceConnectConfiguration,
+		HealthCheckGracePeriodSeconds: healthCheckGracePeriodOrDefault(input.HealthCheckGracePeriodSeconds),
+		Monitoring:                    input.Monitoring,
+		DesiredCount:                  input.DesiredCount,
+		EnableExecuteCommand:          input.EnableExecuteCommand,
 	}
 
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
@@ -402,6 +420,35 @@ func applyServiceConfigUpdates(svc *Service, input UpdateServiceInput) {
 	if input.EnableExecuteCommand != nil {
 		svc.EnableExecuteCommand = *input.EnableExecuteCommand
 	}
+
+	// UpdateServiceInput.AvailabilityZoneRebalancing's own doc comment: "For
+	// update service requests, when no value is specified ... Amazon ECS
+	// defaults to the existing service's AvailabilityZoneRebalancing value" --
+	// so an empty input leaves svc.AvailabilityZoneRebalancing untouched.
+	if input.AvailabilityZoneRebalancing != "" {
+		svc.AvailabilityZoneRebalancing = input.AvailabilityZoneRebalancing
+	}
+
+	if input.HealthCheckGracePeriodSeconds != nil {
+		svc.HealthCheckGracePeriodSeconds = input.HealthCheckGracePeriodSeconds
+	}
+
+	if input.Monitoring != nil {
+		svc.Monitoring = input.Monitoring
+	}
+}
+
+// healthCheckGracePeriodOrDefault applies CreateServiceInput's own doc
+// comment, which states that if a grace period value isn't specified, the
+// default value of 0 is used.
+func healthCheckGracePeriodOrDefault(v *int) *int {
+	if v != nil {
+		return v
+	}
+
+	zero := 0
+
+	return &zero
 }
 
 // UpdateService updates an existing ECS service.
@@ -435,6 +482,8 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.DesiredCount = *input.DesiredCount
 	}
 
+	newTaskDef := false
+
 	if input.TaskDefinition != "" {
 		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 		if err != nil {
@@ -442,6 +491,14 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		}
 
 		svc.TaskDefinition = td.TaskDefinitionArn
+		newTaskDef = true
+	}
+
+	// UpdateServiceInput.ForceNewDeployment's own doc comment: "you can use
+	// this option to start a new deployment with no service definition
+	// changes" -- so a deployment must be rotated even when TaskDefinition
+	// wasn't itself changed, reusing the service's current one.
+	if newTaskDef || input.ForceNewDeployment {
 		// Create a new PRIMARY deployment and demote the old one to ACTIVE.
 		svc.Deployments = rotatePrimaryDeployment(svc)
 	}

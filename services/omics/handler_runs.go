@@ -96,34 +96,58 @@ func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
 
 func (h *Handler) handleStartRun(c *echo.Context) error {
 	var req struct {
-		Parameters map[string]any    `json:"parameters"`
-		Tags       map[string]string `json:"tags"`
-		WorkflowID string            `json:"workflowId"`
-		RoleArn    string            `json:"roleArn"`
-		Name       string            `json:"name"`
-		RunGroupID string            `json:"runGroupId"`
-		// RunBatchID has no real StartRunInput counterpart (see the Run.RunBatchID
-		// doc comment in models.go); accepted here only for gopherstack-internal
-		// batch-association wiring.
-		RunBatchID     string `json:"runBatchId"`
-		NetworkingMode string `json:"networkingMode"`
-		OutputURI      string `json:"outputUri"`
+		Parameters          map[string]any    `json:"parameters"`
+		Tags                map[string]string `json:"tags"`
+		StorageCapacity     *int              `json:"storageCapacity"`
+		OutputURI           string            `json:"outputUri"`
+		CacheBehavior       string            `json:"cacheBehavior"`
+		RunGroupID          string            `json:"runGroupId"`
+		RunBatchID          string            `json:"runBatchId"`
+		NetworkingMode      string            `json:"networkingMode"`
+		RoleArn             string            `json:"roleArn"`
+		CacheID             string            `json:"cacheId"`
+		Name                string            `json:"name"`
+		RetentionMode       string            `json:"retentionMode"`
+		ScratchStorageMode  string            `json:"scratchStorageMode"`
+		StorageType         string            `json:"storageType"`
+		WorkflowType        string            `json:"workflowType"`
+		WorkflowVersionName string            `json:"workflowVersionName"`
+		WorkflowID          string            `json:"workflowId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	run, err := h.Backend.StartRun(
-		req.WorkflowID, req.RoleArn, req.Name, req.RunGroupID, req.RunBatchID,
-		req.NetworkingMode, req.OutputURI, req.Parameters, req.Tags,
-	)
+	run, err := h.Backend.StartRun(StartRunInput{
+		WorkflowID:          req.WorkflowID,
+		RoleARN:             req.RoleArn,
+		Name:                req.Name,
+		RunGroupID:          req.RunGroupID,
+		RunBatchID:          req.RunBatchID,
+		NetworkingMode:      req.NetworkingMode,
+		RunOutputURI:        req.OutputURI,
+		CacheID:             req.CacheID,
+		CacheBehavior:       req.CacheBehavior,
+		RetentionMode:       req.RetentionMode,
+		ScratchStorageMode:  req.ScratchStorageMode,
+		StorageType:         req.StorageType,
+		WorkflowType:        req.WorkflowType,
+		WorkflowVersionName: req.WorkflowVersionName,
+		StorageCapacity:     req.StorageCapacity,
+		Params:              req.Parameters,
+		Tags:                req.Tags,
+	})
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
 	// Real StartRunOutput: arn/id/status/tags plus the optional uuid/
 	// configuration/networkingMode/runOutputUri fields (gopherstack-fedo).
+	// CacheBehavior/RetentionMode/ScratchStorageMode/StorageCapacity/
+	// StorageType/WorkflowType/WorkflowVersionName are not part of
+	// StartRunOutput's own wire shape (verified against api_op_StartRun.go)
+	// -- only GetRun/ListRuns echo them.
 	return c.JSON(http.StatusCreated, map[string]any{
 		keyArn:           run.Arn,
 		"id":             run.ID,
@@ -205,13 +229,14 @@ func (h *Handler) handleCreateRunCache(c *echo.Context) error {
 		Tags            map[string]string `json:"tags"`
 		Name            string            `json:"name"`
 		CacheS3Location string            `json:"cacheS3Location"`
+		CacheBehavior   string            `json:"cacheBehavior"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	rc, err := h.Backend.CreateRunCache(req.Name, req.CacheS3Location, req.Tags)
+	rc, err := h.Backend.CreateRunCache(req.Name, req.CacheS3Location, req.CacheBehavior, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -249,15 +274,16 @@ func (h *Handler) handleListRunCaches(c *echo.Context) error {
 
 func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		CacheBehavior string `json:"cacheBehavior"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	if err := h.Backend.UpdateRunCache(id, req.Name, req.Description); err != nil {
+	if err := h.Backend.UpdateRunCache(id, req.Name, req.Description, req.CacheBehavior); err != nil {
 		return h.mapError(c, err)
 	}
 

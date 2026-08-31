@@ -78,7 +78,7 @@ type Backend interface {
 	// Account settings
 
 	DeleteAccountSetting(name, principalArn string) (*AccountSetting, error)
-	ListAccountSettings(name, principalArn string) ([]AccountSetting, error)
+	ListAccountSettings(name, principalArn string, effectiveSettings bool) ([]AccountSetting, error)
 	PutAccountSetting(name, value, principalArn string) (*AccountSetting, error)
 	PutAccountSettingDefault(name, value string) (*AccountSetting, error)
 

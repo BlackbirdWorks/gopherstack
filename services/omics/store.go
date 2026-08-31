@@ -48,6 +48,36 @@ const (
 	// omics@v1.49.5 api_op_StartRun.go:136-138).
 	networkingModeRestricted = "RESTRICTED"
 
+	// cacheBehaviorOnFailure is CreateRunCacheInput.CacheBehavior's
+	// documented default ("If you don't specify a value, the default
+	// behavior is CACHE_ON_FAILURE").
+	cacheBehaviorOnFailure = "CACHE_ON_FAILURE"
+
+	// retentionModeRetain is StartRunInput.RetentionMode's documented
+	// default ("The default value is RETAIN").
+	retentionModeRetain = "RETAIN"
+
+	// scratchStorageModeShared is StartRunInput.ScratchStorageMode's
+	// documented default ("If not specified, this will default to SHARED").
+	scratchStorageModeShared = "SHARED"
+
+	// storageTypeStatic is StartRunInput.StorageType's documented default
+	// ("By default, the run uses STATIC storage type").
+	storageTypeStatic  = "STATIC"
+	storageTypeDynamic = "DYNAMIC"
+
+	// storageCapacityDefaultGiB is StartRunInput.StorageCapacity's
+	// documented default ("The default run storage capacity is 1200 GiB"),
+	// applied only when StorageType is STATIC (the SDK doc states DYNAMIC
+	// ignores any value entered).
+	storageCapacityDefaultGiB = 1200
+
+	// workflowTypePrivate is StartRunInput.WorkflowType's documented default
+	// ("If you are running a PRIVATE workflow (default), you do not need to
+	// include the workflow type").
+	workflowTypePrivate   = "PRIVATE"
+	workflowTypeReady2Run = "READY2RUN"
+
 	maxPageSize = 100
 	maxTags     = 200
 

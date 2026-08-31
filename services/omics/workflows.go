@@ -12,12 +12,17 @@ import (
 // Workflow
 // ────────────────────────────────────────────────────────────────────────────
 
-// CreateWorkflow creates a new workflow.
-func (b *InMemoryBackend) CreateWorkflow(
-	name, description, _ /* definitionZip */, _ /* definitionURI */, engine string,
-	tags map[string]string,
-) (*Workflow, error) {
-	if name == "" {
+// CreateWorkflow creates a new workflow. StorageCapacity/StorageType are
+// stored/echoed exactly as given, with no fabricated default: unlike
+// StartRunInput.StorageType/.StorageCapacity (which do state fixed defaults,
+// applied in startRunDefaults), CreateWorkflowInput's own doc comments for
+// these two fields only describe what the value means for runs that inherit
+// it -- neither states what CreateWorkflow itself defaults to when the
+// field is omitted, so no value is invented here. ParameterTemplate is
+// likewise stored/echoed only when explicitly supplied -- see the doc
+// comment on Workflow.ParameterTemplate.
+func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, error) {
+	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
@@ -26,22 +31,25 @@ func (b *InMemoryBackend) CreateWorkflow(
 
 	id := newID()
 	wf := &Workflow{
-		ID:           id,
-		Name:         name,
-		Description:  description,
-		Engine:       engine,
-		Type:         "PRIVATE",
-		UUID:         newID(),
-		Status:       statusCreating,
-		Tags:         copyTags(tags),
-		CreationTime: time.Now().UTC(),
+		ID:                id,
+		Name:              input.Name,
+		Description:       input.Description,
+		Engine:            input.Engine,
+		Type:              workflowTypePrivate,
+		StorageType:       input.StorageType,
+		StorageCapacity:   input.StorageCapacity,
+		ParameterTemplate: input.ParameterTemplate,
+		UUID:              newID(),
+		Status:            statusCreating,
+		Tags:              copyTags(input.Tags),
+		CreationTime:      time.Now().UTC(),
 	}
 	wf.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "workflow/"+id)
 
 	b.workflows.Put(wf)
 
-	if tags != nil {
-		b.tags[wf.Arn] = copyTags(tags)
+	if input.Tags != nil {
+		b.tags[wf.Arn] = copyTags(input.Tags)
 	}
 
 	result := *wf
@@ -125,7 +133,7 @@ func (b *InMemoryBackend) ListWorkflows(
 }
 
 // UpdateWorkflow updates a workflow.
-func (b *InMemoryBackend) UpdateWorkflow(id, name, description string) error {
+func (b *InMemoryBackend) UpdateWorkflow(id, name, description, storageType string, storageCapacity *int) error {
 	b.mu.Lock("UpdateWorkflow")
 	defer b.mu.Unlock()
 
@@ -142,6 +150,14 @@ func (b *InMemoryBackend) UpdateWorkflow(id, name, description string) error {
 		wf.Description = description
 	}
 
+	if storageType != "" {
+		wf.StorageType = storageType
+	}
+
+	if storageCapacity != nil {
+		wf.StorageCapacity = storageCapacity
+	}
+
 	return nil
 }
 
@@ -150,47 +166,50 @@ func (b *InMemoryBackend) UpdateWorkflow(id, name, description string) error {
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateWorkflowVersion creates a new workflow version.
-func (b *InMemoryBackend) CreateWorkflowVersion(
-	workflowID, versionName, description string,
-	tags map[string]string,
-) (*WorkflowVersion, error) {
+// CreateWorkflowVersion creates a new workflow version. StorageCapacity/
+// StorageType/ParameterTemplate are stored/echoed exactly as given -- see
+// the doc comment on CreateWorkflow for why no default is fabricated.
+func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput) (*WorkflowVersion, error) {
 	b.mu.Lock("CreateWorkflowVersion")
 	defer b.mu.Unlock()
 
-	wf, ok := b.workflows.Get(workflowID)
+	wf, ok := b.workflows.Get(input.WorkflowID)
 	if !ok {
-		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
+		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, input.WorkflowID)
 	}
 
-	if b.workflowVersions.Has(parentKey(workflowID, versionName)) {
+	if b.workflowVersions.Has(parentKey(input.WorkflowID, input.VersionName)) {
 		return nil, fmt.Errorf(
 			"%w: workflow version %s already exists",
 			ErrAlreadyExists,
-			versionName,
+			input.VersionName,
 		)
 	}
 
 	wv := &WorkflowVersion{
-		WorkflowID:   workflowID,
-		VersionName:  versionName,
-		Description:  description,
-		Engine:       wf.Engine,
-		Type:         wf.Type,
-		Status:       statusCreating,
-		Tags:         copyTags(tags),
-		CreationTime: time.Now().UTC(),
+		WorkflowID:        input.WorkflowID,
+		VersionName:       input.VersionName,
+		Description:       input.Description,
+		Engine:            wf.Engine,
+		Type:              wf.Type,
+		StorageType:       input.StorageType,
+		StorageCapacity:   input.StorageCapacity,
+		ParameterTemplate: input.ParameterTemplate,
+		Status:            statusCreating,
+		Tags:              copyTags(input.Tags),
+		CreationTime:      time.Now().UTC(),
 	}
 	wv.Arn = arn.Build(
 		"omics",
 		b.defaultRegion,
 		b.accountID,
-		fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName),
+		fmt.Sprintf("workflow/%s/version/%s", input.WorkflowID, input.VersionName),
 	)
 
 	b.workflowVersions.Put(wv)
 
-	if tags != nil {
-		b.tags[wv.Arn] = copyTags(tags)
+	if input.Tags != nil {
+		b.tags[wv.Arn] = copyTags(input.Tags)
 	}
 
 	result := *wv
@@ -278,7 +297,9 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 }
 
 // UpdateWorkflowVersion updates a workflow version.
-func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, description string) error {
+func (b *InMemoryBackend) UpdateWorkflowVersion(
+	workflowID, versionName, description, storageType string, storageCapacity *int,
+) error {
 	b.mu.Lock("UpdateWorkflowVersion")
 	defer b.mu.Unlock()
 
@@ -293,6 +314,14 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, descrip
 
 	if description != "" {
 		wv.Description = description
+	}
+
+	if storageType != "" {
+		wv.StorageType = storageType
+	}
+
+	if storageCapacity != nil {
+		wv.StorageCapacity = storageCapacity
 	}
 
 	return nil

@@ -119,6 +119,8 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		CPU:                     input.CPU,
 		Memory:                  input.Memory,
 		PlatformFamily:          input.PlatformFamily,
+		IpcMode:                 input.IpcMode,
+		PidMode:                 input.PidMode,
 		Status:                  statusActive,
 		ContainerDefinitions:    input.ContainerDefinitions,
 		Volumes:                 input.Volumes,
@@ -128,6 +130,7 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		EphemeralStorage:        input.EphemeralStorage,
 		InferenceAccelerators:   input.InferenceAccelerators,
 		Revision:                revision,
+		EnableFaultInjection:    input.EnableFaultInjection,
 	}
 
 	revisions = append(revisions, td)

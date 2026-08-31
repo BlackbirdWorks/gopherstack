@@ -146,64 +146,93 @@ func (b *InMemoryBackend) UpdateRunGroup(
 // Run
 // ────────────────────────────────────────────────────────────────────────────
 
-// StartRun starts a new workflow run. networkingMode and runOutputURI are
-// optional (real StartRunInput fields); runGroupID/runBatchID associate the
-// run with a RunGroup/RunBatch for filtering via ListRuns.
-func (b *InMemoryBackend) StartRun(
-	workflowID, roleARN, name, runGroupID, runBatchID, networkingMode, runOutputURI string,
-	params map[string]any,
-	tags map[string]string,
-) (*Run, error) {
+// StartRun starts a new workflow run. See StartRunInput for which real
+// StartRunInput fields this backend models.
+func (b *InMemoryBackend) StartRun(input StartRunInput) (*Run, error) {
 	b.mu.Lock("StartRun")
 	defer b.mu.Unlock()
 
-	run := b.startRunLocked(
-		workflowID,
-		roleARN,
-		name,
-		runGroupID,
-		runBatchID,
-		"",
-		networkingMode,
-		runOutputURI,
-		params,
-		tags,
-	)
+	input.RunSettingID = ""
+	run := b.startRunLocked(input)
 
 	result := *run
 
 	return &result, nil
 }
 
+// startRunDefaults resolves StartRunInput's own documented per-field
+// defaults: NetworkingMode defaults to RESTRICTED, RetentionMode to RETAIN,
+// ScratchStorageMode to SHARED, StorageType to STATIC, WorkflowType to
+// PRIVATE, and StorageCapacity to 1200 GiB when StorageType is STATIC (real
+// AWS ignores any StorageCapacity value for DYNAMIC storage, so none is
+// fabricated in that case). CacheBehavior defaults to the referenced run
+// cache's own CacheBehavior when CacheID is set and CacheBehavior isn't.
+func (b *InMemoryBackend) startRunDefaults(input StartRunInput) StartRunInput {
+	if input.NetworkingMode == "" {
+		input.NetworkingMode = networkingModeRestricted
+	}
+
+	if input.RetentionMode == "" {
+		input.RetentionMode = retentionModeRetain
+	}
+
+	if input.ScratchStorageMode == "" {
+		input.ScratchStorageMode = scratchStorageModeShared
+	}
+
+	if input.StorageType == "" {
+		input.StorageType = storageTypeStatic
+	}
+
+	if input.WorkflowType == "" {
+		input.WorkflowType = workflowTypePrivate
+	}
+
+	if input.StorageType == storageTypeStatic && input.StorageCapacity == nil {
+		capacity := storageCapacityDefaultGiB
+		input.StorageCapacity = &capacity
+	}
+
+	if input.CacheBehavior == "" && input.CacheID != "" {
+		if rc, ok := b.runCaches.Get(input.CacheID); ok {
+			input.CacheBehavior = rc.CacheBehavior
+		}
+	}
+
+	return input
+}
+
 // startRunLocked creates one Run (plus its stub task) and, when tags is non-nil,
 // records it in the generic resource-tags map. Shared by StartRun and StartRunBatch's
 // constituent-run creation. Caller must hold the write lock.
-func (b *InMemoryBackend) startRunLocked(
-	workflowID, roleARN, name, runGroupID, runBatchID, runSettingID, networkingMode, runOutputURI string,
-	params map[string]any,
-	tags map[string]string,
-) *Run {
-	if networkingMode == "" {
-		networkingMode = networkingModeRestricted
-	}
+func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
+	input = b.startRunDefaults(input)
 
 	id := newID()
 	now := time.Now().UTC()
 	run := &Run{
-		ID:             id,
-		Name:           name,
-		WorkflowID:     workflowID,
-		RoleARN:        roleARN,
-		RunGroupID:     runGroupID,
-		RunBatchID:     runBatchID,
-		RunSettingID:   runSettingID,
-		NetworkingMode: networkingMode,
-		RunOutputURI:   runOutputURI,
-		UUID:           newID(),
-		Params:         params,
-		Tags:           copyTags(tags),
-		Status:         statusPending,
-		CreationTime:   now,
+		ID:                  id,
+		Name:                input.Name,
+		WorkflowID:          input.WorkflowID,
+		RoleARN:             input.RoleARN,
+		RunGroupID:          input.RunGroupID,
+		RunBatchID:          input.RunBatchID,
+		RunSettingID:        input.RunSettingID,
+		NetworkingMode:      input.NetworkingMode,
+		RunOutputURI:        input.RunOutputURI,
+		CacheID:             input.CacheID,
+		CacheBehavior:       input.CacheBehavior,
+		RetentionMode:       input.RetentionMode,
+		ScratchStorageMode:  input.ScratchStorageMode,
+		StorageCapacity:     input.StorageCapacity,
+		StorageType:         input.StorageType,
+		WorkflowType:        input.WorkflowType,
+		WorkflowVersionName: input.WorkflowVersionName,
+		UUID:                newID(),
+		Params:              input.Params,
+		Tags:                copyTags(input.Tags),
+		Status:              statusPending,
+		CreationTime:        now,
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
 
@@ -220,8 +249,8 @@ func (b *InMemoryBackend) startRunLocked(
 		CreationTime: now,
 	})
 
-	if tags != nil {
-		b.tags[run.Arn] = copyTags(tags)
+	if input.Tags != nil {
+		b.tags[run.Arn] = copyTags(input.Tags)
 	}
 
 	return run
@@ -410,19 +439,26 @@ func (b *InMemoryBackend) ListRunTasks(
 // RunCache
 // ────────────────────────────────────────────────────────────────────────────
 
-// CreateRunCache creates a new run cache.
+// CreateRunCache creates a new run cache. cacheBehavior defaults to
+// CreateRunCacheInput.CacheBehavior's own documented default
+// (CACHE_ON_FAILURE) when empty.
 func (b *InMemoryBackend) CreateRunCache(
-	name, cacheS3Location string,
+	name, cacheS3Location, cacheBehavior string,
 	tags map[string]string,
 ) (*RunCache, error) {
 	b.mu.Lock("CreateRunCache")
 	defer b.mu.Unlock()
+
+	if cacheBehavior == "" {
+		cacheBehavior = cacheBehaviorOnFailure
+	}
 
 	id := newID()
 	rc := &RunCache{
 		ID:              id,
 		Name:            name,
 		CacheS3Location: cacheS3Location,
+		CacheBehavior:   cacheBehavior,
 		Status:          statusActive,
 		Tags:            copyTags(tags),
 		CreationTime:    time.Now().UTC(),
@@ -491,8 +527,10 @@ func (b *InMemoryBackend) ListRunCaches(
 	return result, outToken, nil
 }
 
-// UpdateRunCache updates a run cache.
-func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
+// UpdateRunCache updates a run cache. cacheBehavior, like name and
+// description, is applied only when non-empty (real UpdateRunCacheInput.CacheBehavior:
+// "Update the default run cache behavior" -- omitting it leaves the existing value).
+func (b *InMemoryBackend) UpdateRunCache(id, name, description, cacheBehavior string) error {
 	b.mu.Lock("UpdateRunCache")
 	defer b.mu.Unlock()
 
@@ -507,6 +545,10 @@ func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
 
 	if description != "" {
 		rc.Description = description
+	}
+
+	if cacheBehavior != "" {
+		rc.CacheBehavior = cacheBehavior
 	}
 
 	return nil
@@ -580,18 +622,16 @@ func (b *InMemoryBackend) StartRunBatch(
 			runTags = inline.RunTags
 		}
 
-		b.startRunLocked(
-			def.WorkflowID,
-			def.RoleARN,
-			name,
-			def.RunGroupID,
-			id,
-			inline.RunSettingID,
-			"",
-			outputURI,
-			nil,
-			runTags,
-		)
+		b.startRunLocked(StartRunInput{
+			WorkflowID:   def.WorkflowID,
+			RoleARN:      def.RoleARN,
+			Name:         name,
+			RunGroupID:   def.RunGroupID,
+			RunBatchID:   id,
+			RunSettingID: inline.RunSettingID,
+			RunOutputURI: outputURI,
+			Tags:         runTags,
+		})
 		rb.SubmissionSuccessCount++
 	}
 

@@ -10,10 +10,11 @@ import (
 // ----- Handler: ListAccountSettings -----
 
 type listAccountSettingsInput struct {
-	Name         string `json:"name,omitempty"`
-	PrincipalArn string `json:"principalArn,omitempty"`
-	NextToken    string `json:"nextToken,omitempty"`
-	MaxResults   int    `json:"maxResults,omitempty"`
+	Name              string `json:"name,omitempty"`
+	PrincipalArn      string `json:"principalArn,omitempty"`
+	NextToken         string `json:"nextToken,omitempty"`
+	MaxResults        int    `json:"maxResults,omitempty"`
+	EffectiveSettings bool   `json:"effectiveSettings,omitempty"`
 }
 
 type listAccountSettingsOutput struct {
@@ -25,7 +26,7 @@ func (h *Handler) handleListAccountSettings(
 	_ context.Context,
 	in *listAccountSettingsInput,
 ) (*listAccountSettingsOutput, error) {
-	settings, err := h.Backend.ListAccountSettings(in.Name, in.PrincipalArn)
+	settings, err := h.Backend.ListAccountSettings(in.Name, in.PrincipalArn, in.EffectiveSettings)
 	if err != nil {
 		return nil, err
 	}

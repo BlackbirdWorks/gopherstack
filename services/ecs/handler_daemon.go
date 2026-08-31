@@ -585,6 +585,8 @@ type registerDaemonTaskDefinitionInput struct {
 	Memory               string                      `json:"memory,omitempty"`
 	ExecutionRoleArn     string                      `json:"executionRoleArn,omitempty"`
 	TaskRoleArn          string                      `json:"taskRoleArn,omitempty"`
+	IpcMode              string                      `json:"ipcMode,omitempty"`
+	PidMode              string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes              []daemonVolumeInput         `json:"volumes,omitempty"`
 	Tags                 []tagInput                  `json:"tags,omitempty"`
@@ -604,6 +606,8 @@ func (h *Handler) handleRegisterDaemonTaskDefinition(
 		Memory:               in.Memory,
 		ExecutionRoleArn:     in.ExecutionRoleArn,
 		TaskRoleArn:          in.TaskRoleArn,
+		IpcMode:              in.IpcMode,
+		PidMode:              in.PidMode,
 		ContainerDefinitions: in.ContainerDefinitions,
 		Volumes:              toDaemonVolumes(in.Volumes),
 		Tags:                 tagsFromInput(in.Tags),
@@ -630,6 +634,8 @@ type daemonTaskDefinitionView struct {
 	RegisteredBy            string                      `json:"registeredBy,omitempty"`
 	Status                  string                      `json:"status,omitempty"`
 	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
+	IpcMode                 string                      `json:"ipcMode,omitempty"`
+	PidMode                 string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes                 []daemonVolumeInput         `json:"volumes,omitempty"`
 	DeleteRequestedAt       float64                     `json:"deleteRequestedAt,omitempty"`
@@ -659,6 +665,8 @@ func toDaemonTaskDefinitionView(td *DaemonTaskDefinition) *daemonTaskDefinitionV
 		RegisteredBy:            td.RegisteredBy,
 		Status:                  td.Status,
 		TaskRoleArn:             td.TaskRoleArn,
+		IpcMode:                 td.IpcMode,
+		PidMode:                 td.PidMode,
 		Revision:                td.Revision,
 	}
 

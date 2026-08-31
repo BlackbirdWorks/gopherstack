@@ -29,12 +29,15 @@ type registerTaskDefinitionInput struct {
 	CPU                     string                     `json:"cpu,omitempty"`
 	Memory                  string                     `json:"memory,omitempty"`
 	PlatformFamily          string                     `json:"platformFamily,omitempty"`
+	IpcMode                 string                     `json:"ipcMode,omitempty"`
+	PidMode                 string                     `json:"pidMode,omitempty"`
 	Tags                    []Tag                      `json:"tags,omitempty"`
 	ContainerDefinitions    []ContainerDefinition      `json:"containerDefinitions"`
 	Volumes                 []Volume                   `json:"volumes,omitempty"`
 	PlacementConstraints    []placementConstraintInput `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string                   `json:"requiresCompatibilities,omitempty"`
 	InferenceAccelerators   []InferenceAccelerator     `json:"inferenceAccelerators,omitempty"`
+	EnableFaultInjection    bool                       `json:"enableFaultInjection,omitempty"`
 }
 
 type registerTaskDefinitionOutput struct {
@@ -54,6 +57,8 @@ func (h *Handler) handleRegisterTaskDefinition(
 		CPU:                     in.CPU,
 		Memory:                  in.Memory,
 		PlatformFamily:          in.PlatformFamily,
+		IpcMode:                 in.IpcMode,
+		PidMode:                 in.PidMode,
 		ContainerDefinitions:    in.ContainerDefinitions,
 		Volumes:                 in.Volumes,
 		PlacementConstraints:    toPlacementConstraints(in.PlacementConstraints),
@@ -62,6 +67,7 @@ func (h *Handler) handleRegisterTaskDefinition(
 		RuntimePlatform:         in.RuntimePlatform,
 		EphemeralStorage:        in.EphemeralStorage,
 		InferenceAccelerators:   in.InferenceAccelerators,
+		EnableFaultInjection:    in.EnableFaultInjection,
 	})
 	if err != nil {
 		return nil, err
@@ -190,6 +196,8 @@ type taskDefinitionView struct {
 	CPU                     string                    `json:"cpu,omitempty"`
 	Memory                  string                    `json:"memory,omitempty"`
 	PlatformFamily          string                    `json:"platformFamily,omitempty"`
+	IpcMode                 string                    `json:"ipcMode,omitempty"`
+	PidMode                 string                    `json:"pidMode,omitempty"`
 	ContainerDefinitions    []ContainerDefinition     `json:"containerDefinitions"`
 	Volumes                 []Volume                  `json:"volumes"`
 	PlacementConstraints    []placementConstraintView `json:"placementConstraints,omitempty"`
@@ -197,6 +205,7 @@ type taskDefinitionView struct {
 	InferenceAccelerators   []InferenceAccelerator    `json:"inferenceAccelerators,omitempty"`
 	RegisteredAt            float64                   `json:"registeredAt"`
 	Revision                int                       `json:"revision"`
+	EnableFaultInjection    bool                      `json:"enableFaultInjection,omitempty"`
 }
 
 func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
@@ -215,6 +224,8 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		CPU:                     td.CPU,
 		Memory:                  td.Memory,
 		PlatformFamily:          td.PlatformFamily,
+		IpcMode:                 td.IpcMode,
+		PidMode:                 td.PidMode,
 		ContainerDefinitions:    td.ContainerDefinitions,
 		Volumes:                 volumes,
 		RequiresCompatibilities: td.RequiresCompatibilities,
@@ -223,6 +234,7 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		RuntimePlatform:         td.RuntimePlatform,
 		EphemeralStorage:        td.EphemeralStorage,
 		InferenceAccelerators:   td.InferenceAccelerators,
+		EnableFaultInjection:    td.EnableFaultInjection,
 	}
 
 	for _, c := range td.PlacementConstraints {

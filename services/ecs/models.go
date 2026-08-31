@@ -187,6 +187,7 @@ type ServiceRevision struct {
 	CreatedAt                   *float64                       `json:"createdAt,omitempty"`
 	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
 	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
+	Monitoring                  *MonitoringConfiguration       `json:"monitoring,omitempty"`
 	ClusterArn                  string                         `json:"clusterArn,omitempty"`
 	LaunchType                  string                         `json:"launchType,omitempty"`
 	PlatformVersion             string                         `json:"platformVersion,omitempty"`
@@ -285,9 +286,11 @@ type DeploymentAlarms struct {
 // UpdateClusterRequest has no such fields (only cluster, settings,
 // configuration, serviceConnectDefaults) -- capacity-provider association is
 // exclusively managed by the separate PutClusterCapacityProviders operation.
+// configuration is still not modeled by this backend.
 type UpdateClusterInput struct {
-	Cluster  string
-	Settings []ClusterSetting
+	ServiceConnectDefaults *ClusterServiceConnectDefaults
+	Cluster                string
+	Settings               []ClusterSetting
 }
 
 // UpdateCapacityProviderInput holds input for UpdateCapacityProvider. Note
@@ -631,9 +634,17 @@ type TaskAttachment struct {
 
 // ---- Core cluster/task-definition/service/task models ----
 
+// ClusterServiceConnectDefaults holds the cluster-level default Service
+// Connect namespace, echoed back on Cluster (mirrors
+// types.ClusterServiceConnectDefaults in the SDK).
+type ClusterServiceConnectDefaults struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // Cluster represents an ECS cluster.
 type Cluster struct {
 	CreatedAt                         time.Time                      `json:"createdAt"`
+	ServiceConnectDefaults            *ClusterServiceConnectDefaults `json:"serviceConnectDefaults,omitempty"`
 	ClusterArn                        string                         `json:"clusterArn"`
 	ClusterName                       string                         `json:"clusterName"`
 	Status                            string                         `json:"status"`
@@ -709,40 +720,61 @@ type TaskDefinition struct {
 	PlatformFamily          string                 `json:"platformFamily,omitempty"`
 	CPU                     string                 `json:"cpu,omitempty"`
 	Memory                  string                 `json:"memory,omitempty"`
+	IpcMode                 string                 `json:"ipcMode,omitempty"`
+	PidMode                 string                 `json:"pidMode,omitempty"`
 	ContainerDefinitions    []ContainerDefinition  `json:"containerDefinitions"`
 	Volumes                 []Volume               `json:"volumes,omitempty"`
 	PlacementConstraints    []PlacementConstraint  `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string               `json:"requiresCompatibilities,omitempty"`
 	InferenceAccelerators   []InferenceAccelerator `json:"inferenceAccelerators,omitempty"`
 	Revision                int                    `json:"revision"`
+	EnableFaultInjection    bool                   `json:"enableFaultInjection,omitempty"`
+}
+
+// MetricConfiguration is a single service-level CloudWatch metric resolution
+// setting (mirrors types.MetricConfiguration).
+type MetricConfiguration struct {
+	MetricNames       []string `json:"metricNames"`
+	ResolutionSeconds int      `json:"resolutionSeconds"`
+}
+
+// MonitoringConfiguration is the optional per-service CloudWatch metric
+// resolution config (mirrors types.MonitoringConfiguration). It is stored
+// and echoed back on ServiceRevision -- this backend does not emit real
+// CloudWatch metrics, so no resolution behaviour is simulated.
+type MonitoringConfiguration struct {
+	MetricConfigurations []MetricConfiguration `json:"metricConfigurations,omitempty"`
 }
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt                   time.Time                      `json:"createdAt"`
-	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
-	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
-	DeploymentController        *DeploymentController          `json:"deploymentController,omitempty"`
-	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
-	ServiceArn                  string                         `json:"serviceArn"`
-	ServiceName                 string                         `json:"serviceName"`
-	ClusterArn                  string                         `json:"clusterArn"`
-	TaskDefinition              string                         `json:"taskDefinition"`
-	Status                      string                         `json:"status"`
-	LaunchType                  string                         `json:"launchType,omitempty"`
-	SchedulingStrategy          string                         `json:"schedulingStrategy,omitempty"`
-	PropagateTags               string                         `json:"propagateTags,omitempty"`
-	Tags                        []Tag                          `json:"tags,omitempty"`
-	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
-	ServiceRegistries           []ServiceRegistry              `json:"serviceRegistries,omitempty"`
-	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
-	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
-	Deployments                 []Deployment                   `json:"deployments,omitempty"`
-	DesiredCount                int                            `json:"desiredCount"`
-	PendingCount                int                            `json:"pendingCount"`
-	RunningCount                int                            `json:"runningCount"`
-	EnableExecuteCommand        bool                           `json:"enableExecuteCommand,omitempty"`
+	CreatedAt                     time.Time                      `json:"createdAt"`
+	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
+	ServiceConnectConfiguration   *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
+	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	DeploymentController          *DeploymentController          `json:"deploymentController,omitempty"`
+	NetworkConfiguration          *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	Monitoring                    *MonitoringConfiguration       `json:"monitoring,omitempty"`
+	ServiceArn                    string                         `json:"serviceArn"`
+	ServiceName                   string                         `json:"serviceName"`
+	ClusterArn                    string                         `json:"clusterArn"`
+	TaskDefinition                string                         `json:"taskDefinition"`
+	Status                        string                         `json:"status"`
+	LaunchType                    string                         `json:"launchType,omitempty"`
+	SchedulingStrategy            string                         `json:"schedulingStrategy,omitempty"`
+	PropagateTags                 string                         `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	Tags                          []Tag                          `json:"tags,omitempty"`
+	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries             []ServiceRegistry              `json:"serviceRegistries,omitempty"`
+	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	Deployments                   []Deployment                   `json:"deployments,omitempty"`
+	DesiredCount                  int                            `json:"desiredCount"`
+	PendingCount                  int                            `json:"pendingCount"`
+	RunningCount                  int                            `json:"runningCount"`
+	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
 // Task represents an ECS task.
@@ -783,6 +815,7 @@ type Task struct {
 
 // CreateClusterInput holds input for CreateCluster.
 type CreateClusterInput struct {
+	ServiceConnectDefaults          *ClusterServiceConnectDefaults
 	ClusterName                     string
 	Settings                        []ClusterSetting
 	CapacityProviders               []string
@@ -801,51 +834,61 @@ type RegisterTaskDefinitionInput struct {
 	CPU                     string                 `json:"cpu,omitempty"`
 	Memory                  string                 `json:"memory,omitempty"`
 	PlatformFamily          string                 `json:"platformFamily,omitempty"`
+	IpcMode                 string                 `json:"ipcMode,omitempty"`
+	PidMode                 string                 `json:"pidMode,omitempty"`
 	ContainerDefinitions    []ContainerDefinition  `json:"containerDefinitions"`
 	Volumes                 []Volume               `json:"volumes,omitempty"`
 	PlacementConstraints    []PlacementConstraint  `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string               `json:"requiresCompatibilities,omitempty"`
 	InferenceAccelerators   []InferenceAccelerator `json:"inferenceAccelerators,omitempty"`
 	Tags                    []Tag                  `json:"tags,omitempty"`
+	EnableFaultInjection    bool                   `json:"enableFaultInjection,omitempty"`
 }
 
 // CreateServiceInput holds input for CreateService.
 type CreateServiceInput struct {
-	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
-	DeploymentController        *DeploymentController          `json:"deploymentController,omitempty"`
-	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
-	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
-	ServiceName                 string                         `json:"serviceName"`
-	Cluster                     string                         `json:"cluster,omitempty"`
-	TaskDefinition              string                         `json:"taskDefinition"`
-	LaunchType                  string                         `json:"launchType,omitempty"`
-	SchedulingStrategy          string                         `json:"schedulingStrategy,omitempty"`
-	PropagateTags               string                         `json:"propagateTags,omitempty"`
-	Tags                        []Tag                          `json:"tags,omitempty"`
-	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
-	ServiceRegistries           []ServiceRegistry              `json:"serviceRegistries,omitempty"`
-	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
-	DesiredCount                int                            `json:"desiredCount"`
-	EnableExecuteCommand        bool                           `json:"enableExecuteCommand,omitempty"`
+	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	DeploymentController          *DeploymentController          `json:"deploymentController,omitempty"`
+	NetworkConfiguration          *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	ServiceConnectConfiguration   *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
+	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
+	Monitoring                    *MonitoringConfiguration       `json:"monitoring,omitempty"`
+	ServiceName                   string                         `json:"serviceName"`
+	Cluster                       string                         `json:"cluster,omitempty"`
+	TaskDefinition                string                         `json:"taskDefinition"`
+	LaunchType                    string                         `json:"launchType,omitempty"`
+	SchedulingStrategy            string                         `json:"schedulingStrategy,omitempty"`
+	PropagateTags                 string                         `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	Tags                          []Tag                          `json:"tags,omitempty"`
+	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries             []ServiceRegistry              `json:"serviceRegistries,omitempty"`
+	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	DesiredCount                  int                            `json:"desiredCount"`
+	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
 type UpdateServiceInput struct {
-	EnableExecuteCommand        *bool                          `json:"enableExecuteCommand,omitempty"`
-	DesiredCount                *int                           `json:"desiredCount,omitempty"`
-	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
-	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
-	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
-	Cluster                     string                         `json:"cluster,omitempty"`
-	Service                     string                         `json:"service"`
-	TaskDefinition              string                         `json:"taskDefinition,omitempty"`
-	PropagateTags               string                         `json:"propagateTags,omitempty"`
-	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
-	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	EnableExecuteCommand          *bool                          `json:"enableExecuteCommand,omitempty"`
+	DesiredCount                  *int                           `json:"desiredCount,omitempty"`
+	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
+	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
+	NetworkConfiguration          *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	ServiceConnectConfiguration   *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
+	Monitoring                    *MonitoringConfiguration       `json:"monitoring,omitempty"`
+	Cluster                       string                         `json:"cluster,omitempty"`
+	Service                       string                         `json:"service"`
+	TaskDefinition                string                         `json:"taskDefinition,omitempty"`
+	PropagateTags                 string                         `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	ForceNewDeployment            bool                           `json:"forceNewDeployment,omitempty"`
 }
 
 // RunTaskInput holds input for RunTask.

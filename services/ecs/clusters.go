@@ -65,6 +65,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		Settings:                        input.Settings,
 		CapacityProviders:               input.CapacityProviders,
 		DefaultCapacityProviderStrategy: input.DefaultCapacityProviderStrategy,
+		ServiceConnectDefaults:          input.ServiceConnectDefaults,
 	}
 	b.clusters.Put(cluster)
 
@@ -301,6 +302,10 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 
 	if input.Settings != nil {
 		c.Settings = input.Settings
+	}
+
+	if input.ServiceConnectDefaults != nil {
+		c.ServiceConnectDefaults = input.ServiceConnectDefaults
 	}
 
 	cp := b.enrichCluster(c)
