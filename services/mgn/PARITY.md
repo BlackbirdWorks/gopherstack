@@ -1497,3 +1497,27 @@ this service is already unusually well-instrumented compared to the
 Gates: `go build ./services/mgn/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/mgn/...` (pass), `golangci-lint run
 ./services/mgn/...` (0 issues).
+
+## 2026-08-31 correction: round-trip tests proven failable (gopherstack-21my)
+
+The commit that added `sdk_roundtrip_nested_test.go` (`9c4a92608`) carried a
+caveat saying the tests had never been observed to fail, and that a perturbation
+of `DataReplicationInfoReplicatedDisk.DeviceName` in `models.go` had not broken
+one. Both halves of that caveat were wrong in ways worth recording.
+
+The perturbation was inert because `models.go` types are never marshalled to the
+wire. Every response converts them to a tagged type in `wire.go` first, and only
+those tags reach a client. The json tags that do appear on `models.go` types in
+other services belong to on-disk snapshot persistence, not the AWS protocol.
+
+All four round-trip tests are now proven failable against the struct that
+actually reaches the wire, each by breaking one wire tag, observing the decoded
+value come back empty, and restoring.
+
+The caveat also claimed the SDK decoder matches keys case-insensitively, which
+would have hidden naming mistakes. That is false for this service. smithy-go's
+JSON decoder does no case folding at all, so a casing mismatch here is a hard
+bug rather than something tolerated. It is true only of the XML decoder, which
+does fold - so REST-XML services would silently tolerate a case-only element
+mismatch, and a test passing there is weaker evidence than the same test passing
+on a JSON protocol.
