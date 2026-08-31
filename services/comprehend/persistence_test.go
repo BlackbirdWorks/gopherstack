@@ -86,11 +86,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, tags, 1)
 	assert.Equal(t, comprehend.Tag{Key: "env", Value: "test"}, tags[0])
 
-	// policies + policyRevisions (raw maps).
-	policy, revision, err := fresh.GetResourcePolicy(flywheelArn)
+	// policies + policyRevisions + policyCreatedAt/policyModifiedAt (raw maps).
+	policy, revision, createdAt, modifiedAt, err := fresh.GetResourcePolicy(flywheelArn)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Version":"2012-10-17"}`, policy)
 	assert.NotEmpty(t, revision)
+	assert.False(t, createdAt.IsZero(), "CreationTime must survive a snapshot round-trip")
+	assert.False(t, modifiedAt.IsZero(), "LastModifiedTime must survive a snapshot round-trip")
 
 	// AccountID/Region carried through the snapshot.
 	assert.Equal(t, "us-east-1", fresh.Region())
@@ -113,7 +115,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	assert.Empty(t, b.ListJobs("entities-detection-job"))
 	assert.Empty(t, b.ListResources("flywheel"))
 
-	_, _, err = b.GetResourcePolicy("arn:aws:comprehend:us-east-1:123456789012:flywheel/full-flywheel")
+	_, _, _, _, err = b.GetResourcePolicy("arn:aws:comprehend:us-east-1:123456789012:flywheel/full-flywheel")
 	require.Error(t, err)
 }
 

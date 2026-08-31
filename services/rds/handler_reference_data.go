@@ -6,8 +6,8 @@ import (
 )
 
 type xmlAccountAttribute struct {
-	AttributeName string `xml:"AttributeName"`
-	Used          int    `xml:"AccountQuotaName"`
+	AttributeName string `xml:"AccountQuotaName"`
+	Used          int    `xml:"Used"`
 	Max           int    `xml:"Max"`
 }
 

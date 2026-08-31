@@ -1265,3 +1265,100 @@ re-litigated.
 Gates: `go build ./services/medialive/...`, `go vet ./services/medialive/...` (no changes, nothing
 to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
 instructions.
+
+## 2026-08-31 wrapper-key/per-item sweep of PARITY-unnamed ops (gopherstack-6flj / -21my)
+
+Targeted the standing shortcut: every `List*`/`Describe*` operation in `medialive@v1.101.4` whose
+name never appeared anywhere in this file before today. 17 such ops (derived directly from
+`api_op_List*.go`/`api_op_Describe*.go` filenames against a grep of this file, not assumed):
+`DescribeAccountConfiguration`, `DescribeChannelPlacementGroup`, `DescribeCluster`,
+`DescribeInputSecurityGroup`, `DescribeMultiplex`, `DescribeMultiplexProgram`, `DescribeNetwork`,
+`DescribeNode`, `DescribeOffering`, `DescribeSdiSource`, `DescribeThumbnails`,
+`ListChannelPlacementGroups`, `ListInputSecurityGroups`, `ListMultiplexPrograms`,
+`ListMultiplexes`, `ListNetworks`, `ListSdiSources`. Protocol confirmed from
+`deserializers.go` itself: `awsRestjson1` (JSON) -- no case folding, so a naming mismatch here is
+always a hard failure, never a latent case-only bug.
+
+Read each op's own deserializer function in the pinned SDK (not a sibling's, not a doc). All 6
+List wrapper keys were already correct (`channelPlacementGroups`, `inputSecurityGroups`,
+`multiplexPrograms`, `multiplexes`, `networks`, `sdiSources`) -- this service's earlier wrapper-key
+pass covered the ops that existed at the time, and no new List op has been added since. Two
+per-item bugs found, both the "list omits a field its singular sibling carries" shape:
+
+1. `ListInputSecurityGroups`' item map never included `tags`, though
+   `types.InputSecurityGroup` (the exact same wire type reused for both List and Describe, not a
+   separate summary shape) declares `tags` as a real member, the backend already tracks it per
+   group, and `DescribeInputSecurityGroup`/`CreateInputSecurityGroup` already emit it correctly.
+   Fixed: added `Tags` to `InputSecurityGroupSummary` (`interfaces.go`), populated in
+   `storedInputSecurityGroup.toSummary` (`models.go`), emitted in
+   `handleListInputSecurityGroups` (`handler_input_security_groups.go`).
+2. `ListMultiplexes`' item map never included `multiplexSettings` or `tags`, though
+   `types.MultiplexSummary` declares both (`multiplexSettings` as a
+   `*types.MultiplexSettingsSummary{TransportStreamBitrate}`), the backend tracks both per
+   multiplex, and `DescribeMultiplex` already emits them correctly. Fixed: added
+   `TransportStreamBitrate`/`Tags` to `MultiplexSummary` (`interfaces.go`), populated in
+   `storedMultiplex.toSummary` (`models.go`), emitted in `handleListMultiplexes`
+   (`handler_multiplexes.go`).
+
+One more bug found off this axis, not list-vs-singular but singular-vs-tracked-state:
+`DescribeOffering`/`PurchaseOffering`/`DescribeReservation` all build their
+`resourceSpecification` object by hand and every one of them omitted `specialFeature`, even
+though `OfferingResourceSpecification`/`Reservation.ResourceSpecification` already track
+`SpecialFeature` (it is even read as a `ListReservations` query filter, per the
+2026-08-29 entry above), and `types.ReservationResourceSpecification` declares it as a real
+member. No seed offering had ever set a non-empty `SpecialFeature`, so this decoded empty for
+every offering/reservation regardless of catalog data. Fixed: added `SpecialFeature:
+"AUDIO_NORMALIZATION"` to the seeded `87654321` HD offering (`store.go`, flows into any
+reservation purchased from it) and added the `specialFeature` key to both `toOfferingOutput` and
+`toReservationOutput` (`handler_reservations.go`).
+
+CLEAN (checked field-for-field against the pinned deserializer, not skimmed) among the 17 targeted:
+`DescribeAccountConfiguration`
+(wrapper `accountConfiguration`+`kmsKeyId`), `DescribeChannelPlacementGroup`/
+`ListChannelPlacementGroups` (all 7 real `DescribeChannelPlacementGroupSummary` fields present),
+`DescribeCluster` (all 8 real `DescribeClusterOutput` fields present via shared `toClusterOutput`),
+`DescribeNetwork`/`ListNetworks` (all 7 real `DescribeNetworkSummary` fields present, plus a
+harmless extra `tags` key the real summary type doesn't declare -- ignored by any real client's
+decoder), `DescribeSdiSource`/`ListSdiSources` (all 7 real `SdiSourceSummary` fields present),
+`ListMultiplexPrograms` (both real `MultiplexProgramSummary` fields present -- initially
+mis-suspected of a bug from a spillover grep match on the *next* deserializer function in the
+file; re-verified with an exact function-boundary read).
+
+GAPS recorded, not fixed -- real per-item mismatches that no legal input can currently populate,
+because nothing in this backend tracks the value:
+- `InputSecurityGroup.channels`/`.inputs` (both List and Describe -- shared gap, no
+  channel/input-to-security-group association tracked on the security group side).
+- `DescribeMultiplex`'s top-level `destinations` (real member of `types.Multiplex`; this backend
+  never models multiplex output destinations).
+- `DescribeMultiplexProgram`'s `packetIdentifiersMap`, `pipelineDetails`, and
+  `multiplexProgramSettings.videoSettings` (all real members with zero backing state -- no PID
+  mapping or video-mux engine modeled).
+- `DescribeNode`'s `instanceArn`, `nodeInterfaceMappings`, `sdiSourceMappings` (real members; no
+  hardware-level node/interface modeling in this backend).
+- `DescribeThumbnails` always returns an empty `thumbnailDetails` list (correct wrapper key,
+  correct empty-when-unmodeled behavior -- no actual video pipeline generates thumbnail images
+  here).
+- `resourceSpecification.channelClass` on `Offering`/`Reservation` (real member of
+  `types.ReservationResourceSpecification`; `OfferingResourceSpecification` has never modeled
+  `ChannelClass`, consistent with the 2026-08-29 entry's note on the same axis).
+
+Tests: 4 new, all in `wire_field_fixes_sweep2_test.go`, each driving the real
+`aws-sdk-go-v2/service/medialive` client end-to-end and asserting on the decoded typed response
+(`TestDescribeOffering_ResourceSpecification_SpecialFeature_RealClient`,
+`TestDescribeReservation_ResourceSpecification_SpecialFeature_RealClient`,
+`TestListInputSecurityGroups_Tags_RealClient`,
+`TestListMultiplexes_SettingsAndTags_RealClient`). Seeded distinguishable non-zero values
+(`"AUDIO_NORMALIZATION"`, two-key tag maps, a specific `TransportStreamBitrate`) and at least two
+items where relevant. All 4 confirmed failing against unmodified code before the fix (zero
+value/nil/missing key in every case), then confirmed passing after.
+
+No case-only mismatches (impossible on this protocol -- restjson1 does not fold case). No hard
+decode errors or panics found this pass. No elements emitted that are not real type members. No
+wrapping-shape mismatches (every list here was already correctly member-wrapped, not flattened).
+No stale `nolint` found in any edited file (`interfaces.go`'s pre-existing `dupl` suppression at
+line ~1692 and `handler_multiplexes.go`'s two pre-existing `gosec` suppressions are unrelated to
+this pass's edits and remain in active use per `golangci-lint run` returning 0 issues).
+
+Gates: `go build ./services/medialive/...`, `go vet ./services/medialive/...`,
+`go test ./services/medialive/... -race -count=1`, `golangci-lint run ./services/medialive/...` --
+all clean. Work left uncommitted per this session's hard constraints.

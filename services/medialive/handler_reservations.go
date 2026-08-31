@@ -26,6 +26,7 @@ func toOfferingOutput(o *Offering) map[string]any {
 			"maximumBitrate":   o.ResourceSpecification.MaximumBitrate,
 			"maximumFramerate": o.ResourceSpecification.MaximumFramerate,
 			"codec":            o.ResourceSpecification.Codec,
+			"specialFeature":   o.ResourceSpecification.SpecialFeature,
 		},
 	}
 }
@@ -130,6 +131,7 @@ func toReservationOutput(r *Reservation) map[string]any {
 			"maximumBitrate":   r.ResourceSpecification.MaximumBitrate,
 			"maximumFramerate": r.ResourceSpecification.MaximumFramerate,
 			"codec":            r.ResourceSpecification.Codec,
+			"specialFeature":   r.ResourceSpecification.SpecialFeature,
 		},
 		keyTags: tags,
 	}

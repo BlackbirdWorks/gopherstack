@@ -656,3 +656,84 @@ Gates: `go build ./...`, `go vet ./...`, `go test -race -count=1
 ./services/comprehend/...`, `golangci-lint run ./services/comprehend/...` --
 all clean. No comprehend code changed this pass (clean verdict, disclosure
 only).
+
+## 2026-08-31: wrapper-key/per-item sweep, ops absent from this file (gopherstack-6flj/21my)
+
+Targeted the 19 List*/Describe* operations in comprehend@v1.43.4 whose names
+never appeared anywhere in this file before today: DescribeDocumentClassificationJob,
+DescribeDominantLanguageDetectionJob, DescribeEntitiesDetectionJob,
+DescribeEventsDetectionJob, DescribeKeyPhrasesDetectionJob,
+DescribePiiEntitiesDetectionJob, DescribeResourcePolicy,
+DescribeSentimentDetectionJob, DescribeTargetedSentimentDetectionJob,
+DescribeTopicsDetectionJob, ListDocumentClassificationJobs,
+ListDominantLanguageDetectionJobs, ListEntitiesDetectionJobs,
+ListEventsDetectionJobs, ListKeyPhrasesDetectionJobs,
+ListPiiEntitiesDetectionJobs, ListSentimentDetectionJobs,
+ListTargetedSentimentDetectionJobs, ListTopicsDetectionJobs.
+
+Protocol confirmed from comprehend@v1.43.4's own deserializers.go:
+`awsAwsjson11_` prefix throughout (AWS JSON 1.1), which is case-SENSITIVE --
+no `strings.EqualFold`, so a casing mismatch here is a hard field-name
+miss, unlike rds's query/XML fold-matching. No case-only mismatches found
+(none would be rescued if found).
+
+18 of the 19 (every Describe/List except DescribeResourcePolicy) route
+through one shared mechanism -- `asyncJobSpecs()`/`jobMap()` in
+handler_jobs.go, keyed by 9 boolean flags gating the fields that are NOT
+uniform across the 9 async job families. Independently re-verified (not
+trusted from the existing code comment) by diffing `jobMap`'s emitted keys
+and each `jobSpec`'s flags against all 9 real `*JobProperties` types in
+comprehend@v1.43.4/types/types.go, field for field: DocumentClassificationJobProperties,
+EntitiesDetectionJobProperties, KeyPhrasesDetectionJobProperties,
+SentimentDetectionJobProperties, PiiEntitiesDetectionJobProperties,
+TopicsDetectionJobProperties, TargetedSentimentDetectionJobProperties,
+DominantLanguageDetectionJobProperties, EventsDetectionJobProperties. Every
+field and every family-specific gate (FlywheelArn only on Document
+Classification/Entities; Mode/RedactionConfig only on Pii; NumberOfTopics
+only on Topics; TargetEventTypes only on Events; no LanguageCode on
+Document Classification/Topics/DominantLanguage) matched exactly. Also
+verified all 9 `List*JobsOutput.<Family>JobPropertiesList` wrapper-key names
+against `api_op_List*.go` -- all correct. `InputDataConfig`/
+`OutputDataConfig`/`VpcConfig` are stored and re-emitted as opaque
+`map[string]any` echoes of the original request body (store.go's
+`mapValue`), not synthesized field-by-field, so there is no per-key
+mismatch surface inside them to check. **Clean: 0 bugs found in this
+18-operation family.**
+
+`DescribeResourcePolicy` (handler_resource_policy.go): wire shape confirmed
+clean against `DescribeResourcePolicyOutput`
+(api_op_DescribeResourcePolicy.go) -- `ResourcePolicy`/`CreationTime`/
+`LastModifiedTime`/`PolicyRevisionId` all correctly named. **Bug found and
+fixed, different axis (data-fabrication, not wire-shape):**
+`describeResourcePolicy` stamped both `CreationTime` and `LastModifiedTime`
+with `time.Now()` on every single call, rather than tracking real per-policy
+state -- the backend (`store.go`) had no `policyCreatedAt`/
+`policyModifiedAt` maps at all. Two reads of the same never-modified policy
+returned two different `CreationTime` values, and `LastModifiedTime` kept
+advancing on every read regardless of whether `PutResourcePolicy` had been
+called. Fixed by adding `policyCreatedAt`/`policyModifiedAt` maps to
+`InMemoryBackend`, set once (`CreatedAt`) or on every `PutResourcePolicy`
+(`ModifiedAt`), threaded through `GetResourcePolicy`'s signature (now
+returns both times), and both maps are included in the persistence
+snapshot (`persistence.go`; `comprehendSnapshotVersion` bumped 1 -> 2 since
+the on-disk shape changed). Test:
+`TestDescribeResourcePolicy_TimestampsStable` (handler_resource_policy_test.go),
+uses `testing/synctest` to advance the virtual clock between calls (no real
+sleep) and asserts `CreationTime` is stable across reads while
+`LastModifiedTime` only advances on a later `PutResourcePolicy`. This test
+fails to *compile* against unmodified code (`GetResourcePolicy`'s old
+3-value signature), which was confirmed before applying the fix.
+`persistence_test.go`'s existing snapshot round-trip test was extended to
+assert both new timestamps survive a Snapshot/Restore cycle non-zero.
+
+**Real but unobservable, recorded not fixed:** none found in this batch --
+every field on every checked type had a backing domain-model source.
+
+Gates: `go build ./...` (repo-wide), `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/comprehend/...` (pass),
+`golangci-lint run ./services/comprehend/...` (0 issues after a
+`golines -w -m 120` pass on the one line `GetResourcePolicy`'s new
+5-value not-found return exceeded). No `nolint` directives in any file
+touched this pass (store.go, persistence.go, handler_resource_policy.go,
+handler_resource_policy_test.go, persistence_test.go). Pages fetched: 0
+(pinned module cache only).

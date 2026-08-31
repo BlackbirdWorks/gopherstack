@@ -174,7 +174,7 @@ func (h *Handler) execute(action string, spec operationSpec, input map[string]an
 			action,
 			stringValue(input[spec.nameField]),
 			input,
-			createFails(spec.kind, input),
+			createFailureMessage(spec.kind, input),
 		)
 		if err != nil {
 			return nil, err
@@ -187,7 +187,15 @@ func (h *Handler) execute(action string, spec operationSpec, input map[string]an
 			return nil, err
 		}
 
-		return resourceOutput(spec, resource), nil
+		output := resourceOutput(spec, resource)
+		if spec.kind == kindMonitor {
+			if eval, ok := h.Backend.latestMonitorEvaluation(resource.ARN); ok {
+				output["LastEvaluationState"] = eval.EvaluationState
+				output["LastEvaluationTime"] = awstime.Epoch(eval.EvaluationTime)
+			}
+		}
+
+		return output, nil
 	case modeUpdate:
 		resource, err := h.Backend.update(spec.kind, resourceIdentifier(spec, input), input)
 		if err != nil {
@@ -398,6 +406,9 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	output["Status"] = resource.Status
 	output["CreationTime"] = awstime.Epoch(resource.CreatedAt)
 	output["LastModificationTime"] = awstime.Epoch(resource.UpdatedAt)
+	if resource.Message != "" {
+		output["Message"] = resource.Message
+	}
 
 	return output
 }
@@ -547,21 +558,29 @@ func filterFieldValue(spec operationSpec, r *Resource, key string) (string, bool
 	return "", false
 }
 
-func createFails(kind resourceKind, input map[string]any) bool {
+// createFailureMessage reports the DescribeDatasetImportJobOutput.Message
+// ("If an error occurred, an informational message about the error",
+// forecast@v1.44.4 api_op_DescribeDatasetImportJob.go) this backend's one
+// modeled failure condition should carry, or "" if the create should
+// succeed. Only kindDatasetImportJob can fail here.
+func createFailureMessage(kind resourceKind, input map[string]any) string {
 	if kind != kindDatasetImportJob {
-		return false
+		return ""
 	}
 
 	dataSource, ok := input["DataSource"].(map[string]any)
 	if !ok {
-		return true
+		return "DataSource is required"
 	}
 	s3Config, ok := dataSource["S3Config"].(map[string]any)
 	if !ok {
-		return true
+		return "DataSource.S3Config is required"
+	}
+	if stringValue(s3Config["Path"]) == "" {
+		return "DataSource.S3Config.Path is required"
 	}
 
-	return stringValue(s3Config["Path"]) == ""
+	return ""
 }
 
 const forecastContentType = "application/x-amz-json-1.1"

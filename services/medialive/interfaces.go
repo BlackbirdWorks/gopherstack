@@ -2615,6 +2615,7 @@ type InputSecurityGroup struct {
 
 // InputSecurityGroupSummary is a security group in a list response.
 type InputSecurityGroupSummary struct {
+	Tags           map[string]string
 	ARN            string
 	ID             string
 	State          string
@@ -2671,12 +2672,14 @@ type Multiplex struct {
 
 // MultiplexSummary is a Multiplex in a list response.
 type MultiplexSummary struct {
-	ARN               string
-	ID                string
-	Name              string
-	State             string
-	AvailabilityZones []string
-	ProgramCount      int
+	Tags                   map[string]string
+	ARN                    string
+	ID                     string
+	Name                   string
+	State                  string
+	AvailabilityZones      []string
+	TransportStreamBitrate int
+	ProgramCount           int
 }
 
 // ServiceDescriptor holds provider/service name for a program.

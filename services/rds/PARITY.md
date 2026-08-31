@@ -956,3 +956,98 @@ Gates: `go build ./services/rds/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/rds/...` (pass), `golangci-lint run
 ./services/rds/...` (0 issues, no `--fix` needed). No `nolint` directives in
 any file touched this pass.
+
+## Wrapper-key/per-item sweep, ops absent from this file (2026-08-31, gopherstack-6flj/21my)
+
+Targeted the 19 List*/Describe* operations in rds@v1.124.1 whose names never
+appeared anywhere in this file before today -- the standing shortcut for
+finding where a dated sweep never reached: DescribeAccountAttributes,
+DescribeCertificates, DescribeDBClusterParameterGroups,
+DescribeDBClusterSnapshotAttributes, DescribeDBParameterGroups,
+DescribeDBProxies, DescribeDBProxyEndpoints, DescribeDBProxyTargetGroups,
+DescribeDBProxyTargets, DescribeDBSecurityGroups, DescribeDBSubnetGroups,
+DescribeEngineDefaultClusterParameters, DescribeEventCategories,
+DescribeEventSubscriptions, DescribeOptionGroupOptions,
+DescribeOptionGroups, DescribeReservedDBInstances,
+DescribeReservedDBInstancesOfferings, DescribeValidDBInstanceModifications.
+
+Protocol confirmed from rds@v1.124.1's own deserializers.go: `awsAwsquery_`
+prefix throughout (query/XML), so smithyxml's `strings.EqualFold` applies --
+a wire-tag differing only in case would decode correctly and could not be
+caught by this method. No case-only mismatches were found or would apply.
+
+**Bug found and fixed**: `xmlAccountAttribute`
+(handler_reference_data.go) had its two non-Max tags swapped. The real
+`AccountQuota` member is `AccountQuotaName` (rds@v1.124.1 deserializers.go's
+`awsAwsquery_deserializeDocumentAccountQuota`), but the Go field holding the
+attribute name string was tagged `xml:"AttributeName"` -- a tag the real
+deserializer never matches -- while the Go field holding the numeric `Used`
+count was tagged `xml:"AccountQuotaName"`. Pre-fix, a real client's
+`AccountQuotaName` decoded a stringified count (e.g. `"40"`) instead of the
+attribute's name, and `Used` was permanently nil since nothing was ever
+emitted under the real `Used` tag. `Max` was already correct. Fixed by
+swapping the two tags to `AccountQuotaName`/`Used`. Test:
+`TestDescribeAccountAttributes_QuotaFields_RealClient`
+(wire_field_fixes_test.go), drives the real SDK client and asserts
+`AccountQuotaName`/`Used`/`Max` all round-trip for the `DBInstances` quota.
+Confirmed failing against unmodified code first.
+
+Proxies family (DescribeDBProxies/Endpoints/TargetGroups/Targets),
+DBParameterGroups/DBClusterParameterGroups/DBClusterParameters/
+EngineDefault(Cluster)Parameters, DBSecurityGroups, DBSubnetGroups,
+EventCategories/EventSubscriptions, OptionGroups, ReservedDBInstances(Offerings),
+and ValidDBInstanceModifications were all field-diffed per-op against their
+own real deserializer (wrapper key, member-wrap shape, and every emitted
+item field) and came back clean for what they emit -- the earlier session's
+DBProxyTarget.TargetHealth fix (already committed, `7a9a557d8`) was
+independently re-verified against the current deserializer and still holds.
+No wrapper-key mismatch, no member-wrap-shape mismatch, and no case-only
+mismatch found in any of the 19 (beyond the one field-swap above). No hard
+decode errors or panics found -- every mismatch in this batch was the
+silent-empty/silent-wrong-value shape.
+
+**Real members genuinely absent from this backend's domain model** (checked
+against the SDK type, not fabricated): `Certificate.CertificateArn` and
+`.CustomerOverrideValidTill` (models.Certificate has no ARN or override-date
+field, and no confirmed real ARN format was found in the pinned module
+cache's doc comments to synthesize safely); `AccountQuota` has none extra.
+`DBSecurityGroup.EC2SecurityGroups`/`.OwnerId`/`.VpcId` (EC2-Classic legacy
+fields, not modelled at all -- this backend's `DBSecurityGroup` has no VPC
+concept). `Subnet.SubnetAvailabilityZone`/`.SubnetStatus`/`.SubnetOutpost`
+(models.DBSubnetGroup stores subnet IDs as bare strings, no per-subnet AZ/
+status/outpost data). `DBProxy.DefaultAuthScheme`/`.EndpointNetworkType`/
+`.TargetConnectionNetworkType`/`.VpcId`, `UserAuthConfigInfo.ClientPasswordAuthType`
+(none tracked by the domain model). `DBProxyEndpoint.VpcId` is declared on
+the domain struct (`proxies.go`) but never populated by any code path --
+always the zero value, so emitting it would add nothing; left unemitted
+rather than wiring a field that can only ever be empty. `Parameter.AllowedValues`/
+`.MinimumEngineVersion`/`.SupportedEngineModes` (models.DBParameter tracks
+only Name/Value/Description/ApplyType/DataType/Source/ApplyMethod/
+IsModifiable). `OptionGroup.Option.DBSecurityGroupMemberships`/
+`.OptionSettings`/`.Permanent`/`.Persistent`/`.Port`/`.VpcSecurityGroupMemberships`
+(models.OptionGroupOption tracks only OptionName/OptionVersion).
+`ReservedDBInstance.LeaseId`/`.RecurringCharges`/`.ReservedDBInstanceArn` and
+`ReservedDBInstancesOffering.RecurringCharges` (not modelled; no confirmed
+ARN format found to synthesize the Arn field safely).
+`ValidDBInstanceModificationsMessage.Storage`/`.AdditionalStorage`/
+`.SupportsDedicatedLogVolume` (would need a per-instance-class storage-type
+catalog this backend does not have; only `ValidProcessorFeatures` is
+modelled and it is correct). `EventSubscription.SubscriptionCreationTime`
+(not modelled). These are real, verified-against-the-SDK gaps, not
+fabricated ones -- recorded here rather than filled with guessed values.
+
+**Structural gap, not fixed**: `DescribeOptionGroupOptions` is a full stub
+(`handleDescribeOptionGroupOptions` in handler_option_groups.go always
+returns an empty response with no `OptionGroupOptions` field at all --
+confirmed against rds@v1.124.1's real `DescribeOptionGroupOptionsOutput`,
+which wraps `[]types.OptionGroupOption`, a static per-engine catalog type
+distinct from the per-group `Option` type used elsewhere in this file).
+Real AWS returns this catalog unconditionally for any known engine; this
+backend has no such catalog data (hundreds of option definitions across
+engines) and none was fabricated. Filed as a gap, not a wrapper-key bug,
+since there is no wrapper key present to be wrong.
+
+Gates: `go build ./services/rds/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/rds/...` (pass), `golangci-lint run
+./services/rds/...` (0 issues). No `nolint` directives in either file
+touched this pass (handler_reference_data.go, wire_field_fixes_test.go).

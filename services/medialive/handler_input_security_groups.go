@@ -119,11 +119,16 @@ func (h *Handler) handleListInputSecurityGroups(c *echo.Context) error {
 		for _, r := range s.WhitelistRules {
 			rules = append(rules, map[string]any{"cidr": r.Cidr})
 		}
+		tags := s.Tags
+		if tags == nil {
+			tags = map[string]string{}
+		}
 		out = append(out, map[string]any{
 			keyArn:           s.ARN,
 			keyID:            s.ID,
 			keyState:         s.State,
 			"whitelistRules": rules,
+			keyTags:          tags,
 		})
 	}
 

@@ -71,7 +71,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 func (b *InMemoryBackend) create(
-	kind resourceKind, action, name string, data map[string]any, failed bool,
+	kind resourceKind, action, name string, data map[string]any, failureMessage string,
 ) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) create(
 
 	now := time.Now().UTC()
 	status := statusCreatePending
-	if failed {
+	if failureMessage != "" {
 		status = statusCreateFailed
 	}
 
@@ -117,6 +117,7 @@ func (b *InMemoryBackend) create(
 		ARN:       arn.Build("forecast", b.region, b.accountID, string(kind)+"/"+name),
 		Name:      name,
 		Status:    status,
+		Message:   failureMessage,
 		Kind:      kind,
 	}
 	table.Put(resource)
@@ -204,6 +205,23 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
 	return result
+}
+
+// latestMonitorEvaluation returns the most recently created evaluation for
+// monitorARN, for DescribeMonitor's LastEvaluationState/LastEvaluationTime
+// (both real members of DescribeMonitorOutput, forecast@v1.44.4
+// api_op_DescribeMonitor.go). Evaluations are appended in creation order, so
+// the last element is the most recent.
+func (b *InMemoryBackend) latestMonitorEvaluation(monitorARN string) (MonitorEvaluation, bool) {
+	b.mu.RLock("latestMonitorEvaluation")
+	defer b.mu.RUnlock()
+
+	evaluations := b.evaluations[monitorARN]
+	if len(evaluations) == 0 {
+		return MonitorEvaluation{}, false
+	}
+
+	return evaluations[len(evaluations)-1], true
 }
 
 func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEvaluation, error) {

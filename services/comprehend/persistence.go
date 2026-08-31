@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -22,6 +23,9 @@ import (
 // snapshot shape to be compatible with -- any snapshot without a matching
 // Version (including one with no version field, which decodes as 0) is
 // discarded the same way any other incompatible snapshot is.
+// Version 2 added PolicyCreatedAt/PolicyModifiedAt (gopherstack-6flj/21my:
+// DescribeResourcePolicy previously stamped both timestamps with time.Now()
+// on every call instead of tracking real per-policy state).
 const comprehendSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the Comprehend backend.
@@ -37,13 +41,15 @@ const comprehendSnapshotVersion = 1
 // nothing for store.Table to key on (see store_setup.go's file doc comment).
 // They are persisted directly here.
 type backendSnapshot struct {
-	Tables          map[string]json.RawMessage   `json:"tables"`
-	Tags            map[string]map[string]string `json:"tags"`
-	Policies        map[string]string            `json:"policies"`
-	PolicyRevisions map[string]string            `json:"policyRevisions"`
-	AccountID       string                       `json:"accountID"`
-	Region          string                       `json:"region"`
-	Version         int                          `json:"version"`
+	Tables           map[string]json.RawMessage   `json:"tables"`
+	Tags             map[string]map[string]string `json:"tags"`
+	Policies         map[string]string            `json:"policies"`
+	PolicyRevisions  map[string]string            `json:"policyRevisions"`
+	PolicyCreatedAt  map[string]time.Time         `json:"policyCreatedAt"`
+	PolicyModifiedAt map[string]time.Time         `json:"policyModifiedAt"`
+	AccountID        string                       `json:"accountID"`
+	Region           string                       `json:"region"`
+	Version          int                          `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -60,13 +66,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:         comprehendSnapshotVersion,
-		Tables:          tables,
-		Tags:            b.tags,
-		Policies:        b.policies,
-		PolicyRevisions: b.policyRevisions,
-		AccountID:       b.accountID,
-		Region:          b.region,
+		Version:          comprehendSnapshotVersion,
+		Tables:           tables,
+		Tags:             b.tags,
+		Policies:         b.policies,
+		PolicyRevisions:  b.policyRevisions,
+		PolicyCreatedAt:  b.policyCreatedAt,
+		PolicyModifiedAt: b.policyModifiedAt,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "comprehend", snap)
@@ -98,6 +106,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tags = make(map[string]map[string]string)
 		b.policies = make(map[string]string)
 		b.policyRevisions = make(map[string]string)
+		b.policyCreatedAt = make(map[string]time.Time)
+		b.policyModifiedAt = make(map[string]time.Time)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -117,10 +127,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if snap.PolicyRevisions == nil {
 		snap.PolicyRevisions = make(map[string]string)
 	}
+	if snap.PolicyCreatedAt == nil {
+		snap.PolicyCreatedAt = make(map[string]time.Time)
+	}
+	if snap.PolicyModifiedAt == nil {
+		snap.PolicyModifiedAt = make(map[string]time.Time)
+	}
 
 	b.tags = snap.Tags
 	b.policies = snap.Policies
 	b.policyRevisions = snap.PolicyRevisions
+	b.policyCreatedAt = snap.PolicyCreatedAt
+	b.policyModifiedAt = snap.PolicyModifiedAt
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
