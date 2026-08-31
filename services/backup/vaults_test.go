@@ -66,13 +66,14 @@ func TestListBackupVaultsFiltered(t *testing.T) {
 	mustVault(t, b, "plain-vault")
 	mustVault(t, b, "plain-vault2")
 
-	// Create a logically air-gapped vault by setting lock with MinRetentionDays.
-	mustVault(t, b, "locked-vault")
-	if err := b.PutBackupVaultLockConfiguration("locked-vault", &backup.VaultLockConfig{
-		MinRetentionDays: 30,
-		MaxRetentionDays: 365,
-	}); err != nil {
-		t.Fatalf("PutBackupVaultLockConfiguration: %v", err)
+	// PutBackupVaultLockConfiguration only stores a lock policy (VaultLockConfig)
+	// in a separate table; it does not touch Vault.VaultType or
+	// Vault.MinRetentionDays. A logically air-gapped vault is a distinct
+	// resource created via CreateLogicallyAirGappedBackupVault.
+	if _, err := b.CreateLogicallyAirGappedBackupVault(
+		"locked-vault", "", 30, 365, nil,
+	); err != nil {
+		t.Fatalf("CreateLogicallyAirGappedBackupVault: %v", err)
 	}
 
 	cases := []struct {
@@ -89,6 +90,26 @@ func TestListBackupVaultsFiltered(t *testing.T) {
 			name:      "maxResults=1 limits page",
 			filter:    backup.ListVaultsFilter{MaxResults: 1},
 			wantCount: 1,
+		},
+		{
+			name:      "ByVaultType=BACKUP_VAULT returns only regular vaults",
+			filter:    backup.ListVaultsFilter{VaultType: backup.VaultTypeBackupVault},
+			wantCount: 2,
+		},
+		{
+			name:      "ByVaultType=LOGICALLY_AIR_GAPPED_BACKUP_VAULT returns only the air-gapped vault",
+			filter:    backup.ListVaultsFilter{VaultType: backup.VaultTypeAirGapped},
+			wantCount: 1,
+		},
+		{
+			// types.VaultType (aws-sdk-go-v2/service/backup@v1.59.4 enums.go)
+			// documents a third value, RESTORE_ACCESS_BACKUP_VAULT, that no
+			// vault in this backend's store ever carries (restore access
+			// vaults live in a separate table entirely) -- filtering on it
+			// must return nothing, not fall through and match every vault.
+			name:      "ByVaultType=RESTORE_ACCESS_BACKUP_VAULT matches nothing",
+			filter:    backup.ListVaultsFilter{VaultType: "RESTORE_ACCESS_BACKUP_VAULT"},
+			wantCount: 0,
 		},
 	}
 

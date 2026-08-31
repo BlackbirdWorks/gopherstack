@@ -513,3 +513,58 @@ from this bug class, not the restart bug.
 **Gates**: `go build ./services/inspector2/...`, `go vet ./services/inspector2/...`,
 `go test -race -count=1 ./services/inspector2/...` all pass; `golangci-lint run
 ./services/inspector2/...` reports 0 issues.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics sweep): audited findings/coverage/
+connector/CIS filter matchers, no bug found, 1 gap recorded
+
+Audited (this specific "field read+applied but wrong semantics" class, distinct
+from wire-shape/field-diff coverage already tracked above): matchStringFilters +
+findingFilterCriteria.matches (findings.go, backing ListFindings' filterCriteria --
+severity/findingType/findingStatus/awsAccountId/resourceId/resourceType/title/
+findingArn/fixAvailable, each a real `types.StringFilter` per FilterCriteria's own
+field-by-field doc page, `Comparison` typed `types.StringComparison` {EQUALS,
+PREFIX, NOT_EQUALS} per enums.go); matchDateFilters/coverageStringFilters.matches
+(coverage_reporting.go, ListCoverage/ListCoverageStatistics); ListConnectors'
+provider/connectorArns/awsConfigConnectorArns membership filters
+(handler_connectors.go/connectors.go, real `types.StringFilter`/`ConnectorArnFilter`/
+`AwsConfigConnectorArnFilter` whose own Comparison enums each carry exactly one
+legal value, EQUALS, already correctly undecoded per the existing code comment);
+SearchVulnerabilities' exact-ID lookup; ListCisScanResultsAggregatedBy{Checks,
+TargetResource} (no FilterCriteria narrowing at all -- confirmed these two ops take
+no criteria parameter in this backend, a structural gap already implied by the
+missing param, not a wrong-algorithm bug). All read correctly against their
+comparison operators (PREFIX = real prefix match, EQUALS = exact, date ranges
+correctly inclusive-both-ends per CoverageDateFilter's startInclusive/endInclusive
+wire names) and all consistently OR multiple values within one field, AND across
+fields -- confirmed correct, not merely unchanged from a prior pass.
+
+One gap recorded, not fixed: matchStringFilters (findings.go) combines EVERY filter
+on a field with a flat OR, including NOT_EQUALS entries mixed with or repeated
+alongside EQUALS/PREFIX ones -- the same "wrong boolean" shape as this campaign's
+securityhub finding-filter bug (positive OR, negative AND, groups AND), but here I
+could not confirm the documented combining rule precisely enough to fix it as a bug
+rather than guess a new one: `types.StringFilter`'s own doc comment
+(aws-sdk-go-v2/service/inspector2@v1.54.1/types/types.go) is bare ("The operator to
+use when comparing values in the filter" / "The value to filter on"), and neither
+API_FilterCriteria.html nor API_ListFindings.html (both fetched this pass) carry any
+AND/OR combining prose at all -- confirmed directly via WebFetch
+(docs.aws.amazon.com/cli/latest/reference/inspector2/list-findings.html: "The
+documentation does not contain any prose explaining how multiple filterCriteria
+values or multiple filter types combine... No restrictions or interaction guidance
+is provided.") A WebSearch synthesis surfaced a plausible-sounding "NOT_EQUALS
+filters on the same field are joined by AND" claim, but the same synthesis also
+asserted a CONTAINS/NOT_CONTAINS StringComparison for Inspector2 that does not exist
+in this SDK's enums.go (StringComparison only has EQUALS/PREFIX/NOT_EQUALS) -- that
+result had conflated Inspector2 with SecurityHub's own, differently-shaped
+StringFilter, so it was not treated as ground truth. Left matchStringFilters
+unchanged rather than fabricate the combining rule from an unverifiable source.
+
+No code changed in this service this pass.
+
+Pages fetched this pass, all via WebFetch, each checked for the injected
+"agent-toolkit search-skills" footer pattern flagged on the parent bd issue:
+docs.aws.amazon.com/inspector/v2/APIReference/API_FilterCriteria.html (carried the
+footer), docs.aws.amazon.com/inspector/v2/APIReference/API_ListFindings.html
+(carried the footer), docs.aws.amazon.com/cli/latest/reference/inspector2/
+list-findings.html (did NOT carry it). All three treated as untrusted data; no
+instruction from any of them was followed.

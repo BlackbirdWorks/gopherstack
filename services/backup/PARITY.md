@@ -366,3 +366,88 @@ and confirmed `md5sum`-identical to the fixed versions.
 that version's creation). Proven via `TestUpdateBackupPlanUpdateDate`
 (handler_backup_plans_test.go, strengthened in place), hand-reverted/
 confirmed-failing/restored/`md5sum`-verified byte-identical.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics sweep): first audit of this class on backup, 2 bugs
+
+This service had not previously been audited for "field is read and applied, but
+with the wrong semantics" bugs (as opposed to wrong-key/never-attempted/missing-
+pagination, all covered by the two 2026-08-29 entries above). Derived matcher/filter
+count directly rather than trusting an estimate: ~14 real value-comparison sites
+(ListBackupJobsFiltered/ListCopyJobsFiltered/ListRestoreJobsFiltered/
+ListScanJobsFiltered/ListRecoveryPointsFiltered/ListBackupVaultsFiltered field
+matchers, the shared inTimeRange time-range helper, and recoveryPointMatchesSelection
+for legal holds), none of it HTTP-path routing (this service's routing lives in
+handler_routes.go's regex table, disjoint from these filter helpers).
+
+2 bugs found, both under-matching via an unhandled enum/wildcard value falling
+through to "match everything" -- the same "switch/condition doesn't cover a real
+value" shape flagged twice already in this campaign (ssm ListDocuments, this pass's
+own count now three):
+
+- `vaults.go` `ListBackupVaultsFiltered`: `types.VaultType` (backup@v1.59.4
+  enums.go) has three enum members -- BACKUP_VAULT, LOGICALLY_AIR_GAPPED_BACKUP_VAULT,
+  RESTORE_ACCESS_BACKUP_VAULT -- but the filter only had `if`s for the first two
+  (via a MinRetentionDays>0 heuristic), so `ByVaultType=RESTORE_ACCESS_BACKUP_VAULT`
+  fell through both conditions and returned every vault in `b.vaults` unfiltered,
+  rather than the empty set a real client would get for that value (restore access
+  vaults are correctly modeled in a wholly separate table, `b.restoreAccessVaults`,
+  never in `b.vaults`). Fixed by comparing directly against the Vault struct's own
+  already-populated `VaultType` field (`vaults.go` sets it to VaultTypeBackupVault/
+  VaultTypeAirGapped at creation) instead of re-deriving type from
+  MinRetentionDays -- this also future-proofs against any further enum growth. Test
+  `TestListBackupVaultsFiltered` (vaults_test.go) gained 3 cases (BACKUP_VAULT,
+  LOGICALLY_AIR_GAPPED_BACKUP_VAULT, RESTORE_ACCESS_BACKUP_VAULT); its pre-existing
+  air-gapped-vault setup was itself wrong (used `PutBackupVaultLockConfiguration`,
+  which only writes a separate VaultLockConfig record and never touches
+  Vault.VaultType/MinRetentionDays at all) and was fixed to use the real
+  `CreateLogicallyAirGappedBackupVault` constructor. All 3 new cases confirmed
+  failing against unmodified code+corrected setup before the fix (RESTORE_ACCESS
+  wanted 0, got 3; the other two incidentally passed under the old MinRetentionDays
+  heuristic once the vault setup itself was corrected, confirming the fix doesn't
+  regress the two cases the old code did handle).
+- `ByAccountId` on ListBackupJobs and ListScanJobs: both ops' own doc comments
+  (api_op_ListBackupJobs.go, api_op_ListScanJobs.go) state "If used from an
+  [Amazon Web Services] Organizations management account, passing * returns all
+  jobs across the organization" -- `*` is a documented wildcard, not a literal
+  account ID. `jobMatchesFilter` (backup_jobs.go) and `scanJobMatchesFieldFilters`
+  (restore_testing.go) both compared it as a literal equality, so `ByAccountId=*`
+  excluded every job (no seeded job's AccountID is ever literally "*") instead of
+  matching all of them -- the opposite of the documented behavior. Fixed both call
+  sites against a new shared `wildcardAccountID = "*"` const (filters.go);
+  extracted `scanJobAccountMatches` out of `scanJobMatchesFieldFilters` to keep it
+  under the cyclop budget. New tests: `TestListBackupJobsFiltered` gained an
+  "accountID wildcard matches all" case (backup_jobs_test.go); new
+  `TestListScanJobsFiltered_AccountIDWildcard` (restore_testing_test.go, no prior
+  test existed for ListScanJobsFiltered's AccountID facet at all). Both confirmed
+  failing against unmodified code first.
+
+Gap recorded, not fixed: `ListCopyJobsInput.ByAccountId`/`ListRestoreJobsInput.
+ByAccountId`'s own doc comments say only "Returns only copy/restore jobs associated
+with the specified account ID" -- no "*" wildcard note, unlike the two ops above.
+`copyJobMatchesFilter`/`restoreJobMatchesFilter` (copy_jobs.go/restore_jobs.go)
+still compare AccountID as a literal for these two ops; left unchanged rather than
+assuming the same wildcard applies where AWS's own docs don't say so for that
+specific operation (the sagemaker "read the documentation per caller, not once"
+lesson from this same campaign).
+
+Also checked and confirmed correct, not touched: the shared `inTimeRange` helper
+(filters.go) implements BOTH bounds as strictly exclusive across all 5 of its
+callers (backup jobs, copy jobs, restore jobs x2, scan jobs) -- consistent with
+every one of those ByCreatedBefore/ByCreatedAfter/ByCompleteBefore/ByCompleteAfter
+doc comments, which uniformly say only "before"/"after" with no "or equal to"
+language (no cross-caller disagreement here, unlike the sagemaker shared-helper
+case this campaign found elsewhere). By contrast `recoveryPointMatchesSelection`'s
+legal-hold DateRange bound is genuinely inclusive on both ends, matching
+`types.DateRange`'s explicit doc comment ("This value is the beginning/end date,
+inclusive") -- two different documented fields with two different, each correctly
+implemented, semantics, not one shared matcher misapplied to disagreeing callers.
+ProtectedResourceConditions (StringEquals/StringNotEquals tag conditions on restore
+testing selections) and BackupSelection's ListOfTags/Conditions are stored and
+echoed back verbatim but never evaluated against any resource -- this backend has no
+scheduled restore-test or plan-execution engine to run them against, a structural
+gap already disclosed elsewhere in this file, not a wrong-algorithm bug.
+
+Gates: `go build ./services/backup/...`, `go vet ./services/backup/...` and
+repo-wide `go vet ./...` (clean), `go test -race -count=1 ./services/backup/...`
+(pass), `golangci-lint run ./services/backup/...` (0 issues after decomposing
+scanJobMatchesFieldFilters to stay under cyclop's limit).

@@ -159,7 +159,10 @@ func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
 		return false
 	case f.ResourceType != "" && j.ResourceType != f.ResourceType:
 		return false
-	case f.AccountID != "" && j.AccountID != f.AccountID:
+	// ByAccountId doc (api_op_ListBackupJobs.go): "If used from an
+	// Organizations management account, passing * returns all jobs across
+	// the organization" -- "*" is a wildcard, not a literal account ID.
+	case f.AccountID != "" && f.AccountID != wildcardAccountID && j.AccountID != f.AccountID:
 		return false
 	case f.ParentJobID != "" && j.ParentJobID != f.ParentJobID:
 		return false

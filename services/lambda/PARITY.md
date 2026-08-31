@@ -292,3 +292,60 @@ member of its true single candidate; each only fails the ambiguous-key
 tier's "legal in every candidate" check because the other enum(s) sharing
 the wire key don't declare that member. No bug found; nothing changed in
 this service.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics sweep): event_filter.go, 2 bugs
+
+Audited eventFilterMatches/patternMatchesObject/fieldMatchesRule/operatorMatches
+(event_filter.go) -- the FilterCriteria/Filter.Pattern event-pattern matcher shared
+by SQS/Kinesis/DynamoDB event source mappings -- against the real AWS Lambda "Filter
+rule syntax" comparison-operator table (docs.aws.amazon.com/lambda/latest/dg/
+invocation-eventfiltering.html; the pinned SDK's types.go carries no prose for this
+family, FilterCriteria.Filters[].Pattern is a bare *string). 2 bugs, both under-
+matching:
+
+- `$or` ("Or (multiple fields)" in AWS's own table, example `"$or": [
+  {"Location":["New York"]}, {"Day":["Monday"]} ]`) was not special-cased at all --
+  patternMatchesObject treated "$or" as a literal record field name, so
+  `value["$or"]` was always absent and the clause could never match, silently
+  discarding an entire documented operator. Fixed: patternMatchesObject now
+  recognizes "$or", evaluating its array of sibling pattern fragments against the
+  same value and ORing the results; a non-"$or" sibling key in the same object still
+  ANDs against it normally.
+- `exists`: AWS's own doc states plainly "the Exists operator only works on leaf
+  nodes in your event source JSON. It doesn't match intermediate nodes," with a
+  worked example (`{"person":{"address":[{"exists":true}]}}` does NOT match even
+  though `address` is present, because its value is an object, not a leaf).
+  existsMatches previously took only (arg, present bool) and had no way to see the
+  field's value, so it matched purely on key-presence -- exists:true incorrectly
+  matched an intermediate/nested-object field. Fixed: existsMatches now also takes
+  fieldVal and returns false whenever the field is present but its value is a
+  map[string]any (an intermediate node), matching the documented example exactly.
+
+Gaps recorded, not fixed (documentation doesn't state these precisely enough to
+implement without guessing): the page's own text says "Lambda supports the Amazon
+EventBridge rules and uses the same syntax as EventBridge," but the page's
+comparison-operator table lists only Null/Empty/Equals/Equals-ignore-case/And/Or/
+$or/Not (anything-but)/Numeric/Exists/prefix/suffix -- no `wildcard`, no `cidr`, and
+no nested anything-but forms (`{"anything-but":{"prefix":...}}` etc.) appear in that
+table, even though EventBridge itself documents them. Whether Lambda's event
+filtering actually honors those beyond the table is not stated on this page, so
+`wildcard`/`cidr` remain unimplemented (singleOperatorMatches's default case returns
+false, i.e. they always fail to match rather than being silently accepted) and a
+nested-object arg to `anything-but` still falls through to
+`!scalarMatches(...)` (always true, i.e. an unconditional match) rather than being
+given real prefix/suffix/equals-ignore-case semantics -- left as-is rather than
+fabricated.
+
+New/changed tests (event_filter_test.go, table-driven, same TestLambda_EventFilterMatches
+func): +4 cases (2 for $or matching/non-matching/AND-with-sibling, 1 for the
+intermediate-node exists fix), all confirmed failing against unmodified code first
+(2 actually fail pre-fix: "$or matches when second branch matches" and "exists true
+does not match an intermediate object node"; the other 2 new $or cases pass either
+way since their expected result is `false` under both the buggy and fixed logic, but
+are kept as regression coverage for the AND-with-sibling-key and no-branch-matches
+shapes). Assertion count: 26 -> 30 subtests, 0 dropped, all pre-existing cases
+unchanged.
+
+Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...` and repo-wide
+`go vet ./...` (clean), `go test -race -count=1 ./services/lambda/...` (pass),
+`golangci-lint run ./services/lambda/...` (0 issues).

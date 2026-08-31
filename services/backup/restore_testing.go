@@ -440,10 +440,20 @@ type ListScanJobsFilter struct {
 	MaxResults       int
 }
 
+// scanJobAccountMatches implements ByAccountId (api_op_ListScanJobs.go):
+// "If used from an Amazon Web Services Organizations management account,
+// passing * returns all jobs across the organization" -- "*" is a wildcard,
+// not a literal account ID.
+func scanJobAccountMatches(j *ScanJob, f ListScanJobsFilter) bool {
+	return f.AccountID == "" || f.AccountID == wildcardAccountID || j.AccountID == f.AccountID
+}
+
 func scanJobMatchesFieldFilters(j *ScanJob, f ListScanJobsFilter) bool {
-	switch {
-	case f.AccountID != "" && j.AccountID != f.AccountID:
+	if !scanJobAccountMatches(j, f) {
 		return false
+	}
+
+	switch {
 	case f.BackupVaultName != "" && j.BackupVaultName != f.BackupVaultName:
 		return false
 	case f.MalwareScanner != "" && j.MalwareScanner != f.MalwareScanner:
