@@ -25,7 +25,7 @@ func TestBackend_DescribeAlarmHistory_FilterByType(t *testing.T) {
 	}))
 	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach", ""))
 
-	hist, err := b.DescribeAlarmHistory("a1", "", "StateUpdate", "", time.Time{}, time.Time{}, 0)
+	hist, err := b.DescribeAlarmHistory("a1", nil, "StateUpdate", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	for _, item := range hist.Data {
 		assert.Equal(t, "StateUpdate", item.HistoryItemType)
@@ -43,7 +43,7 @@ func TestBackend_DescribeAlarmHistory_AllAlarms(t *testing.T) {
 		}))
 	}
 
-	hist, err := b.DescribeAlarmHistory("", "", "", "", time.Time{}, time.Time{}, 0)
+	hist, err := b.DescribeAlarmHistory("", nil, "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	// Should have history for both alarms (creation events).
 	alarmNames := make(map[string]bool)
@@ -92,7 +92,7 @@ func TestAlarmHistory_RecordsActionOnTransition(t *testing.T) {
 
 	b.EvaluateAlarms(context.Background(), now)
 
-	page, err := b.DescribeAlarmHistory(alarm, "", "", "", time.Time{}, time.Time{}, 0)
+	page, err := b.DescribeAlarmHistory(alarm, nil, "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 
 	var hasAction bool
@@ -118,7 +118,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory(t *testing.T) {
 	)
 	require.NoError(t, b.SetAlarmState(t.Context(), "hist-alarm", "ALARM", "test trigger", ""))
 
-	p, err := b.DescribeAlarmHistory("hist-alarm", "", "", "", time.Time{}, time.Time{}, 0)
+	p, err := b.DescribeAlarmHistory("hist-alarm", nil, "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 }
@@ -136,7 +136,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
 	// Filter by StateUpdate type — should find the state transition.
 	p, err := b.DescribeAlarmHistory(
 		"type-filter",
-		"",
+		nil,
 		"StateUpdate",
 		"",
 		time.Time{},
@@ -152,7 +152,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
 	// PutMetricAlarm creates ConfigurationUpdate items.
 	p2, err2 := b.DescribeAlarmHistory(
 		"type-filter",
-		"",
+		nil,
 		"ConfigurationUpdate",
 		"",
 		time.Time{},
@@ -194,7 +194,7 @@ func TestCloudWatchBackend_AlarmHistoryCap(t *testing.T) {
 	}
 
 	// History should be capped at 100 entries.
-	page, err := b.DescribeAlarmHistory("cap-alarm", "", "", "", time.Time{}, time.Time{}, 0)
+	page, err := b.DescribeAlarmHistory("cap-alarm", nil, "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(page.Data), 100)
 }
@@ -252,7 +252,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_AlarmTypeFilter(t *testing.T) {
 
 			// Matching AlarmType filter finds the ConfigurationUpdate entry from Put*.
 			match, err := b.DescribeAlarmHistory(
-				tt.alarmName, tt.alarmType, "", "", time.Time{}, time.Time{}, 0,
+				tt.alarmName, []string{tt.alarmType}, "", "", time.Time{}, time.Time{}, 0,
 			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, match.Data, "expected history for %s tagged %s", tt.alarmName, tt.alarmType)
@@ -263,7 +263,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_AlarmTypeFilter(t *testing.T) {
 				return
 			}
 			mismatch, err2 := b.DescribeAlarmHistory(
-				tt.alarmName, wrongType, "", "", time.Time{}, time.Time{}, 0,
+				tt.alarmName, []string{wrongType}, "", "", time.Time{}, time.Time{}, 0,
 			)
 			require.NoError(t, err2)
 			assert.Empty(t, mismatch.Data)

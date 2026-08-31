@@ -9,13 +9,28 @@ import (
 )
 
 // matchesHistoryFilters returns true if the item passes all the given history filters.
+// includeMetric/includeComposite/includeLog already have DescribeAlarmHistory's
+// AlarmTypes default applied by the caller.
 func matchesHistoryFilters(
 	item AlarmHistoryItem,
-	alarmType, historyItemType string,
+	includeMetric, includeComposite, includeLog bool,
+	historyItemType string,
 	startDate, endDate time.Time,
 ) bool {
-	if alarmType != "" && item.AlarmType != alarmType {
-		return false
+	switch item.AlarmType {
+	case "CompositeAlarm":
+		if !includeComposite {
+			return false
+		}
+	case alarmTypeLogAlarm:
+		if !includeLog {
+			return false
+		}
+	default:
+		// "MetricAlarm" and any legacy untagged entry.
+		if !includeMetric {
+			return false
+		}
 	}
 	if historyItemType != "" && item.HistoryItemType != historyItemType {
 		return false
@@ -31,14 +46,23 @@ func matchesHistoryFilters(
 }
 
 // DescribeAlarmHistory returns history items for one or all alarms, filtered by type and date range.
-// alarmType filters by "MetricAlarm" or "CompositeAlarm" (stored on history items); empty means all.
+// alarmTypes can contain "MetricAlarm", "CompositeAlarm", and/or "LogAlarm". Per the real
+// DescribeAlarmHistoryInput.AlarmTypes doc comment ("If you omit this parameter, only metric
+// alarms are returned"), omitting alarmTypes returns ONLY metric alarm history -- composite
+// and log alarm history are included only when explicitly requested, mirroring DescribeAlarms'
+// AlarmTypes default (bd gopherstack-yvb7).
 func (b *InMemoryBackend) DescribeAlarmHistory(
-	alarmName, alarmType, historyItemType, nextToken string,
+	alarmName string, alarmTypes []string, historyItemType, nextToken string,
 	startDate, endDate time.Time,
 	maxRecords int,
 ) (page.Page[AlarmHistoryItem], error) {
 	b.mu.RLock("DescribeAlarmHistory")
 	defer b.mu.RUnlock()
+
+	typeSet := toSet(alarmTypes)
+	includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]
+	includeComposite := typeSet["CompositeAlarm"]
+	includeLog := typeSet[alarmTypeLogAlarm]
 
 	var result []AlarmHistoryItem
 	for name, items := range b.alarmHistory {
@@ -46,7 +70,9 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 			continue
 		}
 		for _, item := range items {
-			if matchesHistoryFilters(item, alarmType, historyItemType, startDate, endDate) {
+			if matchesHistoryFilters(
+				item, includeMetric, includeComposite, includeLog, historyItemType, startDate, endDate,
+			) {
 				result = append(result, item)
 			}
 		}

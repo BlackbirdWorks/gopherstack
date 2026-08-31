@@ -929,3 +929,66 @@ service without pre-existing typed-client-level pagination coverage.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/cloudwatch/...`).
+
+## 2026-08-30 -- gopherstack-uox6: value-semantics filter audit (iam/cloudwatch/resourcegroupstaggingapi pass)
+
+Audited filter/matcher VALUE SEMANTICS (not shape) across alarms, alarm history,
+condition-style matchers, metric-stream filters, and the alarm-evaluation threshold
+operators, per bd gopherstack-uox6's "a parameter that is read, applied, and wrong"
+class. One bug found and fixed; several matchers verified member-by-member and left
+alone.
+
+**Bug: `DescribeAlarmHistory`'s `AlarmTypes` filter was dead on the only reachable
+wire.** `cborDescribeAlarmHistory` (`rpcv2cbor_alarm_history.go`) read a singular
+`"AlarmType"` CBOR key that no real client ever sends -- `aws-sdk-go-v2` serializes
+`DescribeAlarmHistoryInput.AlarmTypes` (a list) under the key `"AlarmTypes"`
+(`cloudwatch@v1.66.3/api_op_DescribeAlarmHistory.go:53,92`). The backend's own
+`DescribeAlarmHistory(alarmName, alarmType string, ...)` then treated the
+permanently-empty result as "match every type", so the operation's documented default
+("If you omit this parameter, only metric alarms are returned") was inverted:
+composite/log alarm history always leaked into an unfiltered call, and any explicit
+`AlarmTypes` filter a real client sent was silently ignored. Same shape as
+`DescribeAlarms`' AlarmTypes default bug (gopherstack-yvb7), now found in its sibling
+operation. Fixed: backend signature is now `alarmTypes []string`, matching
+`DescribeAlarms`' `toSet`/`includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]`
+pattern; the live CBOR handler now reads `cborStrList(input, "AlarmTypes")`; the dead
+legacy XML handler was updated for consistency to `parseMemberList(form,
+"AlarmTypes.")`. Test: `alarm_history_alarmtypes_realclient_test.go`, a real
+`aws-sdk-go-v2` client round trip asserting both directions (composite alarm absent
+from an unfiltered call; metric alarm absent from an explicit `AlarmTypes:
+[CompositeAlarm]` call) -- confirmed failing against the unmodified code first.
+
+**Verified correct, left alone:** `alarm_eval.go`'s `breachesThreshold` -- all seven
+`ComparisonOperator` enum members (incl. the three anomaly-detection operators)
+checked member-by-member against `types/enums.go`; strict vs. or-equal-to boundaries
+match each operator's own name exactly. `GetMetricStatistics`/`GetMetricData`'s bucket
+window (`metrics.go:400`, `populateBuckets`) -- confirmed StartTime inclusive / EndTime
+exclusive against the SDK doc comment's explicit "The value specified is
+inclusive"/"exclusive" wording. `PutMetricData`'s Timestamp acceptance window
+(two-weeks-past / two-hours-future, `validMetricTimestamp`) -- inclusive both ends,
+matching the AWS API page's "as much as" wording. `metric_streams.go`'s
+`streamAllowsMetric`/`filterIncludesMetric`/`filterExcludesMetric` -- OR-across-filters,
+OR-across-MetricNames, empty-MetricNames-means-whole-namespace, and the
+IncludeFilters/ExcludeFilters mutual-exclusivity validation, all correct.
+`ListMetrics`' `RecentlyActive=PT3H` window -- inclusive boundary, consistent with
+every other recency check in `metrics.go`.
+
+**Gap, not implemented:** `DescribeAlarmsForMetric`'s own doc says "To filter the
+results, specify a statistic, period, or unit" but the backend never reads
+Statistic/Period/ExtendedStatistic/Unit at all (shape gap, not a wrong-semantics bug --
+out of this pass's scope). Its `Dimensions` matcher (`dimsContainAll`) does a
+subset/superset match; the SDK doc comment ("If the metric has any associated
+dimensions, you must specify them in order for the call to succeed") is genuinely
+ambiguous about whether an exact dimension-set match is required -- left as documented
+existing behaviour rather than guessed at. `DescribeAlarmHistory`'s `AlarmContributorId`
+and `ScanBy` parameters are also unread (shape gaps, not fixed this pass).
+
+`iam` and `resourcegroupstaggingapi` matchers audited this pass (IAM condition
+operators in `conditions.go`, `PathPrefix`/`OnlyAttached`/`PolicyUsageFilter` in
+`handler_list_filters.go`, `resourcegroupstaggingapi`'s `TagFilters`/
+`ResourceTypeFilters` AND/OR combining in `get_resources.go`) came back clean --
+see those services' own PARITY.md entries.
+
+Gates: `go build`, `go vet`, `go test -race -count=1` all clean on
+`./services/cloudwatch/...`; repo-wide `go build ./...`/`go vet ./...` clean (no
+cross-service callers of the changed `DescribeAlarmHistory` signature).

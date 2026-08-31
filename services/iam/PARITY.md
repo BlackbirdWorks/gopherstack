@@ -423,3 +423,38 @@ unexamined: `ListAttached{User,Role,Group}Policies`' `PathPrefix`,
 `ListServiceSpecificCredentials` pagination-only parameters, and
 `GetAccountAuthorizationDetails`' `Filter` (sweep 6 already added this one;
 not re-verified this pass).
+
+## 2026-08-30 -- gopherstack-uox6: value-semantics filter audit
+
+Read this service against bd gopherstack-uox6's class ("a parameter that is read,
+applied, and wrong" -- distinct from both the wire-shape sweeps above and the
+2026-08-29 constraint-parameter sweep, which fixed WHETHER `PathPrefix` etc. were
+applied at all; this pass asked whether the semantics of what IS applied are correct).
+
+**Condition-operator evaluation (`conditions.go`)**, the richest matcher surface in
+this service: all IAM condition operator families checked against the operator's own
+documented meaning -- `StringEquals`/`StringLike`(wildcard `*`/`?`, both documented for
+IAM policy grammar, unlike EventBridge's undocumented `?`)/`StringEqualsIgnoreCase`/
+`Bool`/`Null`/`ArnEquals`+`ArnLike` (functionally identical per AWS docs, both
+wildcarded)/`Numeric*`/`Date*` (`LessThanEquals`/`GreaterThanEquals` correctly include
+the equality case) /`BinaryEquals`/`IfExists` suffix/`ForAllValues:`+`ForAnyValue:` set
+qualifiers (vacuous-true / false-on-empty-set respectively, matching documented AWS
+semantics) -- all correct. `evaluator.go`'s `wildcardMatch` (Action/Resource matching,
+case-insensitive for Action, case-sensitive for Resource) is a real DP wildcard
+matcher, not a substring stand-in, and both are documented AWS behaviour.
+
+**`PathPrefix` (`handler_list_filters.go`, `policies.go`)**: filters on the *entity's
+own* path throughout, including `listAttachedPoliciesFiltered` (resolves each
+`AttachedPolicy` back to its owning `Policy.Path` via `GetPolicy`) and
+`listEntitiesForPolicyFiltered` (resolves each user/group/role back to its own
+`Path` via `userPath`/`groupPath`/`rolePath`) -- matches the SDK doc comment's
+explicit "PathPrefix filters on the ENTITY's own path, not the policy's" already
+recorded in this file's comments. No case where the policy's path was used in place
+of the entity's.
+
+**`GetAccountAuthorizationDetails`' `Filter` (`simulation.go`,
+`authDetailsFilterSets`)**: all five `EntityType` enum members (`User`, `Group`,
+`Role`, `LocalManagedPolicy`, `AWSManagedPolicy`) explicitly cased -- no
+switch-without-default gap.
+
+No bugs found; no code changes in this service this pass.
