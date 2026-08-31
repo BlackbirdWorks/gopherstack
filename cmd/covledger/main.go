@@ -22,6 +22,22 @@
 // read gopherstack-uox6 first, which explains why none of those tools can
 // see this campaign's harder bugs either.
 //
+// gopherstack-ri57: A "CLEAN" VERDICT PRODUCES NO CODE DIFF, SO IT OFTEN
+// PRODUCES NO ROW EITHER. A pass that finds a service clean touches at
+// most a PARITY.md line, usually inside a commit named for whichever
+// sibling service DID have a bug -- so reading commit subjects alone
+// systematically under-records clean verdicts (confirmed four times:
+// transcribe, docdb, swf, and the fsx/codebuild pair, the last two filed
+// under a different class label entirely). Every Row now carries an
+// optional Source field recording what evidence backs it -- "commit"
+// (the commit subject/body names the service), "parity" (a PARITY.md
+// entry), "bd_comment" (a tracking-issue comment), or a '+'-joined
+// combination. Run with -parity-only to list every row resting on
+// PARITY.md alone: PARITY has been wrong eighteen distinct ways across
+// this campaign, so a row with no commit-subject or bd-comment
+// corroboration deserves less trust than one that has it, not the same
+// trust as a hand-verified fix.
+//
 // THE SEVEN CLASSES, and how they differ from their nearest neighbour:
 //
 //   - request_field_never_read: a field is declared on the wire and
@@ -100,12 +116,57 @@
 //     automatically as new passes land. The next pass that establishes a
 //     new row is expected to append it by hand, the same way this one
 //     was built.
+//   - A row sourced from "parity" alone (see -parity-only) rests entirely
+//     on a PARITY.md prose entry that no commit subject and no bd comment
+//     corroborates. PARITY.md has been wrong eighteen distinct ways over
+//     this campaign, including a front-matter state field that was simply
+//     false and a note falsified by the very commit that wrote it -- so a
+//     parity-only row inherits that error rate. It is stronger evidence
+//     than no row at all, but weaker than a row with a second source.
+//     PARITY.md is also read for what it says explicitly, not inferred: a
+//     service's overall A/B grade is a WIRE-SHAPE verdict, a different
+//     axis from any of the seven classes here, and was never treated as
+//     coverage for any of them. A PARITY section was only turned into a
+//     row when it named a class (or a class's issue ID) explicitly; a
+//     dated entry that just says "audited, still correct" with no class
+//     named was left out rather than guessed at (example: the earlier
+//     "browser parity pass" and "wrapper-key sweep" notes throughout
+//     services/*/PARITY.md predate this class taxonomy and name no class
+//     of the seven, so they were not mined for rows even where they read
+//     as a clean verdict).
+//   - VerdictInapplicable exists to record a service with NO surface for
+//     a class at all, so it is never re-dispatched. As of this pass it
+//     has zero rows, not for lack of trying: gopherstack-vzjy's ~26-30
+//     campaign refusals ("an enum with exactly one legal value", "an
+//     unconditionally empty list", "a field derived from the calling
+//     principal") are real, but every one found in gopherstack-uox6 and
+//     gopherstack-6flj's bd comments turned out to be a FIELD-level
+//     dismissal inside a service that ALSO got a real bug fixed or a
+//     broader clean verdict in the very same pass -- so the (service,
+//     class) pair the row schema keys on was already claimed by a
+//     "fixed" or "clean" row, and a second row for the same pair is a
+//     validation error (see the no-duplicate-row rule). Representing
+//     these refusals faithfully needs a finer key than (service, class)
+//     -- (service, class, field) or a structured list inside a row -- and
+//     that is a schema question for a future pass, not something this one
+//     forced. The Verdict, the Reasoning field, and Validate's requirement
+//     that every inapplicable row carry non-empty Reasoning are all in
+//     place and tested; they are simply unused until a genuinely
+//     whole-class-absent case is found.
+//   - conflicts: (top-level, alongside rows in coverage.yaml) records a
+//     (service, class) pair where two evidence sources disagree, rather
+//     than one being picked silently -- see ValidateConflicts. None exist
+//     in the current file: every row added this pass had its sources
+//     cross-checked and they agreed. The mechanism exists so the next
+//     pass that finds a real disagreement has somewhere honest to put it
+//     instead of guessing.
 //
 // Usage:
 //
 //	go run ./cmd/covledger                          # validate, print the per-class summary
 //	go run ./cmd/covledger -class wrong_wire_key      # validate, then list services with no row for this class
 //	go run ./cmd/covledger -service opensearch        # validate, then list every row for this service
+//	go run ./cmd/covledger -parity-only               # validate, then list rows resting on PARITY.md alone
 //	go run ./cmd/covledger -data path/to/other.yaml   # use a different ledger file
 //
 // Every invocation validates the ledger first (see Validate), regardless
@@ -145,9 +206,10 @@ func main() {
 }
 
 type options struct {
-	data    string
-	service string
-	class   string
+	data       string
+	service    string
+	class      string
+	parityOnly bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -160,12 +222,13 @@ func parseFlags(args []string) (options, error) {
 	)
 	service := fs.String("service", "", "list every row for this service")
 	class := fs.String("class", "", "list services with no row for this class")
+	parityOnly := fs.Bool("parity-only", false, "list rows whose only evidence is PARITY.md")
 
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
 
-	return options{data: *data, service: *service, class: *class}, nil
+	return options{data: *data, service: *service, class: *class, parityOnly: *parityOnly}, nil
 }
 
 func run(opts options, stdout, stderr io.Writer) int {
@@ -188,6 +251,13 @@ func run(opts options, stdout, stderr io.Writer) int {
 		return exitRunError
 	}
 
+	conflicts, err := LoadConflicts(dataPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+
+		return exitRunError
+	}
+
 	servicesDir, err := servicesRootDir()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -203,6 +273,8 @@ func run(opts options, stdout, stderr io.Writer) int {
 	}
 
 	errs := Validate(rows, knownServices)
+	errs = append(errs, ValidateConflicts(conflicts, rows, knownServices)...)
+
 	if len(errs) > 0 {
 		fmt.Fprintln(stderr, "ledger validation FAILED:")
 
@@ -224,8 +296,10 @@ func run(opts options, stdout, stderr io.Writer) int {
 		}
 
 		printMissingForClass(stdout, rows, opts.class, sortedKeys(knownServices))
+	case opts.parityOnly:
+		printParityOnly(stdout, rows)
 	default:
-		fmt.Fprintln(stdout, "ledger valid:", len(rows), "rows")
+		fmt.Fprintln(stdout, "ledger valid:", len(rows), "rows,", len(conflicts), "open evidence conflicts")
 		printSummary(stdout, rows, sortedKeys(knownServices))
 	}
 
@@ -295,6 +369,16 @@ func printServiceRows(w io.Writer, rows []Row, service string) {
 
 	for _, r := range svcRows {
 		fmt.Fprintf(w, "  %-30s %-14s %s  %s\n", r.Class, r.Verdict, r.Date, r.Commit)
+	}
+}
+
+func printParityOnly(w io.Writer, rows []Row) {
+	only := RowsSourcedOnly(rows, "parity")
+
+	fmt.Fprintf(w, "%d row(s) sourced only from PARITY.md, no commit-subject or bd-comment corroboration:\n", len(only))
+
+	for _, r := range only {
+		fmt.Fprintf(w, "  %-20s %-30s %-14s %s\n", r.Service, r.Class, r.Verdict, r.Commit)
 	}
 }
 

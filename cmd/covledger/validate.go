@@ -1,6 +1,21 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+const (
+	sourceCommit    = "commit"
+	sourceParity    = "parity"
+	sourceBDComment = "bd_comment"
+)
+
+var knownSourceTags = map[string]bool{ //nolint:gochecknoglobals // immutable lookup table
+	sourceCommit:    true,
+	sourceParity:    true,
+	sourceBDComment: true,
+}
 
 // Validate checks rows for the three things that make the ledger
 // untrustworthy if wrong: a service name with no matching directory, a
@@ -77,6 +92,111 @@ func validateRow(i int, r Row, knownServices map[string]bool) []string {
 
 	if r.Commit == "" {
 		errs = append(errs, fmt.Sprintf("row %d (service=%s): no commit recorded as evidence", i, r.Service))
+	}
+
+	if !validSource(r.Source) {
+		errs = append(errs, fmt.Sprintf(
+			"row %d (service=%s): source %q is not empty or a '+'-joined list of %s/%s/%s with no duplicates",
+			i, r.Service, r.Source, sourceCommit, sourceParity, sourceBDComment,
+		))
+	}
+
+	if Verdict(r.Verdict) == VerdictInapplicable && strings.TrimSpace(r.Reasoning) == "" {
+		errs = append(errs, fmt.Sprintf(
+			"row %d (service=%s, class=%s): inapplicable verdict has no reasoning recorded",
+			i, r.Service, r.Class,
+		))
+	}
+
+	return errs
+}
+
+// validSource reports whether s is empty (a legacy row, implicitly
+// commit-subject-derived) or a '+'-joined, duplicate-free list of known
+// source tags.
+func validSource(s string) bool {
+	if s == "" {
+		return true
+	}
+
+	seen := make(map[string]bool)
+
+	for tag := range strings.SplitSeq(s, "+") {
+		if tag == "" || !knownSourceTags[tag] || seen[tag] {
+			return false
+		}
+
+		seen[tag] = true
+	}
+
+	return true
+}
+
+// ValidateConflicts checks conflicts for the same structural problems
+// Validate checks in rows -- an unknown service, an unknown class, and a
+// duplicate entry -- plus one more: a (service, class) pair must never
+// appear as both a resolved Row and an open Conflict, since that is a
+// direct contradiction about whether the evidence agrees. A Conflict also
+// needs a non-empty note; an unexplained conflict is as untrustworthy as
+// an unexplained verdict.
+func ValidateConflicts(conflicts []Conflict, rows []Row, knownServices map[string]bool) []string {
+	var errs []string
+
+	rowKeys := make(map[[2]string]bool, len(rows))
+	for _, r := range rows {
+		rowKeys[[2]string{r.Service, r.Class}] = true
+	}
+
+	seen := make(map[[2]string]bool, len(conflicts))
+
+	for i, c := range conflicts {
+		if c.Service == "" {
+			errs = append(errs, fmt.Sprintf("conflict %d: empty service", i))
+		} else if !knownServices[c.Service] {
+			errs = append(errs, fmt.Sprintf("conflict %d: service %q has no directory under services/", i, c.Service))
+		}
+
+		if !isKnownClass(c.Class) {
+			errs = append(
+				errs,
+				fmt.Sprintf(
+					"conflict %d (service=%s): class %q is not one of the known classes",
+					i,
+					c.Service,
+					c.Class,
+				),
+			)
+		}
+
+		if strings.TrimSpace(c.Note) == "" {
+			errs = append(
+				errs,
+				fmt.Sprintf(
+					"conflict %d (service=%s, class=%s): no note recording what the sources disagree about",
+					i,
+					c.Service,
+					c.Class,
+				),
+			)
+		}
+
+		key := [2]string{c.Service, c.Class}
+		if seen[key] {
+			errs = append(
+				errs,
+				fmt.Sprintf("conflict %d: duplicate conflict entry for (service=%s, class=%s)", i, c.Service, c.Class),
+			)
+		}
+
+		seen[key] = true
+
+		if rowKeys[key] {
+			errs = append(errs, fmt.Sprintf(
+				"conflict %d: (service=%s, class=%s) has both a resolved row and an open conflict -- "+
+					"resolve the conflict or remove the row",
+				i, c.Service, c.Class,
+			))
+		}
 	}
 
 	return errs

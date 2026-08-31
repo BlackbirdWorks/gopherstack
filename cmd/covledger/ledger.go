@@ -60,16 +60,47 @@ var knownVerdicts = map[Verdict]bool{ //nolint:gochecknoglobals // immutable loo
 
 // Row is one line of evidence: this service was checked for this class,
 // with this verdict, established by this commit on this date.
+//
+// Source records what kind of evidence backs the row, as a '+'-joined
+// combination of "commit" (the commit's own subject/body names the
+// service), "parity" (a services/<svc>/PARITY.md entry), and "bd_comment"
+// (a tracking-issue comment). Empty means the row predates this field and
+// was derived the original way -- read from a commit subject/body, per the
+// package doc. A row sourced from "parity" alone rests entirely on a file
+// with a documented eighteen-way error history (see the package doc) and
+// should be treated with correspondingly less confidence than one also
+// corroborated by a commit subject or a bd comment.
+//
+// Reasoning carries the structural wording behind a VerdictInapplicable
+// row -- e.g. "the enum has exactly one legal value and every record
+// carries it". Required whenever Verdict is inapplicable, since a bare
+// verdict with no reasoning is exactly the kind of unverifiable claim this
+// ledger exists to replace.
 type Row struct {
+	Service   string `yaml:"service"`
+	Class     string `yaml:"class"`
+	Verdict   string `yaml:"verdict"`
+	Date      string `yaml:"date"`
+	Commit    string `yaml:"commit"`
+	Source    string `yaml:"source,omitempty"`
+	Reasoning string `yaml:"reasoning,omitempty"`
+}
+
+// Conflict records a (service, class) pair where two evidence sources
+// disagree on the verdict -- e.g. PARITY.md says clean and a bd comment
+// says fixed. Recorded here rather than resolved by picking one source
+// silently, since that is exactly the kind of unverifiable judgement call
+// this ledger exists to make visible. A (service, class) pair must never
+// appear as both a Row and a Conflict -- see ValidateConflicts.
+type Conflict struct {
 	Service string `yaml:"service"`
 	Class   string `yaml:"class"`
-	Verdict string `yaml:"verdict"`
-	Date    string `yaml:"date"`
-	Commit  string `yaml:"commit"`
+	Note    string `yaml:"note"`
 }
 
 type ledgerFile struct {
-	Rows []Row `yaml:"rows"`
+	Rows      []Row      `yaml:"rows"`
+	Conflicts []Conflict `yaml:"conflicts"`
 }
 
 // LoadLedger reads and parses the YAML ledger at path. It does not
@@ -89,6 +120,40 @@ func LoadLedger(path string) ([]Row, error) {
 	}
 
 	return lf.Rows, nil
+}
+
+// LoadConflicts reads and parses the YAML ledger at path, returning its
+// conflicts section. Like LoadLedger, it does not validate -- call
+// ValidateConflicts separately.
+func LoadConflicts(path string) ([]Conflict, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	var lf ledgerFile
+
+	if unmarshalErr := yaml.Unmarshal(data, &lf); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, unmarshalErr)
+	}
+
+	return lf.Conflicts, nil
+}
+
+// RowsSourcedOnly returns every row whose Source is exactly source (a
+// single tag, not a '+'-joined combination) -- e.g. RowsSourcedOnly(rows,
+// "parity") finds every row resting on PARITY.md alone, with no
+// corroborating commit-subject or bd-comment evidence.
+func RowsSourcedOnly(rows []Row, source string) []Row {
+	var out []Row
+
+	for _, r := range rows {
+		if r.Source == source {
+			out = append(out, r)
+		}
+	}
+
+	return out
 }
 
 // RowsForService returns every row naming service, sorted by class.

@@ -129,6 +129,113 @@ func TestMissingForClass(t *testing.T) {
 	}
 }
 
+func TestRowsSourcedOnly(t *testing.T) {
+	t.Parallel()
+
+	rows := []Row{
+		{
+			Service: "swf", Class: "filter_default_semantics", Verdict: "clean",
+			Date: "2026-08-30", Commit: "0fdecf5cc", Source: "parity",
+		},
+		{
+			Service: "codeartifact", Class: "filter_default_semantics", Verdict: "fixed", Date: "2026-08-30",
+			Commit: "c75ee725b", Source: "commit+parity",
+		},
+		{
+			Service: "docdb",
+			Class:   "filter_default_semantics",
+			Verdict: "clean",
+			Date:    "2026-08-31",
+			Commit:  "30d61130d",
+			Source:  "bd_comment",
+		},
+		{Service: "acm", Class: "pagination_ordering", Verdict: "clean", Date: "2026-08-30", Commit: "e263119ce"},
+	}
+
+	tests := []struct {
+		name   string
+		source string
+		want   []string // services
+	}{
+		{name: "parity-only rows", source: "parity", want: []string{"swf"}},
+		{name: "bd_comment-only rows", source: "bd_comment", want: []string{"docdb"}},
+		{name: "multi-source rows never match a single-tag query", source: "commit", want: nil},
+		{name: "empty legacy source", source: "", want: []string{"acm"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := RowsSourcedOnly(rows, tt.source)
+
+			gotServices := make([]string, len(got))
+			for i, r := range got {
+				gotServices[i] = r.Service
+			}
+
+			if tt.want == nil {
+				assert.Empty(t, gotServices)
+
+				return
+			}
+
+			assert.Equal(t, tt.want, gotServices)
+		})
+	}
+}
+
+func TestLoadConflicts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "coverage.yaml")
+
+	content := `rows:
+  - service: opensearch
+    class: wrong_wire_key
+    verdict: fixed
+    date: "2026-08-29"
+    commit: a576f56ca
+conflicts:
+  - service: medialive
+    class: filter_default_semantics
+    note: "PARITY.md says clean, bd comment on gopherstack-uox6 says a bug was fixed here"
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	conflicts, err := LoadConflicts(path)
+	require.NoError(t, err)
+	require.Len(t, conflicts, 1)
+	assert.Equal(t, "medialive", conflicts[0].Service)
+	assert.Equal(t, "filter_default_semantics", conflicts[0].Class)
+	assert.NotEmpty(t, conflicts[0].Note)
+}
+
+func TestLoadLedger_SourceAndReasoningRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "coverage.yaml")
+
+	content := `rows:
+  - service: personalize
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: parity
+    reasoning: "recipeProvider has exactly one legal value (SERVICE), so no legal value could change the result"
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	rows, err := LoadLedger(path)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "parity", rows[0].Source)
+	assert.Contains(t, rows[0].Reasoning, "exactly one legal value")
+}
+
 func TestLoadLedger(t *testing.T) {
 	t.Parallel()
 

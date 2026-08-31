@@ -17,6 +17,25 @@
 # plus bd comments on gopherstack-6flj and gopherstack-uox6, cross-checked
 # against PARITY.md where present. Absence of a row means "unknown", not
 # "clean" -- see the package doc for known gaps in this pass.
+#
+# source (optional): what evidence backs the row, a '+'-joined combination
+# of commit (the commit's own subject/body names the service), parity
+# (a services/<svc>/PARITY.md entry), and bd_comment (a tracking-issue
+# comment). Empty means the row predates this field and was derived the
+# original way, from a commit subject. gopherstack-ri57: a "clean" verdict
+# usually produces no code diff and no commit-subject mention, so several
+# rows below rest on parity or bd_comment alone -- treat those with the
+# same caution PARITY.md itself deserves (wrong eighteen distinct ways
+# across this campaign; see the package doc).
+#
+# reasoning: required on an inapplicable row. Carries the structural
+# wording that established no legal input could change the outcome (e.g.
+# "the enum has exactly one legal value and every record carries it"),
+# rather than flattening it to the bare verdict.
+#
+# conflicts: (top-level, alongside rows) records a (service, class) pair
+# where two evidence sources disagree on the verdict, rather than picking
+# one silently. See ValidateConflicts in cmd/covledger/validate.go.
 
 rows:
   - service: accessanalyzer
@@ -1659,3 +1678,165 @@ rows:
     verdict: clean
     date: "2026-08-30"
     commit: 9f1ac5a22
+  - service: accessanalyzer
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: parity
+  - service: account
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 9f06bd3fc
+    source: parity
+  - service: bedrock
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: parity
+  - service: codeartifact
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: commit+parity
+  - service: codebuild
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: commit+parity
+  - service: codeconnections
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 6cae5c814
+    source: commit+parity
+  - service: codepipeline
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: parity
+  - service: codestarconnections
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 6cae5c814
+    source: parity
+  - service: docdb
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 30d61130d
+    source: bd_comment
+  - service: forecast
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 559957f57
+    source: commit+parity
+  - service: fsx
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: commit+parity
+  - service: grafana
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: ede845bcd
+    source: commit+parity
+  - service: iotwireless
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 92d569c91
+    source: commit+parity
+  - service: lakeformation
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: c89b314c1
+    source: parity
+  - service: mediapackage
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 6cae5c814
+    source: commit+parity
+  - service: mgn
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d78c7502f
+    source: commit+parity
+  - service: omics
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 30d61130d
+    source: commit+parity
+  - service: outposts
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: d78c7502f
+    source: parity
+  - service: quicksight
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 45183c6f8
+    source: commit+parity
+  - service: resourcegroupstaggingapi
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: a89bd1102
+    source: parity
+  - service: route53resolver
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 40fb84d6b
+    source: parity
+  - service: shield
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-08-30"
+    commit: 92d569c91
+    source: commit+parity
+  - service: support
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: ede845bcd
+    source: commit+parity
+  - service: swf
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 0fdecf5cc
+    source: parity+bd_comment
+  - service: timestreamquery
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 6cae5c814
+    source: commit+parity
+  - service: timestreamwrite
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 6cae5c814
+    source: commit+parity
+  - service: transcribe
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 20ac224ab
+    source: parity+bd_comment
