@@ -132,10 +132,14 @@ func parseDescribeIntegrationsFilters(vals url.Values) []describeIntegrationsFil
 }
 
 // integrationMatchesFilters reports whether ig satisfies every filter. Real
-// legal Name values are integration-arn, source-arn, source-types
-// (DescribeIntegrationsFilterName, types/enums.go:194); source-types would
+// legal Name values are integration-arn, source-arn, source-types, status
+// (DescribeIntegrationsFilterName, types/enums.go:194-202); source-types would
 // need to classify SourceArn by AWS resource type, data this backend does not
-// derive, so a source-types filter is left unenforced rather than guessed.
+// derive, so it is deliberately left unenforced (imposes no constraint) rather
+// than guessed. status was previously in that same unenforced bucket by
+// omission rather than by that deliberate reasoning -- Integration.Status is
+// real, tracked data (integrations.go), so a status filter silently matched
+// every integration instead of narrowing.
 func integrationMatchesFilters(ig *Integration, filters []describeIntegrationsFilter) bool {
 	for _, f := range filters {
 		switch f.name {
@@ -145,6 +149,10 @@ func integrationMatchesFilters(ig *Integration, filters []describeIntegrationsFi
 			}
 		case "source-arn":
 			if !slices.Contains(f.values, ig.SourceArn) {
+				return false
+			}
+		case "status":
+			if !slices.Contains(f.values, ig.Status) {
 				return false
 			}
 		}

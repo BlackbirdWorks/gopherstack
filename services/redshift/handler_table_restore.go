@@ -97,7 +97,15 @@ func (h *Handler) handleDescribeTableRestoreStatus(vals url.Values) (any, error)
 	members := make([]xmlTableRestoreStatus, 0, len(statuses))
 
 	for i := range statuses {
-		if requestID != "" && statuses[i].TableRestoreRequestID != requestID {
+		// If you don't specify a TableRestoreRequestId, DescribeTableRestoreStatus
+		// returns the status of all IN-PROGRESS requests, not every request ever
+		// made (api_op_DescribeTableRestoreStatus.go) -- a completed request must
+		// still be reachable by its own TableRestoreRequestId.
+		if requestID != "" {
+			if statuses[i].TableRestoreRequestID != requestID {
+				continue
+			}
+		} else if statuses[i].Status != tableRestoreStatusInProgress {
 			continue
 		}
 

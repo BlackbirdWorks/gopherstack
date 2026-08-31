@@ -773,6 +773,58 @@ func TestDescribeNodeConfigurationOptions_FilterWireKey(t *testing.T) {
 		require.Len(t, out.NodeConfigurationOptionList, 1)
 		assert.EqualValues(t, 4, aws.ToInt32(out.NodeConfigurationOptionList[0].NumberOfNodes))
 	})
+
+	// NodeConfigurationOptionsFilter.Operator (types/types.go:1379-1388) documents
+	// gt/lt/le/ge/between/in alongside eq -- "Provide one value to evaluate for
+	// 'eq', 'lt', 'le', 'gt', and 'ge'. Provide two values to evaluate for
+	// 'between'." The Eq-only subtest above cannot see an operator that is parsed
+	// and then ignored (every filter always compared with ==), because Eq's
+	// wrong-in-every-way and Eq's right-by-coincidence result are identical.
+	t.Run("NumberOfNodes filter honours the gt operator", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeGt,
+					Values:   []string{"4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		got := make([]int32, 0, len(out.NodeConfigurationOptionList))
+		for _, o := range out.NodeConfigurationOptionList {
+			got = append(got, aws.ToInt32(o.NumberOfNodes))
+		}
+
+		assert.ElementsMatch(t, []int32{8}, got, "gt 4 must return only the 8-node option")
+	})
+
+	t.Run("NumberOfNodes filter honours the between operator", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeBetween,
+					Values:   []string{"2", "4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		got := make([]int32, 0, len(out.NodeConfigurationOptionList))
+		for _, o := range out.NodeConfigurationOptionList {
+			got = append(got, aws.ToInt32(o.NumberOfNodes))
+		}
+
+		assert.ElementsMatch(t, []int32{2, 4}, got, "between 2 and 4 must include both inclusive bounds, exclude 8")
+	})
 }
 
 // TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey drives a real

@@ -287,6 +287,38 @@ func TestHandler_DescribeEndpointAuthorization(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeEndpointAuthorization_GranteeAccountSide verifies which
+// side of the grantor/grantee pair the Account filter compares against.
+// api_op_DescribeEndpointAuthorization.go documents Account precisely: "the
+// Amazon Web Services account ID of either the cluster owner (grantor) or
+// grantee. If Grantee parameter is true, then the Account value is of the
+// grantor" -- so Grantee=true filters by Grantor, and Grantee=false (default)
+// filters by Grantee, the opposite pairing from what the field names suggest
+// at a glance.
+func TestHandler_DescribeEndpointAuthorization_GranteeAccountSide(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=grantee-side")
+	postRedshiftForm(t, h,
+		"Action=AuthorizeEndpointAccess&Version=2012-12-01"+
+			"&ClusterIdentifier=grantee-side&Account=999999999999")
+
+	// Default (grantor) view, Account = the grantee this backend authorized.
+	rec := postRedshiftForm(t, h,
+		"Action=DescribeEndpointAuthorization&Version=2012-12-01&Account=999999999999")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "grantee-side",
+		"grantor view (Grantee omitted) must filter Account against the grantee")
+
+	// Grantee=true view, Account = the grantor (this backend's own account, 000000000000).
+	rec = postRedshiftForm(t, h,
+		"Action=DescribeEndpointAuthorization&Version=2012-12-01&Grantee=true&Account=000000000000")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "grantee-side",
+		"grantee view (Grantee=true) must filter Account against the grantor")
+}
+
 // ---- RevokeEndpointAccess ----
 
 func TestHandler_RevokeEndpointAccess(t *testing.T) {
