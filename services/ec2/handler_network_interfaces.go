@@ -44,6 +44,7 @@ type niPermissionItem struct {
 type describeNIPermissionsResponse struct {
 	XMLName                     xml.Name `xml:"DescribeNetworkInterfacePermissionsResponse"`
 	RequestID                   string   `xml:"requestId"`
+	NextToken                   string   `xml:"nextToken,omitempty"`
 	NetworkInterfacePermissions struct {
 		Items []niPermissionItem `xml:"item"`
 	} `xml:"networkInterfacePermissions"`
@@ -150,7 +151,17 @@ func (h *Handler) handleDescribeNetworkInterfacePermissions(
 	niIDs := parseMemberList(vals, "NetworkInterfaceId")
 	perms := h.Backend.DescribeNetworkInterfacePermissions(niIDs)
 
-	resp := &describeNIPermissionsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultNIPermissions,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	perms, nextToken = pageSlice(perms, offset, maxResults)
+
+	resp := &describeNIPermissionsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, p := range perms {
 		item := niPermissionItem{
 			NetworkInterfacePermissionID: p.PermissionID,

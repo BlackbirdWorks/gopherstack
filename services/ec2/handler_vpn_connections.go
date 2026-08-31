@@ -212,10 +212,28 @@ func (h *Handler) handleModifyVpnTunnelCertificate(vals url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleGetVpnConnectionDeviceTypes(_ url.Values, reqID string) (any, error) {
+// handleGetVpnConnectionDeviceTypes only paginates when the caller supplies
+// MaxResults: api_op_GetVpnConnectionDeviceTypes.go documents that omitting it
+// returns every result, unlike every other MaxResults field in this service.
+func (h *Handler) handleGetVpnConnectionDeviceTypes(vals url.Values, reqID string) (any, error) {
 	types := h.Backend.GetVpnConnectionDeviceTypes()
 
-	resp := &getVpnConnectionDeviceTypesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	var nextToken string
+	if vals.Get("MaxResults") != "" {
+		maxResults, offset, err := parseEC2Pagination(
+			vals,
+			ec2PageMinVpnConnectionDeviceTypes,
+			ec2PageMaxVpnConnectionDeviceTypes,
+			ec2PageMaxVpnConnectionDeviceTypes,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		types, nextToken = pageSlice(types, offset, maxResults)
+	}
+
+	resp := &getVpnConnectionDeviceTypesResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, t := range types {
 		resp.VpnConnectionDeviceTypeSet.Items = append(
 			resp.VpnConnectionDeviceTypeSet.Items,

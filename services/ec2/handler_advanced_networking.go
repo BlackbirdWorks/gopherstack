@@ -397,6 +397,7 @@ type getVpnConnectionDeviceTypesResponse struct {
 	XMLName                    xml.Name `xml:"GetVpnConnectionDeviceTypesResponse"`
 	Xmlns                      string   `xml:"xmlns,attr"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	VpnConnectionDeviceTypeSet struct {
 		Items []vpnConnectionDeviceTypeItem `xml:"item"`
 	} `xml:"vpnConnectionDeviceTypeSet"`

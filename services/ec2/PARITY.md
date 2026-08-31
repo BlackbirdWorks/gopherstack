@@ -3140,3 +3140,169 @@ hits in `services/ec2/`). Did NOT commit, push, or run any `bd` write
 command -- all changes left in the working tree per this session's
 instructions.
 
+## 2026-08-31 -- never-declared-field sweep, MaxResults/NextToken pagination
+## family (cmd/reqfielddiff, gopherstack-4glf)
+
+Targeted pass for the axis named in gopherstack-4glf/gopherstack-uox6: a
+field the emulator never declared at all, invisible to every prior
+wire-shape/field-coverage tool because there is no struct member to
+enumerate. This is a DIFFERENT axis from every prior ec2 entry above --
+`filter_default_semantics`/`request_field_never_read`/`wrong_wire_key` (all
+"fixed" per `covledger`) audit fields the emulator DID declare; this axis
+covers fields it never modeled in the first place. No prior ec2 pass
+touched it; covledger and this file were both silent on it before this
+entry.
+
+`go run ./cmd/reqfielddiff -dir ec2` (resolution: 785/785 SDK operations,
+447 with declared fields) reports **204 tier-1 findings** for ec2 -- by far
+the largest queue of any service, confirming the brief's number. Given
+"this is too large to finish," picked one coherent recurring field shape
+rather than attempting breadth: **MaxResults/NextToken pagination missing
+entirely**, not merely mishandled -- six Describe/Get/Search operations
+whose real SDK input declares `MaxResults`+`NextToken` but whose handler
+read neither, always returning the full result set in one page with no
+`NextToken`. Chosen because (a) it is mechanically identical across all
+six, (b) this file's own `ec2PageMin*`/`ec2PageMax*` const block already
+established the exact fix shape from an earlier, unrelated pagination sweep
+(`ec2sweep11`), and (c) each has a crisp, doc-stated bound/default,
+minimizing the fabrication risk this axis warns about.
+
+**Query-parameter false-positive measurement.** ec2 is a query-protocol
+service: nothing is decoded into per-field typed structs, so reqfielddiff's
+top tier is dominated by fields that ARE read, just via `vals.Get`/
+`parseMemberList`/`parseEC2Filters`/`parseEC2Pagination` rather than a
+struct member. Verified this by hand across the entire `*Ids`/`*Names`
+direct-ID-list-narrowing family (26 of the 204 tier-1 findings sharing that
+one field shape: `DescribeSnapshots.SnapshotIds`, `DescribeVolumes.VolumeIds`,
+`DescribeSecurityGroups.GroupIds`/`GroupNames`, `DescribeInstances.InstanceIds`,
+etc.) by locating each operation's handler function (built a 785-entry
+op-to-handler-func map from the two `ops[...]=` registration forms in this
+package) and confirming the field's wire key already appears as a
+`parseMemberList`/`vals.Get` argument or an inline `VpcPeeringConnectionId.%d`
+loop in that function body: **26 of 26 (100%) were this false-positive
+shape**, none a real gap. A follow-up automated pass (grep each tier-1
+finding's field name, or its `Ids`->`Id`/`Names`->`Name` singularization,
+as a literal quoted string inside the resolved handler's function body, plus
+`parseEC2Pagination(`/`parseEC2Filters(` call-presence for MaxResults/
+NextToken/Filters) classified **74 of 204 (36%)** as this shape across the
+whole tier-1 list -- a conservative lower bound, since it only catches
+literal-string and named-helper matches, not every transformation. Two
+concrete non-Ids examples caught by the same shape while investigating the
+MaxResults family: `DescribeInstanceSQLHaHistoryStates.StartTime`/`.EndTime`
+are read via `vals.Get("StartTime")`/`vals.Get("EndTime")` in
+`handler_sql_ha.go`, invisible to the detector for the same reason.
+
+**Six real bugs found and fixed, all confirmed failing against unmodified
+code first** (reverted each handler's added `parseEC2Pagination`/`pageSlice`
+call in isolation, re-ran that op's new test, watched it fail, restored):
+
+1. **DescribeNetworkInterfacePermissions.MaxResults** (documented default 50,
+   `api_op_DescribeNetworkInterfacePermissions.go`: "up to 50 results are
+   returned by default", no explicit bound given -> used this file's existing
+   1..1000 fallback convention). `handler_network_interfaces.go`
+   `handleDescribeNetworkInterfacePermissions` returned every permission in
+   one page. Test seeds 51 permissions on one ENI, omits `MaxResults`,
+   asserts exactly 50 come back with a `NextToken`.
+2. **DescribeReservedInstancesOfferings.MaxResults** (max/default 100,
+   `api_op_DescribeReservedInstancesOfferings.go`: "The maximum is 100.
+   Default: 100"). `handler_reserved_instances.go`
+   `handleDescribeReservedInstancesOfferings` never truncated. Test seeds
+   101 offerings via the existing `SeedReservedInstancesOffering` test
+   helper, omits `MaxResults`, asserts exactly 100 + `NextToken`.
+3. **DescribeScheduledInstances.MaxResults** (min 5 / max 300 / default 100,
+   `api_op_DescribeScheduledInstances.go`). `handler_scheduled_instances.go`
+   `handleDescribeScheduledInstances` never truncated. Test purchases 101
+   schedules in one `PurchaseScheduledInstances` call (the static 3-entry
+   availability catalog imposes no cap on purchase count), omits
+   `MaxResults`, asserts exactly 100 + `NextToken`.
+4. **SearchTransitGatewayRoutes.MaxResults** (default 1000, no explicit
+   bound stated -> this file's 1..1000 fallback convention, which happens to
+   match the stated default exactly). `handler_tgw_peripherals.go`
+   `handleSearchTransitGatewayRoutes` never truncated and always reported
+   `AdditionalRoutesAvailable: false`. Test seeds 1001 blackhole routes
+   (cheap: no attachment required), omits `MaxResults`, asserts exactly
+   1000 + `NextToken` + `AdditionalRoutesAvailable: true`; second page
+   returns the last route with `AdditionalRoutesAvailable: false`.
+5. **DescribeScheduledInstanceAvailability.MaxResults** (min 5 / max 300 /
+   default 300). Real gap -- `handleDescribeScheduledInstanceAvailability`
+   accepted any `MaxResults` value silently and ignored it -- but this
+   backend's availability catalog is a hardcoded 3-entry static list
+   (`scheduledInstanceCatalog`, one weekly/daily/monthly schedule per
+   region), below MaxResults' own documented floor of 5, so the
+   default-page-size truncation itself is **structurally unobservable**
+   against this backend's data model. Fixed the validation/plumbing (now
+   correct and consistent with every sibling op) but the test can only
+   prove the testable half: values outside 5..300 are now rejected
+   (previously silently accepted), and a valid in-range value still returns
+   all 3 catalog entries.
+6. **GetVpnConnectionDeviceTypes.MaxResults** (min 200 / max 1000, and
+   uniquely among these six, `api_op_GetVpnConnectionDeviceTypes.go`
+   documents a **contingent** default: "If this parameter is not used, then
+   GetVpnConnectionDeviceTypes returns all results" -- omission means
+   unbounded, not a fixed page size). Declared the field and invented no
+   numeric default for the omitted case, matching the guard rail: the
+   handler now only calls `parseEC2Pagination`/`pageSlice` when
+   `vals.Get("MaxResults") != ""`, leaving the omitted-case behavior
+   (already correct pre-fix) untouched. The real bug fixed is that an
+   explicitly-supplied `MaxResults` was silently ignored. This backend's
+   device-type catalog (a short hardcoded list, confirmed `< 200` in the
+   test itself via `require.Less`) sits below the documented floor of 200,
+   so -- same shape as #5 -- only the out-of-range-rejection half is
+   testable; test also pins the doc's "omitted -> return everything"
+   behavior explicitly.
+
+**Where the default was applied, and why.** All six live in the handler
+(query-protocol) layer, matching this file's own established convention
+(`parseEC2Pagination`/`pageSlice`, `handler.go` lines ~836-914) -- there is
+no backend-layer equivalent here because pagination is a wire-response
+concern (truncating what the backend already returned), not a stored-record
+default; the backend's `Describe*` methods are unchanged. Added six new
+named consts to the existing `ec2PageMin*`/`ec2PageMax*`/`ec2PageDefault*`
+block in `handler.go` (each citing its SDK doc-comment source, following
+the file's existing citation convention), and a `NextToken string
+\`xml:"nextToken,omitempty"\`` field to each of the five response structs
+that lacked one (`SearchTransitGatewayRoutesResponse` already had
+`AdditionalRoutesAvailable`, now correctly set).
+
+**Not covered, for the next pass.** Of the 204 tier-1 findings, 6 are fixed
+here; the other 198 are untouched, including the ~130 the automated
+query-param check could not clear (conservative false-positive
+classification, not a triage verdict -- most of those still need
+hand-verification like the 26 done here). One adjacent gap found while
+working `DescribeReservedInstancesOfferings` and deliberately left alone
+(out of this pass's chosen slice): the same operation has five more tier-1
+findings on its `Filters`/`InstanceTenancy`/`MaxDuration`/`MaxInstanceCount`/
+`MinDuration` fields -- real, undeclared, and a natural next slice, but
+distinct from the MaxResults/NextToken shape this pass targeted.
+
+Tests: one new file, `wire_field_fixes_ec2sweep43_test.go`, 6 new test
+functions, 53 assertion calls total, zero existing tests modified (zero
+assertion drops). The four truncation tests (#1-4 above) omit `MaxResults`
+entirely per this axis's rule that a test which always sets the field
+cannot observe its default; the two range-only tests (#5, #6) set
+out-of-range values deliberately (the default itself is structurally
+unobservable against this backend's static catalogs, as explained above)
+and also assert the omitted-case baseline.
+
+One AWS API reference page was consulted only via the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1` module-cache source (no web fetch this
+pass) for every doc-comment cited above.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), `go vet ./...` repo-wide (clean -- no `Backend` interface signature
+changed), `go build ./...` (clean), `go test -race -count=1
+./services/ec2/...` (full suite green, including the six confirmed-failing-
+pre-fix new tests), `golangci-lint run ./services/ec2/...` (10 findings on
+first run, all self-caused by this pass's own new code -- `golines` on the
+test file and two long const-comment lines in `handler.go`, `fieldalignment`
+on the five response structs that gained a bare `string` field -- fixed
+with `golines -w -m 120` and `fieldalignment -fix` scoped to
+`services/ec2/...`, then hand-shortened the two over-long const comments;
+re-ran, `0 issues`). No banned `//nolint`s (grepped for
+cyclop/gocyclo/gocognit/funlen in `services/ec2/`, zero hits); the one
+pre-existing `//nolint:gochecknoglobals` in `handler.go` (on
+`errCodeLookup`, `git diff` confirms untouched by this pass's hunks) is
+unrelated and still needed. Did NOT commit, push, or run any `bd` write
+command -- all changes left in the working tree per this session's
+instructions.
+
