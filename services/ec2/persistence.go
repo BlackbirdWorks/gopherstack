@@ -16,7 +16,7 @@ import (
 // Restore compares this against the persisted value and discards (rather
 // than attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/sqs pilot (commit 0f09d77c).
-const ec2SnapshotVersion = 1
+const ec2SnapshotVersion = 2
 
 // snapTGWRTProp is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapTGWRTProp = TransitGatewayRouteTablePropagation
