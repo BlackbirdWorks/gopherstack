@@ -361,11 +361,11 @@ func (h *Handler) iamEntitiesForPolicyDispatch() map[string]iamActionFn {
 			for _, row := range pg.Data {
 				switch row.kind {
 				case entityTypeUser:
-					users = append(users, PolicyEntityUser{UserName: row.name})
+					users = append(users, PolicyEntityUser{UserName: row.name, UserID: row.id})
 				case entityTypeGroup:
-					groups = append(groups, PolicyEntityGroup{GroupName: row.name})
+					groups = append(groups, PolicyEntityGroup{GroupName: row.name, GroupID: row.id})
 				case entityTypeRole:
-					roles = append(roles, PolicyEntityRole{RoleName: row.name})
+					roles = append(roles, PolicyEntityRole{RoleName: row.name, RoleID: row.id})
 				}
 			}
 

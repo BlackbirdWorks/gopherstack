@@ -96,3 +96,75 @@ func TestChangeCidrCollection_NoInventedVersion_RealClient(t *testing.T) {
 	assert.EqualValues(t, 2, aws.ToInt64(list.CidrCollections[0].Version),
 		"ListCidrCollections: Version did not increment after ChangeCidrCollection")
 }
+
+// TestListHostedZonesByName_ItemShape_RealClient drives ListHostedZonesByName
+// through the real client (gopherstack-21my). Its own ad-hoc HostedZone item
+// builder (handler_hosted_zones.go's listHostedZonesByName, distinct from
+// toXMLHostedZone which GetHostedZone/ListHostedZones both use) dropped
+// Config.PrivateZone and ResourceRecordSetCount entirely -- both are real
+// HostedZone members (route53@v1.65.6 deserializers.go:
+// awsRestxml_deserializeDocumentHostedZone /
+// awsRestxml_deserializeDocumentHostedZoneConfig) and both are backed by
+// state this backend already tracks (confirmed correct through
+// GetHostedZone), so the list variant returned the right zone count with
+// two blank/false fields regardless of the real values.
+func TestListHostedZonesByName_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := route53.NewHandler(route53.NewInMemoryBackend())
+	client := newTestRoute53Client(t, h)
+
+	zone, err := client.CreateHostedZone(t.Context(), &route53sdk.CreateHostedZoneInput{
+		Name:            aws.String("sweep1-byname.example.com."),
+		CallerReference: aws.String("sweep1-byname-ref"),
+		HostedZoneConfig: &types.HostedZoneConfig{
+			Comment:     aws.String("private test zone"),
+			PrivateZone: true,
+		},
+		VPC: &types.VPC{
+			VPCId:     aws.String("vpc-sweep1byname"),
+			VPCRegion: types.VPCRegionUsEast1,
+		},
+	})
+	require.NoError(t, err)
+	zoneID := aws.ToString(zone.HostedZone.Id)
+
+	_, err = client.ChangeResourceRecordSets(t.Context(), &route53sdk.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneID),
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{{
+				Action: types.ChangeActionCreate,
+				ResourceRecordSet: &types.ResourceRecordSet{
+					Name: aws.String("sweep1-byname.example.com."),
+					Type: types.RRTypeA,
+					TTL:  aws.Int64(300),
+					ResourceRecords: []types.ResourceRecord{
+						{Value: aws.String("10.0.0.1")},
+					},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListHostedZonesByName(t.Context(), &route53sdk.ListHostedZonesByNameInput{
+		DNSName: aws.String("sweep1-byname.example.com."),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.HostedZones)
+
+	var found *types.HostedZone
+	for i := range out.HostedZones {
+		if aws.ToString(out.HostedZones[i].Id) == zoneID {
+			found = &out.HostedZones[i]
+		}
+	}
+	require.NotNil(t, found, "created zone must appear in the list")
+
+	require.NotNil(t, found.Config, "Config must round-trip, not decode nil")
+	assert.True(t, found.Config.PrivateZone,
+		"ListHostedZonesByName: Config.PrivateZone did not round-trip")
+	assert.Equal(t, "private test zone", aws.ToString(found.Config.Comment))
+	assert.EqualValues(t, 3, aws.ToInt64(found.ResourceRecordSetCount),
+		"ListHostedZonesByName: ResourceRecordSetCount did not round-trip (auto NS+SOA plus the created A record)")
+}

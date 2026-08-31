@@ -628,3 +628,83 @@ after `fieldalignment -fix ./services/iam/...` reordered
 `//nolint:revive` on `IAMError` (`models.go`, a struct this pass did not
 otherwise touch) re-checked: still in use, `revive`'s stutter check would
 otherwise fire on `iam.IAMError`.
+
+## 2026-08-31 pass (gopherstack-21my continuation): remaining queued list ops
+
+Swept the eight items this issue's queue named as not reached by the prior
+pass, against `iam@v1.58.1` deserializers.go, byte-for-byte for case as well
+as name.
+
+**BUG (fixed): `ListEntitiesForPolicy`'s `PolicyEntityUser`/`PolicyEntityGroup`/
+`PolicyEntityRole` (`models_policies.go`) never emitted `UserId`/`GroupId`/
+`RoleId` at all** -- all three are real members of `types.PolicyUser`/
+`PolicyGroup`/`PolicyRole` (`awsAwsquery_deserializeDocumentPolicyUser` /
+`PolicyGroup` / `PolicyRole`), and all three are backed by state this backend
+already has (`User.UserID`/`Group.GroupID`/`Role.RoleID`, all populated at
+creation and already read correctly by `GetUser`/`GetGroup`/`GetRole`) -- so
+every user/group/role in every `ListEntitiesForPolicy` response had the right
+name and a permanently blank ID, right count, silently missing content.
+Fixed by extending `filterEntityRows`'s per-entity lookup (previously only
+resolving `Path`, for `PathPrefix` filtering) to also resolve the stable ID,
+and threading it through `policyEntityRow` to the response builder. Test:
+`TestListEntitiesForPolicy_ItemShape_RealClient`
+(`list_filter_params_test.go`), attaches a policy to one user/group/role via
+the real client and asserts each returned Id matches the id the corresponding
+Create call returned. Verified failing pre-fix by hand-revert (`UserId`/
+`GroupId`/`RoleId` decoded empty).
+
+**RE-VERIFIED CLEAN, byte-for-byte case included:** `ListOpenIDConnectProviders`
+(`OpenIDConnectProviderListEntry` genuinely has only `Arn` in the real SDK --
+not a truncated shape), `ListSSHPublicKeys` (`SSHPublicKeyMetadata`'s four
+real members all present and correctly cased in both the live dispatch entry
+and its shadowed, documented-dead duplicate), `ListSigningCertificates`
+(`SigningCertificate`'s five real members -- CertificateBody included, unlike
+SSH keys' slimmer list type -- all present), `ListMFADevices` (the
+non-virtual op; `MFADevice`'s three real members all present in the dispatch
+entry that actually wins the two-registration collision noted in the prior
+pass), the delegation-request family (`DelegationRequest`'s eleven emitted
+members of twenty real ones are correctly named, and the nine omitted --
+`ApproverId`, `ExpirationTime`, `OwnerId`, `PermissionPolicy`,
+`RejectionReason`, `RequestorId`, `RequestorName`,
+`RolePermissionRestrictionArns`, `UpdatedTime` -- are already documented in
+`models_account.go` as gaps this backend has no state for; `Get`/
+`ListDelegationRequests` share one builder, `toDelegationRequestXML`, so no
+sibling disagreement is possible here).
+
+**GAPS RECORDED, not fixed -- real per-AWS-docs fields this backend cannot
+observe:**
+- `ListServiceSpecificCredentials`'s `ServiceSpecificCredentialMetadataXML`
+  is missing `ExpirationDate` and `ServiceCredentialAlias` (both real members
+  of `types.ServiceSpecificCredentialMetadata`). The domain model
+  (`ServiceSpecificCredential`, `models_credentials.go`) has no field for
+  either -- these are Bedrock-API-key-only attributes this backend's
+  credential model never tracked -- and `Create`/`ResetServiceSpecificCredential`
+  share the identical two-field gap, so there is no sibling to disagree with.
+- `GetOrganizationsAccessReport`'s `AccessDetails` is wire-typed `[]string`
+  where the real member is `[]types.AccessDetail` (a six-field object:
+  `EntityPath`, `LastAuthenticatedTime`, `Region`, `ServiceName`,
+  `ServiceNamespace`, `TotalAuthenticatedEntities`). This is a real shape
+  mismatch, but it is unobservable: this backend's access-report job never
+  produces any access-detail records (`account.go`'s
+  `GetOrganizationsAccessReport` only tracks job status/creation time), so
+  the field is always the empty list either way -- matching the existing
+  documented precedent for `PoliciesGrantingServiceAccess`
+  (`models_account.go`) a few lines away. Not counted as a fix per this
+  issue's restraint guidance: no legal input changes the outcome.
+
+**METHOD NOTE:** ran the no-`*Unwrapped`-call-site check repo-wide against
+`iam@v1.58.1`; unlike route53 (zero hits), iam has three:
+`CertificationMapTypeUnwrapped`, `EvalDecisionDetailsTypeUnwrapped`,
+`SummaryMapTypeUnwrapped` -- all query-protocol flattened *maps* (Simulate*
+Policy's per-resource decision maps, `GetAccountSummary`'s `SummaryMap`), not
+list-item collections, and none are in this pass's or the prior pass's
+queue. Flagged for whoever next touches `GetAccountSummary` or
+`SimulateCustomPolicy`/`SimulatePrincipalPolicy` rather than chased here.
+
+Gates: `go build ./services/iam/... ./services/route53/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iam/... ./services/route53/...`
+(pass), `golangci-lint run ./services/iam/... ./services/route53/...` (0
+issues, after switching `userPathAndID`/`groupPathAndID`/`rolePathAndID` from
+named to bare returns -- `nonamedreturns` flagged the named-return form these
+three helpers were first written with). No `nolint` directives exist in any
+file this pass touched.

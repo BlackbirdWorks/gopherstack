@@ -394,13 +394,8 @@ func (h *Handler) listHostedZonesByName(c *echo.Context) error {
 	}
 
 	xmlZones := make([]xmlHostedZone, 0, len(zones))
-	for _, z := range zones {
-		xmlZones = append(xmlZones, xmlHostedZone{
-			ID:              "/hostedzone/" + z.ID,
-			Name:            z.Name,
-			CallerReference: z.CallerReference,
-			Config:          xmlHostedZoneConfig{Comment: z.Comment},
-		})
+	for i := range zones {
+		xmlZones = append(xmlZones, toXMLHostedZone(&zones[i]))
 	}
 
 	return writeXML(c, http.StatusOK, listHZByNameResponse{

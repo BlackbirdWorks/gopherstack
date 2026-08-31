@@ -293,6 +293,7 @@ func (h *Handler) listAttachedPoliciesFiltered(
 type policyEntityRow struct {
 	kind string
 	name string
+	id   string
 }
 
 // policyUsageFlags tracks, per entity, whether it holds a policy as a normal
@@ -332,12 +333,16 @@ func markUsage(m map[string]*policyUsageFlags, name string, boundary bool) {
 }
 
 // filterEntityRows sorts flags' keys deterministically, applies usageFilter
-// and a path-prefix lookup, and returns matching rows tagged with kind.
-// Names are sorted before filtering so each kind's section keeps a fixed
-// order, and concatenating the three sections (handler_policies.go) yields
-// one well-defined order for pagination.
+// and a path-prefix lookup, and returns matching rows tagged with kind and
+// carrying the entity's own stable ID (PolicyUser/PolicyGroup/PolicyRole's
+// UserId/GroupId/RoleId in the real deserializer -- see e.g.
+// awsAwsquery_deserializeDocumentPolicyUser). Names are sorted before
+// filtering so each kind's section keeps a fixed order, and concatenating
+// the three sections (handler_policies.go) yields one well-defined order for
+// pagination.
 func filterEntityRows(
-	kind string, flags map[string]*policyUsageFlags, prefix, usageFilter string, getPath func(string) (string, error),
+	kind string, flags map[string]*policyUsageFlags, prefix, usageFilter string,
+	lookup func(string) (path, id string, err error),
 ) []policyEntityRow {
 	names := make([]string, 0, len(flags))
 	for name := range flags {
@@ -353,14 +358,16 @@ func filterEntityRows(
 			continue
 		}
 
-		if prefix != "/" {
-			path, err := getPath(name)
-			if err != nil || !strings.HasPrefix(path, prefix) {
-				continue
-			}
+		path, id, err := lookup(name)
+		if err != nil {
+			continue
 		}
 
-		rows = append(rows, policyEntityRow{kind: kind, name: name})
+		if prefix != "/" && !strings.HasPrefix(path, prefix) {
+			continue
+		}
+
+		rows = append(rows, policyEntityRow{kind: kind, name: name, id: id})
 	}
 
 	return rows
@@ -420,40 +427,42 @@ func (h *Handler) listEntitiesForPolicyFiltered(
 	usageFilter := vals.Get("PolicyUsageFilter")
 
 	rows := make([]policyEntityRow, 0, len(userFlags)+len(groupFlags)+len(roleFlags))
-	rows = append(rows, filterEntityRows(entityTypeUser, userFlags, prefix, usageFilter, h.userPath)...)
-	rows = append(rows, filterEntityRows(entityTypeGroup, groupFlags, prefix, usageFilter, h.groupPath)...)
-	rows = append(rows, filterEntityRows(entityTypeRole, roleFlags, prefix, usageFilter, h.rolePath)...)
+	rows = append(rows, filterEntityRows(entityTypeUser, userFlags, prefix, usageFilter, h.userPathAndID)...)
+	rows = append(rows, filterEntityRows(entityTypeGroup, groupFlags, prefix, usageFilter, h.groupPathAndID)...)
+	rows = append(rows, filterEntityRows(entityTypeRole, roleFlags, prefix, usageFilter, h.rolePathAndID)...)
 
 	return page.New(rows, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), iamDefaultMaxItems), nil
 }
 
-// userPath, groupPath and rolePath resolve an entity name to its own Path,
-// for listEntitiesForPolicyFiltered's per-entity PathPrefix filtering.
-func (h *Handler) userPath(name string) (string, error) {
+// userPathAndID, groupPathAndID and rolePathAndID resolve an entity name to
+// its own Path and stable ID, for listEntitiesForPolicyFiltered's per-entity
+// PathPrefix filtering and PolicyUser/PolicyGroup/PolicyRole's UserId/
+// GroupId/RoleId.
+func (h *Handler) userPathAndID(name string) (string, string, error) {
 	u, err := h.Backend.GetUser(name)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return u.Path, nil
+	return u.Path, u.UserID, nil
 }
 
-func (h *Handler) groupPath(name string) (string, error) {
+func (h *Handler) groupPathAndID(name string) (string, string, error) {
 	g, err := h.Backend.GetGroup(name)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return g.Path, nil
+	return g.Path, g.GroupID, nil
 }
 
-func (h *Handler) rolePath(name string) (string, error) {
+func (h *Handler) rolePathAndID(name string) (string, string, error) {
 	r, err := h.Backend.GetRole(name)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return r.Path, nil
+	return r.Path, r.RoleID, nil
 }
 
 // filterByPath filters a slice of items to those whose path starts with prefix.

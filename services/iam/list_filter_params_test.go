@@ -606,3 +606,61 @@ func TestListEntitiesForPolicy_PolicyUsageFilter(t *testing.T) {
 	require.Len(t, allOut.PolicyRoles, 1)
 	require.Equal(t, "r-boundary", aws.ToString(allOut.PolicyRoles[0].RoleName))
 }
+
+// TestListEntitiesForPolicy_ItemShape_RealClient checks that PolicyUser,
+// PolicyGroup and PolicyRole's UserId/GroupId/RoleId (real fields per
+// deserializers.go's awsAwsquery_deserializeDocumentPolicyUser/
+// PolicyGroup/PolicyRole) round-trip. Each is a response-only field --
+// distinct from the request-side entity name -- so this isolates response
+// decode rather than exercising a bidirectional struct.
+func TestListEntitiesForPolicy_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := iam.NewHandler(iam.NewInMemoryBackend())
+	client := newTestIAMClient(t, h)
+
+	pol, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+		PolicyName:     aws.String("shape-policy"),
+		PolicyDocument: aws.String(testPolicyDoc),
+	})
+	require.NoError(t, err)
+
+	user, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("shape-user")})
+	require.NoError(t, err)
+	group, err := client.CreateGroup(t.Context(), &iamsdk.CreateGroupInput{GroupName: aws.String("shape-group")})
+	require.NoError(t, err)
+	role, err := client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName: aws.String("shape-role"), AssumeRolePolicyDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+		UserName: aws.String("shape-user"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+	_, err = client.AttachGroupPolicy(t.Context(), &iamsdk.AttachGroupPolicyInput{
+		GroupName: aws.String("shape-group"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+	_, err = client.AttachRolePolicy(t.Context(), &iamsdk.AttachRolePolicyInput{
+		RoleName: aws.String("shape-role"), PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListEntitiesForPolicy(t.Context(), &iamsdk.ListEntitiesForPolicyInput{
+		PolicyArn: pol.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.PolicyUsers, 1)
+	require.Equal(t, aws.ToString(user.User.UserId), aws.ToString(out.PolicyUsers[0].UserId))
+	require.NotEmpty(t, aws.ToString(out.PolicyUsers[0].UserId))
+
+	require.Len(t, out.PolicyGroups, 1)
+	require.Equal(t, aws.ToString(group.Group.GroupId), aws.ToString(out.PolicyGroups[0].GroupId))
+	require.NotEmpty(t, aws.ToString(out.PolicyGroups[0].GroupId))
+
+	require.Len(t, out.PolicyRoles, 1)
+	require.Equal(t, aws.ToString(role.Role.RoleId), aws.ToString(out.PolicyRoles[0].RoleId))
+	require.NotEmpty(t, aws.ToString(out.PolicyRoles[0].RoleId))
+}

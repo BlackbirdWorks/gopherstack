@@ -522,3 +522,100 @@ Gates: `go build`, `go vet`, `go test -race`, `go fix -diff` (no diff),
 `golangci-lint run` (0 findings, after decomposing 3 new `cyclop` violations
 and adding op-name constants for 6 new `goconst` violations the extended
 `ExtractOperation` introduced) all clean.
+
+## 2026-08-31 pass (gopherstack-21my): first per-item sweep
+
+route53 had never had a per-item field-name sweep under this issue. Confirmed
+`awsRestxml_` (REST-XML, `strings.EqualFold` element matching, same latent
+case-only-mismatch class as query/XML) from route53@v1.65.6's own
+`deserializers.go` before starting. Byte-for-byte case check against the
+pinned SDK for every list op below, plus the no-`*Unwrapped`-call-site check
+repo-wide against route53@v1.65.6: **zero hits**, so every route53 list is
+correctly member-wrapped, not flattened.
+
+**BUG (fixed): `ListHostedZonesByName`'s own ad-hoc `HostedZone` item builder
+(`handler_hosted_zones.go`'s `listHostedZonesByName`) dropped
+`Config.PrivateZone` and `ResourceRecordSetCount` entirely** -- both are real
+`types.HostedZone`/`types.HostedZoneConfig` members
+(`awsRestxml_deserializeDocumentHostedZone` /
+`...HostedZoneConfig`), and both are backed by state this backend already
+tracks correctly: `GetHostedZone` and the plain `ListHostedZones` both build
+the item through a single shared `toXMLHostedZone` helper that sets both
+fields from the zone record, but `listHostedZonesByName` built its own
+literal instead of calling it, setting only `ID`/`Name`/`CallerReference`/
+`Config.Comment`. Every hosted zone returned by `ListHostedZonesByName` had
+the right count, `PrivateZone` always `false` and `ResourceRecordSetCount`
+always `0` regardless of the zone's real state -- the sibling-disagreement
+shape this issue's queue prioritized, on a route53 op that had never been
+checked at either layer before. Fixed by replacing the ad-hoc literal with
+`toXMLHostedZone(&zones[i])`, the same builder the other two ops use. Test:
+`TestListHostedZonesByName_ItemShape_RealClient`
+(`wire_field_fixes_r53sweep1_test.go`), creates a private hosted zone with a
+comment via the real client, adds one record, and asserts
+`Config.PrivateZone`, `Config.Comment` and `ResourceRecordSetCount` all
+round-trip through `ListHostedZonesByName`. Verified failing pre-fix by
+hand-revert (`PrivateZone` false, `ResourceRecordSetCount` 0).
+
+**RE-VERIFIED CLEAN, byte-for-byte case included:**
+- `ListHealthChecks` -- shares `xmlHealthCheck`/`xmlHealthCheckConfig` with
+  `GetHealthCheck`/`CreateHealthCheck` (one struct, three call sites), all
+  emitted `HealthCheckConfig` members (18 of 18) and `HealthCheck`'s own
+  `Id`/`CallerReference`/`HealthCheckConfig`/`HealthCheckVersion` correctly
+  named, including the flattened-list checks (`Regions>Region`,
+  `ChildHealthChecks>ChildHealthCheck`) against the real deserializer's exact
+  member-element names. `CloudWatchAlarmConfiguration` and `LinkedService`
+  (both real top-level `HealthCheck` members) are genuine no-backing-state
+  gaps -- absent from the domain model entirely -- shared identically by
+  `Get` and `List`, so no sibling disagreement is possible here.
+- `ListResourceRecordSets` -- `xmlResourceRecordSet` carries 14 of 15 real
+  `ResourceRecordSet` members correctly, including the fully-nested
+  `AliasTarget`, `CidrRoutingConfig`, `GeoProximityLocation.Coordinates`, and
+  `ResourceRecords>ResourceRecord`. `TrafficPolicyInstanceId` is a genuine
+  gap: nothing in this backend tags a record set with the traffic-policy
+  instance that created it. The reused `xmlGeoLocation` type carries three
+  extra fields (`ContinentName`/`CountryName`/`SubdivisionName`) that don't
+  exist on the real per-record `GeoLocation` type -- harmless, since a real
+  client's decoder silently skips unrecognized elements, and those fields
+  are exactly the ones the *different* real type `GeoLocationDetails`
+  (`ListGeoLocations`'s own item, verified separately below) legitimately
+  needs; the type is deliberately shared, not a mismatch.
+- `ListGeoLocations` -- `xmlGeoLocation` (the same struct, used here for its
+  full six-field form) matches `GeoLocationDetails` exactly, wrapped
+  `GeoLocationDetailsList>GeoLocationDetails` as the real (never called)
+  `*Unwrapped` sibling confirms it should be.
+- `ListTrafficPolicyInstances` (and its `ByHostedZone`/`ByPolicy` siblings) --
+  all six call sites of the item builder share one function,
+  `toXMLTPInstance`, emitting 8 of 9 real `TrafficPolicyInstance` members.
+  The missing `Message` is a genuine no-backing-state gap: this backend's
+  `TrafficPolicyInstance.State` is hardcoded to `"Applied"` at every creation
+  site (no async-failure modeling), and `Message` is only ever populated by
+  real AWS on a non-`Applied` state, so no legal input through this backend
+  can ever populate it -- recorded per this issue's restraint guidance, not
+  counted as a fix.
+- `ListTrafficPolicies` -- `xmlTrafficPolicySummary`'s five members match
+  `TrafficPolicySummary` exactly (a genuinely different, slimmer real type
+  than `GetTrafficPolicy`'s `TrafficPolicy`, so no sibling disagreement is
+  expected or possible).
+- `ListReusableDelegationSets` -- reuses the already-clean `xmlDelegationSet`
+  (`CallerReference`/`Id`/`NameServers`), wrapped
+  `DelegationSets>DelegationSet` matching the real deserializer.
+- `ListQueryLoggingConfigs` -- `xmlQueryLoggingConfig`'s three members
+  (`CloudWatchLogsLogGroupArn`/`HostedZoneId`/`Id`) all correct.
+- `ListCidrCollections`/`ListCidrBlocks`/`ListCidrLocations` --
+  `xmlCidrCollectionSummary`/`xmlCidrBlockSummary`/`xmlCidrLocationSummary`
+  all match `CollectionSummary`/`CidrBlockSummary`/`LocationSummary` exactly.
+- `ListHostedZonesByVPC` -- `xmlHostedZoneSummary` (already carrying an
+  explanatory comment tying it to `HostedZoneSummary`'s deserializer) matches
+  exactly, including its "Id wire element is HostedZoneId, not Id" detail.
+- `ListVPCAssociationAuthorizations` -- `xmlVPC`'s `VPCId`/`VPCRegion` match
+  `types.VPC` exactly.
+
+**NOT REACHED at this layer:** `ListTagsForResource(s)` (simple map/tag
+shapes, lower yield per this issue's own priority note), and the read-side
+detail of `ListCidrCollections`' companion `GetCidrCollection`-equivalent
+change/version flow beyond what the existing sweep1 tests already cover.
+
+Gates: `go build ./services/iam/... ./services/route53/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iam/... ./services/route53/...`
+(pass), `golangci-lint run ./services/iam/... ./services/route53/...` (0
+issues). No `nolint` directives exist in any file this pass touched.
