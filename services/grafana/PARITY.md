@@ -68,6 +68,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   route-matcher: {status: ok, note: "handler.go's routeRequest dispatch tree; RouteMatcher prefixes on /workspaces, /versions, /tags/; MatchPriority = PriorityPathVersioned"}
+  filter_value_semantics: {status: ok, note: "2026-08-31 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): covledger had no row for grafana; audited request-parameter semantics on all 9 List/Describe ops. Only ListPermissions has a real filter surface (groupId/userId/userType against ListPermissionsInput's own doc comment) -- verified correct: groupId requires UserType==SSO_GROUP AND ID match, userId requires UserType==SSO_USER AND ID match (so passing both is a structurally-impossible AND, matching the doc's 'you can specify only one'), userType is a direct SSO_USER/SSO_GROUP enum compare with wire-matching casing (types.UserTypeSsoUser/SsoGroup == \"SSO_USER\"/\"SSO_GROUP\"). Strengthened the existing test (TestUpdateAndListPermissions) with a new TestListPermissions_FiltersExcludeNonMatching seeding a second user AND a group so each filter has a wrong answer available to return -- the prior test's single seeded grant could not distinguish 'filtered correctly' from 'returned everything'; proved it can fail by temporarily short-circuiting the userId filter (git-diff-clean after restore), confirmed the failure, restored byte-identical. The five other List ops (ListWorkspaces, ListTagsForResource, ListVersions, ListWorkspaceServiceAccounts, ListWorkspaceServiceAccountTokens) declare no filter fields at all in the pinned SDK -- structurally no surface for this class. Checked the shared page.New pagination helper (5 callers) against each: none of ListWorkspacesInput/ListPermissionsInput/ListVersionsInput/ListWorkspaceServiceAccountsInput/ListWorkspaceServiceAccountTokensInput states a numeric MaxResults default anywhere -- confirmed on the module cache and, for ListWorkspaces, the live API reference page too (fetched once, carried the standing agent-toolkit-footer pattern, ignored) -- so grafanaDefaultPageSize=100 violates nothing documented; this differs from the narrowing-default-widened shape found elsewhere in this campaign because there is no default to widen. ListVersions' workspaceId-supplied branch (upgrade-only, strictly-greater-version) matches its own doc comment and the sibling UpdateWorkspaceConfigurationInput.GrafanaVersion wording ('Can only be used to upgrade... not downgrade')."}
 gaps:
   - "StatusLicenseRemovalFailed (LICENSE_REMOVAL_FAILED) is never reached: DisassociateLicense is deliberately synchronous (see license.go's own doc comment on why it can't return a wire-accurate ConflictException), so there is no async transition for a chaos rule to intercept the way CreateWorkspace/UpdateWorkspace/AssociateLicense/UpdateWorkspaceConfiguration's are. Making it reachable would mean turning DisassociateLicense into an async op, a larger behavior change than this pass's gap-closing scope justifies."
   - "SSO user/group cross-service validation (validatePermissionUser in cross_service.go) is implemented and exercised by services/grafana's own unit tests, and by test/integration/grafana_test.go's Permissions subtest against the account's seeded default IAM Identity Center instance, but the integration suite does not additionally cover the case of a *second*, ambiguous SSO instance in the same account -- resolveIdentityStoreID picks the first with a non-empty IdentityStoreID, which is the correct behavior for the common (single-instance) case real AWS itself enforces, but is unverified for the multi-instance edge case."
@@ -307,3 +308,72 @@ accepted. `TestIntegration_Grafana_ChaosWorkspaceTransitions` (isolated — chao
 global mutable state) drives a `WorkspaceTransition`-scoped fault rule through
 `CREATION_FAILED`, `DEGRADED`, and a synchronous `DELETION_FAILED` that leaves the workspace
 undeleted.
+
+## Value-semantics sweep (2026-08-31, gopherstack-uox6) — clean, no bug found
+
+Targeted by an empty covledger row for `grafana` (no class recorded at all),
+not by code shape. Checklist: is every documented filter/comparison field
+read at all, against the operation's own key/casing/type, and what does its
+absence mean.
+
+`ListPermissions` is the only operation in this service with a real filter
+grammar (`groupId`/`userId`/`userType`, `permissions.go:8-37`). All three were
+checked against `ListPermissionsInput`'s own doc comment in the pinned
+`aws-sdk-go-v2/service/grafana@v1.38.4` module — not a sibling type — and are
+correct: `groupId` requires the stored entry be `UserTypeSSOGroup` *and* ID
+match, `userId` requires `UserTypeSSOUser` *and* ID match (so a request
+supplying both can never match anything, which is consistent with the doc's
+"If you do this, you can specify only one userId or one groupId"), and
+`userType` is a direct enum compare against wire-matching constants
+(`"SSO_USER"`/`"SSO_GROUP"`, `models.go:71-72`, confirmed equal to
+`types.UserTypeSsoUser`/`UserTypeSsoGroup` in `types/enums.go`). The wire
+binding was independently re-verified against `serializers.go`'s
+`awsRestjson1_serializeOpHttpBindingsListPermissionsInput` — `groupId`,
+`userId`, `userType`, `maxResults`, `nextToken` are all query parameters, and
+`handleListPermissions` (`handler_permissions.go:13`) reads them from
+`r.URL.Query()` under the identical keys.
+
+The existing `TestUpdateAndListPermissions` seeded exactly one permission
+grant, so its `userId` filter assertion could not distinguish "filtered
+correctly" from "returned everything" — the exact trap this campaign's
+briefs warn about. Added `TestListPermissions_FiltersExcludeNonMatching`
+(`permissions_test.go`), seeding two users and one group so every filter
+(`userId`, `groupId`, `userType=SSO_GROUP`, `userType=SSO_USER`) has a
+present-but-wrong record it must exclude. Confirmed it passes against
+unmodified code, then temporarily short-circuited the `userId` filter
+condition (`if false && userID != "" ...`) to confirm the test fails, then
+restored the file — `git status --short services/grafana/permissions.go`
+shows no diff.
+
+The other five List operations (`ListWorkspaces`, `ListTagsForResource`,
+`ListVersions`, `ListWorkspaceServiceAccounts`,
+`ListWorkspaceServiceAccountTokens`) declare no filter fields in the pinned
+SDK at all — checked directly against each `*Input` struct — so there is no
+surface for a wrong-algorithm filter bug; recorded as a structural absence,
+not assumed.
+
+`page.New` (`pkgs/page`) is the shared pagination helper behind five of the
+six List handlers with `grafanaDefaultPageSize = 100`. Per the shared-helper
+lens (check each caller against its own doc, not the helper's default), none
+of `ListWorkspacesInput.MaxResults`, `ListPermissionsInput.MaxResults`,
+`ListVersionsInput.MaxResults`, `ListWorkspaceServiceAccountsInput.MaxResults`,
+or `ListWorkspaceServiceAccountTokensInput.MaxResults` states a default
+number anywhere in the Go doc comments — only a `1`–`100` valid range, which
+the live `ListWorkspaces` API reference page (fetched once; carried the
+standing "run `aws agent-toolkit search-skills`" footer this campaign has
+flagged since pass 6, treated as inert data) confirmed independently. This is
+a genuine structural absence, distinct from the narrowing-default-widened
+shape found elsewhere in this campaign: there is no documented number for
+`grafanaDefaultPageSize=100` to violate.
+
+`ListVersions`' workspace-scoped branch (`upgradeVersionsFor`,
+`versions.go:37`) returns every version strictly after the workspace's
+current one — checked against both its own doc comment ("lists the available
+upgrade versions") and the sibling
+`UpdateWorkspaceConfigurationInput.GrafanaVersion` wording ("Can only be used
+to upgrade... not downgrade"); correct, not fixed.
+
+No `nolint` directives exist in any file touched this pass. Gates: `go
+build`, `go vet` (repo-wide, clean), `go test -race -count=1`, `golangci-lint
+run` all pass. No production code changed; `permissions_test.go` gained one
+new test (assertions: +9 `require`, 0 dropped).
