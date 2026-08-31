@@ -390,7 +390,9 @@ func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
 
 	if inst.DBParameterGroupName != "" {
 		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
-			Status: &xmlDBParamGroupStatus{DBParameterGroupName: inst.DBParameterGroupName},
+			Members: []xmlDBParamGroupStatus{
+				{DBParameterGroupName: inst.DBParameterGroupName, ParameterApplyStatus: dbParameterApplyStatusInSync},
+			},
 		}
 	}
 
@@ -403,14 +405,26 @@ func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
 	}
 }
 
+// xmlDBParamGroupStatus mirrors types.DBParameterGroupStatus
+// (rds@v1.124.1 types/types.go:2703). Confirmed against
+// awsAwsquery_deserializeDocumentDBParameterGroupStatusList
+// (deserializers.go:37336): the list element name is "DBParameterGroup", not
+// "DBParameterGroupStatus" -- a prior shape wrapped a single struct under the
+// wrong element name, so a real client's DBParameterGroups was always empty.
 type xmlDBParamGroupStatus struct {
 	DBParameterGroupName string `xml:"DBParameterGroupName,omitempty"`
+	ParameterApplyStatus string `xml:"ParameterApplyStatus,omitempty"`
 }
 
 // optionGroupMembershipStatusInSync is the status AWS reports for an option
 // group membership applied statically (no pending change), matching this
 // backend's always-apply-immediately option group model.
 const optionGroupMembershipStatusInSync = "in-sync"
+
+// dbParameterApplyStatusInSync is the status AWS reports for a DB parameter
+// group applied statically (no pending change), matching this backend's
+// always-apply-immediately parameter group model.
+const dbParameterApplyStatusInSync = "in-sync"
 
 type xmlOptionGroupMembership struct {
 	OptionGroupName string `xml:"OptionGroupName"`
@@ -422,7 +436,7 @@ type xmlOptionGroupMembershipList struct {
 }
 
 type xmlDBParamGroupsWrapper struct {
-	Status *xmlDBParamGroupStatus `xml:"DBParameterGroupStatus,omitempty"`
+	Members []xmlDBParamGroupStatus `xml:"DBParameterGroup"`
 }
 
 type xmlVpcSecurityGroupMembership struct {
@@ -539,7 +553,9 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 	id := vals.Get("DBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
 	sourceRegion := vals.Get("SourceRegion")
-	inst, err := h.Backend.CreateDBInstanceReadReplica(id, sourceID, sourceRegion)
+	paramGroupName := vals.Get("DBParameterGroupName")
+	optionGroupName := vals.Get("OptionGroupName")
+	inst, err := h.Backend.CreateDBInstanceReadReplica(id, sourceID, sourceRegion, paramGroupName, optionGroupName)
 	if err != nil {
 		return nil, err
 	}
@@ -663,10 +679,12 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 	id := vals.Get("TargetDBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
 	opts := DBInstanceOptions{
-		MultiAZ:            vals.Get("MultiAZ") == formTrue,
-		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
-		StorageType:        vals.Get("StorageType"),
-		AvailabilityZone:   vals.Get("AvailabilityZone"),
+		MultiAZ:              vals.Get("MultiAZ") == formTrue,
+		DeletionProtection:   vals.Get("DeletionProtection") == formTrue,
+		StorageType:          vals.Get("StorageType"),
+		AvailabilityZone:     vals.Get("AvailabilityZone"),
+		DBParameterGroupName: vals.Get("DBParameterGroupName"),
+		OptionGroupName:      vals.Get("OptionGroupName"),
 	}
 
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
@@ -741,8 +759,11 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 	s3IngestionRoleArn := vals.Get("S3IngestionRoleArn")
 	sourceEngine := vals.Get("SourceEngine")
 	sourceEngineVersion := vals.Get("SourceEngineVersion")
+	paramGroupName := vals.Get("DBParameterGroupName")
+	optionGroupName := vals.Get("OptionGroupName")
 	inst, err := h.Backend.RestoreDBInstanceFromS3(
 		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
+		paramGroupName, optionGroupName,
 	)
 	if err != nil {
 		return nil, err

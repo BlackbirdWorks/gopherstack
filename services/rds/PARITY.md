@@ -853,3 +853,106 @@ diffed against HEAD.
 HEAD, op.field key sets identical. ZERO DAMAGE -- notable since rds is
 query-protocol, the shape family carrying most of this campaign's true
 findings elsewhere.
+
+## reqfielddiff suppressed-findings validation pass (2026-08-31, gopherstack-uox6 method, `4daec002d`)
+
+`4daec002d` fixed `cmd/reqfielddiff` counting a backend method's *response*
+struct as declaring *request* fields, which had been silently cancelling real
+findings repo-wide. rds's tier-1 count moved 143 -> 149. Diffed `-dir rds`
+output at HEAD against the same command built from `4daec002d~1` (worktree,
+removed after) to isolate exactly the 6 newly surfaced tier-1 findings (all
+"documented default; a sibling operation in this service declares the same
+field"):
+
+- `CreateDBInstanceReadReplica.DBParameterGroupName` / `.OptionGroupName`
+- `RestoreDBInstanceFromDBSnapshot.DBParameterGroupName`
+- `RestoreDBInstanceFromS3.DBParameterGroupName` / `.OptionGroupName`
+- `RestoreDBInstanceToPointInTime.DBParameterGroupName`
+
+**Precision on this newly surfaced set: 6/6 real (100%).** All six were
+confirmed by reading the handler: none of the four handlers read
+`DBParameterGroupName`/`OptionGroupName` from `url.Values` at all, while
+their sibling `CreateDBInstance`/`ModifyDBInstance` both do (checked, per
+this class's "check the sibling operations" rule). No false positives, so no
+blind-spot shape applies -- this batch is higher precision than the 85%
+(34/40) measured on the old, narrower reqfielddiff set, though a sample of 6
+is too small to read much into the gap.
+
+**Two adjacent tier-3 findings fixed opportunistically**, found while reading
+the same handlers for the confirmed set (not part of the tier-1 diff, so not
+counted in the precision figure above): `RestoreDBInstanceFromDBSnapshot.
+OptionGroupName` and `RestoreDBInstanceToPointInTime.OptionGroupName` were
+equally unread, in the exact same functions already being edited.
+
+**A response wire-shape bug was found and fixed en route, load-bearing for
+all of the above**: `xmlDBParamGroupsWrapper` wrapped a single
+`DBParameterGroupStatus` element instead of a repeated `DBParameterGroup`
+list (confirmed against `awsAwsquery_deserializeDocumentDBParameterGroupStatusList`,
+`deserializers.go:37336`, in `rds@v1.124.1`). `DBInstance.DBParameterGroups`
+was therefore *always* empty to a real client on every RDS operation, not
+just the four fixed here -- a correctly-populated backend field with no path
+to the wire. Fixed by changing the wrapper to a list keyed `DBParameterGroup`
+and adding `ParameterApplyStatus="in-sync"` (matching the existing
+`OptionGroupMembership` "always applied immediately" convention). Confirmed
+via a real-SDK-client repro test before the fix (`DBParameterGroups`
+decoded to `[]` for a plain `CreateDBInstance` call with an explicit
+`DBParameterGroupName`) and after (decodes correctly); the throwaway repro
+test was not committed.
+
+**Defaults implemented vs. declared-only, and why**:
+- `RestoreDBInstanceFromDBSnapshot.DBParameterGroupName` and
+  `RestoreDBInstanceFromS3.DBParameterGroupName`: doc states a simple,
+  non-contingent default ("the default DBParameterGroup for the specified DB
+  engine") that matches a convention already established in this codebase
+  (`db_clusters.go:34`, `"default." + engine`) -- implemented as
+  `"default." + engine`, applied beneath the handler in the backend.
+- `CreateDBInstanceReadReplica.DBParameterGroupName`: doc's default is
+  explicitly *contingent* (same-Region replica -> source's group;
+  cross-Region -> engine default) -- per this class's own guard rail
+  ("declare the field and invent no default" for contingent defaults), only
+  the explicit-value path was wired; the absent case is unchanged (empty).
+- `CreateDBInstanceReadReplica.OptionGroupName`,
+  `RestoreDBInstanceFromS3.OptionGroupName`,
+  `RestoreDBInstanceFromDBSnapshot.OptionGroupName`,
+  `RestoreDBInstanceToPointInTime.OptionGroupName`: no established
+  "default option group" convention exists anywhere in this codebase, and
+  `CreateDBInstance` itself -- the sibling that already reads
+  `OptionGroupName` -- implements no default for it either. Declaring one
+  here would be *more* than the primary Create operation does. Left
+  declared-only (explicit value honored, absent case stays empty).
+- `RestoreDBInstanceToPointInTime.DBParameterGroupName`: pre-existing code
+  already defaulted unconditionally to the source instance's group (the bug
+  was that an explicit override could never take effect). The current SDK
+  doc text for this field actually says "the default DBParameterGroup for
+  the specified DB engine," not "the source's" -- a discrepancy from the
+  pre-existing default, left unchanged. Correcting it is a value-semantics
+  question (gopherstack-uox6's separate axis, not "field never declared")
+  and out of this pass's scope; recorded here rather than silently reached
+  for.
+
+**Tests**: new file `restore_param_option_group_test.go`, 34
+`require`/`assert` calls across 4 top-level tests (8 subtests), driving the
+real `aws-sdk-go-v2` client and asserting on the decoded
+`DBParameterGroups[0].DBParameterGroupName` /
+`OptionGroupMemberships[0].OptionGroupName` response fields. Every subtest
+confirmed failing against unmodified code first (the wire-shape fix and the
+field-wiring fixes were both required for any of them to pass). The two
+"omitted field defaults" subtests (`RestoreDBInstanceFromDBSnapshot`,
+`RestoreDBInstanceFromS3`) never set `DBParameterGroupName` in the request at
+all. Two existing test files (`db_instances_fields_test.go`,
+`db_instances_operations_test.go`) were touched only to add `"", ""` at call
+sites for the two backend signature changes below -- zero assertions added,
+changed, or dropped in either (diff is call-site-only).
+
+**Signature changes** (services/rds-internal only; `go vet ./...` repo-wide
+confirmed no external callers): `CreateDBInstanceReadReplica` gained
+`paramGroupName, optionGroupName string`; `RestoreDBInstanceFromS3` gained
+`paramGroupName, optionGroupName string`. `RestoreDBInstanceFromDBSnapshot`
+and `RestoreDBInstanceToPointInTime` needed no signature change --
+`DBInstanceOptions` already carried both fields; only the handlers and
+backend logic were wired up.
+
+Gates: `go build ./services/rds/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/rds/...` (pass), `golangci-lint run
+./services/rds/...` (0 issues, no `--fix` needed). No `nolint` directives in
+any file touched this pass.

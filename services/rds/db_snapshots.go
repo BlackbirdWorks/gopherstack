@@ -244,7 +244,13 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	return &cp, nil
 }
 
-// RestoreDBInstanceFromDBSnapshot creates a new DB instance from the given snapshot.
+// RestoreDBInstanceFromDBSnapshot creates a new DB instance from the given
+// snapshot. DBParameterGroupName defaults to "default.<engine>" when
+// omitted, matching the documented "default DBParameterGroup for the
+// specified DB engine" (rds@v1.124.1
+// api_op_RestoreDBInstanceFromDBSnapshot.go:241) and the same convention
+// CreateDBCluster already uses. OptionGroupName has no documented default
+// and is honored only when supplied.
 func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 	id, snapshotID string,
 	opts DBInstanceOptions,
@@ -287,6 +293,9 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		if opts.AvailabilityZone == "" {
 			opts.AvailabilityZone = b.region + "a"
 		}
+		if opts.DBParameterGroupName == "" {
+			opts.DBParameterGroupName = "default." + snap.Engine
+		}
 
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		port := snap.Port
@@ -309,6 +318,8 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 			AvailabilityZone:     opts.AvailabilityZone,
 			MultiAZ:              opts.MultiAZ,
 			DeletionProtection:   opts.DeletionProtection,
+			DBParameterGroupName: opts.DBParameterGroupName,
+			OptionGroupName:      opts.OptionGroupName,
 		}
 		b.instances.Put(inst)
 		b.publishInstanceEventLocked(id, "DB instance restored from snapshot")

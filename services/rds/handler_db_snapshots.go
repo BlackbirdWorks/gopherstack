@@ -155,10 +155,12 @@ func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, e
 	id := vals.Get("DBInstanceIdentifier")
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	opts := DBInstanceOptions{
-		MultiAZ:            vals.Get("MultiAZ") == formTrue,
-		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
-		StorageType:        vals.Get("StorageType"),
-		AvailabilityZone:   vals.Get("AvailabilityZone"),
+		MultiAZ:              vals.Get("MultiAZ") == formTrue,
+		DeletionProtection:   vals.Get("DeletionProtection") == formTrue,
+		StorageType:          vals.Get("StorageType"),
+		AvailabilityZone:     vals.Get("AvailabilityZone"),
+		DBParameterGroupName: vals.Get("DBParameterGroupName"),
+		OptionGroupName:      vals.Get("OptionGroupName"),
 	}
 
 	inst, err := h.Backend.RestoreDBInstanceFromDBSnapshot(id, snapshotID, opts)

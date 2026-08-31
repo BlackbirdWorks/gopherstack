@@ -608,7 +608,14 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	return &cp, nil
 }
 
-// RestoreDBInstanceToPointInTime creates a new DB instance as a point-in-time restore of the source.
+// RestoreDBInstanceToPointInTime creates a new DB instance as a point-in-time
+// restore of the source. DBParameterGroupName defaults to the source's group
+// when omitted (pre-existing behavior; left unchanged even though
+// api_op_RestoreDBInstanceToPointInTime.go:210 documents the absent case as
+// "the default DBParameterGroup for the specified DB engine" -- correcting
+// that default is out of this pass's scope) and is honored when the caller
+// supplies one. OptionGroupName has no documented default and is honored
+// only when supplied.
 func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 	id, sourceID string,
 	opts DBInstanceOptions,
@@ -651,6 +658,9 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		if opts.AvailabilityZone == "" {
 			opts.AvailabilityZone = source.AvailabilityZone
 		}
+		if opts.DBParameterGroupName == "" {
+			opts.DBParameterGroupName = source.DBParameterGroupName
+		}
 
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		inst := &DBInstance{
@@ -666,7 +676,8 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 			Endpoint:             endpoint,
 			Port:                 source.Port,
 			AllocatedStorage:     source.AllocatedStorage,
-			DBParameterGroupName: source.DBParameterGroupName,
+			DBParameterGroupName: opts.DBParameterGroupName,
+			OptionGroupName:      opts.OptionGroupName,
 			StorageType:          opts.StorageType,
 			StorageEncrypted:     source.StorageEncrypted,
 			AvailabilityZone:     opts.AvailabilityZone,
@@ -738,9 +749,15 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	return &cp, nil
 }
 
-// CreateDBInstanceReadReplica creates a read replica of the given source instance.
-// sourceRegion is optional; when non-empty it indicates a cross-region replica.
-func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion string) (*DBInstance, error) {
+// CreateDBInstanceReadReplica creates a read replica of the given source
+// instance. sourceRegion is optional; when non-empty it indicates a
+// cross-region replica. paramGroupName and optionGroupName are honored when
+// supplied; their documented defaults are contingent on the source's region
+// (rds@v1.124.1 api_op_CreateDBInstanceReadReplica.go:157,412) and are left
+// unimplemented rather than guessed.
+func (b *InMemoryBackend) CreateDBInstanceReadReplica(
+	id, sourceID, sourceRegion, paramGroupName, optionGroupName string,
+) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -793,6 +810,8 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 		Port:                              port,
 		AllocatedStorage:                  allocatedStorage,
 		ReplicaSourceDBInstanceIdentifier: sourceID,
+		DBParameterGroupName:              paramGroupName,
+		OptionGroupName:                   optionGroupName,
 	}
 	b.instances.Put(replica)
 	b.publishInstanceEventLocked(id, "DB read replica created")
@@ -978,8 +997,14 @@ func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance,
 // describing the source backup; the real DBInstance response shape has no
 // fields for them (grepped types/types.go), so they're validated as
 // required but not persisted -- there's no real state to echo them into.
+// paramGroupName defaults to "default.<engine>" when omitted, matching the
+// documented "default DBParameterGroup for the specified DB engine"
+// (api_op_RestoreDBInstanceFromS3.go:171). optionGroupName has no
+// established default convention in this backend and is honored only when
+// supplied.
 func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	paramGroupName, optionGroupName string,
 ) (*DBInstance, error) {
 	if s3Bucket == "" {
 		return nil, fmt.Errorf("%w: s3BucketName is required", ErrInvalidParameter)
@@ -1002,6 +1027,9 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	if sourceEngineVersion == "" {
 		return nil, fmt.Errorf("%w: sourceEngineVersion is required", ErrInvalidParameter)
 	}
+	if paramGroupName == "" {
+		paramGroupName = "default." + engine
+	}
 	b.mu.Lock("RestoreDBInstanceFromS3")
 	defer b.mu.Unlock()
 	if _, exists := b.instances.Get(normalizeID(id)); exists {
@@ -1015,6 +1043,8 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 		DBInstanceStatus:     "creating",
 		AllocatedStorage:     defaultAllocatedStorage,
 		StorageType:          "gp2",
+		DBParameterGroupName: paramGroupName,
+		OptionGroupName:      optionGroupName,
 	}
 	b.instances.Put(inst)
 	b.instanceReadyAt[id] = time.Now().Add(instanceReadyDelaySeconds * time.Second)
