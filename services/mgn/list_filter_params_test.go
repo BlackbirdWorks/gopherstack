@@ -2,6 +2,7 @@ package mgn_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	mgnsdk "github.com/aws/aws-sdk-go-v2/service/mgn"
@@ -130,4 +131,83 @@ func TestListNetworkMigrationAnalyses_JobIDsFilterHonoured(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Items, 1, "Filters.JobIDs must exclude the second job")
 	require.Equal(t, jobIDs[0], aws.ToString(out.Items[0].JobID))
+}
+
+// TestDescribeJobs_DateRangeFilterHonoured proves DescribeJobs applies
+// Filters.FromDate/Filters.ToDate (DescribeJobsRequestFilters.FromDate/
+// ToDate) against a Job's real CreationDateTime, which the handler decoded
+// off the wire but never passed to the backend before the fix -- both
+// fields were silently dropped regardless of what a real client sent.
+// Boundaries are treated inclusive (the field names carry no
+// "Exclusive"/"Since" qualifier, unlike outposts' ToExclusive shape).
+func TestDescribeJobs_DateRangeFilterHonoured(t *testing.T) {
+	t.Parallel()
+
+	h, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	seeded := seedSourceServerViaImport(t, h, client, "date-filter-server")
+
+	jobOut, err := client.TerminateTargetInstances(ctx, &mgnsdk.TerminateTargetInstancesInput{
+		SourceServerIDs: []string{aws.ToString(seeded.SourceServerID)},
+	})
+	require.NoError(t, err)
+
+	jobID := aws.ToString(jobOut.Job.JobID)
+	createdAt := aws.ToString(jobOut.Job.CreationDateTime)
+	require.NotEmpty(t, createdAt)
+
+	parsed, parseErr := time.Parse(time.RFC3339, createdAt)
+	require.NoError(t, parseErr)
+
+	before := parsed.Add(-time.Hour).Format(time.RFC3339)
+	after := parsed.Add(time.Hour).Format(time.RFC3339)
+
+	tests := []struct {
+		fromDate       *string
+		toDate         *string
+		name           string
+		wantJobPresent bool
+	}{
+		{name: "no filter", wantJobPresent: true},
+		{
+			name:           "exact boundary both bounds inclusive",
+			fromDate:       aws.String(createdAt),
+			toDate:         aws.String(createdAt),
+			wantJobPresent: true,
+		},
+		{name: "fromDate after job excludes it", fromDate: aws.String(after), wantJobPresent: false},
+		{name: "toDate before job excludes it", toDate: aws.String(before), wantJobPresent: false},
+		{
+			name:           "job within range is included",
+			fromDate:       aws.String(before),
+			toDate:         aws.String(after),
+			wantJobPresent: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, describeErr := client.DescribeJobs(ctx, &mgnsdk.DescribeJobsInput{
+				Filters: &types.DescribeJobsRequestFilters{
+					JobIDs:   []string{jobID},
+					FromDate: tc.fromDate,
+					ToDate:   tc.toDate,
+				},
+			})
+			require.NoError(t, describeErr)
+
+			var found bool
+
+			for _, j := range out.Items {
+				if aws.ToString(j.JobID) == jobID {
+					found = true
+				}
+			}
+
+			require.Equal(t, tc.wantJobPresent, found)
+		})
+	}
 }

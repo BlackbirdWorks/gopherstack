@@ -48,6 +48,40 @@ last_audit_date: 2026-08-29
 #     cases need a partially-populated Address the real SDK client's own validators.go refuses to
 #     construct) plus SDK-driven round-trip tests for every check reachable through the real
 #     client.
+# 2026-08-31 value-semantics sweep (gopherstack-uox6): audited every filter-typed
+# field across all 10 List* input structs with a filter (~20 filter fields by
+# this pass's own count: ListAssetInstances 4, ListAssets 3, ListCapacityTasks 2,
+# ListCatalogItems 3, ListOrderableInstanceTypes 1, ListOrders 1, ListOutposts 3,
+# ListSites 3; ListBlockingInstancesForCapacityTask/ListQuotes/ListTagsForResource
+# take none). covledger reported no filter_default_semantics row for this
+# service (its only row is request_field_never_read, clean, b94d74fe6); no
+# prior PARITY.md entry or commit on this specific axis found. ZERO BUGS,
+# ZERO CODE CHANGED for this class. Every query-bound filter's key casing
+# verified PascalCase against its own op's serializers.go httpBindings
+# function (ListAssets/ListAssetInstances/ListCapacityTasks/ListCatalogItems/
+# ListOrderableInstanceTypes/ListSites all confirmed byte-for-byte); every
+# enum-typed filter compares against the same enum its doc comment names
+# (CapacityTaskStatus, LifeCycleStatus -- confirmed to have NO SDK enum type
+# at all, a bare *string, so no wrong-enum risk exists there); every
+# MaxResults doc comment across all 12 MaxResults-bearing ops states no
+# specific number ("The maximum page size." only), so the uniform
+# defaultPageLimit=100 violates nothing (same clean verdict as mgn, checked
+# same pass); no switch-over-filter-name shape anywhere in this service's
+# filter logic. ListAssetInstances' AwsServiceFilter compares every stored
+# runningInstance against a single hardcoded "EC2" constant rather than a
+# per-instance field -- confirmed NOT a bug: capacity_ledger.go's own doc
+# comment states runningInstance is populated exclusively by services/ec2's
+# RunInstances (the only cross-service capacity consumer this repo wires),
+# so there is no second AWSServiceName value this backend could ever store;
+# a per-record field would be dead weight. OUT-OF-CLASS OBSERVATION, not
+# fixed (different bug class, outside this pass's scope): ListOutposts and
+# ListSites return live backend-owned *Outpost/*Site pointers without
+# cloning (outposts.go:205, sites.go:185), unlike every other listing in
+# this service (ListAssets/ListCapacityTasks/ListOrders all clone before
+# returning) -- a narrow data-race window exists if a concurrent async
+# completion (e.g. scheduleOrderCompletion's Outpost.ContractEndDate write)
+# mutates a returned Outpost between ListOutposts returning and the handler
+# finishing JSON marshaling. Flagged for a follow-up issue, not filed here.
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.

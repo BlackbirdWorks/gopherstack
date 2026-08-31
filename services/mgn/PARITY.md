@@ -75,6 +75,40 @@ last_audit_date: 2026-08-21
 # more collections the API defines as one ordered sequence (each op returns
 # exactly one paginated array). No bugs found or fixed this pass; 0 code
 # changes for Class F/G.
+# 2026-08-31 value-semantics sweep (gopherstack-uox6): audited every filter-typed
+# field across all 30 List*/Describe* input structs (~40 filter fields by this
+# pass's own count, including AccountID/ID-list scoping members). covledger
+# reported no filter_default_semantics row for this service; git log/PARITY.md
+# confirmed no prior audit on this specific axis (the 08-29 "unhonoured list
+# constraints" pass, 43eab7be5, is the sibling request_field_never_read class --
+# it fixed ActionIDs/JobIDs filters that were parsed but never wired to the
+# backend at all; this pass checked the ones that WERE wired for correctness).
+# ONE BUG FOUND AND FIXED: DescribeJobs' Filters.FromDate/ToDate were decoded
+# off the wire (describeJobsFiltersWire has both fields) but the handler only
+# ever read Filters.JobIDs -- FromDate/ToDate were silently dropped. The
+# pre-fix doc comment on DescribeJobsFilters claimed this was deliberate
+# ("not implemented... not exercised by round-trip tests"), which was untrue:
+# Job.CreationDateTime is real, comparable backing data (nowRFC3339, a single
+# fixed-width UTC RFC3339 format every Job write uses). Fixed: both bounds
+# now applied as inclusive lexicographic comparisons against CreationDateTime
+# (jobs.go's matchesJobFilter); no field-name qualifier like "Exclusive"
+# exists to suggest otherwise. Every other filter surface checked clean: all
+# ID-list filters (ApplicationIDs/WaveIDs/ConnectorIDs/ExportIDs/ImportIDs/
+# JobIDs/SegmentIDs/ActionIDs/etc.) match their own op's serializer key and
+# empty-means-unfiltered; every enum-typed filter (ReplicationTypes,
+# LifeCycleStates, NetworkMigrationExecutionStatuses) compares against the
+# same enum its own doc comment names, verified constant-by-constant against
+# the pinned SDK; every MaxResults doc comment across all 30 ops states no
+# specific number, so the uniform defaultPageLimit=100 violates nothing; no
+# switch-over-filter-name shape exists anywhere in this service's filter
+# surface (all matching is containsStr/pointer-equality, not a switch). No
+# second bug found downstream of the DescribeJobs fix (JobIDs filtering was
+# already correct, so nothing was previously unreachable). Proven via
+# list_filter_params_test.go's new TestDescribeJobs_DateRangeFilterHonoured
+# (5 subtests: unfiltered, exact-boundary-both-inclusive, fromDate-excludes,
+# toDate-excludes, in-range-includes), confirmed to fail against unmodified
+# code on the two exclusion subtests before the fix landed. Assertion count
+# in that file: 15 -> 20 require/assert calls, all additions, 0 drops.
 overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration suite this A-/B distinction
 # hinges on now exists and passes under Docker, and every buildable gap this pass found (5 items,
 # enumerated in the comment block above) is closed. What remains in gaps:/structural_gaps: below is
@@ -102,7 +136,7 @@ ops:
   RetryDataReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   TerminateTargetInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover"}
   # jobs (3)
-  DescribeJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (value-semantics sweep, gopherstack-uox6): Filters.FromDate/ToDate were decoded off the wire but never applied -- a source comment claimed this was deliberate ('not exercised by round-trip tests'), but Job.CreationDateTime (nowRFC3339, fixed-width UTC) is real, comparable, backing data. Now both-inclusive lexicographic bounds against CreationDateTime; JobIDs filtering was already correct."}
   DescribeJobLogItems: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok}
   # launch_configuration (6)

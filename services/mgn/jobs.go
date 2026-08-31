@@ -223,16 +223,30 @@ func (b *InMemoryBackend) finishJobLocked(jobID, initiatedBy string) {
 func newSyntheticInstanceID() string { return "i-" + randomHexID() + randomHexID()[:2] }
 
 // DescribeJobsFilters mirrors types.DescribeJobsRequestFilters. FromDate/
-// ToDate filtering is NOT implemented (this backend's Job.CreationDateTime
-// is an opaque RFC3339 string per models.go's convention, and filtering by
-// date range is not exercised by this pass's round-trip tests) -- JobIDs
-// filtering is the one implemented, real filter.
+// ToDate are both-inclusive bounds compared lexicographically against
+// Job.CreationDateTime -- valid because every CreationDateTime this backend
+// writes comes from nowRFC3339() (store.go), a single fixed-width UTC
+// RFC3339 format, so string comparison and time comparison agree.
 type DescribeJobsFilters struct {
-	JobIDs []string
+	FromDate string
+	ToDate   string
+	JobIDs   []string
 }
 
 func matchesJobFilter(j *Job, f DescribeJobsFilters) bool {
-	return len(f.JobIDs) == 0 || containsStr(f.JobIDs, j.JobID)
+	if len(f.JobIDs) > 0 && !containsStr(f.JobIDs, j.JobID) {
+		return false
+	}
+
+	if f.FromDate != "" && j.CreationDateTime < f.FromDate {
+		return false
+	}
+
+	if f.ToDate != "" && j.CreationDateTime > f.ToDate {
+		return false
+	}
+
+	return true
 }
 
 // DescribeJobs returns a page of Jobs matching f.
