@@ -1857,3 +1857,76 @@ constructor args), not assertion drops.
 Gates: `go build ./services/glue/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run
 ./services/glue/...` (0 issues).
+
+## 2026-08-30 value-semantics pass (gopherstack-uox6), seventh pass on this class
+
+Scoped to `services/glue` and `services/dms`, hunting for a filter/matcher
+that reads a documented parameter and applies it with the WRONG semantics
+(as opposed to the wire-shape "is it read at all" axis, already closed for
+both services). Audited `search_assets.go` (SearchAssets' tagged-union
+`SearchFilterClause`, all 6 `SearchFilterOperator` values), `partition_expr.go`
+(GetPartitions' SQL-like `Expression` parser: AND/OR/NOT/IN/LIKE), the
+`matchesTimeWindow`/`matchesDataQualityRulesetFilter`/`matchesTaskRunFilter`/
+`matchesTransformFilter` family (`handler_data_quality_rulesets.go`,
+`handler_ml.go`), `matchesAllCriteria` (GetConnections' MatchCriteria,
+`handler_connections.go`), `matchesTagFilter` (`handler.go`),
+`matchesIntegrationFilters` (`handler_integrations.go`), and
+`filterByDependentJobName` (`handler_triggers.go`). All of these were
+verified consistent with their operation's own SDK doc comment; no bug
+found in any of them (see this issue's comment log for the full report).
+
+**One real bug found and fixed**: `SearchTables`'s `SearchText` (`tables.go`).
+`SearchTablesInput.SearchText`'s doc comment (`api_op_SearchTables.go`:
+"A string used for a text search. Specifying a value in quotes filters
+based on an exact match to the value") documents a quoting modifier the
+handler ignored -- the literal `"` characters were folded into the
+substring search itself, so a quoted `SearchText` (e.g. `"widget"`) could
+never match any real table name (no table name contains a quote
+character), rather than exact-matching the unquoted term. Under-matching,
+same shape as the secretsmanager `!`-negation bug that seeded this issue.
+Fixed: a `SearchText` wrapped in double quotes now strips them and requires
+an exact (case-insensitive) match on `Table.Name`; unquoted text keeps the
+existing case-insensitive substring match. `Filters []types.PropertyPredicate`
+on `SearchTablesInput` (a separate member, with its own documented
+punctuation-tokenized fuzzy-match algorithm) is entirely absent from this
+handler's request struct -- a real, structural "never plumbed" gap, but
+that is the wire-shape axis this pass's brief says is already closed for
+glue, not the value-semantics class this pass targets; left untouched and
+recorded here rather than silently fixed under a different issue.
+
+`DMS`'s `filterEntry`/`extractFilterValue` (`handler.go`, ~30 call sites
+across 13 files) reads only `Values[0]` of every filter, silently dropping
+any additional values a client supplies. This matches this class's
+"list consumed only at its first element" shape on its face, but is
+recorded as a GAP, not fixed: neither `types.Filter`'s doc comment ("one or
+more values used to narrow the returned results") nor any per-operation
+`Filters` doc comment states OR-across-values semantics, and a real-world
+report (aws/aws-cli#7926) shows DescribeEndpoints' `endpoint-type` filter
+returns a 500 InternalFailure on real AWS when given more than one value --
+so "silently OR the extra values" is not a safe inference for DMS
+specifically (unlike ec2/lakeformation, where OR-within-filter is
+independently documented). Implementing OR here would risk fabricating a
+semantic AWS's own filters do not uniformly support. No DMS files changed
+this pass.
+
+Web pages fetched: `API_DescribeReplicationInstances.html`,
+`API_Filter.html` (both DMS, both carried the "aws agent-toolkit
+search-skills" footer -- treated as data, not followed), and
+`API_GetConnectionsFilter.html` (glue, same footer). A GitHub discussion
+(`aws/aws-cli#7926`) and one generic web-search synthesis on AWS filter
+OR/AND conventions were also consulted; the synthesis's generic "for AWS
+services that use filters..." claim was not treated as DMS-specific
+evidence (no operator/field citation to verify against the pinned SDK, so
+nothing to discard outright, but nothing to build a fix on either given
+the contradicting real-world evidence above).
+
+Tests: `TestSDKRoundTrip_SearchTables_QuotedExactMatch` added to
+`handler_filter_sweep_sdk_test.go` (2 subtests, both driving the real
+`aws-sdk-go-v2/service/glue` client; confirmed the quoted subtest fails
+against unmodified code with 0 results instead of 1). No existing test
+assertions were changed or dropped.
+
+Gates: `go build ./services/glue/... ./services/dms/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/glue/...
+./services/dms/...` (pass), `golangci-lint run ./services/glue/...
+./services/dms/...` (0 issues).
