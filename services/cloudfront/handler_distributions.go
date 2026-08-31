@@ -49,6 +49,7 @@ type distributionSummaryXML struct {
 	ID               string `xml:"Id"`
 	PriceClass       string `xml:"PriceClass"`
 	HTTPVersion      string `xml:"HttpVersion"`
+	ETag             string `xml:"ETag,omitempty"`
 	Restrictions     struct {
 		GeoRestriction struct {
 			RestrictionType string `xml:"RestrictionType"`
@@ -56,13 +57,45 @@ type distributionSummaryXML struct {
 		} `xml:"GeoRestriction"`
 	} `xml:"Restrictions"`
 	Aliases struct {
-		Quantity int `xml:"Quantity"`
+		Items    []string `xml:"Items>CNAME"`
+		Quantity int      `xml:"Quantity"`
 	} `xml:"Aliases"`
 	Enabled           bool `xml:"Enabled"`
 	ViewerCertificate struct {
 		CloudFrontDefaultCertificate bool `xml:"CloudFrontDefaultCertificate"`
 	} `xml:"ViewerCertificate"`
 	IsIPV6Enabled bool `xml:"IsIPV6Enabled"`
+}
+
+// toDistributionSummaryXML builds the DistributionSummary item shape shared by
+// ListDistributions and every ListDistributionsBy* op that returns full
+// DistributionList (cloudfront@v1.67.4 deserializers.go,
+// awsRestxml_deserializeDocumentDistributionSummary) rather than a bare
+// DistributionIdList. ETag and Aliases were previously dropped by the By*
+// variants' own minimal item shape even though both are backed by real state
+// (d.ETag; h.Backend.ListAliases) -- the ByX list ops disagreed with this
+// service's own ListDistributions about the same DistributionSummary shape.
+func (h *Handler) toDistributionSummaryXML(d *Distribution) distributionSummaryXML {
+	aliases := h.Backend.ListAliases(d.ID)
+	s := distributionSummaryXML{
+		ID:               d.ID,
+		ARN:              d.ARN,
+		Status:           d.Status,
+		DomainName:       d.DomainName,
+		Comment:          d.Comment,
+		ETag:             d.ETag,
+		Enabled:          d.Enabled,
+		IsIPV6Enabled:    distributionSummaryIsIPV6(d),
+		LastModifiedTime: d.LastModifiedTime,
+	}
+	s.Aliases.Items = aliases
+	s.Aliases.Quantity = len(aliases)
+	s.ViewerCertificate.CloudFrontDefaultCertificate = true
+	s.Restrictions.GeoRestriction.RestrictionType = "none"
+	s.PriceClass = distributionSummaryPriceClass(d)
+	s.HTTPVersion = distributionSummaryHTTPVersion(d)
+
+	return s
 }
 
 // distributionResponseXML builds the full Distribution XML response.
@@ -291,23 +324,7 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 
 	summaries := make([]distributionSummaryXML, 0, len(dists))
 	for _, d := range dists {
-		aliases := h.Backend.ListAliases(d.ID)
-		s := distributionSummaryXML{
-			ID:               d.ID,
-			ARN:              d.ARN,
-			Status:           d.Status,
-			DomainName:       d.DomainName,
-			Comment:          d.Comment,
-			Enabled:          d.Enabled,
-			IsIPV6Enabled:    distributionSummaryIsIPV6(d),
-			LastModifiedTime: d.LastModifiedTime,
-		}
-		s.Aliases.Quantity = len(aliases)
-		s.ViewerCertificate.CloudFrontDefaultCertificate = true
-		s.Restrictions.GeoRestriction.RestrictionType = "none"
-		s.PriceClass = distributionSummaryPriceClass(d)
-		s.HTTPVersion = distributionSummaryHTTPVersion(d)
-		summaries = append(summaries, s)
+		summaries = append(summaries, h.toDistributionSummaryXML(d))
 	}
 
 	type distListXML struct {
@@ -812,27 +829,18 @@ func (h *Handler) marshalDistributionList(c *echo.Context, dists []*Distribution
 }
 
 func (h *Handler) writeDistributionList(c *echo.Context, page []*Distribution, pageSize int, isTruncated bool) error {
-	type distSummary struct {
-		XMLName    xml.Name `xml:"DistributionSummary"`
-		ID         string   `xml:"Id"`
-		ARN        string   `xml:"ARN"`
-		Status     string   `xml:"Status"`
-		DomainName string   `xml:"DomainName"`
-	}
 	type distList struct {
-		XMLName     xml.Name      `xml:"DistributionList"`
-		XMLNS       string        `xml:"xmlns,attr"`
-		NextMarker  string        `xml:"NextMarker,omitempty"`
-		Items       []distSummary `xml:"Items>DistributionSummary"`
-		MaxItems    int           `xml:"MaxItems"`
-		Quantity    int           `xml:"Quantity"`
-		IsTruncated bool          `xml:"IsTruncated"`
+		XMLName     xml.Name                 `xml:"DistributionList"`
+		XMLNS       string                   `xml:"xmlns,attr"`
+		NextMarker  string                   `xml:"NextMarker,omitempty"`
+		Items       []distributionSummaryXML `xml:"Items>DistributionSummary"`
+		MaxItems    int                      `xml:"MaxItems"`
+		Quantity    int                      `xml:"Quantity"`
+		IsTruncated bool                     `xml:"IsTruncated"`
 	}
-	summaries := make([]distSummary, 0, len(page))
+	summaries := make([]distributionSummaryXML, 0, len(page))
 	for _, d := range page {
-		summaries = append(summaries, distSummary{
-			ID: d.ID, ARN: d.ARN, Status: d.Status, DomainName: d.DomainName,
-		})
+		summaries = append(summaries, h.toDistributionSummaryXML(d))
 	}
 	nextMarker := ""
 	if isTruncated && len(page) > 0 {

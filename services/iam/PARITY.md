@@ -539,3 +539,92 @@ Pre-existing `//nolint:lll // long XML element name` on
 otherwise touch) re-checked: `lll` is disabled repo-wide (superseded by
 golines per `.golangci.yml`), so this directive is currently inert but
 harmless -- left as-is, out of this pass's scope to clean up.
+
+## 2026-08-31 per-item exact-case sweep, batch 2 (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against iam@v1.58.1 deserializers.go
+(awsAwsquery_) for a subset of this issue's iam "not reached" list:
+`ListInstanceProfiles` (incl. `ListInstanceProfilesForRole`/`GetInstanceProfile`/
+`CreateInstanceProfile`, which all share one builder), `ListPolicies` (shares
+`toPolicyXML` with `GetPolicy`/`CreatePolicy`, already fixed 2026-08-14),
+`ListServerCertificates`, `ListAccessKeys`, `ListVirtualMFADevices`,
+`ListSAMLProviders`.
+
+**BUG (fixed): `InstanceProfileXML` (`models.go`), the shape shared by every
+instance profile response (`Create`/`Get`/`List`/`ListForRole` all call the
+same `toInstanceProfileXML`), omitted `Tags` entirely** -- the real
+`InstanceProfile` deserializer reads it, and the tags ARE tracked: the same
+`"ip:"`-prefixed key `TagInstanceProfile`/`ListInstanceProfileTags`/
+`UntagInstanceProfile` already read and write
+(`resourceTagDispatch("InstanceProfile", "ip:", "InstanceProfileName")`).
+Unlike most bugs this campaign has found, this is **not** a Get-vs-List
+disagreement -- every one of the four ops sharing this one builder was
+equally wrong, so fixing the shared function fixed all four at once. Converted
+`toInstanceProfileXML` from a free function to a `*Handler` method so it can
+read `h.getTags`; updated all 7 call sites across `handler_instance_profiles.go`,
+`handler_list_filters.go`, and `handler_roles.go` (mechanical rename, no logic
+change at those sites). Test: `TestListInstanceProfiles_ItemShape_RealClient`
+(`instance_profiles_test.go`), seeds two profiles with distinguishable tags,
+asserts both round-trip through `ListInstanceProfiles`. Verified failing
+pre-fix by hand-revert.
+
+**BUG (fixed): `VirtualMFADeviceXML` (`models_mfa.go`), used by
+`ListVirtualMFADevices` (`handler_mfa.go`), omitted `User` and `Tags`
+entirely** -- both real `VirtualMFADevice` deserializer members. `User` (a
+full nested `User` object) is backed by the same user-device link map
+`GetMFADeviceOwner`/`EnableMFADevice`/`DeactivateMFADevice` already read and
+write; `Tags` by the same `"mfa:"`-prefixed key
+`TagMFADevice`/`ListMFADeviceTags` already use. `EnableDate` remains a genuine
+gap -- `VirtualMFADevice` tracks device `Status` but not when it was enabled.
+Fixed by resolving the owner via `h.Backend.GetMFADeviceOwner` +
+`h.Backend.GetUser` and building a `UserXML` (the same builder `GetUser`/
+`ListUsers` use) when present, and reading `h.getTags("mfa:"+serial)`. Test:
+`TestListVirtualMFADevices_ItemShape_RealClient` (`mfa_test.go`), creates a
+device, enables it for a tagged user, asserts both `User.UserName` and `Tags`
+round-trip through `ListVirtualMFADevices`. Verified failing pre-fix by
+hand-revert (`User` decoded nil).
+
+**SEPARATE FINDING, not fixed (dead-code/registration-order issue, not a
+wire-shape bug): `"ListMFADevices"` is registered by two different dispatch
+tables (`iamMFALinkDispatch` via the `opListMFADevices` constant, and
+`iamMFADeviceDispatch` via the literal string, which is the same value) --
+`handler.go` merges `iamMFALinkDispatch` after `iamMFADeviceDispatch`
+(`maps.Copy` order), so the second implementation always wins and the first is
+unreachable. The two implementations are close enough in behavior
+(`iamMFADeviceDispatch`'s falls back to an empty list on error and resolves
+`UserName` per-device via `GetMFADeviceOwner`; `iamMFALinkDispatch`'s requires
+a non-empty `UserName` input and echoes it back verbatim) that this has not
+been observed to produce a wrong response in this pass's testing, but it is
+worth a dedicated cleanup issue since dead code masquerading as live code is
+exactly the kind of thing that misleads a future edit.
+
+**RE-VERIFIED CLEAN, no changes needed:** `ListPolicies` (shares `toPolicyXML`
+with `GetPolicy`/`CreatePolicy`, correct since the 2026-08-14 fix -- confirmed
+by re-deriving against the pinned deserializer, not by trusting the prior
+verdict), `ListServerCertificates` (`ServerCertificateMetadata`'s five
+emitted fields all exact-case correct against
+`awsAwsquery_deserializeDocumentServerCertificateMetadata`; `Expiration`
+remains a genuine gap -- no certificate parsing, matching the pattern noted
+for elbv2's `TrustStore.NumberOfCaCerts` earlier in this campaign),
+`ListAccessKeys` (`AccessKeyMetadata`'s four real members all present and
+correctly named), `ListSAMLProviders` (`SAMLProviderListEntry`'s three real
+members all present and correctly named). Wrapping shape checked for every op
+above: no call site of any unwrapped-list-deserializer variant exists for any
+of them in the pinned SDK.
+
+NOT REACHED at this layer: `ListOpenIDConnectProviders`, `ListSSHPublicKeys`,
+`ListSigningCertificates`, `ListServiceSpecificCredentials`, `ListMFADevices`
+(the non-virtual op, distinct from `ListVirtualMFADevices` above),
+`ListEntitiesForPolicy`, `GetOrganizationsAccessReport`, and the
+delegation-request family -- named so the next pass continues rather than
+redoes.
+
+Gates: `go build ./services/iam/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including both new
+real-client tests above), `golangci-lint run ./services/iam/...` (0 issues
+after `fieldalignment -fix ./services/iam/...` reordered
+`CreateVirtualMFADeviceResponse`, whose pointer-field layout changed once
+`VirtualMFADeviceXML` gained a `*UserXML` field). Pre-existing
+`//nolint:revive` on `IAMError` (`models.go`, a struct this pass did not
+otherwise touch) re-checked: still in use, `revive`'s stutter check would
+otherwise fire on `iam.IAMError`.

@@ -990,3 +990,169 @@ Gates: `go build ./services/cloudfront/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/cloudfront/...` (pass), `golangci-lint run
 ./services/cloudfront/...` (0 issues after `fieldalignment -fix
 ./services/cloudfront/...` reordered the new `rlcItemXML` fields).
+
+## 2026-08-31 per-item exact-case sweep, batch 2 (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against cloudfront@v1.67.4 deserializers.go for the
+remainder of this issue's cloudfront "not reached" list: `ListDistributions` itself
+and the full twelve-operation `ListDistributionsBy*` family, `ListPublicKeys`,
+`ListKeyGroups` (re-verified, no changes needed -- the 2026-08-14 fix holds),
+`ListFieldLevelEncryptionConfigs`, `ListFieldLevelEncryptionProfiles`,
+`ListDistributionTenants`, `ListTrustStores`, `ListAnycastIpLists`. That completes
+every op named in this issue's cloudfront queue.
+
+**BUG (fixed): `ListDistributions`' `distributionSummaryXML`
+(`handler_distributions.go`) omitted `ETag` and `Aliases.Items` entirely** --
+`ETag` is a real, required `DistributionSummary` member and is backed by
+`Distribution.ETag`; `Aliases.Items` (`Items>CNAME`) is backed by
+`h.Backend.ListAliases(d.ID)`, which the handler already called to compute
+`Aliases.Quantity` but never emitted the underlying strings. Both absent, not
+wrong-named.
+
+**BUG (fixed), the sibling-disagreement class in its purest form this pass:
+six `ListDistributionsBy*` operations (`ByAnycastIpListId`,
+`ByConnectionFunction`, `ByConnectionMode`, `ByTrustStore`, `ByWebACLId`,
+`ByRealtimeLogConfig`) share `marshalDistributionList`/`writeDistributionList`,
+which built its own separate, far more minimal `DistributionSummary` item
+(`ID`/`ARN`/`Status`/`DomainName` only) than the identical wire type
+`ListDistributions` builds via `distributionSummaryXML`** -- both real ops
+return the exact same `DistributionSummary` shape (confirmed against
+`awsRestxml_deserializeDocumentDistributionSummary`), so these six were
+missing `Comment`, `Enabled`, `PriceClass`, `HttpVersion`, `LastModifiedTime`,
+`IsIPV6Enabled`, `Restrictions`, `ViewerCertificate`, `ETag`, and `Aliases`
+entirely -- right item count, drastically impoverished contents, and
+inconsistent with this service's own `ListDistributions`. Fixed by factoring
+`toDistributionSummaryXML` out of the `ListDistributions` handler and reusing
+it in `writeDistributionList`, so both paths build the identical rich shape.
+The other six `ListDistributionsBy*` ops (`ByCachePolicyId`, `ByKeyGroup`,
+`ByOriginRequestPolicyId`, `ByResponseHeadersPolicyId`, `ByVpcOriginId`,
+`ByOwnedResource`) return `DistributionIdList`/`DistributionIdOwnerList`
+(bare IDs, not `DistributionSummary`) per their own real deserializers --
+re-verified clean, no change needed.
+
+Test: `TestListDistributionsByWebACLId_ItemShape_RealClient`
+(`handler_distributions_test.go`), seeds two distributions with distinguishable
+Comment/PriceClass/HttpVersion/Aliases, associates both with a web ACL, and
+asserts every field round-trips through `ListDistributionsByWebACLId` (the fix
+is shared code, so this one op's test covers all six). Verified failing
+pre-fix by hand-revert (Comment/PriceClass/HttpVersion/ETag/Aliases all decode
+empty). Two pre-existing raw-body substring tests
+(`TestListDistributionsByTrustStore`, `TestListDistributionsByConnectionFunction`)
+asserted `!strings.Contains(resp, "<Quantity>0</Quantity>")` as their
+non-empty-list check; the richer item shape now legitimately contains several
+nested zero `Quantity` fields (Origins, Restrictions, Aliases), so both were
+narrowed to `<Quantity>0</Quantity><IsTruncated>` (the outer list Quantity is
+the only one immediately followed by `IsTruncated` in field order) -- fixed,
+not disabled, since the underlying non-empty-list property they check is still
+real and still worth checking.
+
+**DIFFERENT AXIS, found but not fixed here (routing bug, not a wire-shape naming
+bug): `extractResourceID` (`handler.go`) cuts a URI-label identifier at its
+first `/` via `strings.Cut(trimmed, "/")`.** A WAFV2-style `WebACLId` (an ARN,
+which contains slashes) passed to `ListDistributionsByWebACLId` gets truncated
+to everything before the first slash, so the list silently returns zero
+results for a real ARN-shaped ID. Classic (non-ARN) `WebACLId` values are
+unaffected, and `ListDistributionsByOwnedResource`'s resource ARN is presumably
+exposed to the same bug via the same helper. Verified by reproduction (see
+session notes); not fixed here since it is a request-path parsing defect, not
+a response-shape naming mismatch -- worth a dedicated issue.
+
+**BUG (fixed): `ListPublicKeys`' `pkSummaryXML` (`handler_key_groups.go`)
+omitted `EncodedKey` entirely** -- absent, not wrong-named. The real
+`PublicKeySummary` deserializer reads it, and the sibling `GetPublicKey`
+(`publicKeyResponseXML`) already emits it correctly from the same backing
+`PublicKey.EncodedKey` field. `CreatedTime` remains a genuine gap -- `PublicKey`
+tracks no timestamp. Test: `TestListPublicKeys_ItemShape_RealClient`, seeds two
+keys with distinguishable Name/Comment, asserts `EncodedKey` round-trips for
+both. Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListFieldLevelEncryptionConfigs`' `fleSummaryXML`
+(`handler_field_level_encryption.go`) omitted `QueryArgProfileConfig`
+entirely** -- absent, not wrong-named. The real `FieldLevelEncryptionSummary`
+deserializer reads it (nested `ForwardWhenQueryArgProfileIsUnknown` +
+`QueryArgProfiles>Items>QueryArgProfile{QueryArg,ProfileId}` +
+`QueryArgProfiles>Quantity`), and the sibling `GetFieldLevelEncryptionConfig`
+(`fleConfigInnerXML`) already emits it correctly from the same backing
+`FieldLevelEncryption.QueryArgProfiles`/`.ForwardWhenQueryArgProfileIsUnknown`
+fields. `ContentTypeProfileConfig` and `LastModifiedTime` remain genuine gaps
+-- no backing state. Test:
+`TestListFieldLevelEncryptionConfigs_ItemShape_RealClient`, seeds two configs
+each referencing a real FLE profile with a distinguishable query-arg, asserts
+both round-trip. Verified failing pre-fix by hand-revert (nil-pointer on the
+now-absent field).
+
+**BUG (fixed): `ListFieldLevelEncryptionProfiles`' `flePSummaryXML`
+(`handler_field_level_encryption.go`) omitted `EncryptionEntities`
+entirely** -- same shape as the config-list bug above, against
+`FieldLevelEncryptionProfileSummary`'s deserializer, sibling
+`GetFieldLevelEncryptionProfile` (`fleProfileConfigInnerXML`) already correct.
+`LastModifiedTime` remains a genuine gap. Test:
+`TestListFieldLevelEncryptionProfiles_ItemShape_RealClient`, seeds two
+profiles with distinguishable encryption entities, asserts both round-trip.
+Verified failing pre-fix by hand-revert -- this one failed as a nil-pointer
+panic (`item1.EncryptionEntities` decoded as a nil struct pointer on the real
+SDK type, not merely an empty slice), a harder failure signature than the
+usual empty-slice case, worth noting since it is closer to the "hard decode
+error" class than the usual "silent blank" one even though the client itself
+did not error.
+
+**BUG (fixed): `ListTrustStores`' `tsSummary` (`handler_trust_stores.go`)
+omitted `ETag`, `Status`, and `LastModifiedTime` entirely, and tagged the ARN
+field `xml:"ARN"` where the real deserializer matches `"Arn"`** -- a case-only
+mismatch (decodes today only because the XML decoder folds case) on top of
+three absent-entirely fields, all backed by real state
+(`TrustStore.ETag`/`.Status`/`.LastModifiedTime`) and all emitted correctly by
+the sibling `GetTrustStore` (`trustStoreXML`). Fixed the case and added all
+three fields. Test: `TestListTrustStores_ItemShape_RealClient`, seeds two
+trust stores, asserts ARN/ETag/Status/LastModifiedTime all round-trip.
+Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListAnycastIpLists`' `ailSummary`
+(`handler_anycast_ip_lists.go`) omitted `ETag` and `IpamConfig` entirely** --
+both real `AnycastIpListSummary` members; `ETag` is backed by
+`AnycastIPList.ETag`, `IpamConfig` by `.IpamCidrConfigs`, and the sibling
+`GetAnycastIpList` (`anycastIPListXML`) already emits `IpamConfig` correctly
+via the shared `anycastIPListIpamConfigXML` string builder. `IpAddressType`
+remains a genuine gap -- `CreateAnycastIpList`'s backend method never accepts
+or sets it, so it is always empty regardless of the wire tag now being
+present (added anyway, `omitempty`, for when that gap closes). Test:
+`TestListAnycastIPLists_ItemShape_RealClient`, seeds two lists with
+distinguishable IPAM CIDR configs, asserts ETag and IpamConfig round-trip for
+both. Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListDistributionTenants`' `tenantSummaryXML`
+(`handler_distribution_tenants.go`) omitted `ETag`, `CreatedTime`, and
+`LastModifiedTime` entirely** -- all three real `DistributionTenantSummary`
+members, all backed by `DistributionTenant.ETag`/`.CreationTime`/`.LastModifiedTime`,
+set at `CreateDistributionTenant`. Unlike every other bug this pass, this one
+is **not** a Get-vs-List disagreement -- the singular `distributionTenantXML`
+(used by Create/Get/Update/AssociateWebACL) omits all three too, so this is a
+pre-existing, service-wide gap on this field set rather than the sibling trap.
+Fixing the singular response as well was judged out of this pass's
+list-item-shape scope and is recorded here as a related, still-open finding
+for the next pass; `Customizations` also remains unaddressed on both sides --
+a complex nested union type, deliberately not attempted without deeper
+verification of its real shape. Test:
+`TestListDistributionTenants_ItemShape_RealClient`, seeds two tenants, asserts
+ETag/CreatedTime/LastModifiedTime all round-trip. Verified failing pre-fix by
+hand-revert.
+
+**RE-VERIFIED CLEAN, no changes needed:** `ListKeyGroups` (already fixed
+2026-08-14, `KeyGroupSummary`/`KeyGroup`/`KeyGroupConfig` field names and
+`Items>PublicKey` wrapping all still exact-case correct; `LastModifiedTime` is
+a genuine gap -- `KeyGroup` tracks no timestamp).
+
+Wrapping shape checked for every op above, as well as the six
+`DistributionIdList`/`DistributionIdOwnerList`-shaped `ListDistributionsBy*`
+ops: no call site of any unwrapped-list-deserializer variant exists for any of
+them in the pinned SDK.
+
+Gates: `go build ./services/cloudfront/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cloudfront/...` (pass, including
+all seven new real-client tests above), `golangci-lint run
+./services/cloudfront/...` (0 issues after `fieldalignment -fix` reordered
+`ailSummary` and `queryArgProfileConfigXML`, and two now-stale
+`//nolint:dupl` directives on `handleListPublicKeys` and
+`handleListFieldLevelEncryptionProfiles` were removed as unused by
+`nolintlint` once those two functions' item shapes grew enough to no longer
+duplicate their neighbors).

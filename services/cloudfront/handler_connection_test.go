@@ -610,7 +610,10 @@ func TestListDistributionsByConnectionFunction(t *testing.T) {
 	if !strings.Contains(resp, "DistributionList") {
 		t.Errorf("expected DistributionList, got: %s", resp)
 	}
-	if strings.Contains(resp, "<Quantity>0</Quantity>") {
+	// The list's own Quantity (immediately before IsTruncated) must be checked, not any nested
+	// Quantity -- the DistributionSummary item shape now carries several (Origins, Restrictions,
+	// Aliases), all legitimately 0 for this minimal distribution.
+	if strings.Contains(resp, "<Quantity>0</Quantity><IsTruncated>") {
 		t.Errorf("expected non-empty list, got: %s", resp)
 	}
 

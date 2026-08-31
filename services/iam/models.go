@@ -502,6 +502,7 @@ type InstanceProfileXML struct {
 	Arn                 string    `xml:"Arn"`
 	CreateDate          string    `xml:"CreateDate"`
 	Roles               []RoleXML `xml:"Roles>member"`
+	Tags                []TagXML  `xml:"Tags>member,omitempty"`
 }
 
 // CreateInstanceProfileResponse is the XML response for CreateInstanceProfile.

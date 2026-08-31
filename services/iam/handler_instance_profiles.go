@@ -18,7 +18,7 @@ func (h *Handler) handleListInstanceProfilesForRole(vals url.Values, reqID strin
 
 	for i := range profiles {
 		roles := h.resolveInstanceProfileRoles(&profiles[i])
-		xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&profiles[i], roles))
+		xmlProfiles = append(xmlProfiles, h.toInstanceProfileXML(&profiles[i], roles))
 	}
 
 	return &ListInstanceProfilesForRoleResponse{
@@ -43,7 +43,7 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 			return &CreateInstanceProfileResponse{
 				Xmlns: iamXMLNS,
 				CreateInstanceProfileResult: CreateInstanceProfileResult{
-					InstanceProfile: toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)),
+					InstanceProfile: h.toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -71,7 +71,7 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 			for i := range p.Data {
 				xmlProfiles = append(
 					xmlProfiles,
-					toInstanceProfileXML(&p.Data[i], h.resolveInstanceProfileRoles(&p.Data[i])),
+					h.toInstanceProfileXML(&p.Data[i], h.resolveInstanceProfileRoles(&p.Data[i])),
 				)
 			}
 
@@ -112,7 +112,12 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 	}
 }
 
-func toInstanceProfileXML(ip *InstanceProfile, roles []RoleXML) InstanceProfileXML {
+// toInstanceProfileXML builds the shared InstanceProfile wire shape used by every instance
+// profile response (Create/Get/List/ListForRole). Tags come from the same "ip:"-prefixed tag
+// store ListInstanceProfileTags/TagInstanceProfile already read and write (resourceTagDispatch,
+// "ip:") -- real, backed data that every one of these responses previously omitted entirely,
+// not a Get-vs-List disagreement, since they all shared this one builder.
+func (h *Handler) toInstanceProfileXML(ip *InstanceProfile, roles []RoleXML) InstanceProfileXML {
 	if roles == nil {
 		roles = []RoleXML{}
 	}
@@ -124,6 +129,7 @@ func toInstanceProfileXML(ip *InstanceProfile, roles []RoleXML) InstanceProfileX
 		Arn:                 ip.Arn,
 		CreateDate:          isoTime(ip.CreateDate),
 		Roles:               roles,
+		Tags:                tagsToXML(h.getTags("ip:" + ip.InstanceProfileName)),
 	}
 }
 
@@ -158,7 +164,7 @@ func (h *Handler) iamInstanceProfileRefinementDispatch() map[string]iamActionFn 
 
 			return &GetInstanceProfileResponse{
 				Xmlns:                    iamXMLNS,
-				GetInstanceProfileResult: GetInstanceProfileResult{InstanceProfile: toInstanceProfileXML(ip, roles)},
+				GetInstanceProfileResult: GetInstanceProfileResult{InstanceProfile: h.toInstanceProfileXML(ip, roles)},
 				ResponseMetadata:         ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -172,7 +178,7 @@ func (h *Handler) iamInstanceProfileRefinementDispatch() map[string]iamActionFn 
 			for i := range profiles {
 				ip := &profiles[i]
 				roles := h.resolveInstanceProfileRoles(ip)
-				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(ip, roles))
+				xmlProfiles = append(xmlProfiles, h.toInstanceProfileXML(ip, roles))
 			}
 
 			return &ListInstanceProfilesForRoleResponse{

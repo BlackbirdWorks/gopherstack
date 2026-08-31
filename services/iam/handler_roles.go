@@ -148,7 +148,7 @@ func (h *Handler) toRoleDetailXML(r RoleDetail) RoleDetailXML {
 
 	for i := range r.InstanceProfiles {
 		ip := &r.InstanceProfiles[i]
-		profiles = append(profiles, toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)))
+		profiles = append(profiles, h.toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)))
 	}
 
 	x := RoleDetailXML{

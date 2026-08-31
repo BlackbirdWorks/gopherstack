@@ -121,9 +121,17 @@ func (h *Handler) iamVirtualMFADispatch() map[string]iamActionFn {
 
 			xmlDevices := make([]VirtualMFADeviceXML, 0, len(p.Data))
 			for i := range p.Data {
-				xmlDevices = append(xmlDevices, VirtualMFADeviceXML{
+				dev := VirtualMFADeviceXML{
 					SerialNumber: p.Data[i].SerialNumber,
-				})
+					Tags:         tagsToXML(h.getTags("mfa:" + p.Data[i].SerialNumber)),
+				}
+				if owner := h.Backend.GetMFADeviceOwner(p.Data[i].SerialNumber); owner != "" {
+					if u, uErr := h.Backend.GetUser(owner); uErr == nil {
+						x := toUserXML(u)
+						dev.User = &x
+					}
+				}
+				xmlDevices = append(xmlDevices, dev)
 			}
 
 			return &ListVirtualMFADevicesResponse{

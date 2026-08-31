@@ -140,7 +140,7 @@ func (h *Handler) iamRefinement2ListTable2() map[string]iamActionFn {
 			xmlIPs := make([]InstanceProfileXML, 0, len(pg.Data))
 			for i := range pg.Data {
 				roles := h.resolveInstanceProfileRoles(&pg.Data[i])
-				xmlIPs = append(xmlIPs, toInstanceProfileXML(&pg.Data[i], roles))
+				xmlIPs = append(xmlIPs, h.toInstanceProfileXML(&pg.Data[i], roles))
 			}
 
 			return &ListInstanceProfilesResponse{

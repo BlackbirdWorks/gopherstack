@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -328,4 +331,57 @@ func TestVirtualMFADevice_CRUD(t *testing.T) {
 	assert.Empty(t, devices2)
 
 	require.NoError(t, b.DeleteVirtualMFADevice(dev.SerialNumber))
+}
+
+// TestListVirtualMFADevices_ItemShape_RealClient is a regression test for gopherstack-21my:
+// ListVirtualMFADevices' item struct (VirtualMFADeviceXML, models_mfa.go) omitted User and
+// Tags entirely, even though the real VirtualMFADevice deserializer
+// (awsAwsquery_deserializeDocumentVirtualMFADevice) reads both and they are backed by real
+// state: the user link is tracked in the same map GetMFADeviceOwner/EnableMFADevice already
+// read and write, and tags are stored under the same "mfa:"-prefixed key
+// TagMFADevice/ListMFADeviceTags already use. Seeds a device, enables it for a user with
+// tags, and asserts both round-trip through the real SDK client.
+func TestListVirtualMFADevices_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	client := newTestIAMClient(t, h)
+
+	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("mfa-owner")})
+	require.NoError(t, err)
+
+	created, err := client.CreateVirtualMFADevice(t.Context(), &iamsdk.CreateVirtualMFADeviceInput{
+		VirtualMFADeviceName: aws.String("list-shape-mfa"),
+		Tags: []types.Tag{
+			{Key: aws.String("env"), Value: aws.String("prod")},
+		},
+	})
+	require.NoError(t, err)
+	serial := aws.ToString(created.VirtualMFADevice.SerialNumber)
+
+	_, err = client.EnableMFADevice(t.Context(), &iamsdk.EnableMFADeviceInput{
+		UserName:            aws.String("mfa-owner"),
+		SerialNumber:        aws.String(serial),
+		AuthenticationCode1: aws.String("123456"),
+		AuthenticationCode2: aws.String("789012"),
+	})
+	require.NoError(t, err)
+
+	listed, err := client.ListVirtualMFADevices(t.Context(), &iamsdk.ListVirtualMFADevicesInput{})
+	require.NoError(t, err)
+
+	var found *types.VirtualMFADevice
+	for i := range listed.VirtualMFADevices {
+		if aws.ToString(listed.VirtualMFADevices[i].SerialNumber) == serial {
+			found = &listed.VirtualMFADevices[i]
+		}
+	}
+	require.NotNil(t, found, "created device must appear in the list")
+
+	require.NotNil(t, found.User, "User must round-trip, not decode nil")
+	assert.Equal(t, "mfa-owner", aws.ToString(found.User.UserName))
+
+	require.Len(t, found.Tags, 1)
+	assert.Equal(t, "env", aws.ToString(found.Tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(found.Tags[0].Value))
 }

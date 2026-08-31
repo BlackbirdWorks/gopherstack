@@ -529,3 +529,54 @@ func extractBetween(s, start, end string) string {
 
 	return s[i : i+j]
 }
+
+// TestListDistributionTenants_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListDistributionTenants' item struct (tenantSummaryXML,
+// handler_distribution_tenants.go) omitted ETag, CreatedTime, and LastModifiedTime
+// entirely, even though the real DistributionTenantSummary deserializer
+// (awsRestxml_deserializeDocumentDistributionTenantSummary) reads all three and they are
+// backed by real state (DistributionTenant.ETag/.CreationTime/.LastModifiedTime, set at
+// CreateDistributionTenant). Seeds two tenants and asserts every field round-trips
+// non-empty.
+func TestListDistributionTenants_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(distID, name, domain string) *cfsdk.CreateDistributionTenantOutput {
+		out, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+			DistributionId: aws.String(distID),
+			Name:           aws.String(name),
+			Domains:        []types.DomainItem{{Domain: aws.String(domain)}},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("dist-list-shape-1", "tenant-list-shape-1", "list-shape-1.example.com")
+	second := mk("dist-list-shape-2", "tenant-list-shape-2", "list-shape-2.example.com")
+
+	listed, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.DistributionTenantList, 2)
+
+	byID := make(map[string]types.DistributionTenantSummary, 2)
+	for _, item := range listed.DistributionTenantList {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.DistributionTenant.Id]
+	require.True(t, ok)
+	assert.NotEmpty(t, aws.ToString(item1.ETag), "ETag must round-trip, not decode empty")
+	assert.NotNil(t, item1.CreatedTime, "CreatedTime must round-trip, not decode nil")
+	assert.NotNil(t, item1.LastModifiedTime, "LastModifiedTime must round-trip, not decode nil")
+
+	item2, ok := byID[*second.DistributionTenant.Id]
+	require.True(t, ok)
+	assert.NotEmpty(t, aws.ToString(item2.ETag))
+	assert.NotNil(t, item2.CreatedTime)
+	assert.NotNil(t, item2.LastModifiedTime)
+}

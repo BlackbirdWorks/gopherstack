@@ -20,6 +20,15 @@ type ipamCidrConfigXML struct {
 	Status      string `xml:"Status"`
 }
 
+// ailIpamConfigXML mirrors the AnycastIpListSummary output's optional IpamConfig element
+// (cloudfront@v1.67.4 types/types.go:3757-3771, deserializers.go:46852-46895): IpamCidrConfigs
+// is a flat list directly under IpamCidrConfigs, no Items wrapper, matching
+// anycastIPListIpamConfigXML's shape for the singular GetAnycastIpList response.
+type ailIpamConfigXML struct {
+	IpamCidrConfigs []ipamCidrConfigXML `xml:"IpamCidrConfigs>IpamCidrConfig"`
+	Quantity        int                 `xml:"Quantity"`
+}
+
 func toIpamCidrConfigs(xs []ipamCidrConfigXML) []IpamCidrConfig {
 	if xs == nil {
 		return nil
@@ -201,13 +210,16 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	}
 
 	type ailSummary struct {
-		XMLName          xml.Name `xml:"AnycastIpListSummary"`
-		ID               string   `xml:"Id"`
-		ARN              string   `xml:"Arn"`
-		Name             string   `xml:"Name"`
-		Status           string   `xml:"Status"`
-		LastModifiedTime string   `xml:"LastModifiedTime"`
-		IPCount          int32    `xml:"IpCount"`
+		IpamConfig       *ailIpamConfigXML `xml:"IpamConfig,omitempty"`
+		XMLName          xml.Name          `xml:"AnycastIpListSummary"`
+		ID               string            `xml:"Id"`
+		ARN              string            `xml:"Arn"`
+		Name             string            `xml:"Name"`
+		Status           string            `xml:"Status"`
+		ETag             string            `xml:"ETag,omitempty"`
+		IPAddressType    string            `xml:"IpAddressType,omitempty"`
+		LastModifiedTime string            `xml:"LastModifiedTime"`
+		IPCount          int32             `xml:"IpCount"`
 	}
 	type ailList struct {
 		XMLName     xml.Name     `xml:"AnycastIpLists"`
@@ -220,10 +232,21 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	}
 	summaries := make([]ailSummary, 0, len(items))
 	for _, ail := range items {
-		summaries = append(summaries, ailSummary{
+		s := ailSummary{
 			ID: ail.ID, ARN: ail.ARN, Name: ail.Name, Status: ail.Status,
+			ETag: ail.ETag, IPAddressType: ail.IPAddressType,
 			LastModifiedTime: ail.LastModifiedTime, IPCount: ail.IPCount,
-		})
+		}
+		if len(ail.IpamCidrConfigs) > 0 {
+			cidrs := make([]ipamCidrConfigXML, 0, len(ail.IpamCidrConfigs))
+			for _, cfg := range ail.IpamCidrConfigs {
+				cidrs = append(cidrs, ipamCidrConfigXML{
+					AnycastIP: cfg.AnycastIP, Cidr: cfg.Cidr, IpamPoolARN: cfg.IpamPoolARN, Status: cfg.Status,
+				})
+			}
+			s.IpamConfig = &ailIpamConfigXML{IpamCidrConfigs: cidrs, Quantity: len(cidrs)}
+		}
+		summaries = append(summaries, s)
 	}
 	list := ailList{
 		XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,

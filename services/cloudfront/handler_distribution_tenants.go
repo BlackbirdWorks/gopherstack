@@ -309,6 +309,9 @@ type tenantSummaryXML struct {
 	Name              string            `xml:"Name,omitempty"`
 	ConnectionGroupID string            `xml:"ConnectionGroupId,omitempty"`
 	Status            string            `xml:"Status"`
+	ETag              string            `xml:"ETag,omitempty"`
+	CreatedTime       string            `xml:"CreatedTime,omitempty"`
+	LastModifiedTime  string            `xml:"LastModifiedTime,omitempty"`
 	Domains           []domainResultXML `xml:"Domains>member"`
 	Enabled           bool              `xml:"Enabled"`
 }
@@ -352,6 +355,9 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 			ConnectionGroupID: t.ConnectionGroupID,
 			Enabled:           t.Enabled,
 			Status:            t.Status,
+			ETag:              t.ETag,
+			CreatedTime:       t.CreationTime,
+			LastModifiedTime:  t.LastModifiedTime,
 		})
 	}
 

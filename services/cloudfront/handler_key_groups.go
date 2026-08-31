@@ -77,18 +77,17 @@ func (h *Handler) handleGetPublicKey(c *echo.Context, id string) error {
 // handleListPublicKeys paginates via Marker/MaxItems (both query-bound, cloudfront@v1.67.4
 // serializers.go). Real PublicKeyList has no IsTruncated field -- NextMarker's presence
 // alone signals truncation (types/types.go:5126-5146).
-//
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListPublicKeys(c *echo.Context) error {
 	items := h.Backend.ListPublicKeys()
 
 	page, pageSize, _, nextMarker := paginateByMarkerID(c, items, func(pk *PublicKey) string { return pk.ID })
 
 	type pkSummaryXML struct {
-		XMLName xml.Name `xml:"PublicKeySummary"`
-		ID      string   `xml:"Id"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
+		XMLName    xml.Name `xml:"PublicKeySummary"`
+		ID         string   `xml:"Id"`
+		Name       string   `xml:"Name"`
+		Comment    string   `xml:"Comment"`
+		EncodedKey string   `xml:"EncodedKey"`
 	}
 
 	type pkListXML struct {
@@ -102,7 +101,10 @@ func (h *Handler) handleListPublicKeys(c *echo.Context) error {
 
 	summaries := make([]pkSummaryXML, 0, len(page))
 	for _, pk := range page {
-		summaries = append(summaries, pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment})
+		summaries = append(
+			summaries,
+			pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment, EncodedKey: pk.EncodedKey},
+		)
 	}
 
 	list := pkListXML{

@@ -350,3 +350,57 @@ func TestUpdateTrustStore_MalformedBodyHandled(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
+
+// TestListTrustStores_ItemShape_RealClient is a regression test for gopherstack-21my:
+// ListTrustStores' item struct (tsSummary, handler_trust_stores.go) omitted ETag, Status,
+// and LastModifiedTime entirely (and tagged ARN as "ARN" rather than the real
+// deserializer's "Arn" -- a case-only mismatch), even though the sibling GetTrustStore
+// (trustStoreXML) already emits Status and LastModifiedTime correctly from the same
+// backing TrustStore fields. Seeds two trust stores and asserts every field round-trips.
+func TestListTrustStores_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(name string) *cfsdk.CreateTrustStoreOutput {
+		out, err := client.CreateTrustStore(t.Context(), &cfsdk.CreateTrustStoreInput{
+			Name: aws.String(name),
+			CaCertificatesBundleSource: &types.CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location{
+				Value: types.CaCertificatesBundleS3Location{
+					Bucket: aws.String("my-bucket"),
+					Key:    aws.String("bundle.pem"),
+					Region: aws.String("us-east-1"),
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("list-shape-ts-1")
+	second := mk("list-shape-ts-2")
+
+	listed, err := client.ListTrustStores(t.Context(), &cfsdk.ListTrustStoresInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.TrustStoreList, 2)
+
+	byID := make(map[string]types.TrustStoreSummary, 2)
+	for _, item := range listed.TrustStoreList {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.TrustStore.Id]
+	require.True(t, ok)
+	assert.Equal(t, aws.ToString(first.TrustStore.Arn), aws.ToString(item1.Arn))
+	assert.NotEmpty(t, aws.ToString(item1.ETag), "ETag must round-trip, not decode empty")
+	assert.NotEmpty(t, string(item1.Status), "Status must round-trip, not decode empty")
+	assert.NotNil(t, item1.LastModifiedTime, "LastModifiedTime must round-trip, not decode nil")
+
+	item2, ok := byID[*second.TrustStore.Id]
+	require.True(t, ok)
+	assert.Equal(t, aws.ToString(second.TrustStore.Arn), aws.ToString(item2.Arn))
+	assert.NotEmpty(t, aws.ToString(item2.ETag))
+}

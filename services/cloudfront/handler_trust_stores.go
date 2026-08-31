@@ -180,11 +180,18 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 		nextMarker = page[len(page)-1].ID
 	}
 
+	// ARN is tagged "Arn" (not "ARN") to match the real deserializer's exact-case
+	// literal (awsRestxml_deserializeDocumentTrustStoreSummary) -- a case-only
+	// mismatch that decoded correctly today only because the XML decoder folds
+	// case, per gopherstack-21my.
 	type tsSummary struct {
-		XMLName xml.Name `xml:"TrustStoreSummary"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName          xml.Name `xml:"TrustStoreSummary"`
+		ID               string   `xml:"Id"`
+		ARN              string   `xml:"Arn"`
+		Name             string   `xml:"Name"`
+		Status           string   `xml:"Status"`
+		ETag             string   `xml:"ETag"`
+		LastModifiedTime string   `xml:"LastModifiedTime"`
 	}
 	// The real deserializer (awsRestxml_deserializeDocumentTrustStoreList) expects each
 	// TrustStoreSummary directly as a child of TrustStoreList, with no <Items> wrapper.
@@ -206,7 +213,10 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	}
 	summaries := make([]tsSummary, 0, len(page))
 	for _, ts := range page {
-		summaries = append(summaries, tsSummary{ID: ts.ID, ARN: ts.ARN, Name: ts.Name})
+		summaries = append(summaries, tsSummary{
+			ID: ts.ID, ARN: ts.ARN, Name: ts.Name,
+			Status: ts.Status, ETag: ts.ETag, LastModifiedTime: ts.LastModifiedTime,
+		})
 	}
 	result := tsListResult{
 		XMLNS: cfNS, NextMarker: nextMarker, TrustStoreList: tsList{Quantity: len(summaries), Items: summaries},
