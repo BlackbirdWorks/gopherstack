@@ -730,3 +730,53 @@ clean of cloudformation findings — other services on this branch have
 unrelated in-progress failures), `go test -race -count=1
 ./services/cloudformation/...` (pass), `golangci-lint run
 ./services/cloudformation/...` (0 issues).
+
+**2026-08-30 — value-semantics sweep (gopherstack-uox6), no bug found, one
+regression test added.** Checked every optional filter that is actually read
+by a handler for whether the code's empty-case matches its SDK doc comment's
+own statement of what absence means: `ListStacks.StackStatusFilter`,
+`ListStackInstances.{Filters,StackInstanceAccount,StackInstanceRegion}`,
+`ListStackSets.Status`, `DescribeEvents.Filters.FailedEvents`. All four are
+clean — each treats an empty/absent filter as "match everything", and
+nothing documents a narrower default for any of them.
+
+The flagged candidate (`ListStacksInput.StackStatusFilter`, whose doc reads
+"If no StackStatusFilter is specified, summary information for all stacks
+is returned (including existing stacks and stacks that have been
+deleted)") is correctly implemented — `ListStacks`
+(`stack_lifecycle.go:37-69`) applies no status filtering at all when
+`statusFilter` is empty, so `DELETE_COMPLETE` stacks (retained, capped by
+`evictDeletedStacks`) stay visible in an unfiltered call, matching the
+sentence exactly. Added
+`TestListStacks_NoFilter_IncludesDeletedStacks`
+(`list_stacks_default_test.go`) driving the real SDK client — creates one
+active and one deleted stack, calls `ListStacks` with no
+`StackStatusFilter`, and asserts both are present. Confirmed the test
+actually distinguishes the bug class by temporarily excluding
+`DELETE_COMPLETE` from the unfiltered branch (fails as expected), then
+restored the file byte-for-byte before landing the test alone.
+
+Several other optional filters — `ListTypeRegistrationsInput.RegistrationStatusFilter`
+(doc: "The default is `IN_PROGRESS`"), `ListTypeVersionsInput.DeprecatedStatus`
+(doc: "The default is `LIVE`"), `ListTypesInput.{DeprecatedStatus,ProvisioningType,Visibility,Filters,Type}`,
+`DescribeStackResourceDriftsInput.StackResourceDriftStatusFilters`, and
+`ListStackSetOperationResultsInput.Filters` — are never read by their
+handlers at all (`handleListTypeRegistrations`, `handleListTypeVersions`,
+`handleListTypes`, `handleDescribeStackResourceDrifts`,
+`handleListStackSetOperationResults`). That is the wire-key/field-coverage
+axis, already disclosed elsewhere in this campaign, not this pass's
+value-semantics axis — recorded here, not fixed, per the discrimination
+this campaign draws between "never read" and "read with the wrong empty
+case".
+
+No range/bound/date filters exist on any cloudformation list operation, so
+the boundary-inclusivity sub-shape does not apply here. No unrecognized-key
+class of bug: `ListStacks`/`ListStackSets` filter on closed AWS enums with
+no name/value pairing, and `parseStackInstanceFilters` already documents
+(and correctly implements) ignoring unrecognized `Filters.member.N.Name`
+values rather than rejecting them.
+
+Gates: `go build ./services/cloudformation/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/cloudformation/...`
+(pass, includes the new test), `golangci-lint run
+./services/cloudformation/...` (0 issues).

@@ -436,3 +436,43 @@ variable-shadow warnings). New tests in `list_filter_params_test.go` drive the r
   uniqueness across every target group/load balancer at Create time (`b.targetGroups.All()`
   / `b.loadBalancers.All()` scans in `CreateTargetGroup`/`CreateLoadBalancer`), so neither
   sort key can tie.
+
+**2026-08-30 — value-semantics sweep (gopherstack-uox6), no bug found.**
+elbv2's optional-parameter surface is almost entirely ARN/name identifier
+lists rather than predicate filters, and every one that is read matches its
+SDK doc comment's stated absence-default of "list everything":
+`DescribeLoadBalancers.{LoadBalancerArns,Names}` ("Describes the specified
+load balancers or all of your load balancers"),
+`DescribeTargetGroups.{TargetGroupArns,Names,LoadBalancerArn}` ("By default,
+all target groups are described"), `DescribeTrustStores.{TrustStoreArns,Names}`
+("Describes all trust stores for the specified account"), and
+`DescribeSSLPolicies.Names` (no stated non-empty default; verified against
+the sibling that does specify one, `LoadBalancerType`, see below).
+`DescribeTargetHealth.Targets` is the one true optional filter with
+documented match-narrowing semantics ("targets" absent → health of every
+registered target) — `handleDescribeTargetHealth` (`handler_targets.go:97`)
+gets this right, including synthesizing `unused`/`Target.NotRegistered` for
+a requested-but-unregistered target, matching real AWS.
+
+`DescribeSSLPoliciesInput.LoadBalancerType` ("The default lists the SSL
+policies for all load balancers") and `DescribeTargetHealthInput.Include`
+are never read at all — this backend's SSL-policy list is static and not
+type-gated, and anomaly-detection inclusion isn't modeled. Both are the
+wire-key/field-coverage axis already disclosed elsewhere in this campaign,
+not this pass's value-semantics axis — recorded, not fixed.
+
+`DescribeListeners`/`DescribeRules`, called with neither the scoping ARN
+(`LoadBalancerArn`/`ListenerArn`) nor the ID list, return every
+listener/rule in the account rather than the `ValidationError` their doc
+comments imply ("You must specify either a load balancer or one or more
+listeners" / "...a listener or rules"). That is a missing-rejection gap
+(validation-shaped), not a wrong empty-case default — recorded separately,
+per this campaign's discrimination between validation and semantics, not
+fixed here.
+
+No range/bound/date filters and no name/value filter pairing (hence no
+unrecognized-key class) exist anywhere in elbv2's Describe surface.
+
+Gates: `go build ./services/elbv2/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/elbv2/...` (pass, no tests changed —
+0 added, 0 dropped), `golangci-lint run ./services/elbv2/...` (0 issues).
