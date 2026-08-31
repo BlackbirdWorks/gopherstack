@@ -576,11 +576,13 @@ func (h *Handler) handleRegisterPublisher(form url.Values, c *echo.Context) erro
 }
 
 func (h *Handler) handleDescribePublisher(form url.Values, c *echo.Context) error {
-	status, err := h.Backend.DescribePublisher(form.Get("PublisherId"))
+	publisherID := form.Get("PublisherId")
+	status, err := h.Backend.DescribePublisher(publisherID)
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type result struct {
+		PublisherID     string `xml:"PublisherId,omitempty"`
 		PublisherStatus string `xml:"PublisherStatus"`
 	}
 	type response struct {
@@ -594,7 +596,7 @@ func (h *Handler) handleDescribePublisher(form url.Values, c *echo.Context) erro
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{PublisherStatus: status},
+			Result:    result{PublisherID: publisherID, PublisherStatus: status},
 			RequestID: uuid.New().String(),
 		},
 	)

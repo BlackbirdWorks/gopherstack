@@ -204,7 +204,7 @@ type StackResourceDrift struct {
 	StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
 	ExpectedProperties       string               `xml:"ExpectedProperties,omitempty" json:"expectedProperties,omitempty"`
 	ActualProperties         string               `xml:"ActualProperties,omitempty"   json:"actualProperties,omitempty"`
-	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences"          json:"propertyDifferences,omitempty"`
+	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences>member"   json:"propertyDifferences,omitempty"`
 }
 
 // PropertyDifference describes a single property-level difference between the
@@ -462,7 +462,7 @@ type ChangeSetHook struct {
 
 // StackSetOperationSummary is a brief summary of a StackSet operation.
 type StackSetOperationSummary struct {
-	CreationTime time.Time `xml:"CreationTime,omitempty"`
+	CreationTime time.Time `xml:"CreationTimestamp,omitempty"`
 	OperationID  string    `xml:"OperationId"`
 	Action       string    `xml:"Action"`
 	Status       string    `xml:"Status"`
@@ -482,13 +482,18 @@ type StackRefactorSummary struct {
 }
 
 // StackRefactorAction is a single action performed during a stack refactor.
+// StackName/LogicalResourceID/ResourceType are retained for internal/JSON use
+// only (json tags omitted here as this type predates that convention) --
+// types.StackRefactorAction (types.go:2118) has no such top-level members;
+// the real wire shape nests source/destination under ResourceMapping.
 type StackRefactorAction struct {
-	Action             string `xml:"Action,omitempty"`
-	Description        string `xml:"Description,omitempty"`
-	StackName          string `xml:"StackName,omitempty"`
-	LogicalResourceID  string `xml:"LogicalResourceId,omitempty"`
-	PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
-	ResourceType       string `xml:"ResourceType,omitempty"`
+	Action             string          `xml:"Action,omitempty"`
+	Description        string          `xml:"Description,omitempty"`
+	StackName          string          `xml:"StackName,omitempty"`
+	LogicalResourceID  string          `xml:"LogicalResourceId,omitempty"`
+	PhysicalResourceID string          `xml:"PhysicalResourceId,omitempty"`
+	ResourceType       string          `xml:"ResourceType,omitempty"`
+	ResourceMapping    ResourceMapping `xml:"-"`
 }
 
 // TypeConfigurationDetail holds configuration detail for a CloudFormation type.

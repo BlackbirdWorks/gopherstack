@@ -40,7 +40,7 @@ func TestDescribeEvents_FailedEventsFilter(t *testing.T) {
 	type describeResponse struct {
 		XMLName xml.Name `xml:"DescribeEventsResponse"`
 		Result  struct {
-			StackEvents []eventXML `xml:"StackEvents>member"`
+			OperationEvents []eventXML `xml:"OperationEvents>member"`
 		} `xml:"DescribeEventsResult"`
 	}
 
@@ -53,8 +53,8 @@ func TestDescribeEvents_FailedEventsFilter(t *testing.T) {
 
 	var out describeResponse
 	require.NoError(t, xml.Unmarshal([]byte(resp.Body), &out))
-	require.NotEmpty(t, out.Result.StackEvents, "the fixture must produce at least one failed event")
-	for _, e := range out.Result.StackEvents {
+	require.NotEmpty(t, out.Result.OperationEvents, "the fixture must produce at least one failed event")
+	for _, e := range out.Result.OperationEvents {
 		assert.Contains(t, e.Status, "FAILED")
 	}
 }

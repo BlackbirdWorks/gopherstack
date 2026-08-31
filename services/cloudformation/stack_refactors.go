@@ -25,7 +25,7 @@ func (b *InMemoryBackend) CreateStackRefactor(
 	return refactorID, nil
 }
 
-func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string, error) {
+func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error) {
 	b.mu.RLock("DescribeStackRefactor")
 	defer b.mu.RUnlock()
 	r, ok := b.stackRefactors.Get(stackRefactorID)
@@ -33,10 +33,10 @@ func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string,
 		// Unlike CreateStackRefactor/List*, DescribeStackRefactor's SDK-modeled
 		// error set includes StackRefactorNotFoundException — it is not
 		// fire-and-forget, so an unknown ID must be a real error, not an empty 200.
-		return "", fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
+		return nil, fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
 	}
 
-	return r.Status, nil
+	return r, nil
 }
 
 type stackRefactorMove struct {
@@ -152,6 +152,7 @@ func (b *InMemoryBackend) ListStackRefactorActions(
 			LogicalResourceID:  m.Destination.LogicalResourceID,
 			PhysicalResourceID: physicalID,
 			ResourceType:       resType,
+			ResourceMapping:    m,
 		})
 	}
 

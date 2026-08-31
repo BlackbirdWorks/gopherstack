@@ -133,7 +133,7 @@ type StorageBackend interface {
 		resourceMappings []ResourceMapping,
 		enableStackCreation bool,
 	) (string, error)
-	DescribeStackRefactor(stackRefactorID string) (string, error)
+	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
 	ExecuteStackRefactor(stackRefactorID string) error
 	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
 	ListStackRefactorActions(stackRefactorID string) ([]StackRefactorAction, error)

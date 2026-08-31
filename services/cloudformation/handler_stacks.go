@@ -438,21 +438,36 @@ func (h *Handler) handleRollbackStack(form url.Values, c *echo.Context) error {
 func (h *Handler) handleDescribeEvents(form url.Values, c *echo.Context) error {
 	failedOnly, _ := strconv.ParseBool(form.Get("Filters.FailedEvents"))
 	p, _ := h.Backend.DescribeEvents(form.Get("StackName"), form.Get("NextToken"), failedOnly)
+	// DescribeEventsOutput wraps its collection under "OperationEvents" holding
+	// []types.OperationEvent (cloudformation@v1.76.1 deserializers.go:27818) --
+	// a different type from DescribeStackEvents' StackEvents/types.StackEvent,
+	// and types.OperationEvent has no StackName member.
 	type evXML struct {
-		EventID   string `xml:"EventId"`
-		StackName string `xml:"StackName"`
-		Status    string `xml:"ResourceStatus"`
+		EventID              string `xml:"EventId"`
+		StackID              string `xml:"StackId"`
+		LogicalResourceID    string `xml:"LogicalResourceId"`
+		PhysicalResourceID   string `xml:"PhysicalResourceId,omitempty"`
+		ResourceType         string `xml:"ResourceType"`
+		ResourceStatus       string `xml:"ResourceStatus"`
+		ResourceStatusReason string `xml:"ResourceStatusReason,omitempty"`
+		Timestamp            string `xml:"Timestamp"`
 	}
 	members := make([]evXML, 0, len(p.Data))
 	for _, e := range p.Data {
-		members = append(
-			members,
-			evXML{EventID: e.EventID, StackName: e.StackName, Status: e.ResourceStatus},
-		)
+		members = append(members, evXML{
+			EventID:              e.EventID,
+			StackID:              e.StackID,
+			LogicalResourceID:    e.LogicalResourceID,
+			PhysicalResourceID:   e.PhysicalResourceID,
+			ResourceType:         e.ResourceType,
+			ResourceStatus:       e.ResourceStatus,
+			ResourceStatusReason: e.ResourceStatusReason,
+			Timestamp:            e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
+		})
 	}
 	type result struct {
-		NextToken   string  `xml:"NextToken,omitempty"`
-		StackEvents []evXML `xml:"StackEvents>member"`
+		NextToken       string  `xml:"NextToken,omitempty"`
+		OperationEvents []evXML `xml:"OperationEvents>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeEventsResponse"`
@@ -465,7 +480,7 @@ func (h *Handler) handleDescribeEvents(form url.Values, c *echo.Context) error {
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{NextToken: p.Next, StackEvents: members},
+			Result:    result{NextToken: p.Next, OperationEvents: members},
 			RequestID: uuid.New().String(),
 		},
 	)

@@ -1037,3 +1037,266 @@ run ./services/cloudformation/...` (0 issues, after a `fieldalignment` reorder
 on `ssXML` once `TemplateBody` pushed it over budget and a staticcheck S1016
 struct-literal-to-conversion fix on `ListStackSets`'s mapping loop). No
 `nolint` directives exist in any file this pass touched.
+
+## 2026-08-31 pass (gopherstack-21my): continuation, named-gap queue
+
+Continuing directly from the pass above; worked the explicit "NOT REACHED"
+queue it left: `StackEvent`, `Export`/`Import`, `StackResourceDrift`,
+`ResourceScanSummary`, `HookResultSummary`, `GeneratedTemplate`,
+`BatchDescribeTypeConfigurations` detail, `StackSetOperation`/
+`StackSetOperationResult`, the `StackRefactor` family, and the
+organisations-access/publisher operations. Confirmed `awsAwsquery_` again
+from this service's own `deserializers.go` before starting.
+
+**BUG (fixed), the loudest finding of this pass: `DescribeEvents` wrapped its
+collection under the wrong element AND the wrong type.** `DescribeEventsOutput`
+wraps under `"OperationEvents"` holding `[]types.OperationEvent`
+(cloudformation@v1.76.1 deserializers.go:27818,
+`awsAwsquery_deserializeOpDocumentDescribeEventsOutput`) — a distinct type
+from `DescribeStackEvents`' `"StackEvents"`/`types.StackEvent`, despite the
+similar name. `handleDescribeEvents` (handler_stacks.go:438) emitted its items
+under `"StackEvents"` — a real client's `OperationEvents` slice decoded EMPTY
+regardless of how many events existed, a pure layer-1 wrapper-key miss on an
+operation the wrapper-key sweep never reached. Separately, the item shape
+itself emitted a `StackName` element that is not a member of
+`types.OperationEvent` at all (that type has `StackId` but no `StackName`) —
+harmless (skipped by the decoder) but removed since it doesn't correspond to
+anything a client reads. Fixed by renaming the wrapper to
+`OperationEvents>member` and rebuilding the item shape from
+`types.OperationEvent`'s real members backed by this service's `StackEvent`
+model (EventId/StackId/LogicalResourceId/PhysicalResourceId/ResourceType/
+ResourceStatus/ResourceStatusReason/Timestamp); `ClientRequestToken`,
+`DetailedStatus`, all `Hook*` fields, `OperationId`, `EventType`,
+`OperationStatus`, `OperationType`, `StartTime`/`EndTime` (distinct from
+`Timestamp`) and the `Validation*` fields remain unemitted — genuinely
+unbacked, no per-event hook/operation-type/validation state tracked anywhere
+in this service. Test: `TestDescribeEvents_RealClient`
+(wire_field_fixes_cfn21my_test.go), drives `DescribeEvents` through the real
+client and asserts a non-empty `OperationEvents` matching the created stack's
+`StackId`. Verified failing pre-fix (empty slice). Also fixed an existing
+raw-body test, `TestDescribeEvents_FailedEventsFilter`
+(describe_events_filter_test.go), which hand-built its own response struct
+under the same wrong `StackEvents>member` key its own code used — a
+self-agreeing pair that could never have caught this, the exact blind spot
+this issue calls out.
+
+**BUG (fixed): `ListStackInstanceResourceDrifts` rebuilt an impoverished
+record instead of reusing the fuller detail `DescribeStackResourceDrifts`
+already prefers.** The real item type is `types.StackInstanceResourceDriftsSummary`
+(types.go:1975) — a distinct sibling of `types.StackResourceDrift` with the
+same required members (`LogicalResourceId`, `ResourceType`, `StackId`,
+`StackResourceDriftStatus`, `Timestamp`). `backend.ListStackInstanceResourceDrifts`
+(stack_instances.go:381) built its result only from `resourceDriftStatus`
+(a bare status-per-logical-ID map), instead of preferring
+`resourceDriftDetail` the way `DescribeStackResourceDrifts` already does —
+so `ResourceType`, `PhysicalResourceId` and `Timestamp` were always
+empty/zero even after `DetectStackResourceDrift` had populated
+`resourceDriftDetail` for the same resource. Fixed by mirroring
+`DescribeStackResourceDrifts`' detail-map-first pattern.
+
+**BUG (fixed), exposed only by the fix above: wrong wrapping shape on
+`PropertyDifferences`.** `ListStackInstanceResourceDrifts` marshals the
+model's own `StackResourceDrift` type directly (models.go:198) rather than
+through the separate `driftXML`/`propertyDiffXML` converter
+`DescribeStackResourceDrifts`/`DetectStackResourceDrift` use — and the
+model's `PropertyDifferences` field was tagged `xml:"PropertyDifferences"`
+with no `>member`, so Go's encoder repeats the parent element once per slice
+entry instead of nesting `<member>` children the way
+`awsAwsquery_deserializeDocumentPropertyDifferences` requires
+(deserializers.go:16348). Silent-empty, and unobservable before the detail-map
+fix above since `ListStackInstanceResourceDrifts` never populated
+`PropertyDifferences` at all until that fix landed. Fixed the tag to
+`xml:"PropertyDifferences>member"` (models.go:207); confirmed this doesn't
+affect `DescribeStackResourceDrifts`/`DetectStackResourceDrift`, which never
+marshal the model's own tags. Both drift bugs share one test:
+`TestListStackInstanceResourceDrifts_ItemFields_RealClient`, which creates a
+stack set + instance, forces an out-of-band property change, calls
+`DetectStackResourceDrift`, and asserts `ResourceType`, `PhysicalResourceId`,
+a non-zero `Timestamp`, and non-empty `PropertyDifferences` all round-trip
+through the real client's `ListStackInstanceResourceDrifts`. Verified failing
+pre-fix twice: once for the three detail fields (hand-reverting the detail-map
+fix), once independently for `PropertyDifferences` (hand-reverting only the
+tag, with the detail-map fix left in place).
+
+**BUG (fixed): `StackSetOperation`/`StackSetOperationSummary` both dropped
+`CreationTimestamp` — the sibling-blind-spot shape, fourth sighting now.**
+Both `types.StackSetOperation` (types.go:2715) and its list sibling
+`types.StackSetOperationSummary` (types.go:2972) carry `CreationTimestamp`;
+this backend's own `StackSetOperation` model already tracks the equivalent
+(`CreatedAt`, set at `recordStackSetOperation`) but neither
+`handleDescribeStackSetOperation` nor `handleListStackSetOperations`
+(handler_stack_sets.go:648,687) ever emitted it — no disagreement between
+singular and plural to notice, only the SDK type shows the gap. Fixed both.
+While wiring `ListStackSetOperations`, found the model's *already-plumbed but
+never-wired* `StackSetOperationSummary.CreationTime` field
+(stack_sets.go:316-320 already copies `op.CreatedAt` into it) carried the
+wrong wire name — `xml:"CreationTime"` where the real member is
+`"CreationTimestamp"` — moot for behaviour today since the handler builds its
+own separate local type rather than marshalling the model directly (same
+"model tags aren't what reaches the wire" trap this campaign's 11:09 comment
+already burned on), but corrected anyway (models.go:465) since a future
+refactor that marshals the model directly would silently inherit the bug.
+Also fixed: `DescribeStackSetOperation` never emitted `StackSetId`, a real
+member gopherstack could resolve via the existing `DescribeStackSet` lookup
+(the stack set name is already the request parameter) even though this
+backend doesn't snapshot it per-operation. Test:
+`TestStackSetOperation_ItemFields_RealClient`, asserts non-zero
+`CreationTimestamp` through both operations and correct `StackSetId` through
+`DescribeStackSetOperation`. Verified failing pre-fix (nil timestamp).
+
+**BUG (fixed), an element that is not a member of the real type at all —
+second sighting of this exact class in this service.** `types.StackRefactorAction`
+(types.go:2118) has no `StackName`, `LogicalResourceId` or `ResourceType`
+member whatsoever; the real shape nests source/destination location under
+`ResourceMapping.Source`/`.Destination`, each a `types.ResourceLocation`
+(types.go:1178, `{LogicalResourceId, StackName}`). gopherstack's
+`StackRefactorAction` model (models.go) had flat top-level `StackName`/
+`LogicalResourceID`/`ResourceType` fields and the handler marshalled the
+model directly — so a real client's `ResourceMapping` was unconditionally nil
+despite `backend.ListStackRefactorActions` (stack_refactors.go) already
+holding the full source/destination `ResourceMapping` for every action in its
+loop variable, just never attaching it to the record. Fixed by adding a
+`ResourceMapping` field to the model (models.go:496, populated in
+stack_refactors.go), and building a dedicated wire converter,
+`toStackRefactorActionXML` (handler_stack_refactors.go:173), that emits the
+correct nested `ResourceMapping>Source/Destination` shape instead of the
+non-member flat fields. `Entity`, `Detection`, `DetectionReason`,
+`ResourceIdentifier`, `TagResources` and `UntagResources` remain unemitted —
+genuinely unbacked (this service's refactor model tracks only description,
+status and the mapping list). Also fixed in the same pass: `DescribeStackRefactor`
+emitted only `Status`, dropping `Description` and `StackRefactorId` — both
+already tracked by the backend's `StackRefactor` model but discarded because
+`backend.DescribeStackRefactor` (stack_refactors.go:28) returned a bare
+status string instead of the record. Changed its signature to return
+`*StackRefactor` (only internal caller: handler_stack_refactors.go; `go vet
+./...` repo-wide confirmed clean, no external caller broken). `ExecutionStatus`/
+`ExecutionStatusReason` (on both `DescribeStackRefactor` and
+`StackRefactorSummary`) and `DescribeStackRefactorOutput.StackIds` remain
+unemitted: this backend collapses AWS's separate create-phase `Status` and
+execute-phase `ExecutionStatus` into one `Status` string
+(`CREATE_IN_PROGRESS`/`CREATE_COMPLETE`/`EXECUTE_IN_PROGRESS`/`EXECUTE_COMPLETE`)
+— a state-modelling gap on a different axis than this issue's naming class,
+filed rather than fixed. Test: `TestStackRefactor_ItemFields_RealClient`,
+creates two stacks and a refactor mapping one resource between them, asserts
+`Description`/`StackRefactorId` through `DescribeStackRefactor` and the full
+nested `ResourceMapping` (both `Source` and `Destination`) through
+`ListStackRefactorActions`. Verified failing pre-fix on all three assertions.
+
+**BUG (fixed): `DescribePublisher` dropped `PublisherId`.**
+`DescribePublisherOutput` (api_op_DescribePublisher.go) carries `PublisherId`;
+`handleDescribePublisher` (handler_type_registry.go:578) already resolves the
+publisher by that exact ID but never echoed it back. Fixed by emitting the
+resolved ID. `PublisherProfile` and `IdentityProvider` remain unemitted —
+genuinely unbacked (this service's `Publisher` model tracks only ID,
+connection ARN and status). Test: `TestDescribePublisher_PublisherId_RealClient`,
+registers a publisher and asserts `PublisherId` round-trips through
+`DescribePublisher`. Verified failing pre-fix (empty string).
+
+**CONFIRMED CLEAN at both layers**: `Export`/`Import` (`ListExports`/
+`ListImports`) — every field on `types.Export` and the `Imports` wrapper
+matches byte-for-byte against the deserializer, including the flattened
+`[]string` shape for `Imports>member`. `DescribeStackEvents`'s own
+`StackEvent` item shape (as opposed to its `DescribeEvents` sibling above) —
+all emitted fields correctly named; `ClientRequestToken`, `DetailedStatus`
+and all `Hook*` members are genuinely unbacked (no hook-per-event state, and
+`ClientRequestToken` is never accepted as a request parameter anywhere in
+this service). `ActivateOrganizationsAccess`/`DeactivateOrganizationsAccess`
+(correctly empty result shapes) and `DescribeOrganizationsAccess` (`Status`
+values `"ENABLED"`/`"DISABLED"` match `types.OrganizationStatus` exactly).
+`StackResourceDrift`'s core fields via `DescribeStackResourceDrifts`/
+`DetectStackResourceDrift`'s `driftXML` converter (unchanged this pass) —
+`DriftStatusReason` recorded as unobservable (this service's
+`StackResourceDriftStatus` never reaches `UNKNOWN`, the only status
+`DriftStatusReason` documents); `ModuleInfo`/`PhysicalResourceIdContext`
+recorded as unbacked.
+
+**RECORDED, NOT FIXED (restraint — real gaps, no legal input can populate
+them, or a different axis than this issue's naming class):**
+- `GeneratedTemplate`/`TemplateSummary` (`DescribeGeneratedTemplate`/
+  `ListGeneratedTemplates`): `CreationTime`, `LastUpdatedTime`, `StatusReason`,
+  `Progress`, `Resources`, `StackId`, `TemplateConfiguration`, `TotalWarnings`/
+  `NumberOfResources` all unbacked — this service's `GeneratedTemplate` model
+  (models.go:304) tracks only ID/name/status/body, and `Status` is hardcoded
+  `"COMPLETE"` on every path (generated_templates.go), so `StatusReason` in
+  particular could never be observed even if wired.
+- `ResourceScanSummary`/`DescribeResourceScanOutput` (`ListResourceScans`/
+  `DescribeResourceScan`): `StartTime`, `EndTime`, `StatusReason`, `ScanType`,
+  `ResourceTypes`, `ResourcesRead`, `ResourcesScanned`, `ScanFilters` all
+  unbacked — the `ResourceScan` model (models.go:312) tracks only
+  ID/status/percentage, and scans always complete synchronously at 100%.
+- `HookResultSummary` (`ListHookResults`): every per-item field beyond
+  `Status`/`HookStatusReason` is unobservable for a deeper reason than the
+  usual unbacked-field case — no production code path anywhere in this
+  service ever calls `b.hookResults.Put`, so a real client can never see a
+  non-empty `HookResults` list regardless of what's wired. Structural gap
+  (hooks aren't emulated), filed as a different axis. Also recorded, not
+  fixed: `ListHookResultsInput`'s real fields are `TargetId`/`TargetType`/
+  `TypeArn`/`Status`/`NextToken` (api_op_ListHookResults.go) — this service's
+  handler instead reads a `HookResultToken` form field with no real
+  counterpart, a request-parsing gap consistent with the same carve-out a
+  prior pass used for autoscaling's `PutScalingPolicy` (different bug shape,
+  not this issue's response-naming class).
+- `BatchDescribeTypeConfigurations`'s `TypeConfigurationDetails.LastUpdated`:
+  unbacked — `b.typeConfigs` (type_registry.go) is a bare
+  `map[string]string` with no parallel timestamp tracked at
+  `SetTypeConfiguration` time.
+- `StackSetOperationResultSummary.OrganizationalUnitId`
+  (`ListStackSetOperationResults`): the OU value exists locally in
+  `CreateStackInstances`' target-resolution loop (`t.ouID`,
+  stack_instances.go) but isn't threaded through `recordOpResults`'
+  signature (stack_sets.go:275, two call sites) to the per-account/region
+  result record — a state-threading gap, not a naming one, deferred rather
+  than restructuring that shared helper's signature this pass.
+- `StackSetOperationPreferences`, `DeploymentTargets`,
+  `StackSetDriftDetectionDetails`, `StatusDetails`, per-operation
+  `AdministrationRoleARN`/`ExecutionRoleName`/`RetainStacks`: not snapshotted
+  per StackSet operation at all (this backend has no per-op preferences/
+  targets model); recorded, not fixed.
+
+**Wrapping shape**: no call site of any `*Unwrapped` deserializer variant
+exists anywhere in `services/cloudformation` (re-confirmed), and the one
+flattened-vs-member-wrapped bug found this pass (`PropertyDifferences` above)
+is fixed.
+
+**Case-only mismatches**: none found this pass.
+
+**Hard failures**: none found this pass — every finding above is the
+silent-blank/silent-nil class, not a decode error or panic. (The `StackName`
+element removed from `DescribeEvents`' item shape was silently skipped by the
+decoder, not an error, since `awsAwsquery_deserializeDocumentOperationEvent`'s
+unmatched-element branch calls `decoder.Decoder.Skip()`.)
+
+**Nested-vs-top-level double member**: none found this pass.
+
+**Prior verdicts**: none proved false this pass — no comment or PARITY claim
+here was checked and found untrue.
+
+**Pages fetched**: none. Everything came from the pinned SDK module cache
+(`cloudformation@v1.76.1`, `~/go/pkg/mod/github.com/aws/aws-sdk-go-v2/service/
+cloudformation@v1.76.1`) already resident locally.
+
+**Out-of-scope files**: none touched by this pass. `resources_extended.go`
+and `resources_network_and_kms_test.go` show as modified in `git status` but
+were edited by a concurrent agent working `services/ec2/` (fixing this
+service's `CreateVpc` call sites after an ec2 backend signature change) —
+not by this pass.
+
+**NOT REACHED this pass**: `StackResourceSummary`/`StackResourceDetail`
+(`ListStackResources`/`DescribeStackResource(s)`, previously marked clean —
+not re-verified), `BatchDescribeTypeConfigurations`'s `Errors`/
+`UnprocessedTypeConfigurations` shapes (only the `TypeConfigurationDetails`
+detail shape named in this pass's queue was checked), `StackSetOperation`'s
+`OperationPreferences` nested shape in full, `ListStackSetAutoDeploymentTargets`,
+`ImportStacksToStackSet`. Named so a future pass continues rather than redoes.
+
+Gates: `go build ./services/cloudformation/...`, `go vet
+./services/cloudformation/...`, `go test -race -count=1
+./services/cloudformation/...` (pass, 5 new tests + 1 existing test corrected),
+`golangci-lint run ./services/cloudformation/...` (0 issues, after a
+`fieldalignment` reorder on the new `stackRefactorActionXML` and a `govet`
+shadow fix in `handleDescribeStackSetOperation`). Repo-wide `go vet ./...`
+clean (the `DescribeStackRefactor` backend signature change has one internal
+caller only). All pre-existing `nolint:lll` directives in files this pass
+touched (models.go, handler_stack_sets.go) remain in active use — confirmed
+by `golangci-lint`'s 0-issues result, which would have flagged any now-stale
+suppression via `nolintlint`.

@@ -311,3 +311,283 @@ func TestListTypes_ItemFields_RealClient(t *testing.T) {
 	require.True(t, ok, "AWS::Cfn21my::Active missing from ListTypes")
 	assert.True(t, aws.ToBool(out.TypeSummaries[activeIdx].IsActivated))
 }
+
+// TestDescribeEvents_RealClient locks in a WRAPPER-KEY bug in DescribeEvents
+// (gopherstack-21my continuation): DescribeEventsOutput wraps its collection
+// under "OperationEvents" holding []types.OperationEvent
+// (cloudformation@v1.76.1 deserializers.go:27818,
+// awsAwsquery_deserializeOpDocumentDescribeEventsOutput reads
+// strings.EqualFold("OperationEvents", ...)), a completely different type
+// from DescribeStackEvents' "StackEvents"/types.StackEvent. gopherstack's
+// handleDescribeEvents emitted its items under "StackEvents" -- a real
+// client's OperationEvents slice decoded empty regardless of how many events
+// existed, since the deserializer never finds an OperationEvents element.
+func TestDescribeEvents_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	okTemplate := `{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
+	createOut, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+		StackName:    aws.String("cfn21my-describeevents-stack"),
+		TemplateBody: aws.String(okTemplate),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEvents(t.Context(), &cfnsdk.DescribeEventsInput{
+		StackName: aws.String("cfn21my-describeevents-stack"),
+	})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, out.OperationEvents,
+		"DescribeEvents: OperationEvents empty -- wrapper key regression")
+	found := false
+	for _, e := range out.OperationEvents {
+		if aws.ToString(e.StackId) == aws.ToString(createOut.StackId) {
+			found = true
+			assert.NotEmpty(t, aws.ToString(e.EventId))
+			assert.NotEmpty(t, string(e.ResourceStatus))
+		}
+	}
+	assert.True(t, found, "no OperationEvents entry for the created stack's StackId")
+}
+
+// TestListStackInstanceResourceDrifts_ItemFields_RealClient (gopherstack-21my
+// continuation): the real item type is types.StackInstanceResourceDriftsSummary
+// (cloudformation@v1.76.1 types/types.go:1975), not types.StackResourceDrift --
+// a distinct sibling type with the same required members (LogicalResourceId,
+// ResourceType, StackId, StackResourceDriftStatus, Timestamp). gopherstack's
+// backend.ListStackInstanceResourceDrifts rebuilt a bare StackResourceDrift
+// from resourceDriftStatus (status only) instead of reusing
+// resourceDriftDetail -- the same fuller map DescribeStackResourceDrifts
+// already prefers -- so ResourceType, PhysicalResourceId and Timestamp were
+// always empty/zero even though DetectStackResourceDrift had already
+// populated resourceDriftDetail for the same resource.
+func TestListStackInstanceResourceDrifts_ItemFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend, client := newTestHandlerAndClientWithBackend(t)
+
+	stackSetName := "cfn21my-drift-stackset"
+	templateBody := `{"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket",` +
+		`"Properties":{"BucketName":"cfn21my-drift-bucket"}}}}`
+
+	_, err := client.CreateStackSet(t.Context(), &cfnsdk.CreateStackSetInput{
+		StackSetName: aws.String(stackSetName),
+		TemplateBody: aws.String(templateBody),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStackInstances(t.Context(), &cfnsdk.CreateStackInstancesInput{
+		StackSetName: aws.String(stackSetName),
+		Accounts:     []string{"123456789012"},
+		Regions:      []string{"us-east-1"},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeStackInstance(t.Context(), &cfnsdk.DescribeStackInstanceInput{
+		StackSetName:         aws.String(stackSetName),
+		StackInstanceAccount: aws.String("123456789012"),
+		StackInstanceRegion:  aws.String("us-east-1"),
+	})
+	require.NoError(t, err)
+	childStackID := aws.ToString(descOut.StackInstance.StackId)
+	require.NotEmpty(t, childStackID)
+
+	listStacksOut, err := client.ListStacks(t.Context(), &cfnsdk.ListStacksInput{})
+	require.NoError(t, err)
+	var childStackName string
+	for _, s := range listStacksOut.StackSummaries {
+		if aws.ToString(s.StackId) == childStackID {
+			childStackName = aws.ToString(s.StackName)
+		}
+	}
+	require.NotEmpty(t, childStackName, "could not find the stack-instance's child stack in ListStacks")
+
+	backend.ForceModifyResourceProperties(childStackName, "MyBucket", map[string]any{
+		"BucketName":              "cfn21my-drift-bucket",
+		"VersioningConfiguration": map[string]any{"Status": "Enabled"},
+	})
+	_, err = backend.DetectStackResourceDrift(childStackName, "MyBucket")
+	require.NoError(t, err)
+
+	driftOut, err := client.ListStackInstanceResourceDrifts(t.Context(), &cfnsdk.ListStackInstanceResourceDriftsInput{
+		StackSetName:         aws.String(stackSetName),
+		StackInstanceAccount: aws.String("123456789012"),
+		StackInstanceRegion:  aws.String("us-east-1"),
+		OperationId:          aws.String("cfn21my-op"),
+	})
+	require.NoError(t, err)
+	require.Len(t, driftOut.Summaries, 1)
+	s := driftOut.Summaries[0]
+	assert.Equal(t, "MyBucket", aws.ToString(s.LogicalResourceId))
+	assert.Equal(t, cfnsdktypes.StackResourceDriftStatusModified, s.StackResourceDriftStatus)
+	assert.Equal(t, "AWS::S3::Bucket", aws.ToString(s.ResourceType),
+		"ListStackInstanceResourceDrifts: ResourceType empty")
+	assert.NotEmpty(t, aws.ToString(s.PhysicalResourceId),
+		"ListStackInstanceResourceDrifts: PhysicalResourceId empty")
+	require.NotNil(t, s.Timestamp, "ListStackInstanceResourceDrifts: Timestamp nil")
+	assert.False(t, s.Timestamp.IsZero(), "ListStackInstanceResourceDrifts: Timestamp is the zero value")
+	assert.NotEmpty(t, s.PropertyDifferences,
+		"ListStackInstanceResourceDrifts: PropertyDifferences empty -- PropertyDifferences>member wrapping regression")
+}
+
+// TestStackSetOperation_ItemFields_RealClient (gopherstack-21my
+// continuation): types.StackSetOperation and its sibling
+// types.StackSetOperationSummary both carry CreationTimestamp
+// (cloudformation@v1.76.1 types/types.go:2733,2985); the backend's own
+// StackSetOperation model already tracks the equivalent (CreatedAt, set at
+// recordStackSetOperation) but neither DescribeStackSetOperation nor
+// ListStackSetOperations ever emitted it -- a shared gap across the singular
+// and plural forms, invisible to a sibling-only diff. types.StackSetOperation
+// also carries StackSetId, which gopherstack's DescribeStackSetOperation
+// never emitted despite the StackSet's own StackSetID being available via
+// DescribeStackSet.
+func TestStackSetOperation_ItemFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	stackSetName := "cfn21my-ssop-stackset"
+	templateBody := `{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
+
+	createOut, err := client.CreateStackSet(t.Context(), &cfnsdk.CreateStackSetInput{
+		StackSetName: aws.String(stackSetName),
+		TemplateBody: aws.String(templateBody),
+	})
+	require.NoError(t, err)
+	stackSetID := aws.ToString(createOut.StackSetId)
+	require.NotEmpty(t, stackSetID)
+
+	instOut, err := client.CreateStackInstances(t.Context(), &cfnsdk.CreateStackInstancesInput{
+		StackSetName: aws.String(stackSetName),
+		Accounts:     []string{"123456789012"},
+		Regions:      []string{"us-east-1"},
+	})
+	require.NoError(t, err)
+	opID := aws.ToString(instOut.OperationId)
+	require.NotEmpty(t, opID)
+
+	descOut, err := client.DescribeStackSetOperation(t.Context(), &cfnsdk.DescribeStackSetOperationInput{
+		StackSetName: aws.String(stackSetName),
+		OperationId:  aws.String(opID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, descOut.StackSetOperation)
+	require.NotNil(t, descOut.StackSetOperation.CreationTimestamp,
+		"DescribeStackSetOperation: CreationTimestamp nil")
+	assert.False(t, descOut.StackSetOperation.CreationTimestamp.IsZero())
+	assert.Equal(t, stackSetID, aws.ToString(descOut.StackSetOperation.StackSetId),
+		"DescribeStackSetOperation: StackSetId empty/wrong")
+
+	listOut, err := client.ListStackSetOperations(t.Context(), &cfnsdk.ListStackSetOperationsInput{
+		StackSetName: aws.String(stackSetName),
+	})
+	require.NoError(t, err)
+	found := false
+	for _, s := range listOut.Summaries {
+		if aws.ToString(s.OperationId) == opID {
+			found = true
+			require.NotNil(t, s.CreationTimestamp, "ListStackSetOperations: CreationTimestamp nil")
+			assert.False(t, s.CreationTimestamp.IsZero())
+		}
+	}
+	assert.True(t, found, "no ListStackSetOperations entry for the created operation")
+}
+
+// TestStackRefactor_ItemFields_RealClient (gopherstack-21my continuation):
+// types.StackRefactorAction has no StackName, LogicalResourceId or
+// ResourceType member at all -- it carries the source/destination location
+// nested under ResourceMapping.Source/.Destination, each a ResourceLocation
+// (cloudformation@v1.76.1 types/types.go:2118,1195,1178). gopherstack emitted
+// flat top-level StackName/LogicalResourceId/ResourceType elements instead --
+// none of them a real member, so a real client's ResourceMapping was
+// unconditionally nil despite the backend already tracking both the source
+// and destination ResourceLocation for every mapping. Separately,
+// DescribeStackRefactorOutput carries Description and StackRefactorId, both
+// already tracked by the backend's StackRefactor model but never emitted.
+func TestStackRefactor_ItemFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	okTemplate := `{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
+	_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+		StackName:    aws.String("cfn21my-refactor-src"),
+		TemplateBody: aws.String(okTemplate),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+		StackName:    aws.String("cfn21my-refactor-dst"),
+		TemplateBody: aws.String(okTemplate),
+	})
+	require.NoError(t, err)
+
+	createOut, err := client.CreateStackRefactor(t.Context(), &cfnsdk.CreateStackRefactorInput{
+		StackDefinitions: []cfnsdktypes.StackDefinition{},
+		Description:      aws.String("cfn21my distinguishable refactor"),
+		ResourceMappings: []cfnsdktypes.ResourceMapping{
+			{
+				Source: &cfnsdktypes.ResourceLocation{
+					StackName:         aws.String("cfn21my-refactor-src"),
+					LogicalResourceId: aws.String("Bucket"),
+				},
+				Destination: &cfnsdktypes.ResourceLocation{
+					StackName:         aws.String("cfn21my-refactor-dst"),
+					LogicalResourceId: aws.String("MovedBucket"),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	refactorID := aws.ToString(createOut.StackRefactorId)
+	require.NotEmpty(t, refactorID)
+
+	descOut, err := client.DescribeStackRefactor(t.Context(), &cfnsdk.DescribeStackRefactorInput{
+		StackRefactorId: aws.String(refactorID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "cfn21my distinguishable refactor", aws.ToString(descOut.Description),
+		"DescribeStackRefactor: Description empty")
+	assert.Equal(t, refactorID, aws.ToString(descOut.StackRefactorId),
+		"DescribeStackRefactor: StackRefactorId empty")
+
+	actionsOut, err := client.ListStackRefactorActions(t.Context(), &cfnsdk.ListStackRefactorActionsInput{
+		StackRefactorId: aws.String(refactorID),
+	})
+	require.NoError(t, err)
+	require.Len(t, actionsOut.StackRefactorActions, 1)
+	a := actionsOut.StackRefactorActions[0]
+	require.NotNil(t, a.ResourceMapping, "ListStackRefactorActions: ResourceMapping nil")
+	require.NotNil(t, a.ResourceMapping.Source)
+	require.NotNil(t, a.ResourceMapping.Destination)
+	assert.Equal(t, "cfn21my-refactor-src", aws.ToString(a.ResourceMapping.Source.StackName))
+	assert.Equal(t, "Bucket", aws.ToString(a.ResourceMapping.Source.LogicalResourceId))
+	assert.Equal(t, "cfn21my-refactor-dst", aws.ToString(a.ResourceMapping.Destination.StackName))
+	assert.Equal(t, "MovedBucket", aws.ToString(a.ResourceMapping.Destination.LogicalResourceId))
+}
+
+// TestDescribePublisher_PublisherId_RealClient (gopherstack-21my
+// continuation): DescribePublisherOutput carries PublisherId
+// (cloudformation@v1.76.1 api_op_DescribePublisher.go); gopherstack's
+// handleDescribePublisher already resolves the publisher by that exact ID
+// but never echoed it back onto the wire.
+func TestDescribePublisher_PublisherId_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	regOut, err := client.RegisterPublisher(t.Context(), &cfnsdk.RegisterPublisherInput{
+		ConnectionArn: aws.String("arn:aws:codestar-connections:us-east-1:123456789012:connection/cfn21my"),
+	})
+	require.NoError(t, err)
+	publisherID := aws.ToString(regOut.PublisherId)
+	require.NotEmpty(t, publisherID)
+
+	descOut, err := client.DescribePublisher(t.Context(), &cfnsdk.DescribePublisherInput{
+		PublisherId: aws.String(publisherID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, publisherID, aws.ToString(descOut.PublisherId),
+		"DescribePublisher: PublisherId empty/wrong")
+}

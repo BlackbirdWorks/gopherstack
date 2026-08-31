@@ -399,10 +399,22 @@ func (b *InMemoryBackend) ListStackInstanceResourceDrifts(
 		return []StackResourceDrift{}, nil
 	}
 	driftMap := b.resourceDriftStatus[instanceStackID]
+	// Prefer the full drift detail captured by DetectStackResourceDrift (same
+	// resourceDriftDetail map DescribeStackResourceDrifts already prefers),
+	// which carries ResourceType/PhysicalResourceID/Timestamp that
+	// resourceDriftStatus alone (bare status per logical ID) doesn't have.
+	detailMap := b.resourceDriftDetail[instanceStackID]
 	drifts := make([]StackResourceDrift, 0, len(driftMap))
 	for logicalID, status := range driftMap {
 		if status == driftStatusInSync {
 			continue
+		}
+		if detailMap != nil {
+			if d, ok := detailMap[logicalID]; ok {
+				drifts = append(drifts, d)
+
+				continue
+			}
 		}
 		drifts = append(drifts, StackResourceDrift{
 			StackID:                  instanceStackID,

@@ -649,16 +649,18 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 	name := form.Get("StackSetName")
 	p, _ := h.Backend.ListStackSetOperations(name, form.Get("NextToken"))
 	type opXML struct {
-		OperationID string `xml:"OperationId"`
-		Action      string `xml:"Action"`
-		Status      string `xml:"Status"`
+		OperationID       string `xml:"OperationId"`
+		Action            string `xml:"Action"`
+		Status            string `xml:"Status"`
+		CreationTimestamp string `xml:"CreationTimestamp"`
 	}
 	members := make([]opXML, 0, len(p.Data))
 	for _, op := range p.Data {
 		members = append(members, opXML{
-			OperationID: op.OperationID,
-			Action:      op.Action,
-			Status:      op.Status,
+			OperationID:       op.OperationID,
+			Action:            op.Action,
+			Status:            op.Status,
+			CreationTimestamp: op.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 	type result struct {
@@ -695,9 +697,11 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	}
 	type result struct {
 		StackSetOperation struct {
-			OperationID string `xml:"OperationId"`
-			Action      string `xml:"Action"`
-			Status      string `xml:"Status"`
+			OperationID       string `xml:"OperationId"`
+			Action            string `xml:"Action"`
+			Status            string `xml:"Status"`
+			CreationTimestamp string `xml:"CreationTimestamp"`
+			StackSetID        string `xml:"StackSetId,omitempty"`
 		} `xml:"StackSetOperation"`
 	}
 	type response struct {
@@ -710,6 +714,10 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	r.StackSetOperation.OperationID = op.OperationID
 	r.StackSetOperation.Action = op.Action
 	r.StackSetOperation.Status = op.Status
+	r.StackSetOperation.CreationTimestamp = op.CreatedAt.UTC().Format("2006-01-02T15:04:05Z")
+	if ss, ssErr := h.Backend.DescribeStackSet(name); ssErr == nil {
+		r.StackSetOperation.StackSetID = ss.StackSetID
+	}
 
 	return writeXML(c, response{Xmlns: cfnNS, Result: r, RequestID: uuid.New().String()})
 }
