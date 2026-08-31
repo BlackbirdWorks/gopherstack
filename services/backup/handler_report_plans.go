@@ -104,6 +104,29 @@ func reportSettingToJSON(in *ReportSetting) map[string]any {
 	return out
 }
 
+// reportJobToJSON builds the real ReportJob wire shape (backup@v1.59.4
+// deserializers.go: ReportJobId, Status, ReportPlanArn, CreationTime,
+// CompletionTime, ReportTemplate, ReportDestination, StatusMessage).
+// DescribeReportJob/ListReportJobs previously shared a helper that emitted
+// only ReportJobId/Status even though CreationTime/CompletionTime/
+// ReportPlanArn are all tracked and set at StartReportJob time.
+// ReportTemplate/ReportDestination/StatusMessage are not modeled -- this
+// backend never generates an actual report artifact -- so they are
+// disclosed gaps rather than fabricated.
+func reportJobToJSON(j *ReportJob) map[string]any {
+	item := map[string]any{
+		keyReportJobID:   j.ReportJobID,
+		keyStatus:        j.Status,
+		keyReportPlanArn: j.ReportPlanArn,
+		keyCreationTime:  epochSeconds(j.CreationTime),
+	}
+	if j.CompletionTime != nil {
+		item["CompletionTime"] = epochSeconds(*j.CompletionTime)
+	}
+
+	return item
+}
+
 type createReportPlanBody struct {
 	ReportPlanName        string                     `json:"ReportPlanName"`
 	ReportPlanDescription string                     `json:"ReportPlanDescription,omitempty"`
@@ -261,17 +284,12 @@ func (h *Handler) dispatchReportJobOps(
 			)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"ReportJob": map[string]any{keyReportJobID: job.ReportJobID, keyStatus: job.Status},
-		})
+		return true, c.JSON(http.StatusOK, map[string]any{"ReportJob": reportJobToJSON(job)})
 	case opListReportJobs:
 		jobs := h.Backend.ListReportJobs("")
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
-			items = append(
-				items,
-				map[string]any{keyReportJobID: j.ReportJobID, keyStatus: j.Status},
-			)
+			items = append(items, reportJobToJSON(j))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"ReportJobs": items})

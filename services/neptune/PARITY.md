@@ -464,3 +464,65 @@ Gates: see the combined s3control+neptune gate note in
 build/vet/test/lint clean; repo-wide `go vet ./...` currently fails only in
 `services/ec2` (a different agent's concurrent in-progress, uncommitted
 work, confirmed via `git status --short services/ec2`), not touched here.
+
+## 2026-08-31 -- gopherstack-6flj/21my: ops never named in this file
+
+Computed the queue directly: every `List*`/`Describe*` op in
+`neptune@v1.48.4`'s `api_op_*.go` files whose literal name never appears
+anywhere in this PARITY.md. Seven such ops: `DescribeDBClusterEndpoints`,
+`DescribeDBClusterParameterGroups`, `DescribeDBClusterSnapshots`,
+`DescribeDBParameterGroups`, `DescribeDBSubnetGroups`,
+`DescribeEventCategories`, `ListTagsForResource`. Protocol re-confirmed:
+`awsAwsquery_` throughout `deserializers.go` (query/XML,
+`strings.EqualFold` case-folded), matching this file's existing Notes.
+
+Four of the seven (`DescribeDBClusterEndpoints`, `DescribeDBClusterParameterGroups`,
+`DescribeDBClusterSnapshots`, `DescribeDBSubnetGroups`) already had a
+per-item member-count sweep against their family types (`DBClusterEndpoint`
+10/10, `DBClusterParameterGroup` 4/4, `DBClusterSnapshot` 14/20 tracked,
+`DBSubnetGroup` 6/7 tracked) recorded under the "gopherstack-21my per-item
+field pass (2026-08-31, paired with s3control)" section above -- that pass
+checked the type, this pass independently re-verified the wrapper key each
+of these four *operations* emits it under (`DBClusterEndpoints`,
+`DBClusterParameterGroups`, `DBClusterSnapshots`, `DBSubnetGroups`, all
+confirmed against `awsAwsquery_deserializeOpDocumentDescribe*Output`) --
+all four correct, no new findings.
+
+`DescribeDBParameterGroups`, `DescribeEventCategories`,
+`ListTagsForResource` had not been swept at either layer before. Full
+wrapper-key and per-item sweep:
+
+- `DescribeDBParameterGroups`: wraps `DBParameterGroups` (correct); item
+  type `DBParameterGroup` has exactly 4 real members
+  (`awsAwsquery_deserializeDocumentDBParameterGroup`,
+  deserializers.go:15751-15790) -- `DBParameterGroupArn`,
+  `DBParameterGroupFamily`, `DBParameterGroupName`, `Description`, all 4
+  emitted correctly (`xmlDBParameterGroup`, handler_parameter_groups.go).
+  Clean.
+- `DescribeEventCategories`: wraps `EventCategoriesMapList` (correct); item
+  wrapper `EventCategoriesMap` (correct) with `SourceType`+`EventCategories`
+  (a nested `EventCategory`-wrapped list, correct) -- all confirmed against
+  `awsAwsquery_deserializeDocumentEventCategoriesMapList`/
+  `...EventCategoriesMap`/`...EventCategoriesList`. This op's response is
+  static/hardcoded (4 source types), which is legitimate static-catalog
+  behavior, same class already documented for `DescribeDBEngineVersions`
+  elsewhere in this file -- not a stub. Clean.
+- `ListTagsForResource`: wraps `TagList` (correct); item `Tag` has 2
+  members, `Key`/`Value` (`awsAwsquery_deserializeDocumentTag`,
+  deserializers.go:22863-22876), both emitted correctly via the shared
+  `pkgs/tags.KV` type. Clean.
+
+**No bugs found in this batch.** No wrapper-key mismatch, no per-item field
+mismatch, no transposition, no case-only mismatch, no element emitted that
+isn't a real member, no hard decode error. All seven ops in this queue are
+genuinely clean at both layers -- consistent with this service's very
+recent (same-day) deep per-item sweep already having covered most of the
+adjacent surface (`DBInstance.DbInstancePort` fix, etc., documented above).
+
+No web pages fetched this pass (SDK lookups went through the pinned module
+cache only).
+
+Gates: `go build ./services/neptune/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/neptune/...` (pass, no new
+tests -- no bug found to write a regression test for), `golangci-lint run
+./services/neptune/...` (0 issues). No source changes this pass.

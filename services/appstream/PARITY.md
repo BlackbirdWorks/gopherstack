@@ -508,3 +508,83 @@ against the pinned SDK's own per-op `rpc2_deserializeOpError*` switch
 Gates: `go build ./services/appstream/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/appstream/...` (pass; 1 test
 added), `golangci-lint run ./services/appstream/...` (0 issues).
+
+## 2026-08-31 -- gopherstack-6flj/21my: ops never named in this file
+
+Computed the queue directly: every `List*`/`Describe*` op in
+`appstream@v1.64.5`'s `api_op_*.go` files whose literal name never appears
+anywhere in this PARITY.md. Seven such ops: `DescribeAppBlockBuilders`,
+`DescribeImageBuilders`, `DescribeSoftwareAssociations`,
+`DescribeThemeForStack`, `DescribeUsageReportSubscriptions`,
+`DescribeUserStackAssociations`, `DescribeUsers`. Protocol reconfirmed from
+this service's own deserializer: current traffic is rpc-v2-cbor
+(`rpc2_deserializeOpError*` throughout `deserializers.go`), using a
+schema-free per-field `if key == "..."` switch (not the older restjson1
+shape) inside `deserializeCBOR_<Op>Output`/`deserializeCBOR_<Type>` -- read
+directly rather than assumed, per this file's own protocol note above.
+
+All seven checked at both layers against their own `deserializeCBOR_*`
+functions:
+
+- `DescribeAppBlockBuilders` (wraps `AppBlockBuilders`), `DescribeImageBuilders`
+  (wraps `ImageBuilders`), `DescribeSoftwareAssociations` (wraps
+  `AssociatedResource`+`SoftwareAssociations`, item fields `SoftwareName`/
+  `Status` both correct against `types.SoftwareAssociations`), `DescribeThemeForStack`
+  (wraps `Theme`), `DescribeUsageReportSubscriptions` (wraps
+  `UsageReportSubscriptions`, item fields `S3BucketName`/`Schedule` both
+  correct), `DescribeUserStackAssociations` (wraps `UserStackAssociations`,
+  item fields `StackName`/`UserName`/`AuthenticationType`/
+  `SendEmailNotification` all correct), `DescribeUsers` (wraps `Users`, item
+  fields `UserName`/`Arn`/`FirstName`/`LastName`/`AuthenticationType`/
+  `Status`/`Enabled`/`CreatedTime` all correct) -- all seven wrapper keys
+  correct, no bug found in any of these five item shapes.
+
+**Two findings recorded, neither fixed (real but currently unobservable,
+or a different-axis gap):**
+
+1. `AppBlockBuilder`/`ImageBuilder` per-item shapes both emit a `Tags`
+   field (`appBlockBuilderToResponse`/`imageBuilderToResponse`,
+   handler_appblock.go/handler_image.go) that is **not a member of either
+   real type at all** -- confirmed against
+   `deserializeCBOR_AppBlockBuilder`/`deserializeCBOR_ImageBuilder`'s full
+   key switch (neither has a `"Tags"` case; AppStream tags live only via
+   `ListTagsForResource`, not embedded on the resource). Harmless: a real
+   client's CBOR decoder silently ignores an unrecognized key, same as the
+   sagemaker connection-ARN case recorded in the 2026-08-31 c2b2c6129
+   commit. Not removed this pass, recorded rather than fixed (matches this
+   campaign's precedent of disclosing rather than touching a dormant,
+   cost-free field).
+2. `ImageBuilder.ImageName` is emitted under the wire key `"ImageName"`;
+   the real `types.ImageBuilder` has no such member -- the real field is
+   `ImageArn` (`deserializers.go:7851`, `types/types.go`). This mismatch is
+   currently **unobservable**: `CreateImageBuilder`'s request-decode struct
+   (`createImageBuilderInput`, handler_image.go) never reads `ImageArn` or
+   `ImageName` from the request at all, even though real
+   `CreateImageBuilderInput` declares both (either identifies the source
+   image, `api_op_CreateImageBuilder.go:181,184`) -- so this backend's
+   `ImageBuilder.ImageName` field is always the empty string regardless of
+   what a real client sends. Fixing the wire key alone would still emit an
+   always-empty field; the real gap is that `CreateImageBuilder` never
+   captures a source-image identifier at all, a Create-side feature gap
+   distinct from this sweep's wrapper-key/per-item-name scope. Also found,
+   same op: `AppBlockBuilder`'s real type declares `VpcConfig` as a
+   **required** response member (`types/types.go:248`) that this service
+   does not model anywhere (no VPC concept in this backend at all, and
+   `CreateAppBlockBuilder` doesn't accept one either) -- disclosed as a
+   structural gap, not fixed (same class as the ImageBuilder source-image
+   gap: a feature absence, not a wire-shape defect on an otherwise-modeled
+   field).
+
+**No bugs fixed this pass.** No wrapper-key mismatch, no fixable per-item
+mismatch, no transposition, no case-only mismatch (CBOR/JSON-family, not
+applicable), no hard decode error or panic, no wrong Go type under a
+correct key found.
+
+No web pages fetched this pass (SDK lookups went through the pinned module
+cache only).
+
+Gates: `go build ./services/appstream/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/appstream/...` (pass, no new
+tests -- both findings above are disclosed-not-fixed, so no regression to
+guard), `golangci-lint run ./services/appstream/...` (0 issues). No source
+changes this pass.

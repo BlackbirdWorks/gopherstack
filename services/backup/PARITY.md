@@ -584,3 +584,103 @@ Gates: `go build ./services/backup/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/backup/...` (pass), `golangci-lint run
 ./services/backup/...` (0 issues, `golines -w -m 120` applied then
 re-verified with plain `golangci-lint run`).
+
+## 2026-08-31 -- gopherstack-6flj/21my: ops never named in this file
+
+Computed the queue directly rather than trusting a prior count: every
+`List*`/`Describe*` op in `backup@v1.59.4`'s `api_op_*.go` files whose
+literal name never appears anywhere in this PARITY.md. Seven such ops:
+`DescribeFramework`, `DescribeGlobalSettings`, `DescribeReportPlan`,
+`ListBackupPlanTemplates`, `ListIndexedRecoveryPoints`,
+`ListRecoveryPointsByResource`, `ListReportJobs`. Protocol confirmed from
+this service's own deserializer: `awsRestjson1_deserializeOpError*`
+throughout `deserializers.go` -- rest-json, case-sensitive, no XML-style
+key folding.
+
+All seven checked at both the wrapper-key and per-item-field layer against
+their own `awsRestjson1_deserializeOpDocument*Output`/
+`awsRestjson1_deserializeDocument*` functions.
+
+**Clean (wrapper key and every emitted per-item field correct):**
+`DescribeFramework` (wraps `FrameworkArn`/`FrameworkName`/
+`FrameworkDescription`/`FrameworkStatus`/`DeploymentStatus`/`CreationTime`/
+`FrameworkControls`, `IdempotencyToken` legitimately never populated -- no
+value to echo since this backend generates its own token only at create
+time and doesn't persist the caller's), `DescribeGlobalSettings` (wraps
+`GlobalSettings`+`LastUpdateTime`, both present), `ListBackupPlanTemplates`
+(wraps `BackupPlanTemplatesList`, item fields `BackupPlanTemplateId`/
+`BackupPlanTemplateName` both correct).
+
+**`DescribeReportPlan`**: wrapper key `ReportPlan` correct; emitted fields
+(`ReportPlanArn`/`ReportPlanName`/`ReportPlanDescription`/`CreationTime`/
+`ReportDeliveryChannel`/`ReportSetting`) all correctly named. Three real
+`ReportPlan` members are never emitted at all: `DeploymentStatus` (no
+tracked signal -- this backend has no deployment lifecycle to report),
+`LastAttemptedExecutionTime`/`LastSuccessfulExecutionTime` (derivable in
+principle from this service's own `ReportJob.ReportPlanArn`+`CompletionTime`
+records, but computing that cross-reference is a distinct feature, not a
+wire-shape fix -- disclosed as a gap, not fabricated).
+
+**BUG FIXED: `ListRecoveryPointsByResource`** (`handler_recovery_points.go`,
+`dispatchRecoveryPointQueryOps`). Wrapper key `RecoveryPoints` was already
+correct, but the per-item shape emitted only `RecoveryPointArn`/`Status`
+even though the real `RecoveryPointByResource` type's `BackupVaultName` and
+`CreationDate` (both real, non-required members,
+`deserializers.go:24314-24461`) were already tracked on this backend's
+`RecoveryPoint` model and simply never surfaced. Also added
+`BackupSizeBytes`/`EncryptionKeyArn` (also tracked, also real members).
+`ResourceName`/`StatusMessage`/`IndexStatus`/`IndexStatusMessage`/
+`IsParent`/`VaultType`/`AggregatedScanResult`/`EncryptionKeyType` remain
+disclosed gaps -- not tracked on the backend model, not fabricated.
+
+**BUG FIXED (per-item field, wrong-field-for-the-type class): `ListIndexedRecoveryPoints`**
+(same file/function). The real `IndexedRecoveryPoint` type
+(`deserializers.go:22769-22855`) has **no `Status` member at all** -- the
+handler emitted `rp.Status` (a backup-job status like `COMPLETED`) under a
+key the real type's deserializer never reads, a sibling-trap bug: this
+service's `RecoveryPointByResource` sibling type genuinely does have a
+`Status` field, and the shared item-shaping code was copied from there
+without checking the target type. Real `IndexedRecoveryPoint.IndexStatus`
+was already tracked by this backend (`GetRecoveryPointIndexDetails`/
+`UpdateRecoveryPointIndexSettings`, `recoveryPointIndexStatus` map) but
+never read here -- a real client's index status was always nil regardless
+of what `UpdateRecoveryPointIndexSettings` had set. Fixed to emit
+`RecoveryPointArn`/`BackupVaultArn`/`IamRoleArn`/`IndexStatus`/
+`ResourceType`/`SourceResourceArn`/`BackupCreationDate`, all backed by
+already-tracked fields. `IndexCreationDate`/`IndexStatusMessage` remain
+disclosed gaps (not tracked).
+
+**BUG FIXED (sibling-shares-the-gap): `DescribeReportJob`/`ListReportJobs`**
+(`handler_report_plans.go`, `dispatchReportJobOps`). Both ops shared one
+inline map literal emitting only `ReportJobId`/`Status`, even though
+`ReportPlanArn`/`CreationTime`/`CompletionTime` are all real members
+(`deserializers.go:24870-24943`) already set on `ReportJob` at
+`StartReportJob` time. This op's own prior PARITY line ("same fabricated-200
+bug as DescribeRestoreJob, fixed") only ever verified the 404-vs-fabricated-200
+behavior, not this required-and-tracked-but-dropped field set -- the exact
+stale-verdict trap this file's `DescribeScanJob` entry already documents.
+Extracted a shared `reportJobToJSON` helper so both ops stay in sync.
+`ReportTemplate`/`ReportDestination`/`StatusMessage` remain disclosed gaps
+-- this backend never generates an actual report artifact, so there is no
+honest value to source them from.
+
+Tests: `wire_field_fixes_indexed_rp_test.go`, 3 new tests
+(`TestListRecoveryPointsByResource_WireFields`,
+`TestListIndexedRecoveryPoints_WireFields`, `TestReportJob_WireFields`), all
+driving the real `aws-sdk-go-v2/service/backup` typed client and asserting
+on the decoded response (not raw body). All three confirmed failing against
+unmodified code first (`git stash` of just the fixed handler file, run,
+`git stash pop`), then passing after the fix.
+
+No transposition, no case-only mismatch (rest-json is case-sensitive here,
+not applicable anyway), no hard decode error/panic, no wrong Go type under
+a correct key, no field existing both nested and top-level, found this
+pass. No web pages fetched this pass (`gopherstack-sdk-shape`-style lookups
+went through the pinned SDK module cache only).
+
+Gates: `go build ./services/backup/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/backup/...` (pass, 3 new tests),
+`golangci-lint run ./services/backup/...` (0 issues, `golines -w -m 120`
+applied to the new test file for one long line then re-verified). No
+`models.go`/persisted-struct change this pass (response-shaping code only)
+-- snapshot version guard not run, not needed.
