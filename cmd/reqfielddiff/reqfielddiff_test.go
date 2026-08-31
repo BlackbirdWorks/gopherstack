@@ -364,6 +364,86 @@ func decodeListBody(c *Context) listBody {
 	require.False(t, ok)
 }
 
+// TestResolveOp_ReturnsStructCallGatedToHandlerReceiver reproduces
+// gopherstack-id70's lambda miss: UpdateFunctionUrlConfig's real handler
+// calls a backend method spelled identically to no one else in the package
+// except that one backend method, `lambdaBk.UpdateFunctionURLConfig(...)`,
+// which returns *FunctionURLConfig -- the RESPONSE struct, which (like the
+// AWS response object it models) happens to also declare an InvokeMode
+// field. Before the fix, matchReturnsStructCall resolved that call by method
+// name alone, with no check on the receiver, and merged FunctionURLConfig's
+// fields into the operation's "declared" set -- so UpdateFunctionUrlConfig's
+// own genuinely undeclared InvokeMode request field silently matched via a
+// completely different struct and never got reported at all. The sibling
+// operation (CreateThing) declares its own InvokeMode correctly and must
+// still be clean.
+func TestResolveOp_ReturnsStructCallGatedToHandlerReceiver(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+import "encoding/json"
+
+type Handler struct{}
+type Context struct{}
+type Backend struct{}
+
+type CreateThingInput struct {
+	InvokeMode string ` + "`json:\"InvokeMode\"`" + `
+}
+
+type UpdateThingInput struct {
+	Name string ` + "`json:\"Name\"`" + `
+}
+
+type ThingConfig struct {
+	InvokeMode string ` + "`json:\"InvokeMode\"`" + `
+}
+
+func (h *Handler) handleCreateThing(c *Context, body []byte) error {
+	var input CreateThingInput
+	json.Unmarshal(body, &input)
+	return nil
+}
+
+func (h *Handler) handleUpdateThing(c *Context, body []byte, bk *Backend) error {
+	var input UpdateThingInput
+	json.Unmarshal(body, &input)
+	cfg := bk.UpdateThing()
+	_ = cfg
+	return nil
+}
+
+func (b *Backend) UpdateThing() *ThingConfig {
+	return &ThingConfig{}
+}
+`
+	idx := parseSrc(t, src)
+	sdkOps := []sdkOp{
+		{Name: "CreateThing", Fields: []sdkField{mustField("InvokeMode", "", false)}},
+		{Name: "UpdateThing", Fields: []sdkField{mustField("Name", "", false), mustField("InvokeMode", "", false)}},
+	}
+	resolutions := idx.resolveOps(sdkOps)
+
+	updateRes := resolutions["UpdateThing"]
+	require.True(t, updateRes.Found)
+	_, declared := updateRes.Fields[normalizeWireName("InvokeMode")]
+	require.False(t, declared,
+		"a business-logic call on a non-handler receiver must never leak its "+
+			"return struct's fields in as falsely \"declared\"")
+
+	missing := findMissing(sdkOps[1], updateRes)
+	names := make([]string, len(missing))
+	for i, m := range missing {
+		names[i] = m.Field.Name
+	}
+
+	require.Contains(t, names, "InvokeMode")
+
+	createRes := resolutions["CreateThing"]
+	require.Empty(t, findMissing(sdkOps[0], createRes))
+}
+
 func TestCoverageWarnings_ZeroOpsResolved(t *testing.T) {
 	t.Parallel()
 

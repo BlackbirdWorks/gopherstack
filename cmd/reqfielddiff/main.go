@@ -51,13 +51,25 @@
 //     the handler's own *In parameter type) OR a plain function/method
 //     call or reference, whose OWN BODY is then scanned directly
 //     (resolve.go's scanBody) for a decode signal: a json/xml.Unmarshal or
-//     echo Bind call binding a locally-known struct type, a call to a
-//     package function whose declared return type IS a known struct
-//     (cloudfront's decodeXBody(c) shape), or a literal
-//     QueryParam/Param/FormValue("name") call, harvested directly as a
-//     declared wire name with no struct behind it at all (apigateway's
+//     echo Bind call binding a locally-known struct type, a call to a bare
+//     package function OR an `h.<Method>(...)` call whose declared return
+//     type IS a known struct (cloudfront's decodeXBody(c) shape), or a
+//     literal QueryParam/Param/FormValue("name") call, harvested directly as
+//     a declared wire name with no struct behind it at all (apigateway's
 //     resourceActions shape, and the many services that read echo params
-//     with no struct in between). Exactly ONE hop of recursion into a
+//     with no struct in between). The returns-a-struct signal is
+//     deliberately gated to that same bare-func-or-`h.<Method>` shape
+//     (matchReturnsStructCall's isBareOrHandlerCall) rather than any
+//     selector call: lookupFuncDecl resolves a method by NAME ALONE,
+//     ignoring the receiver's real type, so an ungated call to some other
+//     receiver (a backend/business-logic call like
+//     `lambdaBk.UpdateFunctionURLConfig(...)`) could resolve to a
+//     same-named method on a completely different type and merge in ITS
+//     return struct's fields as falsely "declared" -- exactly how
+//     UpdateFunctionUrlConfig's genuinely undeclared InvokeMode field went
+//     unreported end to end (gopherstack-id70): the backend method of the
+//     same name returns *FunctionURLConfig, the response struct, which also
+//     happens to declare InvokeMode. Exactly ONE hop of recursion into a
 //     `h.<Method>(...)` or bare package-func call the handler makes is
 //     followed (maxHop in resolve.go) -- never into `h.Backend.X`, so a
 //     backend's own internal field names can never leak in as false

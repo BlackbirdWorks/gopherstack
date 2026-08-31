@@ -304,11 +304,26 @@ func matchQueryParamCall(call *ast.CallExpr, res *opResolution) {
 	res.HasSignal = true
 }
 
-// matchReturnsStructCall recognises a call to a package func/method whose
-// single declared return type is a known struct -- cloudfront's
-// decodeListDistributionsByRealtimeLogConfigBody(c) helper, which returns a
-// named local struct with no decode-verb call anywhere in the caller at all.
+// matchReturnsStructCall recognises a call to a package func, or a method on
+// the handler receiver itself, whose single declared return type is a known
+// struct -- cloudfront's decodeListDistributionsByRealtimeLogConfigBody(c)
+// helper, which returns a named local struct with no decode-verb call
+// anywhere in the caller at all. Deliberately gated the same way
+// matchRecursableCall is gated (bare func, or `h.<method>()` with the
+// receiver ident literally "h"): lookupFuncDecl's SelectorExpr branch
+// resolves a method by NAME ONLY, ignoring the receiver's actual type, so an
+// ungated call to any other selector -- a backend/business-logic call like
+// `lambdaBk.UpdateFunctionURLConfig(...)` -- can match a same-named method on
+// a completely different receiver whose return type happens to be some other
+// known struct (lambda's UpdateFunctionURLConfig backend method returns
+// *FunctionURLConfig, the RESPONSE struct, whose InvokeMode field then
+// registered as a falsely "declared" REQUEST field and hid the real
+// UpdateFunctionUrlConfig.InvokeMode gap end to end -- gopherstack-id70).
 func matchReturnsStructCall(call *ast.CallExpr, ctx handlerResolveCtx, res *opResolution) {
+	if !isBareOrHandlerCall(call.Fun) {
+		return
+	}
+
 	fd := lookupFuncDecl(call.Fun, ctx)
 	if fd == nil || fd.Type.Results == nil || len(fd.Type.Results.List) == 0 {
 		return
@@ -328,6 +343,25 @@ func matchReturnsStructCall(call *ast.CallExpr, ctx handlerResolveCtx, res *opRe
 	}
 
 	addStructFields(typeName, ctx, res)
+}
+
+// isBareOrHandlerCall reports whether fn is a bare package-function
+// reference or a selector call on a receiver ident literally "h" -- the same
+// boundary matchRecursableCall enforces, so a struct-returning call can never
+// be resolved through an arbitrary receiver (h.Backend.X, a locally-typed
+// backend variable, a third-party client, ...) whose method merely shares a
+// name with something else in the package.
+func isBareOrHandlerCall(fn ast.Expr) bool {
+	switch v := fn.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		recv, ok := v.X.(*ast.Ident)
+
+		return ok && recv.Name == "h"
+	default:
+		return false
+	}
 }
 
 // matchRecursableCall follows a call to `h.<method>(...)` (receiver ident
