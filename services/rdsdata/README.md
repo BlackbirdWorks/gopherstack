@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 6 (6 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction, ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged fields). Real AWS's Database overrides the database named by resourceArn's connection/secret, and Schema (PostgreSQL only) overrides search_path -- both select *within* a resource. gopherstack's sqlEngine keys its one SQLite database per (region, resourceARN) only (engine.go's dbFor/dbKey); there is no per-resource multi-database or schema catalog for these fields to select into, matching this service's existing typeHint gap (see above) and its siblings' repeated honest-gap pattern in this campaign. Confirmed via grep: no `.Database`/`.Schema` selector anywhere in non-test source. Not fixed: modeling multiple named databases/schemas inside one engine instance is a real feature (SQLite ATTACH DATABASE per name, or a schema-qualified table namespace), not a field-read fix."
 - "SqlParameter.typeHint (DATE/DECIMAL/JSON/TIME/TIMESTAMP/UUID) is accepted on the wire but does not change bind behavior -- the mock SQLite engine has no distinct DATE/TIMESTAMP/UUID column types to convert strings into, so a DATE-hinted value binds identically to an unhinted string. Re-examined this pass and deliberately NOT implemented: real AWS's exact behavior for a malformed hinted value (which error class, and whether it's a request-time or DB-execution-time failure) is not independently verifiable without a live Aurora cluster, and inventing that mapping would risk exactly the kind of gopherstack-invented error semantics this audit is supposed to catch. Only matters if a test asserts on hint-driven type coercion or validation."
 - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement/ArrayBaseColumnType are always zero-valued. database/sql's sql.ColumnType (the only introspection the pure-Go modernc.org/sqlite driver exposes) has no origin-table/schema/autoincrement accessor, so there is no real signal to populate them from without a hand-rolled SQL catalog query per column keyed by the column's origin table -- which sql.ColumnType also does not expose. (Contrast with generatedFields/UpdateResult, which needed the origin table but got it for free by parsing it out of the INSERT statement itself; a SELECT's result columns have no such textual anchor in the general case, e.g. `SELECT * FROM t JOIN u`.)"
 
