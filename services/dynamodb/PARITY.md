@@ -531,3 +531,59 @@ none confident); hand-checked against the pinned dynamodb@v1.63.1 SDK:
   same-package tagged struct built for persistence from one built for the
   wire — a real, structural false-positive class this extension can produce,
   disclosed in `cmd/enumcheck`'s package doc.
+
+## 2026-08-30 value-semantics pass (gopherstack-uox6): ListBackups TimeRangeLowerBound inclusivity bug
+
+Targeted pass for gopherstack-uox6 ("a parameter that is read, applied, and
+WRONG" -- shape checks are blind to this class). Read every `ComparisonOperator`
+member (types/enums.go: EQ/NE/LE/LT/GE/GT/BETWEEN/NOT_NULL/NULL/CONTAINS/
+NOT_CONTAINS/BEGINS_WITH/IN, 13 total) against `legacy_conditions.go`'s
+`renderComparison` -- all 13 handled correctly (6 via `legacyBinarySymbols`,
+3 via `legacyUnaryFuncs`, 4 via the switch), default case rejects an
+unrecognized operator with `ValidationException` rather than silently
+matching everything or nothing. `ConditionalOperator`'s default (unset) is
+AND per `legacyConditionalJoiner`, matching AWS's documented default.
+Confirmed Query's `FilterExpression` is applied strictly after
+`KeyConditionExpression` resolves candidates (item_ops_query.go:634, inside
+`collectQueryPage`, downstream of `filterCandidatesForKeyCondition`) and that
+`ConsumedCapacity`/`ScannedCount` are computed from the key-condition-matched
+candidate count (item_ops_query.go:93, before the filter runs), not reduced
+by the filter -- matches AWS's documented "filter does not reduce consumed
+read capacity". `Select`'s four documented values (ALL_ATTRIBUTES/
+ALL_PROJECTED_ATTRIBUTES/SPECIFIC_ATTRIBUTES/COUNT) and their interaction
+with index projection type and ProjectionExpression/AttributesToGet are all
+enforced correctly in `validateSelectConstraints` (validation.go).
+
+**Bug found and fixed**: `ListBackups`' `TimeRangeLowerBound` is documented
+inclusive ("Only backups created after this time are listed. TimeRangeLowerBound
+is inclusive.", api_op_ListBackups.go) but `collectBackupSummaries`
+(backup_ops.go) excluded a backup created at *exactly* that boundary --
+`!createdAt.After(lower)` continues (excludes) whenever `createdAt <= lower`,
+which wrongly drops the equal-to-bound case. `TimeRangeUpperBound` (documented
+exclusive) was already correct. Fixed to `createdAt.Before(lower)` (excludes
+only strictly-earlier backups). `TestCollectBackupSummaries_TimeRangeBoundsInclusivity`
+(backup_timerange_internal_test.go, whitebox package `dynamodb`) constructs a
+backup with a zero-fractional-second `CreationDateTime` so an exact-boundary
+comparison is meaningful, and drives `collectBackupSummaries` directly;
+hand-verified to fail against unfixed code (0 backups returned for the
+inclusive-boundary case, expected 1). No prior test exercised
+TimeRangeLowerBound/TimeRangeUpperBound at all.
+
+Also examined and confirmed correct, no bug: `ScanIndexForward` default
+(true/ascending) at item_ops_query.go:102; `contains`/`begins_with` string
+comparison is case-sensitive (Go's `strings.Contains`/`HasPrefix`, matching
+real DynamoDB expression-function semantics -- no case-insensitive mode is
+documented for these); parallel-Scan `applySegmentFilter`'s FNV-hash-mod-
+TotalSegments partitioning (item_ops_scan.go) gives every item exactly one
+owning segment, matching AWS's documented total-coverage guarantee;
+`filterGlobalTables`'s RegionName membership filter (global_tables.go)
+matches ListGlobalTablesInput's documented "results only include global
+tables which have replicas in the selected region."
+
+Coverage is a slice, stated as one: the legacy Query/Scan/PutItem/UpdateItem/
+DeleteItem parameter-translation layer (already extensively fixed in prior
+lze5/yvs8 passes) and the modern `expr` evaluator's comparison/function
+semantics, checked deeply; GSI/LSI-specific filter interactions beyond
+projection-type handling, PartiQL's `WHERE`-clause evaluator
+(`filterEAVByExpression`, partiql.go), and streams' `appendMatchingRecords`
+were not re-examined this pass.
