@@ -748,3 +748,245 @@ func TestScan_SharedSentinel_NonCollidingManyCallers(t *testing.T) {
 		})
 	}
 }
+
+// findingPairs renders findings as "Op/Code" strings for compact set
+// membership assertions across more than one operation in a single scan.
+func findingPairs(findings []finding) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range findings {
+		out[f.Op+"/"+f.Code] = true
+	}
+
+	return out
+}
+
+// qualifiedGuardFixture is services/bedrockagent's real, measured shape
+// (gopherstack-axs3, 27 false positives): a mapper (handleErr) that
+// classifies via errors.Is against a PACKAGE-QUALIFIED base sentinel
+// (pkgs/awserr's own ErrNotFound/ErrAlreadyExists, wrapped locally with
+// awserr.New) and renders the code through a "code = literal" assignment
+// inside each switch case, NOT a bare `return "literal"` -- the shape
+// funcSentinelCodes' bare-identifier-only errors.Is scan never saw at all,
+// so the raw "code-named var" mechanism reported every case's code for
+// every operation that merely called the mapper, regardless of which
+// sentinel that operation's own backend could actually produce.
+// GetThing's backend can only ever return ErrNotFound; CreateThing's can
+// only ever return ErrAlreadyExists -- so only one of the mapper's two
+// codes is a real finding for each.
+const qualifiedGuardFixture = `
+package fixture
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+var ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+var ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+
+func handleErr(err error) string {
+	code := "InternalServerErrorException"
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		code = "ResourceNotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		code = "ConflictException"
+	}
+	return code
+}
+
+type Handler struct {
+	Backend *Backend
+}
+
+func (h *Handler) handleGetThing() string {
+	err := h.Backend.GetThing()
+	if err != nil {
+		return handleErr(err)
+	}
+	return ""
+}
+
+func (h *Handler) handleCreateThing() string {
+	err := h.Backend.CreateThing()
+	if err != nil {
+		return handleErr(err)
+	}
+	return ""
+}
+
+func (h *Handler) handleWeirdThing(err error) string {
+	if err != nil {
+		return handleErr(err)
+	}
+	return ""
+}
+
+type Backend struct{}
+
+func (b *Backend) GetThing() error {
+	return fmt.Errorf("%w: thing", ErrNotFound)
+}
+
+func (b *Backend) CreateThing() error {
+	return fmt.Errorf("%w: thing", ErrAlreadyExists)
+}
+`
+
+func qualifiedGuardTruth() *serviceModuleTruth {
+	allCodes := map[string]bool{
+		"ResourceNotFoundException":    true,
+		"ConflictException":            true,
+		"InternalServerErrorException": true,
+	}
+
+	return singleModuleTruth(newTestModuleGroundTruth(
+		map[string]map[string]bool{
+			"GetThing":    {"InternalServerErrorException": true},
+			"CreateThing": {"InternalServerErrorException": true},
+			"WeirdThing":  {"InternalServerErrorException": true},
+		},
+		allCodes,
+	))
+}
+
+// TestReachability_ReachableSentinel_Reported is scenario 1: an operation
+// whose own backend method CAN return the sentinel behind a shared mapper's
+// code must still be reported when it doesn't declare that code -- the
+// reachability fix must not turn into a blanket shared-mapper suppression.
+func TestReachability_ReachableSentinel_Reported(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, qualifiedGuardFixture)
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, qualifiedGuardTruth())
+
+	pairs := findingPairs(sr.Findings)
+	require.True(t, pairs["GetThing/ResourceNotFoundException"],
+		"GetThing's own backend returns ErrNotFound, so this finding is real and must survive")
+}
+
+// TestReachability_UnreachableSentinel_Suppressed is scenario 2: the SAME
+// mapper's OTHER code, gated by a sentinel GetThing's backend can never
+// produce, must be suppressed -- this is the exact 27-finding bedrockagent
+// shape and the 33-finding account shape gopherstack-axs3 measured.
+func TestReachability_UnreachableSentinel_Suppressed(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, qualifiedGuardFixture)
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, qualifiedGuardTruth())
+
+	pairs := findingPairs(sr.Findings)
+	require.False(t, pairs["GetThing/ConflictException"],
+		"GetThing's backend can only ever return ErrNotFound, never ErrAlreadyExists -- "+
+			"the ConflictException branch is structurally unreachable for this operation")
+}
+
+// TestReachability_SharedMapper_OnlyReachableReported is scenario 3: one
+// mapper serving two operations, where each operation's own reachable
+// sentinel differs, must report exactly the reachable pairing for each --
+// never both codes for both operations, and never neither.
+func TestReachability_SharedMapper_OnlyReachableReported(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, qualifiedGuardFixture)
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, qualifiedGuardTruth())
+
+	pairs := findingPairs(sr.Findings)
+	require.True(t, pairs["GetThing/ResourceNotFoundException"])
+	require.True(t, pairs["CreateThing/ConflictException"])
+	require.False(t, pairs["GetThing/ConflictException"])
+	require.False(t, pairs["CreateThing/ResourceNotFoundException"])
+}
+
+// TestReachability_UndeterminedReachability_StillReported is scenario 4:
+// WeirdThing's error comes from a parameter, not a resolvable backend call
+// -- this scan cannot determine what it can or cannot be, so BOTH of the
+// mapper's codes must still be reported rather than suppressed. This is
+// this package's own documented conservative default: an unresolved call
+// graph is not evidence of unreachability.
+func TestReachability_UndeterminedReachability_StillReported(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, qualifiedGuardFixture)
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, qualifiedGuardTruth())
+
+	pairs := findingPairs(sr.Findings)
+	require.True(t, pairs["WeirdThing/ResourceNotFoundException"],
+		"reachability for WeirdThing could not be determined, so this finding must not be suppressed")
+	require.True(t, pairs["WeirdThing/ConflictException"],
+		"reachability for WeirdThing could not be determined, so this finding must not be suppressed")
+}
+
+// messageGuardFixture is services/account's real shape (also part of
+// gopherstack-axs3's 33 false positives): a mapper classifying by
+// strings.Contains(err.Error(), "CodeLiteral") rather than errors.Is at
+// all -- a completely different guard mechanism from qualifiedGuardFixture,
+// which caseGuard/indexCaseLiterals must recognise on its own terms.
+const messageGuardFixture = `
+package fixture
+
+import (
+	"errors"
+	"strings"
+)
+
+var errNotFound = errors.New("ResourceNotFoundException: thing missing")
+var errConflict = errors.New("ConflictException: thing exists")
+
+func writeBackendError(err error) string {
+	code := "InternalServerErrorException"
+	switch {
+	case strings.Contains(err.Error(), "ResourceNotFoundException"):
+		code = "ResourceNotFoundException"
+	case strings.Contains(err.Error(), "ConflictException"):
+		code = "ConflictException"
+	}
+	return code
+}
+
+type Handler struct {
+	Backend *Backend
+}
+
+func (h *Handler) handleGetThing() string {
+	err := h.Backend.GetThing()
+	if err != nil {
+		return writeBackendError(err)
+	}
+	return ""
+}
+
+type Backend struct{}
+
+func (b *Backend) GetThing() error {
+	return errNotFound
+}
+`
+
+// TestReachability_MessageSubstringGuard_OnlyReachableReported confirms the
+// strings.Contains(err.Error(), ...) guard shape (services/account's real
+// mechanism, distinct from errors.Is) is filtered the same way: GetThing's
+// backend can only ever return errNotFound, so ConflictException must be
+// suppressed even though it is never declared either.
+func TestReachability_MessageSubstringGuard_OnlyReachableReported(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, messageGuardFixture)
+	smt := singleModuleTruth(newTestModuleGroundTruth(
+		map[string]map[string]bool{"GetThing": {"InternalServerErrorException": true}},
+		map[string]bool{
+			"ResourceNotFoundException":    true,
+			"ConflictException":            true,
+			"InternalServerErrorException": true,
+		},
+	))
+
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, smt)
+
+	pairs := findingPairs(sr.Findings)
+	require.True(t, pairs["GetThing/ResourceNotFoundException"])
+	require.False(t, pairs["GetThing/ConflictException"],
+		"GetThing's backend never returns a message containing ConflictException")
+}

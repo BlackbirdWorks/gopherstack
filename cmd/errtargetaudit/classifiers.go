@@ -39,6 +39,9 @@ type classifiers struct {
 	ByFunc       map[string]map[string]string
 	Funcs        map[string]string
 	Overrides    map[string]overrideFunc
+	GuardsByPos  map[token.Pos]guard
+	SentinelMeta map[string]sentinelMeta
+	MapperNames  map[string]bool
 	Constructors []*ast.FuncDecl
 }
 
@@ -80,10 +83,15 @@ func buildClassifiers(idx *pkgIndex, opNames map[string]bool) *classifiers {
 	byFunc := funcSentinelCodes(idx)
 	flat := flattenSentinelCodes(byFunc)
 
+	guardsByPos, mapperNames := buildGuardIndex(idx)
+
 	c := &classifiers{
-		Sentinels: flat,
-		ByFunc:    byFunc,
-		Overrides: detectOverrideFuncs(idx),
+		Sentinels:    flat,
+		ByFunc:       byFunc,
+		Overrides:    detectOverrideFuncs(idx),
+		GuardsByPos:  guardsByPos,
+		SentinelMeta: buildSentinelMeta(idx),
+		MapperNames:  mapperNames,
 	}
 
 	for _, f := range idx.Files {
@@ -102,7 +110,10 @@ func buildClassifiers(idx *pkgIndex, opNames map[string]bool) *classifiers {
 	return c
 }
 
-func resolveConstructorCodes(candidates []*ast.FuncDecl, sentinels map[string]string) map[string]string {
+func resolveConstructorCodes(
+	candidates []*ast.FuncDecl,
+	sentinels map[string]string,
+) map[string]string {
 	out := map[string]string{}
 
 	for _, fd := range candidates {

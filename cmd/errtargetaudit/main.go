@@ -307,9 +307,79 @@
 //     symptom check, not a diagnosis; a human still has to read which case
 //     produced the warning, as this section did for two of the thirteen.
 //
+// REACHABILITY THROUGH A SHARED MAPPER (gopherstack-axs3, guardindex.go/
+// reachability.go): before this fix, a candidate code from a shared mapper
+// was attributed to EVERY operation that merely called the mapper, with no
+// check on whether that operation's own backend could ever produce the
+// SPECIFIC sentinel gating that mapper's branch. Measured in bulk, twice:
+// services/bedrockagent (27 findings, all false -- a mapper classifying via
+// errors.Is against pkgs/awserr's PACKAGE-QUALIFIED base sentinels, a shape
+// the sentinel-identity scan below never even recognised as a mapper at
+// all) and services/account (33 findings, all false -- a mapper classifying
+// by strings.Contains(err.Error(), "CodeLiteral") instead of errors.Is,
+// a second, unrelated guard mechanism). Both were one shared mapper each,
+// so each was one root cause producing dozens of rows, not dozens of bugs.
+//
+// THE FIX: guardindex.go scans every switch/if in the package for a case
+// gated by errors.Is(err, <sentinel>) (bare OR package-qualified, e.g.
+// `awserr.ErrNotFound`) or strings.Contains(err.Error(), "<CodeLiteral>"),
+// and records every code-shaped literal inside that case against the
+// sentinel identity (or message substring) that guards it -- regardless of
+// which of this file's literal-emission mechanisms (code-named var/const,
+// composite-lit field, direct awserr/errors.New call) produced it, since
+// all of them ultimately emit at a string literal's own position.
+// reachability.go then computes, per operation, which sentinel identities
+// its OWN hop-0/hop-1 backend calls (the SAME calls emit.go's own walk
+// already follows -- no separate recursion policy to keep in sync) can
+// actually return, following one hop of pkgs/awserr's New/Newf wrapping
+// (a local `ErrNotFound = awserr.New("...", awserr.ErrNotFound)` resolves
+// to the qualified base a mapper's errors.Is check compares against) and
+// collecting each reachable sentinel's own literal message text for the
+// strings.Contains guard shape. A candidate finding whose guard's identity
+// (or message substring) is not in that reachable set is dropped.
+//
+// WHAT THIS FIX DELIBERATELY DOES NOT DO, matching this tool's standing
+// "silent miss/report over false suppress" discipline:
+//   - A guard this scan cannot parse at all (errors.As, or a case mixing a
+//     recognised comparison with one it does not understand) is left
+//     UNGUARDED: every literal inside it is always reported, never
+//     suppressed on a guess. A case with NO recognisable guard at all (a
+//     bare `default:`, or a literal outside any switch/if) is unguarded for
+//     the same reason.
+//   - When this operation's OWN call graph could not be resolved at hop 1
+//     AT ALL (no callee this scan could find and read a body for --
+//     reachSet.Determined stays false), every guarded finding for that
+//     operation is still reported: an unresolved call graph is evidence of
+//     nothing, and treating it as "therefore unreachable" would trade a
+//     traceable false positive for a silent false negative.
+//   - Reachability follows exactly ONE hop past an operation's handler
+//     (the same maxEmitHop discipline emit.go's own emission walk uses) and
+//     ONE hop of sentinel-wrapping unwrap. A sentinel returned two calls
+//     deep, or wrapped by a helper this scan cannot see through, is
+//     invisible to this reachability check the same way it would be
+//     invisible to the emission walk itself -- silently under-suppressing
+//     (reporting a finding that IS actually unreachable), never
+//     over-suppressing.
+//   - This scoping is entirely STRUCTURAL sentinel/message identity, never
+//     data-flow or type-checking: a bare identifier or qualified selector
+//     that merely LOOKS like a sentinel reference (any Ident/SelectorExpr
+//     appearing in a return statement) is accepted into an operation's
+//     reachable set without verifying it is actually the same value the
+//     mapper compares against -- deliberately permissive, since an
+//     over-broad reachable set can only ever cause under-suppression (more
+//     findings kept), never the reverse.
+//   - Cause grouping (report.go's printCauseGroups, already present)
+//     surfaces a bulk shared-mapper event as "N findings, all via
+//     <mechanism>+<code>" in the summary printed before the full finding
+//     list, so a service shaped like bedrockagent or account is visible as
+//     one root cause at a glance even for a finding this reachability
+//     filter could not resolve and therefore still reports.
+//
 // WHAT THIS TOOL CANNOT TELL YOU, stated plainly:
-//   - It cannot distinguish a REACHABLE handler from an unreachable one. A
-//     dead code path a real client can never route to (this campaign has
+//   - It cannot distinguish a REACHABLE handler from an unreachable one at
+//     the OPERATION level -- only, now, whether a specific mapper BRANCH is
+//     reachable from an operation whose handler it can resolve. A dead
+//     operation a real client can never route to at all (this campaign has
 //     found at least one, in services/iot) produces a finding exactly as
 //     confident as a live one. Only driving a real client and watching the
 //     router settles that.

@@ -50,7 +50,7 @@ func walkOpEmissions(roots []opRoot, idx *pkgIndex, cls *classifiers) []emission
 		out = append(out, scanBodyEmissions(r.Body, idx, effective, 0, visited)...)
 	}
 
-	return dedupEmissions(out)
+	return filterUnreachable(dedupEmissions(out), roots, idx, cls)
 }
 
 // effectiveClassifiers builds this operation's OWN sentinel table before
