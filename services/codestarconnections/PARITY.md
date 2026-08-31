@@ -274,3 +274,86 @@ language exists anywhere in this service's pinned SDK. Zero bugs found; see
 `services/codeconnections/PARITY.md`'s same-dated entry for the twin
 verdict. No files changed here (test strengthening landed in
 `services/mediapackage/` instead, unrelated to this service).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir codestarconnections` reported 10 class-A findings, all
+`code=InvalidInputException mechanism=sentinel reference`. This service's
+error matching is `awsAwsjson10_deserializeOpError<Op>` (a per-op switch in
+deserializers.go, same shape family as `awsRestjson1`/`awsAwsjson11`, just
+protocol variant 1.0). Verified every finding against its op's own switch
+(codestarconnections@v1.38.4 deserializers.go). 8 of 10 were real and fixed;
+2 were real but had no correct declared type and are recorded, not fixed;
+a manual trace beyond the tool's own findings found one more of the second
+kind. False-positive rate: 0% (10/10 were real reachability bugs; the
+question was fix-vs-refuse, not real-vs-imagined).
+
+**Root cause (8 fixes, all one shape)**: `errInvalidRequest`
+("X is required") pre-checks in the Handler layer for `DeleteConnection`,
+`DeleteHost`, `GetConnection`, `GetHost`, `ListTagsForResource`,
+`TagResource`, `UntagResource`, `UpdateHost` fired only on an
+empty-but-present ARN (`aws.String("")`) — a real client's own
+`validateOp<Op>Input` (codestarconnections@v1.38.4 validators.go) only
+rejects a **nil** pointer client-side, so an explicit empty string reaches
+the server unchanged. None of these 8 ops declare `InvalidInputException`
+in their own switch; all declare `ResourceNotFoundException` (some also
+`ResourceUnavailableException`), which the ordinary ARN-lookup-miss path
+already answers correctly. **Fix: deleted each pre-check** (deletion beats
+remapping — nothing needed inventing) — `handler_connections.go`,
+`handler_hosts.go`, `handler_tags.go`. New real-SDK-client test
+`TestEmptyRequiredARN_NotFoundNotInvalidInput_RealClient`
+(`error_envelope_fixes_test.go`, 8 subtests) asserts `errors.As` against
+`*types.ResourceNotFoundException`; confirmed all 8 fail against unmodified
+code (got `*smithy.GenericAPIError` for `InvalidInputException` instead).
+
+**3 refusals, recorded not fixed** (comments added at each site; no
+behavior change):
+
+- `CreateConnection` (`connections.go`): name/ProviderType/tag validation.
+  Own switch: `[LimitExceededException, ResourceNotFoundException,
+  ResourceUnavailableException]` — no InvalidInputException.
+- `CreateHost` (`hosts.go`): name/ProviderEndpoint/ProviderType/tag
+  validation. Own switch: `[LimitExceededException]` only.
+- `UpdateHost`'s ProviderEndpoint-too-long check (`hosts.go`): own switch
+  `[ConflictException, ResourceNotFoundException,
+  ResourceUnavailableException, UnsupportedOperationException]`.
+  `TestUpdateHost_ProviderEndpointTooLong_NoDeclaredType` pins the
+  pre-existing status quo so a future change is deliberate.
+- **Extra, found by manual trace, not by the tool**: `TagResource`'s
+  `validateTags` per-key/value checks (`tags.go`) — empty key, oversized
+  key/value — also use `ErrValidation`. TagResource's own switch is
+  `[LimitExceededException, ResourceNotFoundException]`. The count-limit
+  check right above it in the same function correctly uses
+  `ErrTagLimitExceeded` (`LimitExceededException`, declared); only the
+  per-key/value branch is unresolved. `errtargetaudit`'s "sentinel
+  reference" mechanism only resolved the shallow `handler_tags.go` site for
+  this op, not this deeper backend-internal one — a gap worth noting for
+  future passes.
+
+All 3 (4, counting the manual-trace one) refusals share the same reason:
+**the operation's own model declares no type for this condition**, and no
+`ValidationException` equivalent exists anywhere in this SDK module (per
+`ErrValidation`'s existing doc comment in errors.go) to substitute either.
+
+No shared sentinel was changed — `errInvalidRequest`/`ErrValidation` still
+carry their original wire codes and are still legitimately used elsewhere
+in this service (sync configurations, sync blockers, repository links,
+CreateConnection/CreateHost/UpdateHost's own remaining validation) — only
+the specific call sites that reached those sentinels for a wrong op were
+touched.
+
+Existing test found and fixed: none newly broken by this pass (existing
+`TestCreateConnection_DuplicateNameSucceedsSDKRoundTrip`/
+`TestCreateHost_DuplicateNameSucceedsSDKRoundTrip`/
+`TestDeleteSyncConfiguration_UnknownResourceIsIdempotentSDKRoundTrip`,
+`errors_deserializer_test.go`, already document this exact bug class from
+an earlier pass — gopherstack-wlo1 — and continued to pass unmodified).
+
+Re-run after fix: `errtargetaudit -dir codestarconnections` now reports 3
+class-A findings (`CreateConnection`, `CreateHost`, `UpdateHost`'s
+ProviderEndpoint check) — exactly the 3 documented refusals it can see (it
+cannot see the 4th, `TagResource`'s validateTags path, since its shallow
+mechanism never flagged it).
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/codestarconnections/...`).

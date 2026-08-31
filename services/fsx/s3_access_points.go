@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name string) error {
 
 	ap, ok := b.s3AccessPoints.Get(name)
 	if !ok {
-		return ErrS3AccessPointNotFound
+		return ErrS3AccessPointAttachmentNotFound
 	}
 
 	b.s3AccessPoints.Delete(name)
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments(
 		for _, name := range names {
 			ap, ok := b.s3AccessPoints.Get(name)
 			if !ok {
-				return nil, "", ErrS3AccessPointNotFound
+				return nil, "", ErrS3AccessPointAttachmentNotFound
 			}
 
 			all = append(all, ap)

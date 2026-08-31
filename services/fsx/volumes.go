@@ -351,6 +351,15 @@ type restoreVolumeFromSnapshotInput struct {
 }
 
 // RestoreVolumeFromSnapshot restores a volume to a snapshot state.
+//
+// The VolumeId check below stays on ErrVolumeNotFound -- this op's own
+// switch (fsx@v1.68.4 deserializers.go
+// deserializeOpErrorRestoreVolumeFromSnapshot) is [BadRequest,
+// InternalServerError, VolumeNotFound], which declares it. SnapshotNotFound
+// is not declared here (unlike its legitimate declarers
+// DeleteSnapshot/DescribeSnapshots/UpdateSnapshot), so the SnapshotId check
+// uses ErrValidation (BadRequest) instead, this op's own declared
+// generic-client-error type (gopherstack-6flj/uox6 error-envelope sweep).
 func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnapshotInput) (*Volume, error) {
 	b.mu.Lock("RestoreVolumeFromSnapshot")
 	defer b.mu.Unlock()
@@ -361,7 +370,7 @@ func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnap
 	}
 
 	if !b.snapshots.Has(input.SnapshotID) {
-		return nil, ErrSnapshotNotFound
+		return nil, fmt.Errorf("%w: snapshot %q not found", ErrValidation, input.SnapshotID)
 	}
 
 	return v.toPublic(), nil

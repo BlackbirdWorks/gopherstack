@@ -202,6 +202,16 @@ func snapshotIDFromARN(snapshotARN string) string {
 // but never read anywhere: any ARN, including one naming a nonexistent
 // snapshot, silently succeeded. Now resolved and existence-checked like
 // RestoreVolumeFromSnapshot's sibling SnapshotId parameter.
+//
+// Neither not-found check below uses ErrVolumeNotFound/ErrSnapshotNotFound:
+// this op's own switch (fsx@v1.68.4 deserializers.go
+// deserializeOpErrorCopySnapshotAndUpdateVolume) is exactly [BadRequest,
+// IncompatibleParameterError, InternalServerError, ServiceLimitExceeded] --
+// neither NotFound type is declared here, unlike their legitimate declarers
+// elsewhere in this service. ErrValidation (BadRequest, "a generic error
+// indicating a failure with a client request") is this op's own declared
+// generic-client-error type and is the correct substitution, not an
+// invented code (gopherstack-6flj/uox6 error-envelope sweep).
 func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpdateVolumeInput) (*Volume, error) {
 	if input.SourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceSnapshotARN is required", ErrValidation)
@@ -212,11 +222,11 @@ func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpda
 
 	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
-		return nil, ErrVolumeNotFound
+		return nil, fmt.Errorf("%w: volume %q not found", ErrValidation, input.VolumeID)
 	}
 
 	if !b.snapshots.Has(snapshotIDFromARN(input.SourceSnapshotID)) {
-		return nil, ErrSnapshotNotFound
+		return nil, fmt.Errorf("%w: snapshot %q not found", ErrValidation, input.SourceSnapshotID)
 	}
 
 	return v.toPublic(), nil

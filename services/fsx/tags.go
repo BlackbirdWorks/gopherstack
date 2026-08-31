@@ -9,6 +9,18 @@ import (
 )
 
 // TagResource adds or updates tags on a resource.
+//
+// The tag-limit check below uses ErrValidation (BadRequest), not
+// ErrTagLimitExceeded: TagResource's own switch (fsx@v1.68.4
+// deserializers.go deserializeOpErrorTagResource) is [BadRequest,
+// InternalServerError, NotServiceResourceError, ResourceDoesNotSupportTagging,
+// ResourceNotFound] -- ServiceLimitExceeded is not declared here, unlike its
+// legitimate declarers CopyBackup/CopySnapshotAndUpdateVolume/CreateBackup/
+// CreateDataRepositoryAssociation/CreateDataRepositoryTask. Neither
+// NotServiceResourceError nor ResourceDoesNotSupportTagging fit "too many
+// tags" by their own doc comments (types/errors.go), so BadRequest -- this
+// op's own declared generic-client-error type -- is the correct
+// substitution (gopherstack-6flj/uox6 error-envelope sweep).
 func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	if err := validateTags(tags); err != nil {
 		return err
@@ -35,7 +47,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 
 	if len(existing)+newKeys > maxTagsPerResource {
 		return fmt.Errorf("%w: adding %d tag(s) would exceed the %d-tag limit",
-			ErrTagLimitExceeded, newKeys, maxTagsPerResource)
+			ErrValidation, newKeys, maxTagsPerResource)
 	}
 
 	for _, t := range tags {

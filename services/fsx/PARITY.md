@@ -468,3 +468,75 @@ existing test's assertions were touched or weakened; 3 new assertions added, 0 d
 Gates: `go build ./services/fsx/... ./services/codebuild/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/fsx/...`, `golangci-lint run ./services/fsx/... ./services/codebuild/...`
 (0 issues).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir fsx` reported 6 class-A findings, all
+`mechanism=sentinel reference`. fsx's error matching is
+`awsAwsjson11_deserializeOpError<Op>` (a per-op switch in deserializers.go).
+Verified every finding against its op's own switch (fsx@v1.68.4
+deserializers.go). All 6 were real. False-positive rate: 0% (6/6).
+
+**CopySnapshotAndUpdateVolume (2 findings, `snapshots.go`)**: emitted
+`ErrVolumeNotFound`/`ErrSnapshotNotFound` on a missing volume/snapshot. Its
+own switch is exactly `[BadRequest, IncompatibleParameterError,
+InternalServerError, ServiceLimitExceeded]` — neither NotFound type is
+declared for this op, even though both are legitimately declared elsewhere
+(VolumeNotFound: CreateAndAttachS3AccessPoint, CreateBackup, CreateSnapshot,
+DeleteVolume, DescribeBackups, and others not touched by this pass;
+SnapshotNotFound: DeleteSnapshot, DescribeSnapshots, UpdateSnapshot).
+**Fixed**: both checks now use `ErrValidation` (`BadRequest`, "a generic
+error indicating a failure with a client request" per
+`aws-sdk-go-v2/service/fsx/types.BadRequest`'s doc comment) — this op's own
+declared generic-client-error type, already how the rest of this service
+answers validation-shaped conditions with no more specific declared type
+(see `errValidation`'s existing doc comment in errors.go).
+
+**RestoreVolumeFromSnapshot (1 finding, `volumes.go`)**: its own switch is
+`[BadRequest, InternalServerError, VolumeNotFound]` — the VolumeId check's
+`ErrVolumeNotFound` is correctly declared and untouched; only the SnapshotId
+check's `ErrSnapshotNotFound` was wrong (not declared here). **Fixed**: same
+`ErrValidation` substitution as above.
+
+**TagResource (1 finding, `tags.go`)**: the 50-tag-limit check emitted
+`ErrTagLimitExceeded` (`ServiceLimitExceeded`). TagResource's own switch is
+`[BadRequest, InternalServerError, NotServiceResourceError,
+ResourceDoesNotSupportTagging, ResourceNotFound]` — no
+ServiceLimitExceeded, even though it's legitimately declared by CopyBackup,
+CopySnapshotAndUpdateVolume, CreateBackup, CreateDataRepositoryAssociation,
+CreateDataRepositoryTask. Neither `NotServiceResourceError`
+("resource...not owned by Amazon FSx") nor `ResourceDoesNotSupportTagging`
+fit "too many tags" by their own doc comments, so `ErrValidation`
+(BadRequest) is the correct substitution, not an invented code. **Existing
+test corrected**: `handler_tags_test.go`'s `TestFSx_TagLimit` subtest
+"51st tag returns ServiceLimitExceeded" asserted the wrong wire type;
+renamed to "51st tag returns BadRequest" and its one assertion changed to
+match (assertion count unchanged: 1).
+
+**DescribeS3AccessPointAttachments + DetachAndDeleteS3AccessPoint (2
+findings, `s3_access_points.go`)**: both emitted `ErrS3AccessPointNotFound`
+(`InvalidRequest`) on an unknown attachment name. Their own switches both
+declare `S3AccessPointAttachmentNotFound`, not InvalidRequest — InvalidRequest
+only fits CreateAndAttachS3AccessPoint's declared set (`[..., InvalidAccessPoint,
+InvalidRequest, ...]`), and CreateAndAttachS3AccessPoint doesn't actually
+emit `ErrS3AccessPointNotFound` anywhere in the current code (it uses
+`ErrVolumeNotFound` for its own not-found case) — so this sentinel had zero
+correct callers before this fix. **Fixed**: added a new sentinel
+`ErrS3AccessPointAttachmentNotFound` (`S3AccessPointAttachmentNotFound`) and
+switched both call sites to it; `ErrS3AccessPointNotFound` (`InvalidRequest`)
+is left declared but currently unused by any code path, kept in case a
+future CreateAndAttachS3AccessPoint validation needs it — not deleted,
+since deleting a still-declared, still-potentially-correct sentinel would
+be a different kind of loss than deleting an always-wrong check.
+
+New real-SDK-client tests (`error_envelope_fixes_test.go`, 6 assertions
+across 4 test funcs / 4 subtests) drive `types.BadRequest` and
+`types.S3AccessPointAttachmentNotFound` via `errors.As`; all 6 confirmed
+failing against unmodified code (got `*smithy.GenericAPIError` for
+VolumeNotFound/SnapshotNotFound/ServiceLimitExceeded/InvalidRequest
+respectively).
+
+Re-run after fix: `errtargetaudit -dir fsx` now reports 0 class-A findings.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/fsx/...`).

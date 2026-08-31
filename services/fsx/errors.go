@@ -49,8 +49,24 @@ var (
 	ErrDataRepositoryAssociationNotFound = awserr.New("DataRepositoryAssociationNotFound", awserr.ErrNotFound)
 	// ErrDataRepositoryTaskNotFound is returned when a DRT does not exist.
 	ErrDataRepositoryTaskNotFound = awserr.New("DataRepositoryTaskNotFound", awserr.ErrNotFound)
-	// ErrS3AccessPointNotFound is returned when an S3 access point does not exist.
+	// ErrS3AccessPointNotFound carries wire code InvalidRequest, a type
+	// CreateAndAttachS3AccessPoint's own switch declares (fsx@v1.68.4
+	// deserializers.go deserializeOpErrorCreateAndAttachS3AccessPoint) --
+	// but no current backend code path emits this sentinel; kept in case a
+	// future CreateAndAttachS3AccessPoint validation needs it
+	// (gopherstack-6flj/uox6 error-envelope sweep found its only two
+	// former callers, in DescribeS3AccessPointAttachments and
+	// DetachAndDeleteS3AccessPoint, were wrong -- see
+	// ErrS3AccessPointAttachmentNotFound).
 	ErrS3AccessPointNotFound = awserr.New("InvalidRequest", awserr.ErrNotFound)
+	// ErrS3AccessPointAttachmentNotFound is returned by
+	// DescribeS3AccessPointAttachments/DetachAndDeleteS3AccessPoint when the
+	// named attachment does not exist. Both ops' own switches declare
+	// S3AccessPointAttachmentNotFound, not the InvalidRequest wire code
+	// ErrS3AccessPointNotFound carries -- InvalidRequest only fits
+	// CreateAndAttachS3AccessPoint's own declared set (gopherstack-6flj/uox6
+	// error-envelope sweep).
+	ErrS3AccessPointAttachmentNotFound = awserr.New("S3AccessPointAttachmentNotFound", awserr.ErrNotFound)
 	// ErrResourceNotFound is returned by the generic Tag/Untag/ListTagsForResource
 	// operations when the given ResourceARN does not match any known FSx resource.
 	// Real FSx uses the generic ResourceNotFound exception here, distinct from the

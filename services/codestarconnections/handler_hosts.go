@@ -134,14 +134,17 @@ func hostToListView(h *Host) listHostView {
 	}
 }
 
+// handleGetHost does not pre-check for an empty HostArn: GetHost's own
+// deserializeOpErrorGetHost switch (codestarconnections@v1.38.4
+// deserializers.go) declares ResourceNotFoundException/
+// ResourceUnavailableException, not InvalidInputException -- an ARN that
+// matches nothing (including "") already answers ResourceNotFoundException
+// through the ordinary lookup-miss path below (gopherstack-6flj/uox6
+// error-envelope sweep).
 func (h *Handler) handleGetHost(
 	ctx context.Context,
 	in *getHostInput,
 ) (*getHostOutput, error) {
-	if in.HostArn == "" {
-		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
-	}
-
 	host, err := h.Backend.GetHost(ctx, in.HostArn)
 	if err != nil {
 		return nil, err
@@ -182,14 +185,14 @@ type deleteHostInput struct {
 
 type deleteHostOutput struct{}
 
+// handleDeleteHost does not pre-check for an empty HostArn: see
+// handleGetHost's doc comment -- DeleteHost's own switch declares the same
+// ResourceNotFoundException/ResourceUnavailableException pair, no
+// InvalidInputException (gopherstack-6flj/uox6 error-envelope sweep).
 func (h *Handler) handleDeleteHost(
 	ctx context.Context,
 	in *deleteHostInput,
 ) (*deleteHostOutput, error) {
-	if in.HostArn == "" {
-		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
-	}
-
 	if err := h.Backend.DeleteHost(ctx, in.HostArn); err != nil {
 		return nil, err
 	}
@@ -205,14 +208,19 @@ type updateHostInput struct {
 
 type updateHostOutput struct{}
 
+// handleUpdateHost does not pre-check for an empty HostArn: UpdateHost's own
+// switch declares ConflictException/ResourceNotFoundException/
+// ResourceUnavailableException/UnsupportedOperationException, not
+// InvalidInputException -- an ARN that matches nothing already answers
+// ResourceNotFoundException through the ordinary lookup-miss path
+// (gopherstack-6flj/uox6 error-envelope sweep). The ProviderEndpoint length
+// check inside Backend.UpdateHost is a separate, unresolved case: that
+// switch has no validation-shaped type at all to send instead (see its own
+// doc comment in hosts.go).
 func (h *Handler) handleUpdateHost(
 	ctx context.Context,
 	in *updateHostInput,
 ) (*updateHostOutput, error) {
-	if in.HostArn == "" {
-		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
-	}
-
 	vpcCfg := vpcConfigFromView(in.VpcConfiguration)
 	if err := h.Backend.UpdateHost(ctx, in.HostArn, in.ProviderEndpoint, vpcCfg); err != nil {
 		return nil, err
