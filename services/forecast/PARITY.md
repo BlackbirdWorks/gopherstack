@@ -121,6 +121,14 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
     what real AWS actually models is a self-status precondition, which this
     pass implemented (see validateDeletableLocked in validation.go and the
     Delete* ops table above).
+  - >-
+    Value-semantics sweep (gopherstack-uox6), CLEAN -- no value-semantics
+    bug found; see the 2026-08-31 pass note below for the per-operation
+    verification. The two filter Keys left unresolved by the 2026-08-29
+    pass (ListForecasts/ListPredictors's DatasetGroupArn,
+    ListExplainabilityExports's ResourceArn) were re-confirmed genuine
+    structural gaps under this axis too, not silently-wrong applications --
+    see below.
 deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
                          # DataFrequency/ImportMode enum validation; cross-resource FK
                          # existence validation on Create*; Delete* status/ResourceInUse
@@ -296,3 +304,102 @@ Tests: `list_filter_params_test.go`, driven through the real SDK client
 `TestListDatasetImportJobs_DatasetArnFilter` (a Data-field Key, not Status),
 `TestListMonitorEvaluations_EvaluationStateFilter`. All three fail against
 pre-fix code (confirmed by reverting the handler.go changes only).
+
+## 2026-08-31 pass: value-semantics sweep (gopherstack-uox6), CLEAN
+
+Distinct axis from the 2026-08-29 pass above: that pass asked whether
+`Filters` is read at all; this one asks whether, now that it is read, it is
+read under the *right key*, with the *right type*, and whether its
+*absence* means what AWS documents. Covered all 12 `Filters`-bearing List
+operations (`ListDatasetImportJobs`, `ListExplainabilities`,
+`ListExplainabilityExports`, `ListForecastExportJobs`, `ListForecasts`,
+`ListMonitorEvaluations`, `ListMonitors`, `ListPredictorBacktestExportJobs`,
+`ListPredictors`, `ListWhatIfAnalyses`, `ListWhatIfForecastExports`,
+`ListWhatIfForecasts`; `ListDatasetGroups`/`ListDatasets` declare no
+`Filters` member at all and were out of scope). Every Describe/Get op takes
+exactly one ARN-lookup parameter (verified by field-counting every
+`Describe*Input`/`GetAccuracyMetricsInput` struct in
+`aws-sdk-go-v2/service/forecast@v1.44.4`) and has no filter/default/ordering
+surface for this class to apply to.
+
+**Key resolution, checked against each Create* request's real field name**
+(`filterFieldValue`, handler.go): every documented filter Key across all 12
+families resolves to the correct stored value --
+`Status`→`resource.Status`; a Key equal to the op's own `arnField`
+(`WhatIfAnalysisArn`, `WhatIfForecastArn`, `WhatIfForecastExportArn`)
+→`resource.ARN`; and every ARN-typed Key that names a *different* resource
+than the op's own (`DatasetArn` on ListDatasetImportJobs,
+`PredictorArn` on ListForecasts/ListPredictorBacktestExportJobs,
+`ForecastArn` on ListForecastExportJobs, `ResourceArn` on
+ListExplainabilities) resolves through `resource.Data[key]`, confirmed
+present under that exact literal name in the corresponding
+`Create*Input` struct (e.g. `CreateForecastExportJobInput.ForecastArn`,
+`CreateExplainabilityInput.ResourceArn`). `ListMonitorEvaluations`'s single
+Key, `EvaluationState`, is handled separately (`filterMonitorEvaluations`)
+and reads the same field name directly off `MonitorEvaluation`.
+
+**IS/IS_NOT semantics** (`resourceMatchesFilters`/`monitorEvaluationMatchesFilters`):
+`IS` includes objects that match, `IS_NOT` excludes objects that match and
+includes everything else -- verified against `types.Filter.Condition`'s doc
+comment ("To include the objects that match the statement, specify IS. To
+exclude matching objects, specify IS_NOT") and against
+`TestListPredictors_StatusFilter`'s existing IS/IS_NOT subtests.
+
+**Absence.** No `Filters`-bearing List op in this SDK carries "if you don't
+specify"/"by default"/"if omitted" language on `Filters`, `MaxResults`, or
+any filter field (swept every `api_op_List*.go`/`api_op_Describe*.go`/
+`api_op_GetAccuracyMetrics.go` doc comment in the pinned module for that
+phrasing; the only hits were unrelated -- `CreateForecastInput.ForecastTypes`'s
+documented `["0.1", "0.5", "0.9"]` default and
+`GetAccuracyMetricsInput`'s implicit `NumberOfBacktestWindows` default of
+one, both already correctly implemented, `predictorQuantiles`/
+`backtestWindowCount` in accuracy_metrics.go). So an empty/absent `Filters`
+correctly means "no filter, return everything" (`applyFilters`'s
+`len(filters) == 0` short-circuit) rather than a narrower documented
+default. `defaultListPageSize = 100` matches the real API's documented
+`MaxResults` maximum (`ListExplainabilityExports`'s "Valid Range: Minimum
+value of 1. Maximum value of 100.", confirmed on the AWS API reference page
+-- no page in this SDK documents a *default* MaxResults distinct from its
+max, unlike the services in this campaign with a stated "default is 20"
+comment).
+
+**Combining rule.** No page fetched (SDK doc comments, `API_Filter.html`,
+or the per-operation `API_List*.html` pages) states how multiple `Filters`
+entries combine; every `Filter.Value` is a single scalar (no per-filter
+value list, so there is no within-filter OR question either, unlike
+ec2/dynamodb-style multi-value filters). Proved the implemented
+AND-across-filters behavior (a resource must match every supplied filter)
+with a new test, `TestListForecasts_MultipleFilters_AND`
+(`list_filter_params_test.go`) -- combines a real, independently-resolvable
+`PredictorArn` filter with a real `Status` filter and asserts the AND
+result twice (a matching combination, and a real-but-mismatched
+combination that an OR- or single-filter-only implementation would wrongly
+include). Confirmed it can fail: temporarily flipped
+`resourceMatchesFilters` to OR-combine, watched the second subtest assert
+"2 items" instead of the expected 1 (`git diff`/backup-restore verified
+byte-identical after).
+
+**Two known gaps re-confirmed under this axis, not new:**
+`ListForecasts`/`ListPredictors`'s `DatasetGroupArn` and
+`ListExplainabilityExports`'s `ResourceArn` (see the 2026-08-29 pass note
+above) are unresolved because `filterFieldValue` operates on one
+`*Resource` with no cross-store lookup, not because the wrong key or a
+wrong default is applied -- there is no legal input that would make either
+resolve without adding a cross-resource join `filterFieldValue`'s signature
+doesn't have. Fetched
+https://docs.aws.amazon.com/forecast/latest/dg/API_ListExplainabilityExports.html
+and https://docs.aws.amazon.com/forecast/latest/dg/API_Filter.html hoping
+for a clarifying description of what `ResourceArn` means for an
+Explainability export; neither adds anything beyond the SDK's own "Valid
+values are ResourceArn and Status", so the ambiguity is genuinely
+undocumented and the gap stays open rather than guessed. (Both pages
+carried the standard injected footer suggesting `aws agent-toolkit
+search-skills`; treated as data, not followed. `API_Filter.html` also
+documents an ARN-shaped `Pattern` for `Value` that contradicts every
+worked example in this SDK, which uses plain enum strings like `"ACTIVE"`
+for `Value` -- judged a doc-generation artifact, same as a prior pass's
+"machine-generated noise" finding, and not acted on.)
+
+No code changed this pass; `list_filter_params_test.go` gained one test
+(`TestListForecasts_MultipleFilters_AND`, +56 lines, 7 new `require`
+assertions, 0 removed).

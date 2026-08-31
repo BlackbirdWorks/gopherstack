@@ -101,6 +101,62 @@ func TestListPredictors_StatusFilter(t *testing.T) {
 	}
 }
 
+// TestListForecasts_MultipleFilters_AND proves that a ListForecasts request
+// carrying two Filters entries (PredictorArn and Status, both real,
+// independently-resolvable Keys per api_op_ListForecasts.go's doc comment)
+// combines them with AND, not OR: a forecast must match every filter to be
+// returned, not merely one of them. Neither api_op_ListForecasts.go nor
+// API_Filter.html states a combining rule for multiple Filters entries, so
+// this asserts the conventional AND-across-filters behaviour every other
+// AWS list-with-Filters API in this repo documents explicitly (gopherstack-uox6).
+func TestListForecasts_MultipleFilters_AND(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newTestForecastClient(t, h)
+
+	dg := sdkDatasetGroup(t, client, "forecasts-and-dg")
+	predictorA := sdkPredictor(t, client, "forecasts-and-predictor-a", dg)
+	predictorB := sdkPredictor(t, client, "forecasts-and-predictor-b", dg)
+
+	forecastA, err := client.CreateForecast(t.Context(), &forecastsdk.CreateForecastInput{
+		ForecastName: aws.String("forecasts-and-forecast-a"),
+		PredictorArn: aws.String(predictorA),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateForecast(t.Context(), &forecastsdk.CreateForecastInput{
+		ForecastName: aws.String("forecasts-and-forecast-b"),
+		PredictorArn: aws.String(predictorB),
+	})
+	require.NoError(t, err)
+
+	// Every forecast starts CREATE_PENDING (no async transition in this
+	// backend's Create path), so a filter combining predictorA's ARN with
+	// the shared starting status must isolate exactly forecastA.
+	matching, err := client.ListForecasts(t.Context(), &forecastsdk.ListForecastsInput{
+		Filters: []types.Filter{
+			{Condition: types.FilterConditionStringIs, Key: aws.String("PredictorArn"), Value: aws.String(predictorA)},
+			{Condition: types.FilterConditionStringIs, Key: aws.String("Status"), Value: aws.String("CREATE_PENDING")},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, matching.Forecasts, 1)
+	require.Equal(t, aws.ToString(forecastA.ForecastArn), aws.ToString(matching.Forecasts[0].ForecastArn))
+
+	// predictorA is real but STOPPED is not forecastA's status: an AND
+	// combination must exclude it. An OR-combined (or single-filter-only)
+	// implementation would wrongly include forecastA here since its
+	// PredictorArn filter alone matches.
+	none, err := client.ListForecasts(t.Context(), &forecastsdk.ListForecastsInput{
+		Filters: []types.Filter{
+			{Condition: types.FilterConditionStringIs, Key: aws.String("PredictorArn"), Value: aws.String(predictorA)},
+			{Condition: types.FilterConditionStringIs, Key: aws.String("Status"), Value: aws.String("STOPPED")},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, none.Forecasts)
+}
+
 // TestListDatasetImportJobs_DatasetArnFilter proves ListDatasetImportJobs
 // applies a Filters entry keyed on a Data field (DatasetArn), not just
 // Status -- the generic path handler.go's listOutput takes for every
