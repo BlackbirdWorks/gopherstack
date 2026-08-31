@@ -306,3 +306,72 @@ Tests: `list_filter_params_test.go`, driven through the real SDK client
 (`newTestCodeArtifactClient`) -- `TestListPackages_Filters` covers
 packagePrefix and publish. Fails against pre-fix code (confirmed by
 reverting packages.go/handler_packages.go only).
+
+## 2026-08-31 directed sweep: request-key/silent-empty-default compound bug (gopherstack-uox6 territory)
+
+Regenerated the campaign's plural-heuristic candidate list against
+`codeartifact@v1.41.4/serializers.go` (quoted lowercase identifiers in
+non-test `.go` files whose plural form appears in `serializers.go` while the
+singular does not): only `versionRevision`/`versionRevisions`. Both hits
+(`handler_package_versions.go:343,605`) are response-side output keys, not
+request reads, and independently verified correct against
+`deserializers.go`'s `PackageVersionSummary`/`PackageVersion` cases -- not a
+bug, wrong axis for this heuristic.
+
+Went beyond the heuristic: read every query-parameter and JSON-body decode
+site in `handler.go`/`handler_*.go` against each operation's own
+`awsRestjson1_serializeOpHttpBindings*Input`/`serializeOpDocument*Input` in
+the pinned SDK (`ListPackages`, `ListPackageVersions`, `ListPackageGroups`,
+`ListAllowedRepositoriesForGroup`, `ListRepositories`,
+`ListRepositoriesInDomain`, `CreateArchiveRule`-equivalent domain/repo ops,
+`CreateAccessPreview`-style body fields N/A to this service). One real
+finding:
+
+**`ListRepositoriesInDomain`'s `AdministratorAccount` filter was declared by
+the real SDK (`serializers.go`'s `SetQuery("administrator-account")`,
+`api_op_ListRepositoriesInDomain.go`: "Filter the list of repositories to
+only include those that are managed by the Amazon Web Services account ID")
+but never read at all** -- `handleListRepositoriesInDomain` decoded only
+`max-results`/`next-token`/`repository-prefix`. Every repository this
+backend creates is administered by the backend's own single account ID
+(`repositories.go`'s `CreateRepository` always sets
+`AdministratorAccount: b.accountID`), so a real client filtering by any
+*other* account ID should get zero repositories back; the unfiltered handler
+returned every repository in the domain regardless. Same shape as this
+service's earlier `ListPackages`/`ListPackageVersions`/
+`ListRepositoriesInDomain.RepositoryPrefix` fixes (a real, documented filter
+member silently dropped, narrowing request returns everything instead of
+the narrowed/empty set) -- not the wrong-key variant, the field-never-wired
+variant of the same compound bug. Fixed by threading `administratorAccount`
+through `InMemoryBackend.ListRepositoriesInDomain` (new fourth parameter)
+and comparing it against each repository's stored `AdministratorAccount`
+when non-empty.
+
+**Checked and correctly left alone (not fabricated):** `ListFindings`/
+policy-generation-style optional detail flags don't apply here; this
+service's `ListRuleTypes`-equivalent has no analogue.
+`ListGuardrails`/`PollForJobs`-style backend-data-gaps don't apply to this
+service either (see bedrock/codepipeline notes in this campaign for the
+same restraint pattern). `DomainOwner` filters across
+`ListPackages`/`ListPackageVersions`/`ListPackageGroups`/
+`ListRepositoriesInDomain`/`ListAllowedRepositoriesForGroup` are cross-account
+domain-sharing fields this single-account backend has no data model for --
+same class of honest gap as this file's pre-existing `originType` note, not
+newly introduced.
+
+Tests: `list_filter_params_test.go`'s new
+`TestListRepositoriesInDomain_AdministratorAccountFilter`, driven through the
+real SDK client, asserts both the matching-account case (1 repository) and
+the non-matching-account case (0 repositories) -- the second assertion is
+exactly what an unfiltered handler cannot pass. Confirmed failing against
+unmodified code first (`require.Empty(t, nonMatching.Repositories)` failed,
+returning the one repository) before implementing the fix. 1 test added, 0
+existing assertions dropped or weakened.
+
+Gates: `go build`, repo-wide `go vet` (clean, no cross-service callers of
+`ListRepositoriesInDomain` outside this package), `go test -race -count=1`,
+`go fix -diff` (no diff), `golangci-lint run` (0 issues after wrapping one
+golines-flagged call to the new four-argument signature) -- all clean
+(`./services/codeartifact/...`). No `//nolint:cyclop/gocyclo/gocognit/funlen`
+added (repo-wide grep confirms 0 across all four services in this session's
+scope).

@@ -490,3 +490,56 @@ were weakened; 0 dropped.
 
 Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
 `golangci-lint run` — all clean (`./services/accessanalyzer/...`).
+
+## 2026-08-31 directed sweep: request-key/silent-empty-default compound bug (gopherstack-uox6 territory), CLEAN
+
+Regenerated the campaign's plural-heuristic candidate list against
+`accessanalyzer@v1.51.4/serializers.go`: `action`, `archiveRule`, `region`,
+`resource`. All four dismissed: `action`/`archiveRule` are response-output
+map keys (`m["action"] = f.Action`, `keyArchiveRule` response wrapper), not
+request reads; `region` is an internal persistence-DTO json tag, never on
+the wire; `resource` is a `ListFindings`/`ListFindingsV2` `Filter` map key
+matching `FindingSummary.Resource`'s real field name (confirmed against
+`types.go`'s `Resource *string` and its JSON tag) -- the heuristic flagged
+it only because `Filter` is `map[string]types.Criterion`, so the key never
+appears as a literal in `serializers.go` at all.
+
+Went beyond the heuristic: read every JSON-body/query-param decode struct in
+`handler_findings.go`, `handler_access_previews.go`,
+`handler_analyzed_resources.go`, `handler_generated_policies.go`,
+`handler_archive_rules.go` against the pinned SDK's
+`ListFindings`/`ListFindingsV2`/`ListAccessPreviewFindings`/
+`ListAnalyzedResources`/`CreateAccessPreview`/`StartPolicyGeneration`/
+`CreateArchiveRule` input structs and their
+`awsRestjson1_serializeOpDocument*Input`/`*HttpBindings*Input` functions.
+Every field name (`filter`, `sort.attributeName`/`sort.orderBy`,
+`analyzerArn`, `resourceType`, `clientToken`, `ruleName`,
+`filter[key].{contains,eq,exists,neq}`, `cloudTrailArn`/`allRegions`/
+`regions`/`accessRole`/`startTime`/`endTime`/`trails`, `configurations`)
+matched exactly.
+
+One dead-but-harmless finding, not fixed: `handleListFindings`/
+`handleListFindingsV2` both decode a top-level `Status string
+json:"status"` field that the real `ListFindingsInput`/`ListFindingsV2Input`
+do not have at all (confirmed: neither struct declares it, and neither
+`serializeOpDocumentListFindingsInput` nor its V2 counterpart ever emits
+`"status"`) -- a real client can never populate it, so it is permanently
+`""`. This is NOT the compound bug: the empty-string case means "no
+additional status narrowing," which is exactly correct, because status
+filtering for a real client happens entirely through `Filter["status"]`
+(already correctly read by `matchesFindingFilter`'s `case "status"`). Dead
+code, zero observable effect on any real-client-driven call -- left alone
+rather than removed, out of this pass's scope.
+
+Also checked and correctly left as an open gap (not fabricated):
+`GetGeneratedPolicy`'s `IncludeResourcePlaceholders`/
+`IncludeServiceLevelTemplate` (both real, both unread anywhere in this
+package) affect generated-policy *content* detail, not which records a list
+operation returns -- a different axis (missing feature) from this
+compound's record-filtering shape, so left unimplemented rather than
+folded in here.
+
+No code changes this pass -- service verdict is CLEAN on this specific axis.
+Gates re-run to confirm no regression from the investigation: `go build`,
+`go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` -- all
+clean (`./services/accessanalyzer/...`), 0 diff.

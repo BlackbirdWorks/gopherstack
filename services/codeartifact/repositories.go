@@ -81,7 +81,7 @@ func (b *InMemoryBackend) DescribeRepository(ctx context.Context, domainName, re
 // ListRepositoriesInDomain returns all repositories in a domain, sorted by name.
 // Returns ErrNotFound if the domain does not exist.
 func (b *InMemoryBackend) ListRepositoriesInDomain(
-	ctx context.Context, domainName, repositoryPrefix string,
+	ctx context.Context, domainName, repositoryPrefix, administratorAccount string,
 ) ([]*Repository, error) {
 	region := getRegion(ctx, b.region)
 
@@ -99,6 +99,9 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(
 			continue
 		}
 		if repositoryPrefix != "" && !strings.HasPrefix(r.Name, repositoryPrefix) {
+			continue
+		}
+		if administratorAccount != "" && r.AdministratorAccount != administratorAccount {
 			continue
 		}
 		cp := *r

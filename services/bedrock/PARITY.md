@@ -425,3 +425,47 @@ fix, 1 field flagged in that subset:
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/bedrock/...`).
+
+## 2026-08-31 directed sweep: request-key/silent-empty-default compound bug (gopherstack-uox6 territory), CLEAN
+
+Regenerated the campaign's plural-heuristic candidate list against
+`bedrock@v1.66.4/serializers.go` from non-test `.go` files only:
+`instruction`/`instructions`, `message`/`messages`, `policy`/`policies` (the
+originally-supplied list's `model` does not appear as a quoted literal
+anywhere in this package's non-test source -- it only occurs as a test
+fixture string value, e.g. `b.CreateAgent(..., "model", ...)` -- so it was
+noise from a test-inclusive grep, not reproducible from source alone).
+`instruction`/`message`/`policy` are all substrings inside longer real field
+names (`instructions` as part of e.g. `AgentInstruction`,
+`messages`/policy-document fields) rather than standalone request keys --
+spot-checked against their surrounding call sites and confirmed non-issues,
+consistent with this file's existing note that this service's request-field
+scan legitimately undercounts because it is REST-routed (path-keyed
+dispatch, not a decode-target table the scanner's ground truth reaches).
+
+Went beyond the heuristic since the plural check is REST-routing-blind here:
+read every `parseList*Query` filter-decode function against its operation's
+own `awsRestjson1_serializeOpHttpBindings*Input` in the pinned SDK --
+`ListCustomModels`, `ListModelCustomizationJobs`, `ListModelCopyJobs`,
+`ListModelImportJobs`, `ListModelInvocationJobs`, `ListEvaluationJobs`,
+`ListProvisionedModelThroughputs`, `ListCustomModelDeployments`,
+`ListGuardrails`. Every query-parameter name matched exactly, including the
+one sibling-trap-shaped field in this set:
+`ListModelCopyJobsInput.TargetModelNameContains` serializes under the query
+name `outputModelNameContains` (not `targetModelNameContains`), and
+`parseListModelCopyJobsQuery` already reads exactly that real name
+correctly.
+
+One pagination-only (not filter-narrowing) gap noted, not fixed:
+`ListGuardrails`'s real `maxResults` query parameter is never read by
+`handleListGuardrails`, so page size isn't capped -- this doesn't cause
+wrong *records* to come back (no filter is silently defeated), only an
+uncapped page, so it's a different axis from this compound bug and left
+alone as out of this pass's scope.
+
+No code changes this pass -- service verdict is CLEAN on this specific axis
+across the ops checked (the bedrock-agent REST surface -- agents, flows,
+prompts, knowledge bases -- was not re-swept here; see this file's REST-routed
+coverage note above, unchanged from the prior pass). Gates re-run to confirm
+no regression: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
+`golangci-lint run` -- all clean (`./services/bedrock/...`), 0 diff.

@@ -426,3 +426,47 @@ typed `RuleCategory`, whose ONLY real member (`types/enums.go:501`) is
 (`ActionCategory`, Source/Build/Deploy/Test/Invoke/Approval/Compute, no
 "Rule"). FALSE POSITIVE, not fixed: the emitted value is correct for the
 struct actually being built here.
+
+## 2026-08-31 directed sweep: request-key/silent-empty-default compound bug (gopherstack-uox6 territory), CLEAN
+
+Regenerated the campaign's plural-heuristic candidate list against
+`codepipeline@v1.49.4/serializers.go`: only `trigger`/`triggers`. Both hits
+(`handler_pipeline_executions.go:105,129`) are response-output keys
+(`"trigger": triggerObject(exec.Trigger)`), confirmed correct against
+`deserializers.go`'s `case "trigger":` (both `PipelineExecutionSummary` and
+`PipelineExecution`) -- not a bug, wrong axis (response, not request).
+
+Went beyond the heuristic, focused on the two operations this file's own
+prior entries call out as "full of such fields"
+(`ListPipelineExecutions`/`ListActionExecutions`, already fixed) plus every
+other filter-bearing decode struct: `ListActionTypes`
+(`actionOwnerFilter`/`regionFilter`), `ListRuleTypes` (`regionFilter`),
+`PollForJobs`/`PollForThirdPartyJobs` (`actionTypeId`/`maxBatchSize`).
+
+Two findings, both correctly left unfixed:
+
+- `ListRuleTypesInput` also declares a real `ruleOwnerFilter`
+  (`serializers.go`'s `SetQuery("ruleOwnerFilter")`) that
+  `listRuleTypesInput` doesn't even declare a field for. Checked whether
+  this is the compound bug before touching anything: `types.RuleOwner`'s
+  *only* enum member is `"AWS"` (`enums.go`), and this backend's
+  `ListRuleTypes()` hardcodes every rule type's owner to `ruleOwnerAWS` --
+  so no legal filter value can ever produce an observably different result
+  than doing no filtering at all. Confirmed non-issue, not a disguised bug;
+  left undeclared.
+- `PollForJobsInput.QueryParam map[string]string` ("Only jobs whose action
+  configuration matches the mapped value are returned") is a real,
+  documented narrowing filter that `pollForJobsInput` doesn't declare and
+  `PollForJobs` doesn't apply. Not fixed: this backend's `Job` struct
+  tracks no per-job action-configuration data at all (`models.go`'s `Job`
+  has `ActionTypeID`/`ID`/`PipelineName`/`Nonce`/`Status`/failure fields,
+  nothing resembling action configuration), so there is no honest value to
+  match `queryParam` against -- implementing it would mean fabricating a
+  configuration data model this backend doesn't have, the same restraint
+  this file's `RegionFilter`-on-`ListActionTypes` gap already documents.
+  Recorded as a gap alongside it, not fixed.
+
+No code changes this pass -- service verdict is CLEAN on this specific axis
+across the ops checked. Gates re-run to confirm no regression: `go build`,
+`go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` -- all
+clean (`./services/codepipeline/...`), 0 diff.

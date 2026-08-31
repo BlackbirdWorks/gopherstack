@@ -80,3 +80,40 @@ func TestListPackages_Filters(t *testing.T) {
 	require.Len(t, blockedPublish.Packages, 1)
 	require.Equal(t, "prefix-alpha", aws.ToString(blockedPublish.Packages[0].Package))
 }
+
+// TestListRepositoriesInDomain_AdministratorAccountFilter proves
+// ListRepositoriesInDomain applies its AdministratorAccount query-bound
+// filter (serializers.go's SetQuery("administrator-account") in
+// awsRestjson1_serializeOpHttpBindingsListRepositoriesInDomainInput) instead
+// of returning every repository in the domain regardless of what account was
+// requested. Every repository this backend creates is administered by the
+// backend's own account ID, so filtering by any other account ID must
+// narrow the result to nothing -- an unfiltered handler returns the
+// repository regardless.
+func TestListRepositoriesInDomain_AdministratorAccountFilter(t *testing.T) {
+	t.Parallel()
+
+	h := codeartifact.NewHandler(codeartifact.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCodeArtifactClient(t, h)
+
+	_, err := client.CreateDomain(t.Context(), &casdk.CreateDomainInput{Domain: aws.String("admin-filter-domain")})
+	require.NoError(t, err)
+	_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+		Domain: aws.String("admin-filter-domain"), Repository: aws.String("admin-filter-repo"),
+	})
+	require.NoError(t, err)
+
+	matching, err := client.ListRepositoriesInDomain(t.Context(), &casdk.ListRepositoriesInDomainInput{
+		Domain:               aws.String("admin-filter-domain"),
+		AdministratorAccount: aws.String("000000000000"),
+	})
+	require.NoError(t, err)
+	require.Len(t, matching.Repositories, 1)
+
+	nonMatching, err := client.ListRepositoriesInDomain(t.Context(), &casdk.ListRepositoriesInDomainInput{
+		Domain:               aws.String("admin-filter-domain"),
+		AdministratorAccount: aws.String("999999999999"),
+	})
+	require.NoError(t, err)
+	require.Empty(t, nonMatching.Repositories)
+}
