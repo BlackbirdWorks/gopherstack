@@ -14,7 +14,7 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	integrationArn, dataSourceName, dataSourceType string,
 ) (string, error) {
 	if integrationArn == "" {
-		return "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+		return "", fmt.Errorf("%w: integrationArn is required", ErrValidationException)
 	}
 
 	id := uuid.New().String()
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) AddS3TableIntegrationSourceInternal(
 // its identifier (the ID AssociateSourceToS3TableIntegration returned).
 func (b *InMemoryBackend) DisassociateSourceFromS3TableIntegration(identifier string) error {
 	if identifier == "" {
-		return fmt.Errorf("%w: identifier is required", ErrValidation)
+		return fmt.Errorf("%w: identifier is required", ErrValidationException)
 	}
 
 	b.mu.Lock("DisassociateSourceFromS3TableIntegration")
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ListSourcesForS3TableIntegration(
 	integrationArn, nextToken string, maxResults int,
 ) ([]s3TableIntegrationEntry, string, error) {
 	if integrationArn == "" {
-		return nil, "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+		return nil, "", fmt.Errorf("%w: integrationArn is required", ErrValidationException)
 	}
 
 	b.mu.RLock("ListSourcesForS3TableIntegration")

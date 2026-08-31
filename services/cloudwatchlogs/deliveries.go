@@ -27,11 +27,11 @@ func (b *InMemoryBackend) CreateDelivery(
 	tags map[string]string,
 ) (*Delivery, error) {
 	if deliverySourceName == "" {
-		return nil, fmt.Errorf("%w: deliverySourceName is required", ErrValidation)
+		return nil, fmt.Errorf("%w: deliverySourceName is required", ErrValidationException)
 	}
 
 	if deliveryDestinationArn == "" {
-		return nil, fmt.Errorf("%w: deliveryDestinationArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: deliveryDestinationArn is required", ErrValidationException)
 	}
 
 	id := uuid.New().String()
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) DescribeDeliveries(
 // GetDelivery returns a single delivery by ID.
 func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
 	if id == "" {
-		return nil, fmt.Errorf("%w: id is required", ErrValidation)
+		return nil, fmt.Errorf("%w: id is required", ErrValidationException)
 	}
 
 	b.mu.RLock("GetDelivery")
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
 // DeleteDelivery deletes a delivery by ID.
 func (b *InMemoryBackend) DeleteDelivery(id string) error {
 	if id == "" {
-		return fmt.Errorf("%w: id is required", ErrValidation)
+		return fmt.Errorf("%w: id is required", ErrValidationException)
 	}
 
 	b.mu.Lock("DeleteDelivery")
@@ -170,14 +170,14 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	tags map[string]string,
 ) (*DeliveryDestination, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: name is required", ErrValidationException)
 	}
 
 	if destinationType != "" {
 		if _, ok := validDeliveryDestinationTypes()[destinationType]; !ok {
 			return nil, fmt.Errorf(
 				"%w: invalid deliveryDestinationType %q, must be one of S3, CWL, FH, XRAY",
-				ErrValidation, destinationType,
+				ErrValidationException, destinationType,
 			)
 		}
 	}
@@ -346,7 +346,7 @@ func (b *InMemoryBackend) PutDeliverySource(
 	tags map[string]string,
 ) (*DeliverySource, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: name is required", ErrValidationException)
 	}
 
 	var service string

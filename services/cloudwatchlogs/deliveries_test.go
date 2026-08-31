@@ -77,7 +77,7 @@ func TestCloudWatchLogsBackend_GetAndDeleteDelivery(t *testing.T) {
 		{
 			name:    "get_empty_id",
 			id:      "",
-			wantErr: cloudwatchlogs.ErrValidation,
+			wantErr: cloudwatchlogs.ErrValidationException,
 		},
 	}
 
@@ -263,7 +263,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliveryDestination("", "arn:aws:s3:::b", "JSON", "S3", nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{
@@ -290,7 +290,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliveryDestination("bad-type-dest", "arn:aws:s3:::b", "JSON", "GCS", nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{
@@ -411,7 +411,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliverySource("", "FLOW_LOGS", nil, nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{

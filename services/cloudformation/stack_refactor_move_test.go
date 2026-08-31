@@ -117,7 +117,11 @@ func TestExecuteStackRefactor_MovesResourceBetweenStacks(t *testing.T) {
 }
 
 // TestExecuteStackRefactor_UnknownRefactorErrors ensures execute on an
-// unknown ID fails instead of silently succeeding.
+// unknown ID fails instead of silently succeeding. ExecuteStackRefactor's own
+// awsAwsquery_deserializeOpError switch declares no typed exceptions at all
+// (confirmed against aws-sdk-go-v2/service/cloudformation@v1.76.1) --
+// StackRefactorNotFoundException belongs to DescribeStackRefactor, not this
+// op -- so the response reports the generic query-protocol ValidationError.
 func TestExecuteStackRefactor_UnknownRefactorErrors(t *testing.T) {
 	t.Parallel()
 
@@ -127,7 +131,7 @@ func TestExecuteStackRefactor_UnknownRefactorErrors(t *testing.T) {
 		"StackRefactorId": {"does-not-exist"},
 	}.Encode())
 	assert.NotEqual(t, 200, rec.Code)
-	assert.Contains(t, rec.Body.String(), "StackRefactorNotFoundException")
+	assert.Contains(t, rec.Body.String(), "ValidationError")
 }
 
 // TestExecuteStackRefactor_MissingSourceResourceErrors ensures execute fails

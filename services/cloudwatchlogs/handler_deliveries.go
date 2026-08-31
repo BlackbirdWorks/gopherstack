@@ -145,7 +145,7 @@ func (h *Handler) handlePutDeliveryDestination(
 ) (any, error) {
 	var in putDeliveryDestinationInputFull
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -172,7 +172,7 @@ func (h *Handler) handleGetDeliveryDestination(
 ) (any, error) {
 	var in getDeliveryDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -227,7 +227,7 @@ func (h *Handler) handleDeleteDeliveryDestination(
 ) (any, error) {
 	var in deleteDeliveryDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -250,7 +250,7 @@ func (h *Handler) handlePutDeliveryDestinationPolicy(
 ) (any, error) {
 	var in putDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -274,7 +274,7 @@ func (h *Handler) handleGetDeliveryDestinationPolicy(
 ) (any, error) {
 	var in getDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	policy := ""
@@ -299,7 +299,7 @@ func (h *Handler) handleDeleteDeliveryDestinationPolicy(
 ) (any, error) {
 	var in deleteDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -350,7 +350,7 @@ func (h *Handler) handlePutDeliverySource(
 ) (any, error) {
 	var in putDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	var resourceArns []string
@@ -380,7 +380,7 @@ func (h *Handler) handleGetDeliverySource(
 ) (any, error) {
 	var in getDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -435,7 +435,7 @@ func (h *Handler) handleDeleteDeliverySource(
 ) (any, error) {
 	var in deleteDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {
@@ -460,7 +460,7 @@ func (h *Handler) handleUpdateDeliveryConfiguration(
 ) (any, error) {
 	var in updateDeliveryConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if b := cwlBackend(h); b != nil {

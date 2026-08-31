@@ -410,3 +410,68 @@ of its true single candidate (e.g. `"InProgress"` = `UpdateStatusInProgress`,
 "legal in every candidate" check because the other ~10 unrelated enums
 sharing the wire key don't declare that member. No bug found; nothing
 changed in this service.
+
+## 2026-08-31 cmd/errtargetaudit sweep: 49 findings, all false positives (tool mechanism identified)
+
+`go run ./cmd/errtargetaudit -dir eks` (65/65 operations resolved, no
+coverage warning) reported 49 class-A findings — 48 operations "sending"
+`NotFoundException`, one (`TagResource`) "sending" `InvalidParameterException`
+— against real ground truth confirmed per-op in
+`aws-sdk-go-v2/service/eks@v1.90.4/deserializers.go`
+(`awsRestjson1_deserializeOpError<Op>` shape): every one of the 48 does
+legitimately declare `ResourceNotFoundException`, not `NotFoundException`
+(only `ListTagsForResource`/`TagResource`/`UntagResource` — the older tagging
+API family — genuinely declare `NotFoundException`); `TagResource` genuinely
+declares no `InvalidParameterException` (only `BadRequestException`/
+`NotFoundException`).
+
+**Traced to the actual runtime behavior first, not just the tool's static
+resolution.** `handler.go`'s central `handleError` maps
+`errors.Is(err, ErrNotFound)` → `"ResourceNotFoundException"` for every
+non-tag operation — correct. `handler_tags.go`'s separate `handleTagError`
+maps the *same* `ErrNotFound` identifier → `"NotFoundException"` for
+`TagResource`/`UntagResource`/`ListTagsForResource` only — also correct,
+with its own dated comment explaining why (the tagging API's deserializer
+models a different exception family). Both are genuinely correct at their
+own call sites; a real client hitting any of the 48 flagged operations
+receives `ResourceNotFoundException`, matching what that operation declares.
+
+**Root cause of the false positives: the tool's `sentinelCodes` builds one
+flat map keyed by sentinel *identifier name* across the whole package**
+(`cmd/errtargetaudit/classifiers.go`'s `sentinelCodes`/`addSwitchSentinelCodes`).
+Both `handleError` and `handleTagError` contain an
+`errors.Is(err, ErrNotFound)` branch; since both use the identifier
+`ErrNotFound`, the second file scanned overwrote the first's entry for the
+whole package, so every one of the 48 non-tag call sites got attributed the
+*tag* mapper's code. The `TagResource` finding is the mirror case: the
+`constructorCode` classifier resolved `validateTagMap`'s `return
+ErrValidation` to the *service-wide* `ErrValidation`→`InvalidParameterException`
+entry (correct for the resource-family ops that legitimately use it), but at
+`TagResource`'s actual call site (`handler_tags.go`'s
+`handleTagResource`) `validateTagMap`'s error is never dispatched through
+`errors.Is`/`handleError` at all — it's caught by a bare `!= nil` check and
+answered with a hardcoded `"BadRequestException"` literal, so
+`ErrValidation`'s mapped code is unreachable from this operation regardless
+of what the sentinel resolves to.
+
+This is a **new, more precise instance** of the shared-mapper/unreachable-
+branch false-positive shape from the prior calibration pass (`gopherstack-uox6`'s
+CLASS-A ERROR SWEEP 4): not one mapper with an unreachable branch, but *two
+separate mapper functions* colliding on the same sentinel identifier, where
+the tool has no way to know which mapper a given operation's dispatch chain
+actually reaches. Filed as a P2 tool-precision issue rather than acted on
+further here (this pass's scope is the three named services, not the tool).
+
+**Verdict: eks is clean.** No source changes. All 49 findings verified false
+via the mechanism above, not dismissed by pattern alone — re-running the
+tool post-investigation (no code changed) reproduces the identical 49,
+confirming the tool's static resolution, not eks's runtime behavior, is the
+source.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache.
+
+Gates: no source changes to eks; `go build ./services/eks/...`, `go vet
+./services/eks/...`, `go test -race -count=1 ./services/eks/...`,
+`golangci-lint run ./services/eks/...` all re-confirmed clean (unchanged from
+before this pass).

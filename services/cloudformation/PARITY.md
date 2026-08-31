@@ -780,3 +780,77 @@ Gates: `go build ./services/cloudformation/...`, `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/cloudformation/...`
 (pass, includes the new test), `golangci-lint run
 ./services/cloudformation/...` (0 issues).
+
+## 2026-08-31 cmd/errtargetaudit sweep: 2 findings, both real (coverage caveat noted)
+
+`go run ./cmd/errtargetaudit -dir cloudformation` reported a coverage warning
+(90/258, 35%) and flagged its own output as unverified rather than clean —
+the inflated 258 comes from the tool's module list pulling in the full
+`dynamodb` and `s3` SDK modules (both legitimately imported by
+`resources_dynamodb_supplemental.go`/`resources.go` for CFN-managed resource
+types, plus `stacks_test.go`), not from a resolution gap in cloudformation's
+own ~90-operation surface. Both flagged findings are genuine cloudformation
+operations, verified individually against
+`aws-sdk-go-v2/service/cloudformation@v1.76.1/deserializers.go`
+(`awsAwsquery_deserializeOpError<Op>` shape) despite the coverage caveat.
+
+**BatchDescribeTypeConfigurations sent `TypeNotFoundException`, a real code —
+but a type-level one.** `type_registry.go:173`'s per-item
+`BatchDescribeTypeConfigurationsError.ErrorCode` used the same literal as
+`ActivateType`/`DeactivateType`/`DeregisterType`/`DescribeType`/`PublishType`
+(all correctly `TypeNotFoundException` — they operate on *types*).
+`BatchDescribeTypeConfigurations` operates on *type configurations*, and its
+own deserializer declares `{CFNRegistryException,
+TypeConfigurationNotFoundException}` — no `TypeNotFoundException` at all. The
+adjacent human-readable message already said "type configuration not found",
+so the code was the only thing not renamed. Fixed to
+`TypeConfigurationNotFoundException`. One existing test asserted the wrong
+value: `batch_describe_type_configurations_test.go`'s "unknown type name
+reports an error" case (`wantErrorCode`), corrected, assertion count
+unchanged (1).
+
+**ExecuteStackRefactor sent `StackRefactorNotFoundException` — a code its own
+operation model does not declare at all.** Its
+`awsAwsquery_deserializeOpErrorExecuteStackRefactor` switch has no `case`
+list whatsoever, only `default: return &smithy.GenericAPIError{...}` — this
+operation is genuinely modeled with zero typed exceptions (confirmed:
+`CreateStackRefactor`/`List*` share this shape; only `DescribeStackRefactor`
+declares `StackRefactorNotFoundException`, which is why its own not-found
+check stays as-is). Sending the sibling's code here can never reach a typed
+branch on any client, whatever string is chosen — this is the refusal case
+"the operation's own model declares no type for this condition", not a
+remap. `handleExecuteStackRefactor` already had a generic fallback,
+`"ValidationError"` (the classic AWS query-protocol generic/gateway code,
+correctly on this tool's own `genericProtocolCodes` allowlist), used for
+every *other* failure but overridden to the invented
+`StackRefactorNotFoundException` specifically for the not-found case. Fixed
+by deleting the override — not-found now falls through to the same generic
+`ValidationError` every other `ExecuteStackRefactor` failure already used,
+still failing (not silently succeeding) on an unknown ID, just without
+inventing a code this operation cannot receive. The backend keeps returning
+`ErrStackRefactorNotFound` internally (unaffected by this change) so its Go-
+level message and `DescribeStackRefactor`'s own check are unchanged.
+
+A stale comment on `DescribeStackRefactor` (`stack_refactors.go`) claimed
+`ExecuteStackRefactor` was "fire-and-forget" alongside `CreateStackRefactor`/
+`List*` — true of the *typed-exception* model post-fix, but the pre-fix code
+directly contradicted it by returning a typed-looking not-found. Narrowed
+the comment to `CreateStackRefactor`/`List*` only; a second, pre-existing
+comment on `TestDescribeStackRefactor_NotFound`
+(`stack_refactors_test.go`) already stated the same "no modeled errors,
+correctly fire-and-forget" claim about `ExecuteStackRefactor`, and is now
+true rather than aspirational.
+
+One existing test asserted the invented code as correct:
+`stack_refactor_move_test.go`'s `TestExecuteStackRefactor_UnknownRefactorErrors`
+checked `rec.Body.String()` for `"StackRefactorNotFoundException"`; corrected
+to `"ValidationError"`, assertion count unchanged (2: non-200 status +
+body-contains). Both failed against the pre-fix source.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache.
+
+Gates: `go build ./services/cloudformation/...`, `go vet
+./services/cloudformation/...`, `go test -race -count=1
+./services/cloudformation/...` (pass), `golangci-lint run
+./services/cloudformation/...` (0 issues).

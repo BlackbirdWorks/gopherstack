@@ -75,29 +75,29 @@ type ScheduledQueryCreateParams struct {
 // queryLanguage was accepted without validation and dropped.
 func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (string, error) {
 	if p.Name == "" {
-		return "", fmt.Errorf("%w: name is required", ErrValidation)
+		return "", fmt.Errorf("%w: name is required", ErrValidationException)
 	}
 
 	if p.QueryString == "" {
-		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
+		return "", fmt.Errorf("%w: queryString is required", ErrValidationException)
 	}
 
 	if p.ScheduleExpression == "" {
-		return "", fmt.Errorf("%w: scheduleExpression is required", ErrValidation)
+		return "", fmt.Errorf("%w: scheduleExpression is required", ErrValidationException)
 	}
 
 	if p.ExecutionRoleArn == "" {
-		return "", fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
+		return "", fmt.Errorf("%w: executionRoleArn is required", ErrValidationException)
 	}
 
 	if p.QueryLanguage == "" {
-		return "", fmt.Errorf("%w: queryLanguage is required", ErrValidation)
+		return "", fmt.Errorf("%w: queryLanguage is required", ErrValidationException)
 	}
 
 	if _, ok := validScheduledQueryLanguages()[p.QueryLanguage]; !ok {
 		return "", fmt.Errorf(
 			"%w: invalid queryLanguage %q, must be one of CWLI, PPL, SQL",
-			ErrValidation, p.QueryLanguage,
+			ErrValidationException, p.QueryLanguage,
 		)
 	}
 
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (st
 		if _, ok := validScheduledQueryStates()[state]; !ok {
 			return "", fmt.Errorf(
 				"%w: invalid state %q, must be ENABLED or DISABLED",
-				ErrValidation,
+				ErrValidationException,
 				state,
 			)
 		}
@@ -143,7 +143,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (st
 	defer b.mu.Unlock()
 
 	if b.scheduledQueries.Len() >= maxScheduledQueries {
-		return "", fmt.Errorf("%w: scheduled query limit exceeded", ErrValidation)
+		return "", fmt.Errorf("%w: scheduled query limit exceeded", ErrScheduledQueryLimitExceeded)
 	}
 
 	b.scheduledQueries.Put(sq)
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (st
 // DeleteScheduledQuery deletes a scheduled query by ARN.
 func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
 	if scheduledQueryArn == "" {
-		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
 	}
 
 	b.mu.Lock("DeleteScheduledQuery")
@@ -229,13 +229,13 @@ func (b *InMemoryBackend) ListScheduledQueries(
 // UpdateScheduledQuery updates the state of a scheduled query.
 func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) error {
 	if scheduledQueryArn == "" {
-		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
 	}
 	if state == "" {
-		return fmt.Errorf("%w: state is required", ErrValidation)
+		return fmt.Errorf("%w: state is required", ErrValidationException)
 	}
 	if _, ok := validScheduledQueryStates()[state]; !ok {
-		return fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
+		return fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidationException, state)
 	}
 
 	b.mu.Lock("UpdateScheduledQuery")
@@ -286,7 +286,7 @@ func (b *InMemoryBackend) AddScheduledQueryRunInternal(
 // GetScheduledQuery returns the scheduled query with the given ARN.
 func (b *InMemoryBackend) GetScheduledQuery(scheduledQueryArn string) (*ScheduledQuery, error) {
 	if scheduledQueryArn == "" {
-		return nil, fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
 	}
 
 	b.mu.RLock("GetScheduledQuery")
@@ -312,7 +312,7 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 	maxResults int,
 ) ([]ScheduledQueryRunSummary, string, error) {
 	if scheduledQueryArn == "" {
-		return nil, "", fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+		return nil, "", fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
 	}
 
 	b.mu.RLock("GetScheduledQueryHistory")

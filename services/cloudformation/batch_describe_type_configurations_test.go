@@ -59,7 +59,7 @@ func TestHandler_BatchDescribeTypeConfigurations(t *testing.T) {
 			name:            "unknown type name reports an error",
 			identifierField: "TypeName",
 			identifierValue: "Acme::Demo::DoesNotExist",
-			wantErrorCode:   "TypeNotFoundException",
+			wantErrorCode:   "TypeConfigurationNotFoundException",
 		},
 		{
 			name:            "identifier with no name or arn is unprocessed",

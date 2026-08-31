@@ -2,7 +2,6 @@ package cloudformation
 
 import (
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"net/url"
 
@@ -100,12 +99,12 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 
 func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) error {
 	if err := h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId")); err != nil {
-		code := "ValidationError"
-		if errors.Is(err, ErrStackRefactorNotFound) {
-			code = "StackRefactorNotFoundException"
-		}
-
-		return h.xmlError(c, code, err.Error())
+		// ExecuteStackRefactor's own awsAwsquery_deserializeOpError switch
+		// declares no typed exceptions at all -- not StackRefactorNotFoundException
+		// (that's DescribeStackRefactor's), not anything else -- so every failure,
+		// not-found included, reports the generic query-protocol ValidationError
+		// rather than inventing a typed code this operation cannot receive.
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ExecuteStackRefactorResponse"`

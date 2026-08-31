@@ -30,8 +30,8 @@ func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string,
 	defer b.mu.RUnlock()
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
-		// Unlike CreateStackRefactor/ExecuteStackRefactor/List*, DescribeStackRefactor's
-		// SDK-modeled error set includes StackRefactorNotFoundException — it is not
+		// Unlike CreateStackRefactor/List*, DescribeStackRefactor's SDK-modeled
+		// error set includes StackRefactorNotFoundException — it is not
 		// fire-and-forget, so an unknown ID must be a real error, not an empty 200.
 		return "", fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
 	}

@@ -45,7 +45,12 @@ func (b *InMemoryBackend) PutDestinationPolicy(name, policy string) error {
 
 	dest, ok := b.destinations.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: destination %q not found", ErrDestinationNotFound, name)
+		// PutDestinationPolicy's own deserializer declares only
+		// InvalidParameterException/OperationAbortedException/
+		// ServiceUnavailableException -- no ResourceNotFoundException, unlike
+		// DeleteDestination below, which does declare it. ErrDestinationNotFound
+		// stays correct for DeleteDestination; this call site overrides.
+		return fmt.Errorf("%w: destination %q not found", ErrValidation, name)
 	}
 
 	dest.AccessPolicy = policy

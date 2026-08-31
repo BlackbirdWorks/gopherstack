@@ -838,3 +838,79 @@ semantics was already in the pinned SDK's Go doc comments.
 Gates re-run after this pass: `go build ./...`, `go vet ./...`,
 `go test -race -count=1 ./services/cloudwatchlogs/...`, `golangci-lint run
 ./services/cloudwatchlogs/...` — all clean.
+
+## 2026-08-31 cmd/errtargetaudit sweep: real-code-wrong-operation class, 22 findings, all real
+
+`go run ./cmd/errtargetaudit -dir cloudwatchlogs` (219/230 real declared codes
+resolved for real cloudwatchlogs ground truth, ignore the header's inflated
+230/258-style module list which also drags in `s3`'s SDK for `export_s3.go`'s
+import) reported 22 class-A findings: a real, correctly-spelled code
+(`InvalidParameterException`) sent by 21 operations that don't declare it,
+plus one (`ResourceNotFoundException`) sent by an operation that declares
+neither.
+
+**THE FAMILY.** cloudwatchlogs' Delivery/DeliveryDestination/DeliverySource/
+ScheduledQuery/S3TableIntegration operations (21 of them: AssociateSourceToS3TableIntegration,
+CreateDelivery, CreateScheduledQuery, DeleteDelivery,
+DeleteDeliveryDestination, DeleteDeliveryDestinationPolicy,
+DeleteDeliverySource, DeleteScheduledQuery,
+DisassociateSourceFromS3TableIntegration, GetDelivery,
+GetDeliveryDestination, GetDeliveryDestinationPolicy, GetDeliverySource,
+GetScheduledQuery, GetScheduledQueryHistory, ListSourcesForS3TableIntegration,
+PutDeliveryDestination, PutDeliveryDestinationPolicy, PutDeliverySource,
+UpdateDeliveryConfiguration, UpdateScheduledQuery) all declare
+`ValidationException` for parameter/JSON-shape failures in their own
+`awsAwsjson11_deserializeOpError<Op>` switch (confirmed per-op against
+`aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1/deserializers.go`) — none of
+them declares `InvalidParameterException`, the older code the rest of this
+service's ops use. The emulator's `ErrValidation` sentinel
+(`InvalidParameterException`) was reused at every one of these 37 call sites
+across `deliveries.go`, `scheduled_queries.go`, `integrations.go`,
+`handler_deliveries.go`, `handler_integrations.go`. A second, unused-until-now
+sentinel, `ErrValidationException` (`ValidationException`), already existed
+in `errors.go` and was already wired into `handleError` — but its doc comment
+claimed it covered only "a small set of operations... e.g.
+ListAggregateLogGroupSummaries", undercounting its real scope by ~20
+operations (the campaign's recurring false-doc-comment pattern; corrected).
+Fixed by switching all 37 call sites to `ErrValidationException`, per-op, not
+by touching the shared sentinel other legitimate `InvalidParameterException`
+callers (PutIntegration/GetIntegration/DeleteIntegration, whose deserializers
+genuinely include `InvalidParameterException`) still use.
+
+**ONE SITE INSIDE THE SAME FAMILY NEEDED A THIRD CODE, NOT THE FAMILY'S
+DEFAULT.** `CreateScheduledQuery`'s quota check ("scheduled query limit
+exceeded") was also routed through `ErrValidation`. Its own deserializer
+declares `ServiceQuotaExceededException` specifically (alongside
+`ValidationException`), a semantically exact match a blanket
+`ErrValidation`→`ErrValidationException` swap would have missed. Added a new
+sentinel, `ErrScheduledQueryLimitExceeded` (`ServiceQuotaExceededException`),
+used only at that one call site.
+
+**PutDestinationPolicy is the sibling-trap shape.** It shares the
+`ErrDestinationNotFound` sentinel (`ResourceNotFoundException`) with
+`DeleteDestination`, correct for `DeleteDestination` (declares
+`ResourceNotFoundException`) but not for `PutDestinationPolicy`, whose own
+declared set is `{InvalidParameterException, OperationAbortedException,
+ServiceUnavailableException}` — no not-found type at all. Overridden at the
+`PutDestinationPolicy` call site only (now `ErrValidation` →
+`InvalidParameterException`, 400 instead of 404); `ErrDestinationNotFound`
+itself is untouched and stays correct for `DeleteDestination`.
+
+**Existing tests corrected, assertion counts identical (one assertion each,
+before and after):** `deliveries_test.go` (GetDelivery/`get_empty_id`,
+PutDeliveryDestination×2, PutDeliverySource/`put_empty_name_errors`),
+`scheduled_queries_test.go` (UpdateScheduledQuery, GetScheduledQuery,
+GetScheduledQueryHistory), `destinations_test.go`
+(`put_policy_not_found_errors`, sentinel corrected from
+`ErrDestinationNotFound` to `ErrValidation`). One HTTP-level test asserted
+only a status code and could not have detected this class regardless of
+value: `handler_destinations_test.go`'s `PutDestinationPolicy/NotFound`
+expected 404; corrected to 400 and renamed
+`PutDestinationPolicy/InvalidParameter`. All four failed against the
+pre-fix source (confirmed by running the suite before touching the tests);
+zero assertions dropped.
+
+Gates: `go build ./services/cloudwatchlogs/...`, `go vet
+./services/cloudwatchlogs/...`, `go test -race -count=1
+./services/cloudwatchlogs/...` (pass), `golangci-lint run
+./services/cloudwatchlogs/...` (0 issues).
