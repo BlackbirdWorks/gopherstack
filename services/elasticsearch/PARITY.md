@@ -567,3 +567,53 @@ Tests: `list_filter_params_test.go`, driven through the real SDK client
 (`newTestElasticsearchClient`) -- one test per finding above. All fail
 against pre-fix code (confirmed per-file by reverting the relevant handler
 before writing the fix).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-uox6, errtargetaudit, post-reachability-fix)
+
+`errtargetaudit -dir elasticsearch` reported 4 class-A findings (`AddTags`,
+`RemoveTags`, `DescribeElasticsearchDomains`, `ListDomainNames`, all
+`ResourceNotFoundException` via `ErrDomainNotFound`). SDK shape: this module
+still uses the older `awsRestjson1_deserializeOpError<Op>` `EqualFold`
+cascade (`aws-sdk-go-v2/service/elasticsearchservice@v1.45.4`
+deserializers.go). Verified per-op: none of the 4 declare
+`ResourceNotFoundException` (`AddTags`/`RemoveTags`/`ListDomainNames`
+declare `BaseException`/`InternalException`(not RemoveTags)/`ValidationException`(+`LimitExceededException`
+on AddTags only); `DescribeElasticsearchDomains` declares
+`BaseException`/`InternalException`/`ValidationException`).
+
+**All 4 are false positives -- the "consumed downstream" mechanism**
+(distinct from unreachable-branch, per gopherstack-uox6's third documented
+defect): in every case the sentinel genuinely fires from the backend, but
+the HTTP handler's own error handling discards or repurposes it before any
+error-mapper ever runs.
+
+- `AddTags`/`RemoveTags` (`handler_tags.go` `handleAddTags`/`handleRemoveTags`):
+  the backend call's error is discarded outright --
+  `_ = h.Backend.AddTags(ctx, req.ARN, tagMap)` /
+  `_ = h.Backend.RemoveTags(...)` -- both handlers always write
+  `http.StatusOK` regardless. `ErrDomainNotFound` is never even inspected,
+  let alone mapped to a wire code. This is a real, separate bug (tagging a
+  nonexistent domain silently "succeeds") but it is outside this sweep's
+  class (wrong-code-for-declared-operation) since no code is ever emitted
+  at all -- left unfixed, flagged here for a future pass.
+- `ListDomainNames` (`handler_domains.go` `handleListDomainNames`): calls
+  `Backend.DescribeDomain` per name and does `if err != nil { continue }` --
+  the error is consumed inside the loop and never reaches any response
+  path.
+- `DescribeElasticsearchDomains` (`handler_domains.go`
+  `handleDescribeElasticsearchDomains`): captures `descErr` but never
+  forwards it to an error mapper; instead it hand-writes
+  `ErrorType: "ResourceNotFoundException"` into the per-item
+  `UnprocessedDomains[].ErrorDetails` field of a `200 OK` response --
+  which is the documented real-AWS partial-failure shape for this
+  operation (per-domain not-found is reported inline, not as a top-level
+  exception), so the emitted string is correct AWS behavior even though it
+  never touches the sentinel-to-wire-code mapper the tool is checking.
+
+No code changed. Measured false-positive rate for this service: 4/4
+(100%), consistent with this campaign's calibration point of a
+100%-false-in-one-service pass.
+
+Gates: `go build ./services/elasticsearch/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/elasticsearch/...`
+(pass, unchanged). No files changed in this pass.

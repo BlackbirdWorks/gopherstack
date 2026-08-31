@@ -312,3 +312,56 @@ Same negative conclusion as the twin: no `MaxResults` doc states a specific
 default number anywhere in this service, no operator grammar/wildcard/
 negation/case-sensitivity language exists. Zero bugs found. No files
 changed.
+
+### 2026-08-31 Error-envelope sweep 2 (gopherstack-uox6, errtargetaudit, post-reachability-fix)
+
+`errtargetaudit -dir codeconnections` reported 4 class-A findings, all
+`InvalidInputException` reaching an operation whose own
+`awsAwsjson10_deserializeOpError<Op>` switch does not declare it
+(`aws-sdk-go-v2/service/codeconnections@v1.13.4` deserializers.go, plain
+JSON-body-driven switch, not the older `EqualFold` cascade shape --
+confirmed by reading all four ops' functions directly).
+
+**2 real, fixed by deletion:**
+
+- `GetHost` (`handler_hosts.go:101`, was): declares `ResourceNotFoundException`,
+  `ResourceUnavailableException` -- no `InvalidInputException`. The
+  `HostArn is required` pre-check fired on an empty-but-present ARN (the
+  client-side validator only rejects a nil pointer, per
+  `validateOpGetHostInput`); the backend's own lookup (`b.hosts.Get("")`,
+  not found) already answers with the correct `ResourceNotFoundException`
+  once the pre-check is removed. Same shape as `codestarconnections`' 8
+  deletions (9cf2d2292).
+- `UpdateHost` (`handler_hosts.go:202`, was): same reasoning, same fix.
+  Declares `ConflictException`, `ResourceNotFoundException`,
+  `ResourceUnavailableException`, `UnsupportedOperationException`.
+
+**2 refusals** (operation's own model declares no type for this condition;
+`errors.go`'s own comment already confirms no `ValidationException`
+equivalent exists anywhere in this SDK module):
+
+- `CreateConnection` (`connections.go:21,25`): declares
+  `LimitExceededException`, `ResourceNotFoundException`,
+  `ResourceUnavailableException` -- no validation-shaped exception for a
+  missing `ConnectionName` or invalid `ProviderType`. Not fixed.
+- `CreateHost` (`hosts.go:23,27,31`): declares only
+  `LimitExceededException`. Same reasoning. Not fixed.
+
+`ErrValidation` (the shared `InvalidInputException` sentinel) is otherwise
+correct for its ~35 other call sites across
+`handler_repository_sync.go`/`handler_sync_configurations.go`/
+`handler_repository_links.go`/`sync_configurations.go` -- not touched.
+
+New SDK-driven test (`error_envelope_fixes_test.go`,
+`TestEmptyHostArn_NotFoundNotInvalidInput_RealClient`, 2 subtests, `errors.As`
+against `*types.ResourceNotFoundException`) confirmed failing pre-fix (both
+subtests got `*smithy.GenericAPIError` wrapping `InvalidInputException`).
+One existing test corrected: `connections_test.go`'s `TestErrorPaths/"GetHost
+missing HostArn"` asserted `wantErrType: "InvalidInputException"` (a
+wire-code-string assertion, not a typed-error one) -- now
+`"ResourceNotFoundException"`, assertion count unchanged.
+
+Gates: `go build ./services/codeconnections/...`, `go vet ./...`
+(repo-wide, clean -- no exported signature changed), `go test -race
+-count=1 ./services/codeconnections/...` (pass), `golangci-lint run
+./services/codeconnections/...` (0 issues, no `nolint` in any edited file).

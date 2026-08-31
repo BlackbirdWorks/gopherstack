@@ -799,11 +799,15 @@ func TestErrorPaths(t *testing.T) {
 			wantErrType: "InvalidInputException",
 		},
 		{
+			// GetHost declares ResourceNotFoundException, not
+			// InvalidInputException; an absent HostArn (empty string) hits
+			// the backend's own lookup-miss path (gopherstack-uox6
+			// error-envelope sweep).
 			name:        "GetHost missing HostArn",
 			action:      "GetHost",
 			body:        map[string]any{},
 			wantCode:    http.StatusBadRequest,
-			wantErrType: "InvalidInputException",
+			wantErrType: "ResourceNotFoundException",
 		},
 	}
 

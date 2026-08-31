@@ -152,14 +152,18 @@ func (b *InMemoryBackend) ListPlatformApplications(
 	return apps, next, nil
 }
 
-// DeletePlatformApplication removes a platform application and its endpoints by ARN.
+// DeletePlatformApplication removes a platform application and its endpoints
+// by ARN. Unlike its four sibling callers of ErrPlatformApplicationNotFound
+// (Get/SetPlatformApplicationAttributes, CreatePlatformEndpoint,
+// ListEndpointsByPlatformApplication, all of which correctly declare
+// "NotFound"), DeletePlatformApplication's own deserializeOpError declares
+// only AuthorizationError/InternalError/InvalidParameter -- no not-found
+// type at all, the same shape as DeleteEndpoint in this SDK, which is
+// documented "This action is idempotent". Deleting an ARN that does not
+// exist is therefore a no-op, not an error.
 func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn string) error {
 	b.mu.Lock("DeletePlatformApplication")
 	defer b.mu.Unlock()
-
-	if !b.platformApplications.Has(platformApplicationArn) {
-		return ErrPlatformApplicationNotFound
-	}
 
 	b.platformApplications.Delete(platformApplicationArn)
 

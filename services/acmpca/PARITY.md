@@ -401,3 +401,15 @@ Gates: `go build ./services/acmpca/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/acmpca/...` (pass, unchanged assertion
 counts), `golangci-lint run ./services/acmpca/...` (0 issues). No code
 changed in this pass — comments only.
+
+### 2026-08-31 Error-envelope re-run (gopherstack-uox6, post-reachability-fix)
+
+`errtargetaudit -dir acmpca` re-run after the tool's unreachable-branch
+false-positive fix (773bfa8b7): still 6 class-A findings, identical to the
+2026-08-31 sweep above (`CreatePermission` x4 sites, `DeleteCertificateAuthority`,
+`ListCertificateAuthorities`) -- confirming this service's findings were
+never the reachability-defect shape. Not re-derived from scratch: this is
+the same previously-recorded refusal (all 3 distinct sites, none fixed, per
+the earlier entry's own per-op `deserializeOpError` verification and its
+"no `ValidationException` type exists anywhere in this SDK module" finding).
+No code changed.

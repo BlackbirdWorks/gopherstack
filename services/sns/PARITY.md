@@ -601,3 +601,75 @@ any consumer matching exactly would break. None was found.
 
 Every list in this service is member-wrapped rather than flattened, confirmed
 by there being no call site of an unwrapped-list deserializer variant.
+
+## 2026-08-31 Error-envelope sweep (gopherstack-uox6, errtargetaudit, post-reachability-fix)
+
+`errtargetaudit -dir sns` reported 4 class-A findings across 2 causes,
+verified against the pinned SDK's own per-op `awsAwsquery_deserializeOpError<Op>`
+switch (`aws-sdk-go-v2/service/sns@v1.42.4` deserializers.go -- the older
+`EqualFold` cascade shape, not the newer `rpc2` plain switch).
+
+**3 real, 2 distinct fixes:**
+
+- `DeleteSMSSandboxPhoneNumber` (`sms.go:96`) and `VerifySMSSandboxPhoneNumber`
+  (`sms.go:114`): both declare `ResourceNotFound` (not `NotFound`). Both
+  return `ErrPhoneNumberNotFound`, whose own sentinel text already reads
+  `"ResourceNotFound"` (`errors.go:16`) -- but `handler_errors.go`'s
+  `errorCode()` grouped it into the same `case` as
+  `ErrTopicNotFound`/`ErrSubscriptionNotFound`/
+  `ErrPlatformApplicationNotFound`/`ErrEndpointNotFound`, all of which
+  correctly return `"NotFound"`. Fixed by giving `ErrPhoneNumberNotFound`
+  its own case returning `"ResourceNotFound"`, matching its own message
+  text. `ErrPhoneNumberNotFound` has exactly these 2 call sites (both
+  fixed by the one switch change) -- not a call-site override of a shared
+  sentinel, a correction of the mapper's own grouping.
+- `DeletePlatformApplication` (`platform_applications.go`, was line 161):
+  declares only `AuthorizationError`/`InternalError`/`InvalidParameter` --
+  no not-found type at all, the same shape as this SDK's `DeleteEndpoint`
+  (documented `"This action is idempotent"`). `ErrPlatformApplicationNotFound`
+  has 4 other call sites (`GetPlatformApplicationAttributes`,
+  `SetPlatformApplicationAttributes`, `CreatePlatformEndpoint`,
+  `ListEndpointsByPlatformApplication`), all of which correctly declare
+  `"NotFound"` -- so the sentinel itself is untouched; only
+  `DeletePlatformApplication`'s own not-found check is removed, making
+  delete-of-a-missing-ARN a no-op (its own doc comment does not use the
+  word "idempotent" the way `DeleteEndpoint`/`DeleteTopic` do, so this is
+  an inference from the declared-error-set shape, not a direct doc
+  statement -- recorded as such, not overclaimed).
+
+**1 refusal:**
+
+- `Publish` (`publish.go`, was line 430, `OptedOut` for an opted-out SMS
+  destination): `Publish`'s own switch does not declare `OptedOut`
+  (`OptedOutException` exists in this SDK and is correctly declared by
+  `CreateSMSSandboxPhoneNumber`, but not by `Publish`). The two
+  closest-sounding declared types (`InvalidParameter`,
+  `ParameterValueInvalid`) share the identical generic doc comment
+  ("Indicates that a request parameter does not comply with the associated
+  constraints") -- neither describes an opted-out recipient, so neither was
+  substituted, per this campaign's standing near-miss caution. Not fixed;
+  `Publish` still sends an undecodable `OptedOut` code to a real typed
+  client for this one case.
+
+New SDK-driven test (`error_envelope_fixes_test.go`):
+`TestSMSSandboxPhoneNotFound_ResourceNotFound_RealClient` (2 subtests,
+`errors.As` against `*types.ResourceNotFoundException`) and
+`TestDeletePlatformApplication_MissingArn_Idempotent_RealClient`
+(asserts `require.NoError`) -- both confirmed failing pre-fix (the sandbox
+subtests got `*smithy.GenericAPIError` wrapping `NotFound`; the delete test
+got a 400 `NotFound` error instead of success).
+
+One existing test corrected: `platform_applications_test.go`'s
+`TestSNSHandler_DeletePlatformApplication`'s `"not_found"` case asserted
+`wantStatus: http.StatusBadRequest` (a status-only assertion, not a typed
+one) for deleting a nonexistent ARN -- renamed `"not_found_is_idempotent"`,
+now `wantStatus: http.StatusOK`, assertion count unchanged. No other
+existing test needed correction: the backend-level tests in
+`platform_applications_test.go`/`sms_test.go` assert against the Go
+sentinels (`sns.ErrPlatformApplicationNotFound`,
+`sns.ErrPhoneNumberNotFound`) directly, which are unchanged by this pass.
+
+Gates: `go build ./services/sns/...`, `go vet ./...` (repo-wide, clean --
+no exported signature changed), `go test -race -count=1 ./services/sns/...`
+(pass), `golangci-lint run ./services/sns/...` (0 issues, no `nolint` in
+any edited file).

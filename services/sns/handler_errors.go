@@ -73,9 +73,14 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 func errorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
-		errors.Is(err, ErrPhoneNumberNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		return "NotFound"
+	case errors.Is(err, ErrPhoneNumberNotFound):
+		// DeleteSMSSandboxPhoneNumber and VerifySMSSandboxPhoneNumber both
+		// declare "ResourceNotFound" (not "NotFound") in their own
+		// deserializeOpError<Op> switch -- matches this sentinel's own
+		// message text, unlike the shared "NotFound" bucket above.
+		return "ResourceNotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
 	case errors.Is(err, ErrPlatformApplicationAlreadyExists):

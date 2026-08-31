@@ -2,7 +2,6 @@ package codeconnections
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -97,10 +96,11 @@ type getHostOutput struct {
 }
 
 func (h *Handler) handleGetHost(ctx context.Context, in *getHostInput) (*getHostOutput, error) {
-	if in.HostArn == "" {
-		return nil, fmt.Errorf("%w: HostArn is required", ErrValidation)
-	}
-
+	// GetHost's own deserializeOpError declares ResourceNotFoundException,
+	// ResourceUnavailableException -- no InvalidInputException. An empty
+	// HostArn is not rejected here: the client-side validator only rejects a
+	// nil pointer, so it reaches this handler and the backend's own
+	// lookup-miss path (ErrNotFound) answers it correctly.
 	host, err := h.Backend.GetHost(ctx, in.HostArn)
 	if err != nil {
 		return nil, err
@@ -198,10 +198,9 @@ type updateHostInput struct {
 }
 
 func (h *Handler) handleUpdateHost(ctx context.Context, in *updateHostInput) (*emptyOutput, error) {
-	if in.HostArn == "" {
-		return nil, fmt.Errorf("%w: HostArn is required", ErrValidation)
-	}
-
+	// Same reasoning as handleGetHost: UpdateHost declares
+	// ResourceNotFoundException but not InvalidInputException, and the
+	// backend's lookup-miss path already answers an empty HostArn correctly.
 	vpcConfig := vpcConfigFromView(in.VpcConfiguration)
 	if err := h.Backend.UpdateHost(ctx, in.HostArn, in.ProviderEndpoint, vpcConfig); err != nil {
 		return nil, err
