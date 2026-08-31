@@ -43,6 +43,11 @@ const (
 	statusProcessed   = "PROCESSED"
 	statusRunsDeleted = "RUNS_DELETED"
 
+	// networkingModeRestricted is StartRunInput.NetworkingMode's documented
+	// default ("If not specified, this will default to RESTRICTED.",
+	// omics@v1.49.5 api_op_StartRun.go:136-138).
+	networkingModeRestricted = "RESTRICTED"
+
 	maxPageSize = 100
 	maxTags     = 200
 

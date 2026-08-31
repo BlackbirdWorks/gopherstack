@@ -536,3 +536,96 @@ found otherwise correct — every caller sorts implicitly via `sort.Strings(ids)
 
 Gates: `go build`, `go vet` (default/e2e/integration), `go test -race -count=1`,
 `golangci-lint run` (0 issues) — all `./services/omics/...`.
+
+## 2026-08-31 (gopherstack-uox6, value-semantics sweep)
+
+Swept every List/Describe filter matcher in this service against its own SDK doc
+comment (annotation/variant stores + versions, shares, runs/run groups/run
+batches/run tasks, workflows/workflow versions, read sets, reference stores,
+references, sequence stores) for the class this issue targets — a request
+parameter read and applied, but WRONG, as opposed to never read at all (already
+covered by the request-field-never-read axis). ONE BUG:
+
+- **`StartRun`'s `NetworkingMode` ignored its own documented default.**
+  `StartRunInput.NetworkingMode`'s doc comment (`api_op_StartRun.go:136-138`):
+  "Optional configuration for run networking behavior. If not specified, this
+  will default to RESTRICTED." `runs.go`'s `startRunLocked` stored whatever
+  string it was given, including `""`, and `Run.NetworkingMode` is tagged
+  `json:"networkingMode,omitempty"` — so an omitted value was dropped from the
+  wire entirely rather than resolving to `RESTRICTED`, and a real client's
+  `*string` on both `StartRunOutput.NetworkingMode` and `GetRunOutput.NetworkingMode`
+  decoded to nil/`""` instead of the documented default. Fixed by defaulting to
+  `RESTRICTED` inside `startRunLocked` when the caller passes an empty string —
+  this also correctly applies the same default to `StartRunBatch`'s constituent
+  runs, which always pass `""` here since `DefaultRunSetting.NetworkingMode` is
+  not modeled for batches (disclosed below), and real AWS applies the identical
+  per-run default there too. Proven via
+  `Test_SDKRoundTrip_StartRun_NetworkingModeDefault` (`wire_field_additions_test.go`),
+  a real `aws-sdk-go-v2` client test asserting both the omitted-default case
+  (`RESTRICTED` on `StartRunOutput` and `GetRunOutput`) and that an explicit
+  `VPC` value is not overridden; hand-reverted to confirm it fails against the
+  pre-fix code (`""` instead of `"RESTRICTED"`), restored byte-identical.
+
+**Everything else checked came back clean, member by member:**
+
+- Query-protocol concerns don't apply here — omics is REST-JSON and every
+  filter struct is decoded via `encoding/json` with no explicit struct tags, so
+  Go's case-insensitive field matching handles every wire key checked
+  (`resourceArns`/`status`/`type` on `types.Filter` for `ListShares`,
+  confirmed against `awsRestjson1_serializeDocumentFilter`); no casing bug
+  found or possible via this path.
+- `shareResourceType`'s ARN-pattern switch and `ListShares`'s `resourceOwner`
+  switch (`SELF`/`OTHER`) both compare against the exact real enum members
+  (`types.ShareResourceType`, `types.ResourceOwner`) — verified against
+  `enums.go`, no invented value, no partial-spelling collision.
+- `shareMatchesFilter`'s `ResourceArns`/`Status`/`Type` are each real "any of"
+  lists (`slices.Contains`, every element checked, not just the first) —
+  matches `types.Filter`'s own doc comments ("You can specify up to 10
+  values").
+- Every other filter checked (`ReadSetFilter`, `RunFilter`, `RunGroupFilter`,
+  `RunBatchFilter`, `RunTaskFilter`, `WorkflowFilter`, `WorkflowVersionFilter`,
+  `StoreStatusFilter`, `ImportJobFilter`, `SequenceStoreFilter`,
+  `ReferenceStoreFilter`, `ReferenceFilter`) is a documented single-value
+  equality (`Name`/`Status`/`Type`/`StoreName`/`RunGroupId`/`BatchId`) with no
+  documented case-insensitivity, wildcard, or negation modifier anywhere in
+  the pinned SDK — plain `==` is correct for all of them, verified against
+  each field's own doc comment rather than assumed.
+- MaxResults/MaxItems: no `List*Input` in this service documents a numeric
+  default or maximum except `ListBatch`'s `MaxItems` ("If not specified,
+  defaults to 100") — `batchQueryParams` + the shared `maxPageSize = 100`
+  cap/default already match it exactly. Every other List op's MaxResults doc
+  comment states no number, so the uniform 100 cap contradicts nothing (same
+  clean verdict as the campaign's quicksight List/Describe pass).
+- `ListRunBatches`'s disclosed `RunGroupID`-accepted-but-not-applied gap
+  (real AWS filters by the *contained runs'* run-group, which this simplified
+  RunBatch model doesn't track) was re-verified against the SDK rather than
+  trusted from the existing comment — still correct, still structural.
+
+**Recorded as the request-field-never-read axis, not this one (declared
+nowhere in this backend's filter/request structs, so not applicable to
+"wrong algorithm on a read field"):** `ReadSetFilter` is missing
+`CreatedAfter`/`CreatedBefore`/`CreationType`/`GeneratedFrom`/`ReferenceArn`/
+`SampleId`/`SubjectId`; `ReferenceFilter` is missing `CreatedAfter`/
+`CreatedBefore`/`Md5`; `ReferenceStoreFilter`/`SequenceStoreFilter` are
+missing `CreatedAfter`/`CreatedBefore` (and `SequenceStoreFilter` also
+`UpdatedAfter`/`UpdatedBefore`); `StartRunInput`'s own `RetentionMode`
+("default value is RETAIN"), `ScratchStorageMode` ("default to SHARED"), and
+`StorageCapacity` ("Defaults to 1200 GiB") are never read by `StartRun` at
+all (distinct from `RunBatch.DefaultRunSetting`'s identical, already-disclosed
+gap for the same three fields) — a bug requires the field to be read first;
+these aren't.
+
+**Left open, correctly, as unfabricatable rather than fixed or fabricated:**
+`CreateWorkflowInput.Engine`'s doc comment ("By default, Amazon Web Services
+HealthOmics detects the engine automatically from your workflow definition")
+describes content-based auto-detection from a real zip archive, which this
+backend cannot honestly simulate without parsing workflow definition files —
+left empty on omission rather than guessing a value, the same restraint this
+issue's brief asks for on `PatchOrchestratorFilter`-shaped traps.
+
+No web pages fetched — everything resolved from the pinned SDK module cache
+(`aws-sdk-go-v2/service/omics@v1.49.5`).
+
+Gates: `go build ./services/omics/... ./services/docdb/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/omics/...`,
+`golangci-lint run ./services/omics/...` (0 issues).

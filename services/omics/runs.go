@@ -183,6 +183,10 @@ func (b *InMemoryBackend) startRunLocked(
 	params map[string]any,
 	tags map[string]string,
 ) *Run {
+	if networkingMode == "" {
+		networkingMode = networkingModeRestricted
+	}
+
 	id := newID()
 	now := time.Now().UTC()
 	run := &Run{
