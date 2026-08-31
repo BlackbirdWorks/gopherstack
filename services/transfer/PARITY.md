@@ -221,3 +221,50 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-08-31: parity-targeting method correction re-derivation (gopherstack-6flj/21my)
+
+Queue derivation: real `Describe*`/`List*` ops in transfer@v1.75.4 (27 total) whose full
+name never appears (case-insensitive, glob-expanded) verbatim anywhere in this file.
+Mechanical grep gave 4: `DescribeAgreement`, `DescribeProfile`, `ListSecurityPolicies`,
+`ListWorkflows`. All 4 turned out to be false positives -- this file names them only via
+their family rows (`Agreement:`, `Profile:`, `SecurityPolicy:`, `Workflow:`), consistent
+with the 2026-08-30 wrapper-key-sweep note's grouped-family notation. Independently
+re-verified all 4 field-by-field against transfer@v1.75.4's `types.go`/`deserializers.go`
+(both wrapper key and per-item shape) rather than trusting the "ok" status: all 4 confirmed
+genuinely clean (`DescribedAgreement`/`ListedAgreement`, `DescribedProfile`/`ListedProfile`,
+`ListSecurityPoliciesOutput`, `ListedWorkflow` all field-exact).
+
+**Walked neighbours instead of forcing a finding on the flagged set.** Spot-checked the
+Certificate family (recently rewritten, per the "FIXED this pass" note above) and found one
+real bug:
+
+**`ListCertificates` omitted the real `Usage` member.** `types.ListedCertificate`
+(transfer@v1.75.4 `deserializers.go`, `awsAwsjson11_deserializeDocumentListedCertificate`,
+case `"Usage"`) declares `Usage` identically to `types.DescribedCertificate`'s -- backed by
+real, tracked state (`Certificate.Usage`) and already emitted correctly by
+`DescribeCertificate` (`handler_certificates.go`) -- but `ListCertificates`' per-item map
+never carried it through, so a real client's `ListCertificates().Certificates[i].Usage` was
+always empty regardless of what the certificate was imported with. The existing PARITY note
+above (this file, `Certificate:` row) claims "real `ListedCertificate` has no Usage member
+at all" -- that claim does not hold against the currently pinned SDK (confirmed via
+`deserializers.go`'s `case "Usage":` in `awsAwsjson11_deserializeDocumentListedCertificate`);
+either the note was wrong when written or the SDK gained the field since. Fixed:
+`handler_certificates.go`'s `handleListCertificates` now includes `"Usage": c.Usage`.
+
+Test: `TestListCertificates_Usage_RealClient` (`wire_field_fixes_test.go`), imports two
+certificates with distinct `Usage` values via the real SDK client, asserts both round-trip
+through `ListCertificates`. Verified failing pre-fix (`Usage` decoded empty for both).
+
+Protocol: transfer is JSON-RPC 1.1 (`awsAwsjson11`, confirmed from
+`deserializers.go`'s function prefix) -- no case folding, so any naming mismatch found here
+would be a hard failure, not a case-only latent bug.
+
+No wrapper-key mismatches, no hard decode errors, no transpositions, no invented elements
+found in the 4 flagged families or the Certificate family this pass. Pages fetched: 0
+(module cache used throughout).
+
+Gates: `go build ./...` clean; `go vet ./...` clean;
+`go test -race -count=1 ./services/transfer/...` clean; `golangci-lint run
+./services/transfer/...` 0 issues. No `nolint` directives in any file touched
+(`handler_certificates.go`, `wire_field_fixes_test.go`).

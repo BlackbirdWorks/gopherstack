@@ -253,3 +253,46 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 	assert.False(t, descHasWorkflowID,
 		"DescribeExecution: DescribedExecution has no WorkflowId member on the real wire")
 }
+
+// TestListCertificates_Usage_RealClient covers a sibling-shape bug (gopherstack-6flj/21my):
+// real types.ListedCertificate (transfer@v1.75.4 deserializers.go,
+// awsAwsjson11_deserializeDocumentListedCertificate, case "Usage") declares a Usage member
+// identical to types.DescribedCertificate's -- backed by real, tracked state
+// (Certificate.Usage) and already emitted correctly by DescribeCertificate -- but
+// ListCertificates never carried it through, so a real client's
+// ListCertificates().Certificates[i].Usage was always empty regardless of what the
+// certificate was imported with. A prior PARITY.md note claimed ListedCertificate "has no
+// Usage member at all," which does not hold against the currently pinned SDK.
+func TestListCertificates_Usage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
+	ctx := t.Context()
+
+	imported, err := client.ImportCertificate(ctx, &transfersdk.ImportCertificateInput{
+		Certificate: aws.String(testCertPEM),
+		Usage:       transfertypes.CertificateUsageTypeSigning,
+	})
+	require.NoError(t, err)
+
+	other, err := client.ImportCertificate(ctx, &transfersdk.ImportCertificateInput{
+		Certificate: aws.String(testCertPEM),
+		Usage:       transfertypes.CertificateUsageTypeEncryption,
+	})
+	require.NoError(t, err)
+
+	listed, err := client.ListCertificates(ctx, &transfersdk.ListCertificatesInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.Certificates, 2, "must exercise a collection of at least two items")
+
+	got := map[string]transfertypes.CertificateUsageType{}
+	for _, c := range listed.Certificates {
+		got[aws.ToString(c.CertificateId)] = c.Usage
+	}
+
+	assert.Equal(t, transfertypes.CertificateUsageTypeSigning, got[aws.ToString(imported.CertificateId)],
+		"ListCertificates: Usage must round-trip from ImportCertificate, not decode empty")
+	assert.Equal(t, transfertypes.CertificateUsageTypeEncryption, got[aws.ToString(other.CertificateId)],
+		"ListCertificates: Usage must round-trip from ImportCertificate, not decode empty")
+}

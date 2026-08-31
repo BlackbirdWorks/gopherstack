@@ -398,3 +398,106 @@ Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...`
 (clean), `go test -race -count=1 ./services/lambda/...` (pass, existing
 suite unweakened, one new test/3 new assertions added),
 `golangci-lint run ./services/lambda/...` (0 issues, no `--fix` used).
+
+## 2026-08-31: parity-targeting method correction re-derivation (gopherstack-6flj/21my)
+
+Queue derivation: real `List*` ops in lambda@v1.101.2 (14 total, lambda has zero
+`Describe*` ops) whose full name never appears (case-insensitive, glob-expanded) verbatim
+anywhere in this file. Mechanical grep gave 3: `ListCapacityProviders`,
+`ListEventSourceMappings`, `ListVersionsByFunction`.
+
+`ListCapacityProviders` field-diffed clean: `types.CapacityProvider` (lambda@v1.101.2
+`types/types.go`) has no `Name` member at all (identity is `CapacityProviderArn`-only, real
+AWS design, matching this file's existing `UpdateCapacityProvider` URI-label note) --
+gopherstack's `CapacityProvider` model carries all 10 real members and none of the
+`json:"-"`-internal ones leak onto the wire. Recorded, not fixed (different axis): real
+`ListCapacityProvidersInput` declares `Marker`/`MaxItems`/`State` (pagination + a state
+filter); `Backend.ListCapacityProviders()` takes no parameters and always returns every
+provider on one page, unfiltered -- same "pagination/filter ignored" class already
+catalogued elsewhere in this campaign, not a naming bug.
+
+`ListEventSourceMappings` and `ListVersionsByFunction` were NOT clean -- both are the
+Get-right/List-wrong sibling shape, and both share the item builder with their respective
+singular/publish operations (so the bug reached every caller of that builder, not just the
+List op):
+
+1. **`FunctionVersion` (shared by `ListVersionsByFunction`/`PublishVersion`/
+   `GetFunction`-by-version) silently dropped 8 real, backend-tracked
+   `types.FunctionConfiguration` members that the sibling `FunctionConfiguration`
+   type (used by `GetFunctionConfiguration`) already carries correctly:
+   `Architectures`/`EphemeralStorage`/`LoggingConfig`/`MasterArn`/`StateReason`/
+   `StateReasonCode`/`LastUpdateStatus`/`LastUpdateStatusReason`. Both `fnToVersion` and
+   `publishVersion` (`versions_aliases.go`) build `FunctionVersion` directly from a
+   `*FunctionConfiguration` that already has every one of these fields populated -- the
+   source struct had the data, the conversion never copied it. Fixed: added all 8 fields to
+   `FunctionVersion` (`models.go`) with the same json tags `FunctionConfiguration` uses, and
+   populated them in both builders. (Two real `types.FunctionConfiguration` members --
+   `LastUpdateStatusReasonCode` and several capacity/signing/tenancy fields -- are absent
+   from gopherstack's `FunctionConfiguration` too, i.e. a shared gap with no disagreement to
+   detect; left as a recorded gap, not fixed this pass. `ReservedConcurrentExecutions`,
+   present on gopherstack's `FunctionConfiguration` but not on the real
+   `types.FunctionConfiguration` at all, is a separate, pre-existing possible issue on the
+   Get side, out of this pass's List-sibling scope -- recorded, not touched.)
+
+   `FunctionVersion` is part of `backendSnapshot` (`persistence.go`'s `Versions
+   map[string][]*FunctionVersion`) -- the same struct serves both the wire and the
+   persisted shape. The 8 new fields are purely additive (`omitempty`), so
+   `TestSnapshotVersionGuard` correctly demanded a golden bookkeeping update rather than a
+   version bump; ran with `-update`, confirmed the diff is additive-only, re-ran clean.
+
+   Test: `TestListVersionsByFunction_SiblingFields_RealClient` (`wire_field_fixes_test.go`),
+   creates a function with all 8 fields set to distinguishable values via
+   `bk.CreateFunction`, publishes two versions, asserts all 8 round-trip through
+   `ListVersionsByFunction`'s real SDK client for `$LATEST` and both published versions (3+
+   items). Verified failing pre-fix (`Architectures`/`EphemeralStorage` decoded nil/empty).
+
+2. **`ListEventSourceMappings`/`CreateEventSourceMapping`/`GetEventSourceMapping` (all
+   sharing `toJSONESMResponse`) never emitted `LastModified`**, despite
+   `EventSourceMapping.LastModified` (`event_source_mapping.go`) being real, tracked state
+   set at creation. Real `types.EventSourceMappingConfiguration.LastModified` decodes via
+   `smithytime.ParseEpochSeconds` on a JSON Number (confirmed against
+   lambda@v1.101.2 `deserializers.go`'s
+   `awsRestjson1_deserializeDocumentEventSourceMappingConfiguration` case `"LastModified"`)
+   -- epoch-seconds, not RFC3339, the same timestamp-format bug class documented elsewhere
+   in this campaign. Fixed: added `LastModified float64` to `jsonESMResponse`
+   (`event_source_mapping.go`), populated via `awstime.Epoch(m.LastModified)` in
+   `toJSONESMResponse`. `golangci-lint run --fix` additionally reordered the struct for `fieldalignment` and, as a
+   side effect of that reorder, dropped all three pre-existing `//nolint:lll` directives on
+   this struct. That drop was WRONG -- all three lines still exceed 120 characters after
+   realignment (128/126/123 chars; the AWS field names themselves are the width, not the
+   column position), and a subsequent full `golangci-lint run` (without `--fix`, across all
+   three services together) caught the regression: 3 `lll` findings on exactly those lines.
+   Restored all three `//nolint:lll // AWS field name` directives by hand; `golangci-lint
+   run` back to 0 issues. Recorded here because it is a small but concrete instance of this
+   session's own "never trust an artefact's prior verification" mandate applying to a tool's
+   own `--fix` output, not just to hand-written notes.
+
+   Recorded, not fixed (different axis, genuine unmodeled gaps):
+   `EventSourceMappingArn`/`FilterCriteriaError`/`KMSKeyArn`/`LoggingConfig`/
+   `MetricsConfig`/`ProvisionedPollerConfig`/`ScalingConfig`/`StartingPositionTimestamp`/
+   `StateTransitionReason` are real `types.EventSourceMappingConfiguration` members with no
+   backing state in this backend's `EventSourceMapping` model at all -- each would need new
+   accept/store/read wiring, not a field-copy fix.
+
+   Test: `TestListEventSourceMappings_LastModified_RealClient` (`wire_field_fixes_test.go`),
+   creates a mapping via the real SDK client, asserts `LastModified` round-trips (non-nil,
+   after a pre-call timestamp) on both `CreateEventSourceMapping`'s response and
+   `ListEventSourceMappings`. Verified failing pre-fix (`LastModified` decoded nil on
+   create).
+
+Protocol: lambda is REST-JSON (`awsRestjson1`, confirmed from `deserializers.go`'s function
+prefix) -- no case folding, so any naming mismatch here is a hard failure class.
+
+No wrapper-key mismatches, no hard decode errors/panics, no transpositions, no invented
+elements found this pass. Pages fetched: 0 (module cache used throughout).
+
+Gates: `go build ./...` clean; `go vet ./...` clean;
+`go test -race -count=1 ./services/lambda/...` clean; `go test -race -count=1
+-run TestSnapshotVersionGuard ./pkgs/persistence/` clean (after `-update` refreshed the
+additive-only golden, confirmed with `git diff --stat` showing an 8-line addition only);
+`golangci-lint run ./services/transfer/... ./services/opensearch/... ./services/lambda/...`
+0 issues (one `--fix` pass for `fieldalignment` on `event_source_mapping.go`, scoped to that
+file, plus a hand restoration of 3 `nolint:lll` directives `--fix` incorrectly dropped -- see
+above). `nolint` directives in files touched this pass: `event_source_mapping.go` has 3
+(`//nolint:lll` x3, all pre-existing and now confirmed still necessary). No `nolint`
+directives in `models.go`, `versions_aliases.go`, or `wire_field_fixes_test.go`.

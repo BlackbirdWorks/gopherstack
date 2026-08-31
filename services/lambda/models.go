@@ -312,31 +312,39 @@ type ListFunctionURLConfigsOutput struct {
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
-	DurableConfig       *DurableConfig       `json:"DurableConfig,omitempty"`
-	Environment         *EnvironmentConfig   `json:"Environment,omitempty"`
-	VpcConfig           *VpcConfig           `json:"VpcConfig,omitempty"`
-	TracingConfig       *TracingConfig       `json:"TracingConfig,omitempty"`
-	FileSystemConfigs   []*FileSystemConfig  `json:"FileSystemConfigs,omitempty"`
-	DeadLetterConfig    *DeadLetterConfig    `json:"DeadLetterConfig,omitempty"`
-	ImageConfigResponse *ImageConfigResponse `json:"ImageConfigResponse,omitempty"`
-	SnapStart           *SnapStartResponse   `json:"SnapStart,omitempty"`
-	FunctionArn         string               `json:"FunctionArn"`
-	FunctionName        string               `json:"FunctionName"`
-	RevisionID          string               `json:"RevisionId"`
-	ImageURI            string               `json:"ImageUri,omitempty"`
-	PackageType         string               `json:"PackageType"`
-	Role                string               `json:"Role"`
-	Runtime             string               `json:"Runtime,omitempty"`
-	CreatedAt           string               `json:"LastModified"`
-	Handler             string               `json:"Handler,omitempty"`
-	State               FunctionState        `json:"State"`
-	Description         string               `json:"Description"`
-	Version             string               `json:"Version"`
-	CodeSha256          string               `json:"CodeSha256,omitempty"`
-	Layers              []*FunctionLayer     `json:"Layers,omitempty"`
-	MemorySize          int                  `json:"MemorySize"`
-	Timeout             int                  `json:"Timeout"`
-	CodeSize            int64                `json:"CodeSize"`
+	DurableConfig          *DurableConfig          `json:"DurableConfig,omitempty"`
+	Environment            *EnvironmentConfig      `json:"Environment,omitempty"`
+	EphemeralStorage       *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	LoggingConfig          *LoggingConfig          `json:"LoggingConfig,omitempty"`
+	VpcConfig              *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig          *TracingConfig          `json:"TracingConfig,omitempty"`
+	FileSystemConfigs      []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	DeadLetterConfig       *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
+	ImageConfigResponse    *ImageConfigResponse    `json:"ImageConfigResponse,omitempty"`
+	SnapStart              *SnapStartResponse      `json:"SnapStart,omitempty"`
+	FunctionArn            string                  `json:"FunctionArn"`
+	FunctionName           string                  `json:"FunctionName"`
+	RevisionID             string                  `json:"RevisionId"`
+	ImageURI               string                  `json:"ImageUri,omitempty"`
+	PackageType            string                  `json:"PackageType"`
+	Role                   string                  `json:"Role"`
+	Runtime                string                  `json:"Runtime,omitempty"`
+	CreatedAt              string                  `json:"LastModified"`
+	Handler                string                  `json:"Handler,omitempty"`
+	State                  FunctionState           `json:"State"`
+	Description            string                  `json:"Description"`
+	Version                string                  `json:"Version"`
+	CodeSha256             string                  `json:"CodeSha256,omitempty"`
+	MasterArn              string                  `json:"MasterArn,omitempty"`
+	StateReason            string                  `json:"StateReason,omitempty"`
+	StateReasonCode        string                  `json:"StateReasonCode,omitempty"`
+	LastUpdateStatus       LastUpdateStatus        `json:"LastUpdateStatus"`
+	LastUpdateStatusReason string                  `json:"LastUpdateStatusReason,omitempty"`
+	Layers                 []*FunctionLayer        `json:"Layers,omitempty"`
+	Architectures          []string                `json:"Architectures,omitempty"`
+	MemorySize             int                     `json:"MemorySize"`
+	Timeout                int                     `json:"Timeout"`
+	CodeSize               int64                   `json:"CodeSize"`
 }
 
 // ListVersionsByFunctionOutput is the response for ListVersionsByFunction.

@@ -1092,3 +1092,78 @@ exists); no source or test changes this pass.
 Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...` (no changes,
 nothing to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
 instructions.
+
+## 2026-08-31: parity-targeting method correction re-derivation (gopherstack-6flj/21my)
+
+Queue derivation: real `Describe*`/`List*` ops in opensearch@v1.75.4 (33 total) whose full
+name never appears (case-insensitive, glob-expanded) verbatim anywhere in this file.
+Mechanical grep gave 3: `ListDataSources`, `ListDirectQueryDataSources`,
+`ListScheduledActions`. All 3 field-diffed independently against
+`opensearch@v1.75.4`'s `types/types.go`/`api_op_*.go` (wrapper key + full per-item shape,
+not trusting this file's existing "field-diffed" claims) and came back genuinely clean --
+`ListDataSourcesOutput.DataSources`/`types.DataSourceDetails`,
+`ListDirectQueryDataSourcesOutput.DirectQueryDataSources`/`types.DirectQueryDataSource`,
+and `ListScheduledActionsOutput.ScheduledActions`/`types.ScheduledAction` (9 of 9 real
+members present on `models.go`'s `ScheduledAction`) all match. Recorded, not fixed: real
+`AddDirectQueryDataSourceInput.TagList` (and the response-side `DirectQueryDataSource.TagList`)
+has no backing state anywhere in this backend's `DirectQueryDataSource` model -- a genuine
+gap, not a naming bug, since implementing it needs a full tag-store wired through
+Add/List/Get/Delete.
+
+**Walked neighbours instead of forcing a finding on the flagged set** -- this file's own
+"Un-re-verified ops outside the assigned scope" list (still present above) names several
+ops this pass could legitimately continue into. Two real bugs found and fixed:
+
+1. **`DescribeDryRunProgress` was missing two of its three real top-level members.**
+   `DescribeDryRunProgressOutput` (opensearch@v1.75.4 `api_op_DescribeDryRunProgress.go`)
+   declares `DryRunConfig`/`DryRunProgressStatus`/`DryRunResults`; the handler
+   (`handler_domain_status.go`) only ever emitted `DryRunProgressStatus`. `DryRunResults`
+   (`types.DryRunResults`: `DeploymentType`/`Message`) is the identical shape
+   `UpdateDomainConfig`'s own dry-run path already synthesizes elsewhere in this service
+   (`handler_domain_config.go`'s `dryRunResultsJSON`), so fixed by reusing that same
+   synthesized value. `DryRunConfig` (a full `*types.DomainStatus` preview) is left as a
+   recorded gap -- no pending-change-diff mechanism exists to build a real preview from,
+   and fabricating one would be worse than omitting it.
+
+2. **`DescribeDomainNodes` never surfaced `StorageSize`/`StorageType`, and its
+   `StorageVolumeType` fallback used an invalid enum value.** Real `DomainNodesStatus`
+   (opensearch@v1.75.4 `types/types.go`) declares `StorageSize`/`StorageType` alongside
+   `StorageVolumeType`; `GetDomainNodes` (`domain_status.go`) only ever populated
+   `StorageVolumeType`, and did so unconditionally from a hardcoded `"EBS"` default when
+   `EBSOptions` was unset -- `"EBS"` is not a member of the real `VolumeType` enum
+   (`standard`/`gp2`/`io1`/`gp3`), so that default value was already wrong on its own axis.
+   `StorageSize` was real, tracked state (`EBSOptions.VolumeSize`) never read; `StorageType`
+   ("EBS" vs "Instance") was never computed at all. Fixed: `GetDomainNodes` now derives
+   `StorageType` from `EBSOptions.EBSEnabled` (assumed true when unset, matching most real
+   instance types), and only emits `StorageSize`/`StorageVolumeType` for EBS-backed nodes,
+   with `StorageVolumeType` defaulting to the valid enum value `"gp2"` instead of `"EBS"`.
+
+Recorded, not fixed (different axis, structural gaps -- no legal input could surface them
+without new state modeling): `DescribeDomainHealth` is missing `AvailabilityZoneCount`/
+`ClusterHealth`/`EnvironmentInformation`/`MasterEligibleNodeCount`/`MasterNode`/
+`StandByAvailabilityZoneCount` (real members with no cluster-health/master-election model
+in this backend); `DescribeDomainChangeProgress` is missing `ChangeProgressStages`/
+`ConfigChangeStatus`/`InitiatedBy` (no per-stage change-progress model exists).
+
+Tests: `TestDescribeDryRunProgress_DryRunResults_RealClient` and
+`TestDescribeDomainNodes_Storage_RealClient` (`wire_field_fixes_test.go`), both driving the
+real aws-sdk-go-v2 opensearch client. Both verified failing pre-fix (`DryRunResults` decoded
+nil; `StorageSize`/`StorageType` decoded empty). Existing
+`TestDescribeDomainNodes_StorageAndAZ`/`TestOpenSearchHandler_DescribeDomainNodes` re-run and
+still pass (no EBSOptions specified in those tests, exercising the "assume EBS" default
+path).
+
+Protocol: opensearch is REST-JSON (`awsRestjson1`, confirmed from `deserializers.go`'s
+function prefix) -- no case folding, so any naming mismatch here is a hard failure class,
+not a latent case-only one.
+
+No wrapper-key mismatches, no hard decode errors, no transpositions, no invented elements
+found. `models.go` not touched by either fix (`domain_status.go`/`handler_domain_status.go`
+only), so no `TestSnapshotVersionGuard` re-run was required for this service specifically
+(it was run once for the lambda `models.go` change in this same session and passed). Pages
+fetched: 0 (module cache used throughout).
+
+Gates: `go build ./...` clean; `go vet ./...` clean;
+`go test -race -count=1 ./services/opensearch/...` clean; `golangci-lint run
+./services/opensearch/...` 0 issues. No `nolint` directives in any file touched
+(`domain_status.go`, `handler_domain_status.go`, `wire_field_fixes_test.go`).
