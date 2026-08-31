@@ -469,3 +469,96 @@ prompts, knowledge bases -- was not re-swept here; see this file's REST-routed
 coverage note above, unchanged from the prior pass). Gates re-run to confirm
 no regression: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
 `golangci-lint run` -- all clean (`./services/bedrock/...`), 0 diff.
+
+## 2026-08-31 error-envelope-shape sweep (gopherstack-6flj/gopherstack-uox6 axis), 4 bugs
+
+covledger had no `error_envelope_shape` row for this service; `git log
+--oneline -- services/bedrock/` and this file's own history show no prior
+pass on this specific axis either (the closest neighbour, the 2026-08-31
+entry above, covers request-key/silent-empty-default, a different bug
+class). So this is genuinely first coverage, not a re-derivation.
+
+This package hosts TWO distinct real AWS operation families in one Go
+package: core bedrock (`*Handler`, bedrock@v1.66.4, 108 restjson1 ops --
+`handler_sdk_route_table_test.go`) and, separately, an in-package
+`AgentsHandler` sub-API emulating bedrock-agent.amazonaws.com
+(bedrockagent@v1.58.4, 67 restjson1 ops -- `handler_agent_sdk_route_table_test.go`).
+Both speak `awsRestjson1`, confirmed per-op from each SDK's own
+`awsRestjson1_deserializeOpError<Op>`, not assumed service-wide. Both
+route ALL error responses through one shared per-domain mapper
+(`Handler.writeError` / `AgentsHandler`'s equivalent), which converts a
+small set of sentinel errors (`ErrNotFound`->ResourceNotFoundException,
+`ErrAlreadyExists`->ConflictException, `ErrValidation`->ValidationException)
+uniformly across every operation in that domain -- the shared-sentinel
+hazard this campaign has flagged before.
+
+Extracted every op's declared error codes from both pinned SDKs'
+`deserializers.go` (regex over each `awsRestjson1_deserializeOpError<Op>`
+body for `EqualFold("<Code>"`) and cross-checked every `ErrNotFound` (138
+call sites core+agent), `ErrAlreadyExists` (34), and `ErrValidation` (58)
+call site against its op's own declared set. 108 core ops + 67 agent ops
+checked for this axis; the two ops the real bedrockagent SDK does not
+expose at all (`bedrock-agent-runtime`'s `GetAgentMemory`/`DeleteAgentMemory`,
+already documented in `handler_agents_dispatch.go`) were not re-verified --
+no pinned SDK for that client exists in this module cache to check against.
+
+FOUR REAL BUGS, all core-bedrock, all the same shape: a shared sentinel
+correct for most Create/Update ops in its domain but wrong for these four,
+whose OWN deserializer declares no `ConflictException`/`ResourceNotFoundException`
+at all -- verified directly against `bedrock@v1.66.4/deserializers.go`, not
+inferred.
+
+1. `CreateCustomModelDeployment` duplicate name: emitted ConflictException
+   (`ErrAlreadyExists`); declares AccessDenied/InternalServer/ResourceNotFound/
+   ServiceQuotaExceeded/Throttling/TooManyTags/Validation -- no Conflict.
+2. `CreateProvisionedModelThroughput` duplicate name: same shape, same
+   declared set (minus ResourceNotFound... no, RNF is declared; Conflict is
+   not).
+3. `UpdateProvisionedModelThroughput` duplicate rename target: same shape.
+4. `PutResourcePolicy` (core bedrock domain -- bedrock-agent's OWN
+   PutResourcePolicy for knowledge bases, in the same file, DOES declare
+   ConflictException and was left alone) on an unrecognized resourceArn:
+   emitted ResourceNotFoundException (`ErrNotFound`); core PutResourcePolicy
+   declares AccessDenied/Conflict/InternalServer/Throttling/Validation -- no
+   ResourceNotFound.
+
+Fix: per-call-site override to `ErrValidation` (declared by all four, and
+the closest documented semantic match -- "Input validation failed" per
+`types/errors.go`'s doc comment, versus ConflictException's vaguer "conflict
+while performing an operation") rather than changing the shared sentinels,
+which would have broken every other correctly-typed caller of
+`ErrAlreadyExists`/`ErrNotFound` in this package (dozens of sites, spot-checked
+clean -- see e.g. `CreateGuardrail`/`CreateAgent`/`DeleteAgent`, which DO
+declare ConflictException and were left on the shared sentinel).
+
+RESTRAINT: `CreateModelCopyJob`'s two required-field checks also return
+`ErrValidation`, but that op's declared set (AccessDenied/InternalServer/
+ResourceNotFound/TooManyTags) has no ValidationException either -- no
+declared code fits "field required" here. Left as-is with a comment
+recording the gap; inventing a replacement would be the exact bug this
+sweep removes.
+
+TESTS: added `error_envelope_shape_test.go`, 4 new `_RealClient` tests
+driving the real `aws-sdk-go-v2` client and asserting `errors.As` into
+`*types.ValidationException` -- each confirmed to fail against the
+unmodified code first (all four failed with the old ConflictException/
+ResourceNotFoundException `*smithy.GenericAPIError` in the chain, exactly
+as the bug predicts). Corrected 3 existing tests that asserted only the
+raw HTTP status code and therefore could not have detected this class:
+`handler_custom_model_deployments_test.go` ("duplicate deployment name",
+409->400), `handler_provisioned_throughput_test.go` ("duplicate name",
+409->400), `handler_test.go` (`TestHandler_ResourcePolicy`, "put on a
+nonexistent resource is not found" -> renamed "...is a validation error",
+404->400). All three: 1 status-code assertion each, value corrected,
+assertion count unchanged (1 before, 1 after, all three).
+
+`errcodeaudit` (gopherstack-r3pr/r08q) reports ZERO findings, confident or
+needs-review, for either `services/bedrock` or `services/iotwireless` --
+consistent with this being class-A envelope-shape bugs (a real SDK-defined
+code used on the wrong operation), not class-B fabricated codes (a string
+the SDK never defines anywhere), which is what that tool targets.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` (0 issues after one `golines -m 120` pass on the new
+test file) -- all clean on `./services/bedrock/...`. No new
+cyclop/gocyclo/gocognit/funlen nolints (0 in this package, unchanged).

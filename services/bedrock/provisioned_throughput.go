@@ -41,9 +41,12 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 	}
 
 	if _, exists := b.pmtsByName[name]; exists {
+		// CreateProvisionedModelThroughput's deserializer declares no
+		// ConflictException (bedrock@v1.66.4 deserializers.go) -- ErrValidation
+		// is the closest type it does declare.
 		return nil, fmt.Errorf(
 			"%w: provisioned model throughput %s already exists",
-			ErrAlreadyExists,
+			ErrValidation,
 			name,
 		)
 	}
@@ -195,9 +198,12 @@ func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
 
 	if newName != "" && newName != pmt.ProvisionedModelName {
 		if _, exists := b.pmtsByName[newName]; exists {
+			// UpdateProvisionedModelThroughput's deserializer declares no
+			// ConflictException (bedrock@v1.66.4 deserializers.go) --
+			// ErrValidation is the closest type it does declare.
 			return nil, fmt.Errorf(
 				"%w: provisioned model throughput %s already exists",
-				ErrAlreadyExists,
+				ErrValidation,
 				newName,
 			)
 		}

@@ -234,3 +234,36 @@ traps so the next auditor doesn't re-flag them.
   `pagination.go`'s documented-default-page-size reasoning (no single default page size is
   documented across every List* op in this SDK) was reconfirmed against every op's doc
   comment; no numeric default is stated anywhere, so the existing choice stands unchanged.
+
+  2026-08-31 error-envelope-shape sweep (gopherstack-6flj/gopherstack-uox6
+  axis), CONFIRMED CLEAN, no code changes. `covledger` had no
+  `error_envelope_shape`/`fabricated_error_code` row for this service, but
+  the `ops:` block above's `errors: ok` entries and this file's own "errors
+  (global)" row already document a prior fix: `writeError` derives a single
+  `X-Amzn-Errortype` from the HTTP status (404/400/403/409/429/else), and
+  every error path in the service routes through it — a genuine single-point
+  fix, not merely a claim.
+
+  Re-derived rather than trusted: extracted every op's declared error codes
+  from the pinned `iotwireless@v1.59.4/deserializers.go` (112 restjson1
+  ops, confirmed per-op via `awsRestjson1_deserializeOpError<Op>`, not
+  assumed uniform) and diffed against `awsErrorType`'s fixed six-code
+  vocabulary. 17 ops declare no ResourceNotFoundException and 1
+  (`GetEventConfigurationByResourceTypes`) declares no ValidationException;
+  traced every one back to source and confirmed none of the 18 ever
+  triggers `isNotFound`/`ErrValidation` in its own handler (they're
+  Create/List/singleton-config ops with no not-found or validation-error
+  path at all) — so the mismatch the declared-set diff raises is never
+  actually reachable. ConflictException/AccessDeniedException/
+  ThrottlingException are declared in `awsErrorType` but never triggered by
+  any handler (grepped for `StatusConflict`/`StatusForbidden`/
+  `StatusTooManyRequests` outside `handler.go`'s own switch — zero hits),
+  so those branches are dead but not wrong. No handler bypasses `writeError`
+  (grepped for `X-Amzn-Errortype`/`__type` outside `handler.go` — zero
+  hits), so no fabricated-code path exists either. `errcodeaudit`
+  (gopherstack-r3pr/r08q) independently reports zero findings for this
+  service, confident or needs-review.
+
+  Both verdicts hold. Effort for this pass went to `services/bedrock`
+  instead, which had no equivalent prior fix and four real bugs on this
+  axis (see its own PARITY.md, same date).

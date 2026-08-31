@@ -1115,7 +1115,11 @@ func TestHandler_ResourcePolicy(t *testing.T) {
 			},
 		},
 		{
-			name: "put on a nonexistent resource is not found",
+			// PutResourcePolicy's deserializer declares no
+			// ResourceNotFoundException (bedrock@v1.66.4 deserializers.go),
+			// so a nonexistent target reports ValidationException/400, not
+			// ResourceNotFoundException/404.
+			name: "put on a nonexistent resource is a validation error",
 			run: func(t *testing.T) {
 				t.Helper()
 
@@ -1124,7 +1128,7 @@ func TestHandler_ResourcePolicy(t *testing.T) {
 					"resourceArn":    "arn:aws:bedrock:us-east-1:000000000000:guardrail/does-not-exist",
 					"resourcePolicy": `{}`,
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

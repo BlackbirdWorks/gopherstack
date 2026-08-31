@@ -48,7 +48,10 @@ func TestHandler_CreateProvisionedModelThroughput(t *testing.T) { //nolint:paral
 				"modelId":              "amazon.titan-text-express-v1",
 				"modelUnits":           1,
 			},
-			wantStatus: http.StatusConflict,
+			// CreateProvisionedModelThroughput's deserializer declares no
+			// ConflictException (bedrock@v1.66.4 deserializers.go); the
+			// backend now reports this as ValidationException/400.
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

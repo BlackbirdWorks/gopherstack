@@ -12,6 +12,14 @@ import (
 // from the caller's real targetModelName (bedrock@v1.66.4
 // serializers.go:1720-1750, "This member is required") -- it must never be
 // a fabricated name of this backend's own choosing.
+//
+// KNOWN GAP: CreateModelCopyJob's deserializer declares only
+// AccessDeniedException, InternalServerException, ResourceNotFoundException,
+// TooManyTagsException -- no ValidationException. The SDK defines no typed
+// error for "required field missing" on this operation, so the
+// ErrValidation returned below still deserializes untyped on a real client
+// regardless of which declared code it were rewritten to; none fits.
+// Recorded rather than fabricated a replacement code.
 func (b *InMemoryBackend) CreateModelCopyJob(
 	sourceModelARN, targetModelName string,
 	tags []Tag,

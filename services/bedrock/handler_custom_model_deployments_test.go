@@ -49,7 +49,10 @@ func TestHandler_CreateCustomModelDeployment(t *testing.T) { //nolint:parallelte
 				"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/cm-0000001",
 				"modelDeploymentName": "dup-deploy",
 			},
-			wantStatus: http.StatusConflict,
+			// CreateCustomModelDeployment's deserializer declares no
+			// ConflictException (bedrock@v1.66.4 deserializers.go); the
+			// backend now reports this as ValidationException/400.
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

@@ -32,9 +32,13 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 	}
 
 	if _, exists := b.customModelDeployByName[deploymentName]; exists {
+		// CreateCustomModelDeployment's deserializer declares no
+		// ConflictException (bedrock@v1.66.4 deserializers.go) -- ErrValidation
+		// is the closest type it does declare, not the shared ErrAlreadyExists
+		// sentinel most other Create ops use.
 		return nil, fmt.Errorf(
 			"%w: custom model deployment %s already exists",
-			ErrAlreadyExists,
+			ErrValidation,
 			deploymentName,
 		)
 	}
