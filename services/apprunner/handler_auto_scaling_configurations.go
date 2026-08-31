@@ -141,10 +141,15 @@ type autoScalingConfigurationSummaryOutput struct {
 }
 
 type listAutoScalingConfigurationsInput struct {
+	// *bool, not bool: LatestOnly's doc (aws-sdk-go-v2/service/apprunner@
+	// v1.42.4 api_op_ListAutoScalingConfigurations.go) says "Default: true",
+	// and the SDK's own serializer omits the key from the wire whenever the
+	// Go value is false (serializers.go: `if v.LatestOnly { ... }`), so an
+	// omitted key must resolve to true, not to Go's bool zero value.
+	LatestOnly                   *bool  `json:"LatestOnly,omitempty"`
 	AutoScalingConfigurationName string `json:"AutoScalingConfigurationName"`
 	NextToken                    string `json:"NextToken"`
 	MaxResults                   int32  `json:"MaxResults"`
-	LatestOnly                   bool   `json:"LatestOnly"`
 }
 
 type listAutoScalingConfigurationsOutput struct {
@@ -158,7 +163,7 @@ func (h *Handler) handleListAutoScalingConfigurations(
 ) (*listAutoScalingConfigurationsOutput, error) {
 	cfgs, nextToken, err := h.Backend.ListAutoScalingConfigurations(
 		in.AutoScalingConfigurationName,
-		in.LatestOnly,
+		in.LatestOnly == nil || *in.LatestOnly,
 		in.MaxResults,
 		in.NextToken,
 	)

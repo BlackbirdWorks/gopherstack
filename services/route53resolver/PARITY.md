@@ -593,3 +593,67 @@ this service's own handlers.
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/route53resolver/...` and
 `./cmd/reqfieldscan/...`). No code changed in this service this pass.
+
+## 2026-08-31 (value-semantics pass, gopherstack-uox6): clean, no code changed
+
+Targeted this service for bd `gopherstack-uox6`'s class -- a filter that is
+read and applied but implements the wrong semantics (a negation prefix taken
+literally, a documented default silently widened when omitted, a comparison
+one value off from what "inclusive"/"greater than" documents, etc) --
+invisible to the field-read/enum/wire-key scanners this service's prior
+passes already ran clean under. This axis (behaviour, not shape) was
+explicitly unexamined before this pass.
+
+Checked every optional filter across all 12 List operations against
+`types.Filter`'s own doc comment (`aws-sdk-go-v2/service/route53resolver@
+v1.48.4 types/types.go`) and each operation's own input struct, operation by
+operation rather than trusting a sibling's verdict (the `PatchOrchestratorFilter`
+failure mode this class has produced elsewhere):
+
+- The five `types.Filter`-based ops (`ListResolverEndpoints`,
+  `ListResolverRules`, `ListResolverRuleAssociations`,
+  `ListResolverQueryLogConfigs`, `ListResolverQueryLogConfigAssociations`):
+  every documented `Name` value for every op is matched by field, by exact
+  equality/membership (`slices.Contains`/`containsAny`), with no operator
+  grammar, no wildcard, no negation, and no range/date filter documented
+  anywhere in `types.Filter` -- so those sub-shapes of this bug class are
+  structurally absent here, not merely unaudited. `list_filters.go`'s
+  `applyFilters` combining rule (AND across filters, OR within one filter's
+  `Values`) matches the standard AWS list-filter convention and is shared
+  correctly by all five. An empty `Values` list matching nothing (rather than
+  degrading to "no filter") is the documented-absent case correctly handled
+  conservatively, per that function's own doc comment.
+- `ListFirewallRuleTypes`'s `RuleType` ("An optional filter... If omitted,
+  definitions across all variants are returned") -- `handler_firewall_rules.go`
+  correctly returns the full catalog when `in.RuleType == ""` and narrows only
+  when set.
+- `ListFirewallRuleGroupAssociations`'s `Status` ("If you don't specify this,
+  then DNS Firewall returns all associations, regardless of status"),
+  `Priority`, `FirewallRuleGroupId`/`VpcId` ("Leave this blank to retrieve
+  associations for any [rule group/VPC]") -- all four correctly no-op on
+  their zero value, in both the handler (`Status`/`Priority`) and the backend
+  (`VpcId`/`FirewallRuleGroupId`), confirmed by reading
+  `ListFirewallRuleGroupAssociations` (`firewall_rule_groups.go`) end to end.
+- `ListFirewallRules`'s `Action`/`Priority` ("Optional additional filter") --
+  both correctly no-op on absence in `handleListFirewallRules`.
+- `ListOutpostResolvers`'s `OutpostArn` -- no omission language in the SDK
+  doc, and the handler correctly treats `""` as no filter.
+- `ListResolverConfigs`/`ListFirewallConfigs`/`ListFirewallDomainLists`/
+  `ListFirewallDomains`/`ListResolverEndpointIpAddresses`/
+  `ListTagsForResource`: no filter parameter beyond pagination in the pinned
+  SDK's own input struct (checked field-by-field, not assumed) -- structurally
+  outside this bug class's surface.
+- `ListResolverDnssecConfigs` takes `types.Filter` but the SDK doesn't
+  document any valid `Name` for it (absent from both `types.Filter`'s
+  per-operation enumeration and AWS's own API reference page for this op) --
+  `matchNoDnssecConfigFilter` rejecting every filter name via `applyFilters`'s
+  existing unrecognized-name path is the correct, already-in-place behaviour,
+  not a gap.
+
+No bug found. No web page fetched this pass -- everything resolved from the
+pinned `aws-sdk-go-v2/service/route53resolver@v1.48.4` module cache. No code
+changed in this service.
+
+Gates: `go build`, `go vet ./...` (repo-wide), `go test -race -count=1
+./services/route53resolver/...`, `golangci-lint run
+./services/route53resolver/...` -- all clean.

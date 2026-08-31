@@ -140,3 +140,44 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 		})
 	}
 }
+
+// LatestOnly's doc (aws-sdk-go-v2/service/apprunner@v1.42.4
+// api_op_ListObservabilityConfigurations.go): "Default: true" -- an omitted
+// LatestOnly must behave the same as an explicit true, not the same as an
+// explicit false.
+func TestObservabilityConfigurationRevisionsLatestOnlyDefault(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(
+		t, h, "CreateObservabilityConfiguration", map[string]any{"ObservabilityConfigurationName": "my-obs"},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(
+		t, h, "CreateObservabilityConfiguration", map[string]any{"ObservabilityConfigurationName": "my-obs"},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var r2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	rev2 := r2["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationRevision"].(float64)
+	assert.InDelta(t, float64(2), rev2, 0.0001)
+
+	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list := listResp["ObservabilityConfigurationSummaryList"].([]any)
+	assert.Len(t, list, 1)
+
+	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{"LatestOnly": true})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list = listResp["ObservabilityConfigurationSummaryList"].([]any)
+	assert.Len(t, list, 1)
+
+	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{"LatestOnly": false})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list = listResp["ObservabilityConfigurationSummaryList"].([]any)
+	assert.Len(t, list, 2)
+}

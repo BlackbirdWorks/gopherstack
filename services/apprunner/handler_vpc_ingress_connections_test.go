@@ -144,6 +144,36 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			},
 		},
 		{
+			// ListVpcIngressConnectionsFilter's wire field is VpcEndpointId,
+			// not VpcIngressConnectionArn (aws-sdk-go-v2/service/apprunner@
+			// v1.42.4 types/types.go ListVpcIngressConnectionsFilter,
+			// serializers.go awsAwsjson10_serializeDocumentListVpcIngressConnectionsFilter).
+			name:     "list with matching VpcEndpointId filter",
+			action:   "ListVpcIngressConnections",
+			body:     map[string]any{"Filter": map[string]any{"VpcEndpointId": "vpce-222"}},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["VpcIngressConnectionSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "list with non-matching VpcEndpointId filter",
+			action:   "ListVpcIngressConnections",
+			body:     map[string]any{"Filter": map[string]any{"VpcEndpointId": "vpce-nonexistent"}},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["VpcIngressConnectionSummaryList"].([]any)
+				assert.Empty(t, list)
+			},
+		},
+		{
 			name:   "update changes VPC config",
 			action: "UpdateVpcIngressConnection",
 			body: map[string]any{
