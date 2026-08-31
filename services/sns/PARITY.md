@@ -586,3 +586,18 @@ confirmed failing pre-fix.
 Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race -count=1
 ./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues, no new
 nolints). No backend/exported signature changed, so no repo-wide `go vet` was required.
+
+## 2026-08-31 exact-case element check (gopherstack-21my)
+
+Re-verified byte-for-byte, not by folding comparison: every list, map and
+nested-item response shape checked against the exact string literals the pinned
+deserializer matches on. No hard mismatch, and no case-only mismatch either.
+
+The case-only class is the one worth naming here. This service is query
+protocol with XML responses, and smithy-go's XML decoder matches element names
+with EqualFold, so a name differing only in case decodes correctly and no
+round-trip test can see it. It is still wrong - it is not what AWS emits, and
+any consumer matching exactly would break. None was found.
+
+Every list in this service is member-wrapped rather than flattened, confirmed
+by there being no call site of an unwrapped-list deserializer variant.

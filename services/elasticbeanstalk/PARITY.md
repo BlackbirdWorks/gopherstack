@@ -292,3 +292,23 @@ only two real findings across the whole three-service batch (workspaces,
 codebuild, elasticbeanstalk); see `services/codebuild/PARITY.md` for the
 codebuild finding and the type-aware field-usage scan method used there.
 Workspaces came back clean (0/90 request-struct fields unreferenced).
+
+## 2026-08-31 exact-case element check (gopherstack-21my)
+
+Roughly twenty operations with data-bearing responses re-verified byte-for-byte
+against the exact string literals the pinned deserializer matches on, including
+all seven nested sub-lists of the environment-resources response. No hard
+mismatch and no case-only mismatch. Not individually re-checked: operations
+sharing a result type already verified, and operations whose response carries no
+data.
+
+The case-only class matters here because this service is query protocol with XML
+responses, where the decoder folds case and a wrong-cased name decodes anyway -
+invisible to any round-trip test.
+
+Every list is member-wrapped, confirmed by the absence of any unwrapped-list
+deserializer call site.
+
+Newly recorded gap, not a bug: a configuration option description carries a
+regex restriction field in the real API that this backend never emits, because
+it tracks no such restriction data.
