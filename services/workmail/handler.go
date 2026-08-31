@@ -122,6 +122,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	status := http.StatusInternalServerError
 
 	switch {
+	case errors.Is(err, ErrOrganizationNotFound):
+		code, status = "OrganizationNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrResourceNotFound):
+		code, status = "ResourceNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrMailDomainNotFound):
+		code, status = "MailDomainNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		code, status = "EntityNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrConflict):

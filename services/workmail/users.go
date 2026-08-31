@@ -15,7 +15,7 @@ func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if name == "" {
@@ -184,10 +184,13 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, entityID)
 	if u == nil {
+		// DeleteUser's own error model declares no not-found type for the
+		// user itself (only Organization*); no correct code exists to send
+		// here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: user %q not found", ErrNotFound, entityID)
 	}
 
@@ -224,7 +227,7 @@ func (b *InMemoryBackend) ListUsers(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	users := make([]*UserSummary, 0)

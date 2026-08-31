@@ -370,3 +370,109 @@ unmodified code before the fix.
 Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/workmail/...` (pass),
 `golangci-lint run ./services/workmail/...` (0 issues).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir workmail` reported 45 class-A findings (44
+`EntityNotFoundException`, 1 `MailDomainStateException`), covering 63
+individual sentinel-reference lines across 15 files. All 45 verified real
+against workmail@v1.39.4's own per-op `awsAwsjson11_deserializeOpError*`
+switches: the shared `ErrNotFound` sentinel (wire code
+`EntityNotFoundException`) was used unconditionally for both
+"organization does not exist" and "entity/resource does not exist within a
+valid organization" checks across ~40 operations, but per-op verification
+showed most operations declare `OrganizationNotFoundException` for the
+first condition and either `ResourceNotFoundException`,
+`MailDomainNotFoundException`, or **nothing** for the second — not
+`EntityNotFoundException`. (`ErrNotFound` remains correct and untouched for
+the ~48 other operations across this package whose own model does declare
+`EntityNotFoundException`, e.g. `DescribeGroup`, `UpdateGroup`,
+`AssociateMemberToGroup`, `UpdateImpersonationRole`,
+`GetImpersonationRoleEffect`, all four Mobile-Device-Access-Override ops,
+`DescribeResource`/`UpdateResource`, `DescribeUser`/`UpdateUser`,
+`RegisterToWorkMail`/`DeregisterFromWorkMail`, `ResetPassword`,
+`UpdatePrimaryEmailAddress`, `PutAccessControlRule`/`GetAccessControlEffect`
+— checked individually, not assumed.)
+
+**Three new sentinels added** (`errors.go`), each wired into
+`handleError`'s switch ahead of the generic `ErrNotFound` case:
+`ErrOrganizationNotFound` (`OrganizationNotFoundException`),
+`ErrResourceNotFound` (`ResourceNotFoundException`),
+`ErrMailDomainNotFound` (`MailDomainNotFoundException`). The shared
+`ErrNotFound` sentinel itself is untouched.
+
+**43 call sites fixed to `ErrOrganizationNotFound`** (the organization-ID
+lookup in `CreateAvailabilityConfiguration`, `CreateGroup`,
+`CreateMobileDeviceAccessRule`, `CreateResource`, `CreateUser`,
+`DeleteAccessControlRule`, `DeleteAvailabilityConfiguration`,
+`DeleteEmailMonitoringConfiguration`, `DeleteGroup`,
+`DeleteIdentityProviderConfiguration`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeleteOrganization`,
+`DeletePersonalAccessToken`, `DeleteResource`, `DeleteRetentionPolicy`,
+`DeleteUser`, `DeregisterMailDomain`, `DescribeEmailMonitoringConfiguration`,
+`DescribeIdentityProviderConfiguration`, `DescribeInboundDmarcSettings`,
+`DescribeOrganization`, `GetImpersonationRole`, `GetMailDomain`,
+`GetMobileDeviceAccessEffect`, `GetPersonalAccessTokenMetadata`,
+`ListAccessControlRules`, `ListAvailabilityConfigurations`,
+`ListImpersonationRoles`, `ListMailDomains`, `ListMailboxExportJobs`,
+`ListMobileDeviceAccessRules`, `ListResources`, `ListUsers`,
+`PutEmailMonitoringConfiguration`, `PutIdentityProviderConfiguration`,
+`PutInboundDmarcSettings`, `PutRetentionPolicy`, `RegisterMailDomain`,
+`TestAvailabilityConfiguration`, `UpdateAvailabilityConfiguration`,
+`UpdateDefaultMailDomain`, `AssumeImpersonationRole`).
+
+**6 call sites fixed to `ErrResourceNotFound`** (entity lookup on ops that
+declare `ResourceNotFoundException`): `AssumeImpersonationRole` (role),
+`GetImpersonationRole` (role), `UpdateAvailabilityConfiguration` (config),
+`TestAvailabilityConfiguration` (config, stored-config path),
+`DescribeIdentityProviderConfiguration` (config),
+`GetPersonalAccessTokenMetadata` (token).
+
+**2 call sites fixed to `ErrMailDomainNotFound`**: `GetMailDomain`,
+`UpdateDefaultMailDomain` (both declare `MailDomainNotFoundException`).
+
+**12 sites left unchanged and recorded** — the operation's own model
+declares no fitting type for the specific condition, so no code was
+substituted (comments added at each site naming the declared set):
+`DeleteImpersonationRole` (role-not-found; only Organization* declared),
+`DeleteGroup` (group-not-found), `DeleteResource` (resource-not-found),
+`DeleteUser` (user-not-found), `DeleteAccessControlRule` (rule-not-found),
+`DeleteAvailabilityConfiguration` (config-not-found),
+`DeleteMobileDeviceAccessRule` (rule-not-found),
+`DeletePersonalAccessToken` (token-not-found),
+`DeleteRetentionPolicy` (policy-not-found),
+`DeleteIdentityCenterApplication` (declares no not-found type of any kind —
+not even `OrganizationNotFoundException`, since this op is not
+organization-scoped in this backend at all),
+`DeregisterMailDomain` ×2 (domain-not-found: no `MailDomainNotFoundException`
+declared here despite `GetMailDomain`/`UpdateDefaultMailDomain` declaring
+it for the same "domain not found in this org" condition; and
+"cannot deregister the default domain": neither `MailDomainStateException`
+nor `EntityNotFoundException` is declared, and `MailDomainInUseException`'s
+own doc — "in use by ANOTHER user or organization" — describes a different
+condition, so it was not substituted despite being the closest declared
+conflict type). All 12: reason is "the operation's own model declares no
+type for this condition", not a reachability or infrastructure gap.
+
+**2 pre-existing tests corrected** (asserted only the wire `__type` string,
+not a typed error — the class this sweep targets): `TestAssumeImpersonationRoleErrors`
+/"org not found" and `TestAvailabilityConfigurationErrors`/"delete
+nonexistent"+"update nonexistent" all expected `EntityNotFoundException`
+for what is actually an organization-not-found path (in the availability-config
+cases, the org in the request body was never created in that subtest, so
+the org check — not an entity check — was what those subtests actually
+exercised). Corrected the expected string to `OrganizationNotFoundException`
+in all 3; assertion count unchanged (1 `assert.Contains` per subtest,
+before and after).
+
+**3 new real-client typed-error tests added**
+(`error_envelope_fixes_test.go`): `TestDescribeOrganization_OrganizationNotFound_RealClient`,
+`TestGetImpersonationRole_ResourceNotFound_RealClient`,
+`TestGetMailDomain_MailDomainNotFound_RealClient` — each drives the real
+`aws-sdk-go-v2/service/workmail` client and asserts `errors.As` against the
+specific typed exception; confirmed failing against unmodified code
+(temporarily reverted the corresponding sentinel, re-ran, restored).
+
+Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/workmail/...` (pass),
+`golangci-lint run ./services/workmail/...` (0 issues).

@@ -165,16 +165,23 @@ func TestAvailabilityConfigurationErrors(t *testing.T) {
 			wantError: "NameAvailabilityException",
 		},
 		{
+			// org-123456789012 is never created in this subtest, so this
+			// exercises the ORG-not-found check, not an entity-not-found
+			// one. DeleteAvailabilityConfiguration's own error model
+			// declares OrganizationNotFoundException for this, not the
+			// shared EntityNotFoundException sentinel (gopherstack-6flj/uox6).
 			name:      "delete nonexistent",
 			action:    "DeleteAvailabilityConfiguration",
 			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com"}`,
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 		{
+			// Same org-not-created shape as above; UpdateAvailabilityConfiguration's
+			// own error model also declares OrganizationNotFoundException.
 			name:      "update nonexistent",
 			action:    "UpdateAvailabilityConfiguration",
 			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com","LambdaProvider":{"LambdaArn":"arn:aws:lambda:us-east-1:000:function:f"}}`, //nolint:lll // existing issue.
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 	}
 

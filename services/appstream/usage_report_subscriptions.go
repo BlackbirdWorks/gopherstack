@@ -30,6 +30,12 @@ func (b *InMemoryBackend) CreateUsageReportSubscription() (*UsageReportSubscript
 	defer b.mu.Unlock()
 
 	if b.usageReport != nil {
+		// CreateUsageReportSubscription's own error model (appstream@v1.64.5
+		// deserializers.go rpc2_deserializeOpErrorCreateUsageReportSubscription)
+		// declares InvalidAccountStatusException, InvalidRoleException,
+		// LimitExceededException -- no conflict/already-exists type at all.
+		// No correct code exists to send here; left rather than substituted
+		// (gopherstack-6flj/uox6 error-envelope sweep).
 		return nil, ErrAlreadyExists
 	}
 

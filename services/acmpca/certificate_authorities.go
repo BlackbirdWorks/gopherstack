@@ -382,6 +382,11 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 	case resourceOwnerOtherAccounts:
 		return page.Page[CertificateAuthority]{Data: []CertificateAuthority{}}, nil
 	default:
+		// ListCertificateAuthorities's own error model declares only
+		// InvalidNextTokenException -- not InvalidArgsException, and no
+		// other declared code fits a bad ResourceOwner value. No correct
+		// code exists to send here; left rather than substituted
+		// (gopherstack-6flj/uox6 error-envelope sweep).
 		return page.Page[CertificateAuthority]{}, fmt.Errorf(
 			"%w: unsupported ResourceOwner %q", ErrInvalidArgs, resourceOwner,
 		)
@@ -419,6 +424,13 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 ) error {
 	if permanentDeletionDays != 0 &&
 		(permanentDeletionDays < permanentDeletionMinDays || permanentDeletionDays > permanentDeletionMaxDays) {
+		// DeleteCertificateAuthority's own error model declares
+		// ConcurrentModification, InvalidArn, InvalidState, ResourceNotFound
+		// -- not InvalidArgsException, and no other declared code fits a
+		// day-count range check either (InvalidArnException's doc is
+		// specifically about ARNs). No ValidationException exists anywhere
+		// in this SDK module. No correct code exists to send here; left
+		// rather than substituted (gopherstack-6flj/uox6 sweep).
 		return fmt.Errorf(
 			"%w: PermanentDeletionTimeInDays must be between %d and %d",
 			ErrInvalidArgs,

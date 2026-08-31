@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreateAvailabilityConfiguration(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if b.availabilityConfigs.Has(orgKey(orgID, domainName)) {
 		return nil, fmt.Errorf(
@@ -53,9 +53,12 @@ func (b *InMemoryBackend) DeleteAvailabilityConfiguration(orgID, domainName stri
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.availabilityConfigs.Delete(orgKey(orgID, domainName)) {
+		// DeleteAvailabilityConfiguration's own error model declares no
+		// not-found type for the configuration itself (only Organization*);
+		// no correct code exists to send here (gopherstack-6flj/uox6 sweep).
 		return fmt.Errorf(
 			"%w: availability configuration for %q not found",
 			ErrNotFound,
@@ -74,13 +77,13 @@ func (b *InMemoryBackend) UpdateAvailabilityConfiguration(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	cfg, ok := b.availabilityConfigs.Get(orgKey(orgID, domainName))
 	if !ok {
 		return fmt.Errorf(
 			"%w: availability configuration for %q not found",
-			ErrNotFound,
+			ErrResourceNotFound,
 			domainName,
 		)
 	}
@@ -108,7 +111,7 @@ func (b *InMemoryBackend) ListAvailabilityConfigurations(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	byOrg := b.availabilityConfigsByOrg.Get(orgID)
 	cfgs := make([]*AvailabilityConfiguration, 0, len(byOrg))
@@ -166,7 +169,7 @@ func (b *InMemoryBackend) TestAvailabilityConfiguration(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return false, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return false, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	switch {
@@ -188,7 +191,7 @@ func (b *InMemoryBackend) TestAvailabilityConfiguration(
 	if !ok {
 		return false, "", fmt.Errorf(
 			"%w: availability configuration for %q not found",
-			ErrNotFound,
+			ErrResourceNotFound,
 			domainName,
 		)
 	}

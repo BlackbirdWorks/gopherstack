@@ -5,6 +5,19 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("EntityNotFoundException", awserr.ErrNotFound)
+	// ErrOrganizationNotFound is returned when the OrganizationId argument
+	// does not refer to an existing organization. Most ops' own error model
+	// (workmail@v1.39.4 deserializers.go) declares OrganizationNotFoundException
+	// for this and does not declare EntityNotFoundException at all -- verified
+	// per-op, not assumed service-wide (gopherstack-6flj/uox6 error-envelope sweep).
+	ErrOrganizationNotFound = awserr.New("OrganizationNotFoundException", awserr.ErrNotFound)
+	// ErrResourceNotFound is returned for an entity lookup miss on an
+	// operation whose own error model declares ResourceNotFoundException
+	// for this condition (checked per call site, not assumed).
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrMailDomainNotFound is returned when a mail domain lookup misses on
+	// an operation whose own error model declares MailDomainNotFoundException.
+	ErrMailDomainNotFound = awserr.New("MailDomainNotFoundException", awserr.ErrNotFound)
 	// ErrConflict is returned by CreateImpersonationRole when a role with the
 	// same name already exists. CreateImpersonationRole's own error model
 	// (workmail@v1.39.4 deserializers.go

@@ -56,9 +56,12 @@ func (b *InMemoryBackend) DeleteAccessControlRule(orgID, name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.accessRules.Delete(orgKey(orgID, name)) {
+		// DeleteAccessControlRule's own error model declares no not-found
+		// type for the rule itself (only Organization*); no correct code
+		// exists to send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: access control rule %q not found", ErrNotFound, name)
 	}
 
@@ -167,7 +170,7 @@ func (b *InMemoryBackend) ListAccessControlRules(orgID string) ([]*AccessControl
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	byOrg := b.accessRulesByOrg.Get(orgID)

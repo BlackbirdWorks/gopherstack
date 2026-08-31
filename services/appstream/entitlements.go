@@ -39,7 +39,7 @@ func (b *InMemoryBackend) CreateEntitlement(
 
 	key := entitlementKey(name, stackName)
 	if b.entitlements.Has(key) {
-		return nil, ErrAlreadyExists
+		return nil, ErrEntitlementAlreadyExists
 	}
 
 	attrs := make([]EntitlementAttribute, len(attributes))

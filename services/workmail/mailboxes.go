@@ -216,7 +216,7 @@ func (b *InMemoryBackend) ListMailboxExportJobs(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	byOrg := b.exportJobsByOrg.Get(orgID)
 	jobs := make([]*MailboxExportJob, 0, len(byOrg))

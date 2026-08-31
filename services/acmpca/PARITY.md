@@ -365,3 +365,39 @@ regressions, no stale claims.
 - NEW (2026-08-20 pass): `CertificateAuthorityConfiguration.CsrExtensions` is silently
   dropped on `CreateCertificateAuthority` input rather than stored/echoed or explicitly
   rejected like its `ASN1Subject`/`Extensions` siblings.
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir acmpca` reported 6 class-A findings, all resolving to
+3 distinct call sites (`CreatePermission`'s 4 validation checks share one
+finding per domain; `DeleteCertificateAuthority`; `ListCertificateAuthorities`).
+Verified each against the pinned SDK's own per-op `deserializeOpError`
+switch (acmpca@v1.50.0 deserializers.go) — all 3 are real: a
+correctly-declared-elsewhere code (`InvalidArgsException`) reaching an
+operation whose own switch does not include it.
+
+**No fix applied to any of the three** — recorded, not substituted, per the
+no-invented-code rule:
+
+- `CreatePermission` (Principal-required / Principal-must-be-acm.amazonaws.com
+  / Actions-required / unsupported-action checks, `permissions.go`): declares
+  `InvalidArn`, `InvalidState`, `LimitExceeded`, `PermissionAlreadyExists`,
+  `RequestFailed`, `ResourceNotFound` — no validation-shaped exception at all.
+- `DeleteCertificateAuthority` (`PermanentDeletionTimeInDays` 7–30 range
+  check, `certificate_authorities.go`): declares `ConcurrentModification`,
+  `InvalidArn`, `InvalidState`, `ResourceNotFound`. `InvalidArnException`'s
+  own doc ("does not refer to an existing resource") does not describe a
+  day-count range violation, so it was not substituted despite being the
+  closest-sounding declared type.
+- `ListCertificateAuthorities` (bad `ResourceOwner` enum value,
+  `certificate_authorities.go`): declares only `InvalidNextTokenException`.
+
+All three: no `ValidationException` type exists anywhere in this SDK
+module (grepped), so there is no generic fallback either — reason is "the
+operation's own model declares no type for this condition", not a
+reachability or infrastructure gap.
+
+Gates: `go build ./services/acmpca/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/acmpca/...` (pass, unchanged assertion
+counts), `golangci-lint run ./services/acmpca/...` (0 issues). No code
+changed in this pass — comments only.

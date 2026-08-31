@@ -23,6 +23,14 @@ func (b *InMemoryBackend) CreatePermission(
 		return nil, err
 	}
 
+	// CreatePermission's own error model (acmpca@v1.50.0 deserializers.go
+	// awsAwsjson11_deserializeOpErrorCreatePermission) declares InvalidArn,
+	// InvalidState, LimitExceeded, PermissionAlreadyExists, RequestFailed,
+	// ResourceNotFound -- not InvalidArgsException. None of its declared
+	// codes fit a Principal/Actions validation failure; no correct code
+	// exists to send for the four checks below, so ErrInvalidArgs (wrong for
+	// this op) is left rather than substituted with an equally-wrong code
+	// (gopherstack-6flj/uox6 error-envelope sweep).
 	if principal == "" {
 		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidArgs)
 	}

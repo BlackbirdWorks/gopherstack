@@ -468,3 +468,43 @@ lost coverage.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/appstream/...`).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir appstream` reported 2 class-A findings. Both verified
+against the pinned SDK's own per-op `rpc2_deserializeOpError*` switch
+(appstream@v1.64.5 deserializers.go):
+
+- `CreateEntitlement` (`entitlements.go`) emitted the shared
+  `ResourceAlreadyExistsException` sentinel (`ErrAlreadyExists`) on a
+  duplicate name/stack. `CreateEntitlement`'s own switch declares
+  `EntitlementAlreadyExistsException`, `LimitExceededException`,
+  `OperationNotPermittedException`, `ResourceNotFoundException` — not
+  `ResourceAlreadyExistsException`. **Fixed**: added a dedicated
+  `ErrEntitlementAlreadyExists` sentinel (wraps `awserr.ErrAlreadyExists`,
+  wire code `EntitlementAlreadyExistsException`) and overrode this one call
+  site; the shared `ErrAlreadyExists` sentinel is untouched. Checked all 14
+  other `ErrAlreadyExists` call sites (`app_blocks.go` ×2, `applications.go`,
+  `directory_configs.go`, `fleets.go`, `images.go` ×4, `stacks.go`,
+  `themes.go`, `users.go`, plus this one and `CreateUsageReportSubscription`
+  below) against their own declared sets: 12 of 14 legitimately declare
+  `ResourceAlreadyExistsException` (`CreateAppBlock`, `CreateAppBlockBuilder`,
+  `CreateDirectoryConfig`, `CreateFleet`, `CreateApplication`, `CreateStack`,
+  `CopyImage`, `CreateImportedImage`, `CreateUpdatedImage`,
+  `CreateImageBuilder`, `CreateThemeForStack`, `CreateUser`) — left alone.
+  Proven with a new real-client test,
+  `TestCreateEntitlement_EntitlementAlreadyExists_RealClient`
+  (`error_envelope_fixes_test.go`), asserting `errors.As` against
+  `*types.EntitlementAlreadyExistsException`; confirmed failing against the
+  unmodified sentinel (got a generic `smithy.GenericAPIError` for
+  `ResourceAlreadyExistsException` instead) before the fix.
+- `CreateUsageReportSubscription` (`usage_report_subscriptions.go`) also
+  emits `ErrAlreadyExists` when a subscription already exists. Its own
+  switch declares `InvalidAccountStatusException`, `InvalidRoleException`,
+  `LimitExceededException` — no conflict/already-exists type of any kind.
+  **Not fixed** — recorded rather than substituted; no correct code exists
+  to send for this condition in this operation's model.
+
+Gates: `go build ./services/appstream/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/appstream/...` (pass; 1 test
+added), `golangci-lint run ./services/appstream/...` (0 issues).

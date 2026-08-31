@@ -54,7 +54,7 @@ func (b *InMemoryBackend) RegisterMailDomain(orgID, domainName string) error {
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if b.mailDomains.Has(orgKey(orgID, domainName)) {
 		return fmt.Errorf("%w: domain %q already registered", ErrMailDomainInUse, domainName)
@@ -84,14 +84,24 @@ func (b *InMemoryBackend) DeregisterMailDomain(orgID, domainName string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	domain, exists := b.mailDomains.Get(orgKey(orgID, domainName))
 	if !exists {
+		// DeregisterMailDomain's own error model declares no not-found type
+		// for the domain itself (not even MailDomainNotFoundException,
+		// unlike GetMailDomain/UpdateDefaultMailDomain); no correct code
+		// exists to send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: domain %q not found", ErrNotFound, domainName)
 	}
 	if domain.IsDefault {
+		// MailDomainStateException is not declared by DeregisterMailDomain
+		// either (its own model: InvalidCustomSesConfigurationException,
+		// InvalidParameterException, MailDomainInUseException,
+		// Organization*). MailDomainInUseException's doc describes a
+		// different condition (domain in use by ANOTHER user/org), so it is
+		// not substituted here; recorded rather than guessed.
 		return fmt.Errorf("%w: cannot deregister the default domain", ErrMailDomainState)
 	}
 	b.mailDomains.Delete(orgKey(orgID, domainName))
@@ -105,12 +115,12 @@ func (b *InMemoryBackend) GetMailDomain(orgID, domainName string) (*MailDomain, 
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	d, exists := b.mailDomains.Get(orgKey(orgID, domainName))
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %q not found", ErrNotFound, domainName)
+		return nil, fmt.Errorf("%w: domain %q not found", ErrMailDomainNotFound, domainName)
 	}
 
 	return d, nil
@@ -126,7 +136,7 @@ func (b *InMemoryBackend) ListMailDomains(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	domainsByOrg := b.mailDomainsByOrg.Get(orgID)
@@ -155,12 +165,12 @@ func (b *InMemoryBackend) UpdateDefaultMailDomain(orgID, domainName string) erro
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	d, exists := b.mailDomains.Get(orgKey(orgID, domainName))
 	if !exists {
-		return fmt.Errorf("%w: domain %q not found", ErrNotFound, domainName)
+		return fmt.Errorf("%w: domain %q not found", ErrMailDomainNotFound, domainName)
 	}
 	// clear old default
 	for _, dom := range b.mailDomainsByOrg.Get(orgID) {
