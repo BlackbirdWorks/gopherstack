@@ -327,10 +327,14 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 
 // ImportImage creates an import task for importing a VM image.
 func (b *InMemoryBackend) ImportImage(
-	description, architecture, platform string,
+	description, architecture, platform string, encrypted bool, kmsKeyID string,
 ) (*ImageImportTask, error) {
 	b.mu.Lock("ImportImage")
 	defer b.mu.Unlock()
+
+	if encrypted && kmsKeyID == "" {
+		kmsKeyID = defaultEBSKmsKeyAlias
+	}
 
 	task := &ImageImportTask{
 		ImportTaskID: "import-ami-" + uuid.New().String()[:8],
@@ -338,6 +342,8 @@ func (b *InMemoryBackend) ImportImage(
 		Architecture: architecture,
 		Platform:     platform,
 		Status:       stateTaskCompleted,
+		Encrypted:    encrypted,
+		KmsKeyID:     kmsKeyID,
 	}
 	b.imageImportTasks.Put(task)
 

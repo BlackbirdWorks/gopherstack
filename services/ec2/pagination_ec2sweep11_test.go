@@ -235,7 +235,7 @@ func TestDescribeImportImageTasks_Pagination(t *testing.T) {
 	b, client := newTestBackendAndClient(t)
 
 	for range ec2sweep11SeedCount {
-		_, err := b.ImportImage("", "x86_64", "")
+		_, err := b.ImportImage("", "x86_64", "", false, "")
 		require.NoError(t, err)
 	}
 

@@ -191,6 +191,8 @@ type ImageImportTask struct {
 	Architecture string `json:"architecture,omitempty"`
 	Platform     string `json:"platform,omitempty"`
 	Status       string `json:"status,omitempty"`
+	KmsKeyID     string `json:"kmsKeyId,omitempty"`
+	Encrypted    bool   `json:"encrypted,omitempty"`
 }
 
 // SnapshotImportTask holds status for an ImportSnapshot task.
@@ -199,6 +201,8 @@ type SnapshotImportTask struct {
 	Description  string `json:"description,omitempty"`
 	SnapshotID   string `json:"snapshotId,omitempty"`
 	Status       string `json:"status,omitempty"`
+	KmsKeyID     string `json:"kmsKeyId,omitempty"`
+	Encrypted    bool   `json:"encrypted,omitempty"`
 }
 
 // ManagedPrefixList represents a managed prefix list.

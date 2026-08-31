@@ -127,7 +127,7 @@ func TestImportExportImage(t *testing.T) { //nolint:paralleltest // existing iss
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	t.Run("import image creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		task, err := b.ImportImage("test import", "x86_64", "Linux/UNIX")
+		task, err := b.ImportImage("test import", "x86_64", "Linux/UNIX", false, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, task.ImportTaskID)
 		assert.Equal(t, "completed", task.Status)

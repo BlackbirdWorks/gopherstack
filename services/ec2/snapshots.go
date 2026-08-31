@@ -10,7 +10,9 @@ import (
 )
 
 // CopySnapshot creates a new snapshot as a copy of an existing one.
-func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error) {
+func (b *InMemoryBackend) CopySnapshot(
+	sourceSnapshotID, description string, encryptOverride bool, kmsKeyID string,
+) (*Snapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceSnapshotId is required", ErrInvalidParameter)
 	}
@@ -28,6 +30,24 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 		desc = "Copy of " + sourceSnapshotID
 	}
 
+	// Encrypted/KmsKeyId default to the source's own state when the caller
+	// says nothing (ec2@v1.319.1 api_op_CopySnapshot.go's Encrypted doc: "You
+	// can encrypt a copy of an unencrypted snapshot, but you cannot create an
+	// unencrypted copy of an encrypted snapshot" -- a contingent default, not
+	// a fixed one). An explicit Encrypted=true request can additionally
+	// encrypt a copy of an unencrypted source.
+	encrypted := src.Encrypted
+	copyKmsKeyID := src.KmsKeyID
+
+	if encryptOverride {
+		encrypted = true
+		copyKmsKeyID = kmsKeyID
+
+		if copyKmsKeyID == "" {
+			copyKmsKeyID = defaultEBSKmsKeyAlias
+		}
+	}
+
 	snap := &Snapshot{
 		SnapshotID:  newSnapshotID(),
 		VolumeID:    src.VolumeID,
@@ -36,8 +56,8 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 		Progress:    snapshotProgress100,
 		StartTime:   time.Now().UTC(),
 		VolumeSize:  src.VolumeSize,
-		Encrypted:   src.Encrypted,
-		KmsKeyID:    src.KmsKeyID,
+		Encrypted:   encrypted,
+		KmsKeyID:    copyKmsKeyID,
 		OwnerID:     b.AccountID,
 	}
 	b.snapshots.Put(snap)
@@ -424,14 +444,22 @@ func (b *InMemoryBackend) RestoreSnapshotTier(snapshotID string) error {
 // ---- Import snapshot ----
 
 // ImportSnapshot creates an import task for a snapshot.
-func (b *InMemoryBackend) ImportSnapshot(description string) (*SnapshotImportTask, error) {
+func (b *InMemoryBackend) ImportSnapshot(
+	description string, encrypted bool, kmsKeyID string,
+) (*SnapshotImportTask, error) {
 	b.mu.Lock("ImportSnapshot")
 	defer b.mu.Unlock()
+
+	if encrypted && kmsKeyID == "" {
+		kmsKeyID = defaultEBSKmsKeyAlias
+	}
 
 	task := &SnapshotImportTask{
 		ImportTaskID: "import-snap-" + uuid.New().String()[:8],
 		Description:  description,
 		Status:       stateTaskCompleted,
+		Encrypted:    encrypted,
+		KmsKeyID:     kmsKeyID,
 	}
 	b.snapshotImportTasks.Put(task)
 

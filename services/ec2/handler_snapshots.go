@@ -80,8 +80,10 @@ type modifySnapshotTierResponse struct {
 func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error) {
 	sourceID := vals.Get("SourceSnapshotId")
 	description := vals.Get("Description")
+	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
+	kmsKeyID := vals.Get("KmsKeyId")
 
-	snap, err := h.Backend.CopySnapshot(sourceID, description)
+	snap, err := h.Backend.CopySnapshot(sourceID, description, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -376,6 +378,8 @@ type snapshotTaskDetailItem struct {
 	Status      string `xml:"status,omitempty"`
 	SnapshotID  string `xml:"snapshotId,omitempty"`
 	Description string `xml:"description,omitempty"`
+	KmsKeyID    string `xml:"kmsKeyId,omitempty"`
+	Encrypted   bool   `xml:"encrypted"`
 }
 
 // importSnapshotTaskItem matches types.ImportSnapshotTask (ec2@v1.319.1
@@ -518,8 +522,10 @@ func (h *Handler) handleRestoreSnapshotTier(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, error) {
 	description := vals.Get("Description")
+	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
+	kmsKeyID := vals.Get("KmsKeyId")
 
-	task, err := h.Backend.ImportSnapshot(description)
+	task, err := h.Backend.ImportSnapshot(description, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -532,6 +538,8 @@ func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, erro
 			Status:      task.Status,
 			SnapshotID:  task.SnapshotID,
 			Description: task.Description,
+			Encrypted:   task.Encrypted,
+			KmsKeyID:    task.KmsKeyID,
 		},
 	}, nil
 }
@@ -559,6 +567,8 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 					Status:      t.Status,
 					SnapshotID:  t.SnapshotID,
 					Description: t.Description,
+					Encrypted:   t.Encrypted,
+					KmsKeyID:    t.KmsKeyID,
 				},
 			},
 		)

@@ -19,7 +19,7 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 	require.NoError(t, setupErr)
 
 	t.Run("creates copy with new ID", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		copiedSnap, err := b.CopySnapshot(src.SnapshotID, "copy description")
+		copiedSnap, err := b.CopySnapshot(src.SnapshotID, "copy description", false, "")
 		require.NoError(t, err)
 		assert.NotEqual(t, src.SnapshotID, copiedSnap.SnapshotID)
 		assert.Equal(t, vol.ID, copiedSnap.VolumeID)
@@ -28,7 +28,7 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("unknown source returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.CopySnapshot("snap-doesnotexist", "")
+		_, err := b.CopySnapshot("snap-doesnotexist", "", false, "")
 		require.Error(t, err)
 	})
 }
@@ -212,7 +212,7 @@ func TestSnapshotRecycleBin(t *testing.T) { //nolint:paralleltest // existing is
 	})
 
 	t.Run("import snapshot creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		task, err := b.ImportSnapshot("test import")
+		task, err := b.ImportSnapshot("test import", false, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, task.ImportTaskID)
 	})

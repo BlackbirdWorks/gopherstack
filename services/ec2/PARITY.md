@@ -3338,3 +3338,109 @@ genuinely read via `vals.Get("<Name>")` or the recognized
 `parseOptionalBool(vals, ...)` helper shapes. All 46 were the old tool
 falsely reporting a handled field as missing (over-reporting, the safe
 direction). No bugs found; no code changed.
+
+## 2026-08-31 -- never-declared-field sweep, security-group name resolution
+## and Copy/Import Encrypted/KmsKeyId family (cmd/reqfielddiff, gopherstack-uox6)
+
+`go run ./cmd/reqfielddiff -dir ec2` reports 128 tier-1 findings, confirmed
+against the orchestrator's own re-run before this pass started. Worked a
+slice of 15, chosen for having existing backend state to honour truthfully
+rather than by tier order:
+
+**Fixed (13 fields, 10 operations):**
+
+- `AuthorizeSecurityGroupIngress.GroupName`, `RevokeSecurityGroupIngress.
+  GroupName`, `DeleteSecurityGroup.GroupName`,
+  `UpdateSecurityGroupRuleDescriptionsIngress.GroupName`,
+  `UpdateSecurityGroupRuleDescriptionsEgress.GroupName` -- all five declare
+  GroupName as an alternative to GroupId for default-VPC groups
+  (ec2@v1.319.1 doc comments) but only ever read GroupId, rejecting a
+  name-only request outright. `handler_security_groups.go` gained
+  `resolveSecurityGroupID`, reusing the name-lookup
+  `handleDescribeSecurityGroups` already did for its own filtering.
+- `ImportImage.Encrypted`/`KmsKeyId`, `ImportSnapshot.Encrypted`/`KmsKeyId`
+  -- echoed straight back on the immediate response AND the matching
+  Describe*ImportTasks list item (`ImportImageTask`/`SnapshotTaskDetail`
+  both carry the pair in types.go) but neither was read, so every import
+  silently came back unencrypted regardless of the request. `RoleName` on
+  both operations was deliberately left alone: it never appears in
+  `ImportImageOutput`, `ImportSnapshotOutput` or `SnapshotTaskDetail`, and
+  this backend simulates no IAM role assumption for import tasks, so
+  storing it would be unobservable by any client -- recorded, not
+  fabricated.
+- `CopySnapshot.Encrypted`/`KmsKeyId` -- the backend already inherited
+  Encrypted/KmsKeyID from the source snapshot when the caller said nothing
+  (the SDK's own contingent default, already correct); the gap was an
+  explicit `Encrypted=true` override of an unencrypted source, now honoured
+  in `CopySnapshot`, with `KmsKeyId` falling back to the existing
+  `defaultEBSKmsKeyAlias` convention (`handler_volumes.go`'s
+  `CreateVolume`) only when the caller sets Encrypted without a key.
+- `CopyImage.CopyImageTags` -- default false ("Your user-defined AMI tags
+  are not copied"), now copies the source image's tags via the existing
+  generic `CreateTags`/`TagsForResource` subsystem. `DescribeImages` never
+  echoed an image's `TagSet` at all before this fix (checked: no `Tags`
+  field on `amiItem`), so honouring `CopyImageTags` would have been
+  unobservable without also wiring that in -- both fixed together.
+- `DescribeImages.IncludeDisabled` -- default excludes disabled AMIs
+  (`b.imageDisabled`, already tracked and already surfaced as
+  `State="disabled"`); a general listing now filters them out unless
+  `IncludeDisabled=true`. An image named explicitly by `ImageId` is still
+  returned regardless -- that's the pre-existing, already-tested behavior
+  of `TestDescribeImages_DisabledState_RealClient`
+  (`wire_field_fixes_test.go`), preserved rather than weakened.
+  `IncludeDeprecated` deliberately left alone: its own doc carries an
+  ownership exception ("If you are the AMI owner, all deprecated AMIs
+  appear in the response regardless") this single-account emulator has no
+  `OwnerID` field to evaluate -- recorded rather than approximated.
+
+**Recorded, not fixed (reasoning, not fabrication):**
+
+- `CopyImage.Encrypted`/`KmsKeyId` -- `AMIStub` tracks no block-device
+  mapping or per-image encryption state at all (only
+  `ID/Name/Description/Architecture/Platform/RootDeviceName/State/
+  SourceImageID`), and `DescribeImages`'s response has no encryption
+  surface either. Honouring these would mean inventing a new response
+  concept this backend's image model doesn't have anywhere -- the
+  "simulating a capability that does not exist here" case.
+- `StopInstances.Force`/`Hibernate`/`SkipOsShutdown`,
+  `TerminateInstances.SkipOsShutdown` -- none of the three is echoed by
+  `StopInstancesOutput`/`TerminateInstancesOutput` (checked the pinned
+  SDK: both outputs return only a `StateChange` list), and this backend
+  models no distinct code path (graceful-vs-forced filesystem shutdown,
+  hibernation state, OS shutdown scripts) any of the three could route
+  through. No legal input changes the outcome.
+- `DeregisterImage.DeleteAssociatedSnapshots` -- already recorded with the
+  same reasoning at this handler (`handler_images.go`'s
+  `handleDeregisterImage` doc comment, pre-existing): `AMIStub` has no
+  block-device-mapping/snapshot linkage to report against.
+
+**False positives from an unrecognized form-read shape (examined, not
+fixed):** `DescribeImages.ImageIds` is already read -- via a bare
+`for i := 1; ; i++ { vals.Get(fmt.Sprintf("ImageId.%d", i)) }` loop, not a
+call to a named `parseMemberList`-shaped helper, so the tool's
+helper-call recognizer never matches it. 1 of the ~20 findings read
+closely this pass was this shape (5%); the remaining four `DescribeImages`
+findings examined (`Owners`, `IncludeDeprecated` twice-considered,
+`IncludeDisabled`) were genuine gaps, not this false-positive class.
+
+**Tests:** 5 new `_test.go` files (`wire_field_fixes_uox6_*.go`), 18 new
+test functions driving the real `aws-sdk-go-v2` client, all confirmed
+failing against unmodified source before the fix. Every documented-default
+test (`*_EncryptedOmitted_DefaultsFalse`, `*_EncryptedNoKmsKeyId_
+UsesDefaultEBSKey`, `*_CopyImageTagsOmitted_DoesNotCopyTags`,
+`*_EncryptedOmitted_InheritsSource`) omits the field entirely rather than
+setting it false/empty, so it can actually observe the default. No
+existing assertion was weakened; one pre-existing test
+(`TestDescribeImages_DisabledState_RealClient`) drove the "explicit
+ImageId still returns disabled" carve-out in the `IncludeDisabled` fix
+rather than being touched, and still passes unmodified.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, since `CopySnapshot`,
+`ImportImage`, `ImportSnapshot` backend signatures changed -- six existing
+test call sites across five files updated for the new params, no
+production caller outside `services/ec2/` exists), `go test -race -count=1
+./services/ec2/...`, `golangci-lint run ./services/ec2/...` (0 issues,
+re-ran, `0 issues`). No banned `//nolint`s (grepped for
+cyclop/gocyclo/gocognit/funlen in `services/ec2/`, zero hits, unchanged).
+Did NOT commit, push, or run any `bd` write command -- all changes left in
+the working tree per this session's instructions.

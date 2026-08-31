@@ -1184,7 +1184,7 @@ type Backend interface {
 	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
 	DescribeVolumeStatus(ids []string) []VolumeStatusItem
 	DescribeVolumesModifications(ids []string) []*VolumeModification
-	CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error)
+	CopySnapshot(sourceSnapshotID, description string, encryptOverride bool, kmsKeyID string) (*Snapshot, error)
 	CreateSnapshots(
 		instanceID string, excludeBootVolume bool, excludeDataVolumeIDs []string, description string,
 	) ([]*Snapshot, error)
@@ -1357,7 +1357,7 @@ type Backend interface {
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
-	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
+	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
 	DescribeExportImageTasks(ids []string) []*ExportImageTaskRec
@@ -1366,7 +1366,7 @@ type Backend interface {
 	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
 	RestoreSnapshotFromRecycleBin(snapshotID string) error
 	RestoreSnapshotTier(snapshotID string) error
-	ImportSnapshot(description string) (*SnapshotImportTask, error)
+	ImportSnapshot(description string, encrypted bool, kmsKeyID string) (*SnapshotImportTask, error)
 	DescribeImportSnapshotTasks(taskIDs []string) []*SnapshotImportTask
 	EnableFastLaunch(imageID string, cfg FastLaunchConfig) error
 	DisableFastLaunch(imageID string) (*FastLaunchImageItem, error)
