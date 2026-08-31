@@ -643,6 +643,42 @@ func TestECS_ListDaemons(t *testing.T) {
 	assert.Empty(t, daemons)
 }
 
+// TestECS_ListDaemons_OmittedClusterScopesToDefault covers
+// ListDaemonsInput.ClusterArn's doc: "If you do not specify a cluster, the
+// default cluster is assumed." Omitting clusterArn must scope to the
+// "default" cluster only, not return daemons from every cluster.
+func TestECS_ListDaemons_OmittedClusterScopesToDefault(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tdArn := registerDaemonTaskDef(t, h, "other-cluster-family")
+	cpArn := createCapacityProviderForDaemon(t, h, "other-cluster-cp")
+
+	rec := doECSRequest(t, h, "CreateDaemon", map[string]any{
+		"daemonName":              "other-cluster-daemon",
+		"daemonTaskDefinitionArn": tdArn,
+		"capacityProviderArns":    []string{cpArn},
+		"clusterArn":              "other-cluster",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECSRequest(t, h, "ListDaemons", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	daemons, ok := resp["daemonSummariesList"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, daemons, "omitted clusterArn must scope to default cluster, not every cluster")
+
+	rec = doECSRequest(t, h, "ListDaemons", map[string]any{"clusterArn": "other-cluster"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	daemons, ok = resp["daemonSummariesList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, daemons, 1)
+}
+
 // ----- DescribeDaemonDeployments / ListDaemonDeployments / DescribeDaemonRevisions -----
 
 func TestECS_DescribeDaemonDeployments(t *testing.T) {

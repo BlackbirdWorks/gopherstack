@@ -79,25 +79,31 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 // ListClusters returns all clusters.
 func (b *InMemoryBackend) ListClusters() ([]Cluster, error) {
-	clusters, _, err := b.DescribeClusters(nil)
-
-	return clusters, err
-}
-
-// DescribeClusters returns cluster metadata.
-// Unknown cluster names are returned as failures, not errors, matching AWS behaviour.
-func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error) {
-	b.mu.RLock("DescribeClusters")
+	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	if len(clusterNames) == 0 {
-		all := b.clusters.All()
-		out := make([]Cluster, 0, len(all))
-		for _, c := range all {
-			out = append(out, b.enrichCluster(c))
-		}
+	all := b.clusters.All()
+	out := make([]Cluster, 0, len(all))
+	for _, c := range all {
+		out = append(out, b.enrichCluster(c))
+	}
 
-		return out, nil, nil
+	return out, nil
+}
+
+// DescribeClusters returns cluster metadata. Per DescribeClustersInput.Clusters
+// ("If you do not specify a cluster, the default cluster is assumed."), an
+// empty clusterNames describes only the "default" cluster -- unlike
+// ListClusters, a different operation whose own input documents no such
+// default-substitution and legitimately returns everything.
+// Unknown cluster names are returned as failures, not errors, matching AWS behaviour.
+func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error) {
+	b.mu.Lock("DescribeClusters")
+	defer b.mu.Unlock()
+
+	if len(clusterNames) == 0 {
+		b.ensureClusterLocked(defaultCluster)
+		clusterNames = []string{defaultCluster}
 	}
 
 	out := make([]Cluster, 0, len(clusterNames))

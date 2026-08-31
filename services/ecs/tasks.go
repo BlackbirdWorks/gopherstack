@@ -567,6 +567,10 @@ func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
 	return b.ListTasksFiltered(ListTasksInput{Cluster: cluster})
 }
 
+// ListTasksFiltered returns task ARNs matching the given filters.
+// Per ListTasksInput.DesiredStatus's doc ("The default status filter is
+// RUNNING"), an unset DesiredStatus narrows to RUNNING tasks rather than
+// matching every status.
 func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
@@ -577,14 +581,18 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
+	wantDesiredStatus := input.DesiredStatus
+	if wantDesiredStatus == "" {
+		wantDesiredStatus = statusRunning
+	}
+
 	clusterTasks := b.tasksByCluster.Get(clusterName)
 	arns := make([]string, 0, len(clusterTasks))
 	for _, task := range clusterTasks {
 		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
 			continue
 		}
-		if input.DesiredStatus != "" &&
-			!strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
+		if !strings.EqualFold(task.DesiredStatus, wantDesiredStatus) {
 			continue
 		}
 		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {

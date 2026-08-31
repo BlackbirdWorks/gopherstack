@@ -477,17 +477,17 @@ type ListDaemonsInput struct {
 	CapacityProviderArns []string
 }
 
-// ListDaemons returns daemons, optionally filtered by cluster or capacity provider.
+// ListDaemons returns daemons, optionally filtered by cluster or capacity
+// provider. Per ListDaemonsInput.ClusterArn's doc ("If you do not specify a
+// cluster, the default cluster is assumed."), an unset ClusterArn scopes to
+// the "default" cluster rather than every cluster.
 func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) {
 	b.mu.RLock("ListDaemons")
 	defer b.mu.RUnlock()
 
-	wantCluster := ""
-	if input.ClusterArn != "" {
-		wantCluster = fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(input.ClusterArn),
-		)
-	}
+	wantCluster := fmt.Sprintf(
+		"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(b.resolveCluster(input.ClusterArn)),
+	)
 
 	wantCP := make(map[string]bool, len(input.CapacityProviderArns))
 	for _, cp := range input.CapacityProviderArns {
@@ -498,7 +498,7 @@ func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) 
 	out := make([]Daemon, 0, len(all))
 
 	for _, d := range all {
-		if wantCluster != "" && d.ClusterArn != wantCluster {
+		if d.ClusterArn != wantCluster {
 			continue
 		}
 

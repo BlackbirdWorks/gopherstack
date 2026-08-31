@@ -85,11 +85,17 @@ func TestECS_DescribeClusters(t *testing.T) {
 		wantFailures int
 	}{
 		{
-			name:      "list all",
+			// DescribeClustersInput.Clusters doc: "If you do not specify a
+			// cluster, the default cluster is assumed." Omitting the filter
+			// describes the "default" cluster, not every cluster in the
+			// account -- ListClusters (a different operation, no such
+			// default-substitution language) is the one that returns
+			// everything.
+			name:      "empty describes default cluster only",
 			clusters:  []string{"cluster-a", "cluster-b"},
 			filter:    nil,
 			wantCode:  http.StatusOK,
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name:      "filter by name",
@@ -678,7 +684,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		assert.Len(t, failures, 3)
 	})
 
-	t.Run("empty returns all", func(t *testing.T) {
+	t.Run("empty describes default cluster, not every cluster", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
@@ -692,7 +698,9 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 		clusters, _ := resp["clusters"].([]any)
-		assert.Len(t, clusters, 2)
+		require.Len(t, clusters, 1)
+		c := clusters[0].(map[string]any)
+		assert.Equal(t, "default", c["clusterName"])
 
 		failures, _ := resp["failures"].([]any)
 		assert.Empty(t, failures)
