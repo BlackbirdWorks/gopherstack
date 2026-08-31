@@ -961,3 +961,40 @@ parameter sweep above); `go test ./services/autoscaling/... -race -count=1 -shuf
 `DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`, newly flagged once both shared the same
 `page.New` pagination shape -- confirmed pre-existing "different resource types, same list-XML
 structure" duplication, not new debt, before suppressing).
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`): a list field whose per-item
+XML wrapper was named for the *status type* (`DBParameterGroupStatus`) where the pinned
+deserializer's list decoder matches on the *group* name (`DBParameterGroup`), so the list
+decoded as empty for every SDK client despite the emitted XML looking correct on skim.
+Asked whether this repo's wrapper-key/nested-shape campaign (gopherstack-6flj/21my) covers
+response element naming, or whether it only escaped for rds.
+
+**It covers it, and autoscaling was already fully swept at both layers.** gopherstack-21my's
+own notes record: "autoscaling -- both layers verified across all 21 Describe/Get ops and
+essentially every nested item type reachable from them (AutoScalingGroup incl.
+MixedInstancesPolicy/... , Instance, AutoScalingInstanceDetails, TagDescription/ResourceTag,
+ScalingPolicy incl. .../CustomizedMetricSpecification/PredefinedMetricSpecification,
+ScheduledUpdateGroupAction, LifecycleHook, LaunchConfiguration incl. .../InstanceMonitoring,
+Activity, NotificationConfiguration, InstanceRefresh incl. RefreshPreferences,
+WarmPoolConfiguration, LoadBalancerState, LoadBalancerTargetGroupState, TrafficSourceState,
+CapacityForecast/LoadForecast). All clean at both layers -- no wrong-key or wrong-nesting
+bugs found." That predates the rds bug and used the identical method (read each op's own
+`awsAwsquery_deserializeDocument*`/`*List` function, compare element names).
+
+This pass independently re-spot-checked the exact shape class that bit rds -- a list field
+nested inside a larger struct, checking the *wrapping* element name each list decoder
+matches on, not just top-level keys -- against `aws-sdk-go-v2/service/autoscaling@v1.70.4`
+(matches `go.mod`): `TargetGroupARNs`, `LoadBalancerNames`, `SuspendedProcesses`,
+`EnabledMetrics`, `TrafficSources` (deserializers.go:18654/14208/18414/11001/19294) all
+match on `strings.EqualFold("member", t.Name.Local)`, and `auto_scaling_groups.go`'s
+`xmlStringValueList`/`xmlSuspendedProcessList`/`xmlTrafficSourceList`/`xmlEnabledMetricList`
+all emit `xml:"member"` per item -- correct. No status-shaped list (the rds bug's specific
+shape, a list of `*Status` structs wrapped under a non-`member` name) exists anywhere in
+this service's deserializers -- confirmed by `grep -n
+"func awsAwsquery_deserializeDocument.*StatusList\b"` against `deserializers.go`, zero
+matches. **Zero new bugs found; nothing changed in this service.** `go build`, `go vet`
+(repo-wide, clean), `go test -race ./services/autoscaling/...` all pass on the unmodified
+tree. No AWS documentation was fetched this pass (all facts came from the pinned module
+cache and existing repo source).

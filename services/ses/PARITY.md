@@ -212,3 +212,30 @@ confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/ses/...` (pass),
 `golangci-lint run ./services/ses/...` (0 issues).
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`): a response list whose
+per-item XML wrapper was named for the wrong type, decoding empty for every real
+client. ses already found and fixed the same *class* of bug on the 2026-08-29 sweep
+(the `<*Result></*Result>` literal-tag void-response wrapper, see `void_result_ops`
+above) -- that was a scalar envelope-naming bug, not a list one, so it doesn't cover
+the list-wrapper axis specifically. Re-checked that axis here.
+
+Checked `SendBulkTemplatedEmail`'s response, the one op in this service whose output
+carries a list of per-item structs (`BulkEmailDestinationStatus`, one entry per
+destination) rather than a flat collection of scalars or a map -- the shape closest to
+rds's bug. `aws-sdk-go-v2/service/ses@v1.37.4` (matches `go.mod`)
+`awsAwsquery_deserializeDocumentBulkEmailDestinationStatusList`
+(deserializers.go:9728) matches `strings.EqualFold("member", t.Name.Local)`, i.e. the
+generic wrapper, not a custom name; `handler_email_sending.go`'s `xmlBulkStatusList`
+emits `xml:"member"` per item -- correct. Per-item fields
+(`awsAwsquery_deserializeDocumentBulkEmailDestinationStatus`, deserializers.go:9653:
+`MessageId`, `Status`, `Error`) match `xmlBulkEmailDestStatus{MessageID, Status}`
+exactly; `Error` is genuinely never populated by this backend (SES send failures are
+modeled as an early-return, not a per-destination error field) -- a real-but-unobservable
+gap, recorded not fixed. No `*StatusList` shape (rds's specific pattern) exists
+elsewhere in this service's deserializers -- confirmed by grep, only the one match
+above. **Zero new bugs found; nothing changed in this service.** `go build`, `go vet`
+(repo-wide, clean), `go test -race ./services/ses/...` all pass on the unmodified
+tree. No AWS documentation was fetched this pass.

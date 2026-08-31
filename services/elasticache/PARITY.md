@@ -603,3 +603,42 @@ added regression guard for a normal-sized request still routing and succeeding.
   pinned SDK: `awsAwsquery_deserializeOpErrorCreateReplicationGroup`
   (`deserializers.go:1645`) declares no `SnapshotNotFoundFault` case; `InvalidParameterValue`
   is declared and is what the handler actually emits. Zero code changes.
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`): a list field whose per-item
+XML wrapper was named after the *status type* (`DBParameterGroupStatus`) where the
+pinned deserializer's list decoder actually matches on the *group* name
+(`DBParameterGroup`), so the list decoded empty for every real client. Checked whether
+this exact shape exists anywhere in elasticache, whose own wrapper/nested-shape sweeps
+already document per-list-item element-name checks (e.g. the serverless-cache
+`securityGroupIDsXML`/`subnetIDsXML` note above: "their list items use dedicated
+per-list element names `SecurityGroupId`/`SubnetId`, NOT the generic `member`... --
+verified against the deserializer").
+
+**No new bug.** `CacheCluster.CacheParameterGroup` is a *singular* nested struct in
+this service (`CacheParameterGroupStatus{CacheParameterGroupName,
+ParameterApplyStatus, CacheNodeIdsToReboot}`, deserializers.go:15029) -- there is no
+`CacheParameterGroupStatusList` deserializer in `aws-sdk-go-v2/service/elasticache@v1.56.4`
+(matches `go.mod`; confirmed by grep, zero matches), so elasticache has no direct
+analog of rds's multi-parameter-group list. `handler_cache_clusters.go`'s
+`cacheClusterXML.CacheParameterGroupName` (`xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`)
+decodes correctly into that struct; `ParameterApplyStatus`/`CacheNodeIdsToReboot` are
+absent from the wire struct entirely (a genuine field-absence gap, not a naming
+mismatch -- recorded, not fixed, since this pass's scope is naming bugs on fields
+already emitted).
+
+Checked the three real `*StatusList` shapes this service does have --
+`CacheSecurityGroupMembershipList` (wraps `CacheSecurityGroup`, deserializers.go:~15400s),
+`CacheNodeUpdateStatusList`/`NodeGroupMemberUpdateStatusList`/`NodeGroupUpdateStatusList`
+(wrap `CacheNodeUpdateStatus`/`NodeGroupMemberUpdateStatus`/`NodeGroupUpdateStatus`
+respectively, non-`member` custom names, deserializers.go:14642/19508/19729) -- against
+what the emulator emits. `CacheCluster.CacheSecurityGroups`/`.SecurityGroups` and the
+three update-status lists are not emitted by `handler_cache_clusters.go` /
+`handler_service_updates.go` at all (`updateActionXML` has no
+`CacheNodeUpdateStatus`/`NodeGroupUpdateStatus` fields, and no backing domain state
+exists to populate them) -- real-but-unobservable gaps, consistent with this file's
+existing convention of recording rather than fabricating a fix for a field the backend
+never populates. **Zero new bugs found; nothing changed in this service.** `go build`,
+`go vet` (repo-wide, clean), `go test -race ./services/elasticache/...` all pass on the
+unmodified tree. No AWS documentation was fetched this pass.

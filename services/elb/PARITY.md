@@ -373,3 +373,33 @@ in the wrapper-key/nesting space to find.
   ./services/elb/...` → `0 issues`; no `nolint:cyclop|gocyclo|gocognit|funlen` in
   `services/elb/`; `git status --short` shows no file under `services/elb/` touched
   this session (all changes limited to this `PARITY.md`).
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`, see gopherstack-uox6): a
+response list whose per-item XML wrapper was named after the *status type* instead of
+the name the pinned deserializer's list decoder actually matches, so the list decoded
+empty for every real client despite looking correct on skim. Checked whether this
+service's own wrapper-key/nested-shape sweep (recorded above, 2026-08-20, `53664f525`)
+already covers this axis or only checked top-level `<Xxx*Result>` keys.
+
+**It already covers it.** That sweep explicitly re-verified "every `<member>` list
+wrapper[,] and every nested attribute-bag shape... directly against
+`aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4`'s `deserializers.go` (both the
+per-op `HandleDeserialize`/`GetElement("<Op>Result")` functions and the per-shape
+`awsAwsquery_deserializeDocument*` functions)" and found zero bugs. This pass
+independently re-spot-checked the rds bug's exact shape -- a list nested inside a
+larger response struct, checking the wrapping element name its own list decoder
+matches on -- for the `Policies` family (`AppCookieStickinessPolicies`,
+`LBCookieStickinessPolicies`, `OtherPolicies`/`PolicyNames`,
+deserializers.go:4666/6106/7550): all three list decoders match
+`strings.EqualFold("member", t.Name.Local)`, and `handler_load_balancers.go`'s
+`xmlAppCookieStickinessPolicyList`/`xmlLBCookieStickinessPolicyList`/
+`xmlStringValueList` all emit `xml:"member"` per item -- correct. No status-shaped
+list (a list of `*Status` structs wrapped under a non-`member` name, the rds bug's
+specific shape) exists anywhere in this service's deserializers -- confirmed by
+`grep -n "func awsAwsquery_deserializeDocument.*StatusList\b"` against
+`deserializers.go`, zero matches. **Zero new bugs found; nothing changed in this
+service.** `go build`, `go vet` (repo-wide, clean), `go test -race
+./services/elb/...` all pass on the unmodified tree. No AWS documentation was
+fetched this pass.
