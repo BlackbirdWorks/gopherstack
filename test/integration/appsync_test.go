@@ -44,9 +44,10 @@ func TestIntegration_AppSync_CRUD(t *testing.T) {
 
 	// UpdateGraphqlApi — OwnerContact round-trips through an update too.
 	updateOut, err := client.UpdateGraphqlApi(ctx, &appsyncsdkv2.UpdateGraphqlApiInput{
-		ApiId:        aws.String(apiID),
-		Name:         aws.String("integration-test-api"),
-		OwnerContact: aws.String("team-b@example.com"),
+		ApiId:              aws.String(apiID),
+		Name:               aws.String("integration-test-api"),
+		AuthenticationType: appsyncsdktypes.AuthenticationTypeApiKey,
+		OwnerContact:       aws.String("team-b@example.com"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "team-b@example.com", aws.ToString(updateOut.GraphqlApi.OwnerContact))
