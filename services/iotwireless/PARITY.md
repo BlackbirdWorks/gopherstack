@@ -180,3 +180,57 @@ traps so the next auditor doesn't re-flag them.
   fields changed accordingly (object-of-arrays, not object-of-strings) —
   `iotwirelessSnapshotVersion` was bumped 1→2 so an old snapshot is cleanly discarded
   instead of partially misdecoded.
+
+- **2026-08-31, gopherstack-uox6 (value-semantics sweep, first pass on this service for
+  this class)**: this file's existing `ops`/`families` grades above are wire-shape audits
+  (field exists, is read, round-trips) — a separate axis from whether a filter's
+  documented VALUE semantics are honored once read. `cmd/covledger -service iotwireless`
+  reported no rows (never swept for any bug class) going into this pass; no contradicting
+  evidence found in git log. Checked all 17 List/Describe ops' filter parameters against
+  their own SDK doc comments (`aws-sdk-go-v2/service/iotwireless@v1.59.4`). Two real bugs
+  found and fixed:
+  - `ListDeviceProfiles`'s documented `deviceProfileType` filter
+    (`api_op_ListDeviceProfiles.go`, "A filter to list only device profiles that use this
+    type, which can be LoRaWAN or Sidewalk") was never read by the handler at all — every
+    call returned every profile regardless of the filter. Fixed: `profiles.go`'s
+    `ListDeviceProfiles` now takes a `deviceProfileType` param and matches on which of
+    the profile's `LoRaWAN`/`Sidewalk` sub-objects is set (a profile has exactly one,
+    never both, since `CreateDeviceProfile` accepts only one).
+  - `ListEventConfigurations`'s `resourceType` filter (enum:
+    `SidewalkAccount|WirelessDevice|WirelessGateway`) matched against the entry's stored
+    `IdentifierType` (a DIFFERENT enum: `PartnerAccountId|DevEui|GatewayEui|
+    WirelessDeviceId|WirelessGatewayId`) using a same-string-prefix check. This
+    accidentally worked for `WirelessDeviceId`/`WirelessGatewayId` but silently excluded
+    `DevEui`/`GatewayEui` (LoRaWAN-EUI-identified devices/gateways) from their resource
+    type entirely, and NEVER matched `SidewalkAccount` (`PartnerAccountId` shares no
+    prefix with `SidewalkAccount`) — filtering by SidewalkAccount always returned empty.
+    Fixed via `eventResourceTypeIdentifierTypes` (event_configurations.go), an explicit
+    mapping grounded in the SDK's own `IdentifierType`/`EventNotificationPartnerType` enum
+    definitions (`PartnerType` has exactly one legal value, "Sidewalk", so
+    `PartnerAccountId` unambiguously means SidewalkAccount).
+
+  Two gaps recorded, not fixed:
+  - `ListWirelessGatewayTaskDefinitions`'s `taskDefinitionType` filter is never read.
+    Left alone: `types.WirelessGatewayTaskDefinitionType` has exactly ONE legal value
+    ("UPDATE"), and this backend's `GatewayTaskDefinition` has no type-selecting field at
+    all — `CreateWirelessGatewayTaskDefinitionInput` only ever creates an Update-type
+    definition. No legal filter value could ever change the result.
+  - `ListDevicesForWirelessDeviceImportTask`'s `status` filter is never read. Left alone:
+    the handler (`handler_certificates.go`) returns an unconditionally empty
+    `ImportedWirelessDeviceList ([]struct{})` regardless of input — this backend tracks no
+    per-device import records to filter over, so no legal value could change the result.
+    (The underlying "no per-device import records modeled" gap is a separate, structural
+    axis, not this one — recorded here only for the filter's own consequence.)
+
+  One item recorded as a different axis (validation, not semantics): `ListQueuedMessages`'s
+  `wirelessDeviceType` parameter is never read. The device is already uniquely identified
+  by the required `Id` path parameter (with its own fixed, already-known type), so this
+  parameter cannot narrow a multi-device result — its only plausible real-AWS role is
+  validating that the caller's stated type matches the device's actual type, which is a
+  missing-rejection/validation concern, not a filter-semantics one.
+
+  `ListPositionConfigurations`'s `resourceType` filter (positioning.go) was checked and is
+  correct (exact match against the same two-value enum on both write and read paths).
+  `pagination.go`'s documented-default-page-size reasoning (no single default page size is
+  documented across every List* op in this SDK) was reconfirmed against every op's doc
+  comment; no numeric default is stated anywhere, so the existing choice stands unchanged.

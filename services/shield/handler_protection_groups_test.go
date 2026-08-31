@@ -2,6 +2,7 @@ package shield_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -220,6 +221,40 @@ func TestHandler_ListProtectionGroupsPagination(t *testing.T) {
 	assert.NotEmpty(t, resp["NextToken"])
 }
 
+// TestHandler_ListProtectionGroupsDefaultMaxResults verifies that omitting
+// MaxResults pages at the documented default of 20
+// (api_op_ListProtectionGroups.go: "The default setting is 20."), not at the
+// handler's internal cap.
+func TestHandler_ListProtectionGroupsDefaultMaxResults(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+
+	const numGroups = 25
+	for i := range numGroups {
+		_, err := b.CreateProtectionGroup(
+			fmt.Sprintf("grp-%02d", i),
+			shield.AggregationSum,
+			shield.PatternAll,
+			"",
+			nil,
+		)
+		require.NoError(t, err)
+	}
+
+	h := shield.NewHandler(b)
+	rec := doShieldRequest(t, h, "ListProtectionGroups", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	groups := resp["ProtectionGroups"].([]any)
+	assert.Len(t, groups, 20, "omitted MaxResults must default to 20 per the documented default")
+	assert.NotEmpty(t, resp["NextToken"], "25 protection groups at a default page size of 20 must continue")
+}
+
 // TestAudit_Gap9_ListProtectionGroupsInclusionFilterByPattern verifies Patterns filter.
 func TestHandler_ListProtectionGroupsInclusionFilterByPattern(t *testing.T) {
 	t.Parallel()
@@ -281,6 +316,57 @@ func TestHandler_ListProtectionGroupsInclusionFilterByAggregation(t *testing.T) 
 
 	groups := resp["ProtectionGroups"].([]any)
 	assert.Len(t, groups, 1)
+}
+
+// TestHandler_ListResourcesInProtectionGroupPagination verifies MaxResults/
+// NextToken are honored (api_op_ListResourcesInProtectionGroup.go documents
+// the same "default setting is 20" and NextToken continuation as the other
+// three Shield Advanced List operations), not silently ignored in favor of
+// returning every member ARN in one unpaginated response.
+func TestHandler_ListResourcesInProtectionGroupPagination(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+
+	const numProtections = 25
+	for i := range numProtections {
+		_, err := b.CreateProtection(fmt.Sprintf("prot-%02d", i), eipARN(fmt.Sprintf("%02d", i)), nil)
+		require.NoError(t, err)
+	}
+
+	_, err := b.CreateProtectionGroup("grp-all", shield.AggregationSum, shield.PatternAll, "", nil)
+	require.NoError(t, err)
+
+	h := shield.NewHandler(b)
+
+	// Omitted MaxResults must default to 20, not return all 25 in one page.
+	rec := doShieldRequest(t, h, "ListResourcesInProtectionGroup", map[string]any{
+		"ProtectionGroupId": "grp-all",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	arns := resp["ResourceArns"].([]any)
+	assert.Len(t, arns, 20, "omitted MaxResults must default to 20 per the documented default")
+
+	nextToken, hasNext := resp["NextToken"]
+	require.True(t, hasNext, "NextToken must be present when more members remain")
+	require.NotEmpty(t, nextToken)
+
+	// The continuation token must retrieve the remaining members.
+	rec = doShieldRequest(t, h, "ListResourcesInProtectionGroup", map[string]any{
+		"ProtectionGroupId": "grp-all",
+		"NextToken":         nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
+	assert.Len(t, resp2["ResourceArns"].([]any), 5, "the remaining 5 of 25 members must be on the next page")
+	assert.NotContains(t, resp2, "NextToken", "no further page should be signaled once all members are returned")
 }
 
 // TestRefinement1_HTTPDescribeProtectionGroup tests via HTTP.

@@ -167,6 +167,55 @@ func TestHandler_DeviceProfile_SidewalkCreateShape(t *testing.T) {
 	assert.Empty(t, sidewalk, "AWS-assigned Sidewalk fields must not be fabricated")
 }
 
+// TestHandler_ListDeviceProfiles_FilterByType verifies the deviceProfileType
+// query parameter documented on ListDeviceProfilesInput (types.go, "A filter
+// to list only device profiles that use this type, which can be LoRaWAN or
+// Sidewalk") actually narrows the result, and that an unrecognized value
+// matches nothing rather than everything.
+func TestHandler_ListDeviceProfiles_FilterByType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	createRec := doIoTWRequest(t, h, http.MethodPost, "/device-profiles", `{"Name":"dp-lorawan","LoRaWAN":{}}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	createRec = doIoTWRequest(t, h, http.MethodPost, "/device-profiles", `{"Name":"dp-sidewalk","Sidewalk":{}}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	tests := []struct {
+		name      string
+		rawQuery  string
+		wantNames []string
+	}{
+		{name: "no_filter_returns_all", rawQuery: "", wantNames: []string{"dp-lorawan", "dp-sidewalk"}},
+		{name: "lorawan_only", rawQuery: "?deviceProfileType=LoRaWAN", wantNames: []string{"dp-lorawan"}},
+		{name: "sidewalk_only", rawQuery: "?deviceProfileType=Sidewalk", wantNames: []string{"dp-sidewalk"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doIoTWRequest(t, h, http.MethodGet, "/device-profiles"+tt.rawQuery, "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				DeviceProfileList []struct {
+					Name string `json:"Name"`
+				} `json:"DeviceProfileList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			names := make([]string, 0, len(resp.DeviceProfileList))
+			for _, dp := range resp.DeviceProfileList {
+				names = append(names, dp.Name)
+			}
+			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
+}
+
 // TestHandler_DeleteDeviceProfile_NotFound verifies 404 is returned for non-existent device profiles.
 func TestHandler_DeleteDeviceProfile_NotFound(t *testing.T) {
 	t.Parallel()
