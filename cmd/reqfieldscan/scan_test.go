@@ -732,3 +732,34 @@ func (h *Handler) GetSupportedOperations() []string {
 
 	assert.Empty(t, ops)
 }
+
+// TestLowerKeyedHandlers_Deterministic is gopherstack-fr30's regression
+// test for this package's own instance of the bug reqfielddiff's
+// findHandlerByName was reported with: two DIFFERENTLY spelled handler
+// names that fold to the same lowercase key (handleFooBAR vs handleFoobar
+// -- differing only in the casing of an AWS acronym, exactly the shape
+// route53resolver's real IPAddress/Ipaddress split is) used to let
+// whichever one Go's randomized map iteration visited LAST silently win.
+// Runs the index build many times -- Go picks a fresh random start point
+// on every `range` over a map, even within one process -- to catch that
+// without shelling out to separate `go run` processes.
+func TestLowerKeyedHandlers_Deterministic(t *testing.T) {
+	t.Parallel()
+
+	wrapOpFuncs := map[string]resolvedHandler{
+		"handleFooBAR":    {ReqType: "fooBARInput", File: "a.go", Line: 1},
+		"handleFoobar":    {ReqType: "foobarInput", File: "b.go", Line: 2},
+		"handleUnrelated": {ReqType: "unrelatedInput", File: "c.go", Line: 3},
+	}
+
+	first := lowerKeyedHandlers(wrapOpFuncs)
+	require.Equal(t, "fooBARInput", first["handlefoobar"].ReqType,
+		"lexicographically smallest original name (handleFooBAR) must win the collision, deterministically")
+
+	const iterations = 200
+
+	for range iterations {
+		again := lowerKeyedHandlers(wrapOpFuncs)
+		require.Equal(t, first, again, "the collision winner must be identical on every call")
+	}
+}

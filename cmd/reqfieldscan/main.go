@@ -132,6 +132,24 @@
 //     service convention makes that collision rare -- never observed
 //     across any service this tool has been run against -- but it is not
 //     structurally impossible.
+//   - lowerKeyedHandlers' case-insensitive "handle"+op fallback (dispatch.go)
+//     used to pick a winner by ranging directly over the wrapOpFuncs map,
+//     so two handler names differing only by acronym case (route53resolver's
+//     real handleAssociate ResolverEndpointIPAddress vs the AWS operation's
+//     own IpAddress spelling is what this fallback exists for at all) would
+//     resolve nondeterministically if BOTH happened to exist in one package
+//     -- gopherstack-fr30, reported first against cmd/reqfielddiff's
+//     identical-shaped bug. Fixed to iterate wrapOpFuncs' keys in sorted
+//     order so the lexicographically smallest original name wins any
+//     collision, deterministically. A repo-wide census (every
+//     services/<dir>, current repo state) found ZERO actual collisions in
+//     this package's narrower universe: wrapOpFuncs only holds names
+//     actually passed to service.WrapOp somewhere in the package, which
+//     excludes the exported Backend/business-logic methods that DO collide
+//     with cmd/reqfielddiff's broader ctx.methods/ctx.funcs scan (177
+//     operations, 26 services -- see that tool's package doc). The fix is
+//     a determinism guard against a real structural risk, not a change in
+//     today's output for any service.
 //   - An embedded (anonymous) struct field, a *In resolved to a type
 //     imported from another package, or a WrapOp argument shape other than
 //     a bound method / package function / func literal contributes no

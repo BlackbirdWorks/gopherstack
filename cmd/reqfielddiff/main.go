@@ -77,32 +77,62 @@
 //
 // THIS TOOL'S OWN INHERITED BLIND SPOTS, checked against
 // cmd/reqfieldscan's seven:
+//
 //  1. Slice-of-struct dispatch table (glue): generalized in binderFields,
 //     same as reqfieldscan's fix.
+//
 //  2. Local generic wrapper (cognitoidp's wrapAccuracy[I,O](fn)):
 //     collectLocalWrapOpWrappers is reqfieldscan's identical logic,
 //     type-parameter-agnostic since it only inspects the function body's
 //     first return statement.
+//
 //  3. Handler name suffixes (handle<Op>Full/Accurate/WithOpts):
 //     findHandlerByName tries all three explicitly.
+//
 //  4. Go type alias in the struct collector: resolveStructAliases,
 //     reqfieldscan's identical logic.
+//
 //  5. Anonymous inline struct decoding (opsworks, and THIS TOOL'S OWN
 //     omics ground truth): collectAnonReqStructs, reqfieldscan's identical
 //     logic, keyed by file:line.
+//
 //  6. Method receiver not bound during local-binding collection:
 //     bindFieldList binds fd.Recv exactly as cmd/reqfieldscan's
 //     coverage.go does.
+//
 //  7. A second in-package dispatch table behind suffixed/colliding names:
-//     UNCHANGED FROM REQFIELDSCAN, still unpatched there, and this tool
-//     inherits the same exposure -- collectDispatchEntries unions every
-//     map/binder literal it finds package-wide with no de-duplication by
-//     which "logical" table they belong to, so two colliding op names
-//     across two separate tables would silently let the second overwrite
-//     the first in the entries map. Not observed to matter in this
-//     campaign's services, exactly as reqfieldscan's own note says; not
-//     patched here either, for the same reason -- a fix would need a
-//     concrete failing instance to design against, and none has surfaced.
+//     the collectDispatchEntries half (unioning every map/binder literal
+//     package-wide, with no de-duplication by which "logical" table an op
+//     belongs to) is UNCHANGED FROM REQFIELDSCAN, still unpatched there,
+//     and this tool still inherits that exposure -- no concrete failing
+//     instance has surfaced for THAT half specifically, so it stays
+//     undesigned rather than guessed at.
+//
+//     The OTHER half of this blind spot -- findHandlerByName's
+//     case-insensitive fold fallback, resolve.go -- has moved from
+//     theoretical to OBSERVED (gopherstack-fr30). It used to pick whichever
+//     match Go's randomized map iteration produced first, which is a
+//     determinism bug independent of whether a real collision exists; fixing
+//     that determinism bug required actually enumerating every collision,
+//     and the census (every op in every services/<dir>, current repo state)
+//     found 177 operations across 26 services where the fold matches 2+
+//     names case-insensitively for the same op: amplify, apigatewayv2,
+//     appsync, cleanrooms, cloudfront, cognitoidentity, ec2, ecr, elbv2,
+//     glue, grafana, identitystore, lambda, lightsail, mwaa, opsworks,
+//     quicksight, rds, rdsdata, route53resolver, s3, sagemaker,
+//     servicediscovery, sesv2, sqs, transfer. Every single instance is the
+//     SAME shape: an exported PascalCase method on a Backend/
+//     InMemoryBackend (business logic, e.g. appsync's `(b *InMemoryBackend)
+//     CreateAPI`, s3's `(b *InMemoryBackend) GetBucketACL`) colliding with
+//     the real unexported dispatch handler spelled identically but for
+//     case (appsync's `(h *Handler) createAPI`, s3's `(h *S3Handler)
+//     getBucketACL`) -- never two genuinely different DECODE sites. The
+//     tie-break rule (findHandlerByNameFold's doc comment) resolves every
+//     one of these correctly by preferring an unexported name over an
+//     exported one, so this is now a resolved, deterministic collision
+//     class rather than an open blind spot -- but it confirms the blind
+//     spot's premise (a same-named second table sitting behind the real
+//     one) is real in this repo, not hypothetical.
 //
 // TRIAGE (triage.go) ranks each undeclared field by, in order: a
 // documented default (defaultLanguageRe) -- a field the campaign's own

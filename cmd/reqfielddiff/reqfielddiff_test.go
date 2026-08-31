@@ -548,3 +548,81 @@ func (h *Handler) handleModifyActivityStream(vals url.Values) (any, error) {
 	require.Len(t, missing, 1)
 	require.Equal(t, "ResourceArn", missing[0].Field.Name)
 }
+
+// TestFindHandlerByNameFold_Deterministic is gopherstack-fr30's regression
+// test. Before the fix, this fixture's fallback scan picked a winner via
+// Go's randomized map iteration order -- CreateAPI (an exported Backend
+// method, appsync's and s3's real shape: business logic, not a decode
+// site) and createAPI (the actual unexported dispatch handler) both match
+// "CreateApi" case-insensitively with no "handle" prefix on either, so
+// nothing here breaks the tie except the stated rule. Runs the resolution
+// many times over the SAME handlerResolveCtx -- Go picks a fresh random
+// start point on every `range` over a map, even within one process, so
+// repeated calls are enough to catch the old nondeterminism without
+// shelling out to separate `go run` processes.
+func TestFindHandlerByNameFold_Deterministic(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Backend struct{}
+
+func (b *Backend) CreateAPI() error { return nil }
+
+type Handler struct{}
+
+func (h *Handler) createAPI(c *Context) error { return nil }
+`
+	idx := parseSrc(t, src)
+
+	fd, names := findHandlerByName("CreateApi", idx.ctx)
+	require.NotNil(t, fd)
+	require.Equal(t, []string{"CreateAPI", "createAPI"}, names, "both candidates must be reported as ambiguous")
+	require.Equal(
+		t,
+		"createAPI",
+		fd.Name.Name,
+		"the unexported dispatch handler must win, never the exported backend method",
+	)
+
+	const iterations = 200
+
+	for range iterations {
+		again, _ := findHandlerByName("CreateApi", idx.ctx)
+		require.Same(t, fd, again, "resolution must be identical on every call, not dependent on map iteration order")
+	}
+}
+
+// TestFindHandlerByNameFold_HandlePrefixBeatsBare covers the OTHER
+// collision shape the census found (177 operations, 26 services): a bare,
+// exported name that matches this op case-insensitively (a Backend method
+// sharing the operation's own name) alongside a "handle"+op-prefixed
+// match. The "handle" match must win regardless of export status or which
+// the map visits first.
+func TestFindHandlerByNameFold_HandlePrefixBeatsBare(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Backend struct{}
+
+func (b *Backend) EnableVpcClassicLinkDNSSupport() error { return nil }
+
+type Handler struct{}
+
+func (h *Handler) handleEnableVpcClassicLinkDNSSupport(c *Context) error { return nil }
+`
+	idx := parseSrc(t, src)
+
+	fd, names := findHandlerByName("EnableVpcClassicLinkDnsSupport", idx.ctx)
+	require.NotNil(t, fd)
+	require.ElementsMatch(t, []string{"EnableVpcClassicLinkDNSSupport", "handleEnableVpcClassicLinkDNSSupport"}, names)
+	require.Equal(t, "handleEnableVpcClassicLinkDNSSupport", fd.Name.Name)
+
+	const iterations = 200
+
+	for range iterations {
+		again, _ := findHandlerByName("EnableVpcClassicLinkDnsSupport", idx.ctx)
+		require.Same(t, fd, again)
+	}
+}

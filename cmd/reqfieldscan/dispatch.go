@@ -655,13 +655,36 @@ func resolveDispatchTable(
 // repo's Go handler names capitalize AWS acronyms (handleAssociate
 // ResolverEndpointIPAddress), while the AWS operation name itself does not
 // (AssociateResolverEndpointIpAddress); confirmed live in route53resolver.
-// A name collision that only differs by case does not occur among this
-// repo's handler methods (Go itself forbids two identically-spelled
-// methods on one receiver), so this fallback narrows, never guesses wrong.
+//
+// Two DIFFERENTLY spelled handler names -- differing only in the casing of
+// an acronym, e.g. handleDescribeIPAddress vs handleDescribeIpAddress --
+// CAN both exist in one package (Go only forbids two IDENTICALLY spelled
+// methods on one receiver), and building this index by ranging over
+// wrapOpFuncs -- a map -- used to let whichever one Go's randomized
+// iteration order visited last silently win, so which handler this
+// fallback matched (and so its resolved request type) could change from
+// run to run (gopherstack-fr30, reported first against
+// cmd/reqfielddiff/resolve.go's findHandlerByName but the same shape here).
+// Iterating wrapOpFuncs' keys in sorted order makes the winner the
+// lexicographically SMALLEST original name, deterministically, rather than
+// whichever the runtime happened to visit last.
 func lowerKeyedHandlers(wrapOpFuncs map[string]resolvedHandler) map[string]resolvedHandler {
+	names := make([]string, 0, len(wrapOpFuncs))
+	for name := range wrapOpFuncs {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
 	out := make(map[string]resolvedHandler, len(wrapOpFuncs))
-	for name, rh := range wrapOpFuncs {
-		out[strings.ToLower(name)] = rh
+
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if _, exists := out[key]; exists {
+			continue
+		}
+
+		out[key] = wrapOpFuncs[name]
 	}
 
 	return out

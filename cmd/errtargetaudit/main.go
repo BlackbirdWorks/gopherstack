@@ -111,20 +111,27 @@
 //
 // INHERITED BLIND SPOTS, checked one by one against cmd/reqfieldscan's
 // seven and cmd/reqfielddiff's identical list:
+//
 //  1. Slice-of-struct dispatch table: generalized in binderFields, same fix.
+//
 //  2. Local generic wrapper (cognitoidp's wrapAccuracy[I,O](fn)):
 //     collectLocalWrapOpWrappers, identical logic.
+//
 //  3. Handler name suffixes (Full/Accurate/WithOpts): findHandlersByName
 //     tries all three explicitly.
+//
 //  4. Go type alias in the struct collector: DOES NOT APPLY -- this tool
 //     collects no structs at all, only function bodies, so there is no
 //     struct-alias indirection to miss in the first place.
+//
 //  5. Anonymous inline struct decoding (opsworks): DOES NOT APPLY, same
 //     reason as (4) -- this tool never needs to know a decode TARGET TYPE,
 //     only whether a call site emits a code.
+//
 //  6. Method receiver not bound during local-binding collection: DOES NOT
 //     APPLY -- this tool collects no per-function local bindings at all
 //     (no field reads to resolve), only calls and returns.
+//
 //  7. A second in-package dispatch table behind suffixed/colliding names:
 //     CHECKED DIRECTLY against this tool's own bedrock validation target,
 //     which is exactly this shape (two real dispatch mechanisms in one
@@ -140,6 +147,20 @@
 //     blind spot describes -- unpatched here for the same reason those
 //     tools give: no concrete failing instance has surfaced to design
 //     against.
+//
+//     CHECKED SEPARATELY (gopherstack-fr30): cmd/reqfielddiff's
+//     findHandlerByName and cmd/reqfieldscan's lowerKeyedHandlers both had a
+//     DETERMINISM bug in their case-insensitive name-fallback -- picking
+//     whichever match Go's randomized map iteration order visited first (or
+//     last), so a service with 2+ case-insensitive matches resolved a
+//     different handler from one run to the next. findHandlersByNameFold
+//     here (resolveop.go) does NOT share that bug, structurally: it UNIONS
+//     every case-insensitive match into the returned slice rather than
+//     picking one, and every caller (walkOpEmissions, groupRootsByDomain,
+//     buildDomainOps) treats that slice as a set, deduplicated by AST
+//     position -- so which order the map happened to visit names in never
+//     changes the final result, only an internal, unobserved ordering. No
+//     fix was needed here; this was verified, not assumed.
 //
 // THIS TOOL'S OWN BLIND SPOTS, new to this class rather than inherited:
 //   - errors.As / type-switch classification (`switch err.(type) { case

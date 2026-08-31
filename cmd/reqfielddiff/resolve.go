@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -72,7 +73,7 @@ func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) op
 		}
 	}
 
-	if fd := findHandlerByName(op.Name, ctx); fd != nil {
+	if fd, _ := findHandlerByName(op.Name, ctx); fd != nil {
 		mergeResolution(&res, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys))
 	}
 
@@ -403,7 +404,13 @@ func fieldMap(def structDef) map[string]emuField {
 // capitalizes an AWS acronym (GraphqlAPI vs GraphqlApi, IPAddress vs
 // Ipaddress) never blocks a match cmd/reqfieldscan's own lowerKeyedHandlers
 // fallback already relies on for the same reason.
-func findHandlerByName(op string, ctx handlerResolveCtx) *ast.FuncDecl {
+//
+// Returns the resolved handler and, only when resolution fell all the way
+// through to findHandlerByNameFold's case-insensitive scan, every name that
+// scan matched (nil whenever an exact-name candidate above resolved it, or
+// nothing matched at all) -- see findHandlerByNameFold for why that second
+// value exists at all.
+func findHandlerByName(op string, ctx handlerResolveCtx) (*ast.FuncDecl, []string) {
 	candidates := []string{
 		"handle" + op,
 		"handle" + op + "Full",
@@ -416,31 +423,152 @@ func findHandlerByName(op string, ctx handlerResolveCtx) *ast.FuncDecl {
 
 	for _, name := range candidates {
 		if fd := lookupByExactName(name, ctx); fd != nil {
-			return fd
+			return fd, nil
 		}
 	}
 
-	targets := []string{strings.ToLower("handle" + op), strings.ToLower(op)}
+	return findHandlerByNameFold(op, ctx)
+}
 
-	for name, fd := range ctx.methods {
-		if len(fd) == 0 {
+// foldCandidate is one match found by findHandlerByNameFold's
+// case-insensitive scan, kept alongside enough of its own shape to apply the
+// tie-break rule and, for gopherstack-fr30's census, to be reported back to
+// a caller that wants to know when a name was genuinely ambiguous.
+type foldCandidate struct {
+	fd       *ast.FuncDecl
+	name     string
+	rank     int
+	isMethod bool
+}
+
+// findHandlerByNameFold is the last-resort case-insensitive scan behind
+// findHandlerByName's exact-name candidates: a casing quirk in how this repo
+// capitalizes an AWS acronym (GraphqlAPI vs GraphqlApi, IPAddress vs
+// Ipaddress) that none of those exact spellings covers.
+//
+// It used to return whichever match Go's map iteration produced first --
+// RANDOMIZED per process, so a service with 2+ case-insensitive matches for
+// the same op resolved a different handler body (and so a different field
+// count) from one run to the next (gopherstack-fr30). It now collects EVERY
+// case-insensitive match and picks among them by a stated, deterministic
+// rule:
+//
+//  1. prefer a match against "handle"+op over bare op -- "handle"+X is this
+//     repo's dominant handler-naming convention; the bare-op convention
+//     (apigateway's shape) is already caught, when spelled exactly, by the
+//     lowerFirst(op) candidate in findHandlerByName above, so a fold match
+//     against bare op is the weaker signal of the two.
+//  2. prefer an UNEXPORTED name over an exported one. This is not an
+//     arbitrary tie-break: gopherstack-fr30's own census of every fold
+//     ambiguity in this repo (177 operations, 26 services) found every
+//     single bare-vs-bare collision is the SAME shape -- an exported
+//     PascalCase method on a Backend/InMemoryBackend (appsync's
+//     `(b *InMemoryBackend) CreateAPI`, s3's `(b *InMemoryBackend)
+//     GetBucketACL`) colliding with the real unexported dispatch handler
+//     spelled identically but for case (appsync's `(h *Handler) createAPI`,
+//     s3's `(h *S3Handler) getBucketACL`). This repo's real handlers are
+//     uniformly unexported; picking the exported name here would silently
+//     resolve to backend business logic instead of the decode site, in
+//     every observed instance.
+//  3. prefer a method over a package func -- methods are this repo's
+//     overwhelming convention for real handlers.
+//  4. prefer the shorter name, then break any remaining tie
+//     lexicographically -- both arbitrary but stated, and neither depends on
+//     iteration order.
+//
+// The second return value is every matched name (deduplicated, sorted), for
+// a caller that wants to know whether this op's fallback was genuinely
+// ambiguous -- more than one candidate is the seventh inherited blind spot
+// (a second in-package dispatch table behind colliding names) surfacing in
+// practice rather than staying theoretical; see this package's doc comment.
+func findHandlerByNameFold(op string, ctx handlerResolveCtx) (*ast.FuncDecl, []string) {
+	handleTarget := strings.ToLower("handle" + op)
+	bareTarget := strings.ToLower(op)
+
+	var cands []foldCandidate
+
+	for name, fds := range ctx.methods {
+		if len(fds) == 0 {
 			continue
 		}
 
-		lower := strings.ToLower(name)
-		if slices.Contains(targets, lower) {
-			return fd[0]
+		if rank, ok := foldRank(name, handleTarget, bareTarget); ok {
+			cands = append(cands, foldCandidate{name: name, fd: fds[0], isMethod: true, rank: rank})
 		}
 	}
 
 	for name, fd := range ctx.funcs {
-		lower := strings.ToLower(name)
-		if slices.Contains(targets, lower) {
-			return fd
+		if rank, ok := foldRank(name, handleTarget, bareTarget); ok {
+			cands = append(cands, foldCandidate{name: name, fd: fd, isMethod: false, rank: rank})
 		}
 	}
 
-	return nil
+	if len(cands) == 0 {
+		return nil, nil
+	}
+
+	slices.SortFunc(cands, compareFoldCandidates)
+
+	return cands[0].fd, foldCandidateNames(cands)
+}
+
+func foldRank(name, handleTarget, bareTarget string) (int, bool) {
+	switch strings.ToLower(name) {
+	case handleTarget:
+		return 0, true
+	case bareTarget:
+		return 1, true
+	default:
+		return 0, false
+	}
+}
+
+func compareFoldCandidates(a, b foldCandidate) int {
+	if a.rank != b.rank {
+		return a.rank - b.rank
+	}
+
+	if aExp, bExp := ast.IsExported(a.name), ast.IsExported(b.name); aExp != bExp {
+		if aExp {
+			return 1
+		}
+
+		return -1
+	}
+
+	if a.isMethod != b.isMethod {
+		if a.isMethod {
+			return -1
+		}
+
+		return 1
+	}
+
+	if len(a.name) != len(b.name) {
+		return len(a.name) - len(b.name)
+	}
+
+	return strings.Compare(a.name, b.name)
+}
+
+func foldCandidateNames(cands []foldCandidate) []string {
+	seen := map[string]bool{}
+
+	var names []string
+
+	for _, c := range cands {
+		if seen[c.name] {
+			continue
+		}
+
+		seen[c.name] = true
+
+		names = append(names, c.name)
+	}
+
+	sort.Strings(names)
+
+	return names
 }
 
 func lookupByExactName(name string, ctx handlerResolveCtx) *ast.FuncDecl {
