@@ -150,8 +150,11 @@ func (b *InMemoryBackend) DeleteRepository(
 }
 
 // repoMatchesFilters returns true when repositoryName matches any filter in the
-// slice, or when the slice is empty (no filter = match-all). AWS ECR supports
-// WILDCARD (with '*' glob) and PREFIX filter types.
+// slice, or when the slice is empty (no filter = match-all). This internal type
+// is shared by two real AWS types with distinct FilterType enums: replication's
+// types.RepositoryFilter supports only "PREFIX_MATCH" (aws-sdk-go-v2/service/ecr
+// types/enums.go:385); scanning's types.ScanningRepositoryFilter supports only
+// "WILDCARD" (enums.go:441). Neither documents a bare "PREFIX".
 func repoMatchesFilters(name string, filters []RepositoryFilter) bool {
 	if len(filters) == 0 {
 		return true
@@ -163,7 +166,7 @@ func repoMatchesFilters(name string, filters []RepositoryFilter) bool {
 			if wildcardMatch(f.Filter, name) {
 				return true
 			}
-		case "PREFIX":
+		case "PREFIX_MATCH":
 			if strings.HasPrefix(name, f.Filter) {
 				return true
 			}

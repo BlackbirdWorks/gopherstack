@@ -34,7 +34,8 @@ func toLifecyclePolicyResultView(r *LifecyclePolicyResult) *lifecyclePolicyResul
 // lifecyclePolicyPreviewRuleActionView is the JSON representation of a
 // lifecycle preview entry's action (real AWS type: LifecyclePolicyRuleAction).
 type lifecyclePolicyPreviewRuleActionView struct {
-	Type string `json:"type,omitempty"`
+	Type               string `json:"type,omitempty"`
+	TargetStorageClass string `json:"targetStorageClass,omitempty"`
 }
 
 // lifecyclePolicyPreviewEntryView is the JSON representation of a single
@@ -108,7 +109,10 @@ func toLifecyclePolicyPreviewView(p *LifecyclePolicyPreviewResult) *lifecyclePol
 	results := make([]lifecyclePolicyPreviewEntryView, 0, len(p.PreviewResults))
 	for _, e := range p.PreviewResults {
 		results = append(results, lifecyclePolicyPreviewEntryView{
-			Action:              lifecyclePolicyPreviewRuleActionView{Type: e.ActionType},
+			Action: lifecyclePolicyPreviewRuleActionView{
+				Type:               e.ActionType,
+				TargetStorageClass: e.TargetStorageClass,
+			},
 			ImageDigest:         e.ImageDigest,
 			StorageClass:        e.StorageClass,
 			ImageTags:           e.ImageTags,

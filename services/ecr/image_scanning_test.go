@@ -650,28 +650,33 @@ func TestBatchGetRepositoryScanningConfiguration_ScanFrequency(t *testing.T) {
 			wantFrequency: "CONTINUOUS_SCAN",
 		},
 		{
-			name:       "enhanced_prefix_rule_matches_repo",
+			// ScanningRepositoryFilterType's only real AWS value is "WILDCARD"
+			// (aws-sdk-go-v2/service/ecr types/enums.go:441) -- there is no
+			// "PREFIX"/"PREFIX_MATCH" variant for scanning rules (that value
+			// belongs to the distinct replication RepositoryFilterType). A
+			// wildcard-free literal is just an exact match.
+			name:       "enhanced_wildcard_literal_rule_matches_repo",
 			scanOnPush: false,
 			scanType:   "ENHANCED",
 			rules: []map[string]any{
 				{
 					"scanFrequency": "CONTINUOUS_SCAN",
 					"repositoryFilters": []map[string]any{
-						{"filter": "myrepo", "filterType": "PREFIX"},
+						{"filter": "myrepo", "filterType": "WILDCARD"},
 					},
 				},
 			},
 			wantFrequency: "CONTINUOUS_SCAN",
 		},
 		{
-			name:       "enhanced_prefix_rule_no_match_falls_back",
+			name:       "enhanced_wildcard_literal_rule_no_match_falls_back",
 			scanOnPush: false,
 			scanType:   "ENHANCED",
 			rules: []map[string]any{
 				{
 					"scanFrequency": "CONTINUOUS_SCAN",
 					"repositoryFilters": []map[string]any{
-						{"filter": "other", "filterType": "PREFIX"},
+						{"filter": "other", "filterType": "WILDCARD"},
 					},
 				},
 			},

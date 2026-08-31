@@ -608,3 +608,51 @@ doc comment (comprehend's "ErrorCode" is cited there by name as the
 original motivating case for tracking Polymorphic at all). FALSE POSITIVE,
 not fixed: this field has no SDK-declared legal-value set to check
 "TEXT_SIZE_LIMIT_EXCEEDED"/"UNSUPPORTED_LANGUAGE"/"INVALID_REQUEST" against.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics pass): filter matchers clean
+
+Different question than the enum pass above: not "is this emitted value a
+legal enum member" but "does a correctly-applied filter mean what AWS
+documents." This axis was previously unexamined for comprehend (the enum
+sweep above checked emitted values, not filter-matching logic). Audited
+every real filter matcher against the pinned SDK's Go doc comments, reading
+each operation's own Filter type rather than a sibling's:
+
+- `matchesJobFilter` (handler_jobs.go) -- `types.{Sentiment,Entities,...}
+  DetectionJobFilter` family: JobName/JobStatus equality, SubmitTimeBefore
+  (`job.SubmitTime.Before(before)`, exclusive) / SubmitTimeAfter
+  (`.After(after)`, exclusive) -- matches every family's doc comment
+  ("Returns only jobs submitted before/after the specified time").
+- `matchesResourceFilter`/`matchesResourceFilterIdentity`/
+  `matchesResourceFilterTimeWindow` (handler_resources.go) --
+  `DocumentClassifierFilter`/`EntityRecognizerFilter`/`EndpointFilter`/
+  `FlywheelFilter`/`DatasetFilter`: Status equality, the one identity field
+  each family actually carries (DocumentClassifierName/RecognizerName/
+  ModelArn/DatasetType -- Flywheel has none, correctly unconditional),
+  SubmitTimeBefore/After vs CreationTimeBefore/After per family, DatasetType
+  compared against the stored `Configuration["DatasetType"]`. All correct.
+- `matchesIterationFilter` (handler_flywheels.go) -- `FlywheelIterationFilter`:
+  CreationTimeBefore/After only, correctly has no Status (real type has none).
+
+All three matchers are correct against their operations' own Filter types.
+
+**Gap recorded, not guessed.** Several Filter types' SubmitTimeBefore/After
+and CreationTimeBefore/After doc comments claim a sort-direction side effect
+("Jobs are returned in descending/ascending order..."), but the direction is
+**inconsistent between types**: `DocumentClassifierFilter`/job filters say
+SubmitTimeAfter -> descending, SubmitTimeBefore -> ascending;
+`EntityRecognizerFilter` documents the exact opposite pairing for the same
+two fields. Two AWS-authored doc comments contradicting each other on the
+same mechanic is a strong signal this is inconsistent/generated boilerplate
+text rather than a deliberate, verifiable API contract -- not solid enough
+to implement without guessing which type's wording (if either) is real.
+`ListJobs`/`store.go` keeps its existing single ascending-SubmitTime sort
+for all callers; not changed.
+
+**Web pages fetched: 0.** Everything needed was in the pinned SDK's Go doc
+comments.
+
+Gates: `go build ./...`, `go vet ./...`, `go test -race -count=1
+./services/comprehend/...`, `golangci-lint run ./services/comprehend/...` --
+all clean. No comprehend code changed this pass (clean verdict, disclosure
+only).

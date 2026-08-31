@@ -23,19 +23,28 @@ type lifecyclePolicyRule struct {
 	RulePriority int                   `json:"rulePriority"`
 }
 
-// lifecyclePolicySelect describes which images a rule targets.
+// lifecyclePolicySelect describes which images a rule targets. StorageClass
+// ("standard"|"archive") is a general selection filter, not exclusive to
+// countType=sinceImageTransitioned -- docs.aws.amazon.com/AmazonECR/latest/
+// userguide/lifecycle_policy_examples.html's policy template lists it as a
+// sibling of tagStatus.
 type lifecyclePolicySelect struct {
 	TagStatus      string   `json:"tagStatus"`
 	CountType      string   `json:"countType"`
 	CountUnit      string   `json:"countUnit,omitempty"`
+	StorageClass   string   `json:"storageClass,omitempty"`
 	TagPatternList []string `json:"tagPatternList,omitempty"`
 	TagPrefixList  []string `json:"tagPrefixList,omitempty"`
 	CountNumber    int      `json:"countNumber"`
 }
 
-// lifecyclePolicyAction specifies what to do with matched images.
+// lifecyclePolicyAction specifies what to do with matched images. Real AWS
+// ImageActionType is "expire"|"transition" (there is no "archive" action
+// type); TargetStorageClass is only meaningful when Type=="transition" and
+// its only real value is "archive" (types.LifecyclePolicyTargetStorageClass).
 type lifecyclePolicyAction struct {
-	Type string `json:"type"`
+	Type               string `json:"type"`
+	TargetStorageClass string `json:"targetStorageClass,omitempty"`
 }
 
 // imageEntry is used internally by lifecycle policy evaluation to track which
@@ -100,7 +109,8 @@ func evaluateLifecyclePolicy(
 	var expired []LifecyclePolicyPreviewEntry
 
 	for _, rule := range rules {
-		if strings.ToLower(rule.Action.Type) != "expire" {
+		actionType := strings.ToLower(rule.Action.Type)
+		if actionType != "expire" && actionType != "transition" {
 			continue
 		}
 
@@ -135,16 +145,20 @@ func previewEntryFor(e *imageEntry, rule lifecyclePolicyRule) LifecyclePolicyPre
 		ImageTags:           append([]string(nil), e.allTags...),
 		StorageClass:        storageClass,
 		ActionType:          strings.ToUpper(rule.Action.Type),
+		TargetStorageClass:  strings.ToUpper(rule.Action.TargetStorageClass),
 		AppliedRulePriority: rule.RulePriority,
 		ImagePushedAt:       e.img.ImagePushedAt,
 	}
 }
 
 // applyLifecyclePolicyLocked evaluates the repository's stored lifecycle policy
-// and deletes every image the policy selects for expiration, mirroring the AWS
-// ECR lifecycle evaluation job. It records the evaluation timestamp and returns
-// the identifiers of the images that were actually deleted. The write lock must
-// be held by the caller.
+// and applies every image the policy selects: "expire" rules delete the image
+// (mirroring the AWS ECR lifecycle evaluation job), "transition" rules (with
+// targetStorageClass="archive") transition it to StorageClass=ARCHIVE the same
+// way UpdateImageStorageClass does. It records the evaluation timestamp and
+// returns the identifiers of the images that were actually deleted (archived
+// images are not deleted, so they are not included). The write lock must be
+// held by the caller.
 func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []ImageIdentifier {
 	b.lifecycleLastEvaluated[repositoryName] = time.Now()
 
@@ -171,6 +185,12 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 			continue
 		}
 
+		if pe.ActionType == "TRANSITION" && pe.TargetStorageClass == storageClassArchive {
+			b.archiveImageLocked(repositoryName, digest)
+
+			continue
+		}
+
 		var tag string
 		if len(pe.ImageTags) > 0 {
 			tag = pe.ImageTags[0]
@@ -187,6 +207,22 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 	}
 
 	return deleted
+}
+
+// archiveImageLocked performs the same StorageClass/ImageStatus/LastArchivedAt
+// transition UpdateImageStorageClass(target="ARCHIVE") performs, for a
+// lifecycle-policy action.type=="transition" rule. The write lock must be
+// held by the caller.
+func (b *InMemoryBackend) archiveImageLocked(repositoryName, digest string) {
+	img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName],
+		ImageIdentifier{ImageDigest: digest})
+	if !ok {
+		return
+	}
+
+	img.StorageClass = storageClassArchive
+	img.ImageStatus = imageStatusArchived
+	img.LastArchivedAt = time.Now()
 }
 
 // RunLifecycleExpiry evaluates the lifecycle policy of every repository that has
@@ -216,22 +252,7 @@ func (b *InMemoryBackend) RunLifecycleExpiry(ctx context.Context) int {
 // applyRule returns the entries that match the given rule (ignoring already-matched ones).
 func applyRule(rule lifecyclePolicyRule, entries []*imageEntry) []*imageEntry {
 	sel := rule.Selection
-	now := time.Now()
-
-	// Filter candidates that match the tag status / pattern criteria.
-	candidates := make([]*imageEntry, 0, len(entries))
-
-	for _, e := range entries {
-		if e.matched {
-			continue
-		}
-
-		if !matchesTagStatus(sel, e.img, e.allTags) {
-			continue
-		}
-
-		candidates = append(candidates, e)
-	}
+	candidates := selectionCandidates(sel, entries)
 
 	switch sel.CountType {
 	case "imageCountMoreThan":
@@ -243,23 +264,104 @@ func applyRule(rule lifecyclePolicyRule, entries []*imageEntry) []*imageEntry {
 		return candidates[sel.CountNumber:]
 
 	case "sinceImagePushed":
-		if sel.CountUnit == "" {
-			sel.CountUnit = "days"
-		}
+		return byAgeThreshold(sel, candidates, func(e *imageEntry) time.Time { return e.img.ImagePushedAt })
 
-		threshold := ageThreshold(now, sel.CountNumber, sel.CountUnit)
-		var expired []*imageEntry
+	case "sinceImagePulled":
+		return byAgeThreshold(sel, candidates, func(e *imageEntry) time.Time { return effectiveLastPullTime(e.img) })
 
-		for _, e := range candidates {
-			if e.img.ImagePushedAt.Before(threshold) {
-				expired = append(expired, e)
-			}
-		}
+	case "sinceImageTransitioned":
+		lastArchivedAt := func(e *imageEntry) time.Time { return e.img.LastArchivedAt }
 
-		return expired
+		return byAgeThreshold(sel, archivedOnly(candidates), lastArchivedAt)
 	}
 
 	return nil
+}
+
+// selectionCandidates filters entries down to those matching the rule's
+// tagStatus/tagPrefixList/tagPatternList and (if set) storageClass criteria,
+// excluding images already claimed by a higher-priority rule.
+func selectionCandidates(sel lifecyclePolicySelect, entries []*imageEntry) []*imageEntry {
+	candidates := make([]*imageEntry, 0, len(entries))
+
+	for _, e := range entries {
+		if e.matched || !matchesTagStatus(sel, e.img, e.allTags) || !matchesStorageClass(sel, e.img) {
+			continue
+		}
+
+		candidates = append(candidates, e)
+	}
+
+	return candidates
+}
+
+// matchesStorageClass reports whether an image satisfies the selection's
+// storageClass filter ("standard"|"archive"), or true when unset.
+func matchesStorageClass(sel lifecyclePolicySelect, img *Image) bool {
+	if sel.StorageClass == "" {
+		return true
+	}
+
+	isArchived := img.ImageStatus == imageStatusArchived
+	if strings.EqualFold(sel.StorageClass, storageClassArchive) {
+		return isArchived
+	}
+
+	return !isArchived
+}
+
+// archivedOnly filters to images already in archive storage --
+// countType=sinceImageTransitioned only ever considers archived images
+// ("all archived images whose last_archived_at is older than ...").
+func archivedOnly(candidates []*imageEntry) []*imageEntry {
+	out := make([]*imageEntry, 0, len(candidates))
+
+	for _, e := range candidates {
+		if e.img.ImageStatus == imageStatusArchived {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
+// byAgeThreshold returns the candidates whose timeOf(e) is older than
+// sel.CountNumber sel.CountUnit ago (defaulting to days).
+func byAgeThreshold(
+	sel lifecyclePolicySelect, candidates []*imageEntry, timeOf func(*imageEntry) time.Time,
+) []*imageEntry {
+	unit := sel.CountUnit
+	if unit == "" {
+		unit = lifecycleDefaultCountUnit
+	}
+
+	threshold := ageThreshold(time.Now(), sel.CountNumber, unit)
+	var expired []*imageEntry
+
+	for _, e := range candidates {
+		if timeOf(e).Before(threshold) {
+			expired = append(expired, e)
+		}
+	}
+
+	return expired
+}
+
+// effectiveLastPullTime resolves the timestamp countType=sinceImagePulled
+// measures against, per its documented fallback chain: LastRecordedPullTime
+// when present and not stale relative to a later restore, else
+// LastActivatedAt (archived and restored, but never pulled since), else
+// ImagePushedAt (never pulled at all).
+func effectiveLastPullTime(img *Image) time.Time {
+	t := img.ImagePushedAt
+	if !img.LastActivatedAt.IsZero() {
+		t = img.LastActivatedAt
+	}
+	if !img.LastRecordedPullTime.IsZero() && img.LastRecordedPullTime.After(img.LastActivatedAt) {
+		t = img.LastRecordedPullTime
+	}
+
+	return t
 }
 
 // matchesTagStatus reports whether an image matches the tagStatus (and optional

@@ -566,13 +566,13 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
-	if target == "ARCHIVE" {
+	if target == storageClassArchive {
 		img.StorageClass = target
-		img.ImageStatus = "ARCHIVED"
+		img.ImageStatus = imageStatusArchived
 		img.LastArchivedAt = time.Now()
 	} else {
 		img.StorageClass = "STANDARD"
-		img.ImageStatus = "ACTIVE"
+		img.ImageStatus = imageStatusActive
 		img.LastActivatedAt = time.Now()
 	}
 

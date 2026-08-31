@@ -60,7 +60,7 @@ func TestReplication_DestinationsDerivedFromConfig(t *testing.T) {
 			name: "repositoryFilters gate which repos replicate",
 			rules: []ecr.ReplicationRule{{
 				Destinations:      []ecr.ReplicationDestination{{Region: "us-west-2", RegistryID: "123456789012"}},
-				RepositoryFilters: []ecr.RepositoryFilter{{Filter: "prod", FilterType: "PREFIX"}},
+				RepositoryFilters: []ecr.RepositoryFilter{{Filter: "prod", FilterType: "PREFIX_MATCH"}},
 			}},
 			repo:        "dev-app",
 			wantRegions: nil, // dev-app does not match "prod" prefix

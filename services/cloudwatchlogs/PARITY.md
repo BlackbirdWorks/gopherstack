@@ -52,7 +52,7 @@ ops:
   DescribeSubscriptionFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSubscriptionFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   PutMetricFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeMetricFilters: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeMetricFilters: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-uox6 (2026-08-30): FilterNamePrefix's own doc comment says CloudWatch Logs applies it only when logGroupName is also given; this backend applied it unconditionally, so filterNamePrefix-without-logGroupName wrongly narrowed a global listing instead of being a no-op. Fixed by clearing the effective prefix when logGroupName is empty."}
   DeleteMetricFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   TestMetricFilter: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: ExtractedValues was always {} (disguised stub -- computed nothing from the pattern's named fields). Now extracts every $-referenced field for JSON and space-delimited patterns."}
   ListTagsLogGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -779,3 +779,62 @@ across separate calls, not within one.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/cloudwatchlogs/...`).
+
+## 2026-08-30 (gopherstack-uox6, value-semantics pass)
+
+Audited this service's hand-rolled matchers/filters/comparisons for a
+different question than every prior sweep: not "is the field read" but "is
+the field applied correctly." This axis was declared closed by earlier
+field-coverage passes; it is not the same axis.
+
+**Matchers audited** (all against the pinned `cloudwatchlogs@v1.81.1` SDK,
+doc comments unless noted): `compileFilterPattern`/`compiledFilterPattern.matches`
+(filter_patterns.go) — required/exclude/optional term combining, `?`-ignored-
+when-combined-with-other-terms rule, quoted-exact vs wildcard-regex term
+compilation; `compileSpaceFilterPattern` (filter_pattern_space.go) — `[...]`
+positional/ellipsis alignment, `=`/`!=`/`<`/`<=`/`>`/`>=` operators, `*`
+wildcard on `=`; `compileJSONFilterPattern` (filter_pattern_json.go) — `{...}`
+selector AST, `&&`/`||`, exists/not-exists, wildcard string equality, numeric
+comparators; `FilterLogEvents`'s StartTime/EndTime bounds (log_events.go) —
+confirmed inclusive on both ends per `api_op_FilterLogEvents.go`'s "Events
+with a timestamp before/later than this time are not returned" wording;
+`metricFilterMatches`/`DescribeMetricFilters` (metric_filters.go);
+`DescribeSubscriptionFilters`'s prefix filter (subscription_filters.go);
+`DescribeLogStreams`'s orderBy/descending validation (log_streams.go). All
+were correct **except** the one below.
+
+**Bug found — under-application direction, new to this class's catalog.**
+Every prior instance of "a documented modifier ignored" had the modifier
+under-applied (negation, `?`, an operator) so real matches were missed. This
+one runs the other way: `DescribeMetricFiltersInput.FilterNamePrefix`'s doc
+comment says the prefix is used "only if you also include the logGroupName
+parameter" — i.e. it must be a no-op without a log group, not a global name
+filter. `metric_filters.go`'s `DescribeMetricFilters` applied it
+unconditionally, so a caller passing `filterNamePrefix` alone (no
+`logGroupName`) got results wrongly narrowed to that prefix instead of every
+metric filter in the account. Fixed by zeroing the effective prefix when
+`logGroupName` is empty. Test: `TestDescribeMetricFilters_FilterNamePrefixIgnoredWithoutLogGroupName`
+(`metric_filters_prefix_scope_test.go`), drives the real SDK client, confirmed
+failing pre-fix (only the prefix-matching filter was returned; the other was
+wrongly excluded).
+
+**Every StartTime/EndTime-shaped comparison checked for format**: all of
+FilterLogEvents/GetLogEvents/metric-filter time windows compare epoch-
+milliseconds `int64` against `OutputLogEvent.Timestamp` (also epoch-ms) — no
+format mismatch found anywhere in this service; the self-inconsistent
+nanoseconds-vs-seconds shape from ec2/sagemaker does not recur here.
+
+**Adjacent, out-of-class finding, NOT fixed, flagged for the field-coverage
+owner instead of acted on here**: `filterLogEventsInput` (handler_log_events.go)
+has no `StartFromHead` field at all, though `FilterLogEventsInput` (the real
+SDK type) documents one affecting sort direction. This is a field never
+decoded, not a field read-and-misapplied — the wrong axis for this pass, and
+PARITY's existing `FilterLogEvents: {wire: ok, ...}` line does not disclose
+it. Recorded here rather than silently left for a future sweep to rediscover.
+
+**Web pages fetched: 0.** Everything needed for cloudwatchlogs' filter/time
+semantics was already in the pinned SDK's Go doc comments.
+
+Gates re-run after this pass: `go build ./...`, `go vet ./...`,
+`go test -race -count=1 ./services/cloudwatchlogs/...`, `golangci-lint run
+./services/cloudwatchlogs/...` — all clean.
