@@ -487,6 +487,39 @@ func folderFiltersFromBody(body map[string]any) []FolderSearchFilter {
 	return filters
 }
 
+// lowercaseFiltersFromBody is folderFiltersFromBody for SearchKnowledgeBases
+// and SearchSpaces: KnowledgeBaseSearchFilter and SpaceQuicksightSearchFilter
+// are the only two Search*Filter types in this service whose serializer
+// emits lowercase "name"/"operator"/"value" (quicksight@v1.123.1
+// serializers.go's awsRestjson1_serializeDocumentKnowledgeBaseSearchFilter/
+// awsRestjson1_serializeDocumentSpaceQuicksightSearchFilter) instead of the
+// PascalCase "Name"/"Operator"/"Value" every other Search*Filter type uses.
+// Reading folderFiltersFromBody's PascalCase keys here parsed every filter
+// to an empty Name/Operator/Value, so a real client's filters -- including
+// the name filter -- were silently dropped and every record came back.
+func lowercaseFiltersFromBody(body map[string]any) []SearchFilter {
+	raw, _ := body["Filters"].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	filters := make([]SearchFilter, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		filters = append(filters, SearchFilter{
+			Operator: strField(m, "operator"),
+			Name:     strField(m, "name"),
+			Value:    strField(m, "value"),
+		})
+	}
+
+	return filters
+}
+
 // classifyFolderPaths routes /accounts/{id}/folders/... paths.
 func classifyFolderPaths(method string, segs []string, n int) (string, string) {
 	switch n {

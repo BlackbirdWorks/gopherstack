@@ -33,6 +33,22 @@ const (
 	filterOperatorStringLike   = "StringLike"
 )
 
+// matchesStringOp reports whether actual matches value per op: op == likeOp
+// means substring, anything else (StringEquals, an unset operator, or an
+// unrecognized value) defaults to equality. likeOp is a parameter because
+// not every Search*Filter type shares the same wire spelling for "substring
+// match": FilterOperator/ComparisonOperator/SearchFilterOperator/
+// TopicFilterOperator all emit "StringLike", but KnowledgeBaseSearchOperator
+// and SpaceSearchOperator emit "STRING_LIKE" (confirmed against each type's
+// own enum in quicksight@v1.123.1 types/enums.go, not a sibling's).
+func matchesStringOp(actual, op, value, likeOp string) bool {
+	if op == likeOp {
+		return strings.Contains(actual, value)
+	}
+
+	return actual == value
+}
+
 // matchesNameFilter reports whether name matches a single SearchFilter whose
 // Name is nameFilterKey (e.g. "DASHBOARD_NAME"). Filters with any other Name
 // are ownership-related (QUICKSIGHT_OWNER, DIRECT_QUICKSIGHT_OWNER, etc.) that
@@ -43,12 +59,7 @@ func matchesNameFilter(name string, filter SearchFilter, nameFilterKey string) b
 		return true
 	}
 
-	switch filter.Operator {
-	case filterOperatorStringLike:
-		return strings.Contains(name, filter.Value)
-	default: // StringEquals and unset operators default to equality.
-		return name == filter.Value
-	}
+	return matchesStringOp(name, filter.Operator, filter.Value, filterOperatorStringLike)
 }
 
 // matchesAllNameFilters reports whether name satisfies every filter in
@@ -376,12 +387,7 @@ func folderMatchesFilter(f *storedFolder, filter FolderSearchFilter) bool {
 		return true
 	}
 
-	switch filter.Operator {
-	case filterOperatorStringLike:
-		return strings.Contains(actual, filter.Value)
-	default: // StringEquals and unset operators default to equality.
-		return actual == filter.Value
-	}
+	return matchesStringOp(actual, filter.Operator, filter.Value, filterOperatorStringLike)
 }
 
 func (b *InMemoryBackend) SearchFolders(

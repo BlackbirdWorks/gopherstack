@@ -743,7 +743,7 @@ func TestQuickSight_KnowledgeBases(t *testing.T) {
 
 				searchRec := doRequest(t, h, http.MethodPost, v1AccountPath("/search/knowledge-bases"), map[string]any{
 					"Filters": []any{
-						map[string]any{"Name": "KNOWLEDGE_BASE_NAME", "Operator": "StringLike", "Value": "Support"},
+						map[string]any{"name": "KNOWLEDGE_BASE_NAME", "operator": "STRING_LIKE", "value": "Support"},
 					},
 				})
 				require.Equal(t, http.StatusOK, searchRec.Code)
@@ -895,7 +895,7 @@ func TestQuickSight_Spaces(t *testing.T) {
 
 				searchRec := doRequest(t, h, http.MethodPost, v1AccountPath("/search/spaces"), map[string]any{
 					"Filters": []any{
-						map[string]any{"Name": "SPACE_NAME", "Operator": "StringLike", "Value": "Support"},
+						map[string]any{"name": "SPACE_NAME", "operator": "STRING_LIKE", "value": "Support"},
 					},
 				})
 				require.Equal(t, http.StatusOK, searchRec.Code)

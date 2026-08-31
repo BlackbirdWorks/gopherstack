@@ -12,6 +12,10 @@ import (
 // on a flow's display name (the "assetName" filter per the QuickSight API).
 const filterFlowAssetName = "assetName"
 
+// filterFlowAssetDescription is the SearchFlows filter attribute name for
+// matching on a flow's description (types.FieldName's "assetDescription").
+const filterFlowAssetDescription = "assetDescription"
+
 // storedFlow is the persisted representation of a QuickSight flow.
 // CreateFlow was added to the QuickSight API after the prior parity pass
 // (see PARITY.md); seedFlow remains available for tests that want to
@@ -230,6 +234,28 @@ func (b *InMemoryBackend) ListFlows(
 	return result, next, nil
 }
 
+// flowMatchesFilters reports whether f satisfies every filter (AND
+// semantics, matching matchesAllNameFilters). types.FieldName documents
+// assetName and assetDescription as substring-searchable flow fields
+// alongside three ownership names; both are tracked on storedFlow, so both
+// are checked here rather than only assetName.
+func flowMatchesFilters(f *storedFlow, filters []SearchFilter) bool {
+	for _, filt := range filters {
+		switch filt.Name {
+		case filterFlowAssetName:
+			if !matchesStringOp(f.Name, filt.Operator, filt.Value, filterOperatorStringLike) {
+				return false
+			}
+		case filterFlowAssetDescription:
+			if !matchesStringOp(f.Description, filt.Operator, filt.Value, filterOperatorStringLike) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) SearchFlows(
 	_ string,
 	filters []SearchFilter,
@@ -241,7 +267,7 @@ func (b *InMemoryBackend) SearchFlows(
 
 	var filtered []*storedFlow
 	for _, f := range b.flows.All() {
-		if matchesAllNameFilters(f.Name, filters, filterFlowAssetName) {
+		if flowMatchesFilters(f, filters) {
 			filtered = append(filtered, f)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 const (
 	filterActionConnectorName = "ACTION_CONNECTOR_NAME"
+	filterActionConnectorType = "ACTION_CONNECTOR_TYPE"
 )
 
 // storedActionConnector is the persisted representation of a QuickSight
@@ -165,6 +166,29 @@ func (b *InMemoryBackend) ListActionConnectors(
 	return result, next, nil
 }
 
+// actionConnectorMatchesFilters reports whether a satisfies every filter
+// (AND semantics, matching matchesAllNameFilters). ActionConnectorSearchFilterNameEnum
+// documents ACTION_CONNECTOR_NAME and ACTION_CONNECTOR_TYPE alongside five
+// ownership names (QUICKSIGHT_OWNER, DIRECT_QUICKSIGHT_OWNER, etc.); Type is
+// a plain tracked field (unlike ownership, which this backend doesn't model
+// principals for), so it's checked here rather than passed through.
+func actionConnectorMatchesFilters(a *storedActionConnector, filters []SearchFilter) bool {
+	for _, f := range filters {
+		switch f.Name {
+		case filterActionConnectorName:
+			if !matchesStringOp(a.Name, f.Operator, f.Value, filterOperatorStringLike) {
+				return false
+			}
+		case filterActionConnectorType:
+			if !matchesStringOp(a.Type, f.Operator, f.Value, filterOperatorStringLike) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) SearchActionConnectors(
 	_ string,
 	filters []SearchFilter,
@@ -176,7 +200,7 @@ func (b *InMemoryBackend) SearchActionConnectors(
 
 	var filtered []*storedActionConnector
 	for _, a := range b.actionConnectors.All() {
-		if matchesAllNameFilters(a.Name, filters, filterActionConnectorName) {
+		if actionConnectorMatchesFilters(a, filters) {
 			filtered = append(filtered, a)
 		}
 	}

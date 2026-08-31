@@ -7,9 +7,18 @@ import (
 	"time"
 )
 
-// filterSpaceName is the SearchSpaces filter attribute name for matching on
-// a space's display name (the real API's SPACE_NAME filter).
-const filterSpaceName = "SPACE_NAME"
+const (
+	// filterSpaceName is the SearchSpaces filter attribute name for matching
+	// on a space's display name (the real API's SPACE_NAME filter).
+	filterSpaceName = "SPACE_NAME"
+	filterSpaceID   = "SPACE_ID"
+
+	// spaceOperatorStringLike is SpaceSearchOperator's own wire value for
+	// substring match ("STRING_LIKE" -- quicksight@v1.123.1 types/enums.go),
+	// unlike FilterOperator's "StringLike" used by most other Search ops in
+	// this service: read per this operation's own type, not a sibling's.
+	spaceOperatorStringLike = "STRING_LIKE"
+)
 
 func spaceKey(accountID, spaceID string) string {
 	return accountID + "/" + spaceID
@@ -148,6 +157,33 @@ func (b *InMemoryBackend) ListSpaces(_ string, maxResults int32, nextToken strin
 	return result, next, nil
 }
 
+// spaceMatchesFilters reports whether s satisfies every filter (AND
+// semantics, matching matchesAllNameFilters). SpaceQuickSightSearchFilterName
+// documents SPACE_ID and SPACE_NAME as plain tracked fields, checked here;
+// DIRECT_QUICKSIGHT_OWNER/DIRECT_QUICKSIGHT_VIEWER_OR_OWNER/
+// DIRECT_QUICKSIGHT_SOLE_OWNER and CREATED_BY are all principal-derived
+// (CreateSpaceInput has no request field for any of them -- they're set
+// from the caller's identity, which this backend doesn't model), so they
+// pass through like the ownership filters on every other Search op here.
+// CONTRIBUTED_BY and CONSUMED_SOURCE_SIZE also pass through: storedSpace
+// tracks neither a resource contributor nor a consumed-size figure.
+func spaceMatchesFilters(s *storedSpace, filters []SearchFilter) bool {
+	for _, f := range filters {
+		switch f.Name {
+		case filterSpaceName:
+			if !matchesStringOp(s.Name, f.Operator, f.Value, spaceOperatorStringLike) {
+				return false
+			}
+		case filterSpaceID:
+			if !matchesStringOp(s.SpaceID, f.Operator, f.Value, spaceOperatorStringLike) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) SearchSpaces(
 	_ string,
 	filters []SearchFilter,
@@ -159,7 +195,7 @@ func (b *InMemoryBackend) SearchSpaces(
 
 	var filtered []*storedSpace
 	for _, s := range b.spaces.All() {
-		if matchesAllNameFilters(s.Name, filters, filterSpaceName) {
+		if spaceMatchesFilters(s, filters) {
 			filtered = append(filtered, s)
 		}
 	}

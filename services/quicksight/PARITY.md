@@ -1146,3 +1146,127 @@ envelope was already wire-correct.
 
 Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
 `go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-08-31 gopherstack-uox6: Search filter value-semantics sweep
+
+Audited all 13 `Search*` operations' filter surface (`SearchActionConnectors`,
+`SearchAgents`, `SearchAnalyses`, `SearchDashboards`, `SearchDataSets`,
+`SearchDataSources`, `SearchFlows`, `SearchFolders`, `SearchGroups`,
+`SearchKnowledgeBases`, `SearchSpaces`, `SearchTopics`, `SearchTopicsV2`)
+member-by-member against each operation's own filter type and enum in
+`quicksight@v1.123.1 types/types.go`/`types/enums.go` -- not a sibling's, per
+this class's standing lesson. Six real bugs, all UNDER-matching (a documented,
+backed filter silently passed through as "everything matches").
+
+**Two filters entirely unread despite tracked backing data:**
+`SearchActionConnectors` checked only `ACTION_CONNECTOR_NAME`
+(`actionconnector.go`); `ACTION_CONNECTOR_TYPE` -- a plain field
+(`storedActionConnector.Type`), not an untracked ownership ARN -- fell
+through the ownership-pass-through default and matched every connector
+regardless of type. `SearchFlows` checked only `assetName` (`flow.go`);
+`assetDescription` (`types.FieldName`) fell through the same way despite
+`storedFlow.Description` being tracked.
+
+**Four more on `SearchKnowledgeBases`** (`knowledgebases.go`):
+`KNOWLEDGE_BASE_ID`, `DATASOURCE_ARN`, and `PRIMARY_OWNER` were unread despite
+being plain tracked fields; `KNOWLEDGE_BASE_SIZE_BYTES` was unread and its
+operator (`GREATER_THAN_OR_EQUALS`/`LESS_THAN_OR_EQUALS`, values
+`KnowledgeBaseSearchOperator` adds beyond `STRING_EQUALS`/`STRING_LIKE`) was
+never parsed at all.
+
+**Two operator-string mismatches, same root cause, both silent.**
+`KnowledgeBaseSearchOperator` and `SpaceSearchOperator` emit uppercase-
+underscore wire values (`"STRING_LIKE"`) -- unlike `FilterOperator`/
+`ComparisonOperator`/`SearchFilterOperator`/`TopicFilterOperator`, which all
+nine other Search ops use and which emit PascalCase (`"StringLike"`). The
+shared `matchesNameFilter` (`folders.go`) compared against the PascalCase
+constant unconditionally, so a real `STRING_LIKE` request for either op
+silently fell back to exact-equality comparison -- affecting the one filter
+each op DID implement (`KNOWLEDGE_BASE_NAME`, `SPACE_NAME`), on top of the
+unread-field bugs above. Fixed by parameterizing the shared comparison
+(`matchesStringOp(actual, op, value, likeOp string)`) so each caller supplies
+its own operation's wire spelling.
+
+**A separate, more fundamental bug underneath both of those: wrong wire-key
+casing, dropping every filter unconditionally.** `KnowledgeBaseSearchFilter`
+and `SpaceQuicksightSearchFilter` are the only two Search filter types in
+this service whose serializer emits lowercase `"name"`/`"operator"`/`"value"`
+(confirmed in `serializers.go`'s
+`awsRestjson1_serializeDocumentKnowledgeBaseSearchFilter`/
+`...SpaceQuicksightSearchFilter`) -- the other nine emit PascalCase
+`"Name"`/`"Operator"`/`"Value"`. `handleSearchKnowledgeBases`/
+`handleSearchSpaces` both called the shared `folderFiltersFromBody`, which
+reads the PascalCase keys, so every filter field -- Name, Operator, and Value
+alike -- parsed to `""` for both operations. An empty Name matches no
+handled case and falls through the ownership-pass-through default, so EVERY
+filter on EVERY `Search{KnowledgeBases,Spaces}` call, including the
+previously-"working" name filter, has always silently matched everything.
+This is the compound-axis shape from earlier in this class (a wrong key plus
+an empty-case default), except here the wrong key is a casing mismatch
+rather than singular-vs-plural, and it hid the operator-string bug above
+completely: the operator string was never even reached, because Operator
+decoded to `""` before it could be compared. Fixed with a dedicated
+`lowercaseFiltersFromBody` (`handler_folders.go`) used only by these two
+handlers.
+
+**Verified, not a bug: `SearchSpaces`' `CONTRIBUTED_BY`/`CONSUMED_SOURCE_SIZE`
+correctly pass through** -- `storedSpace` tracks neither a resource
+contributor nor a consumed-size figure, so there's no backing data to filter
+on. **`CREATED_BY` also correctly passes through**, but for a different
+reason: real `CreateSpaceInput` has no request field for it (confirmed
+against `api_op_CreateSpace.go`) -- it's principal-derived, same as the
+`DIRECT_QUICKSIGHT_OWNER` family every other Search op already leaves
+untracked, not a field this backend chose not to read.
+
+**Confirmed correct, not fixed:** the AND-across-filters combining rule
+(`matchesAllNameFilters`/the new per-operation matcher loops) has no
+documented override anywhere in this filter family and was left as-is.
+`SearchGroups` (`GROUP_NAME`/`StartsWith` only), `SearchAgents`,
+`SearchAnalyses`, `SearchDashboards`, `SearchDataSets`, `SearchDataSources`,
+`SearchTopics`/`SearchTopicsV2` were checked member-by-member against their
+own filter-name enums and are clean: each has exactly one non-ownership
+filter name and it's the one implemented. `SearchFolders` already handled
+both of its non-ownership names (`PARENT_FOLDER_ARN`, `FOLDER_NAME`).
+
+Two pre-existing tests (`handler_flow_test.go`'s "search filters by
+KNOWLEDGE_BASE_NAME"/"search filters by SPACE_NAME") asserted the bug
+without knowing it: both built their filter directly as a Go map with
+PascalCase keys and the old `"StringLike"` operator spelling, bypassing the
+real SDK's serializer entirely, so neither the wire-key-casing bug nor the
+operator-string bug was reachable from them. Corrected to the wire values a
+real client actually sends (lowercase keys, `"STRING_LIKE"`); same two
+assertions each, unchanged.
+
+New tests (`search_filter_semantics_test.go`), driven through the real
+`aws-sdk-go-v2` client, each seeding 2+ records that differ only on the
+filtered attribute and asserting both inclusion and exclusion:
+`TestSearchActionConnectors_TypeFilter`,
+`TestSearchActionConnectors_MultipleFiltersAND` (proves AND, not OR, across
+two filters naming different connectors), `TestSearchFlows_DescriptionFilter`,
+`TestSearchSpaces_IDFilter`, and `TestSearchKnowledgeBases_FilterSemantics`
+(five subtests: id, datasource-arn, primary-owner, size-bytes GTE/LTE, and
+the STRING_LIKE-substring regression). Every new test confirmed failing
+against unmodified code before the corresponding fix landed, verified in
+three separate revert/rebuild/restore passes (action connector type filter
+alone; the KB/Space wire-key-casing fix alone, which broke all KB/Space
+Search tests including the pre-existing name-filter ones; the KB/Space
+per-field matcher fix alone) with byte-identical restores confirmed by diff
+after each. `KNOWLEDGE_BASE_SIZE_BYTES` has no request-settable path to a
+non-zero value in this backend (`CreateKnowledgeBase` has no
+`KnowledgeBaseSizeBytes` parameter -- it's computed from ingestion, which
+this backend doesn't model), so that subtest distinguishes GTE/LTE by
+varying the filter's target value against a fixed size-0 record rather than
+varying the record.
+
+Coverage is a full slice of the Search family, not the whole service: the
+121 non-Search List/Describe operations (default handling, page-size
+defaults, other filter/parameter semantics) are unaudited by this pass.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean. Repo-wide
+`go vet ./...` could not complete (build cache disk at 100%, an environment
+issue unrelated to this diff -- `dashboard` package failed with "no space
+left on device"); the only out-of-scope importer of this package
+(`cli.go`, root package) was vetted directly instead (`go vet .` -- clean),
+and no exported signature changed in this diff, so no caller outside this
+package could be affected regardless.
