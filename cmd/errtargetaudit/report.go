@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -93,12 +94,79 @@ func printServiceScan(sr serviceScan) {
 	}
 
 	fmt.Fprintf(os.Stdout, "class A findings (%d):\n", len(sr.Findings))
+	printCauseGroups(sr.Findings)
 
 	for _, f := range sr.Findings {
 		printFinding(f)
 	}
 
 	fmt.Fprintln(os.Stdout)
+}
+
+// causeKey groups findings sharing the same wrongly-emitted code AND the
+// same first-site emission mechanism -- the two shared-classifier collisions
+// this campaign has actually hit (gopherstack-0yva's 49 same-collision
+// findings here, an earlier 33-finding event) each had ONE root, and both
+// were obvious only after tracing every finding by hand. Requiring both
+// Code and Mechanism to match, not just Code alone, keeps two unrelated
+// collisions that happen to emit the same code from being blurred into one
+// bucket.
+type causeKey struct {
+	Code      string
+	Mechanism string
+}
+
+// printCauseGroups prints a one-line-per-cause summary before the full
+// finding list, so a bulk collision (many findings, one root) is visible
+// immediately rather than only after reading every finding. Silent when
+// every finding already has a distinct cause -- nothing to summarize.
+func printCauseGroups(findings []finding) {
+	groups := map[causeKey][]finding{}
+
+	for _, f := range findings {
+		mech := ""
+		if len(f.Sites) > 0 {
+			mech = f.Sites[0].Mechanism
+		}
+
+		key := causeKey{Code: f.Code, Mechanism: mech}
+		groups[key] = append(groups[key], f)
+	}
+
+	if len(groups) == len(findings) {
+		return
+	}
+
+	keys := make([]causeKey, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		if len(groups[keys[i]]) != len(groups[keys[j]]) {
+			return len(groups[keys[i]]) > len(groups[keys[j]])
+		}
+
+		if keys[i].Code != keys[j].Code {
+			return keys[i].Code < keys[j].Code
+		}
+
+		return keys[i].Mechanism < keys[j].Mechanism
+	})
+
+	fmt.Fprintln(os.Stdout, "  grouped by cause (code + mechanism):")
+
+	for _, k := range keys {
+		fs := groups[k]
+
+		ops := make([]string, 0, len(fs))
+		for _, f := range fs {
+			ops = append(ops, f.Op)
+		}
+
+		sort.Strings(ops)
+		fmt.Fprintf(os.Stdout, "    %d finding(s): code=%s mechanism=%s ops=%v\n", len(fs), k.Code, k.Mechanism, ops)
+	}
 }
 
 func printFinding(f finding) {

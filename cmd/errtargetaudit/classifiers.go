@@ -3,6 +3,7 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"maps"
 	"regexp"
 	"strconv"
 )
@@ -34,9 +35,11 @@ func looksLikeCode(s string) bool {
 // in a shared mapper function every operation in the package funnels
 // through.
 type classifiers struct {
-	Sentinels map[string]string
-	Funcs     map[string]string
-	Overrides map[string]overrideFunc
+	Sentinels    map[string]string
+	ByFunc       map[string]map[string]string
+	Funcs        map[string]string
+	Overrides    map[string]overrideFunc
+	Constructors []*ast.FuncDecl
 }
 
 // overrideFunc is a helper like services/iot's respondAsInvalidRequest(c,
@@ -74,9 +77,12 @@ type overrideFunc struct {
 // method implementing one always is -- confirmed as a false positive on a
 // synthetic CancelJob-shaped fixture during this tool's own test-writing.
 func buildClassifiers(idx *pkgIndex, opNames map[string]bool) *classifiers {
+	byFunc := funcSentinelCodes(idx)
+	flat := flattenSentinelCodes(byFunc)
+
 	c := &classifiers{
-		Sentinels: sentinelCodes(idx),
-		Funcs:     map[string]string{},
+		Sentinels: flat,
+		ByFunc:    byFunc,
 		Overrides: detectOverrideFuncs(idx),
 	}
 
@@ -87,40 +93,134 @@ func buildClassifiers(idx *pkgIndex, opNames map[string]bool) *classifiers {
 				continue
 			}
 
-			if code, found := constructorCode(fd, c.Sentinels); found {
-				c.Funcs[fd.Name.Name] = code
-			}
+			c.Constructors = append(c.Constructors, fd)
 		}
 	}
+
+	c.Funcs = resolveConstructorCodes(c.Constructors, flat)
 
 	return c
 }
 
-// sentinelCodes scans every switch statement and if-statement in the
-// package for an errors.Is(<err>, <sentinel>) condition whose branch body
-// contains a code-shaped literal, associating the sentinel's own name with
-// that code. Every mapper function in the package contributes to the same
-// flat table -- services/iot's real shape has more than one (a general
-// mapper plus a stricter override), and the general one is what pre-fix
-// code actually reaches; see the package doc for why this tool doesn't need
-// to model an override helper to find the bug it produced.
-func sentinelCodes(idx *pkgIndex) map[string]string {
+func resolveConstructorCodes(candidates []*ast.FuncDecl, sentinels map[string]string) map[string]string {
 	out := map[string]string{}
 
-	for _, f := range idx.Files {
-		ast.Inspect(f, func(n ast.Node) bool {
+	for _, fd := range candidates {
+		if code, found := constructorCode(fd, sentinels); found {
+			out[fd.Name.Name] = code
+		}
+	}
+
+	return out
+}
+
+// funcSentinelCodes scans every switch statement and if-statement in the
+// package for an errors.Is(<err>, <sentinel>) condition whose branch body
+// contains a code-shaped literal, associating the sentinel's own name with
+// that code -- SCOPED per enclosing mapper function (gopherstack-0yva),
+// unlike a single package-wide table: services/eks's real shape has two
+// mapper functions, handleError and handleTagError, that both branch on the
+// SAME identifier ErrNotFound to DIFFERENT codes (ResourceNotFoundException
+// vs NotFoundException, a real, deliberate difference between the two
+// tagging-API families' own deserializers), and a flat table keyed by
+// identifier alone can only record one winner -- silently misattributing
+// every operation reachable through the LOSING mapper. Every switch/if found
+// inside one FuncDecl's body contributes to THAT function's own table;
+// flattenSentinelCodes below builds the package-wide fallback used only when
+// a call site's own mapper cannot be determined (emit.go's
+// localMapperScope).
+func funcSentinelCodes(idx *pkgIndex) map[string]map[string]string {
+	out := map[string]map[string]string{}
+
+	collect := func(name string, body *ast.BlockStmt) {
+		if body == nil {
+			return
+		}
+
+		table := map[string]string{}
+
+		ast.Inspect(body, func(n ast.Node) bool {
 			switch v := n.(type) {
 			case *ast.SwitchStmt:
-				addSwitchSentinelCodes(v, idx, out)
+				addSwitchSentinelCodes(v, idx, table)
 			case *ast.IfStmt:
-				addIfSentinelCodes(v, idx, out)
+				addIfSentinelCodes(v, idx, table)
 			}
 
 			return true
 		})
+
+		if len(table) == 0 {
+			return
+		}
+
+		if existing, ok := out[name]; ok {
+			maps.Copy(existing, table)
+		} else {
+			out[name] = table
+		}
+	}
+
+	for _, fd := range idx.Funcs {
+		collect(fd.Name.Name, fd.Body)
+	}
+
+	for name, fds := range idx.Methods {
+		for _, fd := range fds {
+			collect(name, fd.Body)
+		}
 	}
 
 	return out
+}
+
+// flattenSentinelCodes merges every mapper function's own table (built by
+// funcSentinelCodes) into one package-wide fallback -- used only when an
+// operation's own call path cannot be pinned to a specific mapper
+// (emit.go's localMapperScope finds none reachable). When two DIFFERENT
+// mapper functions map the SAME identifier to DIFFERENT codes, that
+// identifier is a COLLISION: dropped from the flat map entirely, never
+// silently resolved to whichever mapper this scan happened to visit
+// first -- this is deterministic regardless of map iteration order, because
+// any two DIFFERING values for the same identifier mark it a collision
+// however the functions are visited (verified in
+// TestFlattenSentinelCodes_CollisionOmitted). gopherstack-0yva's other,
+// preferred resolution -- resolving through the mapper an operation's OWN
+// call path actually reaches -- lives in emit.go's localMapperScope, and
+// wins over this fallback whenever it finds one.
+func flattenSentinelCodes(byFunc map[string]map[string]string) map[string]string {
+	out := map[string]string{}
+	collide := map[string]bool{}
+
+	for _, table := range byFunc {
+		for ident, code := range table {
+			prev, seen := out[ident]
+			if !seen {
+				out[ident] = code
+
+				continue
+			}
+
+			if prev != code {
+				collide[ident] = true
+			}
+		}
+	}
+
+	for ident := range collide {
+		delete(out, ident)
+	}
+
+	return out
+}
+
+// sentinelCodes is funcSentinelCodes's flat, package-wide view -- kept as
+// its own entry point because it is the shape most of this file's own
+// resolution (constructorCode's default candidacy, this package's tests)
+// needs, and because a package with exactly one mapper (the common case)
+// never triggers the ambiguity flattenSentinelCodes exists to catch.
+func sentinelCodes(idx *pkgIndex) map[string]string {
+	return flattenSentinelCodes(funcSentinelCodes(idx))
 }
 
 func addSwitchSentinelCodes(sw *ast.SwitchStmt, idx *pkgIndex, out map[string]string) {

@@ -197,6 +197,53 @@
 //     at the call site is itself a computed/indirect expression rather than
 //     a bare sentinel identifier, and an override applied only at hop 1 or
 //     deeper (this scan looks for the override call in hop-0 roots only).
+//   - SENTINEL-TO-CODE RESOLUTION IS SCOPED PER MAPPER FUNCTION, not one
+//     flat package-wide table (gopherstack-0yva, fixed in the commit this
+//     comment ships with). Before this fix, sentinelCodes built ONE map
+//     keyed by sentinel IDENTIFIER NAME across the whole package: when two
+//     DIFFERENT mapper functions branched on the SAME identifier to
+//     DIFFERENT codes (services/eks's handleError and handleTagError, both
+//     `errors.Is(err, ErrNotFound)`, mapping to ResourceNotFoundException
+//     and NotFoundException respectively -- a real, deliberate difference
+//     between that service's two tagging-API families), the second mapper
+//     scanned silently overwrote the first's entry, and every operation
+//     reachable only through the OVERWRITTEN mapper was measured against the
+//     wrong code -- one collision produced 49 false findings in a single
+//     service, all in one scan. classifiers.go's funcSentinelCodes now keeps
+//     each mapper function's own table separately; emit.go's
+//     localMapperScope finds which mapper(s) an OPERATION'S OWN hop-0 root
+//     actually calls and resolves through ONLY those, re-resolving
+//     constructor-classifier codes (cls.Funcs) through the same narrowed
+//     table so a constructor whose call site never reaches the resolving
+//     mapper (services/eks's validateTagMap, called from TagResource, which
+//     never dispatches its error through ANY mapper) is not attributed that
+//     mapper's code either. What THIS FIX STILL DOES NOT COVER, stated
+//     plainly: (1) when no mapper call is found in an operation's own hop-0
+//     root at all, resolution falls back to the package-wide flat table --
+//     harmless for a service with exactly one mapper (the common case, and
+//     this package's own sharedSentinelFixture/constructorFixture tests
+//     rely on this fallback), but an operation whose ambiguous sentinel is
+//     resolved this way, in a service where the responsible mapper is
+//     invoked outside this scan's modeled call graph (framework-level
+//     middleware, an indirection deeper than the one hop this tool follows),
+//     is not scoped by this fix at all; (2) when a collision CANNOT be
+//     pinned to a reachable mapper -- either via the flat-table fallback, or
+//     because two DIFFERENT mappers are BOTH reachable from the SAME
+//     operation and disagree -- the colliding identifier is dropped from
+//     resolution entirely rather than guessed: a real bug hiding behind such
+//     an unresolvable collision would be silently missed, not misreported,
+//     matching this tool's standing "silent miss over false finding"
+//     discipline elsewhere in this list, but it is a discipline, not a
+//     guarantee of full recall; (3) the census this fix's own validation
+//     ran (all services, not just eks) found 9 more services with at least
+//     one same-name sentinel collision across mapper functions
+//     (cloudfront, cloudwatch, elasticache, eventbridge, iotdataplane,
+//     kinesis, lambda, s3, plus eks itself) -- each is now scoped the same
+//     way, but none besides eks was individually hand-verified against its
+//     own pinned SDK the way eks was in commit 43416bbd7, so treat a finding
+//     newly surfaced or newly suppressed by this fix in any of those eight
+//     with the same care as any other finding from this tool, not as
+//     pre-verified.
 //   - Direct-literal extraction is a narrowed subset of
 //     cmd/errcodeaudit/extract.go's six rules -- no sink.go call-argument
 //     position table (a "...Error"-suffixed call is invisible here, where

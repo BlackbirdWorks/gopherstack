@@ -488,3 +488,263 @@ func TestGenericProtocolCodes_InternalServerException(t *testing.T) {
 		"must be allowlisted -- see genericcodes.go's doc for the 90-false-positive mgn case this fixes",
 	)
 }
+
+// collisionScopedFixture is services/eks's real shape (gopherstack-0yva,
+// commit 43416bbd7): handleError and handleTagError both branch on the SAME
+// identifier ErrNotFound to DIFFERENT codes. DescribeThing's own path calls
+// only handleError; TagResourceValidated's calls only handleTagError. It
+// also carries the "mirror" false positive from the same commit: a
+// constructor (validateTagInput, returning bare ErrValidation) whose ONLY
+// package-wide resolution comes from handleError, called from an operation
+// whose own path never reaches handleError at all.
+const collisionScopedFixture = `
+package fixture
+
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrNotFound = errors.New("not found")
+var ErrValidation = errors.New("invalid")
+
+type Handler struct {
+	Backend *Backend
+}
+
+func (h *Handler) handleError(err error) string {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return "ResourceNotFoundException"
+	case errors.Is(err, ErrValidation):
+		return "InvalidParameterException"
+	}
+	return "InternalFailure"
+}
+
+func (h *Handler) handleTagError(err error) string {
+	if errors.Is(err, ErrNotFound) {
+		return "NotFoundException"
+	}
+	return "BadRequestException"
+}
+
+func (h *Handler) handleDescribeThing() error {
+	err := h.Backend.DescribeThing()
+	if err != nil {
+		h.handleError(err)
+	}
+	return err
+}
+
+func validateTagInput() error {
+	return ErrValidation
+}
+
+func (h *Handler) handleTagResourceValidated() error {
+	if err := validateTagInput(); err != nil {
+		return err
+	}
+
+	err := h.Backend.TagResourceInternal()
+	if err != nil {
+		h.handleTagError(err)
+	}
+	return err
+}
+
+type Backend struct{}
+
+func (b *Backend) DescribeThing() error {
+	return fmt.Errorf("%w: thing", ErrNotFound)
+}
+
+func (b *Backend) TagResourceInternal() error {
+	return fmt.Errorf("%w: thing", ErrNotFound)
+}
+`
+
+// TestFlattenSentinelCodes_CollisionOmitted confirms the package-wide
+// fallback table never silently picks a winner between two mapper functions
+// that map the same identifier to different codes.
+func TestFlattenSentinelCodes_CollisionOmitted(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, collisionScopedFixture)
+	flat := flattenSentinelCodes(funcSentinelCodes(idx))
+
+	_, collided := flat["ErrNotFound"]
+	require.False(t, collided, "a sentinel mapped to two different codes by two mappers must not resolve to either")
+
+	require.Equal(t, "InvalidParameterException", flat["ErrValidation"], "a non-colliding sentinel must still resolve")
+}
+
+// TestLocalMapperScope_ScopesPerReachableMapper confirms an operation's own
+// effective sentinel table comes from ONLY the mapper(s) its own hop-0 root
+// actually calls, resolving the same identifier to two different codes for
+// two different operations in the same package.
+func TestLocalMapperScope_ScopesPerReachableMapper(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, collisionScopedFixture)
+	cls := buildClassifiers(idx, map[string]bool{"DescribeThing": true, "TagResourceValidated": true})
+
+	describeRoots := resolveOpRoots("DescribeThing", idx)
+	require.NotEmpty(t, describeRoots)
+
+	describeScope, describeScoped := localMapperScope(describeRoots, cls.ByFunc)
+	require.True(t, describeScoped)
+	require.Equal(t, "ResourceNotFoundException", describeScope["ErrNotFound"])
+
+	tagRoots := resolveOpRoots("TagResourceValidated", idx)
+	require.NotEmpty(t, tagRoots)
+
+	tagScope, tagScoped := localMapperScope(tagRoots, cls.ByFunc)
+	require.True(t, tagScoped)
+	require.Equal(t, "NotFoundException", tagScope["ErrNotFound"])
+}
+
+// TestScan_SentinelCollision_ScopedPerMapper_NoFalsePositives is the
+// gopherstack-0yva regression: services/eks's real 49-finding event,
+// reproduced structurally. Must fail (produce findings) against a version
+// that reverts to a single package-wide flat sentinel table.
+func TestScan_SentinelCollision_ScopedPerMapper_NoFalsePositives(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, collisionScopedFixture)
+	smt := singleModuleTruth(newTestModuleGroundTruth(
+		map[string]map[string]bool{
+			"DescribeThing":        {"ResourceNotFoundException": true},
+			"TagResourceValidated": {"NotFoundException": true},
+		},
+		map[string]bool{
+			"ResourceNotFoundException": true,
+			"NotFoundException":         true,
+			"InvalidParameterException": true,
+			"BadRequestException":       true,
+			"InternalFailure":           true,
+		},
+	))
+
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, smt)
+
+	require.Empty(t, sr.Findings,
+		"same-named sentinels resolved through different reachable mappers must not cross-contaminate, and a "+
+			"constructor whose call site never reaches the resolving mapper must not be attributed that code")
+}
+
+// unresolvedCollisionFixture has two mapper functions colliding on the same
+// identifier, like collisionScopedFixture, but NEITHER is called from the
+// operation's own hop-0 root -- mirroring a mapper invoked outside this
+// scan's modeled call graph. Neither code may be attributed.
+const unresolvedCollisionFixture = `
+package fixture
+
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrNotFound = errors.New("not found")
+
+func mapperA(err error) string {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return "ResourceNotFoundException"
+	}
+	return "InternalFailure"
+}
+
+func mapperB(err error) string {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return "NotFoundException"
+	}
+	return "InternalFailure"
+}
+
+type Handler struct {
+	Backend *Backend
+}
+
+func (h *Handler) handleGetThing() error {
+	return h.Backend.GetThing()
+}
+
+type Backend struct{}
+
+func (b *Backend) GetThing() error {
+	return fmt.Errorf("%w: thing", ErrNotFound)
+}
+`
+
+// TestScan_UnresolvableCollision_RefusesRatherThanGuesses confirms the
+// "loud failure" fallback: when a collision cannot be pinned to a reachable
+// mapper, the sentinel is dropped from resolution entirely -- neither
+// mapper's code is attributed. Must fail (produce a finding for whichever
+// mapper is visited last) against a version without collision detection.
+func TestScan_UnresolvableCollision_RefusesRatherThanGuesses(t *testing.T) {
+	t.Parallel()
+
+	idx := parseSrc(t, unresolvedCollisionFixture)
+	smt := singleModuleTruth(newTestModuleGroundTruth(
+		map[string]map[string]bool{"GetThing": {"SomeOtherException": true}},
+		map[string]bool{
+			"SomeOtherException":        true,
+			"ResourceNotFoundException": true,
+			"NotFoundException":         true,
+		},
+	))
+
+	sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, smt)
+
+	require.Empty(t, sr.Findings,
+		"neither colliding mapper's code is reachable through this operation's own call path; "+
+			"the tool must refuse to report rather than guess which one applies")
+}
+
+// TestScan_SharedSentinel_NonCollidingManyCallers is a table-driven
+// confirmation that flattenSentinelCodes/localMapperScope leave a NON-
+// colliding shared sentinel's normal attribution untouched: many operations
+// legitimately declare the shared mapper's code, and only the one that
+// doesn't is reported -- gopherstack-0yva's fix must not suppress this
+// shape, only the collision shape.
+func TestScan_SharedSentinel_NonCollidingManyCallers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		declare bool
+		wantLen int
+	}{
+		{"declares the shared mapper's code: clean", true, 0},
+		{"does not declare it: reported", false, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idx := parseSrc(t, sharedSentinelFixture)
+
+			declared := map[string]bool{"UnmappedFailureCode": true}
+			if tt.declare {
+				declared = map[string]bool{"ResourceNotFoundException": true}
+			}
+
+			smt := singleModuleTruth(newTestModuleGroundTruth(
+				map[string]map[string]bool{
+					"GetThing":    {"ResourceNotFoundException": true},
+					"DeleteThing": declared,
+				},
+				map[string]bool{"ResourceNotFoundException": true, "UnmappedFailureCode": true},
+			))
+
+			sr := scanWithIndex("fixture", []string{"fixture"}, "/repo", idx, smt)
+
+			codes := findingCodes(sr.Findings)
+			require.NotContains(t, codes, "GetThing")
+			require.Len(t, sr.Findings, tt.wantLen)
+		})
+	}
+}

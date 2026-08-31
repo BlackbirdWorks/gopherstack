@@ -53,17 +53,138 @@ func walkOpEmissions(roots []opRoot, idx *pkgIndex, cls *classifiers) []emission
 	return dedupEmissions(out)
 }
 
+// effectiveClassifiers builds this operation's OWN sentinel table before
+// walking it, resolving gopherstack-0yva: a package-wide flat table cannot
+// serve an operation whose own call path reaches a mapper (handleTagError)
+// that disagrees with a DIFFERENT mapper (handleError) reachable only from
+// other operations, on the very same sentinel identifier. localMapperScope
+// finds which mapper(s), if any, THIS operation's own hop-0 root(s) call
+// directly, and when it finds at least one, that table -- and ONLY that
+// table -- replaces cls.Sentinels wholesale (not merged with the package-wide
+// fallback, which belongs to operations this scan cannot pin to one mapper
+// at all). Constructors are then re-resolved against that same narrowed
+// table, so a constructor classified through the LOSING mapper's code
+// (services/eks's validateTagMap: resolved package-wide via handleError's
+// ErrValidation->InvalidParameterException, but TagResource's own path never
+// reaches handleError, only handleTagError, which has no ErrValidation case
+// at all) stops being attributed to an operation it cannot reach.
+// localSentinelOverrides' own, more specific per-call-site mechanism is
+// layered on top last, same precedence as before this fix.
 func effectiveClassifiers(hop0Roots []opRoot, idx *pkgIndex, cls *classifiers) *classifiers {
+	mapperScope, scoped := localMapperScope(hop0Roots, cls.ByFunc)
 	overrides := localSentinelOverrides(hop0Roots, idx, cls.Overrides)
-	if len(overrides) == 0 {
+
+	if !scoped && len(overrides) == 0 {
 		return cls
 	}
 
-	sentinels := make(map[string]string, len(cls.Sentinels)+len(overrides))
-	maps.Copy(sentinels, cls.Sentinels)
-	maps.Copy(sentinels, overrides)
+	sentinels := cls.Sentinels
+	if scoped {
+		sentinels = mapperScope
+	}
 
-	return &classifiers{Sentinels: sentinels, Funcs: cls.Funcs, Overrides: cls.Overrides}
+	if len(overrides) > 0 {
+		merged := make(map[string]string, len(sentinels)+len(overrides))
+		maps.Copy(merged, sentinels)
+		maps.Copy(merged, overrides)
+		sentinels = merged
+	}
+
+	funcs := cls.Funcs
+	if scoped {
+		funcs = resolveConstructorCodes(cls.Constructors, sentinels)
+	}
+
+	return &classifiers{
+		Sentinels:    sentinels,
+		ByFunc:       cls.ByFunc,
+		Funcs:        funcs,
+		Constructors: cls.Constructors,
+		Overrides:    cls.Overrides,
+	}
+}
+
+// localMapperScope finds every call, in hop0Roots' OWN bodies only (never
+// recursing -- the same discipline localSentinelOverrides uses), to a
+// package function classifiers.go's funcSentinelCodes recognises as a mapper
+// (one containing its own errors.Is-based switch/if code table). When at
+// least one is found, the SECOND return value is true and the caller must
+// use ONLY this table -- even empty, after collision removal -- rather than
+// falling back to the package-wide flat table this operation's own call path
+// never reaches (services/eks's TagResource calling handleTagError, never
+// handleError). When NONE is found, false is returned and the caller keeps
+// using the package-wide fallback, preserving this tool's original recall
+// for a service whose mapper is invoked outside the modeled call graph (a
+// framework-level error handler this scan never sees literally called --
+// this package's own sharedSentinelFixture/constructorFixture tests are
+// exactly this shape).
+//
+// Two mappers reachable from the SAME operation that disagree on the same
+// identifier are, like flattenSentinelCodes' package-wide case, dropped
+// rather than resolved arbitrarily -- a loud absence, not a guessed winner.
+func localMapperScope(hop0Roots []opRoot, byFunc map[string]map[string]string) (map[string]string, bool) {
+	out := map[string]string{}
+	conflict := map[string]bool{}
+	found := false
+
+	for _, r := range hop0Roots {
+		if r.Body == nil {
+			continue
+		}
+
+		ast.Inspect(r.Body, func(n ast.Node) bool {
+			if table, ok := reachableMapperTable(n, byFunc); ok {
+				found = true
+				mergeMapperTable(table, out, conflict)
+			}
+
+			return true
+		})
+	}
+
+	for ident := range conflict {
+		delete(out, ident)
+	}
+
+	return out, found
+}
+
+// reachableMapperTable reports whether n is a call to a function byFunc
+// recognises as a mapper, returning that mapper's own sentinel table.
+func reachableMapperTable(n ast.Node, byFunc map[string]map[string]string) (map[string]string, bool) {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return nil, false
+	}
+
+	name, ok := calleeSimpleName(call.Fun)
+	if !ok {
+		return nil, false
+	}
+
+	table, known := byFunc[name]
+
+	return table, known
+}
+
+// mergeMapperTable adds table's entries into out, marking any identifier
+// that already has a DIFFERENT code (from a different mapper reachable from
+// the same operation) in conflict, for the caller to drop afterward -- the
+// same "refuse rather than guess" rule flattenSentinelCodes applies
+// package-wide, applied here to the operation's own narrower scope.
+func mergeMapperTable(table, out map[string]string, conflict map[string]bool) {
+	for ident, code := range table {
+		prev, exists := out[ident]
+		if !exists {
+			out[ident] = code
+
+			continue
+		}
+
+		if prev != code {
+			conflict[ident] = true
+		}
+	}
 }
 
 // localSentinelOverrides scans hop0Roots' OWN bodies (never recursing) for
