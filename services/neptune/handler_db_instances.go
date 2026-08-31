@@ -361,6 +361,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		DBSubnetGroupName:               inst.DBSubnetGroupName,
 		NetworkType:                     inst.NetworkType,
 		Port:                            inst.Port,
+		DBInstancePort:                  inst.Port,
 		StorageEncrypted:                inst.StorageEncrypted,
 		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
 		MultiAZ:                         inst.MultiAZ,
@@ -392,6 +393,7 @@ type xmlDBInstance struct {
 	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
 	AvailabilityZone                string `xml:"AvailabilityZone,omitempty"`
 	Port                            int    `xml:"Endpoint>Port"`
+	DBInstancePort                  int    `xml:"DbInstancePort"`
 	PromotionTier                   int    `xml:"PromotionTier,omitempty"`
 	StorageEncrypted                bool   `xml:"StorageEncrypted"`
 	AutoMinorVersionUpgrade         bool   `xml:"AutoMinorVersionUpgrade"`

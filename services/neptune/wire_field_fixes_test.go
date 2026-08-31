@@ -157,3 +157,46 @@ func TestRemoveFromGlobalCluster_ClearsMemberClusterField(t *testing.T) {
 	assert.Empty(t, aws.ToString(described.DBClusters[0].GlobalClusterIdentifier),
 		"GlobalClusterIdentifier should be cleared after RemoveFromGlobalCluster")
 }
+
+// TestCreateDBInstance_DbInstancePort proves DBInstance's real, top-level
+// DbInstancePort member (neptune@v1.48.4 types/types.go:694, a *int32 field
+// distinct from the nested Endpoint.Port) survives the round-trip.
+// awsAwsquery_deserializeDocumentDBInstance case-switches on "DbInstancePort"
+// separately from "Endpoint" -- gopherstack only emitted the port nested
+// under Endpoint, so a real client's top-level DbInstancePort decoded nil
+// for every instance regardless of the tracked port.
+func TestCreateDBInstance_DbInstancePort(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("123456789012", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	_, err := client.CreateDBCluster(t.Context(), &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("port-fix-cluster"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateDBInstance(t.Context(), &neptunesdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("port-fix-instance"),
+		DBClusterIdentifier:  aws.String("port-fix-cluster"),
+		DBInstanceClass:      aws.String("db.r5.large"),
+		Engine:               aws.String("neptune"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBInstance.DbInstancePort, "DbInstancePort must not be nil after CreateDBInstance")
+	assert.Equal(t, int32(8182), aws.ToInt32(out.DBInstance.DbInstancePort))
+
+	described, err := client.DescribeDBInstances(t.Context(), &neptunesdk.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String("port-fix-instance"),
+	})
+	require.NoError(t, err)
+	require.Len(t, described.DBInstances, 1)
+	require.NotNil(
+		t,
+		described.DBInstances[0].DbInstancePort,
+		"DbInstancePort must not be nil after DescribeDBInstances",
+	)
+	assert.Equal(t, int32(8182), aws.ToInt32(described.DBInstances[0].DbInstancePort))
+}

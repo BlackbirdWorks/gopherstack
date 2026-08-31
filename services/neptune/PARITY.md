@@ -391,3 +391,76 @@ Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 all clean for `services/neptune`; repo-wide `go vet` clean except a
 pre-existing, uncommitted route53 signature mismatch from a concurrently
 active agent working in that directory (not touched here).
+
+## gopherstack-21my per-item field pass (2026-08-31, paired with s3control)
+
+Confirmed protocol from `deserializers.go` before starting:
+`awsAwsquery_deserializeOpError*` functions everywhere in the pinned SDK, so
+neptune is `awsAwsquery_` -- the case-only class is live.
+
+Prior passes (2026-08-15/29, documented above) already ran a real per-item
+member-count check for `DBCluster` (44/44 against
+`awsAwsquery_deserializeDocumentDBCluster`) and a wrapping-shape sweep
+across the whole named-list-item convention this service uses. This pass
+extended the same member-count technique to the families PARITY.md had
+previously graded `wire: ok` from older, less exhaustive audits rather than
+a byte-for-byte deserializer diff: `DBInstance` (54 real members),
+`DBClusterSnapshot` (20), `DBSubnetGroup` (7), `DBClusterParameterGroup`
+(4), `Parameter` (9), `EventSubscription` (10), `DBClusterEndpoint` (10).
+
+**BUG (fixed), hard-failure-adjacent: `DBInstance` never emitted the
+top-level `DbInstancePort` member.** `types.DBInstance` (neptune@v1.48.4
+types/types.go:694) carries `DbInstancePort *int32` as a field genuinely
+distinct from the nested `Endpoint.Port` -- the real deserializer
+case-switches on `"DbInstancePort"` separately from `"Endpoint"`
+(`awsAwsquery_deserializeDocumentDBInstance`). `xmlDBInstance`
+(handler_db_instances.go) only ever emitted the port nested under
+`Endpoint>Port`; the top-level field was absent from the struct entirely
+(not a naming bug -- the element was never there), so every real client's
+`DBInstance.DbInstancePort` decoded `nil` regardless of the tracked port.
+Since it's a pointer field in the client's type, this is the "pointer
+decodes nil" signature this campaign has called out as more serious than a
+blank string -- any caller dereferencing it without a nil check panics.
+Fixed: `toXMLInstance` now also sets the new `DBInstancePort` field
+(`xml:"DbInstancePort"`) from the same `inst.Port` value already used for
+`Endpoint>Port` -- single shared conversion function, so `CreateDBInstance`,
+`DescribeDBInstances`, and every other DBInstance-emitting op get it at
+once; no sibling disagreement possible here since there's only one
+converter. Test: `TestCreateDBInstance_DbInstancePort`
+(wire_field_fixes_test.go), creates a cluster+instance via the real SDK
+client, asserts `DbInstancePort` is non-nil and equals 8182 on both the
+`CreateDBInstance` response and a subsequent `DescribeDBInstances`;
+confirmed failing pre-fix (`require.NotNil` failed, field was nil).
+
+**Everything else checked this pass came back clean at the per-item
+layer**: `DBClusterSnapshot` (14 of 20 real members emitted; the other 6 --
+`AvailabilityZones`, `LicenseModel`, `MasterUsername`,
+`SourceDBClusterSnapshotArn`, `StorageType`, plus `DBClusterSnapshot`
+itself already known -- have no backing field anywhere on the
+`DBClusterSnapshot` backend model, genuine unmodeled gaps, not
+tracked-but-dropped), `DBSubnetGroup` (6 of 7; `SupportedNetworkTypes` is
+the pre-existing documented gap above), `DBClusterParameterGroup` (4 of 4),
+`Parameter` (9 of 9), `EventSubscription` (10 of 10), `DBClusterEndpoint`
+(10 of 10, including confirming the odd-looking but genuinely correct
+per-item element name `DBClusterEndpointList` -- verified against
+`awsAwsquery_deserializeDocumentDBClusterEndpointList`, which really does
+case-switch on that literal string for each list member, not `member` or
+`DBClusterEndpoint`).
+
+No case-only mismatch found this pass. No sibling (singular vs. list)
+disagreement found for any family checked -- neptune's DBInstance/
+DBClusterSnapshot/DBClusterParameterGroup/Parameter/EventSubscription/
+DBClusterEndpoint all route Create and Describe/List through the same
+shared XML struct and, in most cases, the same converter function, which
+structurally forecloses the "list emits a subset of what singular emits"
+trap this campaign found repeatedly elsewhere.
+
+Not reached this pass: `GlobalCluster` (already had its own 2026-08-29
+member-count pass), `ClusterEndpoint`'s request-parsing side (already swept
+2026-08-29), `Events`/`Maintenance`/`StaticCatalog` families.
+
+Gates: see the combined s3control+neptune gate note in
+`services/s3control/PARITY.md`'s matching 2026-08-31 entry -- both services
+build/vet/test/lint clean; repo-wide `go vet ./...` currently fails only in
+`services/ec2` (a different agent's concurrent in-progress, uncommitted
+work, confirmed via `git status --short services/ec2`), not touched here.

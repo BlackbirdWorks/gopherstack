@@ -28,8 +28,9 @@ const (
 	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/op-00000000/bucket/%s"
 	arnFmtJob                  = "arn:aws:s3:%s:%s:job/%s"
 	// arnFmtMRAPToken is the ARN for MRAP async request tokens; gosec false positive (not a credential).
-	arnFmtMRAPToken        = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
-	arnFmtStorageLensGroup = "arn:aws:s3:%s:%s:storage-lens-group/%s"
+	arnFmtMRAPToken         = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
+	arnFmtStorageLensGroup  = "arn:aws:s3:%s:%s:storage-lens-group/%s"
+	arnFmtStorageLensConfig = "arn:aws:s3:%s:%s:storage-lens/%s"
 )
 
 // InMemoryBackend is the in-memory store for S3 Control resources.

@@ -825,3 +825,83 @@ Gates: `go build ./services/s3control/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/s3control/...` (pass),
 `golangci-lint run ./services/s3control/...` (0 issues, `golines -w -m 120`
 applied then re-verified with plain `golangci-lint run`).
+
+## gopherstack-21my continuation (2026-08-31, s3control+neptune pair)
+
+Confirmed protocol from `deserializers.go` before starting: s3control is
+`awsRestxml_`, so the case-only class (smithy-go's XML decoder folds
+element-name case, `encoding/xml/xml_decoder.go:92`) is live here.
+
+**Covered this pass**: `ListAccessPoints` item fields (re-verified against
+`types.AccessPoint`, clean), `ListMultiRegionAccessPoints` (shares its item
+struct with `GetMultiRegionAccessPoint`, verified against
+`types.MultiRegionAccessPointReport`, clean), `ListAccessGrants`/
+`ListCallerAccessGrants`/`ListAccessGrantsLocations` (verified byte-for-byte
+against `types.ListAccessGrantEntry`/`ListCallerAccessGrantsEntry`/
+`ListAccessGrantsLocationsEntry`, clean), `ListRegionalBuckets` (verified
+against `types.RegionalBucket` -- see gap below), `ListStorageLensConfigurations`
+and `ListStorageLensGroups` (both had real bugs, see below).
+
+**BUG (fixed): `ListStorageLensConfigurations`' per-item shape emitted only
+`Id`.** The real item type, `types.ListStorageLensConfigurationEntry`
+(s3control@v1.73.4 types/types.go:1389, confirmed via
+`awsRestxml_deserializeDocumentListStorageLensConfigurationEntry`), has four
+required members: `HomeRegion`, `Id`, `StorageLensArn`, `IsEnabled`. Three
+were dropped entirely -- right config count, `IsEnabled` always false and
+`HomeRegion`/`StorageLensArn` always empty regardless of what was actually
+configured. This backend stores each config as the client's own raw
+`<StorageLensConfiguration>` inner XML (`storage_lens.go`), so `IsEnabled`
+is genuinely present in that raw blob but was never parsed back out for the
+list response; `HomeRegion` and `StorageLensArn` are synthesized from the
+backend's own region/account (new `arnFmtStorageLensConfig` in store.go,
+matching the real `arn:aws:s3:<region>:<account-id>:storage-lens/<config-id>`
+format documented at types/types.go:3029). Fixed in
+`handler_storage_lens.go` (`listStorageLensConfigItemXML`, new
+`storageLensConfigIsEnabled` raw-XML-fragment parser, same technique as the
+existing `jobOperationName` helper). Test:
+`TestSDKRoundTrip_ListStorageLensConfigurations_ItemFields`
+(`sdk_roundtrip_nested_test.go`), seeds two enabled configs via a real
+client and asserts `IsEnabled`/`HomeRegion`/`StorageLensArn` on both;
+confirmed failing pre-fix (`IsEnabled` false when the client sent true).
+Silent-blank failure signature, not a hard decode error (`IsEnabled` uses
+`strconv.ParseBool` only when the element is present).
+
+**BUG (fixed): `ListStorageLensGroups`' per-item shape dropped `HomeRegion`.**
+`types.ListStorageLensGroupEntry` (types/types.go:1417) requires
+`HomeRegion`/`Name`/`StorageLensGroupArn`; `listStorageLensGroupItemXML`
+emitted only the latter two. The backend already computes the region-scoped
+ARN at `CreateStorageLensGroup` time (`arnFmtStorageLensGroup` with
+`b.region`), so the same region value was trivially available and simply
+never threaded into the list item. Fixed: `buildListSLGItem` now takes the
+backend's `Region()` and sets `HomeRegion`. Test:
+`TestSDKRoundTrip_ListStorageLensGroups_HomeRegion`
+(`sdk_roundtrip_nested_test.go`), confirmed failing pre-fix (`HomeRegion`
+empty against `"us-east-1"`).
+
+**Gap recorded, not fixed**: `ListRegionalBuckets`' per-item
+`types.RegionalBucket` requires `CreationDate` (a `*time.Time`) and also
+carries `PublicAccessBlockEnabled`/`OutpostId` -- all three are absent from
+`OutpostsBucket` (models.go), so `listRegionalBucketItemXML` correctly omits
+what it cannot honestly populate. Verified this is NOT a sibling
+disagreement: `GetBucket` shares the identical gap (its own doc comment
+already says so), so there is no naming mismatch to fix, only backend state
+that was never modeled. Fixing it would mean adding a real `CreationDate` to
+`OutpostsBucket` and threading it through `CreateBucket`, the same shape as
+neptune's `ClusterCreateTime`/`InstanceCreateTime` fixes elsewhere in this
+campaign -- worth a dedicated follow-up, not folded into this per-item
+naming sweep.
+
+Wrapping shape re-checked for every op above: no call site of any
+`*Unwrapped` deserializer variant in this service outside the two
+already-documented flattened Storage Lens lists (which are correctly
+flattened per their own doc comments). No case-only mismatch found this
+pass.
+
+Gates: `go build ./services/s3control/... ./services/neptune/...`, `go vet
+./services/s3control/... ./services/neptune/...` (clean; repo-wide `go vet
+./...` currently fails in `services/ec2`, out of scope, held by a different
+agent's concurrent in-progress work -- confirmed via `git status --short
+services/ec2` showing unrelated uncommitted changes), `go test -race
+-count=1 ./services/s3control/... ./services/neptune/...` (pass),
+`golangci-lint run ./services/s3control/... ./services/neptune/...` (0
+issues, `golines -w -m 120` applied then re-verified).

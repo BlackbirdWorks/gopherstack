@@ -139,3 +139,91 @@ func TestSDKRoundTrip_JobManifestOperationReport(t *testing.T) {
 	require.Equal(t, "lambda invoke job", aws.ToString(job.Description))
 	require.Equal(t, int32(3), job.Priority)
 }
+
+// TestSDKRoundTrip_ListStorageLensConfigurations_ItemFields is a typed
+// round-trip test (gopherstack-21my) for ListStorageLensConfigurations'
+// per-item shape. The real item type is types.ListStorageLensConfigurationEntry
+// (aws-sdk-go-v2/service/s3control@v1.73.4 types/types.go:1389,
+// awsRestxml_deserializeDocumentListStorageLensConfigurationEntry), which has
+// four required members: HomeRegion, Id, StorageLensArn, IsEnabled.
+// handler_storage_lens.go's listStorageLensConfigItemXML emitted only Id --
+// this test seeds two enabled configs and asserts the other three survive a
+// real client round-trip.
+func TestSDKRoundTrip_ListStorageLensConfigurations_ItemFields(t *testing.T) {
+	t.Parallel()
+
+	backend := s3control.NewInMemoryBackendWithConfig(createTagsTestAccountID, createTagsTestRegion)
+	client := newTestS3ControlClient(t, s3control.NewHandler(backend))
+	ctx := t.Context()
+
+	for _, id := range []string{"cfg-alpha", "cfg-beta"} {
+		_, err := client.PutStorageLensConfiguration(ctx, &s3csdk.PutStorageLensConfigurationInput{
+			AccountId: aws.String(createTagsTestAccountID),
+			ConfigId:  aws.String(id),
+			StorageLensConfiguration: &types.StorageLensConfiguration{
+				Id:        aws.String(id),
+				IsEnabled: true,
+				AccountLevel: &types.AccountLevel{
+					BucketLevel: &types.BucketLevel{},
+				},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListStorageLensConfigurations(ctx, &s3csdk.ListStorageLensConfigurationsInput{
+		AccountId: aws.String(createTagsTestAccountID),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.StorageLensConfigurationList, 2)
+
+	byID := map[string]types.ListStorageLensConfigurationEntry{}
+	for _, e := range out.StorageLensConfigurationList {
+		byID[aws.ToString(e.Id)] = e
+	}
+
+	for _, id := range []string{"cfg-alpha", "cfg-beta"} {
+		entry, ok := byID[id]
+		require.True(t, ok, "config %s must appear in ListStorageLensConfigurations", id)
+		require.True(t, entry.IsEnabled, "IsEnabled must survive the round-trip for %s", id)
+		require.Equal(t, createTagsTestRegion, aws.ToString(entry.HomeRegion))
+		require.Equal(
+			t,
+			"arn:aws:s3:"+createTagsTestRegion+":"+createTagsTestAccountID+":storage-lens/"+id,
+			aws.ToString(entry.StorageLensArn),
+		)
+	}
+}
+
+// TestSDKRoundTrip_ListStorageLensGroups_HomeRegion is a typed round-trip
+// test (gopherstack-21my) for ListStorageLensGroups' per-item shape. The real
+// item type is types.ListStorageLensGroupEntry (s3control@v1.73.4
+// types/types.go:1417), which has HomeRegion as a required member --
+// listStorageLensGroupItemXML (handler_storage_lens.go) never emitted it even
+// though the backend's own region is available (the same value already used
+// to build StorageLensGroupArn at CreateStorageLensGroup).
+func TestSDKRoundTrip_ListStorageLensGroups_HomeRegion(t *testing.T) {
+	t.Parallel()
+
+	backend := s3control.NewInMemoryBackendWithConfig(createTagsTestAccountID, createTagsTestRegion)
+	client := newTestS3ControlClient(t, s3control.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateStorageLensGroup(ctx, &s3csdk.CreateStorageLensGroupInput{
+		AccountId: aws.String(createTagsTestAccountID),
+		StorageLensGroup: &types.StorageLensGroup{
+			Name: aws.String("group-alpha"),
+			Filter: &types.StorageLensGroupFilter{
+				MatchAnyPrefix: []string{"logs/"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListStorageLensGroups(ctx, &s3csdk.ListStorageLensGroupsInput{
+		AccountId: aws.String(createTagsTestAccountID),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.StorageLensGroupList, 1)
+	require.Equal(t, createTagsTestRegion, aws.ToString(out.StorageLensGroupList[0].HomeRegion))
+}
