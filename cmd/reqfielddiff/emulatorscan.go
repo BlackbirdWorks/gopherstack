@@ -70,11 +70,14 @@ func buildPackageIndexFromFiles(files []*ast.File, fset *token.FileSet) *package
 	return &packageIndex{ctx: ctx, dispatch: collectDispatchEntries(files, consts, funcTypeNames)}
 }
 
-// resolveOps resolves every op in opNames against this package.
-func (p *packageIndex) resolveOps(opNames []string) map[string]opResolution {
-	out := make(map[string]opResolution, len(opNames))
-	for _, op := range opNames {
-		out[op] = resolveOp(op, p.dispatch, p.ctx)
+// resolveOps resolves every op in ops against this package. Takes the full
+// sdkOp (not just its name) because form-read matching needs each
+// operation's own SDK field names to scope its candidate key set -- see
+// formreads.go.
+func (p *packageIndex) resolveOps(ops []sdkOp) map[string]opResolution {
+	out := make(map[string]opResolution, len(ops))
+	for _, op := range ops {
+		out[op.Name] = resolveOp(op, p.dispatch, p.ctx)
 	}
 
 	return out

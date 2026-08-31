@@ -62,17 +62,18 @@ type opResolution struct {
 // a spurious MISSING resolution manufactures a finding out of a tool
 // failure, which is the worse mistake for a scan whose whole premise is
 // "an undeclared field is real, not a resolution gap".
-func resolveOp(op string, dispatch map[string]ast.Expr, ctx handlerResolveCtx) opResolution {
+func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) opResolution {
 	res := opResolution{Fields: map[string]emuField{}}
+	formKeys := formFieldKeys(op.Fields)
 
-	if expr, ok := dispatch[op]; ok {
-		if dres, resolved := resolveDispatchValue(expr, ctx); resolved {
+	if expr, ok := dispatch[op.Name]; ok {
+		if dres, resolved := resolveDispatchValue(expr, ctx, formKeys); resolved {
 			mergeResolution(&res, dres)
 		}
 	}
 
-	if fd := findHandlerByName(op, ctx); fd != nil {
-		mergeResolution(&res, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd)))
+	if fd := findHandlerByName(op.Name, ctx); fd != nil {
+		mergeResolution(&res, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys))
 	}
 
 	return res
@@ -99,12 +100,12 @@ func mergeResolution(dst *opResolution, src opResolution) {
 // resolveDispatchValue unwraps a dispatch-table value expression -- a
 // direct WrapOp/wrapper call, a func literal whose first return forwards to
 // one, or a func literal with real logic of its own -- to an opResolution.
-func resolveDispatchValue(expr ast.Expr, ctx handlerResolveCtx) (opResolution, bool) {
+func resolveDispatchValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[string]string) (opResolution, bool) {
 	expr = unwrapParen(expr)
 
 	if lit, isLit := expr.(*ast.FuncLit); isLit {
 		if ret := firstReturnExpr(lit.Body); ret != nil {
-			if res, ok := resolveCallLikeValue(ret, ctx); ok {
+			if res, ok := resolveCallLikeValue(ret, ctx, formKeys); ok {
 				return res, true
 			}
 		}
@@ -113,13 +114,13 @@ func resolveDispatchValue(expr ast.Expr, ctx handlerResolveCtx) (opResolution, b
 		// that extracts a path segment before calling a handler with
 		// extra arguments) -- scan its own body directly rather than
 		// giving up.
-		return scanTopLevel(fromFuncLit(lit), ctx, ""), true
+		return scanTopLevel(fromFuncLit(lit), ctx, "", formKeys), true
 	}
 
-	return resolveCallLikeValue(expr, ctx)
+	return resolveCallLikeValue(expr, ctx, formKeys)
 }
 
-func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx) (opResolution, bool) {
+func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[string]string) (opResolution, bool) {
 	if reqType, ok := resolveWrapOpReqType(expr, ctx); ok {
 		def := ctx.structs[reqType]
 
@@ -133,11 +134,11 @@ func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx) (opResolution, b
 
 	switch v := expr.(type) {
 	case *ast.CallExpr:
-		return resolveCalleeBody(v.Fun, ctx)
+		return resolveCalleeBody(v.Fun, ctx, formKeys)
 	case *ast.SelectorExpr:
-		return resolveCalleeBody(v, ctx)
+		return resolveCalleeBody(v, ctx, formKeys)
 	case *ast.Ident:
-		return resolveCalleeBody(v, ctx)
+		return resolveCalleeBody(v, ctx, formKeys)
 	default:
 		return opResolution{}, false
 	}
@@ -145,13 +146,13 @@ func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx) (opResolution, b
 
 // resolveCalleeBody resolves fn (a selector or ident naming a method or
 // package func) to its FuncDecl and scans its body.
-func resolveCalleeBody(fn ast.Expr, ctx handlerResolveCtx) (opResolution, bool) {
+func resolveCalleeBody(fn ast.Expr, ctx handlerResolveCtx, formKeys map[string]string) (opResolution, bool) {
 	fd := lookupFuncDecl(fn, ctx)
 	if fd == nil || fd.Body == nil {
 		return opResolution{Found: true}, true
 	}
 
-	return scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd)), true
+	return scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys), true
 }
 
 func lookupFuncDecl(fn ast.Expr, ctx handlerResolveCtx) *ast.FuncDecl {
@@ -179,9 +180,9 @@ func funcKey(fd *ast.FuncDecl) string {
 }
 
 // scanTopLevel scans fl's own body (hop 0) for decode signals.
-func scanTopLevel(fl funcLike, ctx handlerResolveCtx, label string) opResolution {
+func scanTopLevel(fl funcLike, ctx handlerResolveCtx, label string, formKeys map[string]string) opResolution {
 	res := opResolution{Fields: map[string]emuField{}, Found: true, FromHandler: label}
-	scanBody(fl, ctx, 0, map[*ast.FuncDecl]bool{}, &res)
+	scanBody(fl, ctx, 0, map[*ast.FuncDecl]bool{}, &res, formKeys)
 
 	return res
 }
@@ -189,16 +190,26 @@ func scanTopLevel(fl funcLike, ctx handlerResolveCtx, label string) opResolution
 // scanBody walks fl's body for: (1) a decode call binding a known struct's
 // worth of fields, (2) an echo query/path/form param read with a literal
 // name, (3) a call whose own return type resolves to a known struct
-// (cloudfront's decodeXBody(c) shape), and (4) at hop 0 only, one hop of
-// recursion into a *Handler method or bare package func it calls directly
-// -- never into h.Backend.X or any other selector chain, so backend-internal
-// field names never leak in as false "declared" matches.
-func scanBody(fl funcLike, ctx handlerResolveCtx, hop int, visited map[*ast.FuncDecl]bool, res *opResolution) {
+// (cloudfront's decodeXBody(c) shape), (4) a query-protocol form read keyed
+// by op's own SDK field names (formKeys -- see formreads.go), and (5) at
+// hop 0 only, one hop of recursion into a *Handler method or bare package
+// func it calls directly -- never into h.Backend.X or any other selector
+// chain, so backend-internal field names never leak in as false "declared"
+// matches.
+func scanBody(
+	fl funcLike,
+	ctx handlerResolveCtx,
+	hop int,
+	visited map[*ast.FuncDecl]bool,
+	res *opResolution,
+	formKeys map[string]string,
+) {
 	if fl.Body == nil {
 		return
 	}
 
 	bindings := collectLocalBindings(fl, ctx.fset, ctx.structs)
+	urlValuesNames := urlValuesParamNames(fl)
 
 	ast.Inspect(fl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -209,9 +220,10 @@ func scanBody(fl funcLike, ctx handlerResolveCtx, hop int, visited map[*ast.Func
 		matchDecodeCall(call, bindings, ctx, res)
 		matchQueryParamCall(call, res)
 		matchReturnsStructCall(call, ctx, res)
+		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res)
 
 		if hop < maxHop {
-			matchRecursableCall(call, ctx, hop, visited, res)
+			matchRecursableCall(call, ctx, hop, visited, res, formKeys)
 		}
 
 		return true
@@ -329,6 +341,7 @@ func matchRecursableCall(
 	hop int,
 	visited map[*ast.FuncDecl]bool,
 	res *opResolution,
+	formKeys map[string]string,
 ) {
 	var fd *ast.FuncDecl
 
@@ -353,7 +366,7 @@ func matchRecursableCall(
 	}
 
 	visited[fd] = true
-	scanBody(fromFuncDecl(fd), ctx, hop+1, visited, res)
+	scanBody(fromFuncDecl(fd), ctx, hop+1, visited, res, formKeys)
 }
 
 func addStructFields(typeName string, ctx handlerResolveCtx, res *opResolution) {

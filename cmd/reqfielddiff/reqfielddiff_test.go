@@ -159,7 +159,7 @@ func (h *Handler) handleStartRun(c *Context) error {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"StartRun"})["StartRun"]
+	res := idx.resolveOps([]sdkOp{{Name: "StartRun"}})["StartRun"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -202,7 +202,7 @@ func handleGetThing(c ctx, in *getThingInput) (*getThingOutput, error) {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"GetThing"})["GetThing"]
+	res := idx.resolveOps([]sdkOp{{Name: "GetThing"}})["GetThing"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -243,7 +243,7 @@ func (h *Handler) jsonCreateCA(body []byte) (any, error) {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"CreateCertificateAuthority"})["CreateCertificateAuthority"]
+	res := idx.resolveOps([]sdkOp{{Name: "CreateCertificateAuthority"}})["CreateCertificateAuthority"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -288,7 +288,7 @@ func (h *Handler) resourcesEndpoint(b []byte) (int, any, error) {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"GetResources"})["GetResources"]
+	res := idx.resolveOps([]sdkOp{{Name: "GetResources"}})["GetResources"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -318,7 +318,7 @@ func (h *Handler) handleListThings(c *Context) error {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"ListThings"})["ListThings"]
+	res := idx.resolveOps([]sdkOp{{Name: "ListThings"}})["ListThings"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -352,7 +352,7 @@ func decodeListBody(c *Context) listBody {
 }
 `
 	idx := parseSrc(t, src)
-	res := idx.resolveOps([]string{"ListDistributionsByRealtimeLogConfig"})["ListDistributionsByRealtimeLogConfig"]
+	res := idx.resolveOps([]sdkOp{{Name: "ListDistributionsByRealtimeLogConfig"}})["ListDistributionsByRealtimeLogConfig"]
 
 	require.True(t, res.Found)
 	require.True(t, res.HasSignal)
@@ -402,4 +402,149 @@ func TestCoverageWarnings_Clean(t *testing.T) {
 		SDKFieldsResolved: 20, EmuFieldsResolved: 18,
 	}
 	require.Empty(t, coverageWarnings(r))
+}
+
+// TestResolveOp_FormReadScalarField reproduces ec2/rds's real query-protocol
+// shape: a scalar field read via `vals.Get("Name")` off a url.Values
+// parameter, with no struct decode anywhere. Ground truth: this is exactly
+// the shape 26 of ec2's identifier-list findings turned out to be --
+// correctly read, invisible to a struct-declaration scan.
+func TestResolveOp_FormReadScalarField(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("KeyName")
+	_ = name
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeKeyPairs", Fields: []sdkField{mustField("KeyName", "", false)}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeKeyPairs"]
+
+	require.True(t, res.HasSignal)
+	require.Empty(t, findMissing(op, res), "KeyName read via vals.Get must not be reported as missing")
+}
+
+// TestResolveOp_FormReadIndexedListMember reproduces ec2's parseMemberList
+// shape: a plural SDK field (KeyNames) read from singular indexed query
+// keys (KeyName.1, KeyName.2, ...) via a package-level helper whose own
+// first parameter is url.Values -- recognised structurally by that
+// signature, not by the helper's name.
+func TestResolveOp_FormReadIndexedListMember(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Handler struct{}
+
+func parseMemberList(vals url.Values, prefix string) []string {
+	return nil
+}
+
+func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
+	names := parseMemberList(vals, "KeyName")
+	_ = names
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeKeyPairs", Fields: []sdkField{mustField("KeyNames", "", false)}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeKeyPairs"]
+
+	require.True(t, res.HasSignal)
+	require.Empty(t, findMissing(op, res),
+		"KeyNames read via indexed KeyName.N members must not be reported as missing")
+}
+
+// TestResolveOp_FormReadStillReportsAbsentField confirms a query-protocol
+// handler that genuinely never reads a declared SDK field is still
+// reported -- form-read detection must narrow the queue, not silence it.
+func TestResolveOp_FormReadStillReportsAbsentField(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("KeyName")
+	_ = name
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeKeyPairs", Fields: []sdkField{
+		mustField("KeyName", "", false),
+		mustField("IncludePublicKey", "", false),
+	}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeKeyPairs"]
+
+	missing := findMissing(op, res)
+	require.Len(t, missing, 1)
+	require.Equal(t, "IncludePublicKey", missing[0].Field.Name)
+}
+
+// TestResolveOp_FormReadIgnoresGetOnNonURLValuesReceiver is the regression
+// this scan's own package doc says was deliberately never chased with a
+// blanket `.Get("literal")` signal: a .Get call on something that is NOT
+// this operation's url.Values parameter must never count as a declared
+// read, even when its literal key happens to spell a real SDK field name.
+func TestResolveOp_FormReadIgnoresGetOnNonURLValuesReceiver(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Handler struct{}
+type Cache struct{}
+
+func (c *Cache) Get(key string) string { return "" }
+
+func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
+	cache := &Cache{}
+	v := cache.Get("KeyName")
+	_ = v
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeKeyPairs", Fields: []sdkField{mustField("KeyName", "", false)}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeKeyPairs"]
+
+	missing := findMissing(op, res)
+	require.Len(t, missing, 1, "an unrelated Cache.Get(\"KeyName\") must not suppress the real finding")
+	require.Equal(t, "KeyName", missing[0].Field.Name)
+}
+
+// TestResolveOp_FormReadDoesNotOvermatchUnrelatedField confirms the
+// candidate key set is scoped per field: reading one field off vals must
+// not also mark a sibling, unrelated field on the same operation as
+// declared.
+func TestResolveOp_FormReadDoesNotOvermatchUnrelatedField(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type Handler struct{}
+
+func (h *Handler) handleModifyActivityStream(vals url.Values) (any, error) {
+	mode := vals.Get("Mode")
+	_ = mode
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "ModifyActivityStream", Fields: []sdkField{
+		mustField("Mode", "", false),
+		mustField("ResourceArn", "", true),
+	}}
+	res := idx.resolveOps([]sdkOp{op})["ModifyActivityStream"]
+
+	missing := findMissing(op, res)
+	require.Len(t, missing, 1)
+	require.Equal(t, "ResourceArn", missing[0].Field.Name)
 }

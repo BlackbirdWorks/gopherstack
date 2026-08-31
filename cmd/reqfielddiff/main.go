@@ -153,20 +153,52 @@
 //     here -- the triage signals are a ranking heuristic over a raw diff,
 //     not a classifier, and the tool says so in its own output rather than
 //     implying otherwise.
-//   - TWO CONCRETE BLIND SPOTS FOUND WHILE CHASING COVERAGE-GUARD WARNINGS,
-//     confirmed by reading the flagged services rather than guessed at:
-//     (1) an AWS Query-protocol service (iam, autoscaling, elb, ...) reads
-//     its fields off a raw url.Values via `.Get("Name")`, not any struct
-//     decode call or echo QueryParam/Param/FormValue call this scan
-//     recognises -- deliberately NOT added as a signal, since matching a
-//     bare ".Get(\"literal\")" call by name alone would also match this
-//     repo's countless unrelated map/cache Get() calls, trading a real
-//     resolution gain for a worse one: false "declared" matches that
-//     silently suppress genuine findings. (2) dynamodbstreams decodes
-//     directly into the real aws-sdk-go-v2 input type itself
-//     (`var input dynamodbstreams.GetRecordsInput`, and a generic
-//     `dispatchStreamsOp[In any, Out any]` helper inferring In from the
-//     backend method's own signature) -- a foreign, imported qualified
+//   - QUERY-PROTOCOL FORM-READ DETECTION (formreads.go, gopherstack-99nj).
+//     An AWS query-protocol service (ec2, rds, s3, iam, autoscaling, elb,
+//     ses, cloudwatch, ...) reads its fields off a raw url.Values, not any
+//     struct decode call this scan otherwise recognises -- a field read
+//     this way is invisible to every other signal in this file, so a
+//     correctly-handled field still reads as undeclared. A blanket
+//     `.Get("literal")` signal was deliberately rejected as too risky: that
+//     name is used for every unrelated map/cache Get() call in this repo,
+//     and matching it by name alone would trade a real resolution gain for
+//     a worse one -- false "declared" matches that silently suppress
+//     genuine findings. What's actually implemented is narrower, because
+//     this scan already resolves each operation's own handler AND already
+//     has that operation's own SDK Input field names in hand (sdkfields.go)
+//     before it ever scans a body: the candidate key set a form-read call
+//     is allowed to match is restricted to THIS operation's own field
+//     names, normalized, plus a singular variant for the query-protocol
+//     convention where a plural field (KeyNames) is read from singular
+//     indexed member keys (KeyName.1, KeyName.2, ...). Two shapes are
+//     recognised, both gated on the receiver/argument being a url.Values-
+//     typed PARAMETER of the function being scanned (never a reassigned
+//     local, never a package-level cache): `vals.Get("Name")` directly, and
+//     a call to a package-level helper whose own first parameter is
+//     url.Values (ec2's parseMemberList, rds's extractMemberList/
+//     extractIndexedList, iam's parseIndexedValues, autoscaling/elb's
+//     parseMembers, ses's parseSESMemberList, cloudwatch's parseMemberList/
+//     parseDimensionsFromForm, ... -- recognised structurally by that
+//     signature, not by name) carrying a PascalCase string-literal
+//     argument. A nested-prefix literal ("AssociationTarget.InstanceId") is
+//     matched by its first dot-segment against the top-level field this
+//     scan is scoped to. NOT covered, deliberately left as findings rather
+//     than guessed at: a url.Values held in a reassigned local rather than
+//     a parameter (`q := c.Request().URL.Query()`); a chained accessor
+//     (`c.Request().Form.Get(...)`); a helper that is a method rather than
+//     a bare package function; a nested-prefix literal more than one
+//     dot-segment deep; and irregular English plurals singularVariant's
+//     simple suffix-strip doesn't cover. Validated against ground truth:
+//     ec2's 26 hand-verified identifier-list fields and the six
+//     MaxResults/NextToken fields fixed
+//     in 427bd2b15 are no longer reported (both confirmed present before
+//     this change and absent after); ecs and omics -- neither
+//     query-protocol, neither using url.Values at all -- produce byte-
+//     identical findings before and after.
+//   - dynamodbstreams decodes directly into the real aws-sdk-go-v2 input
+//     type itself (`var input dynamodbstreams.GetRecordsInput`, and a
+//     generic `dispatchStreamsOp[In any, Out any]` helper inferring In from
+//     the backend method's own signature) -- a foreign, imported qualified
 //     type this scan's struct collector (locally-declared types only)
 //     cannot see. Hand-confirmed: this makes dynamodbstreams's true
 //     coverage 100% by construction, not the "0/4, zero declared fields"
@@ -294,12 +326,7 @@ func scanOneService(repoRoot, dir string) (serviceReport, error) {
 		return serviceReport{}, err
 	}
 
-	opNames := make([]string, len(sdkOps))
-	for i, op := range sdkOps {
-		opNames[i] = op.Name
-	}
-
-	resolutions := idx.resolveOps(opNames)
+	resolutions := idx.resolveOps(sdkOps)
 
 	return buildServiceReport(name, mod, sdkOps, resolutions), nil
 }
