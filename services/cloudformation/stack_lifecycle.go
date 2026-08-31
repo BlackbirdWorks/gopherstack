@@ -52,11 +52,13 @@ func (b *InMemoryBackend) ListStacks(
 			continue
 		}
 		summaries = append(summaries, StackSummary{
-			StackID:      stack.StackID,
-			StackName:    stack.StackName,
-			StackStatus:  stack.StackStatus,
-			CreationTime: stack.CreationTime,
-			DeletionTime: stack.DeletionTime,
+			StackID:           stack.StackID,
+			StackName:         stack.StackName,
+			StackStatus:       stack.StackStatus,
+			StackStatusReason: stack.StackStatusReason,
+			CreationTime:      stack.CreationTime,
+			DeletionTime:      stack.DeletionTime,
+			LastUpdatedTime:   stack.LastUpdatedTime,
 		})
 	}
 

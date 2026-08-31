@@ -153,6 +153,8 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		StackStatus                 string                 `xml:"StackStatus"`
 		StackStatusReason           string                 `xml:"StackStatusReason,omitempty"`
 		CreationTime                string                 `xml:"CreationTime"`
+		LastUpdatedTime             string                 `xml:"LastUpdatedTime,omitempty"`
+		DeletionTime                string                 `xml:"DeletionTime,omitempty"`
 		RoleARN                     string                 `xml:"RoleARN,omitempty"`
 		Parameters                  []Parameter            `xml:"Parameters>member,omitempty"`
 		Outputs                     []Output               `xml:"Outputs>member,omitempty"`
@@ -165,7 +167,7 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 	}
 
 	toXML := func(s *Stack) stackXML {
-		return stackXML{
+		x := stackXML{
 			StackID:                     s.StackID,
 			StackName:                   s.StackName,
 			Description:                 s.Description,
@@ -183,6 +185,14 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 			RoleARN:                     s.RoleARN,
 			RollbackConfiguration:       s.RollbackConfiguration,
 		}
+		if s.LastUpdatedTime != nil {
+			x.LastUpdatedTime = s.LastUpdatedTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		if s.DeletionTime != nil {
+			x.DeletionTime = s.DeletionTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+
+		return x
 	}
 
 	var stacks []stackXML
@@ -228,19 +238,30 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	summaries := p.Data
 
 	type summaryXML struct {
-		StackID      string `xml:"StackId"`
-		StackName    string `xml:"StackName"`
-		StackStatus  string `xml:"StackStatus"`
-		CreationTime string `xml:"CreationTime"`
+		StackID           string `xml:"StackId"`
+		StackName         string `xml:"StackName"`
+		StackStatus       string `xml:"StackStatus"`
+		StackStatusReason string `xml:"StackStatusReason,omitempty"`
+		CreationTime      string `xml:"CreationTime"`
+		LastUpdatedTime   string `xml:"LastUpdatedTime,omitempty"`
+		DeletionTime      string `xml:"DeletionTime,omitempty"`
 	}
 	members := make([]summaryXML, 0, len(summaries))
 	for _, s := range summaries {
-		members = append(members, summaryXML{
-			StackID:      s.StackID,
-			StackName:    s.StackName,
-			StackStatus:  s.StackStatus,
-			CreationTime: s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
-		})
+		m := summaryXML{
+			StackID:           s.StackID,
+			StackName:         s.StackName,
+			StackStatus:       s.StackStatus,
+			StackStatusReason: s.StackStatusReason,
+			CreationTime:      s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+		}
+		if s.LastUpdatedTime != nil {
+			m.LastUpdatedTime = s.LastUpdatedTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		if s.DeletionTime != nil {
+			m.DeletionTime = s.DeletionTime.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		members = append(members, m)
 	}
 
 	type listResult struct {

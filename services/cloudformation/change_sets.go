@@ -212,13 +212,15 @@ func (b *InMemoryBackend) ListChangeSets(
 	summaries := make([]ChangeSetSummary, 0, len(csMap))
 	for _, cs := range csMap {
 		summaries = append(summaries, ChangeSetSummary{
-			ChangeSetID:   cs.ChangeSetID,
-			ChangeSetName: cs.ChangeSetName,
-			StackID:       cs.StackID,
-			StackName:     cs.StackName,
-			Status:        cs.Status,
-			CreationTime:  cs.CreationTime,
-			Description:   cs.Description,
+			ChangeSetID:     cs.ChangeSetID,
+			ChangeSetName:   cs.ChangeSetName,
+			StackID:         cs.StackID,
+			StackName:       cs.StackName,
+			Status:          cs.Status,
+			StatusReason:    cs.StatusReason,
+			ExecutionStatus: cs.ExecutionStatus,
+			CreationTime:    cs.CreationTime,
+			Description:     cs.Description,
 		})
 	}
 

@@ -249,25 +249,30 @@ type stackSetManagedExecutionXML struct {
 	Active bool `xml:"Active"`
 }
 
-// ssXML is the full DescribeStackSetResult.StackSet wire shape, field-diffed
-// against aws-sdk-go-v2/service/cloudformation@v1.76.1's
-// awsAwsquery_deserializeDocumentStackSet.
+// ssXML is DescribeStackSetResult.StackSet's wire shape, field-diffed against
+// aws-sdk-go-v2/service/cloudformation@v1.76.1's
+// awsAwsquery_deserializeDocumentStackSet (gopherstack-21my: a prior version
+// of this comment claimed "full" coverage while omitting TemplateBody, which
+// this backend tracks and now emits). StackSetDriftDetectionDetails remains
+// unemitted: the backend has no set-level drift-status model to populate it
+// from.
 type ssXML struct {
 	AutoDeployment        *stackSetAutoDeploymentXML   `xml:"AutoDeployment,omitempty"`
 	ManagedExecution      *stackSetManagedExecutionXML `xml:"ManagedExecution,omitempty"`
-	Status                string                       `xml:"Status"`
-	StackSetID            string                       `xml:"StackSetId"`
+	ExecutionRoleName     string                       `xml:"ExecutionRoleName,omitempty"`
+	PermissionModel       string                       `xml:"PermissionModel,omitempty"`
 	StackSetName          string                       `xml:"StackSetName"`
 	Description           string                       `xml:"Description,omitempty"`
 	StackSetARN           string                       `xml:"StackSetARN,omitempty"`
 	AdministrationRoleARN string                       `xml:"AdministrationRoleARN,omitempty"`
-	ExecutionRoleName     string                       `xml:"ExecutionRoleName,omitempty"`
-	PermissionModel       string                       `xml:"PermissionModel,omitempty"`
-	OrganizationalUnitIDs []string                     `xml:"OrganizationalUnitIds>member,omitempty"`
+	Status                string                       `xml:"Status"`
+	StackSetID            string                       `xml:"StackSetId"`
+	TemplateBody          string                       `xml:"TemplateBody,omitempty"`
 	Regions               []string                     `xml:"Regions>member,omitempty"`
 	Tags                  []stackSetTagXML             `xml:"Tags>member,omitempty"`
 	Parameters            []stackSetParamXML           `xml:"Parameters>member,omitempty"`
 	Capabilities          []string                     `xml:"Capabilities>member,omitempty"`
+	OrganizationalUnitIDs []string                     `xml:"OrganizationalUnitIds>member,omitempty"`
 }
 
 func stackSetToXML(ss *StackSet, regions []string) ssXML {
@@ -294,6 +299,7 @@ func stackSetToXML(ss *StackSet, regions []string) ssXML {
 		Tags:                  tags,
 		OrganizationalUnitIDs: ss.OrganizationalUnitIDs,
 		Regions:               regions,
+		TemplateBody:          ss.TemplateBody,
 	}
 	if ss.AutoDeployment != nil {
 		x.AutoDeployment = &stackSetAutoDeploymentXML{
@@ -350,13 +356,11 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 		StackSetID   string `xml:"StackSetId"`
 		StackSetName string `xml:"StackSetName"`
 		Status       string `xml:"Status"`
+		Description  string `xml:"Description,omitempty"`
 	}
 	members := make([]summXML, 0, len(p.Data))
 	for _, s := range p.Data {
-		members = append(
-			members,
-			summXML{StackSetID: s.StackSetID, StackSetName: s.StackSetName, Status: s.Status},
-		)
+		members = append(members, summXML(s))
 	}
 	type result struct {
 		NextToken string    `xml:"NextToken,omitempty"`
@@ -519,10 +523,14 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName         string `xml:"StackSetName,omitempty"`
+		StackSetID           string `xml:"StackSetId,omitempty"`
+		StackID              string `xml:"StackId,omitempty"`
 		Account              string `xml:"Account,omitempty"`
 		Region               string `xml:"Region,omitempty"`
 		Status               string `xml:"Status,omitempty"`
+		StatusReason         string `xml:"StatusReason,omitempty"`
+		DriftStatus          string `xml:"DriftStatus,omitempty"`
+		LastOperationID      string `xml:"LastOperationId,omitempty"`
 		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
@@ -530,10 +538,14 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		members = append(
 			members,
 			instXML{
-				StackSetName:         i.StackSetName,
+				StackSetID:           i.StackSetID,
+				StackID:              i.StackID,
 				Account:              i.Account,
 				Region:               i.Region,
 				Status:               i.Status,
+				StatusReason:         i.StatusReason,
+				DriftStatus:          i.DriftStatus,
+				LastOperationID:      i.LastOperationID,
 				OrganizationalUnitID: i.OrganizationalUnitID,
 			},
 		)
@@ -572,10 +584,14 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName         string `xml:"StackSetName,omitempty"`
+		StackSetID           string `xml:"StackSetId,omitempty"`
+		StackID              string `xml:"StackId,omitempty"`
 		Account              string `xml:"Account,omitempty"`
 		Region               string `xml:"Region,omitempty"`
 		Status               string `xml:"Status,omitempty"`
+		StatusReason         string `xml:"StatusReason,omitempty"`
+		DriftStatus          string `xml:"DriftStatus,omitempty"`
+		LastOperationID      string `xml:"LastOperationId,omitempty"`
 		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
@@ -592,10 +608,14 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		Xmlns: cfnNS,
 		Result: result{
 			StackInstance: instXML{
-				StackSetName:         inst.StackSetName,
+				StackSetID:           inst.StackSetID,
+				StackID:              inst.StackID,
 				Account:              inst.Account,
 				Region:               inst.Region,
 				Status:               inst.Status,
+				StatusReason:         inst.StatusReason,
+				DriftStatus:          inst.DriftStatus,
+				LastOperationID:      inst.LastOperationID,
 				OrganizationalUnitID: inst.OrganizationalUnitID,
 			},
 		},

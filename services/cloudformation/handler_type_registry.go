@@ -407,13 +407,21 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type typeXML struct {
-		TypeName string `xml:"TypeName,omitempty"`
-		TypeArn  string `xml:"TypeArn,omitempty"`
-		Type     string `xml:"Type,omitempty"`
+		TypeName         string `xml:"TypeName,omitempty"`
+		TypeArn          string `xml:"TypeArn,omitempty"`
+		Type             string `xml:"Type,omitempty"`
+		DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+		IsActivated      bool   `xml:"IsActivated,omitempty"`
 	}
 	members := make([]typeXML, 0, len(types))
 	for _, t := range types {
-		members = append(members, typeXML{TypeName: t.TypeName, TypeArn: t.TypeArn, Type: t.Type})
+		members = append(members, typeXML{
+			TypeName:         t.TypeName,
+			TypeArn:          t.TypeArn,
+			Type:             t.Type,
+			DefaultVersionID: t.DefaultVersionID,
+			IsActivated:      t.IsActivated,
+		})
 	}
 	type result struct {
 		TypeSummaries []typeXML `xml:"TypeSummaries>member"`

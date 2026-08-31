@@ -854,3 +854,186 @@ Gates: `go build ./services/cloudformation/...`, `go vet
 ./services/cloudformation/...`, `go test -race -count=1
 ./services/cloudformation/...` (pass), `golangci-lint run
 ./services/cloudformation/...` (0 issues).
+
+## 2026-08-31 pass (gopherstack-21my): first per-item sweep
+
+cloudformation had never had a per-item field-name sweep under this issue
+(only wrapper-key-level and response-shape sweeps existed, e.g. sweep1's
+`OperationId`/invented-field fixes). Confirmed `awsAwsquery_` (query/XML,
+`strings.EqualFold` element matching, the same latent case-only-mismatch
+class as REST-XML) from cloudformation@v1.76.1's own `deserializers.go`
+before starting.
+
+Covered at both layers: `Stack`/`StackSummary` (DescribeStacks/ListStacks),
+`ChangeSet`/`ChangeSetSummary` (DescribeChangeSet/ListChangeSets),
+`StackSet`/`StackSetSummary` (DescribeStackSet/ListStackSets),
+`StackInstance`/`StackInstanceSummary` (DescribeStackInstance/
+ListStackInstances), `TypeSummary` (ListTypes vs. DescribeType),
+`StackResource`/`StackResourceSummary` (DescribeStackResource/
+DescribeStackResources/ListStackResources — came back clean, see below).
+Five real bugs found, all the sibling-shape this issue tracks.
+
+**BUG (fixed): `ListStacks`'s `StackSummary` dropped `StackStatusReason`,
+`LastUpdatedTime` and `DeletionTime` entirely.** `types.StackSummary`
+(cloudformation@v1.76.1 types/types.go:3102) carries all three; this
+backend's own `Stack`/`StackSummary` models already track them
+(`stack.StackStatusReason` is set on every failure path, `LastUpdatedTime`
+on `UpdateStack`, `DeletionTime` on `DeleteStack`) but the model-level
+`StackSummary` type only ever carried `CreationTime`/`DeletionTime`/
+`StackID`/`StackName`/`StackStatus` and `ListStacks`'s handler never emitted
+`StackStatusReason` at all. `DescribeStacks` shared the `LastUpdatedTime`/
+`DeletionTime` half of this gap (its own `stackXML` never declared them
+either, despite `s.LastUpdatedTime`/`s.DeletionTime` being available on the
+full `Stack` passed in) but already emitted `StackStatusReason` correctly —
+the sibling-disagreement shape on that one field, a shared gap on the other
+two. Right stack count either way; `StackStatusReason` was unconditionally
+blank from `ListStacks`, `LastUpdatedTime`/`DeletionTime` blank from both.
+Fixed by extending `StackSummary` (models.go) with `LastUpdatedTime`/
+`StackStatusReason`, populating them in `ListStacks` (stack_lifecycle.go),
+and adding nil-safe formatting for `LastUpdatedTime`/`DeletionTime` to both
+`handleDescribeStacks`' `toXML` and `handleListStacks`' mapping loop
+(handler_stacks.go). Test: `TestListStacks_ItemFields_RealClient`
+(wire_field_fixes_cfn21my_test.go), seeds a CREATE_FAILED stack (unresolvable
+`Fn::ImportValue`) for `StackStatusReason`, an updated stack for
+`LastUpdatedTime`, and a deleted stack for `DeletionTime`, asserting all
+three through both `ListStacks` and `DescribeStacks` via the real client.
+Verified failing pre-fix (all three assertions empty/nil).
+
+**BUG (fixed): `ListChangeSets`'s `ChangeSetSummary` dropped
+`ExecutionStatus` and `StatusReason`.** `types.ChangeSetSummary`
+(types.go:257) carries both; `DescribeChangeSet` (the singular sibling)
+already emits both correctly, and this backend's `ChangeSet` model already
+tracks both (`cs.ExecutionStatus` defaults `"AVAILABLE"` at creation and
+flips to `"UNAVAILABLE"` with a real `StatusReason` on a no-op change set) —
+`ListChangeSets`'s backend method (change_sets.go) just never copied either
+field into the summary it builds. Right change-set count, `ExecutionStatus`
+always empty (a client cannot tell an executable change set from a dead one
+without falling back to `Status`) and `StatusReason` always empty. Fixed by
+extending `ChangeSetSummary` (models.go), `ListChangeSets` (change_sets.go)
+and `handleListChangeSets`'s `summaryXML` (handler_change_sets.go). Test:
+`TestListChangeSets_ItemFields_RealClient`, seeds one change set with real
+diff (`ExecutionStatus` stays `AVAILABLE`) and one no-op change set
+(`ExecutionStatus` flips `UNAVAILABLE`, `StatusReason` set), asserts both
+through `ListChangeSets`. Verified failing pre-fix (both fields empty).
+
+**BUG (fixed), and a stale "field-diffed" comment caught: `DescribeStackSet`
+never emitted `TemplateBody`.** `types.StackSet`'s own deserializer
+(`awsAwsquery_deserializeDocumentStackSet`) includes a `TemplateBody` case;
+this backend's `StackSet` model already tracks it (set at `CreateStackSet`
+and `UpdateStackSet`) but the handler's `ssXML` — despite a comment directly
+above it claiming it was "the full ... wire shape, field-diffed against ...
+awsAwsquery_deserializeDocumentStackSet" — never declared or emitted the
+field. A real client could create/update a stack set with a template and
+never read it back through `DescribeStackSet`; `GetTemplate` (the analogous
+op for plain stacks) has no stack-set equivalent, so this was the only way
+to retrieve it. Comment corrected to note the prior false "full" claim and
+the one still-real gap (`StackSetDriftDetectionDetails`, unbacked — no
+set-level drift model). Fixed in handler_stack_sets.go (`ssXML` +
+`stackSetToXML`). Test: `TestStackSet_ItemFields_RealClient`, creates a
+stack set with a distinguishable template body, asserts it round-trips
+through `DescribeStackSet`. Verified failing pre-fix (empty string).
+
+**BUG (fixed): `ListStackSets`'s summary dropped `Description` even though
+the backend already computed it.** `backend.ListStackSets`
+(stack_sets.go) already populates `ss.Description` on the `StackSetSummary`
+it returns, but `handleListStackSets`'s local `summXML` never declared a
+`Description` field, so it was discarded between the backend and the wire
+regardless of client input. Fixed by adding the field and (per staticcheck's
+own S1016 finding once the two structs matched field-for-field) converting
+the summary directly via `summXML(s)` instead of a hand-built literal. Test:
+`TestStackSet_ItemFields_RealClient` (same test as above), also asserts
+`ListStackSets`'s `Description`. Verified failing pre-fix (empty string).
+
+**BUG (fixed), the loudest of this pass: `ListStackInstances` and
+`DescribeStackInstance` emitted a `StackSetName` element that does not exist
+on the real type at all.** `types.StackInstance`/`types.StackInstanceSummary`
+(types.go:1836+) have no `StackSetName` member whatsoever — only
+`StackSetId`. Both gopherstack handlers' local `instXML` had
+`StackSetName string xml:"StackSetName,omitempty"`, so a real client's
+`StackSetId` — the field used to correlate a stack instance back to its
+stack set — was unconditionally empty, even though this backend's own
+`StackInstance` model (models.go) already tracks `StackSetID` under the
+correct `"StackSetId"` tag (and `StackID`, `StatusReason`, `DriftStatus`,
+`LastOperationID`, all likewise tracked and likewise dropped by both
+handlers). Not a sibling disagreement — both operations shared the identical
+wrong local type. Fixed by rewriting both `instXML`s in handler_stack_sets.go
+to match the model (StackSetID/StackID/Account/Region/Status/StatusReason/
+DriftStatus/LastOperationID/OrganizationalUnitID). `StackInstanceStatus`
+(the nested detailed-status structure) and `LastDriftCheckTimestamp` remain
+unemitted — genuine gaps, no state tracked for either. Test:
+`TestStackInstance_ItemFields_RealClient`, creates a stack set and a stack
+instance via the real client, asserts `StackSetId` and `StackId` through
+both `ListStackInstances` and `DescribeStackInstance`. Verified failing
+pre-fix (`StackSetId` empty on both).
+
+**BUG (fixed): `ListTypes` dropped `DefaultVersionId` and `IsActivated`.**
+`types.TypeSummary` carries both; `DescribeType` (the singular sibling)
+already emits both correctly, and this backend's type registry already
+tracks both (`RegisteredType.DefaultVersion` set at `RegisterType`,
+`.IsActivated` set by `ActivateType`/`DeactivateType`) but `ListTypes`'s
+model-level `TypeSummary` (models.go) never carried either and the handler
+never emitted them. Right type count, `IsActivated` always `false` and
+`DefaultVersionId` always empty regardless of activation state. Fixed by
+extending `TypeSummary`, populating both in `ListTypes` (type_registry.go)
+and wiring them into `handleListTypes`'s `typeXML` (handler_type_registry.go).
+Test: `TestListTypes_ItemFields_RealClient`, registers one type and
+activates a second, asserts `IsActivated` differs and `DefaultVersionId` is
+non-empty. Verified failing pre-fix (`IsActivated` false on the activated
+type, `DefaultVersionId` empty).
+
+**NOT a fix — `TypeSummary.Visibility` and `.Description` recorded as
+unobservable, not backed.** The model's `Visibility` field (computed from
+`t.IsPublished`) does not correspond to any real member on
+`types.TypeSummary` at all — the real type has no `Visibility` member — so
+wiring it to the response would add a field no client type reads; left as
+harmless dead computation, not touched. `Description` (mapped from
+`RegisteredType.Configuration`) is real on the wire but this backend never
+writes `.Configuration` on any code path (`SetTypeConfiguration` writes to a
+separate `typeConfigs` map, not the registry entry), so it is
+unconditionally empty upstream of the handler — a genuine gap, not a naming
+bug, and not fixed.
+
+**`StackResource`/`StackResourceSummary` family (DescribeStackResource,
+DescribeStackResources, ListStackResources) came back CLEAN at the per-item
+layer for what's emitted.** All three share one real finding, but it's a
+shared, unbacked gap rather than a bug: `types.StackResource`/
+`types.StackResourceSummary` both carry `ResourceStatusReason`, `ModuleInfo`
+and `DriftInformation`; this backend's `StackResource` domain model
+(models.go) tracks only `Status`, with no per-resource failure-reason,
+module-info or drift field at all, so none of the three operations can
+populate any of them under current state — recorded, not fixed, per this
+issue's restraint guidance. `LogicalResourceId`/`PhysicalResourceId`/
+`ResourceType`/`ResourceStatus`/timestamp are all correctly named and nested
+everywhere checked.
+
+**Wrapping shape**: no call site of any `*Unwrapped` deserializer variant
+exists anywhere in `services/cloudformation`, so every list checked this
+pass is correctly member-wrapped rather than flattened.
+
+**Case-only mismatches**: none found this pass.
+
+**Hard failures**: none found this pass — every gap above is the silent-blank
+class, not a decode error or panic.
+
+**NOT REACHED at either layer this pass**: `DescribeStackEvents`/
+`DescribeEvents` (`StackEvent`), `ListExports`/`ListImports` (`Export`, a
+3-field type already spot-checked clean at wrapper level and structurally
+too simple to carry this class), `DescribeStackResourceDrifts`/
+`ListStackInstanceResourceDrifts` (`StackResourceDrift`), `ListResourceScan*`
+(`ResourceScanSummary`/`ResourceScanResourceSummary`), `ListHookResults`
+(`HookResultSummary`), `ListGeneratedTemplates`, `BatchDescribeTypeConfigurations`
+detail shape, `ListStackSetOperations`/`ListStackSetOperationResults`,
+`DescribeStackRefactor`/`ListStackRefactors`/`ListStackRefactorActions`,
+`DescribeOrganizationsAccess`/publisher ops. These are named so a future pass
+continues rather than redoes.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache (cloudformation@v1.76.1) already vendored in the module cache.
+
+Gates: `go build ./services/cloudformation/...`, `go vet
+./services/cloudformation/...`, `go test -race -count=1
+./services/cloudformation/...` (pass, 5 new tests, all additions), `golangci-lint
+run ./services/cloudformation/...` (0 issues, after a `fieldalignment` reorder
+on `ssXML` once `TemplateBody` pushed it over budget and a staticcheck S1016
+struct-literal-to-conversion fix on `ListStackSets`'s mapping loop). No
+`nolint` directives exist in any file this pass touched.

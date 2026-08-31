@@ -218,11 +218,13 @@ func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 				visibility = typeVisibilityPublic
 			}
 			result = append(result, TypeSummary{
-				TypeName:    t.TypeName,
-				TypeArn:     t.TypeArn,
-				Type:        t.Type,
-				Visibility:  visibility,
-				Description: t.Configuration,
+				TypeName:         t.TypeName,
+				TypeArn:          t.TypeArn,
+				Type:             t.Type,
+				Visibility:       visibility,
+				Description:      t.Configuration,
+				DefaultVersionID: t.DefaultVersion,
+				IsActivated:      t.IsActivated,
 			})
 		}
 	}

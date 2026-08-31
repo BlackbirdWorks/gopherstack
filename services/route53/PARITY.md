@@ -619,3 +619,38 @@ Gates: `go build ./services/iam/... ./services/route53/...`, `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/iam/... ./services/route53/...`
 (pass), `golangci-lint run ./services/iam/... ./services/route53/...` (0
 issues). No `nolint` directives exist in any file this pass touched.
+
+## 2026-08-31 pass (gopherstack-21my): closing out the per-item sweep
+
+Continuation of the 2026-08-31 first-per-item-sweep entry above, which
+explicitly named `ListTagsForResource(s)` as not reached ("simple map/tag
+shapes, lower yield per this issue's own priority note"). Reconfirmed
+`awsRestxml_` from route53@v1.65.6's own `deserializers.go` before starting
+(unchanged from the prior entry).
+
+**`ListTagsForResource`/`ListTagsForResources` came back CLEAN, byte-for-byte
+case included.** `handler_tags.go`'s `resourceTagSet`/`xmlResourceTagSet`
+match `types.ResourceTagSet` (`ResourceId`/`ResourceType`/`Tags>Tag`)
+exactly, `r53Tag` matches `types.Tag` (`Key`/`Value`) exactly, and both
+wrapper keys (`ResourceTagSet` on the singular op, `ResourceTagSets>
+ResourceTagSet` on the batch op) match `awsRestxml_deserializeOpDocument
+ListTagsForResourceOutput`/`...ResourcesOutput` exactly. No wrapping-shape
+issue either: `ResourceTagSetListUnwrapped`/`TagListUnwrapped` exist in the
+pinned SDK but have no call site anywhere in `services/route53`, confirming
+both lists are correctly member-wrapped. This closes the one item this
+issue's route53 coverage had explicitly left open; every route53 list
+operation named across both sweep passes has now had a per-item field-name
+check.
+
+No bugs found, no fix, no new test — a clean verdict doesn't need a
+round-trip test to prove a negative, consistent with how prior clean
+per-item findings in this issue's history (e.g. sagemaker, elbv2's
+non-buggy ops) were recorded without one.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache (route53@v1.65.6) already vendored in the module cache.
+
+Gates: `go build ./services/route53/...`, `go vet ./services/route53/...`,
+`go test -race -count=1 ./services/route53/...` (pass, no test changes),
+`golangci-lint run ./services/route53/...` (0 issues). No `nolint`
+directives exist in this service.

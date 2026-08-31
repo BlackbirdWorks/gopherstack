@@ -82,11 +82,13 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
-	CreationTime time.Time  `xml:"CreationTime"           json:"creationTime"`
-	DeletionTime *time.Time `xml:"DeletionTime,omitempty" json:"deletionTime,omitempty"`
-	StackID      string     `xml:"StackId"                json:"stackID"`
-	StackName    string     `xml:"StackName"              json:"stackName"`
-	StackStatus  string     `xml:"StackStatus"            json:"stackStatus"`
+	CreationTime      time.Time  `xml:"CreationTime"                json:"creationTime"`
+	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"      json:"deletionTime,omitempty"`
+	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"   json:"lastUpdatedTime,omitempty"`
+	StackID           string     `xml:"StackId"                     json:"stackID"`
+	StackName         string     `xml:"StackName"                   json:"stackName"`
+	StackStatus       string     `xml:"StackStatus"                 json:"stackStatus"`
+	StackStatusReason string     `xml:"StackStatusReason,omitempty" json:"stackStatusReason,omitempty"`
 }
 
 // StackEvent is a single event in a stack's history.
@@ -137,13 +139,15 @@ type ChangeSet struct {
 
 // ChangeSetSummary is a brief summary of a change set.
 type ChangeSetSummary struct {
-	ChangeSetID   string    `xml:"ChangeSetId"`
-	ChangeSetName string    `xml:"ChangeSetName"`
-	StackID       string    `xml:"StackId"`
-	StackName     string    `xml:"StackName"`
-	Status        string    `xml:"Status"`
-	CreationTime  time.Time `xml:"CreationTime"`
-	Description   string    `xml:"Description,omitempty"`
+	ChangeSetID     string    `xml:"ChangeSetId"`
+	ChangeSetName   string    `xml:"ChangeSetName"`
+	StackID         string    `xml:"StackId"`
+	StackName       string    `xml:"StackName"`
+	Status          string    `xml:"Status"`
+	StatusReason    string    `xml:"StatusReason,omitempty"`
+	ExecutionStatus string    `xml:"ExecutionStatus,omitempty"`
+	CreationTime    time.Time `xml:"CreationTime"`
+	Description     string    `xml:"Description,omitempty"`
 }
 
 // Change represents a single change in a change set.
@@ -313,11 +317,13 @@ type ResourceScan struct {
 
 // TypeSummary holds a brief summary of a CloudFormation type.
 type TypeSummary struct {
-	TypeName    string `xml:"TypeName,omitempty"`
-	TypeArn     string `xml:"TypeArn,omitempty"`
-	Type        string `xml:"Type,omitempty"`
-	Visibility  string `xml:"Visibility,omitempty"`
-	Description string `xml:"Description,omitempty"`
+	TypeName         string `xml:"TypeName,omitempty"`
+	TypeArn          string `xml:"TypeArn,omitempty"`
+	Type             string `xml:"Type,omitempty"`
+	Visibility       string `xml:"Visibility,omitempty"`
+	Description      string `xml:"Description,omitempty"`
+	DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+	IsActivated      bool   `xml:"IsActivated,omitempty"`
 }
 
 // StackSetOperation represents a StackSet operation (create/update/delete instances, etc.).
