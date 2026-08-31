@@ -534,3 +534,48 @@ in this service was modified this pass.
 `Channel`/`OriginEndpoint`/`HarvestJob` (already done exhaustively
 2026-08-20, unchanged since); the opaque `HlsPackage`/`DashPackage`/
 `CmafPackage` passthrough (unchanged, already disclosed in `deferred`).
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service mediapackage` reported no rows for every class, and
+`git log --oneline -- services/mediapackage/` shows no prior pass targeting
+this specific class (wrong algorithm applied to a correctly-read field, as
+opposed to the wire-shape axis this file otherwise tracks). Checked every
+List/Describe filter field this service declares against its own doc
+comment in `aws-sdk-go-v2/service/mediapackage@v1.42.4`:
+
+- `ListHarvestJobs.IncludeChannelId`/`.IncludeStatus`: plain equality,
+  matches "When specified, the request will return only ... associated
+  with/in the given ...". Both correctly skip the comparison when the
+  filter is empty (absence means no filter, not the AWS doc stating any
+  other default). `harvest_jobs.go:116-122`.
+- `ListOriginEndpoints.ChannelId`: same shape, `origin_endpoints.go:246-250`.
+- Neither service has an operator grammar, wildcard, negation, case-
+  insensitivity, or range/bound filter documented anywhere in its pinned
+  SDK -- `grep -in "wildcard|case.sensitiv|regex|negat|prefix|substring"`
+  over every `api_op_List*.go`/`api_op_Describe*.go` found nothing. No
+  `MaxResults` doc comment on any of the 3 paginated List ops states a
+  specific default number, so the narrowing/widening-default sub-shape
+  that hit shield/ecs/kms has no surface here either -- the internal
+  `defaultMaxResults` cap contradicts nothing documented.
+- `IncludeStatus`'s stored field (`storedHarvestJob.Status`) is the same
+  `Status` enum family used elsewhere in this file's wire audit
+  (`IN_PROGRESS`/`SUCCEEDED`/`FAILED`) -- re-confirmed, not assumed.
+
+Zero bugs found; this is a genuine clean result on this axis; the service
+is structurally too small (2 filter parameters total across 3 List ops) to
+carry most of this class's known sub-shapes.
+
+One test-quality gap found and fixed: `TestHarvestJob_List`'s "filter by
+channel" case only ever seeded one channel, so it could not distinguish
+"filtered correctly" from "filter ignored, matched everything" -- the
+exact weakness this bd issue warns about. Added a second channel with its
+own harvest job; the channel-filtered case now asserts the count (3, not
+just non-empty) and that the other channel's job is absent. Proved the new
+assertion can fail: temporarily changed `harvest_jobs.go`'s
+`includeChannelID != ""` guard to `false`, watched
+`TestHarvestJob_List/filter_by_channel_returns_subset,_excludes_other_channel`
+fail with the other channel's job leaking through, then restored the file
+byte-identical (`diff` empty, `git status --short` clean before/after).
+`list all jobs returns all` updated from 3 to 4 to account for the new
+seed job; assertion count otherwise unchanged. No production code changed.

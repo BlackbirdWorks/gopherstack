@@ -244,3 +244,33 @@ untrue in every case, since no such commit was ever seen by anything. That cross
   value source) via `errInvalidRequest` before storage, stricter than the
   real SDK's nil-only client-side check. services/_REQUIRED_OUTPUT_CANDIDATES.md
   updated.
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service codestarconnections` reported no rows for every class.
+This axis checks whether a correctly-read filter is applied with the RIGHT
+algorithm, distinct from the wire-shape entries above. Read every
+List/Describe filter field against `aws-sdk-go-v2/service/
+codestarconnections@v1.38.4`'s own doc comments and, since this service and
+`codeconnections` are the same API renamed, against its twin's
+implementation of the identical field:
+
+- `ListConnections.ProviderTypeFilter`/`.HostArnFilter`: plain equality,
+  matches "Filters the list of connections to those associated with...".
+  `connections.go:111,115`. IDENTICAL to `codeconnections`' implementation
+  (`connections.go:114,118` there) -- confirmed consistent twin, not just
+  assumed from the shared history.
+- `ListRepositorySyncDefinitions.SyncType`/`ListSyncConfigurations.SyncType`:
+  both required fields, equality-compared defensively
+  (`sync_configurations.go:192,229`); IDENTICAL logic in `codeconnections`.
+  `RepositoryLinkId` is equality-matched first in both.
+- `ListHosts`/`ListRepositoryLinks`: no filter fields on the real input at
+  all (SDK confirmed), pagination-only.
+
+No `MaxResults` doc comment on any List op in this service states a
+specific default number, so the narrowing/widening-default sub-shape has no
+surface. No operator grammar, wildcard, negation, or case-sensitivity
+language exists anywhere in this service's pinned SDK. Zero bugs found; see
+`services/codeconnections/PARITY.md`'s same-dated entry for the twin
+verdict. No files changed here (test strengthening landed in
+`services/mediapackage/` instead, unrelated to this service).

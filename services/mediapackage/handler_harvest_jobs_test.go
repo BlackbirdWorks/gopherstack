@@ -240,11 +240,11 @@ func TestHarvestJob_List(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				jobs := resp["harvestJobs"].([]any)
-				assert.Len(t, jobs, 3)
+				assert.Len(t, jobs, 4)
 			},
 		},
 		{
-			name:       "filter by channel returns subset",
+			name:       "filter by channel returns subset, excludes other channel",
 			wantCode:   http.StatusOK,
 			queryParam: "includeChannelId=test-channel",
 			check: func(t *testing.T, body []byte) {
@@ -253,10 +253,11 @@ func TestHarvestJob_List(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				jobs := resp["harvestJobs"].([]any)
-				assert.NotEmpty(t, jobs)
+				assert.Len(t, jobs, 3)
 				for _, j := range jobs {
 					jm := j.(map[string]any)
 					assert.Equal(t, "test-channel", jm["channelId"])
+					assert.NotEqual(t, "job-other-channel", jm["id"])
 				}
 			},
 		},
@@ -270,7 +271,7 @@ func TestHarvestJob_List(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				jobs := resp["harvestJobs"].([]any)
-				assert.Len(t, jobs, 3)
+				assert.Len(t, jobs, 4)
 				for _, j := range jobs {
 					jm := j.(map[string]any)
 					assert.Equal(t, "IN_PROGRESS", jm["status"])
@@ -300,6 +301,21 @@ func TestHarvestJob_List(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rec.Code)
 			}
+
+			otherChRec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{
+				"id": "other-channel",
+			})
+			require.Equal(t, http.StatusCreated, otherChRec.Code)
+
+			otherEPID := createTestOriginEndpointForHarvest(t, h, "other-channel", "ep-other-channel")
+			otherJobRec := doRequest(t, h, http.MethodPost, "/harvest_jobs", map[string]any{
+				"id":               "job-other-channel",
+				"originEndpointId": otherEPID,
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-01T01:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "manifestKey": "m", "roleArn": "r"},
+			})
+			require.Equal(t, http.StatusCreated, otherJobRec.Code)
 
 			path := "/harvest_jobs"
 			if tc.queryParam != "" {

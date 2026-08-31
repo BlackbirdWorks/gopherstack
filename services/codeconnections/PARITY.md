@@ -281,3 +281,34 @@ non-empty inside `handleCreateHost`/`handleCreateConnection` themselves
 fields. This is a defensive-depth style difference, not a wire-parity bug
 (the backend validation already returns the correct error), so it was not
 changed.
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service codeconnections` reported no rows for every class. Same
+axis and same fields as `services/codestarconnections/PARITY.md`'s
+same-dated entry -- read here first, then re-derived independently from
+this service's OWN pinned SDK
+(`aws-sdk-go-v2/service/codeconnections@v1.13.4`) rather than assumed from
+its twin, per this campaign's standing rule that a correct neighbour is
+still not evidence:
+
+- `ListConnections.ProviderTypeFilter`/`.HostArnFilter`: plain equality
+  (`connections.go:114,118`), matches doc, IDENTICAL to
+  `codestarconnections`. `TestListConnectionsProviderTypeFilter` already
+  covers this with 3 seeded connections across 2 provider types and a
+  zero-match case (`connections_validation_test.go:592-628`) -- adequate,
+  not a single-record test that could hide a wrong algorithm.
+- `ListRepositorySyncDefinitions.SyncType`/`ListSyncConfigurations.SyncType`:
+  equality-compared (`repository_sync.go:121`, `sync_configurations.go:163`),
+  IDENTICAL logic to `codestarconnections`.
+- `ListHosts`/`ListRepositoryLinks`: no filter fields, pagination-only;
+  `handleListRepositoryLinks`'s inline pointer-unwrap-then-`page.New` here
+  (`handler_repository_links.go:141-151`) is a decode-style difference from
+  `codestarconnections`' direct-value-type call, not a behavior difference
+  -- both hit `page.New`'s `limit <= 0 -> defaultLimit` fallback identically
+  when `MaxResults` is absent.
+
+Same negative conclusion as the twin: no `MaxResults` doc states a specific
+default number anywhere in this service, no operator grammar/wildcard/
+negation/case-sensitivity language exists. Zero bugs found. No files
+changed.

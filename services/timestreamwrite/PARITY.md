@@ -297,3 +297,30 @@ Ops NOT specifically re-audited this pass beyond the two directions above
 ResourceNotFoundException gap is unchanged), `ListBatchLoadTasks`/
 `ResumeBatchLoadTask`, and `DescribeEndpoints` (beyond re-confirming the
 documented hardcoded-Address gap is unchanged and still inert).
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service timestreamwrite` reported no rows for every class. This
+pass targets a different axis than the entries above: not "is the field
+read" (already swept) but "does the code that reads it do the right thing
+with it". Only two List ops carry any filter surface at all
+(`aws-sdk-go-v2/service/timestreamwrite@v1.38.4`):
+
+- `ListBatchLoadTasks.TaskStatus`: plain equality against
+  `types.BatchLoadStatus`, no wildcard/negation/case language documented.
+  `batch_load_tasks.go:90` compares `task.TaskStatus != statusFilter`
+  correctly, and the six status constants
+  (`batch_load_tasks.go:10-21`) match the SDK's `BatchLoadStatus` enum
+  values verbatim.
+- `ListTables.DatabaseName`: already handled deliberately
+  (gopherstack-4ly2, cited in `handler_tables.go:269-271`) -- omitting it
+  lists every table across every database, which is the real AWS
+  behavior, not a bug in this class.
+
+Neither op's `MaxResults` doc comment states a specific number (checked
+both, plus every other List/Describe in this service), so the
+narrowing/widening-default sub-shape that hit shield/ecs/kms has no
+surface here. No range, date, size, or operator-grammar filter exists
+anywhere in this service's pinned SDK. Zero bugs found; the service is
+structurally too small (2 real filter parameters total) to carry most of
+this class's known sub-shapes. No files changed.
