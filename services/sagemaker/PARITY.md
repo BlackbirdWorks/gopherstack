@@ -5670,3 +5670,118 @@ have no verified TTL/query-parameter format to encode them into, per the
 comments already in `handler_presigned_session.go`, `handler_mlflow.go`,
 and `handler_notebook_instances.go`), unrelated to and unmoved by this
 defect. No new bugs found; no code changed.
+
+## PARITY-gap targeting: 18 ops never named in this file (2026-08-31, gopherstack-6flj/21my)
+
+Queue computed by diffing every List/Describe/Get op in the pinned SDK
+(sagemaker@v1.263.2, 172 such ops) against literal-word occurrence in this
+file. 18 never appear by name (the base resource area was often audited
+under a sibling op, but not this exact name): `DescribeDataQualityJobDefinition`,
+`DescribeFlowDefinition`, `DescribeHumanTaskUi`, `DescribeInferenceExperiment`,
+`DescribeModelBiasJobDefinition`, `DescribeModelCard`,
+`DescribeModelExplainabilityJobDefinition`, `DescribeModelQualityJobDefinition`,
+`DescribeOptimizationJob`, `DescribePartnerApp`, `DescribeReservedCapacity`,
+`DescribeTrialComponent`, `ListEdgePackagingJobs`,
+`ListInferenceRecommendationsJobs`, `ListLabelingJobsForWorkteam`,
+`ListModelCardExportJobs`, `ListModelCardVersions`, `ListWorkforces`. All 18
+covered this pass. Protocol confirmed from the deserializer directly:
+awsAwsjson11 (JSON RPC 1.1, case-sensitive) throughout.
+
+TWO SIBLING-SHAPE BUGS FOUND AND FIXED, both the Get-right/List-wrong
+pattern (highest-yield heuristic in this campaign):
+
+1. `ListEdgePackagingJobs`'s per-item summary omitted `CompilationJobName`
+   entirely (`types.EdgePackagingJobSummary.CompilationJobName`,
+   optional but backend-tracked) even though `DescribeEdgePackagingJob`
+   already surfaces the same backend field. Wrapper key
+   `EdgePackagingJobSummaries` was already correct. Fixed:
+   `edgePackagingJobSummary` struct and the summary-building loop in
+   `handler_edge_packaging_jobs.go:161-169,205-216`.
+
+2. `ListInferenceRecommendationsJobs`'s per-item summary omitted
+   `JobDescription` and `RoleArn` -- both members `types.InferenceRecommendationsJob`
+   marks REQUIRED -- even though `DescribeInferenceRecommendationsJob`
+   already surfaces both from the same backend fields. Wrapper key
+   `InferenceRecommendationsJobs` was already correct. Fixed:
+   `inferenceRecommendationsJobSummary` struct and the summary-building
+   loop in `handler_inference_recommendations_jobs.go:125-132,176-186`.
+
+Both fixed under a real-client test added first (confirmed failing against
+unmodified code with the field decoding empty), then confirmed passing:
+`handler_edge_packaging_jobs_realclient_test.go`,
+`handler_inference_recommendations_jobs_realclient_test.go`. Both drive
+the real `aws-sdk-go-v2/service/sagemaker` client (`newTestSageMakerClient`,
+shared from `handler_create_tags_test.go`) and assert on the decoded typed
+response, not a raw body.
+
+SIXTEEN OPS CLEAN, no wrapper-key mismatch, no transposition, no hard
+decode error found in any of them:
+
+- `DescribeDataQualityJobDefinition`/`DescribeModelBiasJobDefinition`/
+  `DescribeModelExplainabilityJobDefinition`/`DescribeModelQualityJobDefinition`:
+  all four share `buildJobDefinitionResponse` (handler_monitoring_job_definitions.go),
+  which stores each type-specific block (AppSpecification/JobInput/JobOutputConfig/
+  BaselineConfig) verbatim from the Create request body and replays it
+  unchanged -- wire-shape-faithful by construction. Their `List*` siblings
+  (already in the "SWEPT" list, all four verified again here) share the
+  generic `MonitoringJobDefinitionSummary` type and wrapper key
+  `JobDefinitionSummaries` correctly.
+- `DescribeFlowDefinition`: wrapper fields and nested `HumanLoopConfig`/
+  `HumanLoopActivationConfig`/`OutputConfig` match `types.FlowDefinition`'s
+  real names via a hand-built `MarshalJSON`. `FailureReason` and
+  `PublicWorkforceTaskPrice` are real optional members not modeled --
+  disclosed, no async failure/pricing state exists to source them.
+- `DescribeHumanTaskUi` (Go-cased `handleDescribeHumanTaskUI`): correct
+  nesting of `UiTemplate.ContentSha256` under `UiTemplate`, epoch-seconds
+  `CreationTime` via `MarshalJSON`. `UiTemplate.Url` already disclosed
+  as unpopulated in an existing comment.
+- `DescribeInferenceExperiment`: `ModelVariants` correctly overrides the
+  persisted `ModelVariantConfigs` json tag to the real wire name
+  `ModelVariants` via a field-shadowing `MarshalJSON` alias; `EndpointMetadata`
+  always built. `CompletionTime` (optional) not modeled -- no completion
+  event distinct from `Status` tracked.
+- `DescribeModelCard`: `CreatedBy`/`LastModifiedBy`/`ModelCardProcessingStatus`
+  (all optional) not modeled -- no user-context or async-processing
+  simulation exists.
+- `DescribeOptimizationJob`: `optimizationJobResponseMap` fields all
+  correct. `FailureReason`/`OptimizationOutput`/`OptimizationStartTime`/
+  `OptimizationEndTime` not modeled -- jobs are created already
+  `COMPLETED` with no state-machine transition, so there is never a
+  distinct start/end/output/failure to report. Disclosed, not fixed
+  (fabricating optimization-output content is a different axis).
+- `DescribePartnerApp`: exhaustively disclosed in its own doc comment
+  (`AvailableUpgrade`/`CurrentVersionEolDate`/`Version`/`Error` all
+  confirmed genuinely unbacked); nothing new found.
+- `DescribeReservedCapacity`: `UltraServerSummary` correctly synthesized
+  via `ultraServerSummary()`, epoch-seconds `StartTime`/`EndTime` via
+  `MarshalJSON`. Already disclosed limitations (single UltraServer per
+  capacity, no unhealthy simulation) hold.
+- `DescribeTrialComponent`: all populated fields verified against
+  `types.TrialComponentParameterValue`'s real `NumberValue`/`StringValue`
+  names. `Metrics`/`Source`/`Sources`/`CreatedBy`/`LastModifiedBy`
+  (all optional) not modeled -- no metric or lineage-source tracking
+  exists on this backend's `TrialComponent`.
+- `ListLabelingJobsForWorkteam`: wrapper key `LabelingJobSummaryList` and
+  every `LabelCountersForWorkteam` sub-field verified against the
+  deserializer's own case list.
+- `ListModelCardExportJobs`/`ListModelCardVersions`: both wrapper keys
+  (`ModelCardExportJobSummaries`/`ModelCardVersionSummaryList`) and every
+  per-item field verified against `types.ModelCardExportJobSummary`/
+  `types.ModelCardVersionSummary`.
+- `ListWorkforces`: wrapper key `Workforces` correct; reuses the same
+  `workforceResponseMap` as `DescribeWorkforce`, so no sibling
+  disagreement. `FailureReason` (optional) not modeled -- no async
+  workforce-creation failure exists on this backend.
+
+Tests: 2 new real-client tests added (`handler_edge_packaging_jobs_realclient_test.go`,
+`handler_inference_recommendations_jobs_realclient_test.go`), 2 items each
+with distinguishable non-zero values, both confirmed failing against
+unmodified code before the fix. No existing test assertions changed or
+dropped. Neither struct touched is persisted (`edgePackagingJobSummary`/
+`inferenceRecommendationsJobSummary` are response-only DTOs built fresh
+per request, not part of `models.go` or the persisted backend state) --
+`TestSnapshotVersionGuard` run anyway as a precaution, unaffected.
+
+Gates: `go build ./services/sagemaker/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/sagemaker/...`, `golangci-lint
+run ./services/sagemaker/...` all clean.

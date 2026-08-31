@@ -1941,3 +1941,47 @@ diffed against HEAD.
 `cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
 `cmd/reqfielddiff`: 234 findings in every one of the 5 old runs and at
 HEAD, op.field key sets identical. ZERO DAMAGE.
+
+## PARITY-gap targeting: GetBlueprint, GetConnection (2026-08-31, gopherstack-6flj/21my)
+
+Queue computed by diffing every List/Describe/Get op in the pinned SDK
+(glue@v1.152.0) against literal-word occurrence in this file: only two
+ops never appear by name (their List/plural siblings do): `GetBlueprint`,
+`GetConnection`. Confirmed protocol from the deserializer directly:
+awsAwsjson11 (JSON RPC 1.1, case-sensitive).
+
+Both CLEAN at the wrapper-key and per-item-field layers.
+
+`GetBlueprint`: wrapper key `Blueprint` matches
+`awsAwsjson11_deserializeOpDocumentGetBlueprintOutput`. All emitted fields
+match `types.Blueprint`'s real names and the epoch-seconds timestamp
+format, except `LastActiveDefinition` -- disclosed, not fixed: this
+backend tracks no blueprint version/error history for
+`CreateBlueprint`/`UpdateBlueprint` to source it from.
+
+`GetConnection`: wrapper key `Connection` matches
+`awsAwsjson11_deserializeOpDocumentGetConnectionOutput`. Two findings,
+both restraint (no fix):
+- `Status`/`StatusReason` (real `types.Connection` members) are not
+  modeled at all -- this backend's `Connection` (models.go) tracks no
+  connection-validation state. Same gap on the shared `GetConnections`
+  list path (same struct), so no sibling disagreement.
+- The model's `ARN string \`json:"Arn,omitempty"\`` field is NOT a member
+  of the real `types.Connection` at all (confirmed against
+  `awsAwsjson11_deserializeDocumentConnection`'s full case list -- no
+  `"Arn"` case exists). Harmless: a real client's decoder silently drops
+  it via the `default` case, so nothing observable changes. Not removed;
+  recorded per this campaign's "element not a member of the real type"
+  shape.
+- `HidePassword` (request field) is decoded nowhere in `handleGetConnection`.
+  Filed as a different axis, not fixed here: honoring it means stripping
+  well-known `PASSWORD`/`ENCRYPTED_PASSWORD` keys out of the freeform
+  `ConnectionProperties` map, a security-filtering feature rather than a
+  wire-shape bug.
+
+No wrapper-key mismatch, no transposition, no hard decode error found in
+either op.
+
+Gates: `go build ./services/glue/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/glue/...`, `golangci-lint run
+./services/glue/...` all clean. No code changed in this service this pass.
