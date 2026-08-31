@@ -755,3 +755,15 @@ Gates: `go build ./...`, `go vet ./...` (repo-wide), `go test -race
 -count=1 ./services/route53resolver/...`, `golangci-lint run
 ./services/route53resolver/...` -- all clean (see session notes for exact
 output).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD (72/72
+dispatch coverage, no unread fields). `cmd/reqfielddiff`: 0 findings in
+every one of the 5 old runs and at HEAD (72 SDK operations resolved, 843
+emulator-declared fields, no undeclared SDK input fields). ZERO DAMAGE.

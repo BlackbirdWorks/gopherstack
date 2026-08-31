@@ -3306,3 +3306,35 @@ unrelated and still needed. Did NOT commit, push, or run any `bd` write
 command -- all changes left in the working tree per this session's
 instructions.
 
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: findings ranged 2115-2126 across the 5 old runs (2099
+at HEAD), with 46 op.field keys moving, all in one direction: present in
+some old (misresolved) run, absent at HEAD. Zero keys appeared at HEAD
+that were absent from every old run, so no evidence of the dangerous
+direction here.
+
+All 46 belong to ops where an exported `*InMemoryBackend` method
+case-folds onto the same name as the real, correctly-registered
+`ops["<Op>"] = h.handle<Op>` dispatch-table entry (the acronym-casing
+mechanism from gopherstack-id70's parent finding: `NetworkAcl`/`NetworkACL`,
+`IdFormat`/`IDFormat`, `VpcClassicLinkDnsSupport`/`VpcClassicLinkDNSSupport`,
+`InstanceSqlHa`/`InstanceSQLHa`, `PrivateDnsNameOptions`/`PrivateDNSNameOptions`,
+`PublicIpDnsNameOptions`/`PublicIPDNSNameOptions`, `EbsDefaultKmsKeyId`/
+`EbsDefaultKmsKeyID`, `VpcEndpointServicePrivateDnsVerification`/
+`VpcEndpointServicePrivateDNSVerification`). Read every one of the 46
+handler bodies directly (`handler_network_acls.go`, `handler_account_attrs.go`,
+`handler_instance_attrs.go`, `handler_sql_ha.go`, `handler_vpc_config.go`,
+`handler_volumes.go`, `handler_vpc_endpoint_services.go`): every field is
+genuinely read via `vals.Get("<Name>")` or the recognized
+`parseMemberList(vals, ...)`/`parseOptionalInt32(vals, ...)`/
+`parseOptionalBool(vals, ...)` helper shapes. All 46 were the old tool
+falsely reporting a handled field as missing (over-reporting, the safe
+direction). No bugs found; no code changed.

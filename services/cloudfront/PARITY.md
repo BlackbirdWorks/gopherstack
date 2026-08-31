@@ -904,3 +904,19 @@ existing directive, and adding it to two newly-`dupl`-flagged pairs --
 `DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups` -- confirmed these are pre-existing
 "different resource types sharing the same list-XML shape" duplication, not new debt, before
 adding the suppression).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in `ef0eef041`
+(`cmd/reqfieldscan`/`cmd/reqfielddiff` used to break ties among
+case-insensitive handler-name candidates by Go's randomized map iteration
+order, so they could read the wrong function body). Built the unpatched
+tools from `ef0eef041~1` in a worktree, ran both five times against this
+package, and diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical JSON across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 155 findings in every one of the 5 old runs and at
+HEAD, and the op.field key sets are identical, not merely equal in count.
+ZERO DAMAGE -- confirmed by the actual diff, not inferred from collision
+count (not separately re-measured this pass; the prior campaign already
+established collisions don't predict damage).

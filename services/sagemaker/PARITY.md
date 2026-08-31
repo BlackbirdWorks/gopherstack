@@ -5635,3 +5635,38 @@ Gates: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
 `SearchParams`/`nameTimeFilter` signatures changed) also clean; no external
 callers of either type exist outside this package. Work left uncommitted
 per this pass's instructions.
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: findings ranged 102-115 across the 5 old runs (96 at
+HEAD), 26 op.field keys moving, all present in some old run and absent at
+HEAD (over-reporting direction); zero keys at HEAD absent from every old
+run.
+
+The collision is `Url`/`URL` (and `Ui`/`UI`) casing:
+`CreateHumanTaskUi`/`CreateHumanTaskUI`, `DeleteHumanTaskUi`/`DeleteHumanTaskUI`,
+`ListHumanTaskUis`/`ListHumanTaskUIs`, `CreateHubContentPresignedUrls`/
+`CreateHubContentPresignedURLs`, `CreatePresignedDomainUrl`/`CreatePresignedDomainURL`,
+`CreatePartnerAppPresignedUrl`/`CreatePartnerAppPresignedURL`,
+`CreatePresignedMlflowAppUrl`/`CreatePresignedMlflowAppURL`,
+`CreatePresignedMlflowTrackingServerUrl`/`CreatePresignedMlflowTrackingServerURL`,
+`CreatePresignedNotebookInstanceUrl`/`CreatePresignedNotebookInstanceURL` each
+have a same-named exported `*InMemoryBackend` method the fallback
+name-reconstruction could land on instead of the real handler. Read all 26
+handler bodies (`handler_human_task_ui.go`, `handler_hub.go`,
+`handler_presigned_session.go`, `handler_partner_apps.go`,
+`handler_mlflow.go`, `handler_notebook_instances.go`): every field is
+genuinely decoded off the JSON body. The `ExpiresInSeconds`/
+`SessionExpirationDurationInSeconds`/`LandingUri` fields on the
+presigned-URL family are declared and decoded but deliberately not applied
+-- a pre-existing, already-documented no-op (this backend's synthetic URLs
+have no verified TTL/query-parameter format to encode them into, per the
+comments already in `handler_presigned_session.go`, `handler_mlflow.go`,
+and `handler_notebook_instances.go`), unrelated to and unmoved by this
+defect. No new bugs found; no code changed.

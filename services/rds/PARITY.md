@@ -840,3 +840,16 @@ Gates: `go build`/`go vet` (rds, docdb, identitystore — clean; repo-wide `go v
 no cross-service callers touched, no signature changes), `go test -race -count=1
 ./services/rds/...` and `./services/docdb/... ./services/identitystore/...` (all pass),
 `golangci-lint run ./services/rds/...` (0 issues, no `--fix` needed).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 580 findings in every one of the 5 old runs and at
+HEAD, op.field key sets identical. ZERO DAMAGE -- notable since rds is
+query-protocol, the shape family carrying most of this campaign's true
+findings elsewhere.

@@ -142,3 +142,42 @@ func TestPutFunctionScalingConfig_MinMaxExecutionEnvironments(t *testing.T) {
 	assert.Equal(t, int32(2), aws.ToInt32(getOut.RequestedFunctionScalingConfig.MinExecutionEnvironments))
 	assert.Equal(t, int32(10), aws.ToInt32(getOut.RequestedFunctionScalingConfig.MaxExecutionEnvironments))
 }
+
+// TestUpdateFunctionUrlConfig_InvokeMode guards gopherstack-id70's re-audit
+// finding: UpdateFunctionUrlConfigInput.InvokeMode (lambda@v1.101.2
+// api_op_UpdateFunctionUrlConfig.go:68) was never declared on this
+// package's UpdateFunctionURLConfigInput struct, so the handler could never
+// read it and the backend method took no parameter to apply it. A function
+// URL created BUFFERED could never be switched to RESPONSE_STREAM.
+func TestUpdateFunctionUrlConfig_InvokeMode(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	client := newWireTestLambdaClient(t, h)
+	ctx := t.Context()
+
+	createFunctionForTest(t, h, "invokemode-wire-fn")
+
+	createOut, err := client.CreateFunctionUrlConfig(ctx, &lambdasdk.CreateFunctionUrlConfigInput{
+		FunctionName: aws.String("invokemode-wire-fn"),
+		AuthType:     lambdatypes.FunctionUrlAuthTypeNone,
+		InvokeMode:   lambdatypes.InvokeModeBuffered,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, lambdatypes.InvokeModeBuffered, createOut.InvokeMode)
+
+	updateOut, err := client.UpdateFunctionUrlConfig(ctx, &lambdasdk.UpdateFunctionUrlConfigInput{
+		FunctionName: aws.String("invokemode-wire-fn"),
+		InvokeMode:   lambdatypes.InvokeModeResponseStream,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, lambdatypes.InvokeModeResponseStream, updateOut.InvokeMode,
+		"UpdateFunctionUrlConfig must apply InvokeMode, not silently drop it")
+
+	getOut, err := client.GetFunctionUrlConfig(ctx, &lambdasdk.GetFunctionUrlConfigInput{
+		FunctionName: aws.String("invokemode-wire-fn"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, lambdatypes.InvokeModeResponseStream, getOut.InvokeMode,
+		"the updated InvokeMode must persist and round-trip on Get")
+}

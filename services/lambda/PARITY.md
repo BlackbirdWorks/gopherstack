@@ -349,3 +349,52 @@ unchanged.
 Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...` and repo-wide
 `go vet ./...` (clean), `go test -race -count=1 ./services/lambda/...` (pass),
 `golangci-lint run ./services/lambda/...` (0 issues).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: findings ranged 234-240 across the 5 old runs (234 at
+HEAD), 6 op.field keys moving: `CreateFunctionUrlConfig`/`UpdateFunctionUrlConfig`
+`.{AuthType,Cors}` and `CreateFunctionUrlConfig.InvokeMode`, all present in
+some old (misresolved) run and absent at HEAD. The collision is
+`FunctionUrlConfig`/`FunctionURLConfig`: `handleCreateFunctionURLConfig`/
+`handleUpdateFunctionURLConfig` (the real handlers) each fold onto a
+same-named exported `*InMemoryBackend` method. Read both handler bodies
+(`handler_function_urls.go:14,160`): `AuthType` and `Cors` are genuinely
+read on both Create and Update; `InvokeMode` is genuinely read on Create.
+Over-reporting, safe direction.
+
+**Real bug found and fixed while reading `handleUpdateFunctionURLConfig`
+to settle the above** (not itself one of the 6 moved keys -- reqfielddiff
+never flagged it, because `UpdateFunctionURLConfigInput` simply had no
+`InvokeMode` field to be undeclared against): `UpdateFunctionUrlConfigInput.InvokeMode`
+(lambda@v1.101.2 `api_op_UpdateFunctionUrlConfig.go:68`) was never declared
+on this package's `UpdateFunctionURLConfigInput` (`models.go`, only had
+`Cors`/`AuthType`), so a function URL created `BUFFERED` could never be
+switched to `RESPONSE_STREAM` (or back) after creation -- `CreateFunctionUrlConfig`
+already supported the field correctly, which is why a spot-check of Create
+alone would have said parity was fine. Fixed: added `InvokeMode` to
+`UpdateFunctionURLConfigInput`, threaded it through
+`handleUpdateFunctionURLConfig` into `(*InMemoryBackend).UpdateFunctionURLConfig`
+(new 4th parameter, applied non-destructively like `AuthType`/`Cors`: only
+overwrites when non-empty), same pattern as the pre-existing `AuthType`/`Cors`
+fields. Single in-package caller of the backend method; no other callers to
+fix.
+
+New test `TestUpdateFunctionUrlConfig_InvokeMode`
+(`wire_field_fixes_test.go`) drives the real `aws-sdk-go-v2/service/lambda`
+client: Create with `InvokeMode: BUFFERED`, Update with
+`InvokeMode: RESPONSE_STREAM`, asserts the SDK-decoded `UpdateFunctionUrlConfigOutput`
+and a follow-up `GetFunctionUrlConfig` both show `RESPONSE_STREAM`.
+Confirmed failing (asserted `BUFFERED`, i.e. the update was dropped)
+against the pre-fix code before applying the fix.
+
+Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...`
+(clean), `go test -race -count=1 ./services/lambda/...` (pass, existing
+suite unweakened, one new test/3 new assertions added),
+`golangci-lint run ./services/lambda/...` (0 issues, no `--fix` used).

@@ -1930,3 +1930,14 @@ Gates: `go build ./services/glue/... ./services/dms/...`, `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/glue/...
 ./services/dms/...` (pass), `golangci-lint run ./services/glue/...
 ./services/dms/...` (0 issues).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 234 findings in every one of the 5 old runs and at
+HEAD, op.field key sets identical. ZERO DAMAGE.

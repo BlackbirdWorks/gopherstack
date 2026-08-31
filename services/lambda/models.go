@@ -858,8 +858,9 @@ func buildCapacityProviderARN(region, accountID, name string) string {
 
 // UpdateFunctionURLConfigInput is the request body for UpdateFunctionUrlConfig.
 type UpdateFunctionURLConfigInput struct {
-	Cors     *FunctionURLCors `json:"Cors,omitempty"`
-	AuthType string           `json:"AuthType,omitempty"`
+	Cors       *FunctionURLCors `json:"Cors,omitempty"`
+	AuthType   string           `json:"AuthType,omitempty"`
+	InvokeMode string           `json:"InvokeMode,omitempty"`
 }
 
 // RuntimeManagementConfig holds the runtime management configuration for a Lambda function.

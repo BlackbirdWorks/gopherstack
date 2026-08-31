@@ -971,3 +971,49 @@ Gates: `go build ./services/s3/...` (clean), `go vet ./services/s3/...`
 `truncateUploads` are all unexported), `go test -race -count=1
 ./services/s3/...` (pass, full package). Work left uncommitted per this
 pass's instructions.
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 738-739 findings across the 5 old runs, 740 at HEAD
+(this service trips the tool's own coverage guard in every run, old and
+new alike -- "only 31/109 (28%) of resolved handlers show ANY declared
+field at all", pre-existing and unrelated to this defect: most s3 handlers
+read `url.Values`/headers directly with no intervening named struct for
+the scan to see, the same structural gap gopherstack-id70's parent issue
+already named as why "s3 did not improve" from the query-form-shape
+recognizer).
+
+One key moved in the direction worth naming: `PutBucketAcl.ACL` is flagged
+at HEAD but in NO old run. Traced it: `PutBucketAcl`/`PutBucketACL` and
+`PutObjectAcl`/`PutObjectACL` both collide between the real handler
+(`bucket_ops_acl_policy.go:29`, `object_ops_acl.go:70`) and a same-named
+exported `*InMemoryBackend` method (`acl_policy_store.go:8,267`). Under
+misresolution, the old tool sometimes landed on the backend method, whose
+body happens to reference an identifier named `acl` (`bucket.ACL = acl`,
+`acl_policy_store.go:19`) -- enough to satisfy the tool's naive read
+check and suppress the finding, even though that is not where the field
+is actually read. The real handler reads the field correctly via
+`r.Header.Get("X-Amz-Acl")` (`bucket_ops_acl_policy.go:42`,
+`object_ops_acl.go:82`) -- genuinely handled -- but `cmd/reqfielddiff` has
+no HTTP-header-read recognizer at all (confirmed: no `Header.Get` handling
+anywhere in `cmd/reqfielddiff/main.go`), so once resolution is fixed and
+correctly lands on the real handler, it flags ACL as a false positive for
+an unrelated reason (the header blind spot, not the collision).
+
+This is exactly the "field reported read because the wrong body happened
+to read it" risk gopherstack-id70 asked to watch for, and it did occur
+here -- but it did not conceal a bug: the field is genuinely applied by
+the real code, just through a mechanism (`r.Header.Get`) this scan cannot
+see, independent of and unimproved by the resolution fix. `PutObjectAcl.ACL`
+shows the same pattern (flickered within the 5 old runs, 2/5, and is
+flagged at HEAD like `PutBucketAcl.ACL`). No bug, no code changed. The
+740 pre-existing findings themselves (identical wire-name-collision misses,
+`omitempty`-swallowed defaults, etc.) are outside this pass's scope --
+`cmd/reqfielddiff`'s own coverage guard already marks that count
+unverified for this package independent of the resolution defect.
