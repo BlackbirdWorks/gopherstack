@@ -540,3 +540,29 @@ invisible unread-request-field flags. Hand-verified each against
 No other findings in this slice; `go build`/`go vet`/`go test -race
 -count=1 ./services/macie2/...`/`golangci-lint run ./services/macie2/...`
 all clean after the fix.
+
+## errcodeaudit fabricated-error-code pass (2026-08-30, bd gopherstack-r3pr)
+
+`cmd/errcodeaudit` flagged 2 confident findings.
+
+- **Real bug, fixed**: `handler.go`'s `RESTRouter.BadRequestBody` (fires
+  only on a request-body *read* failure, e.g. a body over
+  `httputils.MaxRequestBodyBytes`, before any operation is dispatched)
+  wrote `"BadRequestException"`, a code `macie2@v1.54.4`'s SDK models
+  nowhere (its 8 exception types are AccessDenied/Conflict/
+  InternalServer/ResourceNotFound/ServiceQuotaExceeded/Throttling/
+  UnprocessableEntity/Validation) -- a real client's
+  `errors.As(*types.ValidationException)` could never match it. Switched
+  to the existing `errValidation` ("ValidationException") constant already
+  used elsewhere in this package; `types.ValidationException`'s own doc
+  ("an error that occurred due to a syntax error in a request") is the
+  right fit. See `TestCreateAllowList_RealClient_OversizedBody`
+  (`error_codes_fix_test.go`), which drives the real SDK client with an
+  oversized `CreateAllowList` body and confirmed failing pre-fix.
+- **Tool false positive (free-form field, not a wire error code)**:
+  `classification_jobs.go:60`'s `JobLastRunErrorStatus{Code: "NONE"}` is a
+  status field inside a classification-job resource returned by a
+  *successful* `Create`/`Describe`/`List` response, not a wire error
+  envelope -- no `errors.As` ground truth applies. Same class as
+  `glue/jobs.go:471`, `ce/cost_allocation_tags.go:64`,
+  `xray/handler_trace_segments.go:43` (bd gopherstack-r3pr).
