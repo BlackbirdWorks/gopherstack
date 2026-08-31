@@ -192,3 +192,56 @@ func tag(items []string, fieldName, unit string) []any {
 	require.NoError(t, err)
 	assert.Empty(t, findings, "Alpha and Beta declare identical member sets, so reuse is not suspicious")
 }
+
+// TestCheckCrossEnumReuse_SameMethodNameDifferentReceiverNeverFlags proves
+// groupKey must not key on fd.Name.Name alone: (*TypeA).Report and
+// (*TypeB).Report are two unrelated methods that happen to share a name and
+// a value-source variable name ("items", coincidental, not real reuse).
+// Each is internally consistent -- no bug exists inside either method -- so
+// merging their call sites into one cross-function group and comparing them
+// against each other would be a false cross-enum finding.
+func TestCheckCrossEnumReuse_SameMethodNameDifferentReceiverNeverFlags(t *testing.T) {
+	t.Parallel()
+
+	src := `package svc
+
+func (a *TypeA) Report(items []string, unit string) map[string]any {
+	return map[string]any{"a": tag(items, "alpha", unit)}
+}
+
+func (b *TypeB) Report(items []string, unit string) map[string]any {
+	return map[string]any{"b": tag(items, "beta", unit)}
+}
+
+func tag(items []string, fieldName, unit string) []any {
+	out := make([]any, 0, len(items))
+	for _, it := range items {
+		out = append(out, map[string]any{fieldName: it, "unit": unit})
+	}
+
+	return out
+}
+`
+
+	reg := &enumRegistry{
+		membersByType: map[string]map[string]bool{
+			"Alpha": {"X": true, "Y": true},
+			"Beta":  {"P": true, "Q": true},
+		},
+		constByIdent: map[string]enumConst{},
+	}
+	wireKeys := map[string]wireKeyFact{
+		"alpha": {Enums: []string{"Alpha"}},
+		"beta":  {Enums: []string{"Beta"}},
+	}
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o600))
+
+	findings, err := scanPackage(dir, reg, wireKeys, dir)
+	require.NoError(t, err)
+	assert.Empty(
+		t, findings,
+		"(*TypeA).Report and (*TypeB).Report are unrelated methods sharing a name; must not be grouped together",
+	)
+}

@@ -53,7 +53,7 @@ func (b *InMemoryBackend) GetUsageStatistics(detectorID string, q UsageQuery) (m
 
 	full := map[string]any{
 		"sumByAccount":         []any{map[string]any{keyAccountIDField: b.accountID, keyTotal: zeroTotal(q.Unit)}},
-		"sumByDataSource":      usageByFeature(usageDataSourceNames(det), "dataSource", q.Unit),
+		"sumByDataSource":      usageByFeature(usageDataSourceNames(det, q.Features), "dataSource", q.Unit),
 		"sumByFeature":         usageByFeature(features, "feature", q.Unit),
 		"sumByResource":        []any{},
 		"topAccountsByFeature": usageTopAccountsByFeature(b.accountID, features, q.Unit),
@@ -94,39 +94,54 @@ func usageByFeature(features []string, fieldName, unit string) []any {
 	return out
 }
 
-// dataSourceFeatureMap maps a real DetectorFeature name (types.DetectorFeature
+// dataSourceForFeature maps a real DetectorFeature name (types.DetectorFeature
 // enum, see validDetectorFeatureNames) to its corresponding legacy
 // types.DataSource enum value, for the features that have one. Features with
 // no DataSource equivalent (EBS_MALWARE_PROTECTION, RDS_LOGIN_EVENTS,
 // LAMBDA_NETWORK_LOGS, EKS_RUNTIME_MONITORING, RUNTIME_MONITORING,
-// AI_PROTECTION, AI_ANALYST) are deliberately absent: emitting one of those
+// AI_PROTECTION, AI_ANALYST) deliberately return "": emitting one of those
 // names under sumByDataSource's "dataSource" key would invent a DataSource
 // enum value that doesn't exist -- types.DataSource has exactly six members
 // (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS/S3_LOGS/KUBERNETES_AUDIT_LOGS/
 // EC2_MALWARE_SCAN, aws-sdk-go-v2/service/guardduty/types/enums.go), and none
 // of the feature-only names are among them.
-//
-//nolint:gochecknoglobals // static lookup table, not mutable state
-var dataSourceFeatureMap = map[string]string{
-	"S3_DATA_EVENTS": "S3_LOGS",
-	"EKS_AUDIT_LOGS": "KUBERNETES_AUDIT_LOGS",
+func dataSourceForFeature(feature string) string {
+	switch feature {
+	case "S3_DATA_EVENTS":
+		return "S3_LOGS"
+	case "EKS_AUDIT_LOGS":
+		return "KUBERNETES_AUDIT_LOGS"
+	default:
+		return ""
+	}
 }
 
 // usageDataSourceNames returns the real types.DataSource values this backend
-// can honestly report usage for: the three always-on foundational sources
-// (matching freeTrialBaseFeatures' precedent below -- these predate the
-// Features model and are never represented in det.Features), plus any
-// currently-enabled detector feature that maps to a real DataSource value via
-// dataSourceFeatureMap.
-func usageDataSourceNames(det *Detector) []string {
-	names := append([]string{}, freeTrialBaseFeatures...)
+// can honestly report usage for, filtered to requested (if non-empty): the
+// always-on foundational sources (matching freeTrialBaseFeatures' precedent
+// below -- these predate the Features model and are never represented in
+// det.Features, but share their UsageFeature name with their DataSource
+// name), plus any currently-enabled detector feature that maps to a real
+// DataSource value via dataSourceForFeature.
+func usageDataSourceNames(det *Detector, requested []string) []string {
+	var names []string
+
+	for _, base := range freeTrialBaseFeatures {
+		if len(requested) == 0 || slices.Contains(requested, base) {
+			names = append(names, base)
+		}
+	}
 
 	for _, f := range det.Features {
 		if f.Status != statusEnabled {
 			continue
 		}
 
-		if ds, ok := dataSourceFeatureMap[f.Name]; ok {
+		if len(requested) > 0 && !slices.Contains(requested, f.Name) {
+			continue
+		}
+
+		if ds := dataSourceForFeature(f.Name); ds != "" {
 			names = append(names, ds)
 		}
 	}

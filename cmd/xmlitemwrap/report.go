@@ -58,9 +58,9 @@ func printReport(findings []finding) {
 }
 
 func printFinding(f finding) {
-	label := "double-wrap <item><item>...</item></item>"
+	label := fmt.Sprintf("double-wrap <%s><%s>...</%s></%s>", f.Elem, f.Elem, f.Elem, f.Elem)
 	if f.Variant == variantNamedChild {
-		label = fmt.Sprintf("named-child <item><%s>...</%s></item>", f.Elem, f.Elem)
+		label = fmt.Sprintf("named-child <%s>...</%s>", f.Elem, f.Elem)
 	}
 
 	fmt.Fprintf(os.Stdout, "%s:%d  %s  %s\n", f.File, f.Line, f.Path, label)

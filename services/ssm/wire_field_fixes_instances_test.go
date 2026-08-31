@@ -17,7 +17,10 @@ import (
 // types.InstanceAssociation (ssm@v1.73.4, api_op_DescribeEffectiveInstanceAssociations.go's
 // only response element type: AssociationId/AssociationVersion/Content/InstanceId)
 // -- while never emitting InstanceId, even though it is the exact value the
-// backend just filtered by. A real client always saw a nil InstanceId here.
+// backend just filtered by, and never resolving Content at all even though
+// the backend genuinely tracks the association's document body via
+// Association.Name/DocumentVersion. A real client always saw a nil
+// InstanceId and a nil Content here.
 func TestDescribeEffectiveInstanceAssociations_InstanceId_RealClient(t *testing.T) {
 	t.Parallel()
 
@@ -47,6 +50,9 @@ func TestDescribeEffectiveInstanceAssociations_InstanceId_RealClient(t *testing.
 	assert.Equal(t, "i-effective-assoc", aws.ToString(out.Associations[0].InstanceId))
 	require.NotNil(t, out.Associations[0].AssociationVersion)
 	assert.Equal(t, "1", aws.ToString(out.Associations[0].AssociationVersion))
+	require.NotNil(t, out.Associations[0].Content,
+		"InstanceAssociation.Content must resolve from the stored document version; pre-fix it was never emitted")
+	assert.JSONEq(t, `{"schemaVersion":"2.2"}`, aws.ToString(out.Associations[0].Content))
 }
 
 // TestDescribeInstanceAssociationsStatus_Fields_RealClient covers the same

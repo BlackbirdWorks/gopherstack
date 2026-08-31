@@ -395,10 +395,21 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
+// ListRetirableGrantsInput's doc requires exactly one of RetiringPrincipal/
+// RetiringServicePrincipal (kms@v1.55.4 api_op_ListRetirableGrants.go: "You
+// must specify either RetiringPrincipal or RetiringServicePrincipal, but not
+// both.").
 func (b *InMemoryBackend) ListRetirableGrants(
 	ctx context.Context,
 	input *ListRetirableGrantsInput,
 ) (*ListGrantsOutput, error) {
+	if (input.RetiringPrincipal == "") == (input.RetiringServicePrincipal == "") {
+		return nil, fmt.Errorf(
+			"%w: you must specify either RetiringPrincipal or RetiringServicePrincipal, but not both",
+			ErrValidation,
+		)
+	}
+
 	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 

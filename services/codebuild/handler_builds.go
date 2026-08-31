@@ -17,27 +17,27 @@ type startBuildInput struct {
 	ReportBuildStatusOverride        *bool                  `json:"reportBuildStatusOverride,omitempty"`
 	PrivilegedModeOverride           *bool                  `json:"privilegedModeOverride,omitempty"`
 	GitCloneDepthOverride            *int32                 `json:"gitCloneDepthOverride,omitempty"`
-	ProjectName                      string                 `json:"projectName"`
-	BuildspecOverride                string                 `json:"buildspecOverride,omitempty"`
-	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
+	AutoRetryLimitOverride           *int32                 `json:"autoRetryLimitOverride,omitempty"`
+	SourceVersion                    string                 `json:"sourceVersion,omitempty"`
+	EncryptionKeyOverride            string                 `json:"encryptionKeyOverride,omitempty"`
 	ImageOverride                    string                 `json:"imageOverride,omitempty"`
 	ServiceRoleOverride              string                 `json:"serviceRoleOverride,omitempty"`
-	SourceVersion                    string                 `json:"sourceVersion,omitempty"`
+	BuildspecOverride                string                 `json:"buildspecOverride,omitempty"`
 	SourceTypeOverride               string                 `json:"sourceTypeOverride,omitempty"`
 	SourceLocationOverride           string                 `json:"sourceLocationOverride,omitempty"`
 	EnvironmentTypeOverride          string                 `json:"environmentTypeOverride,omitempty"`
 	CertificateOverride              string                 `json:"certificateOverride,omitempty"`
 	ImagePullCredentialsTypeOverride string                 `json:"imagePullCredentialsTypeOverride,omitempty"`
 	HostKernelOverride               string                 `json:"hostKernelOverride,omitempty"`
-	EncryptionKeyOverride            string                 `json:"encryptionKeyOverride,omitempty"`
+	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
 	IdempotencyToken                 string                 `json:"idempotencyToken,omitempty"`
-	EnvironmentVariablesOverride     []EnvironmentVariable  `json:"environmentVariablesOverride,omitempty"`
+	ProjectName                      string                 `json:"projectName"`
 	SecondaryArtifactsOverride       []ProjectArtifacts     `json:"secondaryArtifactsOverride,omitempty"`
 	SecondarySourcesOverride         []ProjectSource        `json:"secondarySourcesOverride,omitempty"`
 	SecondarySourcesVersionOverride  []ProjectSourceVersion `json:"secondarySourcesVersionOverride,omitempty"`
+	EnvironmentVariablesOverride     []EnvironmentVariable  `json:"environmentVariablesOverride,omitempty"`
 	TimeoutInMinutesOverride         int32                  `json:"timeoutInMinutesOverride,omitempty"`
 	QueuedTimeoutInMinutesOverride   int32                  `json:"queuedTimeoutInMinutesOverride,omitempty"`
-	AutoRetryLimitOverride           int32                  `json:"autoRetryLimitOverride,omitempty"`
 	DebugSessionEnabled              bool                   `json:"debugSessionEnabled,omitempty"`
 }
 

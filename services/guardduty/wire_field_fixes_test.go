@@ -265,6 +265,60 @@ func TestGetUsageStatistics_SumByDataSource_RealDataSourceValues(t *testing.T) {
 	assert.False(t, seen[types.DataSource("EKS_AUDIT_LOGS")], "EKS_AUDIT_LOGS is not a real DataSource value")
 }
 
+// TestGetUsageStatistics_SumByDataSource_FiltersByFeatures proves
+// UsageCriteria.Features narrows sumByDataSource, not just sumByFeature.
+// GetUsageStatisticsInput's UsageCriteria doc calls it "the criteria used for
+// querying usage" -- a criteria on the whole query, not just the statistic
+// type currently being aggregated. Before the fix, usageDataSourceNames
+// ignored q.Features entirely, so a detector with both S3_DATA_EVENTS and
+// EKS_AUDIT_LOGS enabled always emitted both S3_LOGS and
+// KUBERNETES_AUDIT_LOGS under sumByDataSource even when the request's
+// UsageCriteria.Features asked for S3_DATA_EVENTS alone.
+func TestGetUsageStatistics_SumByDataSource_FiltersByFeatures(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	h := guardduty.NewHandler(backend)
+	client := newTestGuardDutyClient(t, h)
+
+	det, err := client.CreateDetector(t.Context(), &guarddutysdk.CreateDetectorInput{
+		Enable: aws.Bool(true),
+		Features: []types.DetectorFeatureConfiguration{
+			{Name: types.DetectorFeatureS3DataEvents, Status: types.FeatureStatusEnabled},
+			{Name: types.DetectorFeatureEksAuditLogs, Status: types.FeatureStatusEnabled},
+		},
+	})
+	require.NoError(t, err)
+	detectorID := aws.ToString(det.DetectorId)
+
+	out, err := client.GetUsageStatistics(t.Context(), &guarddutysdk.GetUsageStatisticsInput{
+		DetectorId:         aws.String(detectorID),
+		UsageStatisticType: types.UsageStatisticTypeSumByDataSource,
+		UsageCriteria: &types.UsageCriteria{
+			Features: []types.UsageFeature{types.UsageFeatureS3DataEvents},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.UsageStatistics)
+	require.NotEmpty(t, out.UsageStatistics.SumByDataSource)
+
+	seen := make(map[types.DataSource]bool)
+	for _, entry := range out.UsageStatistics.SumByDataSource {
+		seen[entry.DataSource] = true
+	}
+
+	assert.True(
+		t,
+		seen[types.DataSourceS3Logs],
+		"expected S3_LOGS for the requested S3_DATA_EVENTS feature, got %v",
+		seen,
+	)
+	assert.False(t,
+		seen[types.DataSourceKubernetesAuditLogs],
+		"KUBERNETES_AUDIT_LOGS must be excluded: EKS_AUDIT_LOGS was not in the requested Features, got %v", seen,
+	)
+}
+
 // TestListMalwareProtectionPlans_NoInventedArn proves ListMalwareProtectionPlans
 // only ever emits malwareProtectionPlanId per entry (gopherstack-21my).
 // types.MalwareProtectionPlanSummary (the real ListMalwareProtectionPlansOutput

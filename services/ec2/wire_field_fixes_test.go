@@ -1104,3 +1104,37 @@ func TestModifyInstancePlacement_GroupNameCanBeCleared(t *testing.T) {
 	require.Empty(t, aws.ToString(after.Reservations[0].Instances[0].Placement.GroupName),
 		"explicit empty GroupName on ModifyInstancePlacement must clear it, not be silently ignored")
 }
+
+// TestModifyVerifiedAccessGroup_TagSet_RealClient proves
+// ModifyVerifiedAccessGroup returns the group's tags. Pre-fix, the handler
+// built its response inline instead of via toVerifiedAccessGroupItem (the
+// converter every other VerifiedAccessGroup response uses), so TagSet was
+// always empty in a ModifyVerifiedAccessGroup response even though the
+// group's tags were genuinely tracked in the backend.
+func TestModifyVerifiedAccessGroup_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestEC2Client(t, ec2.NewHandler(backend))
+	ctx := t.Context()
+
+	inst, err := backend.CreateVerifiedAccessInstance("modify-tagset-inst")
+	require.NoError(t, err)
+	grp, err := backend.CreateVerifiedAccessGroup(inst.VerifiedAccessInstanceID, "orig")
+	require.NoError(t, err)
+
+	require.NoError(
+		t,
+		backend.CreateTags([]string{grp.VerifiedAccessGroupID}, map[string]string{"Name": "vagr-modify"}),
+	)
+
+	out, err := client.ModifyVerifiedAccessGroup(ctx, &ec2sdk.ModifyVerifiedAccessGroupInput{
+		VerifiedAccessGroupId: aws.String(grp.VerifiedAccessGroupID),
+		Description:           aws.String("updated"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.VerifiedAccessGroup)
+	require.NotEmpty(t, out.VerifiedAccessGroup.Tags, "Tags empty - pre-fix inline construction dropped TagSet")
+	assert.Equal(t, "Name", aws.ToString(out.VerifiedAccessGroup.Tags[0].Key))
+	assert.Equal(t, "vagr-modify", aws.ToString(out.VerifiedAccessGroup.Tags[0].Value))
+}

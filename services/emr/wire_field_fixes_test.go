@@ -358,41 +358,56 @@ func TestWireShape_StudioSummary_NoFabricatedFields(t *testing.T) {
 func TestWireShape_RunJobFlow_SessionEnabled_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	backend := emr.NewInMemoryBackend(testAccountID, testRegion)
-	h := emr.NewHandler(backend)
-	client := newTestEMRClient(t, h)
-	ctx := t.Context()
+	tests := []struct {
+		sessionEnabled     *bool
+		name               string
+		wantSessionEnabled bool
+		wantStartSessionOK bool
+	}{
+		{
+			name:               "enabled",
+			sessionEnabled:     awssdk.Bool(true),
+			wantSessionEnabled: true,
+			wantStartSessionOK: true,
+		},
+		{
+			name:               "disabled",
+			sessionEnabled:     nil,
+			wantSessionEnabled: false,
+			wantStartSessionOK: false,
+		},
+	}
 
-	enabledOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
-		Name:           awssdk.String("session-enabled-cluster"),
-		Instances:      &emrtypes.JobFlowInstancesConfig{},
-		SessionEnabled: awssdk.Bool(true),
-	})
-	require.NoError(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	descOut, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: enabledOut.JobFlowId})
-	require.NoError(t, err)
-	require.NotNil(t, descOut.Cluster)
-	assert.True(t, awssdk.ToBool(descOut.Cluster.SessionEnabled),
-		"Cluster.SessionEnabled must round-trip true when RunJobFlowInput.SessionEnabled was true")
+			backend := emr.NewInMemoryBackend(testAccountID, testRegion)
+			h := emr.NewHandler(backend)
+			client := newTestEMRClient(t, h)
+			ctx := t.Context()
 
-	_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: enabledOut.JobFlowId})
-	require.NoError(t, err, "StartSession must succeed on a cluster launched with SessionEnabled=true")
+			runOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+				Name:           awssdk.String("session-" + tc.name + "-cluster"),
+				Instances:      &emrtypes.JobFlowInstancesConfig{},
+				SessionEnabled: tc.sessionEnabled,
+			})
+			require.NoError(t, err)
 
-	disabledOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
-		Name:      awssdk.String("session-disabled-cluster"),
-		Instances: &emrtypes.JobFlowInstancesConfig{},
-	})
-	require.NoError(t, err)
+			descOut, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: runOut.JobFlowId})
+			require.NoError(t, err)
+			require.NotNil(t, descOut.Cluster)
+			assert.Equal(t, tc.wantSessionEnabled, awssdk.ToBool(descOut.Cluster.SessionEnabled),
+				"Cluster.SessionEnabled must round-trip RunJobFlowInput.SessionEnabled, never fabricated")
 
-	descOut2, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: disabledOut.JobFlowId})
-	require.NoError(t, err)
-	require.NotNil(t, descOut2.Cluster)
-	assert.False(t, awssdk.ToBool(descOut2.Cluster.SessionEnabled),
-		"Cluster.SessionEnabled must be false, not fabricated true, when never requested")
-
-	_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: disabledOut.JobFlowId})
-	assert.Error(t, err, "StartSession must reject a cluster launched without SessionEnabled=true")
+			_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: runOut.JobFlowId})
+			if tc.wantStartSessionOK {
+				assert.NoError(t, err, "StartSession must succeed on a cluster launched with SessionEnabled=true")
+			} else {
+				assert.Error(t, err, "StartSession must reject a cluster launched without SessionEnabled=true")
+			}
+		})
+	}
 }
 
 // TestWireShape_DescribePersistentAppUI_RealShape proves

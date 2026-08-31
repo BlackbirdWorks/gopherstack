@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	pipessdk "github.com/aws/aws-sdk-go-v2/service/pipes"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/pipes"
@@ -48,7 +49,7 @@ func TestUpdatePipe_KmsKeyIdentifierCanBeCleared(t *testing.T) {
 
 	after, err := client.DescribePipe(ctx, &pipessdk.DescribePipeInput{Name: aws.String("kms-clear-pipe")})
 	require.NoError(t, err)
-	require.Empty(t, aws.ToString(after.KmsKeyIdentifier),
+	assert.Empty(t, aws.ToString(after.KmsKeyIdentifier),
 		"explicit empty KmsKeyIdentifier on UpdatePipe must revert to the default key, not be silently ignored")
 }
 

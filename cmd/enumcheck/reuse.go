@@ -3,6 +3,7 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"strconv"
 )
 
 // dynamicKeyHelper describes a package-level function whose body builds a
@@ -281,7 +282,12 @@ func resolveHelperCallSite(
 	}
 
 	valueText := exprText(fset, call.Args[h.valParamIdx])
-	groupKey := fd.Name.Name + "\x00" + valueText
+	// fd.Name.Name alone is not a unique function identity: methods with
+	// the same name on different receiver types (or two package-level
+	// funcs sharing a name across files, which Go otherwise forbids only
+	// within one package -- but this still guards same-named methods) must
+	// not be merged into one reuse group. fd.Pos() disambiguates.
+	groupKey := fd.Name.Name + "\x00" + strconv.Itoa(int(fd.Pos())) + "\x00" + valueText
 
 	return helperCallSite{
 		key:   key,

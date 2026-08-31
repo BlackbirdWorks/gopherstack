@@ -37,7 +37,7 @@ func (h *Handler) handleCreateResourceConfiguration(c *echo.Context, body map[st
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, resourceConfigurationToJSON(rc))
+	return c.JSON(http.StatusCreated, createResourceConfigurationToJSON(rc))
 }
 
 func (h *Handler) handleGetResourceConfiguration(c *echo.Context, id string) error {
@@ -70,7 +70,7 @@ func (h *Handler) handleUpdateResourceConfiguration(c *echo.Context, id string, 
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, resourceConfigurationToJSON(rc))
+	return c.JSON(http.StatusOK, updateResourceConfigurationToJSON(rc))
 }
 
 func (h *Handler) handleDeleteResourceConfiguration(c *echo.Context, id string) error {
@@ -141,7 +141,12 @@ func resourceConfigurationSummaryToJSON(rc *ResourceConfigurationSummary) map[st
 
 // ------- ResourceConfiguration JSON serialization -------
 
-func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
+// resourceConfigurationCoreFields returns the field set every
+// Create/Get/UpdateResourceConfigurationOutput shares (vpclattice@v1.25.5
+// api_op_{Create,Get,Update}ResourceConfiguration.go): identity, type,
+// status, protocol, port ranges, the shareable-association flag, the
+// resource gateway/group parent IDs, and the resource definition union.
+func resourceConfigurationCoreFields(rc *ResourceConfiguration) map[string]any {
 	m := map[string]any{
 		keyARN:       rc.ARN,
 		"id":         rc.ID,
@@ -151,9 +156,6 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 		keyProtocol:  rc.Protocol,
 		"portRanges": rc.PortRanges,
 		"allowAssociationToShareableServiceNetwork": rc.AllowShareableAssoc,
-		"amazonManaged":  rc.AmazonManaged,
-		keyCreatedAt:     rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if rc.ResourceGatewayID != "" {
@@ -164,6 +166,18 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 		m["resourceConfigurationGroupId"] = rc.ResourceConfigurationGroupID
 	}
 
+	if def := resourceConfigurationDefinitionToJSON(rc.Definition); def != nil {
+		m["resourceConfigurationDefinition"] = def
+	}
+
+	return m
+}
+
+// resourceConfigurationDomainFields adds the domain-related fields shared by
+// Create and Get (but not Update, which has none of them at all):
+// customDomainName, groupDomain, domainVerificationId/Arn/Status, and
+// failureReason.
+func resourceConfigurationDomainFields(m map[string]any, rc *ResourceConfiguration) {
 	if rc.CustomDomainName != "" {
 		m["customDomainName"] = rc.CustomDomainName
 	}
@@ -180,19 +194,48 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 		m["domainVerificationArn"] = rc.DomainVerificationARN
 	}
 
+	if rc.FailureReason != "" {
+		m["failureReason"] = rc.FailureReason
+	}
+}
+
+// resourceConfigurationToJSON builds GetResourceConfigurationOutput's exact
+// wire shape -- the only one of the three operations whose real SDK output
+// carries AmazonManaged, DomainVerificationStatus, and LastUpdatedAt.
+func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
+	m := resourceConfigurationCoreFields(rc)
+	m["amazonManaged"] = rc.AmazonManaged
+	m[keyCreatedAt] = rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+	m[keyLastUpdatedAt] = rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+
+	resourceConfigurationDomainFields(m, rc)
+
 	if rc.DomainVerificationStatus != "" {
 		m["domainVerificationStatus"] = rc.DomainVerificationStatus
 	}
 
-	if rc.FailureReason != "" {
-		m["failureReason"] = rc.FailureReason
-	}
+	return m
+}
 
-	if def := resourceConfigurationDefinitionToJSON(rc.Definition); def != nil {
-		m["resourceConfigurationDefinition"] = def
-	}
+// createResourceConfigurationToJSON builds CreateResourceConfigurationOutput's
+// exact wire shape: unlike Get, its pinned SDK struct
+// (api_op_CreateResourceConfiguration.go) has no AmazonManaged,
+// DomainVerificationStatus, or LastUpdatedAt member at all.
+func createResourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
+	m := resourceConfigurationCoreFields(rc)
+	m[keyCreatedAt] = rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+
+	resourceConfigurationDomainFields(m, rc)
 
 	return m
+}
+
+// updateResourceConfigurationToJSON builds UpdateResourceConfigurationOutput's
+// exact wire shape: its pinned SDK struct (api_op_UpdateResourceConfiguration.go)
+// carries only the core fields -- no timestamps, no domain-verification
+// fields, no AmazonManaged, no FailureReason.
+func updateResourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
+	return resourceConfigurationCoreFields(rc)
 }
 
 // extractResourceConfigurationDefinition parses the

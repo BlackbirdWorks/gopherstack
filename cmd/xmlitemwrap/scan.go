@@ -293,13 +293,14 @@ func examineListField(
 	if len(members) != 1 {
 		return
 	}
-	// xml:",chardata" captures the element's own text directly (no child
-	// element at all) -- the correct, already-decode-safe way to wrap a
-	// plain scalar in a struct, structurally equivalent to using the scalar
-	// slice directly. Confirmed live: autoscaling/elb/elbv2/neptune/rds/ses
-	// all use exactly this (xmlStringValue{Value string `xml:",chardata"`})
-	// for their classic-Query <member>value</member> string lists.
-	if isChardataTag(members[0].tag) {
+	// xml:",chardata"/",cdata"/",innerxml" all capture the element's own
+	// text or raw XML directly (no child element at all) -- the correct,
+	// already-decode-safe way to wrap a plain scalar in a struct,
+	// structurally equivalent to using the scalar slice directly.
+	// Confirmed live: autoscaling/elb/elbv2/neptune/rds/ses all use exactly
+	// this (xmlStringValue{Value string `xml:",chardata"`}) for their
+	// classic-Query <member>value</member> string lists.
+	if isTextCaptureTag(members[0].tag) {
 		return
 	}
 
@@ -358,8 +359,10 @@ func isAttrTag(xmlVal string) bool {
 	return slices.Contains(strings.Split(xmlVal, ",")[1:], "attr")
 }
 
-func isChardataTag(xmlVal string) bool {
-	return slices.Contains(strings.Split(xmlVal, ",")[1:], "chardata")
+func isTextCaptureTag(xmlVal string) bool {
+	opts := strings.Split(xmlVal, ",")[1:]
+
+	return slices.Contains(opts, "chardata") || slices.Contains(opts, "cdata") || slices.Contains(opts, "innerxml")
 }
 
 // resolveElemStruct resolves a slice element type expression to its struct

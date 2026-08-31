@@ -273,12 +273,12 @@ type DescribeEffectiveInstanceAssociationsOutputFull struct {
 // AssociationVersion, Content and InstanceId. Name and DocumentVersion are
 // not real members of this type -- they were previously emitted here in
 // error, and InstanceId (always known: it's the input filter key) was
-// silently dropped instead. Content (the association document's own body)
-// is not modeled -- deriving it needs a documentsStore lookup by
-// Name+DocumentVersion this backend does not thread through here yet.
+// silently dropped instead. Content is resolved from the stored document
+// version via Association.Name/DocumentVersion.
 type InstanceAssociationInfo struct {
 	AssociationID      string `json:"AssociationId"`
 	AssociationVersion string `json:"AssociationVersion"`
+	Content            string `json:"Content,omitempty"`
 	InstanceID         string `json:"InstanceId"`
 }
 

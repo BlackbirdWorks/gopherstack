@@ -1,7 +1,6 @@
 package transfer_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -28,9 +27,9 @@ import (
 func TestListServers_LoggingRole_RealClient(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	client := newTestTransferClient(t, transfer.NewHandler(backend))
 	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
 
 	created, err := client.CreateServer(ctx, &transfersdk.CreateServerInput{
 		LoggingRole: aws.String("arn:aws:iam::123456789012:role/transfer-logging-role"),
@@ -108,9 +107,9 @@ func TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient(t *testing.T) {
 func TestSendWorkflowStepState_CustomStepStatus_RealClient(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	client := newTestTransferClient(t, transfer.NewHandler(backend))
 	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
 
 	// CreateExecution has no public SDK operation (real executions are
 	// triggered by file uploads); seed one directly against the backend, as
@@ -147,9 +146,9 @@ func TestSendWorkflowStepState_CustomStepStatus_RealClient(t *testing.T) {
 func TestDescribeWebAppCustomization_Arn_RealClient(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	client := newTestTransferClient(t, transfer.NewHandler(backend))
 	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
 
 	created, err := client.CreateWebApp(ctx, &transfersdk.CreateWebAppInput{
 		IdentityProviderDetails: &transfertypes.WebAppIdentityProviderDetailsMemberIdentityCenterConfig{
@@ -182,9 +181,9 @@ func TestDescribeWebAppCustomization_Arn_RealClient(t *testing.T) {
 func TestUpdateWebAppCustomization_WebAppId_RealClient(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	client := newTestTransferClient(t, transfer.NewHandler(backend))
 	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
 
 	created, err := client.CreateWebApp(ctx, &transfersdk.CreateWebAppInput{
 		IdentityProviderDetails: &transfertypes.WebAppIdentityProviderDetailsMemberIdentityCenterConfig{
@@ -216,7 +215,7 @@ func TestUpdateWebAppCustomization_WebAppId_RealClient(t *testing.T) {
 func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
+	backend := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	h := transfer.NewHandler(backend)
 
 	wf, err := backend.CreateWorkflow("wfx-no-fab", nil, nil, nil)
@@ -233,6 +232,7 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 	}
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	require.Len(t, listResp.Executions, 1, "must exercise a non-empty collection")
+	require.Contains(t, listResp.Executions[0], "ExecutionId")
 
 	_, listHasWorkflowID := listResp.Executions[0]["WorkflowId"]
 	assert.False(t, listHasWorkflowID,
@@ -248,6 +248,7 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 		Execution map[string]any `json:"Execution"`
 	}
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.Contains(t, descResp.Execution, "ExecutionId")
 
 	_, descHasWorkflowID := descResp.Execution["WorkflowId"]
 	assert.False(t, descHasWorkflowID,
@@ -266,9 +267,9 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 func TestListCertificates_Usage_RealClient(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	client := newTestTransferClient(t, transfer.NewHandler(backend))
 	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
 
 	imported, err := client.ImportCertificate(ctx, &transfersdk.ImportCertificateInput{
 		Certificate: aws.String(testCertPEM),

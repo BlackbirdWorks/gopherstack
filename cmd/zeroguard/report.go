@@ -11,12 +11,21 @@ func writeJSON(path string, findings []finding) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 
-	return enc.Encode(findings)
+	if encErr := enc.Encode(findings); encErr != nil {
+		_ = f.Close()
+
+		return encErr
+	}
+
+	if closeErr := f.Close(); closeErr != nil {
+		return fmt.Errorf("close %s: %w", path, closeErr)
+	}
+
+	return nil
 }
 
 func printReport(findings []finding) {

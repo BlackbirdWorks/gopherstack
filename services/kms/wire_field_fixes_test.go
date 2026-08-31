@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -135,4 +136,59 @@ func TestListRetirableGrants_RetiringServicePrincipal_RealClient(t *testing.T) {
 			"the matching grant, not every grant with an empty RetiringPrincipal",
 	)
 	assert.Equal(t, retiringService, aws.ToString(retirable.Grants[0].RetiringServicePrincipal))
+}
+
+// TestListRetirableGrants_PrincipalCardinality_RealClient covers the same
+// doc constraint from the other side: ListRetirableGrantsInput's doc
+// requires exactly one of RetiringPrincipal/RetiringServicePrincipal ("You
+// must specify either ... but not both"), but the backend never checked
+// cardinality at all -- neither field set matched every grant with an empty
+// RetiringPrincipal/RetiringServicePrincipal (the same decoy shape the
+// sibling test above guards), and both fields set silently matched on
+// whichever one happened to line up.
+func TestListRetirableGrants_PrincipalCardinality_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestKMSClient(t, newTestKMSHandler())
+	ctx := t.Context()
+
+	created, err := client.CreateKey(ctx, &kmssdk.CreateKeyInput{})
+	require.NoError(t, err)
+
+	_, err = client.CreateGrant(ctx, &kmssdk.CreateGrantInput{
+		KeyId:            created.KeyMetadata.KeyId,
+		GranteePrincipal: aws.String("arn:aws:iam::123456789012:role/decoy-grantee"),
+		Operations:       []kmstypes.GrantOperation{kmstypes.GrantOperationDecrypt},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		input *kmssdk.ListRetirableGrantsInput
+		name  string
+	}{
+		{
+			name:  "neither field set",
+			input: &kmssdk.ListRetirableGrantsInput{},
+		},
+		{
+			name: "both fields set",
+			input: &kmssdk.ListRetirableGrantsInput{
+				RetiringPrincipal:        aws.String("arn:aws:iam::123456789012:role/a"),
+				RetiringServicePrincipal: aws.String("cloudtrail.amazonaws.com"),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, listErr := client.ListRetirableGrants(ctx, tc.input)
+			require.Error(t, listErr)
+
+			var apiErr smithy.APIError
+			require.ErrorAs(t, listErr, &apiErr, "SDK must surface a typed API error, not an opaque one")
+			assert.Equal(t, "ValidationException", apiErr.ErrorCode())
+		})
+	}
 }

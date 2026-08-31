@@ -321,6 +321,49 @@ func TestStartBuild_SourceVersionOverride_RealClient(t *testing.T) {
 	assert.Equal(t, "refs/heads/feature-branch", aws.ToString(got.Builds[0].SourceVersion))
 }
 
+// TestStartBuild_InheritsProjectSourceVersion_RealClient covers a bug where
+// StartBuild always wrote cfg.SourceVersion verbatim onto the new Build,
+// even when the request omitted it -- StartBuildInput.SourceVersion's own
+// doc ("If sourceVersion is specified at the project level, then this
+// sourceVersion (at the build level) takes precedence") establishes the
+// project-level value as the fallback when the build-level one is absent,
+// the same override-with-fallback pattern every other StartBuild override
+// field already follows. Pre-fix, omitting sourceVersion on StartBuild
+// produced a Build.SourceVersion/ResolvedSourceVersion of "" even though the
+// project had a real, configured SourceVersion.
+func TestStartBuild_InheritsProjectSourceVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateProject(ctx, &codebuildsdk.CreateProjectInput{
+		Name:        aws.String("inherited-source-version-project"),
+		ServiceRole: aws.String("arn:aws:iam::123456789012:role/service-role"),
+		Source: &types.ProjectSource{
+			Type:     types.SourceTypeGithub,
+			Location: aws.String("https://github.com/example/repo"),
+		},
+		SourceVersion: aws.String("refs/heads/main"),
+		Artifacts:     &types.ProjectArtifacts{Type: types.ArtifactsTypeNoArtifacts},
+		Environment: &types.ProjectEnvironment{
+			Type:        types.EnvironmentTypeLinuxContainer,
+			Image:       aws.String("aws/codebuild/standard:7.0"),
+			ComputeType: types.ComputeTypeBuildGeneral1Small,
+		},
+	})
+	require.NoError(t, err)
+
+	started, err := client.StartBuild(ctx, &codebuildsdk.StartBuildInput{
+		ProjectName: aws.String("inherited-source-version-project"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "refs/heads/main", aws.ToString(started.Build.SourceVersion),
+		"Build.SourceVersion must inherit the project's sourceVersion when the request omits an override")
+	assert.Equal(t, "refs/heads/main", aws.ToString(started.Build.ResolvedSourceVersion))
+}
+
 // TestRetryBuild_AutoRetryConfigChain_RealClient covers gopherstack-6flj-codebuild-5:
 // real types.Build has an AutoRetryConfig field
 // (codebuild@v1.72.4/types/types.go's AutoRetryConfig{AutoRetryLimit,
@@ -372,6 +415,45 @@ func TestRetryBuild_AutoRetryConfigChain_RealClient(t *testing.T) {
 	require.NotNil(t, original.Builds[0].AutoRetryConfig)
 	assert.Equal(t, aws.ToString(retried.Build.Arn), aws.ToString(original.Builds[0].AutoRetryConfig.NextAutoRetry),
 		"the original build's NextAutoRetry must point at the retry, matching real AWS's chain")
+}
+
+// TestStartBuild_AutoRetryLimitOverrideZero_RealClient covers a bug where an
+// explicit AutoRetryLimitOverride of 0 was indistinguishable from an absent
+// override: StartBuildInput.AutoRetryLimitOverride is *int32 (codebuild@
+// v1.72.4 api_op_StartBuild.go), and the backend's own override-with-nil
+// pattern requires a nil check, not a `> 0` guard, to apply an explicit
+// zero. Pre-fix, an explicit 0 fell through the `> 0` guard and silently
+// inherited the project's non-zero AutoRetryLimit instead of disabling
+// automatic retries for that build.
+func TestStartBuild_AutoRetryLimitOverrideZero_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateProject(ctx, &codebuildsdk.CreateProjectInput{
+		Name:           aws.String("auto-retry-override-project"),
+		ServiceRole:    aws.String("arn:aws:iam::123456789012:role/service-role"),
+		Source:         &types.ProjectSource{Type: types.SourceTypeNoSource},
+		Artifacts:      &types.ProjectArtifacts{Type: types.ArtifactsTypeNoArtifacts},
+		AutoRetryLimit: aws.Int32(3),
+		Environment: &types.ProjectEnvironment{
+			Type:        types.EnvironmentTypeLinuxContainer,
+			Image:       aws.String("aws/codebuild/standard:7.0"),
+			ComputeType: types.ComputeTypeBuildGeneral1Small,
+		},
+	})
+	require.NoError(t, err)
+
+	started, err := client.StartBuild(ctx, &codebuildsdk.StartBuildInput{
+		ProjectName:            aws.String("auto-retry-override-project"),
+		AutoRetryLimitOverride: aws.Int32(0),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, started.Build.AutoRetryConfig)
+	assert.Equal(t, int32(0), aws.ToInt32(started.Build.AutoRetryConfig.AutoRetryLimit),
+		"an explicit AutoRetryLimitOverride of 0 must disable retries, not inherit the project's non-zero limit")
 }
 
 // TestStartSandbox_InheritsProjectConfiguration_RealClient covers

@@ -516,15 +516,20 @@ type WorkspaceAccessProperties struct {
 	DeviceTypeLinux      string
 }
 
-// WorkspaceCreationProperties mirrors the two fields
-// ModifyWorkspaceCreationProperties' handler actually threads through
-// (types.DefaultWorkspaceCreationProperties has more real members --
-// EnableInternetAccess, EnableMaintenanceMode, EnableWorkDocs,
-// UserEnabledAsLocalAdministrator -- that this backend never accepted as
-// input either, so they stay genuinely omitted rather than fabricated).
+// WorkspaceCreationProperties mirrors types.WorkspaceCreationProperties
+// (workspaces@v1.73.1 api_op_ModifyWorkspaceCreationProperties.go)'s five
+// real members. InstanceIamRoleArn stays unmodeled: this backend has no IAM
+// role state to validate or attach it to. EnableWorkDocs is deliberately
+// absent -- the real SDK removed it ("Remove parameter EnableWorkDocs from
+// WorkSpacesServiceModel due to end of support of Amazon WorkDocs service",
+// CHANGELOG.md), so it is not a real member of this type at all. Pointer
+// booleans distinguish an explicit false from never having been set.
 type WorkspaceCreationProperties struct {
-	DefaultOu             string
-	CustomSecurityGroupId string //nolint:revive,staticcheck // matches real SDK field name
+	EnableInternetAccess            *bool
+	EnableMaintenanceMode           *bool
+	UserEnabledAsLocalAdministrator *bool
+	DefaultOu                       string
+	CustomSecurityGroupId           string //nolint:revive,staticcheck // matches real SDK field name
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

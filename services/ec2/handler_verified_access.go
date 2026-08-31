@@ -457,13 +457,8 @@ func (h *Handler) handleModifyVerifiedAccessGroup(vals url.Values, reqID string)
 	}
 
 	return &modifyVerifiedAccessGroupResponse{
-		RequestID: reqID,
-		VerifiedAccessGroup: verifiedAccessGroupItem{
-			VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
-			VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
-			Status:                   grp.Status,
-			Description:              grp.Description,
-		},
+		RequestID:           reqID,
+		VerifiedAccessGroup: h.toVerifiedAccessGroupItem(grp),
 	}, nil
 }
 

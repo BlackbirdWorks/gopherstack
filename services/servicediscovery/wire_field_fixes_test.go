@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdsdk "github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
@@ -60,9 +61,9 @@ func TestUpdatePrivateDnsNamespace_SOATTL(t *testing.T) {
 
 	after, err := client.GetNamespace(t.Context(), &sdsdk.GetNamespaceInput{Id: aws.String(nsID)})
 	require.NoError(t, err)
-	require.Equal(t, "updated", aws.ToString(after.Namespace.Description))
+	assert.Equal(t, "updated", aws.ToString(after.Namespace.Description))
 	require.NotNil(t, after.Namespace.Properties.DnsProperties.SOA)
-	require.Equal(t, int64(250), aws.ToInt64(after.Namespace.Properties.DnsProperties.SOA.TTL))
+	assert.Equal(t, int64(250), aws.ToInt64(after.Namespace.Properties.DnsProperties.SOA.TTL))
 }
 
 // TestUpdatePublicDnsNamespace_SOATTL is TestUpdatePrivateDnsNamespace_SOATTL's
@@ -104,7 +105,7 @@ func TestUpdatePublicDnsNamespace_SOATTL(t *testing.T) {
 	after, err := client.GetNamespace(t.Context(), &sdsdk.GetNamespaceInput{Id: aws.String(nsID)})
 	require.NoError(t, err)
 	require.NotNil(t, after.Namespace.Properties.DnsProperties.SOA)
-	require.Equal(t, int64(999), aws.ToInt64(after.Namespace.Properties.DnsProperties.SOA.TTL))
+	assert.Equal(t, int64(999), aws.ToInt64(after.Namespace.Properties.DnsProperties.SOA.TTL))
 }
 
 // waitForNamespaceID resolves the namespace ID created by opID via

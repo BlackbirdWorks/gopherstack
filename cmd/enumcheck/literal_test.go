@@ -303,6 +303,28 @@ func build(status string) map[string]any {
 			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
 		},
 		{
+			// A nested closure's own local `status := "INVALID"` must not
+			// leak into the enclosing function's const table: the outer
+			// map[string]any{"DomainPackageStatus": status} reads the
+			// outer runtime parameter, a different variable that merely
+			// shares the closure-local's name (Go scoping, not aliasing).
+			// Pre-fix, localStringConsts walked into the closure and
+			// recorded vals["status"] = "INVALID" for the whole function,
+			// producing a false confident finding here.
+			name: "closure-local binding does not shadow an outer runtime parameter",
+			src: `package svc
+func build(status string) map[string]any {
+	normalize := func() string {
+		status := "INVALID"
+		return status
+	}
+	_ = normalize()
+
+	return map[string]any{"DomainPackageStatus": status}
+}`,
+			wireKeys: map[string]wireKeyFact{"DomainPackageStatus": {Enums: []string{"DomainPackageStatus"}}},
+		},
+		{
 			name: "unrelated key is never flagged",
 			src: `package svc
 func build() map[string]any {

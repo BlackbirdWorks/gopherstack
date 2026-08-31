@@ -12,107 +12,123 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
-// TestUpdateActionTarget_HubNotEnabled, TestDeleteActionTarget_HubNotEnabled
-// and TestDisableImportFindingsForProduct_HubNotEnabled guard
-// gopherstack-02oa: these three ops never checked b.hubEnabled, unlike every
-// sibling create/enable path in the same service. securityhub@v1.75.4
-// deserializers.go models InvalidAccessException on all three paths
+// TestActionTargetOps_HubEnabledPrecondition guards gopherstack-02oa:
+// UpdateActionTarget, DeleteActionTarget and DisableImportFindingsForProduct
+// never checked b.hubEnabled, unlike every sibling create/enable path in the
+// same service. securityhub@v1.75.4 deserializers.go models
+// InvalidAccessException on all three paths
 // (deserializeOpErrorUpdateActionTarget:16987, deserializeOpErrorDeleteActionTarget:4539,
 // deserializeOpErrorDisableImportFindingsForProduct:7344), so real AWS enforces
-// the hub-enabled precondition here too.
-func TestUpdateActionTarget_HubNotEnabled(t *testing.T) {
+// the hub-enabled precondition here too. The "after hub enabled" cases confirm
+// the hubEnabled check didn't shadow the pre-existing not-found path once the
+// hub is actually enabled.
+func TestActionTargetOps_HubEnabledPrecondition(t *testing.T) {
 	t.Parallel()
 
-	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+	tests := []struct {
+		call        func(*testing.T, *securityhubsdk.Client) error
+		name        string
+		wantErrCode string
+		enableHub   bool
+	}{
+		{
+			name: "UpdateActionTarget hub not enabled",
+			call: func(t *testing.T, client *securityhubsdk.Client) error {
+				t.Helper()
 
-	_, err := client.UpdateActionTarget(t.Context(), &securityhubsdk.UpdateActionTargetInput{
-		ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/x"),
-		Name:            aws.String("NewName"),
-	})
-	require.Error(t, err)
+				_, err := client.UpdateActionTarget(t.Context(), &securityhubsdk.UpdateActionTargetInput{
+					ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/x"),
+					Name:            aws.String("NewName"),
+				})
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InvalidAccessException", apiErr.ErrorCode())
-}
-
-func TestDeleteActionTarget_HubNotEnabled(t *testing.T) {
-	t.Parallel()
-
-	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
-
-	_, err := client.DeleteActionTarget(t.Context(), &securityhubsdk.DeleteActionTargetInput{
-		ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/x"),
-	})
-	require.Error(t, err)
-
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InvalidAccessException", apiErr.ErrorCode())
-}
-
-func TestDisableImportFindingsForProduct_HubNotEnabled(t *testing.T) {
-	t.Parallel()
-
-	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
-
-	_, err := client.DisableImportFindingsForProduct(
-		t.Context(),
-		&securityhubsdk.DisableImportFindingsForProductInput{
-			ProductSubscriptionArn: aws.String(
-				"arn:aws:securityhub:us-east-1:000000000000:product-subscription/x",
-			),
+				return err
+			},
+			wantErrCode: "InvalidAccessException",
 		},
-	)
-	require.Error(t, err)
+		{
+			name: "DeleteActionTarget hub not enabled",
+			call: func(t *testing.T, client *securityhubsdk.Client) error {
+				t.Helper()
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InvalidAccessException", apiErr.ErrorCode())
-}
+				_, err := client.DeleteActionTarget(t.Context(), &securityhubsdk.DeleteActionTargetInput{
+					ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/x"),
+				})
 
-// TestUpdateActionTarget_NotFoundAfterHubEnabled and its DisableImportFindingsForProduct
-// sibling confirm the hubEnabled check didn't shadow the pre-existing not-found
-// path once the hub is actually enabled.
-func TestUpdateActionTarget_NotFoundAfterHubEnabled(t *testing.T) {
-	t.Parallel()
-
-	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, backend.EnableHub(false, nil))
-	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
-
-	_, err := client.UpdateActionTarget(t.Context(), &securityhubsdk.UpdateActionTargetInput{
-		ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/missing"),
-		Name:            aws.String("NewName"),
-	})
-	require.Error(t, err)
-
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
-}
-
-func TestDisableImportFindingsForProduct_NotFoundAfterHubEnabled(t *testing.T) {
-	t.Parallel()
-
-	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, backend.EnableHub(false, nil))
-	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
-
-	_, err := client.DisableImportFindingsForProduct(
-		t.Context(),
-		&securityhubsdk.DisableImportFindingsForProductInput{
-			ProductSubscriptionArn: aws.String(
-				"arn:aws:securityhub:us-east-1:000000000000:product-subscription/missing",
-			),
+				return err
+			},
+			wantErrCode: "InvalidAccessException",
 		},
-	)
-	require.Error(t, err)
+		{
+			name: "DisableImportFindingsForProduct hub not enabled",
+			call: func(t *testing.T, client *securityhubsdk.Client) error {
+				t.Helper()
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
+				_, err := client.DisableImportFindingsForProduct(
+					t.Context(),
+					&securityhubsdk.DisableImportFindingsForProductInput{
+						ProductSubscriptionArn: aws.String(
+							"arn:aws:securityhub:us-east-1:000000000000:product-subscription/x",
+						),
+					},
+				)
+
+				return err
+			},
+			wantErrCode: "InvalidAccessException",
+		},
+		{
+			name:      "UpdateActionTarget not found after hub enabled",
+			enableHub: true,
+			call: func(t *testing.T, client *securityhubsdk.Client) error {
+				t.Helper()
+
+				_, err := client.UpdateActionTarget(t.Context(), &securityhubsdk.UpdateActionTargetInput{
+					ActionTargetArn: aws.String("arn:aws:securityhub:us-east-1:000000000000:action/custom/missing"),
+					Name:            aws.String("NewName"),
+				})
+
+				return err
+			},
+			wantErrCode: "ResourceNotFoundException",
+		},
+		{
+			name:      "DisableImportFindingsForProduct not found after hub enabled",
+			enableHub: true,
+			call: func(t *testing.T, client *securityhubsdk.Client) error {
+				t.Helper()
+
+				_, err := client.DisableImportFindingsForProduct(
+					t.Context(),
+					&securityhubsdk.DisableImportFindingsForProductInput{
+						ProductSubscriptionArn: aws.String(
+							"arn:aws:securityhub:us-east-1:000000000000:product-subscription/missing",
+						),
+					},
+				)
+
+				return err
+			},
+			wantErrCode: "ResourceNotFoundException",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+			if tc.enableHub {
+				require.NoError(t, backend.EnableHub(false, nil))
+			}
+
+			client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+			err := tc.call(t, client)
+			require.Error(t, err)
+
+			var apiErr smithy.APIError
+			require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
+			assert.Equal(t, tc.wantErrCode, apiErr.ErrorCode())
+		})
+	}
 }

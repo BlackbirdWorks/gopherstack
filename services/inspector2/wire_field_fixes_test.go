@@ -10,44 +10,55 @@ import (
 	inspector2sdk "github.com/aws/aws-sdk-go-v2/service/inspector2"
 )
 
-// TestGetConfiguration_ScanModeStatus_RealSDKClient proves
+// TestGetConfiguration_StatusFields_RealSDKClient proves two
+// GetConfigurationOutput enum fields decode as real SDK enum members, not
+// the non-member "ENABLED" string the handler previously emitted for both:
 // Ec2ScanModeState.ScanModeStatus (inspector2@v1.54.1 types/types.go's
-// Ec2ScanModeState, types/enums.go:1191-1207) decodes as the real
-// types.Ec2ScanModeStatusSuccess ("SUCCESS") member, not the non-member
-// string "ENABLED" the handler previously emitted -- Ec2ScanModeStatus only
-// has SUCCESS/PENDING, no ENABLED. A typed client decodes any string into
-// ScanModeStatus without error, so the wrong value produced no decode
+// Ec2ScanModeState, types/enums.go:1191-1207 -- only SUCCESS/PENDING, no
+// ENABLED) and EcrRescanDurationState.Status (types/types.go's
+// EcrRescanDurationState, types/enums.go:1289-1303 -- only
+// SUCCESS/PENDING/FAILED, no ENABLED). A typed client decodes any string
+// into these enums without error, so the wrong value produced no decode
 // failure.
-func TestGetConfiguration_ScanModeStatus_RealSDKClient(t *testing.T) {
+func TestGetConfiguration_StatusFields_RealSDKClient(t *testing.T) {
 	t.Parallel()
 
-	client := newRoundTripTestClient(t)
-	ctx := t.Context()
+	tests := []struct {
+		check func(*testing.T, *inspector2sdk.GetConfigurationOutput)
+		name  string
+	}{
+		{
+			name: "Ec2ScanModeState.ScanModeStatus",
+			check: func(t *testing.T, out *inspector2sdk.GetConfigurationOutput) {
+				t.Helper()
 
-	out, err := client.GetConfiguration(ctx, &inspector2sdk.GetConfigurationInput{})
-	require.NoError(t, err)
+				require.NotNil(t, out.Ec2Configuration)
+				require.NotNil(t, out.Ec2Configuration.ScanModeState)
+				assert.Equal(t, types.Ec2ScanModeStatusSuccess, out.Ec2Configuration.ScanModeState.ScanModeStatus)
+			},
+		},
+		{
+			name: "EcrRescanDurationState.Status",
+			check: func(t *testing.T, out *inspector2sdk.GetConfigurationOutput) {
+				t.Helper()
 
-	require.NotNil(t, out.Ec2Configuration)
-	require.NotNil(t, out.Ec2Configuration.ScanModeState)
-	assert.Equal(t, types.Ec2ScanModeStatusSuccess, out.Ec2Configuration.ScanModeState.ScanModeStatus)
-}
+				require.NotNil(t, out.EcrConfiguration)
+				require.NotNil(t, out.EcrConfiguration.RescanDurationState)
+				assert.Equal(t, types.EcrRescanDurationStatusSuccess, out.EcrConfiguration.RescanDurationState.Status)
+			},
+		},
+	}
 
-// TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient proves
-// EcrRescanDurationState.Status (inspector2@v1.54.1 types/types.go's
-// EcrRescanDurationState, types/enums.go:1289-1303) decodes as the real
-// types.EcrRescanDurationStatusSuccess ("SUCCESS") member, not the
-// non-member string "ENABLED" the handler previously emitted --
-// EcrRescanDurationStatus only has SUCCESS/PENDING/FAILED, no ENABLED.
-func TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient(t *testing.T) {
-	t.Parallel()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	client := newRoundTripTestClient(t)
-	ctx := t.Context()
+			client := newRoundTripTestClient(t)
 
-	out, err := client.GetConfiguration(ctx, &inspector2sdk.GetConfigurationInput{})
-	require.NoError(t, err)
+			out, err := client.GetConfiguration(t.Context(), &inspector2sdk.GetConfigurationInput{})
+			require.NoError(t, err)
 
-	require.NotNil(t, out.EcrConfiguration)
-	require.NotNil(t, out.EcrConfiguration.RescanDurationState)
-	assert.Equal(t, types.EcrRescanDurationStatusSuccess, out.EcrConfiguration.RescanDurationState.Status)
+			tc.check(t, out)
+		})
+	}
 }

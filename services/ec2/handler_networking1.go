@@ -204,9 +204,9 @@ type getLaunchTemplateDataResponse struct {
 		SecurityGroupIDSet                struct {
 			Items []string `xml:"item"`
 		} `xml:"securityGroupIdSet"`
-		DisableAPITermination bool `xml:"disableApiTermination,omitempty"`
-		DisableAPIStop        bool `xml:"disableApiStop,omitempty"`
-		EBSOptimized          bool `xml:"ebsOptimized,omitempty"`
+		DisableAPITermination bool `xml:"disableApiTermination"`
+		DisableAPIStop        bool `xml:"disableApiStop"`
+		EBSOptimized          bool `xml:"ebsOptimized"`
 	} `xml:"launchTemplateData"`
 }
 

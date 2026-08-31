@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -182,14 +183,38 @@ func workspaceAccessPropertiesFromDS(ds *storedDirSettings) *WorkspaceAccessProp
 // ModifyWorkspaceCreationProperties stored under its "Creation_" key
 // prefix. See certBasedAuthPropertiesFromDS for the nil-when-unset rule.
 func workspaceCreationPropertiesFromDS(ds *storedDirSettings) *WorkspaceCreationProperties {
-	if !dsHasAnyKey(ds, []string{"Creation_DefaultOu", "Creation_CustomSecurityGroupId"}) {
+	keys := []string{
+		"Creation_DefaultOu", "Creation_CustomSecurityGroupId", "Creation_EnableInternetAccess",
+		"Creation_EnableMaintenanceMode", "Creation_UserEnabledAsLocalAdministrator",
+	}
+	if !dsHasAnyKey(ds, keys) {
 		return nil
 	}
 
 	return &WorkspaceCreationProperties{
-		DefaultOu:             ds.Properties["Creation_DefaultOu"],
-		CustomSecurityGroupId: ds.Properties["Creation_CustomSecurityGroupId"],
+		DefaultOu:                       ds.Properties["Creation_DefaultOu"],
+		CustomSecurityGroupId:           ds.Properties["Creation_CustomSecurityGroupId"],
+		EnableInternetAccess:            dsBoolPtr(ds, "Creation_EnableInternetAccess"),
+		EnableMaintenanceMode:           dsBoolPtr(ds, "Creation_EnableMaintenanceMode"),
+		UserEnabledAsLocalAdministrator: dsBoolPtr(ds, "Creation_UserEnabledAsLocalAdministrator"),
 	}
+}
+
+// dsBoolPtr parses ds.Properties[key] as a bool, returning nil if the key was
+// never set (matching the nil-when-unset rule certBasedAuthPropertiesFromDS
+// documents) or holds an unparseable value.
+func dsBoolPtr(ds *storedDirSettings, key string) *bool {
+	v, ok := ds.Properties[key]
+	if !ok {
+		return nil
+	}
+
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return nil
+	}
+
+	return &b
 }
 
 // dsHasAnyKey reports whether ds.Properties contains at least one of keys.

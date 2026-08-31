@@ -195,12 +195,22 @@ func addStringValueSpec(spec ast.Spec, out map[string]string) {
 
 // localStringConsts collects every `name := "literal"` binding in fd whose
 // name is never assigned to again anywhere else in fd -- a single-hop alias
-// resolution, not general dataflow.
+// resolution, not general dataflow. Traversal stops at nested *ast.FuncLit
+// boundaries: a closure's own local bindings are a distinct scope, and Go
+// permits a closure-local `status := "INVALID"` to shadow an outer runtime
+// parameter of the same name. Without this boundary, a nested binding would
+// pollute the enclosing function's vals map and could resolve an outer
+// map[string]any{"status": status} literal to the closure's constant
+// instead of leaving the outer runtime value unresolved.
 func localStringConsts(fd *ast.FuncDecl) map[string]string {
 	vals := map[string]string{}
 	assignCount := map[string]int{}
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+
 		as, ok := n.(*ast.AssignStmt)
 		if !ok || len(as.Lhs) != len(as.Rhs) {
 			return true
@@ -259,6 +269,10 @@ func localFieldConsts(fd *ast.FuncDecl, identConsts, pkgConsts map[string]string
 	assignCount := map[string]int{}
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+
 		as, ok := n.(*ast.AssignStmt)
 		if !ok || as.Tok != token.ASSIGN || len(as.Lhs) != len(as.Rhs) {
 			return true

@@ -48,7 +48,10 @@ func TestGetMetricStatistics_ExtendedStatistics_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, out.Datapoints, 1)
-	assert.NotEmpty(t, out.Datapoints[0].ExtendedStatistics,
+	require.NotEmpty(t, out.Datapoints[0].ExtendedStatistics,
 		"ExtendedStatistics empty - GetMetricStatistics dropped it entirely on the CBOR wire")
-	assert.Contains(t, out.Datapoints[0].ExtendedStatistics, "p90")
+	require.Contains(t, out.Datapoints[0].ExtendedStatistics, "p90")
+	// Linear-interpolated 90th percentile of the sorted [10,20,30,40] sample
+	// (metricmath.go's percentile: idx = 0.9*(4-1) = 2.7, so 30*0.3 + 40*0.7).
+	assert.InDelta(t, 37.0, out.Datapoints[0].ExtendedStatistics["p90"], 1e-9)
 }

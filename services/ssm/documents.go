@@ -284,6 +284,27 @@ func evictOldestDocumentVersions(vers []DocumentVersion, defaultVersion string, 
 	return kept
 }
 
+// associationDocumentContent resolves an association document's body for
+// DescribeEffectiveInstanceAssociations, matching real
+// InstanceAssociation.Content (ssm@v1.73.4 types.go). Caller must already
+// hold b.mu. Returns "" if the document (or the specific version) no longer
+// exists -- an association can outlive the document it was created against.
+func (b *InMemoryBackend) associationDocumentContent(region, docName, docVersion string) string {
+	docPtr, ok := b.documentsStore(region).Get(docName)
+	if !ok {
+		return ""
+	}
+
+	target := resolveDocumentVersionSelector(*docPtr, docVersion)
+	for _, v := range b.documentVersionsStore(region)[docName] {
+		if v.DocumentVersion == target {
+			return v.Content
+		}
+	}
+
+	return ""
+}
+
 // GetDocument retrieves a document's content.
 func (b *InMemoryBackend) GetDocument(
 	ctx context.Context,

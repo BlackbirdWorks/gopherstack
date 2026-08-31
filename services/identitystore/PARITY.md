@@ -15,9 +15,11 @@ overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real 
                        # nested Name/Email/Address/PhoneNumber/Photo/Role/ExternalId sub-shape) were
                        # field-diffed member-for-member against the deserializer's own case lists,
                        # not against this file's prior claims. Genuinely clean: no wrapper-key, no
-                       # per-item wrong-key/wrong-nesting, and no invented-member bugs found. The one
-                       # known divergence from the real User shape is the already-disclosed
-                       # Extensions field (see deferred below), unchanged this pass.
+                       # per-item wrong-key/wrong-nesting, and no NEW invented-member bugs found in
+                       # THIS sweep (CreateUser.ExternalIds, noted above, was found and fixed in the
+                       # prior 2026-07-25 pass, not this one). The one known divergence from the real
+                       # User shape is the already-disclosed Extensions field (see deferred below),
+                       # unchanged this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

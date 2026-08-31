@@ -515,11 +515,16 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return res
 }
 
-// cfErrorXML returns an XML error response string.
+// cfErrorXML returns an XML error response string. code and message are
+// XML-escaped: message in particular often carries a raw err.Error() or a
+// caller-supplied value (e.g. handler_dispatch.go's "unknown operation: "
+// +operation), and an unescaped "<"/"&" there would both break the response's
+// well-formedness for a legitimate client and let a crafted value break out
+// of the <Message> element (CodeQL: reflected XSS via user-provided value).
 func cfErrorXML(code, message string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ErrorResponse xmlns="%s"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error></ErrorResponse>`,
-		cfNS, code, message)
+		cfNS, xmlEscape(code), xmlEscape(message))
 }
 
 // xmlResp writes an XML response with the given status code. body is written

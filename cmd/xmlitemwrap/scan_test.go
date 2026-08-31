@@ -228,6 +228,40 @@ type xmlStringValueList struct {
 			want: nil,
 		},
 		{
+			// A cdata-capturing wrapper is the same shape as chardata --
+			// isTextCaptureTag must recognize it too, or this reports a
+			// named-child finding with an empty Elem (xmlBaseName of
+			// ",cdata" is "").
+			name: "cdata wrapped scalar not flagged",
+			src: `package autoscaling
+
+type xmlCdataValue struct {
+	Value string ` + "`xml:\",cdata\"`" + `
+}
+
+type xmlCdataValueList struct {
+	Members []xmlCdataValue ` + "`xml:\"member\"`" + `
+}
+`,
+			want: nil,
+		},
+		{
+			// An innerxml-capturing wrapper is the same shape as chardata --
+			// isTextCaptureTag must recognize it too.
+			name: "innerxml wrapped scalar not flagged",
+			src: `package autoscaling
+
+type xmlInnerXMLValue struct {
+	Value string ` + "`xml:\",innerxml\"`" + `
+}
+
+type xmlInnerXMLValueList struct {
+	Members []xmlInnerXMLValue ` + "`xml:\"member\"`" + `
+}
+`,
+			want: nil,
+		},
+		{
 			// getIpamPoolCidrsResponse.IpamPoolCidrSet: a genuine two-member
 			// object list wrapped in a Set-suffixed name. Must NOT be flagged --
 			// this is exactly the "some list-of-object shapes are genuinely

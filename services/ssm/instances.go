@@ -261,6 +261,7 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 			result = append(result, InstanceAssociationInfo{
 				AssociationID:      assoc.AssociationID,
 				AssociationVersion: "1",
+				Content:            b.associationDocumentContent(region, assoc.Name, assoc.DocumentVersion),
 				InstanceID:         assoc.InstanceID,
 			})
 		}

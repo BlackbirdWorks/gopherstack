@@ -32,25 +32,25 @@ type StartBuildConfig struct {
 	ReportBuildStatusOverride        *bool
 	PrivilegedModeOverride           *bool
 	GitCloneDepthOverride            *int32
-	BuildspecOverride                string
-	ComputeTypeOverride              string
-	ImageOverride                    string
+	AutoRetryLimitOverride           *int32
 	ServiceRoleOverride              string
+	HostKernelOverride               string
+	ComputeTypeOverride              string
 	SourceVersion                    string
 	SourceTypeOverride               string
 	SourceLocationOverride           string
 	EnvironmentTypeOverride          string
 	CertificateOverride              string
 	ImagePullCredentialsTypeOverride string
-	HostKernelOverride               string
+	ImageOverride                    string
 	EncryptionKeyOverride            string
-	EnvVarsOverride                  []EnvironmentVariable
+	BuildspecOverride                string
 	SecondaryArtifactsOverride       []ProjectArtifacts
 	SecondarySourcesOverride         []ProjectSource
 	SecondarySourcesVersionOverride  []ProjectSourceVersion
+	EnvVarsOverride                  []EnvironmentVariable
 	TimeoutInMinutesOverride         int32
 	QueuedTimeoutInMinutesOverride   int32
-	AutoRetryLimitOverride           int32
 	DebugSessionEnabled              bool
 }
 
@@ -269,8 +269,13 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 	ov := applyBuildOverrides(proj, cfg)
 
 	autoRetryLimit := proj.AutoRetryLimit
-	if cfg.AutoRetryLimitOverride > 0 {
-		autoRetryLimit = cfg.AutoRetryLimitOverride
+	if cfg.AutoRetryLimitOverride != nil {
+		autoRetryLimit = *cfg.AutoRetryLimitOverride
+	}
+
+	sourceVersion := proj.SourceVersion
+	if cfg.SourceVersion != "" {
+		sourceVersion = cfg.SourceVersion
 	}
 
 	build := &Build{
@@ -284,8 +289,8 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		EncryptionKey:           ov.EncryptionKey,
 		TimeoutInMinutes:        ov.TimeoutInMinutes,
 		QueuedTimeoutInMinutes:  ov.QueuedTimeoutInMinutes,
-		SourceVersion:           cfg.SourceVersion,
-		ResolvedSourceVersion:   cfg.SourceVersion,
+		SourceVersion:           sourceVersion,
+		ResolvedSourceVersion:   sourceVersion,
 		Environment:             &ov.Environment,
 		Source:                  &ov.Source,
 		Artifacts:               &ov.Artifacts,

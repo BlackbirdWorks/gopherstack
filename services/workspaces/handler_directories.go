@@ -2,6 +2,7 @@ package workspaces
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -81,12 +82,16 @@ type accessPropsResp struct {
 	DeviceTypeLinux      string `json:"DeviceTypeLinux,omitempty"`
 }
 
-// creationPropsResp mirrors types.DefaultWorkspaceCreationProperties's two
-// members this backend actually threads through -- see
-// WorkspaceCreationProperties's doc comment in interfaces.go.
+// creationPropsResp mirrors types.DefaultWorkspaceCreationProperties's real
+// members this backend threads through -- see WorkspaceCreationProperties's
+// doc comment in interfaces.go.
 type creationPropsResp struct {
-	DefaultOu             string `json:"DefaultOu,omitempty"`
-	CustomSecurityGroupId string `json:"CustomSecurityGroupId,omitempty"` //nolint:revive,staticcheck // matches wire key
+	EnableInternetAccess            *bool  `json:"EnableInternetAccess,omitempty"`
+	EnableMaintenanceMode           *bool  `json:"EnableMaintenanceMode,omitempty"`
+	UserEnabledAsLocalAdministrator *bool  `json:"UserEnabledAsLocalAdministrator,omitempty"`
+	DefaultOu                       string `json:"DefaultOu,omitempty"`
+	//nolint:revive,staticcheck // matches wire key
+	CustomSecurityGroupId string `json:"CustomSecurityGroupId,omitempty"`
 }
 
 func toCertBasedAuthPropsResp(p *CertificateBasedAuthProperties) *certBasedAuthPropsResp {
@@ -145,7 +150,13 @@ func toCreationPropsResp(p *WorkspaceCreationProperties) *creationPropsResp {
 		return nil
 	}
 
-	return &creationPropsResp{DefaultOu: p.DefaultOu, CustomSecurityGroupId: p.CustomSecurityGroupId}
+	return &creationPropsResp{
+		DefaultOu:                       p.DefaultOu,
+		CustomSecurityGroupId:           p.CustomSecurityGroupId,
+		EnableInternetAccess:            p.EnableInternetAccess,
+		EnableMaintenanceMode:           p.EnableMaintenanceMode,
+		UserEnabledAsLocalAdministrator: p.UserEnabledAsLocalAdministrator,
+	}
 }
 
 func (h *Handler) handleDescribeWorkspaceDirectories(
@@ -222,7 +233,6 @@ type modifyWorkspaceCreationPropertiesInput struct {
 	WorkspaceCreationProperties struct {
 		DefaultOu                       string `json:"DefaultOu"`
 		CustomSecurityGroupId           string `json:"CustomSecurityGroupId"` //nolint:revive,staticcheck // existing issue.
-		EnableWorkDocs                  bool   `json:"EnableWorkDocs"`
 		EnableInternetAccess            bool   `json:"EnableInternetAccess"`
 		UserEnabledAsLocalAdministrator bool   `json:"UserEnabledAsLocalAdministrator"`
 		EnableMaintenanceMode           bool   `json:"EnableMaintenanceMode"`
@@ -232,9 +242,13 @@ type modifyWorkspaceCreationPropertiesInput struct {
 func (h *Handler) handleModifyWorkspaceCreationProperties(
 	_ context.Context, req *modifyWorkspaceCreationPropertiesInput,
 ) (*emptyOutput, error) {
+	cp := req.WorkspaceCreationProperties
 	props := map[string]string{
-		"DefaultOu":             req.WorkspaceCreationProperties.DefaultOu,
-		"CustomSecurityGroupId": req.WorkspaceCreationProperties.CustomSecurityGroupId,
+		"DefaultOu":                       cp.DefaultOu,
+		"CustomSecurityGroupId":           cp.CustomSecurityGroupId,
+		"EnableInternetAccess":            strconv.FormatBool(cp.EnableInternetAccess),
+		"EnableMaintenanceMode":           strconv.FormatBool(cp.EnableMaintenanceMode),
+		"UserEnabledAsLocalAdministrator": strconv.FormatBool(cp.UserEnabledAsLocalAdministrator),
 	}
 
 	return &emptyOutput{}, h.Backend.ModifyWorkspaceCreationProperties(req.ResourceId, props)

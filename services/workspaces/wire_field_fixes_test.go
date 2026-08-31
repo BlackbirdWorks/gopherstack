@@ -318,8 +318,11 @@ func TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip(t *testing
 	_, err = client.ModifyWorkspaceCreationProperties(ctx, &wssdk.ModifyWorkspaceCreationPropertiesInput{
 		ResourceId: aws.String("d-settings11111"),
 		WorkspaceCreationProperties: &types.WorkspaceCreationProperties{
-			DefaultOu:             aws.String("OU=WorkSpaces,DC=example,DC=com"),
-			CustomSecurityGroupId: aws.String("sg-0123456789abcdef0"),
+			DefaultOu:                       aws.String("OU=WorkSpaces,DC=example,DC=com"),
+			CustomSecurityGroupId:           aws.String("sg-0123456789abcdef0"),
+			EnableInternetAccess:            aws.Bool(true),
+			EnableMaintenanceMode:           aws.Bool(false),
+			UserEnabledAsLocalAdministrator: aws.Bool(true),
 		},
 	})
 	require.NoError(t, err)
@@ -356,4 +359,13 @@ func TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip(t *testing
 	require.NotNil(t, dir.WorkspaceCreationProperties)
 	assert.Equal(t, "OU=WorkSpaces,DC=example,DC=com", aws.ToString(dir.WorkspaceCreationProperties.DefaultOu))
 	assert.Equal(t, "sg-0123456789abcdef0", aws.ToString(dir.WorkspaceCreationProperties.CustomSecurityGroupId))
+	require.NotNil(t, dir.WorkspaceCreationProperties.EnableInternetAccess,
+		"EnableInternetAccess must round-trip; pre-fix it was accepted on the wire and then discarded")
+	assert.True(t, aws.ToBool(dir.WorkspaceCreationProperties.EnableInternetAccess))
+	require.NotNil(t, dir.WorkspaceCreationProperties.EnableMaintenanceMode,
+		"an explicit false EnableMaintenanceMode must serialize, not be indistinguishable from unset")
+	assert.False(t, aws.ToBool(dir.WorkspaceCreationProperties.EnableMaintenanceMode))
+	require.NotNil(t, dir.WorkspaceCreationProperties.UserEnabledAsLocalAdministrator,
+		"UserEnabledAsLocalAdministrator must round-trip; pre-fix it was accepted on the wire and then discarded")
+	assert.True(t, aws.ToBool(dir.WorkspaceCreationProperties.UserEnabledAsLocalAdministrator))
 }

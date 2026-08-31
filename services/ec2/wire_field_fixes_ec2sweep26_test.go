@@ -39,6 +39,7 @@ func TestDescribeVpcEndpointServices_ServiceDetails_RealClient(t *testing.T) {
 	var s3Detail *string
 	for i := range out.ServiceDetails {
 		d := out.ServiceDetails[i]
+		require.NotNil(t, d.ServiceName, "ServiceName is nil")
 		require.NotEmpty(t, d.ServiceType, "ServiceType empty for %s", *d.ServiceName)
 
 		if d.ServiceName != nil && *d.ServiceName == "com.amazonaws.us-east-1.s3" {
