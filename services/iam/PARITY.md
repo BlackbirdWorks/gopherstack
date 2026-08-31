@@ -458,3 +458,84 @@ of the entity's.
 switch-without-default gap.
 
 No bugs found; no code changes in this service this pass.
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against iam@v1.58.1 deserializers.go
+(awsAwsquery_, confirmed by the `strings.EqualFold` match sites) for
+GetAccountAuthorizationDetails, this service's richest item shape (four
+distinct per-entity item types in one response: UserDetail, GroupDetail,
+RoleDetail, ManagedPolicyDetail). Wrapper keys `UserDetailList`,
+`GroupDetailList`, `RoleDetailList`, `Policies` all confirmed exact-case, each
+`member`-wrapped (confirmed against `awsAwsquery_deserializeDocumentGroupDetailListType`
+et al. -- no unwrapped-list-deserializer call site exists for any of the four
+in the pinned SDK).
+
+**BUG (fixed): `UserDetailXML` and `RoleDetailXML` (`models_simulation_types.go`)
+omitted PermissionsBoundary and Tags entirely** -- absent, not wrong-named. The
+real `UserDetail`/`RoleDetail` deserializers both read `PermissionsBoundary`
+(nested `AttachedPermissionsBoundary{PermissionsBoundaryArn,
+PermissionsBoundaryType}`) and `Tags>member{Key,Value}`, and this service's own
+sibling ops -- `toUserXML` (GetUser/ListUsers) and `toRoleXML` (GetRole/ListRoles)
+-- already emit both correctly from the same backing `User.PermissionsBoundary`/
+`.Tags` and `Role.PermissionsBoundary`/`.Tags` fields (`RoleDetail`/`UserDetail`
+embed `Role`/`User`, so the state was always reachable). Right entity count,
+permanently blank PermissionsBoundary/Tags for every user and role in the
+account-wide report regardless of what was actually set on them. `GroupDetail`
+correctly has neither field on the real wire type (real IAM groups support
+neither tags nor permissions boundaries) -- `GroupDetailXML`'s omission was
+already correct, not a gap.
+
+**BUG (fixed): `ManagedPolicyDetailXML` (`models_simulation_types.go`) omitted
+DefaultVersionId, UpdateDate, AttachmentCount, and IsAttachable entirely** --
+same sibling-trap shape, this time against `toPolicyXML` (GetPolicy/ListPolicies),
+which already emits all four from the same backing `Policy` fields. Confirmed
+this is worse than silent-empty: with the pre-existing `xml:"UpdateDate"` tag
+(no `omitempty`) on a bare Go `string` field left at its zero value, `encoding/xml`
+still emits `<UpdateDate></UpdateDate>`, and the real client's timestamp parser
+hard-errors decoding it as an empty string against every real timestamp layout
+it tries -- so any account with at least one managed policy failed the *entire*
+`GetAccountAuthorizationDetails` call with a deserialization error, not just a
+blank field.
+
+Fixed both in `handler_account.go` (`toUserDetailXML`), `handler_roles.go`
+(`toRoleDetailXML`), and `handler_policies.go` (`toManagedPolicyDetailXML`),
+mirroring the exact conversion logic their singular/plural siblings already use
+(including the `DefaultVersionId` `""`->`"v1"` and `UpdateDate` zero->CreateDate
+fallbacks `toPolicyXML` already applies). Tests:
+`TestGetAccountAuthorizationDetails_PermissionsBoundaryAndTags_RealClient` and
+`TestGetAccountAuthorizationDetails_PolicyAttachmentFields_RealClient`
+(`handler_account_reporting_test.go`), driven through the real aws-sdk-go-v2
+client with distinguishable non-zero values (two users, two roles, an attached
+policy). Both verified failing pre-fix by hand-revert -- the User/Role case
+failed as a nil-pointer assertion, the Policy case failed one level worse, as a
+full client-side deserialization error (`unable to parse time string ""`),
+exactly the class this campaign has flagged as the more severe failure mode.
+
+Also noted, not fixed (different bug class -- value semantics, not element
+naming, so out of this issue's scope; recorded for a future
+value-correctness pass): `Policy.IsAttachable` is never set anywhere in
+`store.go`'s `CreatePolicy`, so it is always the Go zero value `false` for
+every policy this backend creates -- affecting `GetPolicy`/`ListPolicies` too,
+not just this op. Real AWS reports `IsAttachable=true` for essentially every
+customer-managed policy (false is reserved for retired AWS-managed policies
+this emulator doesn't model). This is a wrong-default-value bug, not an
+absent/misnamed field, so it wasn't fixed under this pass's naming-focused scope.
+
+NOT REACHED at item level this pass: the other ~15 List ops with nested item
+shapes (ListRoles' `InstanceProfileList` nesting already covered incidentally
+via `RoleDetail`; ListInstanceProfiles, ListServerCertificates,
+ListSAMLProviders, ListOpenIDConnectProviders, ListVirtualMFADevices,
+ListAccessKeys, ListSigningCertificates, ListSSHPublicKeys,
+ListServiceSpecificCredentials, ListMFADevices, ListPolicies,
+ListEntitiesForPolicy, GetOrganizationsAccessReport, and the delegation-request
+family).
+
+Gates: `go build ./services/iam/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including the 2 new
+real-client tests above), `golangci-lint run ./services/iam/...` (0 issues).
+Pre-existing `//nolint:lll // long XML element name` on
+`GetAccountAuthorizationDetailsResponse.XMLName` (a struct this pass did not
+otherwise touch) re-checked: `lll` is disabled repo-wide (superseded by
+golines per `.golangci.yml`), so this directive is currently inert but
+harmless -- left as-is, out of this pass's scope to clean up.

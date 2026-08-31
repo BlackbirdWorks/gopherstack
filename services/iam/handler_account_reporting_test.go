@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -664,4 +667,120 @@ func TestGenerateAndGetCredentialReport(t *testing.T) {
 			tt.check(t, rec)
 		})
 	}
+}
+
+// TestGetAccountAuthorizationDetails_PermissionsBoundaryAndTags_RealClient is a
+// regression test for gopherstack-21my: UserDetailXML and RoleDetailXML (the
+// per-entity item shapes for GetAccountAuthorizationDetails) omitted
+// PermissionsBoundary and Tags entirely, even though the real UserDetail/
+// RoleDetail deserializer (iam@v1.58.1 deserializers.go,
+// awsAwsquery_deserializeDocumentUserDetail / ...RoleDetail) reads both, and
+// even though this same service's sibling ops -- toUserXML (GetUser/ListUsers)
+// and toRoleXML (GetRole/ListRoles) -- already emit them correctly from the
+// same backing User.PermissionsBoundary/Tags and Role.PermissionsBoundary/Tags
+// fields. Right entity count, permanently blank PermissionsBoundary/Tags for
+// every user and role in the account-wide report. Seeds two distinguishable
+// users and two distinguishable roles.
+func TestGetAccountAuthorizationDetails_PermissionsBoundaryAndTags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	client := newTestIAMClient(t, h)
+
+	const boundaryArn1 = "arn:aws:iam::123456789012:policy/user-boundary"
+	const boundaryArn2 = "arn:aws:iam::123456789012:policy/role-boundary"
+
+	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
+		UserName:            aws.String("gaad-user-1"),
+		PermissionsBoundary: aws.String(boundaryArn1),
+		Tags:                []types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRole(t.Context(), &iamsdk.CreateRoleInput{
+		RoleName:                 aws.String("gaad-role-1"),
+		AssumeRolePolicyDocument: aws.String(testPolicyDoc),
+		PermissionsBoundary:      aws.String(boundaryArn2),
+		Tags:                     []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetAccountAuthorizationDetails(t.Context(), &iamsdk.GetAccountAuthorizationDetailsInput{})
+	require.NoError(t, err)
+
+	userByName := make(map[string]types.UserDetail, len(out.UserDetailList))
+	for _, u := range out.UserDetailList {
+		userByName[aws.ToString(u.UserName)] = u
+	}
+
+	roleByName := make(map[string]types.RoleDetail, len(out.RoleDetailList))
+	for _, r := range out.RoleDetailList {
+		roleByName[aws.ToString(r.RoleName)] = r
+	}
+
+	u1, ok := userByName["gaad-user-1"]
+	require.True(t, ok)
+	require.NotNil(t, u1.PermissionsBoundary)
+	require.NotNil(t, u1.PermissionsBoundary.PermissionsBoundaryArn)
+	assert.Equal(t, boundaryArn1, *u1.PermissionsBoundary.PermissionsBoundaryArn)
+	require.Len(t, u1.Tags, 1)
+	assert.Equal(t, "team", aws.ToString(u1.Tags[0].Key))
+	assert.Equal(t, "platform", aws.ToString(u1.Tags[0].Value))
+
+	r1, ok := roleByName["gaad-role-1"]
+	require.True(t, ok)
+	require.NotNil(t, r1.PermissionsBoundary)
+	require.NotNil(t, r1.PermissionsBoundary.PermissionsBoundaryArn)
+	assert.Equal(t, boundaryArn2, *r1.PermissionsBoundary.PermissionsBoundaryArn)
+	require.Len(t, r1.Tags, 1)
+	assert.Equal(t, "env", aws.ToString(r1.Tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(r1.Tags[0].Value))
+}
+
+// TestGetAccountAuthorizationDetails_PolicyAttachmentFields_RealClient is a
+// regression test for gopherstack-21my: ManagedPolicyDetailXML (the per-policy
+// item shape for GetAccountAuthorizationDetails) omitted DefaultVersionId,
+// UpdateDate, AttachmentCount, and IsAttachable entirely, even though the real
+// ManagedPolicyDetail deserializer (iam@v1.58.1 deserializers.go,
+// awsAwsquery_deserializeDocumentManagedPolicyDetail) reads all four, and even
+// though the sibling toPolicyXML (GetPolicy/ListPolicies) already emits them
+// from the same backing Policy fields. Attaches the policy to a user so
+// AttachmentCount has a real, distinguishable non-zero value to assert on.
+func TestGetAccountAuthorizationDetails_PolicyAttachmentFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	client := newTestIAMClient(t, h)
+
+	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("gaad-policy-user")})
+	require.NoError(t, err)
+
+	created, err := client.CreatePolicy(t.Context(), &iamsdk.CreatePolicyInput{
+		PolicyName:     aws.String("gaad-attach-count-policy"),
+		PolicyDocument: aws.String(testPolicyDoc),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AttachUserPolicy(t.Context(), &iamsdk.AttachUserPolicyInput{
+		UserName:  aws.String("gaad-policy-user"),
+		PolicyArn: created.Policy.Arn,
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetAccountAuthorizationDetails(t.Context(), &iamsdk.GetAccountAuthorizationDetailsInput{})
+	require.NoError(t, err)
+
+	var found *types.ManagedPolicyDetail
+	for i := range out.Policies {
+		if aws.ToString(out.Policies[i].Arn) == aws.ToString(created.Policy.Arn) {
+			found = &out.Policies[i]
+		}
+	}
+
+	require.NotNil(t, found, "created policy must appear in GetAccountAuthorizationDetails Policies")
+	require.NotNil(t, found.DefaultVersionId)
+	assert.Equal(t, "v1", *found.DefaultVersionId)
+	require.NotNil(t, found.AttachmentCount)
+	assert.Equal(t, int32(1), *found.AttachmentCount)
+	require.NotNil(t, found.UpdateDate)
 }

@@ -1717,3 +1717,67 @@ family notes above) holds.
 
 Gates: not re-run (no change); `go build ./...` and `go vet ./...`
 (repo-wide) confirmed clean as part of this session's checks.
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation), classic Redshift
+
+Byte-for-byte item-level check against redshift@v1.65.4 deserializers.go
+(awsAwsquery_, confirmed by the `strings.EqualFold` match sites, not assumed
+from age or neighbours). Classic Redshift (as opposed to Redshift Serverless,
+which is out of scope here -- see the earlier `gopherstack-4a8v` entry above)
+had not been touched by this issue's two-layer batches before now (`rds` in
+6flj's notes is Amazon RDS, a different service).
+
+Covered, both wrapper key and every populated per-item field name, including
+nested wrapping shape:
+
+- **DescribeClusters** (`Cluster`, the richest item shape in this service):
+  AquaConfiguration{AquaConfigurationStatus,AquaStatus}, MasterUsername,
+  PreferredMaintenanceWindow, Endpoint{Address,Port}, ClusterStatus, NodeType,
+  ClusterAvailabilityStatus, MultiAZ, ClusterIdentifier,
+  SnapshotScheduleIdentifier, DBName, KmsKeyId, AvailabilityZoneRelocationStatus,
+  SnapshotScheduleState, CatalogArn, LakehouseRegistrationStatus,
+  ClusterParameterGroups>ClusterParameterGroup{ParameterGroupName,
+  ParameterApplyStatus}, ClusterNodes>member{NodeRole,PrivateIPAddress,
+  PublicIPAddress}, IamRoles>ClusterIamRole{IamRoleArn,ApplyStatus},
+  Tags>Tag{Key,Value}, NumberOfNodes, EnhancedVpcRouting, Encrypted. Wrapper
+  `Clusters>Cluster` confirmed against `awsAwsquery_deserializeDocumentClusterList`
+  (item-type-name leaf, not `member` -- one of the query-protocol exceptions to
+  the usual `member` convention, matching this service's own struct tags exactly).
+  All clean.
+- **DescribeClusterSnapshots** (`Snapshot`): SnapshotIdentifier,
+  ClusterIdentifier, SnapshotType, SnapshotCreateTime, Status,
+  AccountsWithRestoreAccess>AccountWithRestoreAccess{AccountId,AccountAlias},
+  ManualSnapshotRetentionPeriod. Wrapper `Snapshots>Snapshot`. All clean.
+- **DescribeClusterSecurityGroups** (`ClusterSecurityGroup`):
+  ClusterSecurityGroupName, Description, EC2SecurityGroups>EC2SecurityGroup
+  {EC2SecurityGroupName,EC2SecurityGroupOwnerId,Status}, IPRanges>IPRange
+  {CIDRIP,Status}. Wrapper `ClusterSecurityGroups>ClusterSecurityGroup`. All clean.
+- **DescribeEventSubscriptions** (`EventSubscription`): SubscriptionCreationTime,
+  CustSubscriptionId, CustomerAwsId, SnsTopicArn, Status, SourceType, Severity,
+  SourceIdsList>SourceId, EventCategoriesList>EventCategory, Enabled. Wrapper
+  `EventSubscriptionsList>EventSubscription` (note: the wrapper key itself is
+  `EventSubscriptionsList`, not the more guessable `EventSubscriptions` --
+  confirmed exact). All clean.
+
+No hard mismatches, no case-only mismatches, no wrong list-wrapping shape found
+in any of the above. No unwrapped-list-deserializer call site exists for
+`ClusterList`, `ClusterSecurityGroups`, `EventSubscriptionsList`, or
+`SnapshotList` in the pinned SDK (grepped `*ListUnwrapped`/`*Unwrapped` by name
+-- zero call sites outside their own func definitions). No code changes this
+pass -- everything checked was already correct.
+
+NOT REACHED at item level: the ~90+ remaining Describe/List ops in this
+service (DescribeClusterParameters, DescribeClusterParameterGroups,
+DescribeClusterSubnetGroups, DescribeClusterVersions, DescribeClusterDbRevisions,
+DescribeOrderableClusterOptions, DescribeReservedNodes,
+DescribeReservedNodeOfferings, DescribeHsmClientCertificates,
+DescribeHsmConfigurations, DescribeScheduledActions, DescribeUsageLimits,
+DescribeDataShares and family, DescribeCustomDomainAssociations,
+DescribeInboundIntegrations, DescribeIntegrations, DescribeSnapshotCopyGrants,
+DescribeSnapshotSchedules, DescribeTableRestoreStatus, DescribeTags,
+DescribeAuthenticationProfiles, DescribePartners, DescribeNodeConfigurationOptions,
+and the remaining IDC-application/lakehouse/advisor families).
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/redshift/...` (pass, no test changes needed
+since no code changed), `golangci-lint run ./services/redshift/...` (0 issues).

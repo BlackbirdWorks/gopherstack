@@ -920,3 +920,73 @@ HEAD, and the op.field key sets are identical, not merely equal in count.
 ZERO DAMAGE -- confirmed by the actual diff, not inferred from collision
 count (not separately re-measured this pass; the prior campaign already
 established collisions don't predict damage).
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against cloudfront@v1.67.4 deserializers.go for
+List ops not yet covered by the 2026-08-14 two-layer batch (970162d1c):
+ListCachePolicies (incl. nested ParametersInCacheKeyAndForwardedToOrigin ->
+HeadersConfig/CookiesConfig/QueryStringsConfig>Items>Name), ListOriginRequestPolicies
+(same nested shape), ListResponseHeadersPolicies (CorsConfig incl. all four
+Items>Header/Method/Origin lists, SecurityHeadersConfig incl.
+StrictTransportSecurity/FrameOptions/ReferrerPolicy/ContentTypeOptions,
+CustomHeadersConfig>Items>ResponseHeadersPolicyCustomHeader, RemoveHeadersConfig>
+Items>ResponseHeadersPolicyRemoveHeader), ListRealtimeLogConfigs, ListVpcOrigins.
+Confirmed all wrapper keys and every checked field name are exact-case matches to
+the deserializer's `strings.EqualFold` literal, and every list is `Items`-wrapped
+with the item type name (or `member` for ListRealtimeLogConfigs) as the direct
+child -- no unwrapped-list-deserializer call site exists for any of these ops in
+the pinned SDK (grepped `*ListUnwrapped`/`*SummaryListUnwrapped` by name; zero call
+sites outside their own func definitions).
+
+**BUG (fixed): `ListRealtimeLogConfigs`' item struct (`handler_realtime_log_configs.go`,
+`rlcItemXML`) emitted only ARN/Name/SamplingRate, dropping Fields and EndPoints
+entirely from every item** -- absent, not wrong-named. The real per-item
+deserializer (`awsRestxml_deserializeDocumentRealtimeLogConfig`) reads both, and
+the sibling `GetRealtimeLogConfig` (`realtimeLogConfigResponseXML`) already emits
+them correctly from the same backend `RealtimeLogConfig.Fields`/`.EndPoints`
+fields -- the exact "Get right, List wrong" trap this issue tracks. Right item
+count, permanently blank Fields/EndPoints for every config returned by List
+regardless of backend state. Fixed by adding both fields to `rlcItemXML`,
+converting `RealtimeLogConfig.EndPoints` to the existing `endPointXML` request
+type for reuse on the response side. Test: `TestListRealtimeLogConfigs_ItemShape_RealClient`
+(`handler_realtime_log_configs_test.go`), seeds two configs with distinguishable
+Fields/EndPoints via the real SDK client and asserts both round-trip correctly
+matched by ARN. Verified failing pre-fix by hand-revert (Fields/EndPoints decode
+empty).
+
+**BUG (fixed): `ListVpcOrigins`' item struct (`handler_vpc_origins.go`,
+`vpcSummaryXML`) tagged its ARN field `xml:"ARN"`, but the real `VpcOriginSummary`
+deserializer matches on `"Arn"`** -- a case-only mismatch (decodes today only
+because the XML decoder folds case) and inconsistent with this same service's
+`vpcOriginResponseXML` (Get), which already used the correct `"Arn"` casing.
+**Also missing entirely: OriginEndpointArn and AccountId**, both real
+`VpcOriginSummary` members, both backed by real state (`origin.EndpointArn`,
+already used correctly in the Get response's nested
+`VpcOriginEndpointConfig.Arn`; and `(*InMemoryBackend).AccountID()`, the same
+accessor added for `ListDistributionsByOwnedResource`'s `DistributionIdOwner.
+OwnerAccountId`). Fixed all three. Status/CreatedTime/LastModifiedTime remain
+genuine gaps -- `VpcOrigin` tracks no timestamp or deployment-state field to back
+them. Test: `TestListVpcOrigins_ItemShape_RealClient`
+(`handler_vpc_origins_test.go`), seeds two origins with distinguishable endpoint
+ARNs; verified failing pre-fix by hand-revert (the absent-field assertions fail
+outright -- the case-only Arn mismatch alone would NOT have failed this test,
+since the real decoder tolerates it; this is recorded to illustrate why the
+case-only class needs the byte-for-byte deserializer read, not just a green
+round-trip test).
+
+NOT REACHED at item level this pass: ListPublicKeys, ListKeyGroups (re-verify
+post-2026-08-14 fix), ListFieldLevelEncryptionConfigs/Profiles,
+ListContinuousDeploymentPolicies (re-verify post-2026-08-14 fix),
+ListDistributionTenants (re-verify post-2026-08-14 fix), ListTrustStores,
+ListAnycastIPLists, ListConnectionGroups/Functions (already deep-audited
+2026-08-13, see connection_group_function_swaps row), the ListDistributionsBy*
+family (12 ops), ListInvalidations*, ListStreamingDistributions,
+ListCloudFrontOriginAccessIdentities, ListDistributions itself (Distribution is
+the densest single item shape in this service and was not re-walked field-by-field
+this pass).
+
+Gates: `go build ./services/cloudfront/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/cloudfront/...` (pass), `golangci-lint run
+./services/cloudfront/...` (0 issues after `fieldalignment -fix
+./services/cloudfront/...` reordered the new `rlcItemXML` fields).

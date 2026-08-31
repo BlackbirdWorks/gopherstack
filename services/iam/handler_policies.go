@@ -259,13 +259,27 @@ func toManagedPolicyDetailXML(p *Policy, versions []StoredPolicyVersion) Managed
 		})
 	}
 
+	defaultVersionID := p.DefaultVersionID
+	if defaultVersionID == "" {
+		defaultVersionID = "v1"
+	}
+
+	updateDate := p.UpdateDate
+	if updateDate.IsZero() {
+		updateDate = p.CreateDate
+	}
+
 	return ManagedPolicyDetailXML{
 		PolicyName:        p.PolicyName,
 		PolicyID:          p.PolicyID,
 		Arn:               p.Arn,
 		Path:              p.Path,
+		DefaultVersionID:  defaultVersionID,
 		CreateDate:        isoTime(p.CreateDate),
+		UpdateDate:        isoTime(updateDate),
 		PolicyVersionList: xmlVersions,
+		AttachmentCount:   p.AttachmentCount,
+		IsAttachable:      p.IsAttachable,
 	}
 }
 

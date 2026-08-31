@@ -199,10 +199,12 @@ func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
 	)
 
 	type rlcItemXML struct {
-		XMLName      xml.Name `xml:"member"`
-		ARN          string   `xml:"ARN"`
-		Name         string   `xml:"Name"`
-		SamplingRate int64    `xml:"SamplingRate"`
+		XMLName      xml.Name      `xml:"member"`
+		ARN          string        `xml:"ARN"`
+		Name         string        `xml:"Name"`
+		Fields       []string      `xml:"Fields>Field"`
+		EndPoints    []endPointXML `xml:"EndPoints>member"`
+		SamplingRate int64         `xml:"SamplingRate"`
 	}
 
 	type rlcListXML struct {
@@ -216,7 +218,24 @@ func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
 
 	summaries := make([]rlcItemXML, 0, len(page))
 	for _, cfg := range page {
-		summaries = append(summaries, rlcItemXML{ARN: cfg.ARN, Name: cfg.Name, SamplingRate: cfg.SamplingRate})
+		endPoints := make([]endPointXML, 0, len(cfg.EndPoints))
+		for _, ep := range cfg.EndPoints {
+			endPoints = append(endPoints, endPointXML{
+				StreamType: ep.StreamType,
+				KinesisStreamConfig: kinesisStreamConfigXML{
+					RoleARN:   ep.RoleARN,
+					StreamARN: ep.StreamARN,
+				},
+			})
+		}
+
+		summaries = append(summaries, rlcItemXML{
+			ARN:          cfg.ARN,
+			Name:         cfg.Name,
+			SamplingRate: cfg.SamplingRate,
+			Fields:       cfg.Fields,
+			EndPoints:    endPoints,
+		})
 	}
 
 	list := rlcListXML{

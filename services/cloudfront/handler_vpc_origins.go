@@ -134,10 +134,12 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 	)
 
 	type vpcSummaryXML struct {
-		XMLName xml.Name `xml:"VpcOriginSummary"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName           xml.Name `xml:"VpcOriginSummary"`
+		ID                string   `xml:"Id"`
+		ARN               string   `xml:"Arn"`
+		Name              string   `xml:"Name"`
+		OriginEndpointARN string   `xml:"OriginEndpointArn"`
+		AccountID         string   `xml:"AccountId"`
 	}
 
 	type vpcListXML struct {
@@ -152,7 +154,13 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 
 	summaries := make([]vpcSummaryXML, 0, len(page))
 	for _, origin := range page {
-		summaries = append(summaries, vpcSummaryXML{ID: origin.ID, ARN: origin.ARN, Name: origin.Name})
+		summaries = append(summaries, vpcSummaryXML{
+			ID:                origin.ID,
+			ARN:               origin.ARN,
+			Name:              origin.Name,
+			OriginEndpointARN: origin.EndpointArn,
+			AccountID:         h.Backend.AccountID(),
+		})
 	}
 
 	list := vpcListXML{

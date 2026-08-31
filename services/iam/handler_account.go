@@ -144,7 +144,7 @@ func toUserDetailXML(u UserDetail) UserDetailXML {
 		groupList = []string{}
 	}
 
-	return UserDetailXML{
+	x := UserDetailXML{
 		Path:                    u.Path,
 		UserName:                u.UserName,
 		UserID:                  u.UserID,
@@ -153,7 +153,17 @@ func toUserDetailXML(u UserDetail) UserDetailXML {
 		UserPolicyList:          toInlinePolicyEntriesXML(u.InlinePolicies),
 		AttachedManagedPolicies: toAttachedPoliciesXML(u.AttachedPolicies),
 		GroupList:               groupList,
+		Tags:                    tagsToXML(u.Tags),
 	}
+
+	if u.PermissionsBoundary != "" {
+		x.PermissionsBoundary = &PermissionsBoundaryXML{
+			PermissionsBoundaryArn:  u.PermissionsBoundary,
+			PermissionsBoundaryType: xmlElemPolicy,
+		}
+	}
+
+	return x
 }
 
 // formValueTrue is the string "true" as submitted via HTML form values.
