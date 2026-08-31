@@ -589,3 +589,17 @@ added regression guard for a normal-sized request still routing and succeeding.
   call site of each flagged sentinel across `handler_*.go`. This matches commit
   `53b12b4c9`'s prior finding ("redshift and elasticache are clean on this class", all 75
   elasticache op switches extracted) — no new fix needed.
+
+- **2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6)**: 1
+  class A finding, `CreateReplicationGroup` / `SnapshotNotFoundFault`, pointing at
+  `replication_groups.go:372` where `CreateReplicationGroupFull` returns the
+  `ErrSnapshotNotFound` sentinel. **False positive, already fixed by a prior pass.**
+  The tool traces the sentinel to its usual wire code, but doesn't see that
+  `mapReplicationGroupCreateErr` (`handler_replication_groups.go:183-186`) already
+  intercepts `ErrSnapshotNotFound` specifically for `CreateReplicationGroup` and emits
+  `InvalidParameterValue` instead, with a comment citing the exact reason ("Same
+  rationale as createCacheCluster: SnapshotNotFoundFault isn't in
+  CreateReplicationGroup's modeled error list either"). Re-confirmed against the
+  pinned SDK: `awsAwsquery_deserializeOpErrorCreateReplicationGroup`
+  (`deserializers.go:1645`) declares no `SnapshotNotFoundFault` case; `InvalidParameterValue`
+  is declared and is what the handler actually emits. Zero code changes.

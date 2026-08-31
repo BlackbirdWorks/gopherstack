@@ -410,3 +410,39 @@ assumed from the existing gap note.
 Gates: `go build ./services/xray/...`, `go vet ./services/xray/...`,
 `go test -race -count=1 ./services/xray/...` all clean;
 `golangci-lint run ./services/xray/...` 0 issues (see below).
+
+**2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6):**
+2 class A findings, both `PutResourcePolicy`, both at the shared
+`errInvalidRequest` sentinel (which 26 other operations in this service use
+legitimately -- every one re-confirmed to declare `InvalidRequestException`
+in its own `awsRestjson1_deserializeOpError<Op>` switch; see
+`error_code_fixes_test.go` for the per-op enumeration). `PutResourcePolicy`'s
+own deserializer declares `InvalidPolicyRevisionIdException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ThrottledException` -- no `InvalidRequestException` at all.
+
+- **PolicyDocument == "" (handler_resource_policies.go:91-93, FIXED):** the
+  handler-level check short-circuited before the backend's own
+  `PutResourcePolicy` (`resource_policies.go:26-28`), which already validates
+  the document as JSON and returns `ErrMalformedPolicyDocument` -- a
+  correctly declared type -- for exactly this case. Removed the redundant,
+  wrongly-classified pre-check; the backend's existing validation now
+  handles it correctly. `validateOpPutResourcePolicyInput` (pinned SDK
+  `validators.go`) only checks `PolicyDocument != nil`, not non-empty, so
+  `aws.String("")` passes client-side validation and this path is reachable
+  by a real client. New test `TestPutResourcePolicy_EmptyDocument_RealClient`
+  asserts `errors.As` against `*types.MalformedPolicyDocumentException`;
+  confirmed to fail against the unfixed handler (got untyped
+  `InvalidRequestException` instead).
+- **PolicyName == "" (handler_resource_policies.go:87-89, NOT fixed --
+  refusal):** no modeled type in `PutResourcePolicy`'s declared set fits "the
+  name field is empty/missing" (its list has none of ValidationException,
+  InvalidRequestException, or an analogue of MalformedPolicyDocumentException
+  for names). Left as-is rather than invent a code the model doesn't
+  declare for this condition -- the operation's own model declares no type
+  for it.
+
+Zero other findings for xray. Gates: `go build`/`go vet`/`go test -race
+-count=1 ./services/xray/...` clean; `golangci-lint run ./services/xray/...`
+0 issues.

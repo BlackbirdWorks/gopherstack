@@ -79,7 +79,7 @@ func (h *Handler) handleCreateFirewallDomainList(
 	in *createFirewallDomainListInput,
 ) (*createFirewallDomainListOutput, error) {
 	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrBatchValidation)
 	}
 
 	dl, err := h.Backend.CreateFirewallDomainList(ctx, in.Name, in.CreatorRequestID)
@@ -110,10 +110,12 @@ func (h *Handler) handleDeleteFirewallDomainList(
 	ctx context.Context,
 	in *deleteFirewallDomainListInput,
 ) (*deleteFirewallDomainListOutput, error) {
-	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
-	}
-
+	// DeleteFirewallDomainList's own deserializer models no
+	// ValidationException/InvalidRequestException (AccessDeniedException,
+	// ConflictException, InternalServiceErrorException,
+	// ResourceNotFoundException, ThrottlingException only) -- an empty ID is
+	// left to the backend lookup, which reports ResourceNotFoundException, a
+	// type the op does declare.
 	dl, err := h.Backend.DeleteFirewallDomainList(ctx, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
@@ -136,9 +138,11 @@ func (h *Handler) handleGetFirewallDomainList(
 	ctx context.Context,
 	in *getFirewallDomainListInput,
 ) (*getFirewallDomainListOutput, error) {
-	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
-	}
+	// GetFirewallDomainList's own deserializer models no
+	// ValidationException/InvalidRequestException (AccessDeniedException,
+	// InternalServiceErrorException, ResourceNotFoundException,
+	// ThrottlingException only) -- an empty ID is left to the backend lookup,
+	// which reports ResourceNotFoundException, a type the op does declare.
 	dl, err := h.Backend.GetFirewallDomainList(ctx, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
@@ -192,7 +196,7 @@ func (h *Handler) handleListFirewallDomains(
 	in *listFirewallDomainsInput,
 ) (*listFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrBatchValidation)
 	}
 	domains, err := h.Backend.ListFirewallDomains(ctx, in.FirewallDomainListID)
 	if err != nil {
@@ -220,10 +224,10 @@ func (h *Handler) handleUpdateFirewallDomains(
 	in *updateFirewallDomainsInput,
 ) (*updateFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrBatchValidation)
 	}
 	if in.Operation == "" {
-		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Operation is required", ErrBatchValidation)
 	}
 	dl, err := h.Backend.UpdateFirewallDomains(ctx, in.FirewallDomainListID, in.Operation, in.Domains)
 	if err != nil {
@@ -250,13 +254,13 @@ func (h *Handler) handleImportFirewallDomains(
 	in *importFirewallDomainsInput,
 ) (*importFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrBatchValidation)
 	}
 	if in.DomainFileURL == "" {
-		return nil, fmt.Errorf("%w: DomainFileUrl is required", ErrValidation)
+		return nil, fmt.Errorf("%w: DomainFileUrl is required", ErrBatchValidation)
 	}
 	if in.Operation == "" {
-		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Operation is required", ErrBatchValidation)
 	}
 	dl, err := h.Backend.ImportFirewallDomains(
 		ctx,

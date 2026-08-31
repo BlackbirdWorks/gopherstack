@@ -118,7 +118,7 @@ func (h *Handler) handleAssociateResolverQueryLogConfig(
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
 	}
 
-	if err := requireResourceID(in.ResourceID); err != nil {
+	if err := requireResourceID(in.ResourceID, ErrValidation); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +188,7 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 	if in.ResolverQueryLogConfigID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
 	}
-	if err := requireResourceID(in.ResourceID); err != nil {
+	if err := requireResourceID(in.ResourceID, ErrValidation); err != nil {
 		return nil, err
 	}
 	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(

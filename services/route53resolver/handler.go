@@ -214,9 +214,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // requireResourceID validates that a ResourceId path/body parameter was
 // supplied, shared by every op keyed on a bare resourceID (FirewallConfig,
 // ResolverConfig, ResolverDnssecConfig, query-log-config associations, ...).
-func requireResourceID(resourceID string) error {
+// validationErr is the caller's modeled bad-request sentinel: this family
+// splits it the same way the Firewall/Resolver op families do elsewhere in
+// this package (see ErrBatchValidation's doc comment) -- FirewallConfig and
+// ResolverConfig model ValidationException, not InvalidRequestException,
+// while ResolverDnssecConfig and the query-log-config association ops model
+// InvalidRequestException, so there is no single correct default here.
+func requireResourceID(resourceID string, validationErr error) error {
 	if resourceID == "" {
-		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+		return fmt.Errorf("%w: ResourceId is required", validationErr)
 	}
 
 	return nil
@@ -264,11 +270,12 @@ func boolValue(b *bool) bool {
 // convert the result to its wire output.
 func getSimpleConfig[TConfig, TOutput any](
 	resourceID string,
+	validationErr error,
 	fetch func() TConfig,
 	toOutput func(TConfig) TOutput,
 ) (TOutput, error) {
 	var zero TOutput
-	if err := requireResourceID(resourceID); err != nil {
+	if err := requireResourceID(resourceID, validationErr); err != nil {
 		return zero, err
 	}
 
@@ -279,11 +286,12 @@ func getSimpleConfig[TConfig, TOutput any](
 // ResourceId, apply the backend mutation, and convert the result.
 func updateSimpleConfig[TConfig, TOutput any](
 	resourceID string,
+	validationErr error,
 	update func() (TConfig, error),
 	toOutput func(TConfig) TOutput,
 ) (TOutput, error) {
 	var zero TOutput
-	if err := requireResourceID(resourceID); err != nil {
+	if err := requireResourceID(resourceID, validationErr); err != nil {
 		return zero, err
 	}
 

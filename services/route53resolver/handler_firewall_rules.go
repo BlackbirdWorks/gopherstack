@@ -72,7 +72,7 @@ func resolveFirewallRuleType(rt *firewallRuleTypeInput) (string, string, error) 
 	if set != 1 {
 		return "", "", fmt.Errorf(
 			"%w: FirewallRuleType requires exactly one member set",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -80,17 +80,17 @@ func resolveFirewallRuleType(rt *firewallRuleTypeInput) (string, string, error) 
 	case len(rt.FirewallAdvancedContentCategory) > 0:
 		return "", "", fmt.Errorf(
 			"%w: FirewallRuleType.FirewallAdvancedContentCategory is not supported by this backend",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	case len(rt.FirewallAdvancedThreatCategory) > 0:
 		return "", "", fmt.Errorf(
 			"%w: FirewallRuleType.FirewallAdvancedThreatCategory is not supported by this backend",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	case len(rt.PartnerThreatProtection) > 0:
 		return "", "", fmt.Errorf(
 			"%w: FirewallRuleType.PartnerThreatProtection is not supported by this backend",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	default:
 		return rt.DNSThreatProtection.Value, rt.DNSThreatProtection.ConfidenceThreshold, nil
@@ -116,7 +116,7 @@ func mergeFirewallRuleTypeDNSThreatProtection(
 	if firewallDomainListID != "" || dnsThreatProtection != "" {
 		return "", "", fmt.Errorf(
 			"%w: FirewallRuleType is mutually exclusive with FirewallDomainListId and DnsThreatProtection",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -228,11 +228,11 @@ func (h *Handler) handleCreateFirewallRule(
 	in *createFirewallRuleInput,
 ) (*createFirewallRuleOutput, error) {
 	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrBatchValidation)
 	}
 
 	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrBatchValidation)
 	}
 
 	switch in.Action {
@@ -241,7 +241,7 @@ func (h *Handler) handleCreateFirewallRule(
 	default:
 		return nil, fmt.Errorf(
 			"%w: Action must be %s, %s, or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			firewallActionAllow,
 			firewallActionBlock,
 			firewallActionAlert,
@@ -292,8 +292,8 @@ func firewallRuleBatchErrorCode(err error) string {
 		return "ResourceExistsException"
 	case errors.Is(err, ErrInvalidParameter):
 		return "InvalidParameterException"
-	case errors.Is(err, ErrValidation):
-		return "InvalidRequestException"
+	case errors.Is(err, ErrBatchValidation):
+		return "ValidationException"
 	default:
 		return "InternalServiceErrorException"
 	}
@@ -407,12 +407,12 @@ func (h *Handler) handleDeleteFirewallRule(
 	in *deleteFirewallRuleInput,
 ) (*deleteFirewallRuleOutput, error) {
 	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrBatchValidation)
 	}
 	if in.FirewallDomainListID == "" && in.FirewallThreatProtectionID == "" {
 		return nil, fmt.Errorf(
 			"%w: one of FirewallDomainListId or FirewallThreatProtectionId is required",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 	rule, err := h.Backend.DeleteFirewallRule(
@@ -522,12 +522,12 @@ func (h *Handler) handleUpdateFirewallRule(
 	in *updateFirewallRuleInput,
 ) (*updateFirewallRuleOutput, error) {
 	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrBatchValidation)
 	}
 	if in.FirewallDomainListID == "" && in.FirewallThreatProtectionID == "" {
 		return nil, fmt.Errorf(
 			"%w: one of FirewallDomainListId or FirewallThreatProtectionId is required",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 

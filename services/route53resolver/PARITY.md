@@ -657,3 +657,101 @@ changed in this service.
 Gates: `go build`, `go vet ./...` (repo-wide), `go test -race -count=1
 ./services/route53resolver/...`, `golangci-lint run
 ./services/route53resolver/...` -- all clean.
+
+## 2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6)
+
+`go run ./cmd/errtargetaudit -dir route53resolver` reported 32 class A
+findings (a real, correctly-spelled error code sent to an operation whose
+own SDK deserializer doesn't declare it) before this pass, 0 after. Protocol
+confirmed as `awsAwsjson11` (`func awsAwsjson11_deserializeOpError<Op>`
+switches in `deserializers.go`) -- the older per-op switch shape, not the
+newer `rpc2_deserializeOpError<Op>` shape.
+
+**Root cause, all 32 findings:** `ErrValidation` (`errors.go`) is a shared
+sentinel mapping to `InvalidRequestException`, correct for the singular
+Resolver* ops. But the entire Firewall/Outpost op family (and
+`GetResolverConfig`) uses `ErrValidation` too, even though their own
+deserializers model `ValidationException` instead -- confirmed per-op by
+reading each op's `awsAwsjson11_deserializeOpError<Op>` switch, not assumed
+from the family pattern. This matches the pre-existing family-split comment
+in `handler.go`'s `handleError` (which was actually only half-applied in
+code before this pass) and extends `ErrBatchValidation` -- previously scoped
+in its doc comment to just the three `Batch*FirewallRule` ops -- to its true,
+now-verified scope (see the corrected comment in `errors.go`).
+
+**Fix shape: did not touch `ErrValidation` itself** (still correct for every
+Resolver* caller -- re-confirmed `AssociateResolverRule`,
+`CreateResolverEndpoint`, `CreateResolverQueryLogConfig`,
+`AssociateResolverQueryLogConfig`, `DisassociateResolverQueryLogConfig`,
+`UpdateResolverConfig`, `GetResolverDnssecConfig`,
+`UpdateResolverDnssecConfig` all still declare `InvalidRequestException`).
+Overrode at each Firewall/Outpost/GetResolverConfig call site instead,
+swapping to the already-existing `ErrBatchValidation` sentinel
+(`ValidationException`): `firewall_rules.go`, `handler_firewall_rules.go`,
+`firewall_rule_groups.go`, `handler_firewall_rule_groups.go`,
+`firewall_domain_lists.go`, `handler_firewall_domain_lists.go`,
+`firewall_configs.go`, `handler_outpost_resolvers.go`, and
+`handler_configs.go`'s `getSimpleConfig`/`updateSimpleConfig` call sites
+(added a `validationErr error` parameter to `requireResourceID`/
+`getSimpleConfig`/`updateSimpleConfig` in `handler.go` so the three bare-
+resourceID config families -- FirewallConfig/ResolverConfig needing
+`ErrBatchValidation`, ResolverDnssecConfig needing `ErrValidation` -- can
+each pass their own correct sentinel through the shared helper instead of
+one hardcoded default). `firewallRuleBatchErrorCode`'s per-item batch error
+`Code` field (`handler_firewall_rules.go`) was also corrected from
+`"InvalidRequestException"` to `"ValidationException"` for the same
+`ErrBatchValidation` case, so a failing entry inside
+BatchCreate/Update/DeleteFirewallRule reports the same code its standalone
+counterpart now does.
+
+**One non-family-split bug, also fixed:** `CreateFirewallRule`'s
+`validateFirewallRuleDomainListUnique` (`firewall_rules.go:209`) used
+`ErrAlreadyExists` (`ResourceExistsException`) for a duplicate
+(FirewallRuleGroupId, FirewallDomainListId) pair. `ResourceExistsException`
+is exclusively a Resolver*-association error in this SDK (confirmed: only
+`AssociateResolverEndpointIpAddress`, `AssociateResolverQueryLogConfig`,
+`AssociateResolverRule`, `CreateResolverEndpoint`,
+`CreateResolverQueryLogConfig`, `CreateResolverRule` declare it) --
+`CreateFirewallRule` doesn't. Swapped to `ErrBatchValidation`. This was
+`ErrAlreadyExists`'s only production call site in the entire service; it is
+now unused as a producer (its one remaining reference is a now-dead
+defensive case in `firewallRuleBatchErrorCode`, left in place -- harmless,
+and `ResourceExistsException` genuinely going unmodeled for the six
+Resolver* association/creation ops that could produce it is a separate,
+larger gap: those ops have no duplicate-detection logic at all, which is a
+"never emits a code it should" gap, not this pass's "emits a code it
+shouldn't" class -- not fixed here, recorded for a future pass).
+
+**Six findings were refused a code swap because no declared type fits**
+(the operation's own model declares no type for the condition): an empty
+required ID/ARN reaching `GetFirewallDomainList`, `DeleteFirewallDomainList`,
+`GetFirewallRuleGroup`, `GetFirewallRuleGroupAssociation`, and
+`GetResolverRuleAssociation` -- none of these five declare
+`ValidationException` *or* `InvalidRequestException` in their real
+deserializers. For all five the handler-level pre-check was removed
+entirely rather than reclassified: each backend `Get`/`Delete` call already
+does a natural map lookup by ID that misses on an empty string and returns
+`ErrNotFound` (`ResourceNotFoundException`), a type every one of the five
+does declare -- confirmed by reading each backend method
+(`firewall_domain_lists.go`, `firewall_rule_groups.go`,
+`rule_associations.go`). `GetResolverRulePolicy`/`PutResolverRulePolicy`
+had no such natural fallback (their backends are blind map
+read/write with no not-found path), so their empty-`Arn` checks were
+instead pointed at `ErrInvalidParameter` (`InvalidParameterException`,
+"One or more parameters in this request are not valid" -- both ops declare
+it, confirmed).
+
+**Reachability note:** as with xray's `PutResourcePolicy` finding this same
+pass, `validateOp<Op>Input` in the pinned SDK's `validators.go` only checks
+`!= nil` for these required string fields, never non-empty -- so
+`aws.String("")` passes client-side validation and every one of these paths
+is genuinely reachable by a real, correctly-signed client, not just by raw
+HTTP.
+
+Zero web pages fetched this pass -- everything resolved from the pinned
+`aws-sdk-go-v2/service/route53resolver@v1.48.4` module cache.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide), `go test -race
+-count=1 ./services/route53resolver/...`, `golangci-lint run
+./services/route53resolver/...` -- all clean (see session notes for exact
+output).

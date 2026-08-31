@@ -105,3 +105,31 @@ func TestCreateSamplingRule_InvalidPriority_RealClient(t *testing.T) {
 	var ir *xraytypes.InvalidRequestException
 	require.ErrorAs(t, err, &ir, "expected a real InvalidRequestException from the SDK deserializer")
 }
+
+// TestPutResourcePolicy_EmptyDocument_RealClient drives PutResourcePolicy
+// through the real client with an explicit empty PolicyDocument. The SDK's
+// validateOpPutResourcePolicyInput only checks PolicyDocument != nil, so
+// aws.String("") passes client-side validation and the request reaches the
+// server. gopherstack's handler short-circuited this case with the shared
+// errInvalidRequest sentinel (InvalidRequestException) -- a code
+// PutResourcePolicy's own deserializer (awsRestjson1_deserializeOpErrorPutResourcePolicy)
+// does not declare at all (it declares InvalidPolicyRevisionIdException,
+// LockoutPreventionException, MalformedPolicyDocumentException,
+// PolicyCountLimitExceededException, PolicySizeLimitExceededException,
+// ThrottledException). The backend's own PutResourcePolicy already validates
+// the document as JSON and returns ErrMalformedPolicyDocument for exactly
+// this case -- the handler-level check just needs to stop intercepting it.
+func TestPutResourcePolicy_EmptyDocument_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+
+	_, err := client.PutResourcePolicy(t.Context(), &xraysdk.PutResourcePolicyInput{
+		PolicyName:     aws.String("empty-doc-policy"),
+		PolicyDocument: aws.String(""),
+	})
+	require.Error(t, err)
+
+	var mpd *xraytypes.MalformedPolicyDocumentException
+	require.ErrorAs(t, err, &mpd, "expected a real MalformedPolicyDocumentException from the SDK deserializer")
+}

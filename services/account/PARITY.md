@@ -360,3 +360,27 @@ consistent with every prior page fetched in this campaign).
 Gates: `go build`/`go vet ./...`/`gofmt -l`/`go fix -diff` all clean; `go test -race
 -count=1 ./services/account/...` passes (unchanged, since no code changed);
 `golangci-lint run ./services/account/...` reports 0 issues.
+
+**2026-08-31 pass (gopherstack-6flj/uox6 error-target audit)**: ran
+`cmd/errtargetaudit` against this service. It reported 33 class A findings
+(a declared-elsewhere code reachable from a handler that doesn't declare
+it), all against `writeBackendError`'s shared classification switch
+(`ConflictException`/`ResourceNotFoundException`/`ResourceUnavailableException`
+cases). **All 33 are false positives.** The tool attributes every case
+label in `writeBackendError` to every caller of that function, but each
+case only actually fires for a caller whose backend method can construct
+an error whose text contains that exception name -- and this service's
+sentinels (`errors.go`) are already scoped one-to-one to the single op
+each can fire from: `errPrimaryEmailInUse` (ConflictException) only from
+`StartPrimaryEmailUpdate`; `errNoAlternateContact`/`errNoContactInfo`/
+`errNoPendingUpdate`/`errNoPrimaryEmailUpdateStatus`/`errGovCloudNotLinked`
+(ResourceNotFoundException) only from their five respective ops;
+`ResourceUnavailableException` from none (already documented above as
+dead-but-correct for `GetGovCloudAccountInformation`). Traced every one of
+the 16 backend methods (`account_info.go`, `contacts.go`, `regions.go`)
+to confirm no other call path can produce these three exception names.
+Zero code changes; measured false-positive rate for this service: 33/33
+(100%), against the tool's own 10-20% estimate and the previous pass's
+0/53 -- a reminder the estimate is a campaign average, not a per-service
+guarantee, and that a shared classification helper with many callers is
+exactly where this tool's caller-agnostic reachability model breaks down.

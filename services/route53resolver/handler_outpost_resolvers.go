@@ -57,15 +57,15 @@ func (h *Handler) handleCreateOutpostResolver(
 	in *createOutpostResolverInput,
 ) (*createOutpostResolverOutput, error) {
 	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrBatchValidation)
 	}
 
 	if in.OutpostArn == "" {
-		return nil, fmt.Errorf("%w: OutpostArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: OutpostArn is required", ErrBatchValidation)
 	}
 
 	if in.PreferredInstanceType == "" {
-		return nil, fmt.Errorf("%w: PreferredInstanceType is required", ErrValidation)
+		return nil, fmt.Errorf("%w: PreferredInstanceType is required", ErrBatchValidation)
 	}
 
 	r, err := h.Backend.CreateOutpostResolver(
@@ -99,7 +99,7 @@ func (h *Handler) handleGetOutpostResolver(
 	in *getOutpostResolverInput,
 ) (*getOutpostResolverOutput, error) {
 	if in.ID == "" {
-		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Id is required", ErrBatchValidation)
 	}
 	r, err := h.Backend.GetOutpostResolver(ctx, in.ID)
 	if err != nil {
@@ -124,7 +124,7 @@ func (h *Handler) handleDeleteOutpostResolver(
 	in *deleteOutpostResolverInput,
 ) (*deleteOutpostResolverOutput, error) {
 	if in.ID == "" {
-		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Id is required", ErrBatchValidation)
 	}
 	r, err := h.Backend.DeleteOutpostResolver(ctx, in.ID)
 	if err != nil {
@@ -182,7 +182,7 @@ func (h *Handler) handleUpdateOutpostResolver(
 	in *updateOutpostResolverInput,
 ) (*updateOutpostResolverOutput, error) {
 	if in.ID == "" {
-		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Id is required", ErrBatchValidation)
 	}
 	r, err := h.Backend.UpdateOutpostResolver(
 		ctx,
