@@ -587,3 +587,78 @@ semantics, checked deeply; GSI/LSI-specific filter interactions beyond
 projection-type handling, PartiQL's `WHERE`-clause evaluator
 (`filterEAVByExpression`, partiql.go), and streams' `appendMatchingRecords`
 were not re-examined this pass.
+
+## 2026-08-31 unnamed-in-PARITY sweep (gopherstack-6flj/21my continuation)
+
+Targeted the six `List*`/`Describe*` operations whose names appeared
+nowhere in this file before today: `DescribeContinuousBackups`,
+`DescribeEndpoints`, `DescribeImport`, `DescribeKinesisStreamingDestination`,
+`DescribeLimits`, `DescribeTimeToLive`. Confirmed protocol from the
+deserializer directly: `dynamodb@v1.63.1` is `awsAwsjson10_` (JSON RPC 1.0),
+not XML -- no case-folding, so a casing mismatch here is a hard decode
+failure rather than a latent one. All six read against their own
+deserializer/type in `deserializers.go`/`types/types.go`, per op and per
+nested item type.
+
+**Bug found and fixed**: `DescribeImport`/`ImportTable`'s
+`ImportTableDescription.InputCompressionType` (real member, confirmed at
+`types/types.go:2005` and deserializer case `"InputCompressionType"` in
+`awsAwsjson10_deserializeDocumentImportTableDescription`) was tracked on the
+backend the whole time -- `ImportTable` stores the caller's
+`InputCompressionType` on `storedImport.InputCompression` (`store.go:114`)
+-- but neither wire converter (`importDescriptionFromRecord`,
+`import_export_s3.go`; `importDescriptionWireFromSDK`,
+`handler_import.go`) ever read it back out. Every `DescribeImport`/
+`ImportTable` response reported an empty compression type regardless of
+what GZIP/NONE the import was created with. `ImportSummary` (the
+`ListImports` item type) genuinely has no such member, so this was
+Describe/ImportTable-only, not a sibling disagreement.
+Test: `TestDescribeImport_InputCompressionType`
+(`import_input_compression_test.go`), drives the real
+`aws-sdk-go-v2/service/dynamodb` client through `ImportTable` then
+`DescribeImport` and asserts `InputCompressionType == GZIP` on both
+responses. Verified failing pre-fix (`actual: ""`).
+
+**Recorded, not fixed** -- real per-SDK gaps with no ready backing state:
+- `DescribeImport`/`ImportTable`'s `ImportTableDescription` is also missing
+  `TableCreationParameters` (`*types.TableCreationParameters`,
+  `types/types.go:3323`, optional -- not `This member is required`). The
+  backend only stores the request's `TableCreationParameters` transiently
+  to drive `CreateTable`; `storedImport` never retains the struct itself,
+  so echoing it back would need either a new stored field or a
+  reconstruction from the resulting `TableDescription`. Left unfixed this
+  pass; a straightforward correct fix is to store `input.TableCreationParameters`
+  directly on `storedImport` at `ImportTable` time (it is the caller's own
+  request value, not synthesized) and thread it through both wire
+  converters and the corresponding wire struct.
+- `DescribeKinesisStreamingDestination`'s `KinesisDataStreamDestination` is
+  missing `DestinationStatusDescription` (`*string`, confirmed real member
+  and deserializer case at `deserializers.go` around
+  `awsAwsjson10_deserializeDocumentKinesisDataStreamDestination`). Real but
+  currently unobservable: this backend's `DestinationStatus` is hardcoded
+  to `ACTIVE` (`kinesisDestinationsRLocked`, `kinesis_streaming.go`) and
+  never models a FAILED/DISABLING transition, and AWS only populates this
+  description field for non-nominal states -- so no legal input through
+  this backend would ever produce a non-empty value.
+
+**Clean at both layers, no bug**: `DescribeContinuousBackups` (uses the
+real SDK types directly as the backend's return type --
+`ContinuousBackupsDescription`/`PointInTimeRecoveryDescription` -- and a
+dedicated wire converter, `continuousBackupsOutputFromSDK`, correctly
+re-encodes the two `*time.Time` fields as Unix-epoch-seconds floats
+matching the JSON protocol's wire format rather than encoding/json's
+default RFC3339 string); `DescribeEndpoints` (`Endpoint.Address`/
+`CachePeriodInMinutes`, both required members, both present);
+`DescribeLimits` (four flat int64 quota fields, all present under their
+real names); `DescribeTimeToLive` (`TimeToLiveDescription.AttributeName`/
+`TimeToLiveStatus`, both present, wrapper key correct).
+
+Every list in this batch's scope was already correctly member-wrapped
+(`DescribeEndpoints`' `Endpoints` list; no other list-shaped ops in this
+batch's six).
+
+Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run ./services/dynamodb/...` (0 issues). No `nolint`
+directives in either file touched (`handler_import.go`,
+`import_export_s3.go`).

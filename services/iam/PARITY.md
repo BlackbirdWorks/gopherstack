@@ -708,3 +708,51 @@ issues, after switching `userPathAndID`/`groupPathAndID`/`rolePathAndID` from
 named to bare returns -- `nonamedreturns` flagged the named-return form these
 three helpers were first written with). No `nolint` directives exist in any
 file this pass touched.
+
+## 2026-08-31 unnamed-in-PARITY sweep (gopherstack-6flj/21my continuation)
+
+Targeted the six `List*` operations whose names appeared nowhere in this
+file before today: `ListAccountAliases`, `ListGroupPolicies`,
+`ListOrganizationsFeatures`, `ListPolicyVersions`, `ListRolePolicies`,
+`ListUserPolicies`. Confirmed protocol from the deserializer directly:
+`iam@v1.58.1` is `awsAwsquery_` (XML query protocol) -- the smithy-go XML
+decoder case-folds element names, so a case-only mismatch would decode
+correctly today and be invisible to any round-trip test; watched for this
+specifically and found none in this batch. All six read against their own
+deserializer function in `deserializers.go` and, for the two with
+structured items (`ListPolicyVersions`), the real `types.PolicyVersion`.
+
+**All six clean, no bug found**:
+- `ListAccountAliases`: wrapper `AccountAliases>member` matches
+  `awsAwsquery_deserializeOpDocumentListAccountAliasesOutput`'s
+  `"AccountAliases"` case exactly; `IsTruncated` present; `Marker` absent
+  is consistent since this backend never truncates.
+- `ListGroupPolicies` / `ListRolePolicies` / `ListUserPolicies`: all three
+  share the same `PolicyNames>member` wrapper shape, all correct, all
+  backed by real state (`h.Backend.List*Policies`).
+- `ListPolicyVersions`: `Versions>member` wrapper correct;
+  `PolicyVersionXML{VersionID, CreateDate, IsDefaultVersion}` covers every
+  field `types.PolicyVersion` declares except `Document`, which real
+  `ListPolicyVersions` documents as intentionally omitted ("The policy
+  document is returned in the response to GetPolicyVersion and
+  GetAccountAuthorizationDetails... It is not returned in the response to
+  CreatePolicyVersion or ListPolicyVersions", `api_op_ListPolicyVersions.go`)
+  -- so its absence here is correct AWS behavior, not a gap.
+- `ListOrganizationsFeatures`: already a deliberately-empty stub
+  (`models_account.go` comment already documents the wire shape was
+  verified against the deserializer: `EnabledFeatures`/`OrganizationId`,
+  not the previously-invented `OrganizationFeatures`/`RootId`). No backend
+  state exists to populate it; correctly returns an empty list rather than
+  fabricating one. Confirmed the wire shape is still accurate against
+  `iam@v1.58.1` and left as-is.
+
+No wrapper-key mismatches, no per-item field mismatches, no case-only
+mismatches, and no hard-decode-error risks found in this batch's six
+operations. This closes out the last of the previously-unswept-by-name
+operations for iam under gopherstack-6flj's targeting; future passes on
+iam should return to axes already covered rather than name-based gaps.
+
+Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
+(repo-wide, clean). No files under `services/iam/` were modified this pass
+(read-only verification); no `go test`/`golangci-lint` re-run needed beyond
+the repo-wide `go vet`.
