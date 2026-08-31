@@ -1270,3 +1270,196 @@ left on device"); the only out-of-scope importer of this package
 (`cli.go`, root package) was vetted directly instead (`go vet .` -- clean),
 and no exported signature changed in this diff, so no caller outside this
 package could be affected regardless.
+
+## 2026-08-31 gopherstack-uox6: List/Describe value-semantics sweep, 4 bugs
+
+Continuation of the pass above: the 13-operation Search family is done; this
+pass covers a slice of the 109 `List*`/`Describe*` operations (constant
+names in `handler*.go`/`interfaces.go`: 65 `opDescribe*`, 44 `opList*`;
+`bd`'s prior estimate of 121 was high, likely double-counting a few names
+under different labels).
+
+**Page-size axis, checked exhaustively across all 39 `List*` operations
+carrying `MaxResults`:** none document a numeric default in
+`quicksight@v1.123.1`'s doc comments -- only `ListActionConnectors`
+documents a bound ("Valid range is 1 to 100") with no default. This matches
+the Search family's own finding, so the uniform `defaultMaxResults = 100`
+clamp (`store.go`, 40 call sites) contradicts nothing documented anywhere in
+this service. Targeting swept every `List*`/`Describe*` doc comment for
+"if you omit"/"if not specified"/"by default"/"default" language
+(not just `MaxResults`) to find the real filter/enum/bool surface, since
+most `List*` operations here have no filter fields at all beyond
+`AwsAccountId`/`MaxResults`/`NextToken` -- confirmed by listing every
+request-struct field across all 39 and finding exactly four with a
+typed filter/enum/bool field beyond the common three
+(`ListIAMPolicyAssignments.AssignmentStatus`, `ListRoleMemberships.Role`,
+`ListThemes.Type`, `ListUsersIndexCapacity.{Filters,SortBy,SortOrder}`) plus
+six on `Describe*` operations found the same way
+(`DescribeAccountCustomization.Resolved`,
+`DescribeAutomationJob.{IncludeInputPayload,IncludeOutputPayload}`,
+`DescribeBrand.VersionId`, `DescribeFlow.PublishState`,
+`DescribeKeyRegistration.DefaultKeyOnly`,
+`DescribeRoleCustomPermission.Role`).
+
+**Bug 1: `ListThemes.Type` never read at all.** `handleListThemes`
+(`handler_themes.go`) called `Backend.ListThemes(accountID, maxResults,
+nextToken)` -- no `type` query parameter (confirmed against
+`awsRestjson1_serializeOpHttpBindingsListThemesInput`, which
+`encoder.SetQuery("type")`s it) reached the backend at all. `ALL (default) -
+Display all existing themes... CUSTOM... QUICKSIGHT` per
+`api_op_ListThemes.go`. This backend's `CreateTheme` always stores
+`Type: "CUSTOM"` (no seeded QUICKSIGHT starting theme), so `Type=QUICKSIGHT`
+is exactly the value no stored theme can legally carry -- before the fix it
+returned every CUSTOM theme anyway; after, it correctly returns none. Fixed
+by filtering `allThemesLocked`'s result in `Backend.ListThemes`
+(`themes.go`) on an added `themeType` parameter, empty/`"ALL"` meaning no
+filter.
+
+**Bug 2: `DescribeKeyRegistration.DefaultKeyOnly` never read.**
+`handleDescribeKeyRegistration` (`handler_account.go`) never read the
+"default-key-only" boolean query parameter (confirmed in serializers.go),
+so a client asking for only the default key got every registered key back
+regardless -- even though `RegisteredCustomerManagedKey.DefaultKey` is real,
+request-settable data via `UpdateKeyRegistration`. Fixed by threading a
+`defaultKeyOnly bool` through `Backend.DescribeKeyRegistration`
+(`account.go`) and filtering on `DefaultKey`.
+
+**Bug 3: `ListUsersIndexCapacity`'s `Filters`/`SortBy`/`SortOrder` never
+applied.** `handleListUsersIndexCapacity` (`handler_userindexcapacity.go`)
+read only `namespace`/`maxResults`/`nextToken` from the body. A comment on
+`Backend.ListUsersIndexCapacity` (`userindexcapacity.go`) explicitly
+justified this as "matching this backend's existing precedent of no-op
+unrecognized search-filter attributes" -- but `Filters`
+(`totalCapacityBytes` range, `userNameOrEmail` prefix) and `SortBy`/
+`SortOrder` are documented, backed fields, not unrecognized ones: the
+precedent this cited doesn't apply. `TotalCapacityBytes`/`Email`/`UserName`
+are real fields this backend already computes/tracks, so both filters have
+real data to act on. Fixed by adding a `UserIndexCapacityQuery` struct
+(`types.go`), parsing it from the body (`handler_userindexcapacity.go`), and
+applying it before pagination (`userindexcapacity.go`): the capacity range
+is inclusive on both bounds per `CapacityBytesRangeFilter`'s doc comment,
+the prefix matches username OR email per `UserNameOrEmailFilter`'s "starts-
+with match against username or email". `SortBy`
+(`UserIndexCapacitySortBy` has exactly one legal member,
+`TOTAL_CAPACITY_BYTES`) now switches the sort key from `UserName` to
+`TotalCapacityBytes`, honoring `SortOrder`'s documented "Defaults to DESC if
+not specified" -- this half has **no observable effect today** and is
+reported as such: this backend has no ingestion pipeline, so every user's
+`TotalCapacityBytes` is provably 0 (same reasoning `userIndexCapacityFor`'s
+existing comment already gives for `TotalSpaceCapacityBytes`), and the code
+change was verified by inspection rather than a test that could actually
+distinguish ASC from DESC. Not implemented: `Namespace` "Required when the
+userNameOrEmail filter is present" -- a missing-rejection/validation
+concern, kept on that separate axis rather than folded into this fix.
+
+**Bug 4: `DescribeAccountCustomization.Resolved` never read.**
+"The Resolved flag works with the other parameters to determine which view
+of Quick Sight customizations is returned... Omit this flag... to reveal
+customizations that are configured at different levels"
+(`api_op_DescribeAccountCustomization.go`). `handleDescribeAccountCustomization`
+(`handler_account.go`) only ever did an exact `accountID/namespace` key
+lookup, so a namespace-scoped `Resolved=true` request for a namespace with
+no customization of its own -- only an account-level default -- got
+`ErrAccountCustomizationNotFound` (404) where real AWS resolves to the
+account-level view. Fixed by adding a `resolved bool` parameter to
+`Backend.DescribeAccountCustomization` (`account.go`): when set and
+`namespace != ""`, it merges field-by-field, namespace value winning where
+non-empty, else falling back to the account-level value; unresolved lookups
+and the account level itself (`namespace == ""`, nothing to fall back to)
+are unchanged.
+
+**Confirmed correct, not fixed, verified against each operation's own
+input type and serializer, not a sibling's:**
+`ListIAMPolicyAssignments.AssignmentStatus` (`handler_iampolicyassignments.go`)
+already reads the `assignment-status` query parameter and filters
+correctly (`""` matches everything, matching `ListThemes`' documented `ALL`
+default -- no equivalent default is documented here, but empty already
+means "no filter" either way). `ListRoleMemberships.Role` and
+`DescribeRoleCustomPermission.Role` are required path-segment selectors
+(which role's memberships/permissions to fetch), not filters -- both
+correctly read from the URL path. `DescribeAutomationJob`'s
+`IncludeInputPayload`/`IncludeOutputPayload` correctly read their query
+parameters and default to excluded (matching the documented "If set to
+false, ... returned as null", and Go's zero-value `bool` already means
+`false`). `DescribeBrand.VersionId`'s documented "default value is the
+latest version" is correctly honored: `toBrand()` reads `CurrentVersionID`,
+which `UpdateBrand` bumps on every new version.
+
+**Recorded on the other axis, not fixed (structural, not a semantics
+bug):** `DescribeFlow.PublishState` is required and bound to the
+"publish-state" query parameter, but this backend stores one definition per
+flow with no draft/published divergence (`CreateFlow`'s existing comment:
+real AWS auto-publishes on create, matching this backend's single-state
+model) -- there is nothing for the parameter to select between, so it isn't
+read at all. The doc comment previously claimed it was "accepted... for
+wire fidelity", which was false (never read); corrected to state plainly
+that it isn't read and why that's structurally correct here, not an
+oversight.
+
+Coverage is a slice, stated plainly: of 109 `List*`/`Describe*` operations,
+this pass verified the page-size axis exhaustively (all 39 `MaxResults`
+operations) and the filter/enum/bool axis on the 10 operations found to
+carry one (4 bugs, 6 confirmed clean/structural). The remaining ~99
+operations -- almost all pure `AwsAccountId`/`MaxResults`/`NextToken`/
+resource-ID listings or single-resource describes with no filter surface,
+per the same sweep that found the ten above -- are unaudited by this pass.
+
+Tests: `list_describe_value_semantics_test.go` (new), driven through the
+real `aws-sdk-go-v2` client: `TestListThemes_TypeFilter`,
+`TestDescribeKeyRegistration_DefaultKeyOnly`,
+`TestListUsersIndexCapacity_PrefixFilter`,
+`TestListUsersIndexCapacity_CapacityBytesFilter` (boundary-tests MinBytes=0
+vs MinBytes=1 against a provably-always-0 capacity, the same technique the
+prior pass used for `KNOWLEDGE_BASE_SIZE_BYTES`), and
+`TestDescribeAccountCustomization_Resolved`. All five confirmed failing
+against unmodified code before the corresponding fix landed. No existing
+test was modified; two existing tests' call sites
+(`pagination_sort_totality_test.go`, `store_roundtrip_test.go`) were updated
+for the two interface-signature changes those tests call directly
+(`ListUsersIndexCapacity`, `DescribeAccountCustomization`) with no assertion
+changes.
+
+No pages fetched this pass -- everything resolved from the pinned
+`quicksight@v1.123.1` module cache.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1` all clean. `golangci-lint run` found six issues
+introduced by this diff (gocognit on the filter-body parser, two golines
+line-length violations, four govet shadowed-`ok` warnings, two nestif
+nested-block warnings) -- all fixed by decomposing the parser into small
+named-return helpers and extracting the sort comparator. A first re-run
+still showed a `dupl` pair -- `themes.go`'s `UpdateTheme`/`DeleteTheme` vs
+`templates.go`'s `UpdateTemplate`/`DeleteTemplate` -- initially misreported
+here as pre-existing (`themes.go` IS modified by this diff; only
+`templates.go` was untouched, and the two files' bodies not changing
+doesn't mean the *pairing* dupl reports wasn't a consequence of lines
+shifting elsewhere). A clean-HEAD worktree check (`git worktree add
+--detach`, never a bare `git stash`) confirmed the real mechanism: at HEAD,
+dupl's clustering already merges `UpdateTheme`+`DeleteTheme`+
+`allThemesLocked`+...+`ListThemeAliases` into one larger match against the
+equivalent `templates.go` span (the existing `//nolint:dupl` on
+`ListThemeAliases`/`ListTemplateAliases` covers that merged report's
+attributed line, which is why it read as "clean" before). This diff's added
+lines inside `ListThemes` sit between the Update/Delete pair and the
+ListAliases pair, splitting that one merged match into two separate ones --
+the Update/Delete pair losing its coverage as a result. Fixed per this
+repo's own established convention for this exact shape (12+ existing
+`//nolint:dupl // list functions share structure but operate on different
+stored types` directives across this file family for same-CRUD-shape/
+different-stored-type pairs): added matching directives on `UpdateTemplate`
+(`templates.go:145`) and `UpdateTheme` (`themes.go:152`), reworded for
+"update/delete" rather than "list". Sharing via generics was considered and
+rejected: it would require a getter/setter interface spanning
+`storedTemplate`/`storedTheme` (and their version types) for a lint-only
+concern, a pattern this file family has consistently not adopted anywhere
+else. `golangci-lint run ./services/quicksight/...` now reports `0 issues.`
+-- confirmed no other `nolint` directive anywhere in the package is flagged
+unused (nolintlint fires on the whole package, not just `dupl`, so a clean
+run is the authoritative check). Repo-wide `go vet ./...` ran clean (disk
+at 19% this pass, no cache issue) both before and after this correction.
+All four interface-signature changes (`ListThemes`,
+`DescribeKeyRegistration`, `DescribeAccountCustomization`,
+`ListUsersIndexCapacity`) have no callers outside this package (confirmed
+by grep); the two in-package test call sites they broke were updated, not
+weakened -- no test assertions changed by either this pass or this
+correction.

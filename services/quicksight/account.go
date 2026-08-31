@@ -222,17 +222,52 @@ func (b *InMemoryBackend) CreateAccountCustomization(
 	return c.toAccountCustomization(), nil
 }
 
-// DescribeAccountCustomization returns accountID's (namespace-scoped) branding customization.
-func (b *InMemoryBackend) DescribeAccountCustomization(accountID, namespace string) (*AccountCustomization, error) {
+// DescribeAccountCustomization returns accountID's (namespace-scoped)
+// branding customization. When resolved is set and namespace is non-empty,
+// it returns the effective view real AWS uses to render the console:
+// namespace-level fields win where set, falling back field-by-field to the
+// account-level customization (DescribeAccountCustomizationInput.Resolved,
+// quicksight@v1.123.1 api_op_DescribeAccountCustomization.go: "Omit this
+// flag... to reveal customizations that are configured at different
+// levels" implies the flag's presence merges them). Resolved has nothing to
+// fall back to when namespace is already "" (the account level itself), so
+// it's ignored in that case.
+func (b *InMemoryBackend) DescribeAccountCustomization(
+	accountID, namespace string,
+	resolved bool,
+) (*AccountCustomization, error) {
 	b.mu.RLock("DescribeAccountCustomization")
 	defer b.mu.RUnlock()
 
-	c, ok := b.accountCustomizations.Get(accountCustomizationKey(accountID, namespace))
-	if !ok {
+	nsCust, nsOK := b.accountCustomizations.Get(accountCustomizationKey(accountID, namespace))
+	if !resolved || namespace == "" {
+		if !nsOK {
+			return nil, ErrAccountCustomizationNotFound
+		}
+
+		return nsCust.toAccountCustomization(), nil
+	}
+
+	acctCust, acctOK := b.accountCustomizations.Get(accountCustomizationKey(accountID, ""))
+	if !nsOK && !acctOK {
 		return nil, ErrAccountCustomizationNotFound
 	}
 
-	return c.toAccountCustomization(), nil
+	merged := &storedAccountCustomization{Namespace: namespace}
+	if acctOK {
+		merged.DefaultTheme = acctCust.DefaultTheme
+		merged.DefaultEmailCustomizationTemplate = acctCust.DefaultEmailCustomizationTemplate
+	}
+	if nsOK {
+		if nsCust.DefaultTheme != "" {
+			merged.DefaultTheme = nsCust.DefaultTheme
+		}
+		if nsCust.DefaultEmailCustomizationTemplate != "" {
+			merged.DefaultEmailCustomizationTemplate = nsCust.DefaultEmailCustomizationTemplate
+		}
+	}
+
+	return merged.toAccountCustomization(), nil
 }
 
 // UpdateAccountCustomization mutates an existing branding customization.
@@ -464,12 +499,30 @@ func fromStoredRegisteredKeys(keys []storedRegisteredKey) []RegisteredCustomerMa
 	return out
 }
 
-// DescribeKeyRegistration returns accountID's registered customer-managed keys.
-func (b *InMemoryBackend) DescribeKeyRegistration(accountID string) ([]RegisteredCustomerManagedKey, error) {
+// DescribeKeyRegistration returns accountID's registered customer-managed
+// keys, narrowed to the default key when defaultKeyOnly is set
+// (DescribeKeyRegistrationInput.DefaultKeyOnly, quicksight@v1.123.1
+// api_op_DescribeKeyRegistration.go).
+func (b *InMemoryBackend) DescribeKeyRegistration(
+	accountID string,
+	defaultKeyOnly bool,
+) ([]RegisteredCustomerManagedKey, error) {
 	b.mu.RLock("DescribeKeyRegistration")
 	defer b.mu.RUnlock()
 
-	return fromStoredRegisteredKeys(b.keyRegistrations[accountID]), nil
+	keys := fromStoredRegisteredKeys(b.keyRegistrations[accountID])
+	if !defaultKeyOnly {
+		return keys, nil
+	}
+
+	filtered := keys[:0:0]
+	for _, k := range keys {
+		if k.DefaultKey {
+			filtered = append(filtered, k)
+		}
+	}
+
+	return filtered, nil
 }
 
 // UpdateKeyRegistration replaces accountID's set of registered customer-managed keys.

@@ -142,6 +142,7 @@ func (b *InMemoryBackend) DescribeTemplate(accountID, templateID string, version
 	return result, nil
 }
 
+//nolint:dupl // update/delete functions share structure but operate on different stored types
 func (b *InMemoryBackend) UpdateTemplate(
 	accountID, templateID, name, sourceEntityArn, versionDescription string,
 	definition map[string]any,

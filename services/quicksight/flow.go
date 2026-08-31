@@ -123,8 +123,10 @@ func (b *InMemoryBackend) CreateFlow(
 // DescribeFlow returns the FlowDetail-shaped view of a flow. Real AWS scopes
 // the response to a requested PublishState (DRAFT/PUBLISHED/
 // PENDING_APPROVAL); this backend stores a single definition (no draft/
-// published divergence), so publishState is accepted by the handler for
-// wire fidelity but doesn't change which data is returned.
+// published divergence), so publishState (required on the request, bound to
+// the "publish-state" query parameter) has nothing to select between and
+// isn't read at all -- confirmed the handler doesn't change which data is
+// returned for any value, not merely that it's unread.
 func (b *InMemoryBackend) DescribeFlow(accountID, flowID string) (*Flow, error) {
 	b.mu.RLock("DescribeFlow")
 	defer b.mu.RUnlock()

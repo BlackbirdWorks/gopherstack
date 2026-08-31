@@ -258,7 +258,7 @@ type StorageBackend interface {
 		configuration map[string]any,
 	) (*Theme, error)
 	DeleteTheme(accountID, themeID string, versionNumber int64) error
-	ListThemes(accountID string, maxResults int32, nextToken string) ([]*Theme, string, error)
+	ListThemes(accountID, themeType string, maxResults int32, nextToken string) ([]*Theme, string, error)
 	ListThemeVersions(
 		accountID, themeID string,
 		maxResults int32,
@@ -408,7 +408,7 @@ type StorageBackend interface {
 	CreateAccountCustomization(
 		accountID, namespace, defaultTheme, defaultEmailCustomizationTemplate string,
 	) (*AccountCustomization, error)
-	DescribeAccountCustomization(accountID, namespace string) (*AccountCustomization, error)
+	DescribeAccountCustomization(accountID, namespace string, resolved bool) (*AccountCustomization, error)
 	UpdateAccountCustomization(
 		accountID, namespace, defaultTheme, defaultEmailCustomizationTemplate string,
 	) (*AccountCustomization, error)
@@ -431,7 +431,7 @@ type StorageBackend interface {
 	UpdatePublicSharingSettings(accountID string, enabled bool) error
 
 	// Key registration
-	DescribeKeyRegistration(accountID string) ([]RegisteredCustomerManagedKey, error)
+	DescribeKeyRegistration(accountID string, defaultKeyOnly bool) ([]RegisteredCustomerManagedKey, error)
 	UpdateKeyRegistration(
 		accountID string,
 		keys []RegisteredCustomerManagedKey,
@@ -742,6 +742,7 @@ type StorageBackend interface {
 	// User index capacity
 	ListUsersIndexCapacity(
 		accountID, namespace string,
+		query UserIndexCapacityQuery,
 		maxResults int32,
 		nextToken string,
 	) ([]UserIndexCapacity, string, error)

@@ -52,7 +52,9 @@ func TestListUsersIndexCapacityCrossNamespaceSortIsTotal(t *testing.T) {
 			pages++
 			require.LessOrEqualf(t, pages, 10, "attempt %d: paginated walk did not terminate (stuck cursor)", attempt)
 
-			page, next, listErr := b.ListUsersIndexCapacity(accountID, "", 1, token)
+			page, next, listErr := b.ListUsersIndexCapacity(
+				accountID, "", quicksight.UserIndexCapacityQuery{}, 1, token,
+			)
 			require.NoError(t, listErr)
 
 			for _, u := range page {

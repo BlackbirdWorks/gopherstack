@@ -11,6 +11,7 @@ import (
 const (
 	themeAliasLatest = "$LATEST"
 	themeTypeCustom  = "CUSTOM"
+	themeTypeAll     = "ALL"
 )
 
 // storedThemeVersion is the persisted representation of one version of a
@@ -148,6 +149,7 @@ func (b *InMemoryBackend) DescribeTheme(accountID, themeID string, versionNumber
 	return result, nil
 }
 
+//nolint:dupl // update/delete functions share structure but operate on different stored types
 func (b *InMemoryBackend) UpdateTheme(
 	accountID, themeID, name, baseThemeID, versionDescription string,
 	configuration map[string]any,
@@ -242,8 +244,12 @@ func (b *InMemoryBackend) allThemesLocked(_ string) []*storedTheme {
 	return all
 }
 
+// ListThemes filters by themeType (the raw "type" query value: "ALL",
+// "CUSTOM", or "QUICKSIGHT" per ListThemesInput.Type -- api_op_ListThemes.go
+// documents ALL as the default, i.e. no filter). Empty or "ALL" applies no
+// filter; anything else must match a theme's own Type exactly.
 func (b *InMemoryBackend) ListThemes(
-	accountID string,
+	accountID, themeType string,
 	maxResults int32,
 	nextToken string,
 ) ([]*Theme, string, error) {
@@ -251,6 +257,15 @@ func (b *InMemoryBackend) ListThemes(
 	defer b.mu.RUnlock()
 
 	all := b.allThemesLocked(accountID)
+	if themeType != "" && themeType != themeTypeAll {
+		filtered := all[:0:0]
+		for _, t := range all {
+			if t.Type == themeType {
+				filtered = append(filtered, t)
+			}
+		}
+		all = filtered
+	}
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults

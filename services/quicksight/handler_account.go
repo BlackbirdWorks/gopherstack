@@ -48,6 +48,16 @@ const (
 	keyPurchaseMode                    = "PurchaseMode"
 
 	queryParamNamespace = "namespace"
+
+	// queryParamDefaultKeyOnly is DescribeKeyRegistrationInput.
+	// DefaultKeyOnly's wire binding (quicksight@v1.123.1 serializers.go:
+	// encoder.SetQuery("default-key-only")).
+	queryParamDefaultKeyOnly = "default-key-only"
+
+	// queryParamResolved is DescribeAccountCustomizationInput.Resolved's
+	// wire binding (quicksight@v1.123.1 serializers.go:
+	// encoder.SetQuery("resolved"), only emitted when true).
+	queryParamResolved = "resolved"
 )
 
 func isAccountConfigOp(op string) bool {
@@ -307,8 +317,9 @@ func (h *Handler) handleCreateAccountCustomization(c *echo.Context) error {
 func (h *Handler) handleDescribeAccountCustomization(c *echo.Context) error {
 	accountID := seg(pathSegsFromCtx(c), segAccountID)
 	namespace := queryParam(c, queryParamNamespace)
+	resolved := queryParam(c, queryParamResolved) == queryValueTrue
 
-	cust, err := h.Backend.DescribeAccountCustomization(accountID, namespace)
+	cust, err := h.Backend.DescribeAccountCustomization(accountID, namespace, resolved)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -460,7 +471,7 @@ func (h *Handler) handleUpdatePublicSharingSettings(c *echo.Context) error {
 func (h *Handler) handleDescribeKeyRegistration(c *echo.Context) error {
 	accountID := seg(pathSegsFromCtx(c), segAccountID)
 
-	keys, err := h.Backend.DescribeKeyRegistration(accountID)
+	keys, err := h.Backend.DescribeKeyRegistration(accountID, queryParam(c, queryParamDefaultKeyOnly) == queryValueTrue)
 	if err != nil {
 		return httpErr(c, err)
 	}
