@@ -489,3 +489,30 @@ value -- see the type's doc comment in models.go for the exact convention.
   snapshot missing the new fields simply decodes them as their zero value, which is always a valid
   starting point (e.g. an app snapshotted before this sweep decodes with `EnvironmentVariables ==
   nil`, indistinguishable from "never set one").
+
+## Handler-collision determinism sweep verification (2026-08-31, gopherstack-fr30)
+
+`cmd/reqfielddiff`/`cmd/reqfieldscan` used to resolve a handler by breaking
+case-insensitive name ties on Go's randomized map iteration order
+(ef0eef041 fixed it). amplify is named in that fix's census (an exported
+`InMemoryBackend` method like `GetApp`/`ListApps`/`DeleteBranch` collides
+case-insensitively with the real unexported handler `getApp`/`listApps`/
+`deleteBranch`), so it was a candidate for having been measured wrong.
+
+Checked directly: ran the unpatched `reqfielddiff` from `ef0eef041~1` five
+times and diffed each run against the current (fixed) tool's output. Every
+run was **byte-identical** for amplify (`emulator-declared fields: 508`,
+same 36-entry undeclared list, in all 5 pre-fix runs and post-fix). Reason:
+amplify's handler names are the plain `lowerFirst(op)` convention
+(`getApp`, `createBranch`, ...) with no acronym-casing mismatch against the
+op name, so `findHandlerByName`'s exact-match candidate list resolves
+every op deterministically before the ambiguous case-insensitive fold path
+(where the exported/unexported collision lives) is ever reached. The
+collision exists structurally in this package but this tool never actually
+exercises it. `reqfieldscan` was independently re-verified byte-identical
+too, consistent with that tool's own doc claim that its narrower
+`wrapOpFuncs`-only universe has zero real collisions here.
+
+No bug found or fixed in this service from this sweep -- the honest result
+is a bound (zero, in this service) on how much damage the pre-fix
+nondeterminism actually did, not an unmeasured gap.

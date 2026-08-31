@@ -347,6 +347,30 @@ func TestInMemoryBackend_UpdateGraphqlAPI(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_CreateAndUpdateGraphqlAPI_OwnerContact(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	created, err := b.CreateGraphqlAPI(
+		"OwnerContactAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil,
+		&appsync.GraphqlAPIConfig{OwnerContact: "team-a@example.com"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "team-a@example.com", created.OwnerContact)
+
+	fetched, err := b.GetGraphqlAPI(created.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "team-a@example.com", fetched.OwnerContact)
+
+	updated, err := b.UpdateGraphqlAPI(
+		created.APIID, "", "", nil, "", nil,
+		&appsync.GraphqlAPIConfig{OwnerContact: "team-b@example.com"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "team-b@example.com", updated.OwnerContact)
+}
+
 func TestInMemoryBackend_EnvironmentVariables(t *testing.T) {
 	t.Parallel()
 

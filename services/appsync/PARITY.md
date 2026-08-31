@@ -389,3 +389,59 @@ backend. Fixed to return `ErrNotFound` (404 `NotFoundException`); three
 pre-existing tests that asserted the old 200/`"NOT_FOUND"` behavior were
 updated to expect the error
 (`TestGetApiAssociation_NoAssociation_NotFound`, `wire_field_fixes_test.go`).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-fr30)
+
+`cmd/reqfielddiff`'s handler resolution used to break ties among
+case-insensitive name matches by whichever Go's randomized map iteration
+visited first (ef0eef041 fixed it repo-wide). appsync was named in that
+fix's own census as the motivating example: `CreateApi`/`createApi` and 64
+other op/handler pairs in this package differ only by how this repo
+capitalizes the `Api`/`API` acronym, so before the fix the tool could
+resolve to `(b *InMemoryBackend) CreateAPI` (business logic) instead of
+`(h *Handler) createAPI` (the real decode site) on any given run.
+
+Verified the damage directly: ran the unpatched tool from `ef0eef041~1`
+five times against this package. `with declared fields` bounced between 33
+and 36 across runs (post-fix: a stable 42) and 67 distinct op.field
+findings flickered tier depending on which candidate won that run. 65 of
+those 67 are now resolved correctly and no longer flagged -- e.g.
+`CreateGraphqlApi.Name`, `.Tags`, `.AuthenticationType`,
+`AssociateApi.ApiId`/`.DomainName`, all of `CreateApiCache`'s fields --
+because `createGraphqlAPI`/`createResolver`/etc. do read them; the
+misresolution to the exported backend method previously reported them as
+unread false positives.
+
+The remaining 2 of 67 (`CreateGraphqlApi.OwnerContact`,
+`UpdateGraphqlApi.OwnerContact`) stayed flagged in every pre-fix run *and*
+post-fix, and turned out to be real: `CreateGraphqlApiInput`/
+`UpdateGraphqlApiInput.OwnerContact` (appsync@v1.56.4
+api_op_CreateGraphqlApi.go:79, api_op_UpdateGraphqlApi.go:79) was never
+decoded by `createGraphqlAPI`/`updateGraphqlAPI`
+(`handler_graphql_apis.go`), and `GraphqlAPI` (`models.go`) had no field to
+hold it at all -- a real client's owner-contact value was silently
+dropped, never stored, never echoed back by Get/List. (gopherstack's `API`
+Event-API type already modeled its own separate `OwnerContact`; this was
+specifically the classic `GraphqlApi` type missing it.) Fixed: `GraphqlAPI`
+gained an `OwnerContact` field (wire key `ownerContact`, matching
+appsync@v1.56.4 types.go:1073), threaded through the existing
+`GraphqlAPIConfig` the same way `IntrospectionConfig` already is, and
+decoded on both Create and Update. Covered by
+`TestInMemoryBackend_CreateAndUpdateGraphqlAPI_OwnerContact`,
+`TestHandler_CreateAndUpdateGraphqlAPI_OwnerContact`, and an addition to
+`test/integration/appsync_test.go`'s `TestIntegration_AppSync_CRUD` that
+asserts the value on the real typed SDK's decoded `CreateGraphqlApiOutput`/
+`UpdateGraphqlApiOutput`/`GetGraphqlApiOutput`.
+
+The other 25 services in the census's collision list are out of scope for
+this pass (only amplify, appsync, cleanrooms were checked). Within scope:
+amplify's and cleanrooms's `reqfielddiff` output was **byte-identical**
+across all 5 pre-fix runs and post-fix -- neither service's handler naming
+happens to produce an ambiguous fold match for any operation reqfielddiff
+resolves (amplify's and most of cleanrooms's op names have no acronym-case
+mismatch against their handlers, so `findHandlerByName`'s exact-match
+candidates resolve them before the ambiguous fold is ever reached).
+`cmd/reqfieldscan` (the sibling tool) was also re-verified byte-identical
+for all three services before and after ef0eef041, matching that commit's
+own doc claim of zero real collisions in `reqfieldscan`'s narrower
+`wrapOpFuncs`-only universe.

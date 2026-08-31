@@ -351,6 +351,37 @@ func TestHandler_UpdateGraphqlAPI(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateAndUpdateGraphqlAPI_OwnerContact(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	createRec := doRequest(t, h, http.MethodPost, "/v1/apis",
+		map[string]any{"name": "TestAPI", "ownerContact": "team-a@example.com"})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	createdAPI := createResp["graphqlApi"].(map[string]any)
+	assert.Equal(t, "team-a@example.com", createdAPI["ownerContact"])
+	apiID := createdAPI["apiId"].(string)
+
+	getRec := doRequest(t, h, http.MethodGet, "/v1/apis/"+apiID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getResp))
+	assert.Equal(t, "team-a@example.com", getResp["graphqlApi"].(map[string]any)["ownerContact"])
+
+	updateRec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+apiID,
+		map[string]any{"ownerContact": "team-b@example.com"})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateResp map[string]any
+	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateResp))
+	assert.Equal(t, "team-b@example.com", updateResp["graphqlApi"].(map[string]any)["ownerContact"])
+}
+
 func TestHandler_EnvironmentVariables(t *testing.T) {
 	t.Parallel()
 

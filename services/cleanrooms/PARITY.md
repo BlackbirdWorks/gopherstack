@@ -526,3 +526,28 @@ Proof: `TestPaginate_NegativeOffsetToken` (new file
 `go build ./services/cleanrooms/...`, `go vet ./services/cleanrooms/...`, `go test -race
 -count=1 ./services/cleanrooms/...`, `golangci-lint run ./services/cleanrooms/...` (0 issues).
 Work left uncommitted per this pass's instructions.
+
+## Handler-collision determinism sweep verification (2026-08-31, gopherstack-fr30)
+
+`cmd/reqfielddiff`/`cmd/reqfieldscan` used to resolve a handler by breaking
+case-insensitive name ties on Go's randomized map iteration order
+(ef0eef041 fixed it). cleanrooms is named in that fix's census of 26
+affected services, so it was a candidate for having been measured wrong.
+
+Checked directly: ran the unpatched `reqfielddiff` from `ef0eef041~1` five
+times against this service and diffed each run against the current
+(fixed) tool's output. `with declared fields` (97/100) and the full
+79-entry undeclared-fields list, tier-for-tier, were **identical in every
+run, pre-fix and post-fix** -- zero op.field findings changed. The one
+number that did move was the summary line's raw `emulator-declared
+fields` total (780 in 3 of 5 pre-fix runs, 790 in the other 2; 780
+post-fix) -- a package-wide field-declaration count unrelated to any
+specific operation's resolution, and it never altered which fields were
+reported undeclared for which op. Not investigated further since it
+carries no finding-level consequence, but noted here rather than silently
+ignored.
+
+No bug found or fixed in this service from this sweep. `reqfieldscan` was
+independently re-verified byte-identical for this service too. The honest
+result: the pre-fix nondeterminism did not change any reported finding for
+cleanrooms.
