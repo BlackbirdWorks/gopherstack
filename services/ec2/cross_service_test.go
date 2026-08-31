@@ -127,7 +127,7 @@ func TestCreateSubnetWithOutpost(t *testing.T) {
 
 	ec2Bk, client := newWiredBackends(t)
 
-	vpc, err := ec2Bk.CreateVpc("10.1.0.0/16")
+	vpc, err := ec2Bk.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	validArn := setupOutpostWithCapacity(t, client, "m5.xlarge", 1)
@@ -171,7 +171,7 @@ func TestCreateSubnetWithOutpost_UnwiredOutpostsIsNoop(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend(crossServiceTestAccountID, crossServiceTestRegion)
 
-	vpc, err := b.CreateVpc("10.4.0.0/16")
+	vpc, err := b.CreateVpc("10.4.0.0/16", "default")
 	require.NoError(t, err)
 
 	arn := "arn:aws:outposts:us-east-1:123456789012:outpost/op-anything00000"
@@ -204,7 +204,7 @@ func TestRunInstances_OutpostCapacity(t *testing.T) {
 
 			ec2Bk, client := newWiredBackends(t)
 
-			vpc, err := ec2Bk.CreateVpc("10.2.0.0/16")
+			vpc, err := ec2Bk.CreateVpc("10.2.0.0/16", "default")
 			require.NoError(t, err)
 
 			outpostArn := setupOutpostWithCapacity(t, client, "m5.xlarge", tt.configuredQty)
@@ -235,7 +235,7 @@ func TestRunInstances_UnwiredOutpostsSkipsCapacityCheck(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend(crossServiceTestAccountID, crossServiceTestRegion)
 
-	vpc, err := b.CreateVpc("10.5.0.0/16")
+	vpc, err := b.CreateVpc("10.5.0.0/16", "default")
 	require.NoError(t, err)
 
 	arn := "arn:aws:outposts:us-east-1:123456789012:outpost/op-anything00001"
@@ -256,7 +256,7 @@ func TestRunInstancesThenTerminateInstances_ReleasesOutpostCapacity(t *testing.T
 
 	ec2Bk, client := newWiredBackends(t)
 
-	vpc, err := ec2Bk.CreateVpc("10.3.0.0/16")
+	vpc, err := ec2Bk.CreateVpc("10.3.0.0/16", "default")
 	require.NoError(t, err)
 
 	outpostArn := setupOutpostWithCapacity(t, client, "m5.xlarge", 1)

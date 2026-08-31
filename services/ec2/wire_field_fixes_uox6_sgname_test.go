@@ -26,7 +26,7 @@ func TestAuthorizeSecurityGroupIngress_ByGroupName(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("uox6-web-sg", "web sg", vpc.ID)
@@ -60,7 +60,7 @@ func TestRevokeSecurityGroupIngress_ByGroupName(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("uox6-db-sg", "db sg", vpc.ID)
@@ -97,7 +97,7 @@ func TestDeleteSecurityGroup_ByGroupName(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	_, err = b.CreateSecurityGroup("uox6-del-sg", "delete me", vpc.ID)
@@ -120,7 +120,7 @@ func TestUpdateSecurityGroupRuleDescriptions_ByGroupName(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("uox6-desc-sg", "desc sg", vpc.ID)

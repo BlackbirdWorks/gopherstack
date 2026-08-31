@@ -93,7 +93,7 @@ func TestHandlerModifySubnetAttribute(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.9.0.0/16")
+	vpc, err := b.CreateVpc("10.9.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.9.1.0/24", "us-east-1a")

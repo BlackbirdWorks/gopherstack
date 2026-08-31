@@ -536,6 +536,10 @@ func (h *Handler) resolveSecurityGroupID(vals url.Values) (string, error) {
 		return "", fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
 
+	return h.resolveSecurityGroupIDByName(name)
+}
+
+func (h *Handler) resolveSecurityGroupIDByName(name string) (string, error) {
 	for _, sg := range h.Backend.DescribeSecurityGroups(nil) {
 		if sg.Name == name {
 			return sg.ID, nil
@@ -545,6 +549,28 @@ func (h *Handler) resolveSecurityGroupID(vals url.Values) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, name)
 }
 
+// sourceGroupNameRule builds the classic single-rule "authorize/revoke by
+// source group name" form: AuthorizeSecurityGroupIngress and
+// RevokeSecurityGroupIngress both declare a top-level SourceSecurityGroupName
+// as an alternative to IpPermissions, documented to grant "full ICMP, UDP,
+// and TCP access" (ec2@v1.319.1 api_op_AuthorizeSecurityGroupIngress.go) --
+// unlike their Egress siblings, which declare the same field but mark it
+// "Not supported. Use IP permissions instead." Returns ok=false when the
+// field wasn't supplied.
+func (h *Handler) sourceGroupNameRule(vals url.Values) (SecurityGroupRule, bool, error) {
+	name := vals.Get("SourceSecurityGroupName")
+	if name == "" {
+		return SecurityGroupRule{}, false, nil
+	}
+
+	srcID, err := h.resolveSecurityGroupIDByName(name)
+	if err != nil {
+		return SecurityGroupRule{}, false, err
+	}
+
+	return SecurityGroupRule{Protocol: "-1", SourceGroupID: srcID}, true, nil
+}
+
 func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
 	groupID, err := h.resolveSecurityGroupID(vals)
 	if err != nil {
@@ -552,6 +578,13 @@ func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID str
 	}
 
 	rules := parseIPPermissions(vals)
+	if len(rules) == 0 {
+		if rule, ok, srcErr := h.sourceGroupNameRule(vals); srcErr != nil {
+			return nil, srcErr
+		} else if ok {
+			rules = []SecurityGroupRule{rule}
+		}
+	}
 
 	if err = h.Backend.AuthorizeSecurityGroupIngress(groupID, rules); err != nil {
 		return nil, err
@@ -602,6 +635,13 @@ func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string
 	}
 
 	rules := parseIPPermissions(vals)
+	if len(rules) == 0 {
+		if rule, ok, srcErr := h.sourceGroupNameRule(vals); srcErr != nil {
+			return nil, srcErr
+		} else if ok {
+			rules = []SecurityGroupRule{rule}
+		}
+	}
 
 	revoked, unknown, err := h.Backend.RevokeSecurityGroupIngress(groupID, rules)
 	if err != nil {

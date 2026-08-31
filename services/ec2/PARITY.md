@@ -3444,3 +3444,145 @@ re-ran, `0 issues`). No banned `//nolint`s (grepped for
 cyclop/gocyclo/gocognit/funlen in `services/ec2/`, zero hits, unchanged).
 Did NOT commit, push, or run any `bd` write command -- all changes left in
 the working tree per this session's instructions.
+
+## 2026-08-31 -- never-declared-field sweep continuation, source-group-name
+## authorize/revoke and VPC tenancy (cmd/reqfielddiff, gopherstack-uox6)
+
+Re-ran `go run ./cmd/reqfielddiff -dir ec2` at the start of this pass: 117
+tier-1 findings (down from the 128 the prior pass measured -- 13 fixed, and
+two of those fixes are still visible in the tool's output as documented
+tool-artifacts, so the net drop is smaller than 13). Confirmed the prior
+pass's two known artifacts are genuinely fixed, not real gaps:
+`AuthorizeSecurityGroupIngress.SourceSecurityGroupName` and
+`UpdateSecurityGroupRuleDescriptionsIngress/Egress.GroupName` both route
+through `resolveSecurityGroupID`, a method the tool's helper-call matcher
+can't see (blind spot 7, as recorded). Also re-confirmed
+`CopyImage.Encrypted`/`KmsKeyId` and `ImportImage`/`ImportSnapshot.RoleName`
+are the prior pass's intentional declines, still correctly undeclared.
+
+Worked a further slice of 4 fields, again choosing ones with existing
+backend state to honour truthfully:
+
+**Fixed (4 fields, 3 operations):**
+
+- `AuthorizeSecurityGroupIngress.SourceSecurityGroupName`,
+  `RevokeSecurityGroupIngress.SourceSecurityGroupName` -- the classic
+  single-rule form ("[Default VPC] The name of the source security
+  group... The rule grants full ICMP, UDP, and TCP access. To create a rule
+  with a specific protocol and port range, specify a set of IP permissions
+  instead.", ec2@v1.319.1 api_op_AuthorizeSecurityGroupIngress.go /
+  api_op_RevokeSecurityGroupIngress.go) was never read at all --
+  `parseIPPermissions` only ever parsed the `IpPermissions.N.*` list form,
+  so a caller using the top-level field got a call that silently added or
+  removed nothing. `handler_security_groups.go` gained
+  `sourceGroupNameRule`, resolving the name via the same
+  `DescribeSecurityGroups` lookup `resolveSecurityGroupID` already used,
+  and building a single `Protocol: "-1"` rule when `IpPermissions` is
+  empty. The Egress siblings (`AuthorizeSecurityGroupEgress`,
+  `RevokeSecurityGroupEgress`) declare the same field but document it "Not
+  supported. Use IP permissions instead." -- correctly left alone; real
+  AWS ignores it there too.
+- `CreateVpc.InstanceTenancy` -- documented default "default"
+  (ec2@v1.319.1 api_op_CreateVpc.go), never read, and defaulted to
+  `vpcTenancyDefault` in `handleCreateVpc`. This uncovered a larger,
+  pre-existing gap in the sibling `ModifyVpcTenancy`: it already stored a
+  tenancy per VPC in `b.vpcTenancy`, but nothing ever rendered it --
+  `DescribeVpcs`/`CreateVpc` responses had no `instanceTenancy` element at
+  all, so even a caller that successfully called `ModifyVpcTenancy` had no
+  way to observe the result. Added `Backend.VpcTenancy(vpcID)` (falls back
+  to "default" for VPCs with nothing recorded, e.g. ones from
+  `CreateDefaultVpc`) and wired `instanceTenancy` onto `vpcItem`, rendered
+  from both `handleCreateVpc` and `handleDescribeVpcs`. Same "a flag is
+  only meaningful if the thing it controls is visible" lesson as the prior
+  pass's `CopyImageTags` fix.
+- `DeleteTags.Tags` -- documented as optional: "If you omit this
+  parameter, we delete all user-defined tags for the specified resources...
+  We do not delete Amazon Web Services-generated tags" (ec2@v1.319.1
+  api_op_DeleteTags.go). `InMemoryBackend.DeleteTags` treated `len(keys) ==
+  0` as a pure no-op instead -- a caller omitting Tags to wipe a resource's
+  tags silently did nothing. Now deletes every stored key when `keys` is
+  empty; kept the (currently unreachable, since this backend never stores
+  an `aws:`-prefixed tag) `aws:` exclusion to match the documented
+  behavior exactly rather than only what's reachable today. This finding
+  still appears in the tool's tier-1 output after the fix: `DeleteTags`
+  reads it via `parseEC2TagKeys`'s bare `for i := 1; i <= max; i++ {
+  vals.Get(fmt.Sprintf("Tag.%d.Key", i)) }` loop (blind spot 6), a form the
+  tool's matcher doesn't recognize -- confirmed genuinely fixed by the
+  tests below, not a real remaining gap.
+
+**Recorded, not fixed (reasoning, not fabrication):**
+
+- `CreateImage.NoReboot` -- "If you don't specify this parameter, Amazon
+  EC2 attempts to shut down and reboot the instance before creating the
+  image." `InMemoryBackend.CreateImage` never touches instance state at
+  all (no stop/reboot simulated, checked `deepdive_ops.go`), so there is no
+  distinct code path for `NoReboot` to select between -- same reasoning as
+  the prior pass's four stop-behaviour flags, and `CreateImageOutput` only
+  ever returns an `ImageId`, giving no field to observe a difference on
+  either.
+- `CreateKeyPair.KeyFormat`/`KeyType` -- "Default: pem"/"Default: rsa".
+  `InMemoryBackend.CreateKeyPair` (`key_pairs.go`) unconditionally
+  generates an RSA key via `crypto/rsa`; there is no ED25519 generation
+  path and no PPK (PuTTY private key) encoder anywhere in this codebase.
+  `CreateKeyPairOutput` doesn't even echo either field back (checked the
+  pinned SDK type: only `KeyFingerprint`/`KeyMaterial`/`KeyName`/
+  `KeyPairId`/`Tags`), so returning an RSA/PEM key while silently ignoring
+  a caller's `ed25519`/`ppk` request would misrepresent what was generated
+  with no way for a test to even catch it via the response shape --
+  declined rather than fabricated. `DescribeKeyPairs`' existing `KeyType`
+  item field is left as-is (always empty for a `CreateKeyPair`-made key, a
+  pre-existing gap orthogonal to this one).
+
+**Out-of-scope caller repaired:** `CreateVpc`'s signature gained a
+`tenancy string` parameter, breaking one caller outside `services/ec2/`:
+`services/cloudformation/resources_extended.go`'s `createEC2VPC` (AWS::EC2
+::VPC resource creator). Read the real `InstanceTenancy` CloudFormation
+property via the existing `strProp` helper (same pattern already used for
+`CidrBlock` two lines above) rather than hardcoding "default", since the
+property already exists on the real resource type. `go build ./...` and
+`go vet ./services/ec2/...` clean; a pre-existing, unrelated compile break
+in `services/cloudformation/handler_stack_sets.go` (`op.CreatedAt`
+undefined) was observed via `go vet ./...` but is caused by another
+in-flight session's edits to that file (confirmed via `git status` showing
+it modified outside this session's diff) -- not touched, not caused by
+this pass.
+
+**Tests:** 3 new `_test.go` files
+(`wire_field_fixes_uox6_sourcegroupname_test.go`,
+`wire_field_fixes_uox6_vpctenancy_test.go`,
+`wire_field_fixes_uox6_deletetags_test.go`), 7 new test functions driving
+the real `aws-sdk-go-v2` client on decoded responses, all confirmed failing
+against unmodified source (or a surgical revert of just the defaulting
+logic, keeping struct members, for the two pure-addition cases) before the
+fix. `TestCreateVpc_InstanceTenancy_DefaultsToDefault` and
+`TestDeleteTags_OmittedTagsDeletesAll` both omit the field entirely to
+observe the default. One pre-existing test,
+`TestInMemoryBackend_CreateDeleteDescribeTags/delete_empty_keys_is_noop`
+(`handler_tags_test.go`), asserted the bug itself ("Empty keys: should be a
+no-op, tag must remain") -- renamed to
+`delete_omitted_keys_deletes_all_user_tags` and rewritten to assert the
+documented behavior, adding a second untouched resource to the same case
+so selectivity (only the targeted resource's tags are wiped) is still
+checked. Assertion count for that one case: 3 before (Len + Equal + True),
+3 after (same shape, corrected expected values) -- no drop. All other
+`TestInMemoryBackend_CreateDeleteDescribeTags` subtests, and all of
+`wire_field_fixes_uox6_sgname_test.go`'s existing assertions, untouched;
+~40 other test files across the package had one mechanical
+`b.CreateVpc("x.x.x.x/nn")` -> `b.CreateVpc("x.x.x.x/nn", "default")` call-
+site update each (`CreateVpc` gained a required `tenancy` parameter), no
+assertions touched.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...` (0 issues; repo-wide
+`go vet ./...` fails only in `services/cloudformation` for the pre-existing,
+unrelated reason above), `go test -race -count=1 ./services/ec2/...` (pass),
+`golangci-lint run ./services/ec2/...` (0 issues after `fieldalignment -fix`
+reordered `vpcItem` and `golines -m 120 -w` reformatted one over-length
+`require.Len` call). `golangci-lint run ./services/cloudformation/...`
+clean on the one file this pass touched
+(`resources_extended.go`); the 3 issues it reports elsewhere are in files
+this pass didn't edit. No banned `//nolint`s introduced; the one
+pre-existing `//nolint:lll` in `handler_vpcs.go` and one pre-existing
+`//nolint:nilerr` in `resources_extended.go` are both untouched by this
+diff (confirmed via `git diff` -- neither line appears in the changed
+hunks). Did NOT commit, push, or run any `bd` write command -- all changes
+left in the working tree per this session's instructions.

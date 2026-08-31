@@ -48,7 +48,7 @@ func TestModifyVpcTenancy(t *testing.T) { //nolint:paralleltest // existing issu
 func TestModifyVpcPeeringConnectionOptions(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vpc2, _ := b.CreateVpc("10.0.0.0/16")
+	vpc2, _ := b.CreateVpc("10.0.0.0/16", "default")
 	pc, _ := b.CreateVpcPeeringConnection("vpc-default", vpc2.ID)
 
 	t.Run("stores options", func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestHTTP_CreateDefaultVpc(t *testing.T) { //nolint:paralleltest // existing
 func TestDisassociateVpcCidrBlock(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vpc, _ := b.CreateVpc("10.0.0.0/16")
+	vpc, _ := b.CreateVpc("10.0.0.0/16", "default")
 	assoc, setupErr := b.AssociateVpcCidrBlock(vpc.ID, "10.1.0.0/16")
 	require.NoError(t, setupErr)
 
@@ -146,9 +146,9 @@ func TestHandlerVpcPeeringConnectionHandlers(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	vpc1, err := b.CreateVpc("10.20.0.0/16")
+	vpc1, err := b.CreateVpc("10.20.0.0/16", "default")
 	require.NoError(t, err)
-	vpc2, err := b.CreateVpc("10.21.0.0/16")
+	vpc2, err := b.CreateVpc("10.21.0.0/16", "default")
 	require.NoError(t, err)
 
 	// Create peering connection.
@@ -161,7 +161,7 @@ func TestHandlerVpcPeeringConnectionHandlers(t *testing.T) {
 	require.NotEmpty(t, pcID)
 
 	// Create another for reject test.
-	vpc3, err := b.CreateVpc("10.22.0.0/16")
+	vpc3, err := b.CreateVpc("10.22.0.0/16", "default")
 	require.NoError(t, err)
 	pc2, err := b.CreateVpcPeeringConnection(vpc1.ID, vpc3.ID)
 	require.NoError(t, err)

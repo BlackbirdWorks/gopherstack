@@ -678,7 +678,7 @@ func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 
 		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-		vpc, err := b.CreateVpc("10.40.0.0/16")
+		vpc, err := b.CreateVpc("10.40.0.0/16", "default")
 		require.NoError(t, err)
 
 		subnetA, err := b.CreateSubnet(vpc.ID, "10.40.1.0/24", "us-east-1a")
@@ -775,7 +775,7 @@ func buildVPCWithResources(
 ) vpcResources {
 	t.Helper()
 
-	vpc, err := b.CreateVpc(cidr)
+	vpc, err := b.CreateVpc(cidr, "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, cidr, az)
@@ -1024,7 +1024,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	require.NoError(t, err)
 
 	// VPC endpoint payer responsibility.
-	vpc, err := b.CreateVpc("10.9.0.0/16")
+	vpc, err := b.CreateVpc("10.9.0.0/16", "default")
 	require.NoError(t, err)
 	ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
 	require.NoError(t, err)

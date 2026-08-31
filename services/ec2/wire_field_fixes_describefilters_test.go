@@ -57,9 +57,9 @@ func TestDescribeEgressOnlyInternetGateways_Filters_RealClient(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc1, err := b.CreateVpc("10.0.0.0/16")
+	vpc1, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	want, err := b.CreateEgressOnlyInternetGateway(vpc1.ID)
@@ -150,9 +150,9 @@ func TestDescribeCarrierGateways_Filters_RealClient(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc1, err := b.CreateVpc("10.0.0.0/16")
+	vpc1, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	want, err := b.CreateCarrierGateway(vpc1.ID)
@@ -173,7 +173,7 @@ func TestDescribeFlowLogs_Filters_RealClient(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	want, err := b.CreateFlowLogs([]string{vpc.ID}, "ACCEPT", "cloud-watch-logs", "log-group", nil)
@@ -195,7 +195,7 @@ func TestDescribeNetworkAcls_Filters_RealClient(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	want, err := b.CreateNetworkACL(vpc.ID)

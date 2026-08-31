@@ -8,6 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// vpcTenancyDefault is the documented CreateVpc InstanceTenancy default
+// (ec2@v1.319.1 api_op_CreateVpc.go: "Default: default").
+const vpcTenancyDefault = "default"
+
 // CreateDefaultVpc creates a new default VPC in the account.
 // Returns error if a default VPC already exists.
 func (b *InMemoryBackend) CreateDefaultVpc() (*VPC, error) {
@@ -47,6 +51,20 @@ func (b *InMemoryBackend) ModifyVpcTenancy(vpcID, tenancy string) error {
 	b.vpcTenancy[vpcID] = tenancy
 
 	return nil
+}
+
+// VpcTenancy returns the stored instance tenancy for a VPC, defaulting to
+// "default" (the documented CreateVpc default) when nothing was recorded --
+// e.g. a VPC created by CreateDefaultVpc, which never accepts a tenancy.
+func (b *InMemoryBackend) VpcTenancy(vpcID string) string {
+	b.mu.RLock("VpcTenancy")
+	defer b.mu.RUnlock()
+
+	if t, ok := b.vpcTenancy[vpcID]; ok && t != "" {
+		return t
+	}
+
+	return vpcTenancyDefault
 }
 
 // ---- ModifyVpcPeeringConnectionOptions ----
@@ -270,11 +288,13 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 	return out
 }
 
-// CreateVpc creates a new VPC with the given CIDR block. Matching real AWS,
+// CreateVpc creates a new VPC with the given CIDR block and instance
+// tenancy ("default" or "dedicated"; ec2@v1.319.1 api_op_CreateVpc.go
+// documents InstanceTenancy's default as "default"). Matching real AWS,
 // a default security group named "default" is created for the new VPC (AWS
 // also creates a default network ACL and a main route table, which are not
 // yet modeled here — see PARITY.md).
-func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
+func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
@@ -295,6 +315,7 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 		CIDRBlock: cidr,
 	}
 	b.vpcs.Put(v)
+	b.vpcTenancy[id] = tenancy
 
 	sgID := newSecurityGroupID()
 	b.securityGroups.Put(&SecurityGroup{

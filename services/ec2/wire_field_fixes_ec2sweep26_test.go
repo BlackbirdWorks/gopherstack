@@ -65,7 +65,7 @@ func TestDescribeVpcEndpoints_SubnetAndRouteTableIds_RealClient(t *testing.T) {
 	h := ec2.NewHandler(b)
 	client := newTestEC2Client(t, h)
 
-	vpc, err := b.CreateVpc("10.70.0.0/16")
+	vpc, err := b.CreateVpc("10.70.0.0/16", "default")
 	require.NoError(t, err)
 	subnet, err := b.CreateSubnet(vpc.ID, "10.70.1.0/24", "us-east-1a")
 	require.NoError(t, err)

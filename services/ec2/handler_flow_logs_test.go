@@ -40,7 +40,7 @@ func TestHandlerDeleteFlowLogs(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// Create flow logs first via backend.
-	vpc, err := b.CreateVpc("10.8.0.0/16")
+	vpc, err := b.CreateVpc("10.8.0.0/16", "default")
 	require.NoError(t, err)
 
 	logs, err := b.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow", nil)

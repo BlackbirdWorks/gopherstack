@@ -187,7 +187,7 @@ func TestLocalGateway_VpcAssociationLifecycle(t *testing.T) {
 	rt, err := bk.CreateLocalGatewayRouteTable(lg.LocalGatewayID, "direct-vpc-routing")
 	require.NoError(t, err)
 
-	vpc, err := bk.CreateVpc("10.1.0.0/16")
+	vpc, err := bk.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	// VPC not found.
@@ -299,7 +299,7 @@ func TestLocalGateway_SnapshotRestoreRoundTrip(t *testing.T) {
 	_, err = bk.CreateLocalGatewayRoute(rt.LocalGatewayRouteTableID, "10.2.0.0/24", "", "", "eni-9")
 	require.NoError(t, err)
 
-	vpc, err := bk.CreateVpc("10.3.0.0/16")
+	vpc, err := bk.CreateVpc("10.3.0.0/16", "default")
 	require.NoError(t, err)
 
 	_, err = bk.CreateLocalGatewayRouteTableVpcAssociation(rt.LocalGatewayRouteTableID, vpc.ID)

@@ -106,7 +106,8 @@ type Backend interface {
 	DescribeVpcs(ids []string) []*VPC
 
 	// CreateVpc creates a new VPC with the given CIDR block.
-	CreateVpc(cidr string) (*VPC, error)
+	CreateVpc(cidr, tenancy string) (*VPC, error)
+	VpcTenancy(vpcID string) string
 
 	// DeleteVpc removes a VPC by ID.
 	DeleteVpc(id string) error

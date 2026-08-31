@@ -195,7 +195,7 @@ func TestHandlerNetworkACLHandlers(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.10.0.0/16")
+	vpc, err := b.CreateVpc("10.10.0.0/16", "default")
 	require.NoError(t, err)
 
 	acl, err := b.CreateNetworkACL(vpc.ID)
@@ -237,7 +237,7 @@ func TestHandlerReplaceNetworkACLAssociation(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.12.0.0/16")
+	vpc, err := b.CreateVpc("10.12.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.12.1.0/24", "us-east-1a")
@@ -304,7 +304,7 @@ func TestNetworkACL_FilterByVpcID(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// create a second VPC
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
