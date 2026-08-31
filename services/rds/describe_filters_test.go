@@ -60,6 +60,15 @@ func TestDescribeDBClusters_Filters(t *testing.T) {
 			wantIDs:  nil,
 		},
 		{
+			// db-cluster-id's own doc comment: "Accepts DB cluster
+			// identifiers and DB cluster Amazon Resource Names (ARNs)."
+			name: "db-cluster-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:cluster:filt-mysql-clu",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-clu"},
+		},
+		{
 			name:     "domain filter is accepted but vacuous",
 			query:    "Filters.Filter.1.Name=domain&Filters.Filter.1.Values.Value.1=d-1",
 			wantCode: http.StatusOK,
@@ -158,6 +167,15 @@ func TestDescribeDBSnapshots_Filters(t *testing.T) {
 		{
 			name:     "db-instance-id filter narrows to one snapshot",
 			query:    "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.Value.1=filt-snap-db-1",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-snap-1"},
+		},
+		{
+			// db-instance-id's own doc comment: "Accepts DB instance
+			// identifiers and DB instance Amazon Resource Names (ARNs)."
+			name: "db-instance-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:db:filt-snap-db-1",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-snap-1"},
 		},
@@ -274,6 +292,26 @@ func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
 				"&Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x")
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+	})
+
+	t.Run("db-cluster-id filter accepts ARN form", func(t *testing.T) {
+		t.Parallel()
+
+		// db-cluster-id's own doc comment: "Accepts DB cluster identifiers
+		// and DB cluster Amazon Resource Names (ARNs)."
+		rec := postRDSForm(t, h,
+			"Action=DescribeDBClusterSnapshots&Version=2014-10-31"+
+				"&Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1="+
+				"arn:aws:rds:us-east-1:000000000000:cluster:filt-csnap-clu")
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp describeResp
+		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+		gotIDs := make([]string, 0, len(resp.Result.DBClusterSnapshots.Members))
+		for _, m := range resp.Result.DBClusterSnapshots.Members {
+			gotIDs = append(gotIDs, m.DBClusterSnapshotIdentifier)
+		}
+		assert.ElementsMatch(t, []string{"filt-csnap-1", "filt-csnap-2"}, gotIDs)
 	})
 
 	t.Run("MaxRecords paginates the result", func(t *testing.T) {

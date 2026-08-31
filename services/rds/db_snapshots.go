@@ -145,7 +145,7 @@ func matchesAllDBSnapshotFilters(s DBSnapshot, filters map[string][]string) bool
 	for name, values := range filters {
 		switch name {
 		case filterNameDBInstanceID:
-			if !containsFold(values, s.DBInstanceIdentifier) {
+			if !containsFoldIDOrARN(values, s.DBInstanceIdentifier) {
 				return false
 			}
 		case "db-snapshot-id":

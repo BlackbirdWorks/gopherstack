@@ -916,11 +916,11 @@ func matchesAllDBInstanceFilters(inst DBInstance, filters map[string][]string) b
 	for name, values := range filters {
 		switch name {
 		case filterNameDBClusterID:
-			if !containsFold(values, inst.DBClusterIdentifier) {
+			if !containsFoldIDOrARN(values, inst.DBClusterIdentifier) {
 				return false
 			}
 		case filterNameDBInstanceID:
-			if !containsFold(values, inst.DBInstanceIdentifier) {
+			if !containsFoldIDOrARN(values, inst.DBInstanceIdentifier) {
 				return false
 			}
 		case filterNameDbiResourceID:

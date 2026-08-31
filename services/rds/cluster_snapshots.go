@@ -127,7 +127,7 @@ func matchesAllDBClusterSnapshotFilters(s DBClusterSnapshot, filters map[string]
 	for name, values := range filters {
 		switch name {
 		case filterNameDBClusterID:
-			if !containsFold(values, s.DBClusterIdentifier) {
+			if !containsFoldIDOrARN(values, s.DBClusterIdentifier) {
 				return false
 			}
 		case "db-cluster-snapshot-id":

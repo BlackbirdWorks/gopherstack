@@ -748,3 +748,95 @@ per this session's constraints), `go vet ./services/rds/...`, `go test -race -co
   field-diffed the whole mapping table...").
   The `errors.go` literal (the tool's extraction target) is only ever used for `errors.Is`
   identity, never reaches the wire. No new fix needed.
+
+## 2026-08-30 -- filter VALUE-SEMANTICS sweep (gopherstack-uox6 class: a filter field that is
+read, applied, and wrong -- distinct from the wrapper-key/wire-completeness axis swept above).
+Two real bugs found and fixed in the four filter matchers this service already implements
+(DescribeDBInstances/DescribeDBClusters/DescribeDBSnapshots/DescribeDBClusterSnapshots); no
+other filter-bearing surface in rds was touched (see the still-current "17 ops silently ignore
+Filters entirely" note above -- unchanged, out of this class, not re-investigated this pass).
+
+1. **db-cluster-id and db-instance-id filters rejected ARN-form values.** Each op's own
+   `Filters` doc comment in `aws-sdk-go-v2/service/rds@v1.124.1` says these two filter names
+   accept "identifiers and ... Amazon Resource Names (ARNs)" -- confirmed individually for
+   `DescribeDBInstances` (`db-cluster-id`, `db-instance-id`), `DescribeDBClusters`
+   (`db-cluster-id`), `DescribeDBSnapshots` (`db-instance-id`), and
+   `DescribeDBClusterSnapshots` (`db-cluster-id`). The other filter names on these same four
+   ops (`db-snapshot-id`, `db-cluster-snapshot-id`, `dbi-resource-id`, `db-cluster-resource-id`,
+   `engine`, `domain`, `clone-group-id`) each document "Accepts ... identifiers" only, with no
+   ARN wording -- confirmed by reading each name's own doc line individually, not assumed from
+   the two that do. `matchesAllDBInstanceFilters`/`matchesAllDBClusterFilters`/
+   `matchesAllDBSnapshotFilters`/`matchesAllDBClusterSnapshotFilters` compared every filter
+   value with a bare-identifier `containsFold`, so a real client passing an ARN (e.g. copied
+   from another API response's `DBInstanceArn`/`DBClusterArn` field) matched nothing even
+   though the identified resource existed -- under-matching. Fixed by adding
+   `containsFoldIDOrARN` (`shared.go`), which normalizes each candidate value through the
+   existing `rdsIDFromARN` helper (already used for this exact ID-or-ARN idiom at
+   `handler_db_clusters.go:777`, `handler_fault_injection.go:51`, `maintenance.go:52`) before
+   the fold-compare, and switching only the `db-cluster-id`/`db-instance-id` match arms in the
+   four `matchesAll*Filters` functions to call it. The other filter names in the same switches
+   are untouched -- ARN acceptance was added only where each op's own doc comment states it.
+   Tests: added an "accepts ARN form" case per op (`db_instances_test.go`,
+   `describe_filters_test.go` x3), each confirmed failing against unmodified code first (empty
+   result where the ARN's identified resource should have matched) and passing after the fix.
+   `Test_DescribeDBInstances_Filters` also gained a `db-cluster-id`-with-plain-identifier case,
+   since the prior suite's own doc comment claimed db-cluster-id/dbi-resource-id coverage that
+   the case table never actually exercised.
+
+2. **DescribeDBLogFiles' FileSize filter was off-by-one at the boundary.** The op's own doc
+   comment: "Filters the available log files for files larger than the specified size" --
+   strictly greater than. `LogFileFilter.FileSize`'s matcher (`log_files.go`) excluded only
+   `f.Size < filter.FileSize`, i.e. kept files `>= FileSize` ("at least", not "larger than"), so
+   a log file whose size exactly equalled the filter value was wrongly included. Fixed the
+   comparison to `f.Size <= filter.FileSize` (exclude). This is a self-contained doc/code
+   mismatch, not a shared-matcher question: `FileLastWritten`'s own doc ("written since the
+   specified date") is inclusive-since and was already correct, left alone. New test
+   `TestDescribeDBLogFiles_FileSizeFilterIsStrictlyGreaterThan` (`log_files_test.go`, new file)
+   drives the real seeded log files through the handler, reads back an actual file size, then
+   filters on that exact value and asserts no returned file has that size -- confirmed failing
+   against unmodified code (the boundary file was returned) before the fix.
+
+Both bugs are UNDER-MATCHING (direction 1 of the four: a documented modifier/value form
+honoured too narrowly, so records the real service would return are excluded).
+
+**Filter axes checked and found already correct, not just skipped**: within the same four
+matchers, the AND-across-filters / OR-within-a-filter's-Values combining rule (verified across
+all filter names in all four switches), case-insensitive identifier matching via
+`containsFold`/`strs`, and the `isKnown*FilterName` unrecognized-name rejection (all four
+return `InvalidParameterValue`, matching AWS) were all read against each op's own doc comment
+and are correct -- no change made to any of them.
+
+**Gaps considered and left alone, not fabricated**: `domain` (DescribeDBInstances/
+DescribeDBClusters) and `clone-group-id` (DescribeDBClusters) remain accepted-but-vacuous, as
+already documented above -- no Directory Service/clone-group state exists in this backend to
+match against, and inventing one would be exactly the fabrication this class warns against.
+
+**Web pages fetched this pass**: none. Every filter semantic checked (ARN-vs-identifier
+wording, FileSize/FileLastWritten comparison direction) was resolved from the pinned
+`aws-sdk-go-v2/service/rds@v1.124.1` Go doc comments in the module cache, per this class's own
+"where the documentation lives" guidance.
+
+**Services also considered this pass, found already correct on this exact axis (docdb) or
+already exhaustively covered by prior passes (identitystore), so left untouched**:
+- `docdb`: `filters.go`'s `matchesIdentifierOrARN` already normalizes ARN-form
+  `db-cluster-id`/`db-instance-id` filter values via `identifierFromARN` before comparing --
+  confirmed against `DescribeDBClusters`/`DescribeDBInstances`/`DescribeGlobalClusters`/
+  `DescribePendingMaintenanceActions`'s own doc comments in `docdb@v1.51.4`, all four of which
+  document ARN acceptance for these two filter names and are handled correctly. `events_log.go`'s
+  `eventMatches` time-window comparison (`e.Date` vs `filter.StartTime`/`EndTime`, both
+  `time.RFC3339`) was checked for the self-inconsistency sub-shape found elsewhere in this
+  campaign (nanoseconds-vs-seconds, ISO8601-vs-epoch) and is consistent: the wire always emits
+  and accepts `smithytime.FormatDateTime` (RFC3339 with optional fractional seconds), and Go's
+  `time.Parse(time.RFC3339, ...)` accepts that fractional form. No bug found; no code changed in
+  docdb this pass.
+- `identitystore`: `users.go`/`groups.go`'s filter matchers (`matchUserSingleValueFilter`,
+  `matchUserMultiValueFilter`, `groupMatchesFilter`) already carry this exact class's
+  no-default-matches-everything fix from the 2026-07-25 pass (see that entry above), and were
+  re-verified exhaustively against botocore's current model that same pass. Not re-audited line
+  by line this session beyond confirming no new filter surface exists (`GetUserId`/`GetGroupId`
+  use direct O(1) index lookups, not a filter matcher, so they're outside this class).
+
+Gates: `go build`/`go vet` (rds, docdb, identitystore — clean; repo-wide `go vet ./...` clean,
+no cross-service callers touched, no signature changes), `go test -race -count=1
+./services/rds/...` and `./services/docdb/... ./services/identitystore/...` (all pass),
+`golangci-lint run ./services/rds/...` (0 issues, no `--fix` needed).

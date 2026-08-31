@@ -159,6 +159,30 @@ func Test_DescribeDBInstances_Filters(t *testing.T) {
 			wantIDs:  nil,
 		},
 		{
+			// db-instance-id's own doc comment: "Accepts DB instance
+			// identifiers and DB instance Amazon Resource Names (ARNs)."
+			name: "db-instance-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:db:filt-mysql-1",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
+			// db-cluster-id's own doc comment: "Accepts DB cluster
+			// identifiers and DB cluster Amazon Resource Names (ARNs)."
+			name:     "db-cluster-id filter with plain identifier matches",
+			query:    "Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1=filt-mysql-1-clu",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
+			name: "db-cluster-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:cluster:filt-mysql-1-clu",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
 			name:        "unrecognized filter name is rejected",
 			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x",
 			wantCode:    http.StatusBadRequest,
@@ -179,7 +203,8 @@ func Test_DescribeDBInstances_Filters(t *testing.T) {
 			h := newRDSHandler()
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
-					"&DBInstanceIdentifier=filt-mysql-1&Engine=mysql")
+					"&DBInstanceIdentifier=filt-mysql-1&Engine=mysql"+
+					"&DBClusterIdentifier=filt-mysql-1-clu")
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
 					"&DBInstanceIdentifier=filt-postgres-1&Engine=postgres")
