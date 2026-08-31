@@ -568,3 +568,46 @@ func TestDescribeS3AccessPointAttachments_Filters(t *testing.T) {
 		)
 	})
 }
+
+// TestDescribeVolumes_Filters_MultipleValuesInOneFilter proves
+// matchesFilters (filters.go) ORs every element of a single filter's Values
+// list against the resource's field, not just Values[0] -- the confirmed
+// "first-element-only" bug shape (bd gopherstack-uox6) found four times
+// elsewhere in this campaign. Every existing fsx filter test (this file)
+// passes exactly one value per filter, so none of them can distinguish
+// "matched Values[0]" from "matched anywhere in Values" -- a filter naming
+// two file systems must return volumes from BOTH and exclude a third.
+func TestDescribeVolumes_Filters_MultipleValuesInOneFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	vol1 := createTestOntapVolume(t, client, "multi-filter-vol-1")
+	vol2 := createTestOntapVolume(t, client, "multi-filter-vol-2")
+	vol3 := createTestOntapVolume(t, client, "multi-filter-vol-3")
+
+	out, err := client.DescribeVolumes(t.Context(), &fsxsdk.DescribeVolumesInput{
+		Filters: []types.VolumeFilter{{
+			Name: types.VolumeFilterNameFileSystemId,
+			Values: []string{
+				aws.ToString(vol1.Volume.FileSystemId),
+				aws.ToString(vol3.Volume.FileSystemId),
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	gotIDs := make([]string, len(out.Volumes))
+	for i, v := range out.Volumes {
+		gotIDs[i] = aws.ToString(v.VolumeId)
+	}
+
+	assert.ElementsMatch(
+		t, []string{aws.ToString(vol1.Volume.VolumeId), aws.ToString(vol3.Volume.VolumeId)}, gotIDs,
+		"a filter naming two file-system-id values must match volumes on EITHER, not just the first element",
+	)
+	assert.NotContains(
+		t, gotIDs, aws.ToString(vol2.Volume.VolumeId), "the file system not named in Values must be excluded",
+	)
+}

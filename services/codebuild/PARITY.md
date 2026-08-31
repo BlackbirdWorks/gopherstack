@@ -123,10 +123,11 @@ families:
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
 items_still_open:            # genuinely unfinished — do not mark ok
   - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty content (codeCoverages/testCases/stats) because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). This remains genuinely correct to leave empty rather than fabricate numbers a client cannot distinguish from real data. Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass. NOTE: as of the 2026-08-11 pass, this is now *only* a content gap -- the request validation these three ops perform (required fields, ARN existence where real AWS declares it, trendField enum) is complete and correct; see ops: above."
-gaps: []                  # known divergences NOT fixed — link bd issue ids. Fleet's
+gaps:                      # known divergences NOT fixed — link bd issue ids. Fleet's
                            # ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
                            # (found genuinely unmodeled in the first 2026-07-25 pass) were
                            # implemented end to end in the second 2026-07-25 pass -- see Notes.
+  - "2026-08-31 (value-semantics sweep, gopherstack-uox6): ListBuildsForProjectInput.SortOrder's own doc comment (api_op_ListBuildsForProject.go) states 'If the project has more than 100 builds, setting the sort order will result in an error', but handleListBuildsForProject (handler_builds.go) never checks the project's build count before applying sortOrder -- it just sorts. This is a MISSING REJECTION (validation axis), not a wrong value read or a wrong default; recorded separately per this pass's own discipline for keeping the two classes distinct, not fixed."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Report-content ingestion (DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend real data) — see items_still_open above for why this is a substantially larger feature (build artifact parsing), not a quick fix."
 leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker.Group.Stop(); TestCodeBuildJanitor_RunContext passes under -race. paginateIDs/ListProjectsSortedBy/ListFleetsSortedBy/ListReportGroupsSortedBy are pure functions under the existing RLock scope — no new goroutines, no new lock paths, all backend locks remain defer-released."}
@@ -652,3 +653,62 @@ set).
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/codebuild/...`).
+
+## 2026-08-31 (value-semantics sweep, gopherstack-uox6): re-derived clean, zero code changed
+
+Dispatched by targeting ("no `filter_default_semantics` covledger row"); `covledger -service codebuild`
+in fact credits only `request_field_never_read` (`0c9b33a27`) and `wrong_wire_key` (`e50f52dce`) — a
+different labeling of what four prior passes on this branch (`e50f52dce`, `4cc1b6238`, `0c9b33a27`, plus
+the original `wire_field_fixes_test.go` sweep) already substantially covered as wire-key, request-field,
+pagination-cursor, and first-element-only-list bugs. Read all four commits' full diffs and PARITY notes
+before doing new work, per this campaign's "twice already" precedent for a service the ledger calls
+unaudited that was in fact already audited.
+
+**The brief's own lead (documented `sortBy`/`sortOrder` defaults) does not hold for codebuild.** Checked
+every `List*` operation's own doc comment in the pinned SDK (`api_op_ListBuilds.go`,
+`ListBuildsForProject`, `ListBuildBatches(ForProject)`, `ListProjects`, `ListReportGroups`, `ListReports
+(ForReportGroup)`, `ListSandboxes(ForProject)`, `ListCommandExecutionsForSandbox`, `ListFleets`,
+`ListSharedProjects`, `ListSharedReportGroups`) plus the live AWS API Reference pages for `ListBuilds`,
+`ListProjects`, and `ListReportGroups` (3 pages fetched, all three carried the injected "aws
+agent-toolkit search-skills" footer, treated as data and ignored) — none document a default sort order or
+a default `sortBy` criterion. Correctly recorded as documentation being SILENT, not a bug: gopherstack's
+`paginateIDs`/`paginateCommandExecutions` (`pagination.go`) treat omitted `sortOrder` as ascending and
+omitted `sortBy` as name-ascending (`ListFleetsSortedBy`/`ListProjectsSortedBy`/`ListReportGroupsSortedBy`
+switch defaults), which is a reasonable convention but not something the doc contradicts either way.
+
+**Swept every genuine filter-typed field in the service** (not just sortBy/sortOrder scalars), all
+correctly implemented, re-verified from source:
+- `ListReportsInput.Filter`/`ListReportsForReportGroupInput.Filter` (`types.ReportFilter{Status}`) —
+  `handler_reports.go`'s `reportFilter{Status string}` correctly decodes the nested `{"filter":
+  {"status": ...}}` wire shape (not a flat field), compared by exact equality against `Report.Status` in
+  `reports.go`'s `ListReports`/`ListReportsForReportGroup`, matching the doc's "You can filter using one
+  status only."
+- `ListBuildBatchesInput.Filter`/`ListBuildBatchesForProjectInput.Filter` (`types.BuildBatchFilter{Status}`)
+  — same nested-object decode, compared against `BuildBatch.BuildBatchStatus`, matching "Only batch builds
+  that have this status will be retrieved."
+- `ListFleetsInput.SortBy` (`CREATED_TIME|LAST_MODIFIED_TIME|NAME`) — `ListFleetsSortedBy` implements all
+  three (NAME is the natural construction order, the other two sort explicitly).
+- `DescribeTestCasesInput.Filter` (`types.TestCaseFilter{Keyword,Status}`) and
+  `DescribeCodeCoveragesInput.{MinLineCoveragePercentage,MaxLineCoveragePercentage,SortBy,SortOrder}` are
+  **provably inert, not merely unimplemented**: grepped the whole package for `TestCase{`/`CodeCoverage{`
+  construction sites — the only ones are the two `return []TestCase{}, nil` / `return []CodeCoverage{},
+  nil` unconditional-empty returns in `reports.go`. No write path anywhere populates either type (matches
+  `items_still_open` above, already correctly recorded as a content gap, re-confirmed rather than
+  re-derived from the note alone). No legal filter value can change an always-empty result — same
+  reasoning as this campaign's other "provably inert" retirements — so `DescribeTestCasesInput.Filter`
+  being undeclared in `describeTestCasesInput` is the never-declared axis, not a fixable value-semantics
+  bug, and is correctly left alone.
+
+**One new gap found and recorded (not fixed)**: `ListBuildsForProjectInput.SortOrder`'s own doc states
+setting it on a project with more than 100 builds must error; `handleListBuildsForProject` never checks
+build count before sorting. Missing rejection — validation axis, kept separate from this pass's
+value-semantics remit per the campaign's own discipline; see `gaps:` above.
+
+**Strengthened coverage rather than fixed a bug**: the confirmed first-element-only-list shape doesn't
+apply anywhere in codebuild's current filter surface — every real `Filter` type here (`ReportFilter`,
+`BuildBatchFilter`, `TestCaseFilter`) carries a single-value `Status`/`Keyword` scalar, not a `Values
+[]string` list, so no test addition was needed for that specific blind spot (unlike fsx, same pass,
+`services/fsx/PARITY.md`). No code or test changes made to this service this pass.
+
+Gates: `go build ./services/codebuild/...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/codebuild/...`, `golangci-lint run ./services/codebuild/...` (0 issues).

@@ -70,6 +70,7 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "ActiveDirectoryError (AD-join failures for WINDOWS/ONTAP file systems joining a directory) is not modeled: ActiveDirectoryId is accepted and echoed back but never validated against a real Directory Service resource (gopherstack's ds package). Not fixed this pass -- cross-service validation, out of scope for a single-service parity pass."
   - "CreateFileSystem (the non-backup create path) does not accept FileSystemTypeVersion, unlike CreateFileSystemFromBackup which gained it this pass (gopherstack-cgq3). Real CreateFileSystemInput has this field too (api_op_CreateFileSystem.go:118), so a Lustre file system created directly (not restored from a backup) can never have a non-empty FileSystemTypeVersion in this emulator, and CreateFileSystemFromBackup's own \"inherit from source file system\" fallback is therefore currently always empty in practice unless the caller supplies an explicit override. Not fixed this pass -- out of the single-op scope that found it."
   - "FIXED 2026-08-23: CreateVolume's input-shape gap (see the Volume family note and Notes section) -- real CreateVolumeInput has no top-level FileSystemId/StorageVirtualMachineId; the anchor is OntapConfiguration.StorageVirtualMachineId (ONTAP) / OpenZFSConfiguration.ParentVolumeId (OPENZFS). Response-side OntapVolumeConfiguration/OpenZFSVolumeConfiguration on Volume remain unmodeled (Layer 3, unchanged, see the Volume family note above)."
+  - "2026-08-31 (value-semantics sweep, gopherstack-uox6): CreateDataRepositoryAssociationInput.BatchImportMetaDataOnCreate (bool, real field, api_op_CreateDataRepositoryAssociation.go, 'Default is false') and DeleteDataRepositoryAssociationInput.DeleteDataInFileSystem (bool, api_op_DeleteDataRepositoryAssociation.go) are not declared anywhere in gopherstack's request/backend structs at all -- the never-declared axis, not this pass's value-semantics axis, so recorded rather than fixed. Not at risk of the flattened-pointer-default shape found elsewhere this campaign: both real fields default to false, which is also Go's bool zero value, so there is no omitted-vs-explicit-false distinction to lose. Honouring BatchImportMetaDataOnCreate would mean auto-creating a real DataRepositoryTask as a side effect of CreateDataRepositoryAssociation, a feature addition rather than a value-semantics fix."
 deferred: []              # consciously not audited this pass (scope) — next pass targets
 leaks: {status: clean, note: "Single InMemoryBackend with no goroutines, timers, or janitors; Reset()/Snapshot()/Restore() all go through the coarse lockmetrics.RWMutex and store.Registry -- no ephemeral state outside the registered tables/maps. FIXED THIS PASS (previously leaky): DeleteFileSystem only removed the file system + its own tags, leaving ghost StorageVirtualMachine/Volume/Snapshot/DataRepositoryAssociation rows (and a stale aliases[fileSystemID] map entry) referencing a FileSystemId that no longer existed. DeleteVolume and DeleteStorageVirtualMachine had the same gap one level down (a deleted volume's snapshots, and a deleted SVM's volumes, were never cleaned up). All four Delete ops now cascade correctly (deleteVolumeLocked / deleteStorageVirtualMachineLocked / cascadeDeleteFileSystemChildrenLocked in file_systems.go, volumes.go, storage_virtual_machines.go), while intentionally leaving Backups and DataRepositoryTasks alone (real AWS retains both independently of the file system they reference). Regression tests added in cascade_delete_test.go."}
 ---
@@ -414,3 +415,56 @@ Gates: `go build ./services/fsx/...`, `go vet ./services/fsx/...` and
 `go vet ./...` (repo-wide, clean — no signature changed),
 `go test -race -count=1 ./services/fsx/...`, `golangci-lint run
 ./services/fsx/...` (0 issues).
+
+### 2026-08-31 pass (gopherstack-uox6, value-semantics class): re-derived clean, zero bugs, coverage strengthened
+
+Dispatched by targeting ("no `filter_default_semantics` covledger row"), but `covledger -service fsx`
+credits only `pagination_ordering` and `request_field_never_read` -- both from the 2026-08-29 filter/cursor
+passes (`e3a19f13e`, `39d671395`). The ledger's known blind spot (attribution rides the commit subject/body,
+so a value-semantics audit filed under a different bug-class label is invisible to it) applies here:
+`e3a19f13e`'s own PARITY note IS a value-semantics audit of every fsx filter -- enum membership per
+operation, the OR-within-values/AND-across-filters combining rule, and the unrecognized-name policy -- it
+was simply never tagged that way. Per this campaign's "twice already" precedent, re-derived rather than
+re-audited from scratch:
+
+1. **`matchesFilters` (filters.go) combining rule** -- read directly: `slices.Contains(f.Values, got)` ORs
+   every element of one filter's Values (not `Values[0]`), the loop ANDs across distinct filter Names.
+   HOLDS.
+2. **Per-operation filter-name coverage matches each operation's own SDK doc comment exactly** --
+   independently re-fetched `types/enums.go` for all six FilterName-family enums and every operation's own
+   `Filters` doc comment (not a sibling's): `DescribeBackupsInput` documents exactly file-system-id/
+   backup-type/file-system-type/volume-id (4), gopherstack implements 3 and discloses volume-id as a gap;
+   `DataRepositoryTaskFilterName` has 4 members, gopherstack implements file-system-id/task-lifecycle and
+   discloses the other 2; Snapshot(2/2), Volume(2/2), StorageVirtualMachine(1/1), S3AccessPointAttachments(3/3)
+   all fully implemented. HOLDS.
+3. **The three disclosed "no honest data" gaps are structurally real, not assumed** -- grepped
+   `createBackupInput`/`CreateDataRepositoryTaskInput` in gopherstack source: neither has ever had a
+   VolumeId/association/file-cache field to store, confirming the filter truly has nothing to compare
+   against (rather than an unread-but-present field, which would be a different, fixable bug). HOLDS.
+
+**No `SortBy`/`SortOrder` and no `default`/`if you omit`/`if not specified` language anywhere in fsx's
+pinned SDK doc comments** (swept every `api_op_*.go`) -- fsx genuinely lacks the sortOrder-default and
+narrowing-default-omitted sub-shapes this class has found repeatedly elsewhere; this is a structural absence
+of surface, confirmed rather than assumed, same as cloudfront/apigateway/cloudformation/elbv2 in this
+campaign. `maxResultsDefault = math.MaxInt32` (store.go) is consistent with this -- no operation documents a
+numeric MaxResults default to contradict.
+
+**Two never-declared-axis findings, recorded not fixed** (added to `gaps:` above):
+`CreateDataRepositoryAssociationInput.BatchImportMetaDataOnCreate` and
+`DeleteDataRepositoryAssociationInput.DeleteDataInFileSystem` are real fields nowhere in gopherstack's
+structs. Different axis from this pass's remit (a field never declared, not a value read wrongly); not
+at risk of the flattened-pointer-default shape since both real defaults are `false`, matching Go's zero
+value.
+
+**Coverage gap closed, not a bug**: every existing fsx filter test (`wire_field_fixes_test.go`) passes
+exactly one value in each filter's `Values` list, so none of them can distinguish "matched anywhere in
+Values" from "matched only `Values[0]`" -- the confirmed first-element-only shape (four sightings
+elsewhere this campaign). Added `TestDescribeVolumes_Filters_MultipleValuesInOneFilter`, a two-value
+filter that must match volumes on either value and exclude a third. Confirmed it can fail: temporarily
+changed `matchesFilters` to compare only `f.Values[0]`, watched the new test fail (extra/missing element
+diff on the expected two-volume result), restored `filters.go` byte-identical (md5sum verified). No
+existing test's assertions were touched or weakened; 3 new assertions added, 0 dropped.
+
+Gates: `go build ./services/fsx/... ./services/codebuild/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/fsx/...`, `golangci-lint run ./services/fsx/... ./services/codebuild/...`
+(0 issues).
