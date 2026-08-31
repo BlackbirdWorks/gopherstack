@@ -1221,3 +1221,47 @@ this service remains correctly fixed.
 
 Gates (this pass, `services/medialive/` only): `go build`, `go vet`,
 `go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-08-30 value-semantics sweep (gopherstack-uox6) -- clean, no code change
+
+Re-audited every List/Describe operation's optional request parameters against the pinned
+`medialive@v1.101.4` doc comments for the class described in gopherstack-uox6 (a parameter that
+IS read and applied but with the wrong algorithm -- negation/case/operator/combining-rule/
+boundary/default-meaning errors invisible to a field-shape or enum scanner). 41 List/Describe ops
+counted directly from `api_op_List*.go`/`api_op_Describe*.go` filenames (24 List + 17 Describe),
+matching the brief's count.
+
+Nearly this entire surface was already closed by the prior "Constraining-parameter sweep
+(wrapper-key campaign, 2026-08-29)" entry above (six real bugs fixed: ListClusterAlerts'
+StateFilter, ListReservations' six filters, GroupIdentifier/SignalMapIdentifier on the CW/EB
+template-group and template List ops, ListSignalMaps' two group filters,
+ListInputDeviceTransfers' TransferType direction bug) -- that pass used the identical discipline
+(read the SDK doc comment, check the algorithm, not just whether the field is read) even though it
+predates this bd issue. This pass independently re-verified rather than trusted that entry:
+
+- `ListAlerts`/`ListMultiplexAlerts`: confirmed `StateFilter` (SET/CLEARED/ALL) is still never read
+  by `channels.go`/`multiplexes.go` -- but both backends always return `[]map[string]any{}`
+  unconditionally (no `ChannelAlert`/synthetic-alert generation exists for either resource, unlike
+  `ListClusterAlerts`' synthetic "cluster-not-ready" alert). No legal `StateFilter` value can ever
+  change either operation's output, so this is structurally inert, not a live bug -- the same
+  restraint class as `RecipeProvider` in personalize below. Already documented at the `Alerts:`
+  entry above; not re-opened.
+- `ReservationFilter.matches` (reservations.go): re-read against `ListReservations`'/
+  `ListOfferings`' doc comments (`api_op_ListReservations.go`/`api_op_ListOfferings.go`) -- every
+  filter is a plain equality string with no wildcard/negation/case-insensitivity documented; AND
+  across the seven independent dimensions, correct as written.
+- `findCWAlarmTemplateGroup`/`findEBRuleTemplateGroup` (id-or-ARN-or-name lookup): same helper used
+  by both Create's uniqueness check and List's `GroupIdentifier`/`SignalMapIdentifier` filters --
+  internally consistent, and MediaLive's own doc ("Can be either be its id or current name") is a
+  subset of what's accepted (ARN also matches), not a narrower set silently excluded.
+- MaxResults: every List op's doc comment is either "Placeholder documentation for MaxResults" (SDK
+  codegen placeholder, not a real spec) or a bare "The maximum number of items to return" -- no
+  operation in this service documents a specific default page size to check against.
+
+No new bug found; no source or test changes this pass. Restraint already on record (ListOfferings'
+10 filters against a fixed 3-item catalog, Scope's undocumented wire vocabulary) re-confirmed, not
+re-litigated.
+
+Gates: `go build ./services/medialive/...`, `go vet ./services/medialive/...` (no changes, nothing
+to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
+instructions.

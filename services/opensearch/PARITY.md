@@ -1037,3 +1037,58 @@ counts observed), passes after the `.Snapshot()` fix.
 Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...`,
 `go test -race -count=1 ./services/opensearch/...` (pass), `golangci-lint run
 ./services/opensearch/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 value-semantics sweep (gopherstack-uox6) -- clean, three new gaps recorded
+
+Re-audited every List/Describe operation's optional request parameters against the pinned
+`opensearch@v1.75.4` doc comments for the class gopherstack-uox6 describes (a parameter that IS
+read and applied but with the wrong algorithm, invisible to a field-shape or enum scanner). 34
+List/Describe ops counted directly from `api_op_List*.go`/`api_op_Describe*.go` filenames (17 List
++ 17 Describe), matching the brief's count exactly.
+
+Most of this axis was already closed by the "2026-08-29 constraint-parameter sweep" entry above (6
+operations fixed: DescribeInboundConnections/DescribeOutboundConnections' `connection-id` filter +
+pagination, ListApplications' `Statuses`, ListDomainMaintenances' `Action`/`Status`, ListMigrations'
+pagination, DescribePackages' `PackageName`/`PackageStatus`/`PackageType`), which used this same
+discipline predating this bd issue. Independently re-verified rather than trusted:
+
+- `filterAndPageConnections` (inbound_connections.go): OR-within-`Values`, `connection-id`-only
+  restraint re-read against `API_Filter.html`'s wording ("must match at least one of the specified
+  values") -- correct as written.
+- `DescribePackages` (packages.go): `PackageName`/`PackageStatus`/`PackageType` combine via
+  independent AND-across-filter-names, OR-within-each-filter's-`Value` list (`slices.Contains`) --
+  matches the standard AWS Filter idiom this SDK's own sibling `types.Filter` documents explicitly;
+  `DescribePackagesFilter`'s own doc comment doesn't restate the combining rule but there's no
+  documented alternative to check it against.
+- `ListApplications` (applications.go): `!slices.Contains(statuses, "ACTIVE")` -- every application
+  this backend creates is implicitly ACTIVE (no DELETING window), so this is provably correct for
+  every legal `Statuses` value, not a shortcut that could go wrong.
+- `ListDataSourceAttachments` (data_source_attachments.go): `MaxResults`' documented default ("The
+  default is 50") matches `defaultListDataSourceAttachmentsLimit = 50`. Newly confirmed this pass.
+- `ListDomainMaintenances` (domain_maintenance.go): `Action`/`Status` are independent scalar
+  equality filters (AND-combined, not a multi-value list), correct as written.
+
+Three new structural gaps recorded (never read, backed by missing data this backend does not
+model -- fabricating a value would risk the invented-value bug class the brief warns about, so left
+absent rather than guessed):
+
+- `ListInstanceTypeDetails`' `RetrieveAZs` (`*bool`): `advanced.go`'s `ListInstanceTypeDetails` is a
+  hardcoded 5-entry catalog with no `AvailabilityZones` field on any entry at all -- the real
+  `types.InstanceTypeDetails.AvailabilityZones` member has no backing data in this backend,
+  regardless of `RetrieveAZs`'s value.
+- `DescribeDryRunProgress`' `LoadDryRunConfig` (`*bool`): `domain_status.go`'s `GetDryRunProgress`
+  never populates `DryRunConfig` (`*types.DomainStatus`) -- this backend tracks dry-run
+  status/validation failures but not a snapshot of the planned domain config to echo back.
+- `DescribeDomainChangeProgress`' `ChangeId`: `domain_status.go`'s `GetChangeProgress` only tracks
+  `Domain.LastChangeID`, a single value with no history of prior changes -- a `ChangeId` for an
+  older change than the most recent cannot be distinguished from the current one, since no history
+  exists to look it up in. Requesting a stale `ChangeId` returns the current change's progress
+  instead of that specific one's (or a not-found), same structural-gap shape as the AZ/DryRunConfig
+  gaps above.
+
+No new *bug* found (all three are missing-data gaps, not a wrong algorithm operating on data that
+exists); no source or test changes this pass.
+
+Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...` (no changes,
+nothing to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
+instructions.

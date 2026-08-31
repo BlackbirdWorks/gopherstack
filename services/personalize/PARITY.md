@@ -442,3 +442,43 @@ across any of these 18 -- a genuine zero-bug result, not an unaudited gap.
 
 Gates: `go build ./services/personalize/...` (no changes made, nothing to build-verify beyond
 confirming the tree is unchanged). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 value-semantics sweep (gopherstack-uox6) -- clean, no code change
+
+Re-audited this service for the class gopherstack-uox6 describes (a parameter that IS read and
+applied but with the wrong algorithm, invisible to a field-shape or enum scanner). 36 Describe/List
+ops counted directly from `api_op_Describe*.go`/`api_op_List*.go` filenames (18 + 18), matching the
+brief's count exactly.
+
+This axis was already almost entirely closed by the "Filter/pagination-not-honoured sweep
+(2026-08-29)" and "2026-08-30 wire-key-read sweep" entries above, both of which used this same
+discipline (read the doc comment, check the comparison/combining logic, not just whether the field
+is read) predating this bd issue's filing. Independently re-verified rather than trusted:
+
+- `ListCampaigns`' `SolutionArn` fix (compared against `Campaign.SolutionVersionArn`, which always
+  carries a `/<versionID>` suffix a bare `SolutionArn` can never equal) re-read against the current
+  source (`campaigns.go`) -- still correctly comparing `SolutionVersionArn`'s parent-solution field
+  match, not a coincidental fix that regressed.
+- The 11 other scoping-ARN filters: each compares against the same-typed ARN field on its own
+  resource (not a sibling's), matching each op's own Input struct rather than a nearby type.
+- `ListBatchInferenceJobs`/`ListBatchSegmentJobs` document "The default value is 100" for
+  `MaxResults` -- the only two of 17 List ops with an explicit numeric default documented (the
+  other 15 just say "the maximum number to return", no default stated). `store.go`'s
+  `defaultPageSize = 100` (shared by both generic pagination helpers, `paginateItems`/`paginate`,
+  used by all 16 non-`ListRecipes` List ops) matches. Newly confirmed this pass -- not previously
+  checked against the doc's explicit "100" wording.
+- `ListRecipes.Domain`/`.RecipeProvider`: re-confirmed as the already-recorded, deliberate
+  restraint (RecipeProvider's only legal enum value is SERVICE and the whole catalog is implicitly
+  SERVICE-provided, so the filter is provably inert; Domain would need domain-specific recipe data
+  this backend's static catalog does not model). Not re-opened, per the brief's explicit
+  instruction not to re-open a provably-inert single-enum-value filter.
+- `filters.go`'s `ListFilters` (`DatasetGroupArn` equality) and `runtime.go` (campaign/recommender
+  existence validation only, no `FilterExpression` DSL evaluation lives in this service --
+  `GetRecommendations`'s filter-expression evaluator is in `services/personalizeruntime`, out of
+  this pass's scope) checked; both correct/inapplicable as written.
+
+No new bug found; no source or test changes this pass.
+
+Gates: `go build ./services/personalize/...`, `go vet ./services/personalize/...` (no changes,
+nothing to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
+instructions.
