@@ -1222,3 +1222,92 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    have nowhere natural to hang this association, and will likely either drop the feature silently
    or bolt it on awkwardly later — worth designing the two halves' backend state with this one
    linkage in mind from the start, not as an afterthought.
+
+## 2026-08-31 error-envelope-shape / fabricated-error-code sweep
+
+**Scope**: error envelope shape (does an error deserialize into the typed
+exception a real SDK client branches on) and fabricated error codes (a code the
+emulator returns that the pinned SDK does not define for that specific
+operation), per-operation -- not the filter-semantics class other recent passes
+chased.
+
+**Envelope mechanism confirmed correct**: `handler.go`'s `handleError` sets the
+`X-Amzn-Errortype` header explicitly (case-insensitive per HTTP, matches the real
+SDK's `X-Amzn-ErrorType` lookup exactly) alongside a `{"Message": ...}` body.
+Per `smithy-go@v1.27.6`'s `ResolveProtocolErrorType`
+(`transport/http/protocol/internal/json/error.go`) and the pinned SDK's own
+`restjson.GetErrorInfo`, the header takes priority over any body field, so this
+service's envelope resolves correctly regardless of body shape.
+
+**`errcodeaudit`'s 2 findings re-verified, confirmed false positives (already
+recorded 2026-08-29, re-derived from source rather than trusted)**:
+`corenetworks.go:43,171`'s `"InvalidPolicyDocument"` literal lives inside
+`CoreNetworkPolicyError.ErrorCode`, a `*string` field with no enum
+(`types/types.go`) nested inside `CoreNetworkPolicyException.Errors` -- opaque
+per-item business data, not the wire error's type discriminator. Re-confirmed
+directly: `CoreNetworkPolicyError.ErrorCode *string`
+(`networkmanager@v1.44.4/types/types.go:643`), and `CreateCoreNetwork`'s own
+`deserializeOpError` switch matches on the outer `"CoreNetworkPolicyException"`
+string (`deserializers.go:1481`), never on the nested `ErrorCode` field. The
+actual discriminator this backend sends (`handler.go`'s `classifyError`,
+`errCoreNetworkPolicy -> "CoreNetworkPolicyException"`) is correct. No fix
+needed.
+
+**Per-operation ground truth extracted programmatically**: all 95 operations'
+`deserializeOpError<Op>` declared exception sets were extracted directly from
+`networkmanager@v1.44.4/deserializers.go` (pinned version; PARITY.md's existing
+per-op table above was written against v1.44.3 -- no material differences found
+in the 8 shared exception shapes or any op's declared set between the two
+patch versions). Cross-referenced against every `notFoundError`/
+`errConflictSentinel`/`errQuotaExceeded`/`errValidationSentinel`/
+`coreNetworkPolicyError` call site in the backend (~90 sites), mapping each to
+its enclosing `InMemoryBackend` method (1:1 with the operation name for every
+site reached).
+
+**2 real bugs found and fixed, both the same shape**: `CreateCoreNetwork` and
+`CreateConnection` both returned `ResourceNotFoundException` (via
+`notFoundError`) for an unresolved `GlobalNetworkId`, but neither operation's
+own deserializer switch declares `ResourceNotFoundException` at all --
+`CreateCoreNetwork`'s real set is `{AccessDeniedException, ConflictException,
+CoreNetworkPolicyException, InternalServerException,
+ServiceQuotaExceededException, ThrottlingException, ValidationException}`;
+`CreateConnection`'s is the same minus `CoreNetworkPolicyException`. A real
+client's deserializer never matches `ResourceNotFoundException` for either op
+and falls to `*smithy.GenericAPIError` (silent failure). Fixed: both now use
+`validationError` (renders `ValidationException`, reason
+`FieldValidationFailed` -- the only client-fault type either op declares).
+`CreateConnection` also validates `DeviceId`/`ConnectedDeviceId` the same way
+(2 more sites, same fix). Proven fail-before/pass-after with a real
+`aws-sdk-go-v2` client
+(`Test_CreateCoreNetwork_UnknownGlobalNetworkIsValidation`,
+`Test_CreateConnection_UnknownDeviceIsValidation`,
+`wire_error_code_unknown_global_network_test.go`).
+
+**A stale-but-defensible comment corrected, not just reverted**:
+`CreateConnection`'s existing comment already documented that
+`ResourceNotFoundException` isn't declared for this op and defended using
+`notFoundError` anyway as "the closest honest match available" -- a real,
+previously-recorded finding (PARITY.md family F), but the reasoning only
+weighed message honesty, not wire-shape correctness: `notFoundError`'s
+`ResourceNotFoundException` isn't in this op's declared set either, so it
+produced an untyped `GenericAPIError` for every real client regardless.
+`ValidationException` is the choice that actually decodes into a typed
+exception. Comment rewritten in place to record both the original finding and
+why the fix improves on it, rather than silently dropped.
+
+**Everything else checked held**: the remaining ~86 sentinel-usage call sites
+all map to operations whose real deserializer switch does declare the
+corresponding type, including the previously-documented narrow-set outliers
+`ListOrganizationServiceAccessStatus` (zero typed exceptions; its backend
+method never errors, confirmed unreachable-by-construction) and
+`GetNetworkResourceCounts` (no `ResourceNotFoundException`; its backend method
+deliberately never validates `GlobalNetworkId`, per its own existing "honesty
+bar" comment in `introspection.go` -- re-verified, still correct, not touched).
+
+**Fabricated error codes**: `cmd/errcodeaudit` returned only the 2
+`corenetworks.go` findings above, both confirmed false positives. No further
+fabrications found by the per-operation cross-reference above.
+
+Gates: `go build ./services/networkmanager/...` (clean), `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/networkmanager/...`
+(pass), `golangci-lint run ./services/networkmanager/...` (0 issues).

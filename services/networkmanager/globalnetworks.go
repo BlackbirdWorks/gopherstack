@@ -1,6 +1,7 @@
 package networkmanager
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -567,23 +568,28 @@ func (b *InMemoryBackend) CreateConnection(
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if !b.globalNetworkExists(globalNetworkID) {
-		return nil, notFoundError(resourceGlobalNetwork, globalNetworkID)
-	}
-	// Note: CreateConnection genuinely lacks ResourceNotFoundException in
-	// the real SDK's error set despite referencing ConnectedDeviceId/
+	// CreateConnection genuinely lacks ResourceNotFoundException in the real
+	// SDK's error set despite referencing GlobalNetworkId/ConnectedDeviceId/
 	// DeviceId/ConnectedLinkId/LinkId (PARITY.md family F's note -- likely
 	// an SDK-model oversight, reported as read not corrected). This backend
-	// still validates DeviceId/ConnectedDeviceId exist to avoid modeling an
-	// orphaned Connection, using the general notFoundError constructor,
-	// which is the closest honest match available.
+	// still validates GlobalNetworkId/DeviceId/ConnectedDeviceId exist to
+	// avoid modeling an orphaned Connection. A prior pass used notFoundError
+	// here reasoning it was "the closest honest match available" -- but
+	// ResourceNotFoundException isn't in this op's declared set either, so
+	// that produces an untyped GenericAPIError for every real client
+	// regardless. ValidationException (declared for this op, reason
+	// FieldValidationFailed) is the only choice that actually decodes into
+	// a typed exception.
+	if !b.globalNetworkExists(globalNetworkID) {
+		return nil, validationError(fmt.Sprintf("%s %s not found", resourceGlobalNetwork, globalNetworkID))
+	}
 
 	if d, ok := b.devices.Get(deviceID); !ok || d.GlobalNetworkID != globalNetworkID {
-		return nil, notFoundError(resourceDevice, deviceID)
+		return nil, validationError(fmt.Sprintf("%s %s not found", resourceDevice, deviceID))
 	}
 
 	if d, ok := b.devices.Get(connectedDeviceID); !ok || d.GlobalNetworkID != globalNetworkID {
-		return nil, notFoundError(resourceDevice, connectedDeviceID)
+		return nil, validationError(fmt.Sprintf("%s %s not found", resourceDevice, connectedDeviceID))
 	}
 
 	id := newConnectionID()

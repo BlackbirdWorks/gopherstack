@@ -413,8 +413,13 @@ func TestThingNotFound_Returns404(t *testing.T) {
 	}
 }
 
-// TestRefinement1_RuleNotFound_Returns404 verifies GetTopicRule returns 404.
-func TestRuleNotFound_Returns404(t *testing.T) {
+// TestRuleNotFound_Returns400 verifies GetTopicRule returns 400
+// InvalidRequestException, not 404 ResourceNotFoundException: GetTopicRule's
+// own deserializeOpError switch (iot@v1.77.4/deserializers.go) declares no
+// ResourceNotFoundException case at all -- unlike almost every other
+// Get/Describe op in this service. This test previously asserted 404 as
+// correct; see wire_error_code_topic_rule_test.go for the full family fix.
+func TestRuleNotFound_Returns400(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -429,7 +434,7 @@ func TestRuleNotFound_Returns404(t *testing.T) {
 
 			h, _ := newRefHandler()
 			rec := doRefRequest(t, h, http.MethodGet, "/rules/missing-rule", nil, nil)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }

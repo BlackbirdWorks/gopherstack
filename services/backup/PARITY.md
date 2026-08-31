@@ -451,3 +451,91 @@ Gates: `go build ./services/backup/...`, `go vet ./services/backup/...` and
 repo-wide `go vet ./...` (clean), `go test -race -count=1 ./services/backup/...`
 (pass), `golangci-lint run ./services/backup/...` (0 issues after decomposing
 scanJobMatchesFieldFilters to stay under cyclop's limit).
+
+## 2026-08-31 error-envelope-shape / fabricated-error-code sweep
+
+**Scope**: error envelope shape (does an error deserialize into the typed
+exception a real SDK client branches on) and fabricated error codes (a code the
+emulator returns that the pinned SDK does not define for that specific
+operation), per-operation -- not the filter-semantics class other recent passes
+chased.
+
+**Envelope mechanism confirmed correct**: `errResp(code, msg) ->
+{"code": ..., "message": ...}` (handler_dispatch.go) is read correctly by every
+operation's real `awsRestjson1_deserializeOpError<Op>` (`backup@v1.59.4/deserializers.go`)
+via `restjson.GetErrorInfo`, which checks `Code` (case-insensitively matches this
+service's lowercase `"code"` key) before falling back to `__type` -- this service
+never sets `__type` or a header, but the `Code` fallback always resolves. This is
+the same `restjson.GetErrorInfo` mechanism networkmanager and iot both use;
+confirmed directly in the pinned SDK source (`aws-sdk-go-v2@v1.43.4/aws/protocol/restjson/decoder_util.go`),
+not assumed.
+
+**Per-operation ground truth extracted programmatically**: every one of this
+service's 95 `deserializeOpError<Op>` functions' declared exception cases were
+extracted directly from source (not sampled), then cross-referenced against every
+`ErrNotFound`/`ErrAlreadyExists`/`ErrInvalidRequest` call site in the backend
+(~60 sites across 14 files) by mapping each site to its enclosing
+`InMemoryBackend` method and treating the method name as the operation name
+(verified 1:1 for every site reached, including internal-helper exceptions like
+`CompleteBackupJob`/`GetBackupVaultLockConfig`, which are not real API operations
+and were confirmed to have their errors discarded/swallowed before reaching any
+client, not just skipped from the cross-check).
+
+**2 real bugs found and fixed**:
+
+1. `DeleteRestoreTestingPlan`'s unknown-plan-name path returned
+   `ResourceNotFoundException`, but this operation's own deserializer switch
+   (`deserializers.go`) declares only `InvalidRequestException`/
+   `ServiceUnavailableException` -- no not-found case at all, unlike almost every
+   other Delete op in this service. A real client's deserializer never matches
+   `ResourceNotFoundException` for this op and falls to
+   `*smithy.GenericAPIError` (silent failure: the typed-exception branch never
+   fires). Fixed: `restore_testing.go` now wraps `ErrInvalidRequest` instead of
+   `ErrNotFound`. Proven fail-before/pass-after with a real `aws-sdk-go-v2`
+   client (`Test_DeleteRestoreTestingPlan_UnknownPlanIsInvalidRequest`,
+   `wire_error_code_restore_testing_plan_test.go`).
+
+2. `CreateBackupSelection`'s unresolved-`BackupPlanId` path returned
+   `ResourceNotFoundException`, but this operation's own deserializer declares
+   `{AlreadyExistsException, InvalidParameterValueException,
+   LimitExceededException, MissingParameterValueException,
+   ServiceUnavailableException}` -- no `ResourceNotFoundException`. Fixed:
+   `selections.go` now wraps `ErrValidation` (renders as
+   `InvalidParameterValueException`, the real type for "a parameter value does
+   not refer to a real resource" per this service's own established
+   convention). Proven fail-before/pass-after
+   (`Test_CreateBackupSelection_UnknownPlanIsInvalidParameterValue`,
+   `wire_error_code_backup_selection_test.go`). An existing test
+   (`TestCreateBackupSelection/plan_not_found`, `handler_selections_test.go`)
+   asserts only `http.StatusBadRequest` -- unchanged either way (both codes are
+   400 in this service) and therefore could never have caught this class; left
+   as-is, not weakened.
+
+**Everything else checked held**: the remaining ~58 `ErrNotFound`/`ErrAlreadyExists`
+call sites all map to operations whose real deserializer switch does declare the
+corresponding type. Two internal-only sentinels (`CompleteBackupJob`,
+`GetBackupVaultLockConfig`) are not real API operations and their errors never
+reach a client. `ErrInvalidRequest` usages (DeleteBackupVault,
+DeleteBackupVaultChecked, PutBackupVaultLockConfiguration) all target operations
+that do declare `InvalidRequestException`.
+
+**Gap recorded, not fixed, with reasoning**: `ConflictException` is declared for
+`DeleteFramework`/`DeleteReportPlan`/`CreateRestoreTestingPlan`/`UpdateFramework`/
+`UpdateReportPlan`/`UpdateRestoreTestingPlan`/`UpdateRestoreTestingSelection`/
+`CreateTieringConfiguration`/`UpdateTieringConfiguration`, but this backend has no
+sentinel or state model for "resource is in a conflicting state" for
+framework/report-plan deletion (e.g. "framework still referenced by a report
+plan") -- `DeleteFramework` deletes unconditionally once existence is confirmed,
+with no dependent-tracking to check. Not fixed: the backend cannot reach this
+state (no legal input triggers it), which is a completeness/validation gap
+distinct from a wire-shape bug -- this pass's mandate was envelope shape and
+fabricated codes, not general completeness, so it is recorded rather than
+fabricated a check for.
+
+**Fabricated error codes**: `cmd/errcodeaudit` returned zero findings (confident
+or needs-review) for `services/backup/`. No further fabrications found by the
+per-operation cross-reference above.
+
+Gates: `go build ./services/backup/...` (clean), `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/backup/...` (pass), `golangci-lint
+run ./services/backup/...` (0 issues).

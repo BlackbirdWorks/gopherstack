@@ -174,7 +174,11 @@ func (b *InMemoryBackend) DeleteRestoreTestingPlan(planName string) error {
 	defer b.mu.Unlock()
 
 	if !b.restoreTestingPlans.Has(planName) {
-		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+		// DeleteRestoreTestingPlan's own deserializeOpError switch (unlike
+		// almost every sibling op) declares no ResourceNotFoundException
+		// case at all -- InvalidRequestException is the only client-fault
+		// type available for this operation.
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrInvalidRequest, planName)
 	}
 
 	b.restoreTestingPlans.Delete(planName)

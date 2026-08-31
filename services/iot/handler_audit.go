@@ -241,7 +241,9 @@ func (h *Handler) handleDeleteAuditSuppression(c *echo.Context) error {
 		return err
 	}
 	if err := h.Backend.DeleteAuditSuppression(req.CheckName, req.ResourceIdentifier); err != nil {
-		return respondErr(c, err)
+		// DeleteAuditSuppression's own deserializeOpError switch declares
+		// no ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -560,7 +562,9 @@ func (h *Handler) handleUpdateMitigationAction(c *echo.Context) error {
 func (h *Handler) handleDeleteMitigationAction(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/mitigationactions/actions/")
 	if err := h.Backend.DeleteMitigationAction(name); err != nil {
-		return respondErr(c, err)
+		// DeleteMitigationAction's own deserializeOpError switch declares
+		// no ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)

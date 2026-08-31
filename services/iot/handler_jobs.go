@@ -287,7 +287,11 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	}
 	job, err := h.Backend.CancelJob(jobID, req.Comment)
 	if err != nil {
-		return respondErr(c, err)
+		// CancelJob's own deserializeOpError switch declares no
+		// InvalidStateTransitionException case -- InvalidRequestException is
+		// the real type. Its ResourceNotFoundException case IS declared, so
+		// only this sentinel needs the override.
+		return respondAsInvalidRequest(c, err, ErrInvalidStateTransition)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

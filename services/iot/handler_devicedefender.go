@@ -451,7 +451,9 @@ func (h *Handler) handlePutVerificationStateOnViolation(c *echo.Context) error {
 		req.VerificationStateDescription,
 	)
 	if err != nil {
-		return respondErr(c, err)
+		// PutVerificationStateOnViolation's own deserializeOpError switch
+		// declares no ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)

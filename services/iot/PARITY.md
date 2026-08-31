@@ -1499,3 +1499,138 @@ member in the first place).
 No code changes this pass. Gates: `go build ./services/iot/...` (clean), `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/iot/...` (pass, no new tests --
 nothing to prove).
+
+## 2026-08-31 error-envelope-shape / fabricated-error-code sweep
+
+**Scope**: this campaign's two remaining classes -- error envelope shape (does an
+error deserialize into the typed exception a real SDK client branches on) and
+fabricated error codes (a code the emulator returns that the pinned SDK does not
+define for that specific operation). Not the filter/value-semantics class other
+recent passes chased.
+
+**Protocol/envelope mechanism confirmed correct at the generic level**: this
+service's `awsErrBody{Type string \`json:"__type"\`, Message string \`json:"message"\`}`
+(handler_helpers.go) is read correctly by every operation's real
+`awsRestjson1_deserializeOpError<Op>` function (`iot@v1.77.4/deserializers.go`) via
+the shared `restjson.GetErrorInfo` helper (`aws-sdk-go-v2@v1.43.4/aws/protocol/restjson/decoder_util.go`),
+which checks header `X-Amzn-ErrorType` first, then body `code`, then body `__type`
+-- this service sets no header but does set `__type`, so the body fallback always
+resolves. Also confirmed for the `iotdataplane` SDK (Get/Update/DeleteThingShadow,
+ListNamedShadowsForThing) via the same generic pattern.
+
+**IMPORTANT DISCOVERY: `handler_shadows.go`/`shadows.go` (Device Shadow ops) are
+unreachable by any correctly-signed real client.** `Handler.RouteMatcher()`
+(handler.go) explicitly gates shadow paths (`isThingShadowPath`) by SigV4 signing
+service, matching only `svc == "" || svc == iotServiceName` -- a genuinely
+iotdataplane-signed request (`svc == "iotdata"`) is deliberately NOT claimed here,
+per the existing comment citing gopherstack-61i8, so a real `iotdataplane` client's
+shadow calls route to the separate `services/iotdataplane` package instead (out of
+this pass's scope; confirmed to exist via `cmd/errcodeaudit`'s
+`services/iotdataplane/handler.go:411 ResourceAlreadyExistsException` finding, not
+investigated further). Verified empirically: a real `aws-sdk-go-v2/service/iotdataplane`
+client's `UpdateThingShadow` against this package's handler 404's at the Echo
+routing layer (RouteMatcher rejects it, falls through to default 404) before ever
+reaching `shadows.go`. A found wire-shape bug there (UpdateThingShadow's
+unknown-thing path wrongly returns ResourceNotFoundException; real op declares no
+such case) was NOT fixed because it cannot affect any real client -- fixing dead
+code would not move the needle this campaign cares about. This should be recorded
+as a standing caveat for any future pass over this file.
+
+**8 real bugs found and fixed, one shape, one family**: the entire TopicRule/
+TopicRuleDestination op family (GetTopicRule, DeleteTopicRule, EnableTopicRule,
+DisableTopicRule, ReplaceTopicRule, GetTopicRuleDestination,
+UpdateTopicRuleDestination, DeleteTopicRuleDestination) uses a genuinely different,
+smaller exception vocabulary than the rest of this service -- confirmed by direct
+per-op read of each operation's own `deserializeOpError<Op>` switch:
+`{InternalException, InvalidRequestException, ServiceUnavailableException,
+UnauthorizedException}` plus `ConflictingResourceUpdateException`/
+`SqlParseException` where applicable. None of the 8 declare
+`ResourceNotFoundException` at all, unlike almost every other Get/Delete op in this
+service. `writeIoTError`'s shared not-found case previously rendered
+`ErrRuleNotFound`/`ErrTopicRuleDestinationNotFound` as `ResourceNotFoundException`
+-- a code none of these 8 operations' real deserializer switches match, so a real
+client got a `*smithy.GenericAPIError` instead of any typed exception (silent
+failure mode). Fixed by moving both sentinels into `writeIoTError`'s
+`InvalidRequestException` case (the only client-fault type this family declares).
+Two existing tests asserted the old, wrong behavior as correct and were corrected,
+not weakened: `TestRuleNotFound_Returns404` (renamed `_Returns400`,
+`handler_test.go`) and `TestErrorFormat_UsesAWSFormat`'s `RuleNotFound` case
+(`errors_test.go`) both asserted 404/ResourceNotFoundException; now assert
+400/InvalidRequestException. `TestDeleteTopicRule_Handler`'s `delete_missing_rule`
+case (`handler_topic_rules_test.go`) had the same fix. Zero assertions dropped in
+any of the three -- only expected values changed.
+
+**14 more real bugs, same shape, spread across families that share the generic
+`ErrResourceNotFound`/`ErrThingGroupNotFound`/`ErrDeleteConflict`/
+`ErrInvalidStateTransition` sentinels with other operations that DO need the
+richer type**: DeleteAuditSuppression, DeleteMitigationAction, DeleteBillingGroup,
+PutVerificationStateOnViolation, DeleteV2LoggingLevel, DeleteFleetMetric,
+DeleteCustomMetric, DeleteDimension, DeleteSecurityProfile, DeleteThingGroup,
+DeleteDynamicThingGroup, ListThingRegistrationTaskReports (all: not-found ->
+InvalidRequestException, not ResourceNotFoundException, per their own real
+deserializer switches), plus CancelJob (InvalidStateTransitionException not
+declared; InvalidRequestException is) and DeleteThing (DeleteConflictException not
+declared for the "has attached principals" case; InvalidRequestException is --
+DeleteThing's genuine not-found case via `ErrThingNotFound` IS correctly declared
+and was left alone). Because these sentinels are shared with other operations that
+correctly need `ResourceNotFoundException`/etc, the fix is a new per-call-site
+override (`respondAsInvalidRequest(c, err, sentinel)`, handler_helpers.go) rather
+than a change to the sentinels' own semantics or `writeIoTError`'s global mapping
+-- preserves every other caller and every existing backend-level test asserting the
+sentinel itself. One existing test asserted the old wrong behavior:
+`TestCancelJob_DescriptionAndTerminalStateGuard` (`handler_jobs_test.go`) expected
+409/InvalidStateTransitionException; now asserts 400/InvalidRequestException. Zero
+assertions dropped.
+
+Every fix above was proven fail-before/pass-after with a real `aws-sdk-go-v2`
+client (`errors.As` on the specific typed exception, not a status code): the
+TopicRule family in `wire_error_code_topic_rule_test.go` (8 subtests), the 12
+shared-sentinel operations plus CancelJob/DeleteThing in
+`wire_error_code_delete_not_found_test.go` (14 subtests total). For the 12-op batch
+the fail-before proof was done as a batch via `git apply -R` on the handler diff
+(all 14 new subtests confirmed failing against the reverted code, then confirmed
+passing after `git apply` re-applied it) rather than one revert per operation --
+recorded here since it is a coarser proof than the per-operation reverts used
+elsewhere in this pass, though it exercises the same code paths.
+
+**9 more confirmed real bugs, found but NOT fixed this pass -- different families,
+need new wire infrastructure**: CreateCommand/DeleteCommand/DeleteCommandExecution
+(Commands API) and CreateIoTPackage/CreateIoTPackageVersion/DeleteIoTPackage/
+DeleteIoTPackageVersion (Software Package Catalog, real ops CreatePackage/
+CreatePackageVersion/DeletePackage/DeletePackageVersion) both use AWS's newer
+common vocabulary (`ConflictException`/`ValidationException`/
+`InternalServerException`) instead of this service's classic
+`InvalidRequestException`/`ResourceAlreadyExistsException`/`InternalFailureException`
+-- confirmed by direct per-op read, e.g. `CreatePackage`'s real set is
+`{ConflictException, InternalServerException, ServiceQuotaExceededException,
+ThrottlingException, ValidationException}`, no `ResourceAlreadyExistsException` at
+all. `ErrAlreadyExists`/`ErrResourceNotFound` render as the wrong family's codes
+for these 7 ops. Also: CreateJobTemplate (`ErrAlreadyExists` -> needs
+`ConflictException`, not declared as `ResourceAlreadyExistsException`) and the
+AlreadyExists half of StartAuditMitigationActionsTask/
+StartDetectMitigationActionsTask (need `TaskAlreadyExistsException`, a type this
+service's `writeIoTError` has never rendered at all; their not-found halves were
+already correctly declared and untouched). Deferred because fixing any of these
+requires adding genuinely new wire-error-code paths (`ConflictException`,
+`ValidationException` as distinct from `InvalidRequestException`,
+`TaskAlreadyExistsException`) to `writeIoTError`, not just redirecting an existing
+sentinel to an existing code -- more invasive than this pass's remaining time
+allowed to do with the same fail-before/pass-after rigor as the fixes above.
+Recorded here with full reasoning rather than silently dropped.
+
+**Fabricated error codes**: `cmd/errcodeaudit` returned zero findings (confident or
+needs-review) for `services/iot/` directly (only `services/iotdataplane/handler.go:411`,
+out of scope). No further literal-code fabrications found by manual per-op
+cross-reference beyond the shape above (which is a *wrong-code-for-this-operation*
+class, not an *undefined-anywhere-in-the-SDK* class).
+
+**PARITY.md correction (typo, not substantive)**: the 2026-07-25 note above citing
+`serializers.go`'s `awsAwsjson11_serializeOpListAuditFindings` names the wrong
+protocol prefix -- the real symbol is `awsRestjson1_serializeOpListAuditFindings`
+(confirmed directly; this service has no awsjson1.1 operations at all). The
+route/field fix that note documents is unaffected; only the protocol-prefix string
+in the note was wrong.
+
+Gates: `go build ./services/iot/...` (clean), `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iot/...` (pass), `golangci-lint run
+./services/iot/...` (0 issues).

@@ -307,7 +307,11 @@ func (h *Handler) handleDeleteThing(c *echo.Context) error {
 	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 
 	if err := h.Backend.DeleteThing(thingName); err != nil {
-		return h.handleError(c, err)
+		// DeleteThing's own deserializeOpError switch declares no
+		// DeleteConflictException case -- InvalidRequestException is the
+		// real type. Its ResourceNotFoundException case IS declared, so
+		// only ErrDeleteConflict needs the override.
+		return respondAsInvalidRequest(c, err, ErrDeleteConflict)
 	}
 
 	return c.NoContent(http.StatusNoContent)
