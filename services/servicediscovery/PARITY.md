@@ -429,3 +429,118 @@ fix. Left undone and recorded here rather than fabricated or silently
 dropped, per gopherstack-4shm's restraint principle.
 
 No code changes this pass -- PARITY.md documentation only. Gates unaffected.
+
+## 2026-08-30 value-semantics filter sweep (gopherstack-uox6's class)
+
+This file already noted (2026-08-30, request-field axis sweep) that
+"filter semantics are unexamined" beyond the 30/30 field-presence scan.
+This pass reads every `NamespaceFilter`/`ServiceFilter`/`OperationFilter`
+Condition/Values semantic, the `HealthStatus`/`OptionalParameters` rules on
+`DiscoverInstances`, and every List op's `MaxResults` default against
+`aws-sdk-go-v2/service/servicediscovery@v1.43.4`'s own doc comments.
+
+### 2 bugs found and fixed
+
+**1. `ListServices`' `NAMESPACE_ID` filter rejected the documented ARN
+form.** `types.ServiceFilter`'s doc comment: "NAMESPACE_ID: Specify one
+namespace ID or ARN. Specify the namespace ARN for namespaces that are
+shared with your Amazon Web Services account." `ListServices` (`services.go`)
+compared the filter's raw value directly against `svc.NamespaceID` (the
+bare ID field) via the shared `FilterValue.matches` helper — a real client
+filtering by the namespace ARN (the documented, and for shared namespaces
+the *only*, way to do it) matched nothing, even though the namespace and
+its services existed. Same shape as the RDS ARN-form-filter bug found
+earlier in this campaign on a sibling service.
+
+Fixed: added `resolveNamespaceIDFilter` (`services.go`), which rewrites a
+NAMESPACE_ID filter's values from ARN to bare ID via the existing
+`namespacesByARN` index (already used by `ListTagsForResource`/
+`TagResource`/`UntagResource`) before matching, leaving bare-ID filters
+(the common case) untouched. `ServiceFilter`'s `RESOURCE_OWNER` name was
+already correctly routed through the dedicated `resourceOwnerMatches`
+special-case rather than the shared matcher, so it was not affected by (or
+in need of) this fix. `OperationFilter`'s `NAMESPACE_ID`/`SERVICE_ID` doc
+comments say only "Specify one namespace/service ID" (no ARN form
+documented there), so `ListOperations` was checked and correctly left
+alone.
+
+Test: `TestBackend_ListServices_FilterByNamespaceARN` (new,
+`services_test.go`), hand-confirmed failing against unmodified code (0
+matches instead of 1) before the fix.
+
+**2. `DiscoverInstances`' `HealthStatus` filter wasn't ignored for a
+service with no health check at all.** `DiscoverInstancesInput.HealthStatus`'s
+doc comment: "This parameter is ignored for services that don't have a
+health check configured, and all instances are returned." A service
+created with neither `HealthCheckConfig` nor `HealthCheckCustomConfig` can
+never have an instance move to `UNHEALTHY` in this backend (only
+`UpdateInstanceCustomHealthStatus` sets it, and that call itself already
+requires `HealthCheckCustomConfig` — see `instances.go:210`, an existing,
+correct rejection). So a `HealthStatus=UNHEALTHY` filter against such a
+service was narrowing to zero results instead of being ignored and
+returning everything, per the doc'd override. (`HEALTHY`/`ALL`/
+`HEALTHY_OR_ELSE_ALL`/empty were already unaffected, since every instance
+defaults to `HEALTHY` regardless — this only bit the `UNHEALTHY` case.)
+
+Fixed: `filterInstancesByHealth` (`discovery.go`) now checks whether the
+service has neither `HealthCheckConfig` nor `HealthCheckCustomConfig` set
+and, if so, returns every candidate unconditionally regardless of the
+requested `HealthStatus`. This is the one sub-case of the doc'd override
+this backend can implement precisely without simulating real health
+evaluation — the existing 2026-08-30 (or earlier) note above about
+`HealthStatus=UNKNOWN` being structurally absent (no Route53 health-check
+subsystem) covers the DNS-health-check case, which remains unfixable and
+untouched.
+
+Test: `TestHandler_DiscoverInstancesHealthStatusIgnoredWithoutHealthCheck`
+(new, `discovery_test.go`), hand-confirmed failing against unmodified code
+(0 instances instead of 1) before the fix. All existing `DiscoverInstances`
+health-status tests (including the `HealthCheckCustomConfig`-gated
+`UNHEALTHY` case) still pass unchanged.
+
+### Other filters/defaults checked, no bug
+
+- `MaxResults` default (documented "up to 100" on `ListNamespaces`,
+  `ListServices`, `ListInstances`, `ListOperations`, and
+  `GetInstancesHealthStatus`) matches this service's uniform
+  `maxResultsDefault = 100` on all five — no per-op discrepancy like kms
+  had.
+- `NamespaceFilter`'s `Condition` semantics (`EQ` default/single-value,
+  `BEGINS_WITH` single-value prefix, documented only for `TYPE`/`NAME`/
+  `HTTP_NAME` — never `RESOURCE_OWNER`) are correct: `RESOURCE_OWNER` is
+  routed through the dedicated `resourceOwnerMatches`, not the shared
+  `BEGINS_WITH`-capable matcher, so the undocumented combination can't
+  occur for that field.
+- `OperationFilter`'s `UPDATE_DATE`/`BETWEEN` (start ≤ value ≤ end,
+  inclusive both ends — the conventional reading of "specify a start date
+  and an end date") and its epoch-seconds wire parsing are correct; `IN`
+  for `STATUS`/`TYPE` and `EQ` for all four scalar names are correct.
+- `GetInstancesHealthStatus`' `Instances` filter (absent ⇒ "Cloud Map
+  returns the health status for all the instances", per doc) correctly
+  returns everything when empty (`instances.go`).
+- `DiscoverInstances`' `OptionalParameters`-vs-`QueryParameters` combining
+  rule (opportunistic narrowing that falls back to the
+  `QueryParameters`-only result when nothing matches both) was already
+  correct and precisely comment-documented in `discovery.go` before this
+  pass — re-verified against the doc's own wording, not re-derived as new.
+
+**Discrimination kept separate, not folded in as this class's bug:**
+`ServiceFilter`'s `Condition` doc only lists `EQ` as valid ("EQ is the
+default condition and can be omitted" — no other value is documented for
+this filter type at all); the shared `FilterValue.matches` would still
+accept `BEGINS_WITH`/`IN` for a `ServiceFilter` entry if a raw HTTP caller
+sent one, since the matcher is generic across all three filter families.
+This is a **missing rejection** (an undocumented `Condition` value is
+silently accepted rather than rejected) — validation-shaped, and the same
+already-established "unrecognized condition matches everything" convention
+this codebase uses deliberately elsewhere (see `FilterValue.matches`'s own
+doc comment). Recorded, not fixed, to keep the missing-rejection axis
+separate from wrong-algorithm semantics.
+
+No web pages fetched this pass — everything resolved from the pinned
+`aws-sdk-go-v2/service/servicediscovery@v1.43.4` module cache doc comments.
+
+Gates: `go build ./services/servicediscovery/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/servicediscovery/...`,
+`golangci-lint run ./services/servicediscovery/...` (0 issues). Work left
+uncommitted per this pass's instructions.

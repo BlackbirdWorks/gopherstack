@@ -126,9 +126,8 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 
 	if in.PullRequestStatus != "" &&
 		in.PullRequestStatus != prStatusOpen &&
-		in.PullRequestStatus != prStatusClosed &&
-		in.PullRequestStatus != prStatusMerged {
-		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN, CLOSED, or MERGED", ErrValidation)
+		in.PullRequestStatus != prStatusClosed {
+		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
 	}
 
 	ids, err := h.Backend.ListPullRequests(in.RepositoryName, in.PullRequestStatus, in.AuthorARN)

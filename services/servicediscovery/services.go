@@ -137,16 +137,40 @@ func (b *InMemoryBackend) GetService(id string) (*Service, error) {
 	return cp, nil
 }
 
+// resolveNamespaceIDFilter rewrites a NAMESPACE_ID filter's values from ARN
+// form to bare ID, matching ServiceFilter's documented "Specify one namespace
+// ID or ARN" semantics (types.ServiceFilter doc comment). Must be called with
+// b.mu already held by the caller.
+func (b *InMemoryBackend) resolveNamespaceIDFilter(f FilterValue) FilterValue {
+	if f.empty() {
+		return f
+	}
+
+	resolved := make([]string, len(f.Values))
+
+	for i, v := range f.Values {
+		if matches := b.namespacesByARN.Get(v); len(matches) > 0 {
+			resolved[i] = matches[0].ID
+		} else {
+			resolved[i] = v
+		}
+	}
+
+	return FilterValue{Condition: f.Condition, Values: resolved}
+}
+
 // ListServices returns all services, optionally filtered.
 func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
+	nsFilter := b.resolveNamespaceIDFilter(filter.NamespaceID)
+
 	all := b.services.All()
 	result := make([]Service, 0, len(all))
 
 	for _, svc := range all {
-		if !filter.NamespaceID.matches(svc.NamespaceID) {
+		if !nsFilter.matches(svc.NamespaceID) {
 			continue
 		}
 

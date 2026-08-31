@@ -172,7 +172,7 @@ func TestHandler_MergePullRequestByFastForward(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergePullRequestBySquash(t *testing.T) {
@@ -191,7 +191,7 @@ func TestHandler_MergePullRequestBySquash(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergePullRequestByThreeWay(t *testing.T) {
@@ -210,7 +210,7 @@ func TestHandler_MergePullRequestByThreeWay(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergeBranchesByFastForward(t *testing.T) {

@@ -646,3 +646,88 @@ existing test assertions were weakened; 0 dropped.
 
 Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
 `golangci-lint run` — all clean (`./services/codecommit/...`).
+
+## 2026-08-30 value-semantics filter sweep (gopherstack-uox6's class)
+
+Audited codecommit's filter-bearing List/Describe/Merge operations for the
+class this bd issue tracks: a documented filter/status semantic that is
+read and applied but wrong, invisible to every field-shape or enum-legality
+scan. `ListPullRequests`'s `pullRequestStatus`/`authorArn` filters, its
+sort/pagination, and every declared-but-dropped filter param already
+recorded in this file's "Not reached this pass" section were re-checked and
+found clean or already correctly recorded.
+
+### 1 bug found and fixed: fabricated "MERGED" pull request status
+
+`aws-sdk-go-v2/service/codecommit@v1.36.4`'s `types.PullRequestStatusEnum`
+has exactly two members, `OPEN` and `CLOSED` — confirmed directly in
+`types/enums.go`. `UpdatePullRequestStatusInput.PullRequestStatus`'s own doc
+comment is explicit: "The only valid operations are to update the status
+from OPEN to OPEN, OPEN to CLOSED or from CLOSED to CLOSED." A merge is a
+terminal CLOSED, distinguished from an explicit close only via
+`PullRequestTarget.MergeMetadata` (`MergeCommitId`/`MergedBy`/`IsMerged`,
+`types.go:936` — a struct this backend doesn't model at all, per the
+existing 2026-08-23 note above).
+
+`MergePullRequestByFastForward`/`BySquash`/`ByThreeWay` (`merges.go`) set
+`pr.PullRequestStatus = "MERGED"` instead of `"CLOSED"` — a value no real
+AWS CodeCommit response ever emits and no real SDK client's
+`PullRequestStatusEnum` can express. This corrupted `ListPullRequests`'
+`pullRequestStatus` filter specifically: a real client filtering for
+`CLOSED` (the only way to ask for terminal PRs, since `MERGED` isn't a
+legal filter value either) would see merged PRs in real AWS but got none
+back from this backend, because their stored status never matched `CLOSED`.
+`handleListPullRequests` additionally accepted `"MERGED"` as a valid filter
+value to request them by — a value a real SDK client's typed enum could
+never send.
+
+Fixed: all three merge operations now set `PullRequestStatus = "CLOSED"`;
+`ListPullRequests`' validation now accepts only `OPEN`/`CLOSED` (error
+message updated); the now-redundant `== prStatusMerged` guard clauses in
+`pull_requests.go` (blocking mutation of an already-terminal PR) collapsed
+to the `prStatusClosed` check alone; the now-unused `prStatusMerged`
+constant removed from `handler.go`. `UpdatePullRequestStatus`'s existing,
+correct rejection of an explicit `"MERGED"` input status (it's not a legal
+transition target either) is untouched.
+
+**Known, not fixed — out-of-scope, cosmetic-only:** `ui/src/routes/codecommit/+page.svelte:222`
+has a status-badge color mapping for the literal string `'MERGED'`, which
+can now never match. Outside this pass's `services/codecommit/` scope and
+not a Go caller broken by a signature change (no signature changed), so not
+touched; the badge will fall through to whatever color the mapping uses for
+an unrecognized status. Flagged for whoever next touches that page.
+
+Test: `TestHandler_ListPullRequests_ClosedFilterIncludesMerged` (new,
+`handler_pull_requests_test.go`), hand-confirmed failing against unmodified
+code before the fix (merged status `"MERGED"` instead of `"CLOSED"`, empty
+`CLOSED`-filtered list instead of one match).
+`TestHandler_MergePullRequest_StatusBecomesmerged` (renamed
+`...StatusBecomesClosed`) and the three merge-response assertions in
+`handler_merges_test.go` were asserting the bug (`"MERGED"`) and are now
+corrected to assert `"CLOSED"` — 4 assertions changed, 0 dropped. The three
+`UpdatePullRequestStatus` validation tests asserting `"MERGED"` is REJECTED
+as an explicit input status are unrelated (that rejection was already
+correct) and untouched.
+
+### Other filters checked, no bug
+
+- `ListPullRequests`' `pullRequestStatus`/`authorArn`: neither field
+  documents behaviour on absence beyond "if used, this refines the
+  results" — no omission-default language exists on either field
+  (`api_op_ListPullRequests.go`), so empty-means-no-filter is correct as
+  implemented.
+- `ListRepositories`' `sortBy`/`order`: real `ListRepositoriesInput`
+  documents no default for either enum; the emulator's
+  repositoryName-ascending default is a reasonable, undocumented choice,
+  not a contradiction of documented behaviour.
+- `GetDifferences`' dropped `beforeCommitSpecifier` (structurally unfixable
+  — no per-commit file tree exists to diff against, see the existing
+  `gopherstack-3bsb` note above) and `GetDifferences`/`DescribePullRequestEvents`/
+  `GetCommentsForPullRequest`/`GetCommentReactions`/`ListFileCommitHistory`'s
+  other dropped filter params are the OTHER axis (never read/applied at
+  all) — already correctly recorded in this file's "Not reached this pass"
+  section; re-confirmed present, not re-litigated as this class's bug.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` (0 issues) — all clean (`./services/codecommit/...`).
+Work left uncommitted per this pass's instructions.

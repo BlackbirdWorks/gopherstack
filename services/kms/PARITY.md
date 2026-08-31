@@ -633,3 +633,104 @@ Gates: `go build ./services/kms/...`, `go vet ./services/kms/...` and
 ./services/kms/...`, `golangci-lint run ./services/kms/...` (0 issues). No
 production code changed this pass — test-only additions confirming
 correctness.
+
+## 2026-08-30 value-semantics filter/default sweep (gopherstack-uox6's class, first pass on this axis)
+
+No prior pass had checked kms for the class this bd issue tracks: a
+documented filter/default semantic that is read and applied but wrong,
+invisible to field-shape or enum-legality scans. Checked every List/Describe
+op's optional filters and defaults against `aws-sdk-go-v2/service/kms@v1.55.4`'s
+own doc comments.
+
+### 1 bug found and fixed: wrong default `Limit` on 3 of 7 shared-constant list ops
+
+`defaultListLimit = 100` was used uniformly by all 7 paginated list ops
+(`ListAliases`, `ListGrants`, `ListRetirableGrants`, `ListKeys`,
+`ListKeyPolicies`, `ListKeyRotations`, `DescribeCustomKeyStores`). The SDK's
+own doc comments give a *different* documented default per op, not a single
+value:
+
+| op | doc'd default | doc'd max | gopherstack before | verdict |
+|---|---|---|---|---|
+| `ListAliases` | 50 | 100 | 100 | **wrong — fixed** |
+| `ListGrants` | 50 | 100 | 100 | **wrong — fixed** |
+| `ListRetirableGrants` | 50 | 100 | 100 | **wrong — fixed** |
+| `ListKeys` | 100 | 1000 | 100 | correct |
+| `ListKeyPolicies` | 100 | 1000 | 100 | correct |
+| `ListKeyRotations` | 100 | 1000 | 100 | correct |
+| `DescribeCustomKeyStores` | undocumented | undocumented | 100 | not contradicted |
+
+`ListResourceTags` (`handler_tags.go`) already used its own, correct
+`defaultKMSTagsLimit = 50` — proof this exact discrepancy had already been
+gotten right once and simply wasn't propagated to the other 50-default ops.
+A real client calling `ListAliases`/`ListGrants`/`ListRetirableGrants` with
+no `Limit` got up to twice as many results per page, and a different
+`NextMarker`/`Truncated` boundary, than real AWS would ever return.
+
+Fixed: added `default50ListLimit = 50` (`store.go`) alongside the existing
+`defaultListLimit = 100`, and switched `aliases.go`'s `ListAliases`,
+`grants.go`'s `ListGrants` and `ListRetirableGrants` to it.
+`ListKeys`/`ListKeyPolicies`/`ListKeyRotations`/`DescribeCustomKeyStores`
+are unchanged (already correct/undocumented).
+
+Tests (new): `TestListAliases_DefaultLimit_Is50` (`aliases_test.go`),
+`TestKMSBackendListGrants_DefaultLimit_Is50`,
+`TestKMSBackendListRetirableGrants_DefaultLimit_Is50`
+(`grants_internal_test.go`) — each creates 51 items and confirms exactly 50
+come back unbounded, `Truncated=true`, `NextMarker="50"`. All three
+hand-confirmed failing against unmodified code (51 items returned,
+`Truncated=false`, empty `NextMarker`) before the fix.
+
+### Other filters/defaults checked, no bug
+
+- `ListAliases`' `KeyId` (absent ⇒ "returns all aliases in the account and
+  Region", per doc) and `DescribeCustomKeyStores`' `CustomKeyStoreId`/`Name`
+  (absent ⇒ "returns information about all custom key stores") both
+  correctly return everything when omitted — verified by reading the
+  empty-filter branch in each.
+- `CreateKey`'s `Origin` (absent ⇒ `AWS_KMS`, per doc: "The default is
+  AWS_KMS") — correct (`keys.go`).
+- `ImportKeyMaterial`'s `ExpirationModel` (absent ⇒ `KEY_MATERIAL_EXPIRES`
+  per doc, which in turn requires `ValidTo`) is a genuine discrepancy: this
+  backend's `resolveExpirationModel` (`import.go`) infers `NO_EXPIRY`
+  instead when both `ExpirationModel` and `ValidTo` are omitted, silently
+  accepting a request the real API's own documented default would reject
+  with a `ValidTo`-required validation error. **Deliberately not fixed**:
+  at least 10 existing tests across `import_test.go` and other files
+  construct `ImportKeyMaterialInput` with neither field set, expecting
+  success — a strong signal this was a considered prior design choice, not
+  an oversight, and "fix" here means inventing the exact
+  `ValidationException` shape for a combination no live-AWS evidence in
+  this repo confirms, which this class's own restraint guidance (discard
+  under-verified corrections; a large blast radius against deliberately
+  authored tests outweighs a documentation reading) argues against.
+  Recorded as a gap rather than guessed.
+- `GetParametersForImport`/`ImportKeyMaterial`'s `ImportType` (conditional
+  default: `NEW_KEY_MATERIAL` vs `EXISTING_KEY_MATERIAL` depending on prior
+  import state) is not declared anywhere in `models.go` — the OTHER axis
+  (field never read at all), not this class's bug; recorded, not fixed
+  here.
+- `ListKeyRotations`' `IncludeKeyMaterial` (default `ROTATIONS_ONLY`,
+  narrower than `ALL_KEY_MATERIAL`) is likewise never declared in
+  `ListKeyRotationsInput` (`models.go`) — the OTHER axis; the feature it
+  gates (surfacing first/pending-import key material entries, not just
+  rotation events) isn't modeled by this backend's `RotationRecord` at all,
+  so there's also nothing to filter yet. Recorded, not fixed.
+- `ListAliases`' `Limit` max-bound validation (`aliases.go`) accepts up to
+  1000, where the SDK documents a max of 100 for this op specifically (only
+  `ListKeys` documents 1000) — a missing rejection (validation-shaped, this
+  service accepts a value real AWS would reject), not a wrong algorithm.
+  Recorded separately per this class's own validation/semantics split, not
+  fixed here. `ListGrants`/`ListRetirableGrants` have no max-bound
+  validation at all (same axis).
+- `GenerateRandom`'s `CustomKeyStoreId` (absent ⇒ "the random byte string is
+  generated in KMS", per doc) is never declared in this backend — the OTHER
+  axis; recorded, not fixed.
+
+No web pages fetched this pass — everything resolved from the pinned
+`aws-sdk-go-v2/service/kms@v1.55.4` module cache doc comments.
+
+Gates: `go build ./services/kms/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/kms/...`, `golangci-lint run
+./services/kms/...` (0 issues). Work left uncommitted per this pass's
+instructions.

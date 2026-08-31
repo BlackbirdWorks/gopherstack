@@ -90,6 +90,11 @@ func (b *InMemoryBackend) discoveredInstance(
 // returns only healthy instances unless none are healthy, in which case it "fails
 // open" and returns every candidate -- matching real Cloud Map semantics. Any
 // other value (HEALTHY, UNHEALTHY) is matched exactly against the stored status.
+// Per the DiscoverInstancesInput.HealthStatus doc comment, "This parameter is
+// ignored for services that don't have a health check configured, and all
+// instances are returned" -- honored here for a service with neither
+// HealthCheckConfig nor HealthCheckCustomConfig, the only case this backend
+// can determine without simulating real health evaluation.
 func (b *InMemoryBackend) filterInstancesByHealth(
 	svcID, namespaceName, serviceName string,
 	candidates []*Instance,
@@ -105,6 +110,10 @@ func (b *InMemoryBackend) filterInstancesByHealth(
 	}
 
 	if healthStatus == "" || healthStatus == healthStatusFilterAll {
+		return all()
+	}
+
+	if svc, ok := b.services.Get(svcID); ok && svc.HealthCheckConfig == nil && svc.HealthCheckCustomConfig == nil {
 		return all()
 	}
 

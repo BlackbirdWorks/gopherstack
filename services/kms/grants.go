@@ -285,7 +285,7 @@ func (b *InMemoryBackend) ListGrants(
 	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
-	limit := int32(defaultListLimit)
+	limit := int32(default50ListLimit)
 
 	if input.Limit != nil && *input.Limit > 0 {
 		limit = *input.Limit
@@ -418,7 +418,7 @@ func (b *InMemoryBackend) ListRetirableGrants(
 	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
-	limit := int32(defaultListLimit)
+	limit := int32(default50ListLimit)
 
 	if input.Limit != nil && *input.Limit > 0 {
 		limit = *input.Limit

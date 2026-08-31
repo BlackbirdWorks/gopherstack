@@ -54,8 +54,15 @@ const (
 const (
 	// keyIDPrefixLen is the length of the key ID prefix embedded in ciphertext blobs.
 	keyIDPrefixLen = 36
-	// defaultListLimit is the default maximum number of results for list operations.
+	// defaultListLimit is the default maximum number of results for list operations
+	// whose SDK doc comment documents a default of 100 (ListKeys, ListKeyPolicies,
+	// ListKeyRotations; DescribeCustomKeyStores documents no default and also uses it).
 	defaultListLimit = 100
+	// default50ListLimit is the default maximum number of results for list operations
+	// whose SDK doc comment documents a default of 50, not 100: ListAliases,
+	// ListGrants, and ListRetirableGrants (aws-sdk-go-v2/service/kms@v1.55.4's
+	// "If you do not include a value, it defaults to 50" on each op's Limit field).
+	default50ListLimit = 50
 	// aes256Bytes is the size of an AES-256 data key in bytes.
 	aes256Bytes = 32
 	// aes128Bytes is the size of an AES-128 data key in bytes.
