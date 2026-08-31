@@ -1439,3 +1439,61 @@ the directconnect/outposts pattern, but that claim is about AWS's product, not t
    indirect corroboration (botocore's endpoint metadata); every specific resource-path segment is
    this audit's best-effort guess from convention, not a confirmed value, and should be verified
    independently before an implementer hardcodes it.
+
+## gopherstack-21my per-item typed round-trip pass (2026-08-31)
+
+mgn was one of the eighteen services in gopherstack-21my marked "clean at
+wrapper level, never swept per-item." Per that issue's own finding (rds's
+DescribeDBInstances read clean by hand the session before a real bug was
+found underneath it), this pass writes typed round-trip tests instead of
+reading `deserializers.go` by eye, on top of this service's already
+extensive `sdk_roundtrip_test.go` suite (16 top-level tests).
+
+**Covered, new this pass** (`sdk_roundtrip_nested_test.go`):
+- `DescribeSourceServers` -- `DataReplicationInfo.ReplicatedDisks[]` and
+  `DataReplicationInfo.DataReplicationInitiation.Steps[]`, two nested lists
+  inside each item that no prior test asserted on (the existing suite only
+  checked `SourceProperties.IdentificationHints.Hostname`). Seeded two
+  source servers via a real two-row `StartImport` CSV, waited for both to
+  reach `DataReplicationState` `CONTINUOUS` via this backend's own
+  deterministic replication timer, and asserted every field of the
+  replicated disk and all 12 initiation steps via the real SDK client.
+  `TestSDKRoundTrip_ReplicationNestedLists`. **Result: clean** -- matches
+  `backloggedStorageBytes`/`deviceName`/`replicatedStorageBytes`/
+  `rescannedStorageBytes`/`totalStorageBytes`/`name`/`status` confirmed
+  against `awsRestjson1_deserializeDocumentDataReplicationInfoReplicatedDisk`/
+  `...DataReplicationInitiationStep` (`mgn@v1.48.4` deserializers.go) before
+  writing the test.
+- `DescribeJobs` -- `Job.ParticipatingServers[]`, asserted with two
+  distinguishable participants (real `StartTest` against two seeded source
+  servers) rather than the existing suite's single-participant checks.
+  `TestSDKRoundTrip_JobParticipatingServers`. **Result: clean.**
+
+**Not covered this pass**: `Cpus`/`Disks`/`NetworkInterfaces`/`RAMBytes`/
+`RecommendedInstanceType`/`Os` on `SourceProperties` -- confirmed a genuine
+gap, not a bug: `parseSourceServerRow` (s3import.go) is the only public path
+that ever creates a `SourceServer`, and it only ever populates
+`IdentificationHints` from the CSV row; there is no public op (real AWS's
+own agent-registration API is not exposed by this SDK either) that could set
+these fields, so no legal input can exercise their decode path. Recorded
+per this issue's "no legal input could change the outcome" restraint rule --
+not fabricated.
+
+`DescribeVcenterClients`/`DescribeReplicationConfigurationTemplates`/
+`DescribeLaunchConfigurationTemplates`/`ListConnectors`/network-migration
+list ops already have real-client coverage from the pre-existing
+`sdk_roundtrip_test.go` suite (`TestRoundTrip_Connectors`,
+`TestRoundTrip_VcenterClients`, `TestRoundTrip_ConfigTemplates`,
+`TestRoundTrip_NetworkMigrationDefinitions`,
+`TestRoundTrip_NetworkMigrationAnalysisAndDeployment`) but were not
+re-verified against the pinned SDK source in this pass; scalar/flat fields
+only in those shapes (no un-asserted nested lists identified).
+
+**Test-file exposure**: of 11 `*_test.go` files in this service, 8 drive a
+real typed `aws-sdk-go-v2` client (`newRoundTripClient`/`NewFromConfig`) --
+this service is already unusually well-instrumented compared to the
+~15-20% typical elsewhere in this campaign.
+
+Gates: `go build ./services/mgn/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/mgn/...` (pass), `golangci-lint run
+./services/mgn/...` (0 issues).

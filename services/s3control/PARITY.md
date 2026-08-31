@@ -777,3 +777,51 @@ drives `handleBackendError` directly with a synthetic unmatched error and
 asserts the XML response's `<Error><Code>` is `InternalServiceException`;
 confirmed it fails pre-fix with the old `"InternalError"` code
 (hand-reverted, byte-identical restore after).
+
+## gopherstack-21my per-item typed round-trip pass (2026-08-31)
+
+s3control was one of the eighteen services in gopherstack-21my marked "clean
+at wrapper level, never swept per-item." Per that issue's own finding (rds's
+DescribeDBInstances read clean by hand the session before a real bug was
+found underneath it), this pass writes a typed round-trip test instead of
+reading `deserializers.go` by eye.
+
+**Covered**: `CreateJob`/`DescribeJob`/`ListJobs` -- this service's richest
+nested item shape, and its most unusual: `Job.Manifest`/`Operation`/`Report`
+are stored and re-emitted as the client's own raw inner XML
+(`createJobXMLCapture`, handler_jobs.go) rather than individually modeled,
+so the only way to prove this actually round-trips through the real SDK's
+serializer/deserializer pair -- not merely that the stored bytes look
+plausible -- is a typed client test. Seeded two jobs (a `LambdaInvoke` and
+an `S3PutObjectCopy` operation, each with a full `Manifest{Location,Spec}`
+and `Report`) and asserted via the real client: `ListJobs`' per-item
+`Operation` enum (derived from the raw XML's root element name via
+`jobOperationName`) for both jobs, and `DescribeJob`'s full decoded
+`Manifest.Location`/`Manifest.Spec.Fields`/`Report`/`Operation.LambdaInvoke`
+for one of them. `TestSDKRoundTrip_JobManifestOperationReport`
+(`sdk_roundtrip_nested_test.go`), 19 `require` calls. **Result: clean** --
+the raw-echo strategy holds because CreateJob's raw capture is exactly what
+the real client itself serialized, so DescribeJob's deserializer (built for
+the same real client) parses it back correctly by construction; this test
+is the first to actually exercise that symmetry rather than assume it.
+
+**Not covered this pass**: `ListMultiRegionAccessPoints` (`Regions[]` nested
+list), `ListStorageLensConfigurations`/`ListStorageLensGroups`,
+`ListAccessGrants`/`ListAccessGrantsLocations` (already has real-client
+pagination coverage via `wire_field_fixes_test.go` and prior
+`ListAccessGrants` filter-key fixes, but not a nested-list nested-field
+sweep), `ListRegionalBuckets`. `ListAccessPoints` already has real-client
+pagination coverage (`TestListAccessPoints_FullPagination`) but its item
+fields (`apVpcConfigurationXML`, `apPublicAccessBlockXML`) were not
+re-verified in this pass.
+
+**Test-file exposure**: of 23 `*_test.go` files in this service, only 4 (5
+counting the new one) drive a real typed `aws-sdk-go-v2` client
+(`NewFromConfig`) -- the remaining ~83% assert on raw XML/HTTP responses,
+which cannot see a wrong-element-name or dropped-nested-field bug of this
+class.
+
+Gates: `go build ./services/s3control/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/s3control/...` (pass),
+`golangci-lint run ./services/s3control/...` (0 issues, `golines -w -m 120`
+applied then re-verified with plain `golangci-lint run`).

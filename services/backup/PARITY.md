@@ -539,3 +539,48 @@ per-operation cross-reference above.
 Gates: `go build ./services/backup/...` (clean), `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/backup/...` (pass), `golangci-lint
 run ./services/backup/...` (0 issues).
+
+## gopherstack-21my per-item typed round-trip pass (2026-08-31)
+
+This service was one of the eighteen marked "clean at wrapper level, never
+swept per-item" in gopherstack-21my. Per that issue's own finding (a manual
+per-item read of rds's DescribeDBInstances came back clean the session
+before `e2a4d084a` found its `DBParameterGroups` list decoding empty for
+every client), a source read is not trusted here -- this pass writes a real
+`aws-sdk-go-v2` client round-trip instead of reading `deserializers.go` by
+eye.
+
+**Covered**: `CreateBackupPlan`/`GetBackupPlan`/`ListBackupPlans` --
+specifically `Plan.Rules[].CopyActions[]`, the deepest nested list in this
+service's wire shape (two rules, one with two `CopyAction`s each carrying
+its own `Lifecycle`). New test
+`TestSDKRoundTrip_BackupPlanRulesAndCopyActions`
+(`sdk_roundtrip_nested_test.go`), 15 `require` calls, all against the real
+SDK client's decoded response. **Result: clean.** Also manually verified
+`Rule`/`CopyAction`/`Lifecycle`'s field names against
+`awsRestjson1_deserializeDocumentBackupRule`/`...CopyAction`/`...Lifecycle`
+(`backup@v1.59.4` deserializers.go) before writing the test -- all match
+(`TargetBackupVaultName`, `DestinationBackupVaultArn`,
+`MoveToColdStorageAfterDays`, `DeleteAfterDays`, etc.) -- no bug found here.
+
+**Not covered this pass** (next pass should start here):
+`ListBackupJobs`/`ListCopyJobs`/`ListRestoreJobs`/`ListRecoveryPointsByBackupVault`/
+`ListProtectedResources`/`ListLegalHolds`/`ListFrameworks`/`ListReportPlans`/
+`ListRestoreTestingPlans`/`ListRestoreTestingSelections`/`ListBackupSelections`/
+`ListBackupVaults` -- none received a real-client round-trip test in this
+pass. `RecoveryPoint.Lifecycle`/`CalculatedLifecycle` (single-level nested
+objects, not lists) were spot-checked against
+`awsRestjson1_deserializeDocumentCalculatedLifecycle` by source read only
+(matches) -- per this issue's own thesis that a source-read clean is not
+proof, this is recorded as unverified-by-test, not as a clean finding.
+
+**Test-file exposure**: of 45 `*_test.go` files in this service, only 8 (9
+counting the new one) drive a real typed `aws-sdk-go-v2` client
+(`NewFromConfig`/`newTestBackupClient`) -- the remaining ~82% assert on raw
+HTTP bodies or internal structs via `doREST`/`parseResp`, which cannot see a
+wrong-element-name or dropped-nested-list bug of this class at all.
+
+Gates: `go build ./services/backup/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/backup/...` (pass), `golangci-lint run
+./services/backup/...` (0 issues, `golines -w -m 120` applied then
+re-verified with plain `golangci-lint run`).
