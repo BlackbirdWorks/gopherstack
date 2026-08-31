@@ -229,24 +229,31 @@ func TestHandler_CreateNetwork(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "creates network",
-			body:       map[string]any{"Name": "my-net", "MemberConfiguration": testMemberConfiguration("m1")},
+			name: "creates network",
+			body: map[string]any{
+				"Name": "my-net", "ClientRequestToken": "tok-1", "MemberConfiguration": testMemberConfiguration("m1"),
+			},
 			wantStatus: http.StatusOK,
 			wantKey:    "NetworkId",
 		},
 		{
-			name:       "missing network name",
-			body:       map[string]any{"MemberConfiguration": testMemberConfiguration("m1")},
+			name: "missing network name",
+			body: map[string]any{
+				"ClientRequestToken":  "tok-2",
+				"MemberConfiguration": testMemberConfiguration("m1"),
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing member name",
-			body:       map[string]any{"Name": "net1"},
+			body:       map[string]any{"Name": "net1", "ClientRequestToken": "tok-3"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "duplicate network returns conflict",
-			body:       map[string]any{"Name": "dup-net", "MemberConfiguration": testMemberConfiguration("m1")},
+			name: "duplicate network returns conflict",
+			body: map[string]any{
+				"Name": "dup-net", "ClientRequestToken": "tok-4", "MemberConfiguration": testMemberConfiguration("m1"),
+			},
 			wantStatus: http.StatusConflict,
 		},
 	}
@@ -301,7 +308,11 @@ func TestHandler_GetNetwork(t *testing.T) {
 			h := newTestHandler(t)
 
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "net1", "MemberConfiguration": testMemberConfiguration("m1")})
+				map[string]any{
+					"Name":                "net1",
+					"ClientRequestToken":  "tok-get",
+					"MemberConfiguration": testMemberConfiguration("m1"),
+				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
@@ -355,6 +366,7 @@ func TestHandler_ListNetworks(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/networks",
 					map[string]any{
 						"Name":                fmt.Sprintf("net-%d", i),
+						"ClientRequestToken":  fmt.Sprintf("tok-list-%d", i),
 						"MemberConfiguration": testMemberConfiguration("m1"),
 					})
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -442,6 +454,7 @@ func TestHandler_VotingPolicyStoredAndReturned(t *testing.T) {
 
 			body := map[string]any{
 				"Name":                "vp-net",
+				"ClientRequestToken":  "tok-vp",
 				"MemberConfiguration": testMemberConfiguration("m1"),
 			}
 
@@ -653,6 +666,7 @@ func TestHandler_CreateNetworkWithTags(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "tagged-net",
+		"ClientRequestToken":  "tok-tagged",
 		"MemberConfiguration": testMemberConfiguration("m1"),
 		"Tags":                map[string]string{"env": "prod", "team": "infra"},
 	})
@@ -693,6 +707,7 @@ func TestHandler_CreateNetworkFoundingMemberTags(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "founder-tags-net",
+		"ClientRequestToken":  "tok-founder",
 		"MemberConfiguration": memberConfig,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

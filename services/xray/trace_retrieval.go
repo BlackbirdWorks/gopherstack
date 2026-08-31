@@ -28,9 +28,11 @@ func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) error {
 	return nil
 }
 
-// GetRetrievedTracesGraph returns the status and services for a retrieval token.
-// Returns ErrTraceRetrievalNotFound if the token was never created by StartTraceRetrieval.
-func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error) {
+// GetRetrievedTracesGraph returns the status and a service graph built from
+// the traces the retrieval token matched (b.retrievedTraces, the same store
+// ListRetrievedTraces reads). Returns ErrTraceRetrievalNotFound if the token
+// was never created by StartTraceRetrieval.
+func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []map[string]any, error) {
 	b.mu.RLock("GetRetrievedTracesGraph")
 	defer b.mu.RUnlock()
 
@@ -39,7 +41,19 @@ func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string
 		return "", nil, fmt.Errorf("%w: retrieval token %s not found", ErrTraceRetrievalNotFound, retrievalToken)
 	}
 
-	return tr.Status, nil, nil
+	filtered := map[string][]*Segment{}
+
+	for _, t := range b.retrievedTraces[retrievalToken] {
+		if segs := b.traceSegments.Get(t.TraceID); len(segs) > 0 {
+			filtered[t.TraceID] = segs
+		}
+	}
+
+	if len(filtered) == 0 {
+		return tr.Status, []map[string]any{}, nil
+	}
+
+	return tr.Status, buildServiceGraph(filtered), nil
 }
 
 // StartTraceRetrieval creates a new retrieval job for the given trace IDs and

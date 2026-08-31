@@ -44,7 +44,7 @@ type StorageBackend interface {
 	// Indexing rules
 	GetIndexingRules() []*IndexingRule
 	// Retrieval
-	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error)
+	GetRetrievedTracesGraph(retrievalToken string) (string, []map[string]any, error)
 	// Sampling statistics
 	GetSamplingStatisticSummaries() []SamplingStatisticSummary
 	GetSamplingTargets(

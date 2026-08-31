@@ -68,6 +68,8 @@ func TestHandler_CreateProposal(t *testing.T) {
 				}
 			}
 
+			body["ClientRequestToken"] = "tok-createproposal"
+
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -94,9 +96,10 @@ func TestCreateProposal_TagsReachTagStore(t *testing.T) {
 	netID, memID := createTestNetwork(t, h)
 
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-		"MemberId":    memID,
-		"Description": "tagged proposal",
-		"Tags":        map[string]string{"priority": "high"},
+		"MemberId":           memID,
+		"ClientRequestToken": "tok-tagged-proposal",
+		"Description":        "tagged proposal",
+		"Tags":               map[string]string{"priority": "high"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -146,8 +149,9 @@ func TestHandler_GetProposal(t *testing.T) {
 			netID, memID := createTestNetwork(t, h)
 
 			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-				"MemberId":    memID,
-				"Description": "test proposal",
+				"MemberId":           memID,
+				"ClientRequestToken": "tok-getproposal",
+				"Description":        "test proposal",
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -192,9 +196,10 @@ func TestHandler_ListProposals(t *testing.T) {
 			h := newTestHandler(t)
 			netID, memID := createTestNetwork(t, h)
 
-			for range tt.createCount {
+			for i := range tt.createCount {
 				rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-					"MemberId": memID,
+					"MemberId":           memID,
+					"ClientRequestToken": fmt.Sprintf("tok-listproposal-%d", i),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -230,7 +235,8 @@ func TestHandler_ListProposalVotes(t *testing.T) {
 			netID, memID := createTestNetwork(t, h)
 
 			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-				"MemberId": memID,
+				"MemberId":           memID,
+				"ClientRequestToken": "tok-listvotes",
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -299,8 +305,9 @@ func TestHandler_ProposalRoundTrip(t *testing.T) {
 
 			// Create proposal.
 			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-				"MemberId":    memID,
-				"Description": "test governance proposal",
+				"MemberId":           memID,
+				"ClientRequestToken": "tok-roundtrip",
+				"Description":        "test governance proposal",
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -422,8 +429,9 @@ func TestHandler_ProposalActionsStoredAndReturned(t *testing.T) {
 			h.DefaultRegion = testRegion
 
 			body := map[string]any{
-				"MemberId":    m.ID,
-				"Description": "test proposal",
+				"MemberId":           m.ID,
+				"ClientRequestToken": "tok-actions",
+				"Description":        "test proposal",
 			}
 
 			if tt.actions != nil {
@@ -558,6 +566,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	// Create network with 1-member for simple unanimous vote.
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "all-proposals-net",
+		"ClientRequestToken":  "tok-allproposals-net",
 		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
@@ -577,7 +586,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 
 	// Create and approve proposal 1.
 	propRec1 := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals",
-		map[string]any{"MemberId": ownerID, "Description": "approve-me"})
+		map[string]any{"MemberId": ownerID, "ClientRequestToken": "tok-approve-me", "Description": "approve-me"})
 	require.Equal(t, http.StatusOK, propRec1.Code)
 
 	var prop1 map[string]any
@@ -592,7 +601,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 
 	// Create proposal 2 (stays IN_PROGRESS).
 	propRec2 := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals",
-		map[string]any{"MemberId": ownerID, "Description": "keep-pending"})
+		map[string]any{"MemberId": ownerID, "ClientRequestToken": "tok-keep-pending", "Description": "keep-pending"})
 	require.Equal(t, http.StatusOK, propRec2.Code)
 
 	// List all (no filter) — should see both.
@@ -655,8 +664,9 @@ func TestHandler_ProposalExpirationDateViaHTTP(t *testing.T) {
 	h.DefaultRegion = testRegion
 
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/proposals", map[string]any{
-		"MemberId":    m.ID,
-		"Description": "upgrade",
+		"MemberId":           m.ID,
+		"ClientRequestToken": "tok-expiration",
+		"Description":        "upgrade",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -689,8 +699,9 @@ func TestHandler_ProposalLifecycleViaHTTP(t *testing.T) {
 
 	// CreateProposal
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/proposals", map[string]any{
-		"MemberId":    m.ID,
-		"Description": "upgrade to v2",
+		"MemberId":           m.ID,
+		"ClientRequestToken": "tok-lifecycle-http",
+		"Description":        "upgrade to v2",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -753,7 +764,8 @@ func TestHandler_CreateProposalNetworkNotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/networks/nonexistent/proposals", map[string]any{
-		"MemberId": "some-member",
+		"MemberId":           "some-member",
+		"ClientRequestToken": "tok-badnet-proposal",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

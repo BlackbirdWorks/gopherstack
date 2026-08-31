@@ -18,6 +18,10 @@ func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body [
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.ClientRequestToken == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
+	}
+
 	if req.MemberID == "" {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingMemberID.Error())
 	}

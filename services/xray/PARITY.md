@@ -35,7 +35,7 @@ ops:
   CancelTraceRetrieval: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): previously a silent idempotent no-op on an unknown RetrievalToken -- PARITY.md previously (incorrectly) asserted this 'matches AWS' without checking the modeled error set. CancelTraceRetrieval declares ResourceNotFoundException (confirmed in deserializers.go's awsRestjson1_deserializeOpErrorCancelTraceRetrieval switch); an unknown token now returns 400 ResourceNotFoundException, and cancelling the same token twice now correctly fails on the second call"}
   StartTraceRetrieval: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-29 pass), disabled-validation bug: StartTraceRetrievalInput.StartTime/.EndTime are both real, required fields (api_op_StartTraceRetrieval.go: 'the time range to retrieve traces', required alongside TraceIds) that the handler parsed but never enforced as required and never passed to the backend -- a retrieval token always returned every requested trace ID regardless of the requested time range. Now enforced as required and applied: InMemoryBackend.StartTraceRetrieval only includes a trace whose StartTime falls within [StartTime,EndTime] (inclusive, per the field doc comments). See TestStartTraceRetrieval_TimeRangeFiltering_RealClient (backend signature change: traceIDs []string -> traceIDs []string, rangeStart, rangeEnd time.Time; only in-package callers, repo-wide `go build ./...` reconfirmed clean)."}
   ListRetrievedTraces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): each RetrievedTrace's document-list field was wire key \"Segments\"; the real field is \"Spans\" (types.Span{Document,Id}) -- awsRestjson1_deserializeDocumentRetrievedTrace only recognizes \"Spans\" and silently drops unknown keys, so every real SDK client received an EMPTY Spans list for every retrieved trace despite a 200 response. Also FIXED: unknown RetrievalToken now returns ResourceNotFoundException (see CancelTraceRetrieval) instead of a fabricated COMPLETE/empty response. Also added the previously-missing TraceFormat field (always \"XRAY\": gopherstack never stores OTEL-format spans)"}
-  GetRetrievedTracesGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same unknown-token ResourceNotFoundException fix as CancelTraceRetrieval/ListRetrievedTraces"}
+  GetRetrievedTracesGraph: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (this pass): same unknown-token ResourceNotFoundException fix as CancelTraceRetrieval/ListRetrievedTraces. FIXED (2026-08-30, request-field axis sweep): the prior state:ok was itself wrong -- the backend never consulted b.retrievedTraces, so Services/NextToken were unconditionally empty regardless of what StartTraceRetrieval had actually matched. Now builds a real service graph from the retrieved traces' segments (same buildServiceGraph GetTraceGraph uses) and paginates via pkgs/page; see Notes."}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): PolicyRevisionId was parsed by the handler but never passed to/enforced by the backend -- the atomic/guarded delete this parameter exists for was a complete no-op. Now validated against the stored policy's current revision, returning InvalidPolicyRevisionIdException on mismatch"}
   ListResourcePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): resourcePolicyView now includes LastUpdatedTime (see PutResourcePolicy)"}
   PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass): (1) ResourcePolicy.LastUpdatedTime was completely absent from the model and wire view (a real, documented field: 'When the policy was last updated, in Unix time seconds') -- added and set on every Put; (2) the max-5-policies violation used the wrong exception -- was InvalidRequestException, now correctly PolicyCountLimitExceededException (PutResourcePolicy's modeled error set does not even include InvalidRequestException as a fallback, per deserializers.go); (3) added PolicySizeLimitExceededException enforcement, previously entirely unenforced (AWS docs: policy document 'can be up to 5kb in size'). Revision-ID conflict + JSON validation remain correctly enforced. RE-CHECKED (this pass): BypassPolicyLockoutCheck/LockoutPreventionException confirmed still genuinely blocked, not merely under-implemented -- see gaps for why (this is NOT the same as the other 'IAM simulation' claims that turned out reachable this campaign; the blocker here is architectural, not effort)"}
@@ -346,3 +346,67 @@ the ambiguous `State` key, was manually verified against
 Polymorphic collision already documented in `cmd/enumcheck/wirekeys.go`'s
 own package doc comment. FALSE POSITIVE, not fixed (nothing to fix: this
 field has no SDK-declared legal-value set to check "active" against).
+
+## 2026-08-30: request-field axis sweep (gopherstack-4shm's class), reqfieldscan
+
+Ran `cmd/reqfieldscan -dir xray`: dispatch table 38 ops, 36/38 resolved
+(95%, all via the literal-decode path -- xray never uses
+`service.JSONOpFunc`/`service.WrapOp`, so the tool's coverage guard is
+silent by construction here, confirmed by reading its own
+`packageMentionsJSONOpFunc` gate rather than inferring from silence). The 2
+unresolved ops, `GetEncryptionConfig`/`GetTraceSegmentDestination`, take no
+request body at all (`handleGetEncryptionConfigBody`/
+`handleGetTraceSegmentDestination` both `func(_ context.Context, _ []byte)`)
+-- correctly unresolved, not a blind spot. 6 fields flagged.
+
+**1 real bug found and fixed:** `getRetrievedTracesGraphInput.NextToken` led
+to discovering `GetRetrievedTracesGraph` (backend, `trace_retrieval.go`)
+never consulted `b.retrievedTraces` at all -- the exact store
+`ListRetrievedTraces` (same file, same retrieval token) reads for its own
+response. The handler always emitted `Services: []`/`NextToken: ""`
+regardless of what a real `StartTraceRetrieval` had actually matched: **a
+listing that never consults its store**, gopherstack-4shm's own named
+shape. Fixed: `GetRetrievedTracesGraph`'s signature changed from
+`(string, []*Trace, error)` to `(string, []map[string]any, error)`
+(`interfaces.go`, `trace_retrieval.go`) -- it now looks up each retrieved
+trace's segments via `b.traceSegments` (the same index `GetTraceGraph`
+already uses) and calls the existing `buildServiceGraph`, mirroring
+`GetTraceGraph`'s pattern exactly rather than inventing a new one. The
+handler (`handler_trace_retrieval.go`) now passes the real result through
+`pkgs/page.New` for `NextToken`, the same pagination helper
+`GetServiceGraph`/`GetTraceGraph` already use, instead of hardcoding both
+`Services` and `NextToken` to empty. New test
+`TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces`
+(`handler_trace_retrieval_test.go`) seeds a real segment, starts a
+retrieval that matches it, and asserts `Services` is non-empty with the
+right service name; confirmed failing (`Services: []`) against unmodified
+code before the fix. No existing test assertion was weakened -- the
+pre-existing `TestHandler_GetRetrievedTracesGraph`'s "returns status for a
+real retrieval token" subtest still correctly asserts empty `Services`
+(its `startTestRetrieval` helper retrieves a trace ID with no segment data
+seeded, so empty is the honest answer there too; left unchanged). Repo-wide
+`go build ./...`/`go vet ./...` reconfirmed clean -- the only two call
+sites of the changed signature were this package's own handler and two
+tests already discarding the second return value.
+
+**Confirmed already-documented honest gaps (no new work):**
+`getTraceSummariesInput.Sampling` (see `gaps`, GetTraceSummaries note above
+-- no sampling engine on the read path); `getTimeSeriesServiceStatisticsInput
+.EntitySelectorExpression`/`.ForecastStatistics` (GetTimeSeriesServiceStatistics
+`ops:` note, `partial` state -- no entity-selector query engine or
+fault-forecast model); `putResourcePolicyInput.BypassPolicyLockoutCheck`
+(`gaps` above -- architectural: no caller-identity plumbing anywhere in the
+request pipeline to evaluate the lockout check against).
+
+**Newly clarified (folded into an existing gap, not a new one):**
+`getInsightImpactGraphInput.NextToken` has nothing to paginate because
+`GetInsightImpactGraph`'s `Services` is unconditionally `[]` by the
+already-disclosed, deliberate design gap above ("Services always [] (out
+of scope, see gaps)") -- unlike `GetRetrievedTracesGraph`, this handler
+never discards a real backend return value; there is no backend call to
+compute per-insight service impact at all. Confirmed via code read, not
+assumed from the existing gap note.
+
+Gates: `go build ./services/xray/...`, `go vet ./services/xray/...`,
+`go test -race -count=1 ./services/xray/...` all clean;
+`golangci-lint run ./services/xray/...` 0 issues (see below).

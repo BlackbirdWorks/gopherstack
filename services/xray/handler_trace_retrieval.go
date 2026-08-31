@@ -176,14 +176,16 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
 	}
 
-	status, _, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
+	status, services, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
 	if err != nil {
 		return nil, err
 	}
 
+	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
+
 	return json.Marshal(map[string]any{
 		"RetrievalStatus": status,
-		keyServices:       []any{},
-		keyNextToken:      "",
+		keyServices:       pg.Data,
+		keyNextToken:      pg.Next,
 	})
 }

@@ -396,3 +396,36 @@ Proof: `TestApplyPaginationNamespaces_NegativeOffsetToken` and
 -race -count=1 ./services/servicediscovery/...`, `golangci-lint run
 ./services/servicediscovery/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+## 2026-08-30 (request-field axis sweep, gopherstack-4shm's class)
+
+Ran `cmd/reqfieldscan -dir servicediscovery`: dispatch table 30/30 resolved
+(100%, all via the literal-decode path -- this service never uses
+`service.JSONOpFunc`/`service.WrapOp`), 8 unread fields flagged, all
+`CreatorRequestId`/`UpdaterRequestId`: `createHTTPNamespaceRequest`,
+`createPrivateDNSNamespaceRequest`, `createPublicDNSNamespaceRequest`,
+`createServiceRequest`, `registerInstanceRequest` (CreatorRequestID), and
+`updateHTTPNamespaceRequest`, `updatePrivateDNSNamespaceRequest`,
+`updatePublicDNSNamespaceRequest` (UpdaterRequestID).
+
+**Real, verified gap; deliberately not fixed this pass (layer-boundary).**
+All 8 are real SDK fields (`*string`, confirmed in each `api_op_*.go`), but
+none is client-side-required (no `validators.go` entry for any of them --
+distinct from managedblockchain's `ClientRequestToken`, which the same sweep
+found *required* and fixed there). Their documented purpose is retry-safety:
+"allows failed Create<X>/Update<X> requests to be retried without the risk
+of running the operation twice." gopherstack decodes them and does nothing
+else -- no dedup, so a client retry with the same token after, say, a
+chaos-injected mid-request failure would create/re-update a second resource
+instead of returning the original result.
+
+This repo has a precedent for exactly this pattern
+(`services/acm`'s `idempotencyMap`, `services/acmpca`'s
+`lookupIdempotentCert`/`idempotentResourceARN`), so it is not structurally
+unfixable -- but replicating it here means a new per-resource-type
+(namespace x3 shapes, service, instance) dedup store plus persistence
+wiring across 8 call sites, a real feature-sized change, not a field-read
+fix. Left undone and recorded here rather than fabricated or silently
+dropped, per gopherstack-4shm's restraint principle.
+
+No code changes this pass -- PARITY.md documentation only. Gates unaffected.

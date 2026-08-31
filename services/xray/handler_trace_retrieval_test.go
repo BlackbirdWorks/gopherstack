@@ -178,6 +178,51 @@ func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 	})
 }
 
+// TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces verifies that
+// GetRetrievedTracesGraph builds its Services graph from the traces the
+// retrieval token actually matched, not an unconditional empty result.
+// gopherstack-4shm's class: getRetrievedTracesGraphInput carries a real
+// NextToken pagination field the response never round-trips, and the
+// backend method (InMemoryBackend.GetRetrievedTracesGraph) never consulted
+// b.retrievedTraces at all -- ListRetrievedTraces (same retrieval token)
+// does read it, so the store genuinely has the data.
+func TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	now := float64(time.Now().Unix())
+
+	seg := fmt.Sprintf(`{"trace_id":"1-graph-001","id":"s1","name":"graph-svc","start_time":%f}`, now-1)
+	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": []string{seg}})
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	startRec := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{
+		"TraceIds":  []string{"1-graph-001"},
+		"StartTime": now - 10,
+		"EndTime":   now + 10,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	token, _ := startResp["RetrievalToken"].(string)
+	require.NotEmpty(t, token)
+
+	rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", map[string]any{"RetrievalToken": token})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	services, ok := resp["Services"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, services, "the retrieval matched a real segment; Services must not be empty")
+
+	node, ok := services[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "graph-svc", node["Name"])
+}
+
 func TestTraceRetrieval_StartAndList(t *testing.T) {
 	t.Parallel()
 

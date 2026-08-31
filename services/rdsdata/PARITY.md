@@ -78,6 +78,20 @@ families:
     are unreachable by design -- consistent with an emulator that doesn't
     simulate IAM or Aurora Serverless timeouts.}
 gaps:                     # known divergences NOT fixed
+  - "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction,
+    ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never
+    read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged
+    fields). Real AWS's Database overrides the database named by resourceArn's
+    connection/secret, and Schema (PostgreSQL only) overrides search_path --
+    both select *within* a resource. gopherstack's sqlEngine keys its one
+    SQLite database per (region, resourceARN) only (engine.go's dbFor/dbKey);
+    there is no per-resource multi-database or schema catalog for these
+    fields to select into, matching this service's existing typeHint gap
+    (see above) and its siblings' repeated honest-gap pattern in this
+    campaign. Confirmed via grep: no `.Database`/`.Schema` selector anywhere
+    in non-test source. Not fixed: modeling multiple named databases/schemas
+    inside one engine instance is a real feature (SQLite ATTACH DATABASE per
+    name, or a schema-qualified table namespace), not a field-read fix."
   - "SqlParameter.typeHint (DATE/DECIMAL/JSON/TIME/TIMESTAMP/UUID) is
     accepted on the wire but does not change bind behavior -- the mock
     SQLite engine has no distinct DATE/TIMESTAMP/UUID column types to
@@ -371,3 +385,28 @@ from-scratch confirmation, not a rubber stamp.
   cyclop/gocyclo/gocognit/funlen nolints; `git status --short` shows nothing
   under `services/rdsdata/` touched (this pass made no code changes, only
   this PARITY.md stamp/notes update).
+
+## 2026-08-30 (request-field axis sweep, gopherstack-4shm's class)
+
+Ran `cmd/reqfieldscan -dir rdsdata`: dispatch table 6/6 resolved (100%, all
+via the literal-decode path -- rdsdata never uses `service.JSONOpFunc`/
+`service.WrapOp`), 9 unread fields flagged. **Result: zero bugs, all 9 honest
+gaps.**
+
+- `executeStatementRequest.ContinueAfterTimeout` (1 field): already
+  documented (see `ExecuteStatement`'s `ops:` note above and the
+  "continueAfterTimeout" Notes entry) -- accepted on the wire as a
+  deliberate no-op, since this mock has no statement-execution timeouts to
+  continue past. Re-confirmed, not re-opened.
+- `Database`/`Schema` on `executeStatementRequest`, `batchExecuteStatementRequest`,
+  `beginTransactionRequest`, `executeSQLRequest` (8 fields): newly documented
+  this pass, see the `gaps:` entry above -- `sqlEngine.dbFor` keys one SQLite
+  database per `(region, resourceARN)` only (`engine.go`), so there is no
+  per-resource multi-database/schema catalog for these fields to select
+  into. Matches this service's existing `typeHint` gap and its siblings'
+  repeated pattern in this campaign of honest, no-backend-state gaps rather
+  than defects.
+
+No code changes this pass -- PARITY.md documentation only. Gates unaffected
+(no source touched): `go build`, `go vet`, `go test -race`, `golangci-lint
+run` all still green per the entries above.
