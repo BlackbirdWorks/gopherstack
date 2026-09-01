@@ -368,3 +368,47 @@ audit's claims exactly, both request and response direction. The paired sweep of
 applying a gopherstack-invented `ApplicationDescription` request member); see that
 package's PARITY.md. `last_audit_commit`/`last_audit_date` above intentionally left
 unchanged (no code in this package changed this pass).
+
+### 2026-08-31 (error-target sweep, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir kinesisanalytics` flagged 3 findings (`DeleteApplication`,
+`DescribeApplication`, `StopApplication`, all `code=InvalidArgumentException`), all
+real. Verified against `kinesisanalytics@v1.33.4` deserializers.go
+(`awsAwsjson11_deserializeOpError<Op>` switches): `DeleteApplication` declares
+`ConcurrentModificationException`/`ResourceInUseException`/`ResourceNotFoundException`/
+`UnsupportedOperationException`; `DescribeApplication` declares
+`ResourceNotFoundException`/`UnsupportedOperationException`; `StopApplication` declares
+`ResourceInUseException`/`ResourceNotFoundException`/`UnsupportedOperationException`
+-- none of the three declare `InvalidArgumentException`.
+
+All three handlers pre-checked `ApplicationName == ""` and returned the shared
+`errApplicationName` sentinel (-> `InvalidArgumentException`), an invented check: the
+client-side SDK validator only rejects a nil `*string`, so `""` reaches the handler,
+and each backend method already has a natural not-found lookup
+(`b.apps.Get(applicationKey(region, name))`) that returns `awserr.ErrNotFound` ->
+`ResourceNotFoundException`, which all three operations do declare. Deleted the
+pre-check at all three call sites; `errApplicationName` stays unchanged for its 12
+other legitimate callers (all declare `InvalidArgumentException` correctly:
+`CreateApplication`, `StartApplication`, `UpdateApplication`, and the
+Add/DeleteApplication{CloudWatchLoggingOption,Output,ReferenceDataSource,
+InputProcessingConfiguration} family).
+
+A second, closely related bug surfaced incidentally while writing the test for
+`DeleteApplication`: its handler also pre-checked `CreateTimestamp == 0` and returned
+the same undeclared `InvalidArgumentException` -- but `CreateTimestamp` is a required
+`*time.Time` client-side (nil-only validation), so an explicit epoch-0 timestamp is a
+legitimate wire value, not a "missing" one. The backend's own comparison
+(`app.CreateTimestamp != nil && createTimestamp.Unix() != app.CreateTimestamp.Unix()`)
+already answers a mismatched/zero timestamp correctly via `ErrConcurrentUpdate` ->
+`ConcurrentModificationException` (declared). Deleted this pre-check too.
+
+Test-first: `undeclared_invalidargument_test.go` (real SDK client, `errors.As` against
+`*types.ResourceNotFoundException`) confirmed failing against the unmodified tree
+(got `*smithy.OperationError` wrapping `InvalidArgumentException` for all three, and
+again for `DeleteApplication` after the first fix once the test's epoch-0
+`CreateTimestamp` collided with the second bug), then passing after both fixes.
+
+Gates: `go build ./services/kinesisanalytics/...`, `go vet
+./services/kinesisanalytics/...`, `go test -race -count=1
+./services/kinesisanalytics/...` (pass), `golangci-lint run
+./services/kinesisanalytics/...` (0 issues).

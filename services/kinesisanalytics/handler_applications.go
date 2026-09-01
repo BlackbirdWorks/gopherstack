@@ -86,14 +86,6 @@ func (h *Handler) handleDeleteApplication(
 	ctx context.Context,
 	in *deleteApplicationInput,
 ) (*struct{}, error) {
-	if in.ApplicationName == "" {
-		return nil, errApplicationName
-	}
-
-	if in.CreateTimestamp == 0 {
-		return nil, fmt.Errorf("%w: CreateTimestamp is required", ErrValidation)
-	}
-
 	ts := time.Unix(int64(in.CreateTimestamp), 0).UTC()
 
 	if err := h.Backend.DeleteApplication(ctx, in.ApplicationName, &ts); err != nil {
@@ -107,10 +99,6 @@ func (h *Handler) handleDescribeApplication(
 	ctx context.Context,
 	in *describeApplicationInput,
 ) (*describeApplicationOutput, error) {
-	if in.ApplicationName == "" {
-		return nil, errApplicationName
-	}
-
 	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return nil, err
@@ -165,10 +153,6 @@ func (h *Handler) handleStopApplication(
 	ctx context.Context,
 	in *stopApplicationInput,
 ) (*struct{}, error) {
-	if in.ApplicationName == "" {
-		return nil, errApplicationName
-	}
-
 	if err := h.Backend.StopApplication(ctx, in.ApplicationName); err != nil {
 		return nil, err
 	}

@@ -58,7 +58,10 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 	return nil
 }
 
-// DeleteCustomVerificationEmailTemplate removes a custom verification email template.
+// DeleteCustomVerificationEmailTemplate removes a custom verification email
+// template. Idempotent: the op's own deserializer (ses@v1.37.4
+// deserializers.go) declares no exception at all, unlike Get/Send/Update on
+// the same resource, so a missing template is treated as already deleted.
 func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName string) error {
 	if strings.TrimSpace(templateName) == "" {
 		return fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
@@ -66,10 +69,6 @@ func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName str
 
 	b.mu.Lock("DeleteCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
-
-	if !b.customVerifTemplates.Has(templateName) {
-		return fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, templateName)
-	}
 
 	b.customVerifTemplates.Delete(templateName)
 

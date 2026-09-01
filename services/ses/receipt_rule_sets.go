@@ -139,16 +139,15 @@ func (b *InMemoryBackend) DescribeReceiptRuleSet(name string) (ReceiptRuleSet, e
 // ErrReceiptRuleSetActive (wire code CannotDelete) rather than silently
 // clearing the active pointer; the caller must first call
 // SetActiveReceiptRuleSet with a different name (or "") before the delete
-// will succeed.
+// will succeed. A missing rule set is idempotent: this op's own
+// deserializer (ses@v1.37.4 deserializers.go) declares only CannotDelete,
+// not RuleSetDoesNotExist, unlike Describe on the same resource.
 func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
 	}
 	b.mu.Lock("DeleteReceiptRuleSet")
 	defer b.mu.Unlock()
-	if !b.receiptRuleSets.Has(name) {
-		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
-	}
 	if b.activeRuleSet == name {
 		return fmt.Errorf("%w: %s is the currently active rule set", ErrReceiptRuleSetActive, name)
 	}

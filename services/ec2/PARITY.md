@@ -3586,3 +3586,132 @@ pre-existing `//nolint:lll` in `handler_vpcs.go` and one pre-existing
 diff (confirmed via `git diff` -- neither line appears in the changed
 hunks). Did NOT commit, push, or run any `bd` write command -- all changes
 left in the working tree per this session's instructions.
+
+## 2026-08-31 -- response wrapper-key mechanical sweep (gopherstack-6flj continuation)
+
+Targeted the specific class this issue names -- a response field emitted
+under an XML element name (or Go type) the real deserializer doesn't
+expect, either silently dropping the whole collection or hard-erroring the
+decode -- across the full `Describe*`/`List*` surface, since the ec2
+tranche of this issue had only covered 14 major ops layer-1 and ~130
+remained unaccounted for by name.
+
+METHOD, LAYER 1 (top-level wrapper key): rather than hand-read all ~192
+ops, wrote two small extractors (kept in the session scratchpad, not
+committed): one walks every `describe*Response`/`list*Response` Go struct
+in `services/ec2/*.go` and pulls the outer XML tag wrapping its item list
+(handling the nested-anonymous-struct idiom this codebase uses
+consistently, e.g. `Foo struct { Items []X \`xml:"item"\` } \`xml:"fooSet"\`
+`); the other walks every `awsEc2query_deserializeOpDocumentDescribe*Output`
+/`List*Output` function in the pinned `ec2@v1.319.1/deserializers.go` and
+pulls each `case strings.EqualFold("key", ...)` that dispatches to a nested
+(list/struct) deserializer rather than a scalar `decoder.Value()`. Cross-
+referenced by operation name, case-insensitively (case-only differences are
+harmless here per this issue's own note -- XML decode folds case).
+
+RESULT: zero mismatches across 145 ops the extractor could parse
+mechanically. Two apparent mismatches surfaced and were hand-verified as
+extractor artifacts, not bugs: `DescribeApplicationStatus` (script matched
+an inner `instanceSet` sub-key instead of the true outer
+`applicationStatusesResponseType` wrapper -- the real one, read from the
+struct by hand, matches exactly) and the initial pre-fix version of the
+extractor itself, which for the first ~30 ops compared the wrong nesting
+level entirely (same class of bug as the thing being hunted -- caught by
+re-deriving from the raw struct text before trusting the tool's own
+output). The other 47 ops the extractor couldn't parse (singular
+`Describe*Attribute`/`Describe*Status`-shaped non-list responses, and a
+handful of list responses using a named type alias instead of the
+anonymous-struct idiom) were read by hand instead: `DescribeByoipCidrs`,
+`DescribeCapacityReservationFleets`, `DescribeCapacityReservations`,
+`DescribeHosts`, `DescribeInstanceStatus`, `DescribeInstanceTypes`,
+`DescribeInternetGateways`, `DescribeLaunchTemplates`,
+`DescribeLaunchTemplateVersions`, `DescribeNatGateways`,
+`DescribeNetworkAcls`, `DescribeSpotFleetInstances`,
+`DescribeSpotFleetRequestHistory`, `DescribeSpotFleetRequests`,
+`DescribeSpotInstanceRequests`, `DescribeSpotPriceHistory`,
+`DescribeVolumeStatus`, `DescribeVpcBlockPublicAccessOptions`,
+`DescribeVpcEndpointServicePermissions`, `DescribeVpcEndpoints`,
+`DescribePlacementGroups` -- all confirmed matching their own SDK output
+struct's top-level key exactly (the remaining ~26 of the 47 are the
+already-known-clean `Describe*Attribute` singular ops plus the 14 major ops
+this issue's earlier ec2 batch already verified).
+
+METHOD, LAYER 2 (per-item field names/types, hand-read against the pinned
+deserializer, no mechanical tool -- this class needs judgement a script
+can't apply): `DescribeTransitGatewayAttachments`/
+`DescribeTransitGatewayVpcAttachments` (both: correct keys and types
+throughout; `types.TransitGatewayAttachment`/`TransitGatewayVpcAttachment`
+each carry several members -- `Association`, `CreationTime`,
+`ResourceOwnerId`, `TransitGatewayOwnerId` on the former,
+`Options`/`TransitGatewayVpcAttachmentOptions` (Dns/Ipv6/ApplianceMode/
+SecurityGroupReferencing support) on the latter -- this backend's
+`TransitGatewayAttachmentSummary`/`TransitGatewayVpcAttachment` structs
+don't track any of them at all, a missing-state gap requiring new backend
+fields across four source maps, not a wrapper-key bug; recorded, not
+fixed), `DescribeVerifiedAccessInstances`/`DescribeVerifiedAccessEndpoints`
+(correct keys/types; `CreationTime`/`LastUpdatedTime`/`FipsEnabled`/
+`CidrEndpointsCustomSubDomain` on the instance and `Tags` on the endpoint
+are real members this backend doesn't track -- same missing-state
+category, recorded not fixed), `DescribeRouteServers`/
+`DescribeRouteServerEndpoints`/`DescribeRouteServerPeers` (already fixed by
+an earlier session in this campaign, commit `16e1eff9f` -- re-verified the
+`routeServerEndpointItem.FailureReason`/`routeServerPeerItem.FailureReason`
+flat-scalar fix is still correct against the pinned deserializer, and the
+in-code comment explaining it is accurate, not a stale/false artifact),
+`DescribeSpotFleetRequests` (walked the full
+`SpotFleetRequestConfigData`/`SpotFleetLaunchSpecification` case lists --
+every emitted field name and the `WeightedCapacity` float<->string
+round-trip both correct), `DescribeVpcEndpointServices` (dual-wrapper
+`serviceNameSet`/`serviceDetailSet` both correct, `serviceDetailItem`'s 8
+emitted fields all real members of `types.ServiceDetail`; the ~7 unemitted
+members -- `PrivateDnsName(s)`, `ServiceRegion`,
+`SupportedIpAddressTypes`, etc -- already covered by this file's existing
+`vpc_endpoints` note as unmodeled, not new), `DescribeVpcEndpointServicePermissions`
+(the single emitted `principal` field is correct and real, but
+`types.AllowedPrincipal` also declares `PrincipalType`/`ServiceId`/
+`ServicePermissionId`/`Tags`; `Backend.DescribeVpcEndpointServicePermissions`
+returns bare `[]string`, tracking none of the other four -- missing-state,
+not wrapper-key), `DescribeSecurityGroupRules` (re-verified the
+`3fe584c90` fix still holds -- `sgRuleDetailItem`'s 8 fields all correct
+keys/types; `types.SecurityGroupRule` additionally declares `CidrIpv6`,
+`GroupOwnerId`, `PrefixListId`, `ReferencedGroupInfo`,
+`SecurityGroupRuleArn`, `TagSet`, none tracked by `SecurityGroupRuleDetail`
+in `models.go` -- missing-state, and `GroupOwnerId` in particular is a
+one-line-derivable `b.AccountID` fix of the same shape as several other
+`OwnerId` fixes already in this file, but adding it means a `models.go`
+change and the accompanying snapshot-version-guard bump, deliberately not
+undertaken this pass since it isn't this issue's target class -- flagged
+for a future missing-state pass instead of rushed here), `DescribeIpams`
+(all emitted fields correct; `EnablePrivateGua`/`MeteredAccount`/
+`StateMessage` unemitted, same missing-state category),
+`DescribeSecurityGroupVpcAssociations` (all 5 emitted fields correct;
+`StateReason` unemitted, same category), `DescribeLaunchTemplateVersions`
+(the minimal `LaunchTemplateData{ImageID,InstanceType}` and top-level
+fields are all correct keys; `Operator`/`VersionDescription` unemitted --
+same category, and consistent with this backend's documented
+single-version-per-template modeling limit noted earlier in this file).
+
+RESULT: zero new wrapper-key bugs found across ~40 ops checked this pass
+(20+ at layer 1 by hand beyond the mechanical sweep, ~13 at layer 2).
+Every apparent gap resolved to either an already-fixed prior finding
+(RouteServer family, SecurityGroupRules) or a missing-state gap (a real
+SDK member this backend's Go struct never tracks at all) -- a different,
+adjacent bug class from this issue's wrapper-key target, and each recorded
+above rather than fabricated a fix for. Consistent with this issue's own
+`14332b12e` ("ec2 is now clear for this class") and the extensive
+`b430921d9`/`6ea5e9b15`/`d7f71c4cd`/`16e1eff9f` commits already on this
+branch: by this point in the campaign the ec2 Describe/List wrapper-key
+surface appears genuinely exhausted, not merely unexamined.
+
+Pages fetched: none -- all verification came from the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1` module cache already on disk, so the
+"run `aws agent-toolkit search-skills`" footer pattern reported elsewhere
+in this campaign does not apply to this pass.
+
+No source files changed this pass (investigation only; a scratch
+`zzz_listops_test.go` used to enumerate `h.ops` via `go test -run` was
+written and removed before finishing, never left in the tree). Gates:
+`go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), `go test -race -count=1 ./services/ec2/...` (pass, unchanged).
+`golangci-lint run`/snapshot-version-guard not applicable (no `.go` files
+touched). Did NOT commit, push, or run any `bd` write command.

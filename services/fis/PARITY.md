@@ -368,3 +368,34 @@ codec) verified separately and found correct — boundary walk, exact-division, 
 Gates: `go build ./services/fis/...`, `go vet ./services/fis/...` and `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/fis/...`,
 `golangci-lint run ./services/fis/...` (0 issues).
+
+### 2026-08-31 (error-target sweep, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir fis` flagged 3 findings (`ListTagsForResource`, `TagResource`,
+`UntagResource`, all `code=ResourceNotFoundException`). Verified against
+`fis@v1.40.4` deserializers.go: all three operations' own
+`awsRestjson1_deserializeOpError<Op>` switch is `default:` only -- zero declared
+exceptions, the only 3 of 26 FIS operations in this shape (every other operation
+declares a nonempty subset of `ValidationException`/`ResourceNotFoundException`/
+`ConflictException`/`ServiceQuotaExceededException`; confirmed by extracting every
+op's declared set via the deserializer source, not by re-reading the prior
+`classifyError` doc comment, which turned out to be wrong -- see below).
+
+**Verdict: refusal, reason (a) -- the operation's own model declares no type for the
+condition.** Unlike ses's delete ops this pass, these three are not delete-style
+(List/Tag/Untag), so treating an unknown ARN as success would misrepresent the
+result (a `TagResource` on a nonexistent ARN cannot honestly report the tags as
+applied). No alternative declared code exists to substitute either -- the emulator's
+current `ResourceNotFoundException`/404 is left as the closest faithful guess a real
+client's generic-error fallback would still see as 404, since no typed decode is
+possible for these three regardless of which code string is sent.
+
+**Artefact correction, not a behavior fix:** `handler.go`'s `classifyError` doc
+comment asserted "every operation's generated deserializer ... only recognizes these
+four `__type` strings" -- false for these three, which recognize none. Corrected the
+comment to name the exception and explain why `ResourceNotFoundException`/404 is
+still emitted there despite not being decodable.
+
+No code behavior changed. `go build ./services/fis/...`, `go vet
+./services/fis/...`, `go test -race -count=1 ./services/fis/...` (pass),
+`golangci-lint run ./services/fis/...` (0 issues).

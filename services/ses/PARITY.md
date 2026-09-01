@@ -239,3 +239,45 @@ elsewhere in this service's deserializers -- confirmed by grep, only the one mat
 above. **Zero new bugs found; nothing changed in this service.** `go build`, `go vet`
 (repo-wide, clean), `go test -race ./services/ses/...` all pass on the unmodified
 tree. No AWS documentation was fetched this pass.
+
+### 2026-08-31 (error-target sweep, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir ses` flagged 3 findings, all real. Verified each op's own
+`awsAwsquery_deserializeOpError<Op>` switch in `ses@v1.37.4` deserializers.go:
+
+- `DeleteCustomVerificationEmailTemplate`: switch has `default:` only (zero declared
+  exceptions) -- was emitting `CustomVerificationEmailTemplateDoesNotExist` (declared
+  correctly by 3 siblings: `GetCustomVerificationEmailTemplate`,
+  `SendCustomVerificationEmail`, `UpdateCustomVerificationEmailTemplate`). Fixed by
+  deletion, not remapping: an op with no declared exception at all can't signal
+  not-found via any typed code, so a missing template is now treated as
+  already-deleted (idempotent), consistent with common AWS delete semantics.
+- `DeleteReceiptRule`: declares only `RuleSetDoesNotExist` -- was also emitting
+  `RuleDoesNotExist` (declared correctly by `CreateReceiptRule`'s after-rule lookup,
+  `DescribeReceiptRule`, `ReorderReceiptRuleSet`, `SetReceiptRulePosition`,
+  `UpdateReceiptRule`) for a rule missing within an existing set. The rule-set
+  not-found check stays (it's genuinely declared); only the rule-not-found branch was
+  deleted, making a missing rule name idempotent.
+- `DeleteReceiptRuleSet`: declares only `CannotDelete` -- was also emitting
+  `RuleSetDoesNotExist` (declared correctly by `CloneReceiptRuleSet`,
+  `CreateReceiptRule`, `DeleteReceiptRule`, `DescribeReceiptRule`,
+  `DescribeReceiptRuleSet`, and others) for a missing rule set name. Deleted; the
+  active-rule-set `CannotDelete` check (genuinely declared) stays. A missing rule set
+  is now idempotent.
+
+None of the three shared sentinels (`ErrCustomVerifTemplateNotFound`,
+`ErrReceiptRuleNotFound`, `ErrReceiptRuleSetNotFound`) were changed -- each stays
+correct for its other legitimate callers listed above; only the three offending call
+sites were edited.
+
+Test-first: `undeclared_delete_errors_test.go` (real SDK client, `errors.As`-free —
+asserts `NoError` since none of these three ops can produce a typed not-found error)
+confirmed failing against the unmodified tree (all three returned the undeclared
+typed error), then passing after the fix. Two pre-existing table-driven tests
+(`custom_verification_test.go`'s `template_not_found`, `receipt_rule_sets_test.go`'s
+`not_found`, `receipt_rules_test.go`'s `rule_not_found`) asserted the old wrong
+400/exception-name pairing as correct; corrected to assert 200/success.
+
+Gates: `go build ./services/ses/...`, `go vet ./services/ses/...`,
+`go test -race -count=1 ./services/ses/...` (pass), `golangci-lint run
+./services/ses/...` (0 issues).

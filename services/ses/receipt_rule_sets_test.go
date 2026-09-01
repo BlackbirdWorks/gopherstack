@@ -452,10 +452,12 @@ func TestHandler_DeleteReceiptRuleSet(t *testing.T) {
 			wantContains: "DeleteReceiptRuleSetResponse",
 		},
 		{
-			name:         "not_found",
+			// Idempotent: DeleteReceiptRuleSet's own deserializer (ses@v1.37.4
+			// deserializers.go) declares only CannotDelete, not RuleSetDoesNotExist.
+			name:         "not_found_is_idempotent",
 			body:         "Action=DeleteReceiptRuleSet&Version=2010-12-01&RuleSetName=nonexistent",
-			wantCode:     http.StatusBadRequest,
-			wantContains: "RuleSetDoesNotExist",
+			wantCode:     http.StatusOK,
+			wantContains: "DeleteReceiptRuleSetResponse",
 		},
 		{
 			name:         "empty_name",

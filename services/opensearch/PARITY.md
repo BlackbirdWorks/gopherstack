@@ -1167,3 +1167,38 @@ Gates: `go build ./...` clean; `go vet ./...` clean;
 `go test -race -count=1 ./services/opensearch/...` clean; `golangci-lint run
 ./services/opensearch/...` 0 issues. No `nolint` directives in any file touched
 (`domain_status.go`, `handler_domain_status.go`, `wire_field_fixes_test.go`).
+
+### 2026-08-31 (error-target sweep re-verification, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir opensearch` flagged 3 findings (`AddTags`, `ListMigrations`,
+`RemoveTags`, all `code=ResourceNotFoundException`, mechanism "sentinel reference"
+into `tags.go`/`migrations.go` backend methods). All 3 are false positives, and the
+same false-positive shape for all 3: **consumed downstream**. The tool traced the
+sentinel (`ErrDomainNotFound`/`ErrApplicationNotFound`, both string
+`"ResourceNotFoundException"`) at the point the backend method constructs it, but
+each of the three handlers (`handler_tags.go`'s `handleAddTags`/`handleRemoveTags`,
+`handler_migrations.go`'s `handleListMigrations`) already intercepts *any* backend
+error and hardcodes `ValidationException` before it reaches a code-emission mapper --
+each site carries its own comment citing this exact deserializer fact. This is the
+2026-08-29 `72a539739` fix (see the `# ERROR path verified 2026-08-29` header above)
+holding correctly; re-derived from the pinned `opensearch@v1.75.4` deserializers.go
+independently rather than trusting that note (`AddTags`/`RemoveTags` declare
+`BaseException`/`InternalException`/`ValidationException`[+`LimitExceededException`
+for Add]; `ListMigrations` declares `AccessDeniedException`/
+`DisabledOperationException`/`InternalException`/`ValidationException` -- none
+declare `ResourceNotFoundException`), and confirmed live via
+`error_sentinel_fixes_test.go`'s existing `TestListMigrations_UnknownApplication_
+ValidationException`/`TestAddTags_UnknownARN_ValidationException`/
+`TestRemoveTags_UnknownARN_ValidationException` (all pass on the unmodified tree).
+
+Also cross-checked the shared `ResourceNotFoundException` sentinel's broader
+legitimacy: of 96 opensearch operations, 82 declare `ResourceNotFoundException`
+correctly (`AcceptInboundConnection`, `AddDataSource`, ... 80 more); the other 14
+don't declare it and are all either these 3 already-fixed tag/migration ops or
+create/list-all operations that structurally never emit it.
+
+Nothing changed in this service this pass -- confirms false-positive rate 3/3 (100%)
+for this queue, mechanism consumed-downstream in all 3 cases. Pages fetched: 0
+(module cache only). Gates: `go build ./services/opensearch/...`, `go vet
+./services/opensearch/...`, `go test -race -count=1 ./services/opensearch/...`
+(pass, unmodified).

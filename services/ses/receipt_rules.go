@@ -118,7 +118,11 @@ func (b *InMemoryBackend) DeleteReceiptFilter(name string) error {
 	return nil
 }
 
-// DeleteReceiptRule removes a receipt rule from a rule set.
+// DeleteReceiptRule removes a receipt rule from a rule set. The rule set
+// itself must exist (RuleSetDoesNotExist), but a missing rule name is
+// idempotent: DeleteReceiptRule's own deserializer (ses@v1.37.4
+// deserializers.go) declares only RuleSetDoesNotExist, not RuleDoesNotExist,
+// unlike Describe/Update on the same resource.
 func (b *InMemoryBackend) DeleteReceiptRule(ruleSetName, ruleName string) error {
 	if strings.TrimSpace(ruleSetName) == "" {
 		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
@@ -132,11 +136,9 @@ func (b *InMemoryBackend) DeleteReceiptRule(ruleSetName, ruleName string) error 
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
-	idx := findRuleIndex(rs.Rules, ruleName)
-	if idx < 0 {
-		return fmt.Errorf("%w: %s", ErrReceiptRuleNotFound, ruleName)
+	if idx := findRuleIndex(rs.Rules, ruleName); idx >= 0 {
+		rs.Rules = append(rs.Rules[:idx], rs.Rules[idx+1:]...)
 	}
-	rs.Rules = append(rs.Rules[:idx], rs.Rules[idx+1:]...)
 
 	return nil
 }

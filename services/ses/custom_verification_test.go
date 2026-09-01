@@ -371,10 +371,12 @@ func TestDeleteCustomVerificationEmailTemplate(t *testing.T) {
 			wantContains: "DeleteCustomVerificationEmailTemplateResponse",
 		},
 		{
-			name:         "template_not_found",
+			// Idempotent: the op's own deserializer (ses@v1.37.4 deserializers.go)
+			// declares no exception at all, so a missing template is a no-op success.
+			name:         "template_not_found_is_idempotent",
 			body:         "Action=DeleteCustomVerificationEmailTemplate&Version=2010-12-01&TemplateName=nonexistent",
-			wantCode:     http.StatusBadRequest,
-			wantContains: "CustomVerificationEmailTemplateDoesNotExist",
+			wantCode:     http.StatusOK,
+			wantContains: "DeleteCustomVerificationEmailTemplateResponse",
 		},
 		{
 			name:         "empty_template_name",
