@@ -1,9 +1,8 @@
 package cloudfront
 
 import (
-	"bytes"
-	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -590,16 +589,7 @@ func extractResourceID(path, prefix string) string {
 
 // xmlEscape escapes a string for safe inclusion as XML character data.
 func xmlEscape(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	var buf bytes.Buffer
-	if err := xml.EscapeText(&buf, []byte(s)); err != nil {
-		return ""
-	}
-
-	return buf.String()
+	return html.EscapeString(s)
 }
 
 // --- Config-only ("/config") GET handlers ---

@@ -249,6 +249,7 @@ type domainStatusJSON struct { //nolint:govet // fieldalignment: readability ove
 	DomainProcessingStatus      string                             `json:"DomainProcessingStatus"`
 	AccessPolicies              string                             `json:"AccessPolicies"`
 	Processing                  bool                               `json:"Processing"`
+	Created                     bool                               `json:"Created"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -947,6 +948,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		ElasticsearchVersion:   d.ElasticsearchVersion,
 		Endpoint:               d.Endpoint,
 		Processing:             false,
+		Created:                true,
 		DomainProcessingStatus: statusActiveCap,
 		AccessPolicies:         d.AccessPolicies,
 		AdvancedOptions:        advOpts,

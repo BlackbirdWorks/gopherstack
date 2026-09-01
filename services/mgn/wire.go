@@ -1218,6 +1218,12 @@ type nmScopeRequest struct {
 	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
 }
 
+type startNMCodeGenerationRequest struct {
+	NetworkMigrationDefinitionID    string   `json:"networkMigrationDefinitionID"`
+	NetworkMigrationExecutionID     string   `json:"networkMigrationExecutionID"`
+	CodeGenerationOutputFormatTypes []string `json:"codeGenerationOutputFormatTypes,omitempty"`
+}
+
 type getNMMapperSegmentConstructRequest struct {
 	NetworkMigrationDefinitionID string `json:"networkMigrationDefinitionID"`
 	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
@@ -1283,7 +1289,16 @@ type jobIDResponse struct {
 
 // ---- Network Migration: analysis, code generation, deployment, executions ----
 
+type codeGenerationOutputFormatStatusDetailsWire struct {
+	Status           string `json:"status,omitempty"`
+	StatusDetailList string `json:"statusDetailList,omitempty"`
+}
+
+type codeGenStatusMap map[string]codeGenerationOutputFormatStatusDetailsWire
+
 type networkMigrationJobDetailsWire struct {
+	CodeGenStatusMap codeGenStatusMap `json:"codeGenerationOutputFormatStatusDetailsMap,omitempty"`
+
 	CreatedAt                    *float64 `json:"createdAt,omitempty"`
 	EndedAt                      *float64 `json:"endedAt,omitempty"`
 	JobID                        string   `json:"jobID,omitempty"`

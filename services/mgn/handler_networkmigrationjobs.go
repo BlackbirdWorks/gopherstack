@@ -86,13 +86,13 @@ func (h *Handler) handleStartNetworkMigrationCodeGeneration(
 	_ *http.Request,
 	body []byte,
 ) ([]byte, error) {
-	var req nmScopeRequest
+	var req startNMCodeGenerationRequest
 	if err := decodeJSONBody(body, &req); err != nil {
 		return nil, err
 	}
 
 	jobID, err := h.Backend.StartNetworkMigrationCodeGeneration(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID,
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.CodeGenerationOutputFormatTypes,
 	)
 	if err != nil {
 		return nil, err

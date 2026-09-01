@@ -1521,3 +1521,70 @@ bug rather than something tolerated. It is true only of the XML decoder, which
 does fold - so REST-XML services would silently tolerate a case-only element
 mismatch, and a test passing there is weaker evidence than the same test passing
 on a JSON protocol.
+
+## 2026-09-01 wrapper-key sweep (gopherstack-6flj)
+
+Full sweep of all 30 `Describe*`/`List*` collection ops (mgn@v1.48.4 pinned
+SDK; count derived from `$GOMODCACHE`, not grepped from this repo's own
+source). Protocol is `awsRestjson1` throughout, confirmed by
+`addOperationXMiddlewares` on every op -- no `restxml` single-payload
+shortcut applies here; every top-level key is checked strictly by
+`deserializeOpDocument<Op>Output`, case-sensitive, no fold.
+
+**Layer 1 (top-level wrapper key): clean, 30/30.** mgn follows one uniform
+convention -- generic `items`/`nextToken` on every list op except
+`ListTagsForResource` (`tags`, a map). Handler struct tags in `wire.go`
+match byte-exact on all 30.
+
+**Layer 2 (per-item field completeness): 21 item/nested types checked
+field-by-field against their real SDK struct
+(`SourceServer`, `Job`, `Wave`, `Application`,
+`LaunchConfigurationTemplate`, `ReplicationConfigurationTemplate`, `JobLog`,
+`ImportTaskError`, `ManagedAccount`, `SourceServerActionDocument`,
+`TemplateActionDocument`, `VcenterClient`, `Connector`, `ExportTask`,
+`ImportTask`, `ImportFileEnrichment`,
+`NetworkMigrationDefinitionSummary`, `NetworkMigrationMappingJobDetails`,
+`NetworkMigrationMappingUpdateJobDetails`, `ParticipatingServer`, and the
+shared `NetworkMigrationAnalysisJobDetails`/`NetworkMigrationDeployerJobDetails`
+pair backing `networkMigrationJobDetailsWire`).
+
+**One bug found and fixed.** `NetworkMigrationCodeGenerationJobDetails` is
+the one exception to the "all five NM job-details types are identical"
+claim this file's own doc comment made (`networkmigrationjobs.go`, now
+corrected) -- it alone also carries
+`CodeGenerationOutputFormatStatusDetailsMap`, keyed by the format types the
+caller requested on `StartNetworkMigrationCodeGeneration`
+(`CodeGenerationOutputFormatTypes`, `serializers.go:6983`). gopherstack
+never read that request field and the shared
+`networkMigrationJobDetailsWire`/`NetworkMigrationJob` never carried it, so
+`ListNetworkMigrationCodeGenerations` could never populate the map --
+silently missing, not wrong-keyed. Fixed: `NetworkMigrationJob` now tracks
+`CodeGenerationOutputFormatTypes`; `ListNetworkMigrationCodeGenerations`
+surfaces one map entry per requested format once the job reaches
+SUCCEEDED/FAILED, its `Status` mirroring the job's own (this backend never
+partially fails one format). `StatusDetailList` stays empty -- no per-format
+detail text exists to report, matching this service's existing restraint on
+not fabricating codegen content. Proven via
+`TestRoundTrip_NetworkMigrationCodeGenerationOutputFormatStatus`
+(`sdk_roundtrip_test.go`), confirmed failing (empty map) against the
+unmodified handler/backend/wire before the fix.
+
+**Also checked and confirmed NOT a bug (restraint, not a gap):**
+`ParticipatingServer.PostLaunchActionsStatus` (nullable, per-instance
+post-launch-action execution status) is genuinely unmodeled -- this backend
+tracks configured `PostLaunchActions` (what to run) but never simulates
+running them, so it has no real status to report; omitting the optional
+field is honest, not a silent-empty-list bug. `ListNetworkMigrationAnalysisResults`/
+`CodeGenerationSegments`/`DeployedStacks`/`MapperSegmentConstructs`/
+`MapperSegments` staying permanently empty is the same documented,
+deliberate limitation this file already records (no topology/codegen/deploy
+engine exists) -- re-verified rather than trusted on the existing comment,
+and it held.
+
+Gates: `go build ./...`, `go vet ./services/mgn/...`, `go test -race
+-count=1 ./services/mgn/...` (pass, includes the new test),
+`golangci-lint run ./services/mgn/...` (0 issues after adding one `//nolint:lll`
+on the new map field's struct tag -- long field/type name, not a suppressed
+bug), `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard`
+(additive-only field on `NetworkMigrationJob`, no version bump required;
+golden refreshed with `-update` and re-run clean).

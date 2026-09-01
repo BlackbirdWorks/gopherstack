@@ -279,7 +279,7 @@ func (b *InMemoryBackend) StartNetworkMigrationMapping(definitionID, executionID
 	b.mu.Lock("StartNetworkMigrationMapping")
 	defer b.mu.Unlock()
 
-	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageMapping)
+	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageMapping, nil)
 }
 
 // StartNetworkMigrationMappingUpdate starts a new mapping-update job. The
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) StartNetworkMigrationMappingUpdate(definitionID, execu
 	b.mu.Lock("StartNetworkMigrationMappingUpdate")
 	defer b.mu.Unlock()
 
-	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageMappingUpdate)
+	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageMappingUpdate, nil)
 }
 
 // ListNetworkMigrationMappings returns a page of mapping job details

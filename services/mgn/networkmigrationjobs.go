@@ -93,7 +93,9 @@ func (b *InMemoryBackend) resolveOrCreateExecutionLocked(
 // needed, and schedules its PENDING -> STARTED -> SUCCEEDED progression
 // (mirroring the execution's own Status once the job completes). Callers
 // must hold b.mu.
-func (b *InMemoryBackend) createAndScheduleNMJobLocked(definitionID, executionID, activity string) (string, error) {
+func (b *InMemoryBackend) createAndScheduleNMJobLocked(
+	definitionID, executionID, activity string, codeGenerationOutputFormatTypes []string,
+) (string, error) {
 	if _, err := b.resolveOrCreateExecutionLocked(definitionID, executionID, activity); err != nil {
 		return "", err
 	}
@@ -102,12 +104,13 @@ func (b *InMemoryBackend) createAndScheduleNMJobLocked(definitionID, executionID
 	now := nowUTC()
 
 	job := &NetworkMigrationJob{
-		JobID:                        id,
-		NetworkMigrationDefinitionID: definitionID,
-		NetworkMigrationExecutionID:  executionID,
-		Activity:                     activity,
-		Status:                       NMStatusPending,
-		CreatedAt:                    now,
+		JobID:                           id,
+		NetworkMigrationDefinitionID:    definitionID,
+		NetworkMigrationExecutionID:     executionID,
+		Activity:                        activity,
+		Status:                          NMStatusPending,
+		CreatedAt:                       now,
+		CodeGenerationOutputFormatTypes: codeGenerationOutputFormatTypes,
 	}
 	b.nmJobs.Put(job)
 
@@ -171,7 +174,7 @@ func (b *InMemoryBackend) StartNetworkMigrationAnalysis(definitionID, executionI
 	b.mu.Lock("StartNetworkMigrationAnalysis")
 	defer b.mu.Unlock()
 
-	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageAnalyze)
+	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageAnalyze, nil)
 }
 
 // ListNetworkMigrationAnalyses returns a page of analysis job details
@@ -189,12 +192,18 @@ func (b *InMemoryBackend) ListNetworkMigrationAnalysisResults(definitionID, exec
 	return b.requireNMScopeExists(definitionID, executionID)
 }
 
-// StartNetworkMigrationCodeGeneration starts a new code-generation job.
-func (b *InMemoryBackend) StartNetworkMigrationCodeGeneration(definitionID, executionID string) (string, error) {
+// StartNetworkMigrationCodeGeneration starts a new code-generation job for
+// outputFormatTypes (types.StartNetworkMigrationCodeGenerationInput.
+// CodeGenerationOutputFormatTypes) -- tracked so ListNetworkMigrationCodeGenerations
+// can surface CodeGenerationOutputFormatStatusDetailsMap, keyed by these same
+// format types, once the job completes.
+func (b *InMemoryBackend) StartNetworkMigrationCodeGeneration(
+	definitionID, executionID string, outputFormatTypes []string,
+) (string, error) {
 	b.mu.Lock("StartNetworkMigrationCodeGeneration")
 	defer b.mu.Unlock()
 
-	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageCodeGeneration)
+	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageCodeGeneration, outputFormatTypes)
 }
 
 // ListNetworkMigrationCodeGenerations returns a page of code-generation job
@@ -217,7 +226,7 @@ func (b *InMemoryBackend) StartNetworkMigrationDeployment(definitionID, executio
 	b.mu.Lock("StartNetworkMigrationDeployment")
 	defer b.mu.Unlock()
 
-	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageDeploy)
+	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageDeploy, nil)
 }
 
 // ListNetworkMigrationDeployments returns a page of deployment job details

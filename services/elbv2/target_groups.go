@@ -169,6 +169,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 			"stickiness.type":                      "lb_cookie",
 			"load_balancing.algorithm.type":        "round_robin",
 			"slow_start.duration_seconds":          "0",
+			attrCrossZoneLoadBalancingEnabled:      attrValueTrue,
 		},
 		Tags: t,
 	}

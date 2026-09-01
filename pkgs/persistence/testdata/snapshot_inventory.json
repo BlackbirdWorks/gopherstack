@@ -18156,6 +18156,7 @@
       "NetworkMigrationExecution.Tags *tags.Tags",
       "NetworkMigrationExecution.UpdatedAt time.Time",
       "NetworkMigrationJob.Activity string",
+      "NetworkMigrationJob.CodeGenerationOutputFormatTypes []string",
       "NetworkMigrationJob.CreatedAt time.Time",
       "NetworkMigrationJob.EndedAt time.Time",
       "NetworkMigrationJob.JobID string",

@@ -125,3 +125,39 @@ func Test_SDKRoundTrip_CreateVpcEndpoint_VpcOptions(t *testing.T) {
 	assert.Equal(t, []string{"sg-0123456789abcdef0"}, out.VpcEndpoint.VpcOptions.SecurityGroupIds)
 	assert.Equal(t, []string{"subnet-0123456789abcdef0"}, out.VpcEndpoint.VpcOptions.SubnetIds)
 }
+
+// Test_SDKRoundTrip_DescribeElasticsearchDomain_Created proves DomainStatus.Created
+// round-trips as true. This backend creates domains synchronously (no pending-creation
+// state is modeled anywhere), so Created is always true once the domain exists --
+// but the field was never emitted at all, so a real client's
+// aws.ToBool(out.DomainStatus.Created) always saw false and could never observe a
+// domain as created (types.ElasticsearchDomainStatus.Created,
+// elasticsearchservice@v1.45.4 types/types.go).
+func Test_SDKRoundTrip_DescribeElasticsearchDomain_Created(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticsearch.NewInMemoryBackend("123456789012", rtTestRegion)
+	h := elasticsearch.NewHandler(backend)
+	client := newTestElasticsearchClient(t, h)
+	ctx := t.Context()
+
+	const domainName = "rt-created-domain"
+
+	_, err := client.CreateElasticsearchDomain(ctx, &elasticsearchsdk.CreateElasticsearchDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "CreateElasticsearchDomain should succeed")
+
+	out, err := client.DescribeElasticsearchDomain(ctx, &elasticsearchsdk.DescribeElasticsearchDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "DescribeElasticsearchDomain should succeed")
+
+	require.NotNil(t, out.DomainStatus)
+	require.NotNil(t, out.DomainStatus.Created, "Created must round-trip, not be silently dropped")
+	assert.True(
+		t,
+		*out.DomainStatus.Created,
+		"domain creation is synchronous in this backend, so Created is always true",
+	)
+}
