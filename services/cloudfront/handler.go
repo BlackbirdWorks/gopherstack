@@ -535,7 +535,7 @@ func cfErrorXML(code, message string) string {
 // the declaration is emitted onto the wire, so a future body builder cannot
 // reintroduce the pair.
 func xmlResp(c *echo.Context, status int, body string) error {
-	c.Response().Header().Set("Content-Type", "text/xml")
+	c.Response().Header().Set("Content-Type", "application/xml")
 	c.Response().Header().Set("X-Amz-Cf-Id", generateID())
 	c.Response().WriteHeader(status)
 	_, err := c.Response().Write([]byte(body))
