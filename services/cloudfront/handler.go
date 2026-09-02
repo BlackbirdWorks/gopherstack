@@ -528,19 +528,12 @@ func cfErrorXML(code, message string) string {
 
 // xmlResp writes an XML response with the given status code. body is written
 // verbatim -- it must already carry its own leading XML declaration (every
-// body builder in this package does). c.XMLBlob is deliberately not used
-// here: it prepends its own declaration, which doubled the one already in
-// body and made every CloudFront response unparseable by strict XML clients
-// (gopherstack: doubled <?xml ...?> declaration). This is the single place
-// the declaration is emitted onto the wire, so a future body builder cannot
-// reintroduce the pair.
+// body builder in this package does). c.Blob is used to write the raw bytes
+// directly without injecting an extra declaration (c.XMLBlob prepends its own).
 func xmlResp(c *echo.Context, status int, body string) error {
-	c.Response().Header().Set("Content-Type", "application/xml")
 	c.Response().Header().Set("X-Amz-Cf-Id", generateID())
-	c.Response().WriteHeader(status)
-	_, err := c.Response().Write([]byte(body))
 
-	return err
+	return c.Blob(status, "text/xml", []byte(body))
 }
 
 // Handler returns the Echo handler function for CloudFront requests.
