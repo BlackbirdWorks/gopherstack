@@ -133,7 +133,7 @@ func TestArchive_CRUD(t *testing.T) {
 	assert.Equal(t, 14, updated.RetentionDays)
 	assert.Equal(t, "important events", updated.Description)
 
-	archives, _, err := b.ListArchives(context.Background(), "my-", "", "", "")
+	archives, _, err := b.ListArchives(context.Background(), "my-", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, archives, 1)
 
@@ -302,7 +302,7 @@ func TestArchiveCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "rt-archive", got.ArchiveName)
 
-		archives, _, err := b.ListArchives(context.Background(), "rt-", "", "", "")
+		archives, _, err := b.ListArchives(context.Background(), "rt-", "", "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, archives, 1)
 

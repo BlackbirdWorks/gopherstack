@@ -320,7 +320,6 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		HealthCheckTimeoutSeconds:  tg.HealthCheckTimeoutSeconds,
 		HealthyThresholdCount:      tg.HealthyThresholdCount,
 		UnhealthyThresholdCount:    tg.UnhealthyThresholdCount,
-		CrossZoneLoadBalancing:     tg.CrossZoneLoadBalancing,
 	}
 
 	if tg.Matcher.HTTPCode != "" || tg.Matcher.GrpcCode != "" {
@@ -363,7 +362,6 @@ type xmlTargetGroup struct {
 	HealthyThresholdCount      int32          `xml:"HealthyThresholdCount,omitempty"`
 	UnhealthyThresholdCount    int32          `xml:"UnhealthyThresholdCount,omitempty"`
 	HealthCheckEnabled         bool           `xml:"HealthCheckEnabled"`
-	CrossZoneLoadBalancing     bool           `xml:"CrossZoneLoadBalancing"`
 }
 
 type xmlTargetGroupList struct {

@@ -65,9 +65,11 @@ func (b *InMemoryBackend) PutSourceServerAction(in PutSourceServerActionInput) (
 }
 
 // ListSourceServerActions returns a page of post-launch actions for
-// sourceServerID.
+// sourceServerID matching actionIDs (SourceServerActionsRequestFilters.ActionIDs
+// -- empty means unfiltered).
 func (b *InMemoryBackend) ListSourceServerActions(
 	sourceServerID string,
+	actionIDs []string,
 	token string,
 	limit int,
 ) (page.Page[*SourceServerActionDocument], error) {
@@ -82,7 +84,15 @@ func (b *InMemoryBackend) ListSourceServerActions(
 		return page.Page[*SourceServerActionDocument]{}, notFoundError(resourceSourceServer, sourceServerID)
 	}
 
-	items := b.sourceServerActionsByServer.Get(sourceServerID)
+	all := b.sourceServerActionsByServer.Get(sourceServerID)
+	items := make([]*SourceServerActionDocument, 0, len(all))
+
+	for _, a := range all {
+		if len(actionIDs) == 0 || containsStr(actionIDs, a.ActionID) {
+			items = append(items, a)
+		}
+	}
+
 	cloned := make([]*SourceServerActionDocument, len(items))
 
 	for i, a := range items {
@@ -169,9 +179,11 @@ func (b *InMemoryBackend) PutTemplateAction(in PutTemplateActionInput) (*Templat
 }
 
 // ListTemplateActions returns a page of post-launch actions for
-// launchConfigurationTemplateID.
+// launchConfigurationTemplateID matching actionIDs
+// (TemplateActionsRequestFilters.ActionIDs -- empty means unfiltered).
 func (b *InMemoryBackend) ListTemplateActions(
 	launchConfigurationTemplateID string,
+	actionIDs []string,
 	token string,
 	limit int,
 ) (page.Page[*TemplateActionDocument], error) {
@@ -189,7 +201,15 @@ func (b *InMemoryBackend) ListTemplateActions(
 		)
 	}
 
-	items := b.templateActionsByTemplate.Get(launchConfigurationTemplateID)
+	all := b.templateActionsByTemplate.Get(launchConfigurationTemplateID)
+	items := make([]*TemplateActionDocument, 0, len(all))
+
+	for _, a := range all {
+		if len(actionIDs) == 0 || containsStr(actionIDs, a.ActionID) {
+			items = append(items, a)
+		}
+	}
+
 	cloned := make([]*TemplateActionDocument, len(items))
 
 	for i, a := range items {

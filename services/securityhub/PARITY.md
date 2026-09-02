@@ -15,7 +15,7 @@ ops:
   DisableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeHub: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSecurityHubConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes"}
+  GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes. ALSO FIXED this pass (gopherstack-uox6 value-semantics sweep) -- matchesStringFilter combined every entry of a field's []StringFilter list with a strict AND; types.StringFilter's doc comment documents CONTAINS/EQUALS/PREFIX entries on the same field joined by OR and NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS joined by AND, the two groups then AND'd together. A real client's `Title CONTAINS X OR Title CONTAINS Y`-shaped filter (the documented example) matched nothing under the old code. Also affects BatchUpdateFindings/UpdateFindings, which share matchesFindingFilters. See Notes."}
   BatchImportFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- re-import now preserves Note/UserDefinedFields/VerificationState/Workflow per AWS's documented semantics, see Notes"}
   BatchUpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,21 +36,21 @@ ops:
   BatchUpdateStandardsControlAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeActionTargets: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteActionTarget: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateActionTarget: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: never checked b.hubEnabled, unlike CreateActionTarget/every sibling create/enable path. deserializers.go's deserializeOpErrorUpdateActionTarget (:16987) models InvalidAccessException; added the check and mapped it. See action_targets_hub_enabled_test.go."}
+  DeleteActionTarget: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: same hubEnabled gap as UpdateActionTarget; deserializeOpErrorDeleteActionTarget (:4539) models InvalidAccessException. See action_targets_hub_enabled_test.go."}
   DescribeProducts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-products catalog"}
   ListEnabledProductsForImport: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableImportFindingsForProduct: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableImportFindingsForProduct: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisableImportFindingsForProduct: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-02oa: same hubEnabled gap as UpdateActionTarget; deserializeOpErrorDisableImportFindingsForProduct (:7344) models InvalidAccessException. See action_targets_hub_enabled_test.go."}
   GetSecurityControlDefinition: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-controls catalog"}
   ListSecurityControlDefinitions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  BatchGetSecurityControls: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetSecurityControls: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- UnprocessedSecurityControl.ErrorCode is types.UnprocessedErrorCode (types.go:19946), an enum whose members are upper-snake-case (enums.go:2086); handler emitted the free-form string \"InvalidInput\" (shared with BatchUpdateFindings' unrelated *string ErrorCode) instead of the enum member \"INVALID_INPUT\". A typed client decoded the wrong value without error. See wire_field_fixes_test.go."}
   UpdateSecurityControl: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAutomationRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchDeleteAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchUpdateAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- UnprocessedAutomationRule.ErrorCode is *int32 (types.go:19904, an HTTP status code like cloudfront's identically-shaped CustomErrorResponse.ErrorCode), not a string; handler emitted a string. Before the fix, a real client's deserializer hard-failed (\"expected Integer to be json.Number, got string instead\"), confirmed by driving the real client against the unfixed handler -- not a silent drop. See wire_field_fixes_test.go."}
+  BatchDeleteAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same UnprocessedAutomationRule.ErrorCode *int32 bug as BatchGetAutomationRules; see that row and wire_field_fixes_test.go."}
+  BatchUpdateAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same UnprocessedAutomationRule.ErrorCode *int32 bug as BatchGetAutomationRules; see that row and wire_field_fixes_test.go."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -62,8 +62,8 @@ ops:
   DisassociateMembers: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptAdministratorInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeclineInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeclineInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- the unprocessed-account entry (account not found) fabricated \"ErrorCode\"/\"ErrorMessage\" keys; DeclineInvitationsOutput.UnprocessedAccounts is []types.Result (types.go:18271), which declares only AccountId/ProcessingResult -- same shape members.go's CreateMembers/DeleteMembers already use correctly. A typed client silently discards unknown keys and never observes them, so only a raw-body test catches this. See wire_field_fixes_test.go."}
+  DeleteInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same types.Result ErrorCode/ErrorMessage fabrication as DeclineInvitations; see that row and wire_field_fixes_test.go."}
   GetInvitationsCount: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAdministratorAccount: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -145,6 +145,7 @@ gaps:
   - "GetFindingsV2 Filters.CompositeFilters evaluates String/Number/Date/Map/Ip/Boolean filters and NestedCompositeFilters (gopherstack-8j08), but only for the field-name subset in ocsfStringFieldMap/ocsfNumberFieldMap/ocsfDateFieldMap/ipFieldNetworkKeys/mapFilterCandidates (findings_v2.go) that has a genuine ASFF-backed equivalent. Any OcsfStringField/OcsfNumberField/OcsfDateField/OcsfMapField/OcsfIpField/OcsfBooleanField outside those mapped subsets is accepted on the wire but not evaluated -- deliberately, per the no-fabrication rule, rather than guessed at. Remaining unmapped, with reasons: (a) fields with no ASFF concept at all -- OcsfBooleanField compliance.assessments.meets_criteria (ASFF Compliance has no 'assessments'), OcsfMapField databucket.tags (ASFF has no databucket concept), most 'evidences.*'/vendor_attributes.*' string+number fields (ASFF has no evidences/vendor_attributes objects); (b) fields whose only ASFF analog is lossy/ambiguous -- OcsfBooleanField vulnerabilities.is_fix_available (ASFF Vulnerability.FixAvailable is three-valued YES/NO/PARTIAL; collapsing PARTIAL into a bool would misclassify findings); (c) fields that exist in ASFF only nested inside arrays this pass didn't reach -- e.g. vulnerabilities.cve.cvss.base_score (Vulnerabilities[].Cvss[].BaseScore), resources.image.*/resources.modified_time_dt (ASFF Resource has no image/per-resource-modified timestamp). class_name (its closest analog, Types, is a string array, not scalar) remains unmapped from the prior pass. A complete OCSF taxonomy crosswalk is ~70 string + ~14 number fields; this pass closed the DateFilters/MapFilters/IpFilters/BooleanFilters/NestedCompositeFilters gap specifically (the issue's stated priority) plus one bonus NumberFilter field (confidence_score -> ASFF Confidence)."
   - "BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding."
   - "(parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change."
+  - "(gopherstack-uox6 value-semantics sweep) GetFindingsV2's OcsfMapFilter (findings_v2.go matchesOcsfMapFilter/compareMapFilter) does not apply the same-field CONTAINS/EQUALS-joined-by-OR, NOT_CONTAINS/NOT_EQUALS-joined-by-AND combination rule that MapFilter's own doc comment documents (the same rule fixed this pass for V1's []StringFilter in matchesStringFilter) -- multiple OcsfMapFilter entries in one CompositeFilter's MapFilters list are instead combined via that CompositeFilter's explicit Operator (AND/OR), per matchesCompositeFilterDepth. Left unresolved rather than guessed: GetFindingsV2's OcsfFindingFilters model already exposes an explicit per-CompositeFilter Operator that V1's AwsSecurityFindingFilters has no equivalent of, and neither the MapFilter doc comment nor the OcsfFindingFilters/CompositeFilter doc comments state whether the legacy implicit per-field rule still applies underneath that explicit Operator, or is superseded by it, when a field's name repeats within one CompositeFilter's MapFilters list. Not attempted this pass -- the documentation does not specify this precisely enough to implement without fabricating a rule."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
@@ -666,3 +667,290 @@ Confirmed safe, left unchanged, with reason:
 Proof: `go test -race -count=20 ./services/securityhub/...` clean after all
 fixes; `TestSecurityHubV2FeatureDescribeRace` is the new permanent
 regression test for the flagged bug specifically.
+
+## Error-path sweep (2026-08-29): verified clean, no bugs found
+
+Audited securityhub's failure path -- what a real typed `aws-sdk-go-v2`
+client sees when a request fails -- as part of a four-service sweep
+(securityhub, kafka, elbv2, stepfunctions) hunting the class of bug where
+gopherstack's error-handling call site picks a sentinel/wire code the real
+operation's own `deserializeOpError<Op>` switch does not model. All 116
+operations' switches extracted from `deserializers.go` (securityhub@v1.75.4)
+and diffed against every `typedErrorResponse(...)` call site (125 sites
+across all `handler_*.go` files) and the `ErrHubNotEnabled`/`ErrNotFound`/
+`ErrAlreadyExists`/etc. sentinels feeding them.
+
+Every literal `errType` string used at a `typedErrorResponse` call site names
+a real type in this SDK's `types/errors.go` (AccessDeniedException,
+ConflictException, InternalException, InternalServerException,
+InvalidAccessException, InvalidInputException, ResourceConflictException,
+ResourceNotFoundException, ValidationException) -- no fabricated code exists
+anywhere in this service. Every `ResourceNotFoundException`/
+`ResourceConflictException`/`InvalidAccessException`/`ValidationException`/
+`InvalidInputException` call site was cross-checked against its own
+operation's modeled set (not a sibling's) and matches exactly; the classic
+REST vocabulary (InvalidInputException/InternalException/
+ResourceConflictException) and the newer V2-style vocabulary
+(ValidationException/InternalServerException/ConflictException) are never
+crossed at a call site, including the several non-"V2"-suffixed operations
+(Connectors, ConnectorsV2, AutomationRulesV2, AggregatorsV2) that use the
+newer vocabulary -- this distinction was already called out and correctly
+handled by a prior pass (see `typedErrorResponse`'s doc comment,
+handler.go:507-514), and this pass re-verified it rather than trusting the
+comment.
+
+Two call sites (`handleStartConfigurationPolicyDisassociation`,
+`handleUpdateStandardsControl`) have an unreachable 500 fallback: their
+backend methods never actually return an error (both silently accept any
+identifier, including one that was never created, rather than validating
+against a known-resource set) even though their operations model
+`ResourceNotFoundException`. This is a missing-validation / structural gap,
+not a wrong-sentinel-at-a-call-site bug -- fixing it would mean building a
+"does this identifier correspond to a real resource" check neither op has
+today, not swapping which existing sentinel a call site already picks -- so
+it is reported here rather than fixed under this sweep's narrower scope.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class, matching several other services in this campaign.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Distinct class from the error-path sweep above: not which sentinel a call
+site picks, but whether a call's own return value carrying failure
+information is thrown away (`x, _ := b.Something(...)`). ~195 `, _ :=`/
+`, _ =`/bare `_ = ` sites across all non-test `.go` files, triaged
+individually.
+
+The large majority are legitimate: JSON-body type assertions
+(`body["Field"].(string)`) where a missing/wrong-typed value correctly
+becomes the zero value; `x, _ := b.<store>.Get(id)` calls that follow a
+`resolve*`/existence check in the same function (the miss case already
+returned); and `strconv.Atoi(v)` best-effort query-param parses that fall
+back to 0 ("use default").
+
+All 12 `Batch*` operations checked against their backend implementations --
+`BatchImportFindings`, `BatchUpdateFindings`, `BatchUpdateFindingsV2`,
+`BatchGetSecurityControls`, `BatchGetAutomationRules`,
+`BatchDeleteAutomationRules`, `BatchUpdateAutomationRules`,
+`BatchEnableStandards`, `BatchDisableStandards`,
+`BatchGetStandardsControlAssociations`,
+`BatchUpdateStandardsControlAssociations`,
+`BatchGetConfigurationPolicyAssociations` -- each correctly threads its
+per-item unprocessed/failed list (or an `err` return) into the response.
+
+Two things worth recording, neither a bug:
+
+- `handleBatchEnableStandards`/`handleBatchDisableStandards`
+  (handler_standards.go:57,76) discard `BatchEnableStandards`/
+  `BatchDisableStandards`'s second return (a `[]map[string]any` of
+  failures). Left as-is: `BatchEnableStandardsOutput`/
+  `BatchDisableStandardsOutput` (securityhub@v1.75.4
+  api_op_BatchEnableStandards.go / api_op_BatchDisableStandards.go) carry
+  only `StandardsSubscriptions` -- there is no per-item failure field on the
+  real wire shape to put it in. `BatchEnableStandards`'s own failure branch
+  (empty `StandardsArn`) is additionally unreachable via a real typed
+  client: `StandardsArn` is `// This member is required` on
+  `types.StandardsSubscriptionRequest` and enforced by
+  `validateStandardsSubscriptionRequest`/`validateOpBatchEnableStandardsInput`
+  (validators.go) before the request leaves the client.
+- `handleCreateAggregatorV2`'s `_ = h.Backend.TagResource(...)`
+  (handler_aggregators_v2.go:46): `TagResource` (tags.go:5) unconditionally
+  returns nil, so no real error is being suppressed.
+- `handleCreateMembers`'s `_ = created` (handler_members.go:74): correct per
+  wire shape -- `CreateMembersOutput` (api_op_CreateMembers.go) has only
+  `UnprocessedAccounts`, no created-members field to populate.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.
+
+## 2026-08-30 pagination arithmetic sweep
+
+Audited every paginated listing for the five known gopherstack
+pagination-arithmetic bug classes (panic on stale offset, infinite loop on
+stale equality-matched cursor, guarded-but-unused index, encoder/decoder
+disagreement, unsorted collection). Census: one shared offset-token helper
+(`store.go`'s `paginateSlice`, 15 call sites) plus two supporting helpers
+(`filterOrAll`, `sortFindings`) feed every List/Describe/Get* op in this
+service; no inline `for i, x := range all { if x.ID == token { start = i } }`
+site exists outside `store.go`. `paginateSlice` itself was already correct
+(clamped offset decode, no equality search — all seven checks pass).
+
+**This service came back with a real, repo-wide Class E problem, not clean.**
+11 of the 15 `paginateSlice` call sites fed it a collection read straight
+from a `map` or a `store.Table.All()` (explicitly documented as unspecified
+iteration order) with no sort in between:
+
+- `filterOrAll`'s "return everything" branch (`arns` empty) called
+  `t.All()` — affects `DescribeActionTargets` and `GetEnabledStandards`.
+- `sortFindings` was a no-op when `sortCriteria` was empty (`if
+  len(criteria) == 0 { return }`) — affects `GetFindings` and
+  `GetFindingsV2`, whose backing store (`b.findings`) is itself a
+  `map[string]map[string]any`, so the *common* no-sort-criteria call shape
+  hit this on every listing.
+- 8 more `.All()`-straight-into-`paginateSlice` sites with zero sort:
+  `ListAutomationRulesV2`, `ListAggregatorsV2`, `ListInvitations`,
+  `ListConnectors` (CSPM), `ListConnectorsV2`, `ListFindingAggregators`,
+  `ListConfigurationPolicies`, `ListConfigurationPolicyAssociations`,
+  `ListMembers`.
+- 2 sites ranging a raw (non-`store.Table`) map with zero sort:
+  `ListOrganizationAdminAccounts` (`b.orgAdminAccounts`), `GetResourcesV2`
+  (a locally-built `map[string]map[string]any` keyed by resource Id).
+
+All are Class E: a plain two-page walk with no deletion or tampering drops
+or duplicates results whenever Go's map iteration reorders between the two
+calls (confirmed empirically — reverting one fix and rerunning its
+regression test failed 5/5 times).
+
+Fixed 9 of the `store.Table`-backed sites by swapping `.All()` for
+`.Snapshot()` (same package, sorted by the table's own key, already the
+established idiom in this repo for exactly this purpose). Fixed the 2
+raw-map sites with an explicit `sort.Slice` by account ID / resource Id.
+Fixed `filterOrAll` the same way (`.Snapshot()`). Fixed `sortFindings` by
+removing the empty-criteria early return and adding a final deterministic
+tiebreak (`ProductArn|Id`, both ASFF-required fields) that always runs,
+whether or not the caller supplied real sort criteria — this also make the
+existing sort well-defined on ties within real criteria, which previously
+had no tiebreak either.
+
+Safe-by-construction pattern applied throughout: **default a miss/no-sort
+case to a genuinely sorted read** (`Table.Snapshot()`, or an explicit
+`sort.Slice` for the two raw-map sites) — the same pattern already used
+correctly elsewhere in this repo. No threshold-search or found-flag pattern
+was applicable here since none of these sites use an equality-matched
+cursor (offset tokens throughout).
+
+7 checks run against `paginateSlice` directly (all pass, both before and
+after — it was never the bug) plus a stale-cursor probe on `filterOrAll` and
+a tied-order probe on `sortFindings`, both of which failed against the
+pre-fix code and pass post-fix. 10 end-to-end boundary-walk regression tests
+drive the real exported backend methods (23 items, page size 5, non-dividing
+count) for a representative sample: `ListAggregatorsV2`,
+`ListAutomationRulesV2`, `ListFindingAggregators`,
+`ListConfigurationPolicies`, `ListMembers`, `ListOrganizationAdminAccounts`,
+`ListConnectorsV2`, `ListConnectors`, `DescribeActionTargets`, `GetFindings`
+(no SortCriteria). `ListInvitations`, `ListConfigurationPolicyAssociations`,
+and `GetResourcesV2` got the identical, already-proven `.Snapshot()`/explicit-sort
+fix but no bespoke end-to-end test — lower priority given the pattern was
+independently verified nine other times in this same sweep; flagged here for
+anyone auditing this note.
+
+New tests: `services/securityhub/pagination_arithmetic_test.go` (internal,
+unexported-helper unit tests), `services/securityhub/pagination_arithmetic_e2e_test.go`
+(external, real-API boundary walks).
+
+Gates: `go build ./services/securityhub/...` (clean), `go vet
+./services/securityhub/...` (clean, no signature changes), `go test -race
+-count=1 ./services/securityhub/...` (pass). Work left uncommitted per this
+pass's instructions.
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s `decodeToken` used a bare
+`fmt.Sscanf(token, "%d", &offset)` with no bounds check at all; `paginateSlice`'s `start >=
+len(results)` guard does not catch a negative `start`, so `results[start:end]` panicked given
+`"-5"` as a NextToken, across all 15 call sites (`action_targets.go`, `aggregators_v2.go`,
+`connectors.go`, `finding_aggregators.go`, `configuration_policies.go` x2, `connectors_v2.go`,
+`automation_rules.go`, `findings.go`, `findings_v2.go`, `invitations.go`, `resources_v2.go`,
+`organizations.go`, `members.go`, `standards.go`). Fixed at the decode site: `decodeToken` now
+returns 0 for a negative offset, so all 15 callers inherit the fix. The existing
+`TestPaginateSlice_SevenChecks` table in `pagination_arithmetic_test.go` exercised stale/
+past-end/malformed-non-numeric tokens but never a negative one.
+
+Proof: the added `negative offset token` subtest of `TestPaginateSlice_SevenChecks`
+(`pagination_arithmetic_test.go`) confirmed panicking pre-fix, passes now. Gates: `go build
+./services/securityhub/...`, `go vet ./services/securityhub/...`, `go test -race -count=1
+./services/securityhub/...`, `golangci-lint run ./services/securityhub/...` (0 issues). Work
+left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-r3pr fabricated-error-code re-audit, no code change)**:
+`store.go:31`'s `errCodeInvalidInput` ("InvalidInput") re-checked against
+`cmd/errcodeaudit`. All three call sites (`standards.go:95,149`,
+`findings.go:458`) set it as a free-form `ErrorCode` map value inside a
+`Failures`/`UnprocessedFindings` array on an ordinary 200 response
+(`BatchEnableStandards`/`BatchDisableStandards`/`BatchUpdateFindings`), never
+as an HTTP error envelope's `__type` — same shape as the already-known
+false-positive class (glue/macie2/ce/xray free-form success-response
+`ErrorCode` fields), confirmed not a wire-error-envelope bug. Aside, not
+fixed here (out of scope for this class): the SDK doc comment on
+`BatchUpdateFindingsUnprocessedFinding.Code` (types.go) lists
+`FindingNotFound` as the specific documented value for the not-found case
+`findings.go:458` covers, which differs from the `InvalidInput` used there —
+a real inaccuracy, but a different bug class with no `errors.As` ground
+truth, deliberately not chased this pass per campaign scope.
+
+**2026-08-30 (gopherstack-uox6 value-semantics sweep, one bug fixed)**:
+Audited every finding filter/matcher in this service against its SDK doc
+comment (V1 `matchesFindingFilters`/`matchesStringFilter`/`compareStringFilter`
+in `findings.go`; V2's `matchesFindingFiltersV2`/`matchesCompositeFilter*`/
+`matchesOcsf*Filter` family in `findings_v2.go`; `filterOrAll` in `store.go`).
+
+**Bug found and fixed**: `matchesStringFilter` (`findings.go`) combined every
+entry of a field's `[]StringFilter` list with a strict AND. `types.StringFilter`'s
+doc comment (`securityhub@v1.75.4` types.go:19655) documents the opposite for
+same-field entries: CONTAINS/EQUALS/PREFIX are joined by OR ("a finding
+matches if it matches any one of those filters" — the doc's own worked
+example is `Title CONTAINS CloudFront OR Title CONTAINS CloudWatch`),
+NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS are joined by AND, and the two
+groups then combine by AND ("Security Hub CSPM first processes the PREFIX
+filters, and then the NOT_EQUALS ... filters" — the doc's second worked
+example, `ResourceType PREFIX AwsIam` + `PREFIX AwsEc2` +
+`NOT_EQUALS AwsIamPolicy` + `NOT_EQUALS AwsEc2NetworkInterface`). Under the
+old AND-everything code, either worked example returned zero results against
+a real matching finding: an under-match, invisible to any shape-based sweep
+since the field is read and the comparator values are legal enum members —
+only the combination across multiple entries was wrong. Affects `GetFindings`
+and, via the shared `matchesFindingFilters`, `BatchUpdateFindings`.
+No prior test passed a multi-entry filter on the same field (existing
+`TestBackend_MatchesStringFilter`/`TestGetFindings_FiltersApplied` cases all
+use exactly one `StringFilter` entry per field), so the bug was invisible to
+the existing suite — "a filter test passing a single value cannot see a
+multi-value bug."
+
+Fixed by splitting entries into positive/negative groups (`isNegativeStringComparison`)
+and combining `!hasPositive || positiveMatched` (OR over positives, defaulting
+to "no restriction" when there are none) AND'd with every negative entry
+passing. Both of the SDK doc's own worked examples now pass as tests.
+
+Also checked and confirmed correct: `matchesFindingFiltersV2`'s composite
+AND/OR (`CompositeOperator`) and `matchesCompositeFilterDepth`'s per-filter
+`Operator` (both against `types.OcsfFindingFilters`/`types.CompositeFilter`'s
+doc comments, matched field-for-field: `NestedCompositeFilters` three-layer
+structure, `AllowedOperators` AND/OR with no NOT combinator since negation is
+expressed at the leaf comparator); `matchesOcsfNumberFilter`'s
+Eq/Gt/Gte/Lt/Lte against `types.NumberFilter`; `matchesDateRange`'s
+WITHIN/OLDER_THAN against `types.DateRange` (default WITHIN); `compareMapFilter`'s
+EQUALS/NOT_EQUALS/CONTAINS/NOT_CONTAINS against `types.MapFilter`; `ipInCIDR`'s
+bare-address-normalizes-to-/32-or-/128 against `types.IpFilter`'s documented
+"CIDR block or IP address" acceptance; `matchesWholeWord`'s word-boundary
+regex for `CONTAINS_WORD` (documented V2-only); the lifecycle-rule-style AND
+combination across *different* filter fields in both V1 and V2 (correct in
+both — the bug was specifically the same-field, multi-entry case).
+
+One gap recorded, not fixed: whether `OcsfMapFilter`'s same-field
+CONTAINS/EQUALS-OR / NOT_CONTAINS/NOT_EQUALS-AND rule (documented on the
+shared `MapFilter` type) still applies underneath a `CompositeFilter`'s
+explicit `Operator`, or is superseded by it, is not stated by either doc
+comment — left open rather than guessed (see gaps).
+
+`GetResourcesV2`'s `filters` parameter (`resources_v2.go`) is read nowhere
+(`//nolint:revive // existing issue` already marks it) and `GetInsightResults`
+never evaluates `insight.Filters` at all (documented in-code: "no real
+aggregation in mock") — both are pre-existing, already-flagged completeness
+gaps (an unread field, not a wrong algorithm on a read one), not new findings
+of this class, so left as-is.
+
+No AWS web pages were fetched this pass — every comparator/operator set
+needed was fully specified in the pinned SDK's Go doc comments
+(`securityhub@v1.75.4`), unlike the SNS/EventBridge instances of this bug
+class from the prior pass.
+
+Tests: added `TestGetFindings_MultiValueSameFieldCombination` (2 subtests,
+`findings_test.go`) driving the real filter shape through the HTTP handler
+end to end and asserting the exact ID set returned (not just a count), using
+the SDK doc's own two worked examples. Both subtests confirmed failing
+(0 results each) against the unmodified `matchesStringFilter` before the fix,
+passing after. No existing test was weakened; assertion count increased by 2
+new subtests, 0 removed.
+
+Gates: `go build ./services/securityhub/...`, `go vet ./services/securityhub/...`,
+`go test -race -count=1 ./services/securityhub/...`, `golangci-lint run
+./services/securityhub/...`. Work left uncommitted per this pass's
+instructions.

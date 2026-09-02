@@ -51,6 +51,14 @@ const (
 	// maxAttacksPerPage is the upper bound for ListAttacks pagination.
 	maxAttacksPerPage = 10000
 
+	// defaultListPageSize is the documented default page size ("The default
+	// setting is 20.") shared by ListProtections, ListProtectionGroups,
+	// ListAttacks, and ListResourcesInProtectionGroup's MaxResults doc
+	// comments (api_op_List*.go, shield@v1.37.4) when the caller omits
+	// MaxResults. It is unrelated to the handler's own internal page-size
+	// caps above, which bound an explicitly supplied MaxResults instead.
+	defaultListPageSize = 20
+
 	// subscriptionMaxProtections is the Shield Advanced limit for total protections.
 	subscriptionMaxProtections = 1000
 	// subscriptionMaxProtectionsPerType is the per-resource-type protection limit.
@@ -457,9 +465,15 @@ func encodeOffsetToken(offset int) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
-// clampMaxResults clamps maxResults to [1, maxCap].
+// clampMaxResults returns the documented default page size (see
+// defaultListPageSize) when v is omitted (<= 0, MaxResults's Go zero value),
+// and otherwise clamps v to maxCap.
 func clampMaxResults(v, maxCap int) int {
-	if v <= 0 || v > maxCap {
+	if v <= 0 {
+		return defaultListPageSize
+	}
+
+	if v > maxCap {
 		return maxCap
 	}
 

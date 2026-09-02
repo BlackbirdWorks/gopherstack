@@ -2,8 +2,9 @@
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
 last_audit_commit: a8a59e42   # HEAD when this audit started (wrapper-key sweep, 2026-08-20)
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # clean pass this sweep -- no wire bugs found; see notes
+                      # 2026-08-29 (request-direction sweep): checked every List/Describe/Get op's REQUEST side (filter/sort/time-range/pagination/precondition members from the real Input struct), not just response shape -- a prior "wire: ok" here had only ever been verified response-side. FOUND AND FIXED one real dropped-filter bug: ListGroupingStatuses' Filters member (real ListGroupingStatusesFilterName values "status"/"resource-arn") had no field at all on gopherstack's listGroupingStatusesInput wire struct, so json.Unmarshal silently discarded it and every real client's Filters was a no-op. Fixed via a new ListGroupingStatusesFilter type threaded through StorageBackend.ListGroupingStatuses (interfaces.go/resources.go/handler_resources.go) and proven by Test_ListGroupingStatuses_FiltersRoundTrip (list_grouping_statuses_filters_test.go), which drives the real typed aws-sdk-go-v2/service/resourcegroups client and includes a non-matching (FAILED-status / other-ARN) record the filter must EXCLUDE. Every other List/Describe/Get op's filter/pagination members (ListGroups.Filters, ListGroupResources.Filters, ListTagSyncTasks.Filters, SearchResources's ResourceQuery.Query ResourceTypeFilters) were re-checked and confirmed already correctly read and applied -- see gaps: for the one already-disclosed, structurally-blocked exception (SearchResources' TagFilters, which needs a cross-service tag registry this backend does not have; left as previously documented, not fabricated).
 ops:
   CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed; now accepts Owner/DisplayName/Criticality at creation time via CreateGroupOption; Criticality range corrected to 1-10"}
   GetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag"}
@@ -17,7 +18,7 @@ ops:
   GroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects a group with a ResourceQuery (BadRequestException) instead of silently accepting membership writes on a query-based group -- see 'Real bugs fixed this sweep'"}
   UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same ResourceQuery-group rejection as GroupResources"}
   ListGroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: deprecated ResourceIdentifiers field now populated identically to Resources; QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
-  ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string"}
+  ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string. FIXED 2026-08-29 (request direction): Filters (Name: status/resource-arn) had no field on the wire input struct at all -- silently dropped by json.Unmarshal, every real client's Filters was a no-op. Now a real ListGroupingStatusesFilter, threaded through StorageBackend.ListGroupingStatuses and applied by groupingStatusMatchesFilters (resources.go) before pagination."}
   SearchResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok}
   Tag: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -305,3 +306,53 @@ trusted at face value. Separately, this file's own prose (the route-matcher para
 above) cited SDK version v1.33.22 while the YAML header already said v1.36.4 -- a real,
 if harmless, drift between the two; corrected in place this sweep. `last_audit_commit`
 above is now set to this sweep's actual starting HEAD (`a8a59e42`).
+
+**Per-item-failure sweep (this pass):** re-checked `GroupResources`/`UngroupResources`
+(`Failed []types.FailedResource`) and `ListGroupResources`/`SearchResources`
+(`QueryErrors []types.QueryError`). `GroupResources`/`UngroupResources.Failed` are
+correctly populated (handler-level `INVALID_ARN` for a malformed ARN, backend-level
+`RESOURCE_NOT_FOUND` for an ARN not currently a group member) while the rest of the
+batch still succeeds. `QueryErrors` on both list/search ops remains genuinely
+unreachable in this backend and is already tracked as such (see `gaps:` above,
+`bd: gopherstack-rg-cfn-queryerrors`) -- confirmed the reasoning still holds and left
+alone, consistent with this sweep's scope boundary against touching
+`services/cloudformation`.
+
+### 2026-08-30 value-semantics pass (gopherstack-uox6, bug class: field read/applied but wrong)
+
+Scope: filter *matching* semantics (not shape) for `ListGroups.Filters`,
+`ListGroupResources.Filters`, and `ListGroupingStatuses.Filters` -- part of a
+3-service pass (guardduty, resourcegroups, ce). Checked against
+`aws-sdk-go-v2/service/resourcegroups@v1.36.4/types` directly (`GroupFilter`/
+`GroupFilterName`, `ResourceFilter`/`ResourceFilterName`,
+`ListGroupingStatusesFilter`/`ListGroupingStatusesFilterName`).
+
+**Confirmed correct, no bug found:**
+- `groupMatchesFilters` (`groups.go`) exhaustively switches on all 5 real
+  `GroupFilterName` values (`resource-type`, `configuration-type`, `owner`,
+  `display-name`, `criticality`) -- no gap, no default fallthrough needed since every
+  enum member is handled. AND across filter entries, OR within one entry's `Values`,
+  matching the `Name`/`Values` filter contract every one of these three filter types
+  documents identically ("One or more filter values ... Filter names are case-sensitive
+  ... filter values ... are case-sensitive"). String comparisons throughout are plain
+  `==`/`slices.Contains` (case-sensitive), matching that documented case-sensitivity --
+  no `EqualFold` leniency introduced anywhere in these three matchers.
+- `ListGroupResourcesFilter`'s only real `ResourceFilterName` value is `resource-type`
+  (confirmed: `types.ResourceFilterName.Values()` returns exactly one member) --
+  `resources.go`'s `ListGroupResources` only recognizes that one name, correctly
+  matching the enum's full extent.
+- `groupingStatusMatchesFilters` (`resources.go`, added in the prior 2026-08-29
+  sweep noted above) exhaustively switches on both real `ListGroupingStatusesFilterName`
+  values (`status`, `resource-arn`); AND-across-entries/OR-within-values re-verified
+  against the same `GroupFilter`-family doc text.
+- No range/bound/time-window filter exists anywhere in this service's filter surface --
+  every filter here is a plain string-equality allow-list, so the boundary-inclusivity
+  check this pass prioritizes does not apply to `resourcegroups`.
+
+No web pages fetched this pass -- everything resolved from the pinned SDK's Go doc
+comments and `types/enums.go`.
+
+No bugs found; no files changed. The one pre-existing, already-disclosed gap in this
+area (`TAG_FILTERS_1_0`'s `TagFilters` parsed but never applied to narrow membership --
+see `gaps:` above) is a field-never-read gap, not a wrong-algorithm one, so it is
+outside this pass's class and was re-confirmed rather than touched.

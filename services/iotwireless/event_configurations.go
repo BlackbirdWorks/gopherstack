@@ -3,7 +3,6 @@ package iotwireless
 import (
 	"cmp"
 	"slices"
-	"strings"
 )
 
 // GetEventConfigurationByResourceTypes returns the account-wide default event
@@ -63,10 +62,33 @@ func (b *InMemoryBackend) UpdateResourceEventConfiguration(
 	})
 }
 
+// eventResourceTypeIdentifierTypes maps ListEventConfigurationsInput's
+// ResourceType enum (enums.go: EventNotificationResourceType --
+// SidewalkAccount|WirelessDevice|WirelessGateway) to the IdentifierType
+// values (enums.go: IdentifierType) that identify a resource of that type.
+// A wireless device may be identified by its WirelessDeviceId or, for
+// LoRaWAN devices, its DevEui; a wireless gateway likewise by
+// WirelessGatewayId or GatewayEui; a Sidewalk account only by
+// PartnerAccountId (EventNotificationPartnerType has exactly one legal
+// value, "Sidewalk", so PartnerAccountId is unambiguous). These are NOT the
+// same enum and do not share a common prefix -- a string-prefix match
+// against IdentifierType silently excludes DevEui/GatewayEui entirely and
+// never matches SidewalkAccount at all.
+func eventResourceTypeIdentifierTypes(resourceType string) []string {
+	switch resourceType {
+	case "WirelessDevice":
+		return []string{"WirelessDeviceId", "DevEui"}
+	case "WirelessGateway":
+		return []string{"WirelessGatewayId", "GatewayEui"}
+	case "SidewalkAccount":
+		return []string{"PartnerAccountId"}
+	default:
+		return nil
+	}
+}
+
 // ListEventConfigurations returns all stored per-resource event
-// configurations, optionally filtered by resource type (matched as a prefix
-// against the stored IdentifierType, e.g. "WirelessDevice" matches
-// "WirelessDeviceId").
+// configurations, optionally filtered by resource type.
 func (b *InMemoryBackend) ListEventConfigurations(resourceType string) []*ResourceEventConfigEntry {
 	b.mu.RLock("ListEventConfigurations")
 	defer b.mu.RUnlock()
@@ -75,7 +97,7 @@ func (b *InMemoryBackend) ListEventConfigurations(resourceType string) []*Resour
 	result := make([]*ResourceEventConfigEntry, 0, len(all))
 
 	for _, e := range all {
-		if resourceType != "" && !strings.HasPrefix(e.IdentifierType, resourceType) {
+		if resourceType != "" && !slices.Contains(eventResourceTypeIdentifierTypes(resourceType), e.IdentifierType) {
 			continue
 		}
 

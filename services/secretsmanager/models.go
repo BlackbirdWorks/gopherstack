@@ -281,13 +281,13 @@ type DescribeSecretOutput struct {
 
 // UpdateSecretInput is the request payload for UpdateSecret.
 type UpdateSecretInput struct {
-	SecretID           string `json:"SecretId"`
-	Description        string `json:"Description,omitempty"`
-	KmsKeyID           string `json:"KmsKeyId,omitempty"`
-	SecretString       string `json:"SecretString,omitempty"`
-	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
-	Type               string `json:"Type,omitempty"`
-	SecretBinary       []byte `json:"SecretBinary,omitempty"`
+	KmsKeyID           *string `json:"KmsKeyId,omitempty"`
+	SecretID           string  `json:"SecretId"`
+	Description        string  `json:"Description,omitempty"`
+	SecretString       string  `json:"SecretString,omitempty"`
+	ClientRequestToken string  `json:"ClientRequestToken,omitempty"`
+	Type               string  `json:"Type,omitempty"`
+	SecretBinary       []byte  `json:"SecretBinary,omitempty"`
 }
 
 // UpdateSecretOutput is the response payload for UpdateSecret.

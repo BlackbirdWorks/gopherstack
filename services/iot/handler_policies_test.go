@@ -182,7 +182,7 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 		t.Parallel()
 
 		rec := doRefRequest(t, h, http.MethodGet, "/principal-policies?pageSize=1", nil,
-			map[string]string{"X-Amzn-Principal": principal})
+			map[string]string{"X-Amzn-Iot-Principal": principal})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any

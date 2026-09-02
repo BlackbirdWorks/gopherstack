@@ -133,7 +133,7 @@ func TestInMemoryBackend_ELBv2Registrar_NoRegistrar_NoEffect(t *testing.T) {
 func mustFirstInstanceID(t *testing.T, b *autoscaling.InMemoryBackend, groupName string) string {
 	t.Helper()
 
-	groups, err := b.DescribeAutoScalingGroups([]string{groupName})
+	groups, err := b.DescribeAutoScalingGroups([]string{groupName}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, groups)
 	require.NotEmpty(t, groups[0].Instances)
@@ -263,7 +263,7 @@ func TestInMemoryBackend_ELBv2Registrar_RegisterErrorDoesNotFailCall(t *testing.
 	// operation or leave the group instance list inconsistent.
 	newTGGroup(t, b, "asg-reg-err", 2)
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"asg-reg-err"})
+	groups, err := b.DescribeAutoScalingGroups([]string{"asg-reg-err"}, nil)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Len(t, groups[0].Instances, 2)

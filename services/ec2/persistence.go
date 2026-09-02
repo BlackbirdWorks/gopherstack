@@ -16,7 +16,7 @@ import (
 // Restore compares this against the persisted value and discards (rather
 // than attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/sqs pilot (commit 0f09d77c).
-const ec2SnapshotVersion = 1
+const ec2SnapshotVersion = 2
 
 // snapTGWRTProp is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapTGWRTProp = TransitGatewayRouteTablePropagation
@@ -31,6 +31,7 @@ type backendSnapshot struct {
 	IpamPrefixListResolverVersions map[string][]int64                          `json:"ipamPLRVersions,omitempty"`
 	VpcCidrAssociations            map[string]*VpcCidrBlockAssociation         `json:"vpcCidrAssociations"`
 	SpotFleetHistory               map[string][]SpotFleetHistoryRecord         `json:"spotFleetHistory"`
+	FleetHistory                   map[string][]FleetHistoryRecord             `json:"fleetHistory,omitempty"`
 	SnapshotTiers                  map[string]string                           `json:"snapshotTiers,omitempty"`
 	VpcPeeringOptions              map[string]*PeeringConnectionOptions        `json:"vpcPeeringOptions"`
 	SubnetCIDRAssociations         map[string][]*SubnetCIDRAssociation         `json:"subnetCIDRAssociations"`
@@ -49,7 +50,7 @@ type backendSnapshot struct {
 	ImageAttributes                map[string]map[string]string                `json:"imageAttributes"`
 	VgwRoutePropagation            map[string]bool                             `json:"vgwRoutePropagation"`
 	TgwRTPropagations              map[string]map[string]*snapTGWRTProp        `json:"tgwRTPropagations,omitempty"`
-	FastLaunchImages               map[string]bool                             `json:"fastLaunchImages"`
+	FastLaunchImages               map[string]*FastLaunchImageItem             `json:"fastLaunchImages"`
 	FastSnapshotRestores           map[string]bool                             `json:"fastSnapshotRestores"`
 	SpotDatafeed                   *SpotDatafeed                               `json:"spotDatafeed,omitempty"`
 	VpcTenancy                     map[string]string                           `json:"vpcTenancy,omitempty"`
@@ -116,6 +117,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextElasticIPIndex:             b.nextElasticIPIndex,
 		VpcCidrAssociations:            b.vpcCidrAssociations,
 		SpotFleetHistory:               b.spotFleetHistory,
+		FleetHistory:                   b.fleetHistory,
 		SnapshotTiers:                  b.snapshotTiers,
 		SnapshotAttributes:             b.snapshotAttributes,
 		SgVpcAssociations:              b.sgVpcAssociations,
@@ -239,6 +241,7 @@ func restoreMapField[K comparable, V any](dst *map[K]V, src map[K]V) {
 func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.vpcCidrAssociations, snap.VpcCidrAssociations)
 	restoreMapField(&b.spotFleetHistory, snap.SpotFleetHistory)
+	restoreMapField(&b.fleetHistory, snap.FleetHistory)
 	restoreMapField(&b.snapshotTiers, snap.SnapshotTiers)
 	restoreMapField(&b.snapshotAttributes, snap.SnapshotAttributes)
 	restoreMapField(&b.sgVpcAssociations, snap.SgVpcAssociations)

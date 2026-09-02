@@ -28,14 +28,27 @@ func encodePageToken(offset int) string {
 	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
-// decodePageToken decodes an opaque base64 page token back to an integer offset.
+// decodePageToken decodes an opaque base64 page token back to an integer
+// offset. A token decoding to a negative offset is rejected like any other
+// malformed token: every caller only clamps start against the upper bound
+// (`if start > len(all) { start = len(all) }`) before slicing all[start:end],
+// so a negative offset would otherwise reach the slice and panic.
 func decodePageToken(tok string) (int, error) {
 	b, err := base64.StdEncoding.DecodeString(tok)
 	if err != nil {
 		return 0, err
 	}
 
-	return strconv.Atoi(string(b))
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return 0, err
+	}
+
+	if n < 0 {
+		return 0, ErrValidation
+	}
+
+	return n, nil
 }
 
 const (

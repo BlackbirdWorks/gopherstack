@@ -612,6 +612,38 @@ func TestListClustersPagination(t *testing.T) {
 	}
 }
 
+// TestListClusters_NegativeOffsetToken verifies that a nextToken decoding to
+// a negative offset does not reach all[offset:] and panic. decodeKafkaPageToken
+// json-decodes {"o":<int>}; eyJvIjotNX0 is base64url for `{"o":-5}`, and the
+// call site only clamps the upper bound via min(offset, len(all)), so a
+// negative offset previously reached the slice unguarded.
+func TestListClusters_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	const negativeToken = "eyJvIjotNX0"
+
+	h, b := newTestHandlerWithBackend(t)
+	b.AddClusterInternal("cluster-00", "3.6.0")
+
+	path := "/v1/clusters?nextToken=" + negativeToken
+
+	var rec *httptest.ResponseRecorder
+
+	require.NotPanics(t, func() {
+		rec = doKafkaRequest(t, h, http.MethodGet, path, nil)
+	})
+
+	require.NotNil(t, rec)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	list, ok := resp["clusterInfoList"].([]any)
+	require.True(t, ok, "clusterInfoList must be an array")
+	assert.Len(t, list, 1, "a negative-offset token must be treated like an invalid/empty token, not shift the page")
+}
+
 // ----------------------------------------
 // Pagination: ListClustersV2
 // ----------------------------------------

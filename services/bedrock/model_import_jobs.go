@@ -73,25 +73,71 @@ func (b *InMemoryBackend) GetModelImportJob(jobARN string) (*ModelImportJob, err
 	return &cp, nil
 }
 
-// ListModelImportJobs returns all model import jobs sorted by creation time.
-func (b *InMemoryBackend) ListModelImportJobs() []*ModelImportJob {
+// ListModelImportJobs returns model import jobs matching in's filters,
+// sorted and paginated. in may be nil, matching an unfiltered call.
+// Structurally similar to ListModelCopyJobs/ListCustomModelDeployments/
+// ListProvisionedModelThroughputs (same filter/sort/paginate shape) but over
+// a distinct resource type and filter set; see matchesModelImportJobFilter.
+//
+//nolint:dupl // see doc comment above.
+func (b *InMemoryBackend) ListModelImportJobs(in *ListModelImportJobsInput) ([]*ModelImportJob, string) {
 	b.mu.RLock("ListModelImportJobs")
 	defer b.mu.RUnlock()
 
 	list := make([]*ModelImportJob, 0, b.modelImportJobs.Len())
 
 	for _, j := range b.modelImportJobs.All() {
+		if !matchesModelImportJobFilter(j, in) {
+			continue
+		}
+
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
 	}
 
-	sort.Slice(
-		list,
-		func(i, k int) bool { return list[i].CreationTime.Before(list[k].CreationTime) },
-	)
+	descending := in != nil && in.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, k int) bool {
+		if !list[i].CreationTime.Equal(list[k].CreationTime) {
+			if descending {
+				return list[i].CreationTime.After(list[k].CreationTime)
+			}
 
-	return list
+			return list[i].CreationTime.Before(list[k].CreationTime)
+		}
+
+		return list[i].JobArn < list[k].JobArn
+	})
+
+	if in == nil {
+		list, _ = paginate(list, 0, "")
+
+		return list, ""
+	}
+
+	return paginate(list, int(in.MaxResults), in.NextToken)
+}
+
+// matchesModelImportJobFilter reports whether a model import job satisfies
+// the list filters (statusEquals, nameContains, creationTimeAfter/Before).
+func matchesModelImportJobFilter(j *ModelImportJob, in *ListModelImportJobsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !j.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !j.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // GetImportedModel returns the import job whose importedModelArn matches.
@@ -144,7 +190,11 @@ func (b *InMemoryBackend) ListImportedModels(
 	}
 
 	sort.Slice(models, func(i, k int) bool {
-		return models[i].CreationTime.Before(models[k].CreationTime)
+		if !models[i].CreationTime.Equal(models[k].CreationTime) {
+			return models[i].CreationTime.Before(models[k].CreationTime)
+		}
+
+		return models[i].ImportedModelArn < models[k].ImportedModelArn
 	})
 
 	return paginateBedrockSlice(models, nextToken)

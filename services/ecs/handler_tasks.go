@@ -181,7 +181,7 @@ func (h *Handler) handleStartTask(
 	_ context.Context,
 	in *startTaskInput,
 ) (*startTaskOutput, error) {
-	tasks, err := h.Backend.StartTask(StartTaskInput{
+	tasks, failures, err := h.Backend.StartTask(StartTaskInput{
 		Cluster:            in.Cluster,
 		TaskDefinition:     in.TaskDefinition,
 		ContainerInstances: in.ContainerInstances,
@@ -197,7 +197,12 @@ func (h *Handler) handleStartTask(
 		views = append(views, toTaskView(t))
 	}
 
-	return &startTaskOutput{Tasks: views, Failures: []failureView{}}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &startTaskOutput{Tasks: views, Failures: failViews}, nil
 }
 
 // ----- Handler: GetTaskProtection -----

@@ -19,6 +19,13 @@ const (
 	keyThemeType           = "Type"
 	keyBaseThemeID         = "BaseThemeId"
 	keyConfiguration       = "Configuration"
+
+	// queryParamThemeType is ListThemesInput.Type's wire binding (lowercase
+	// "type" query parameter, confirmed against
+	// awsRestjson1_serializeOpHttpBindingsListThemesInput in
+	// quicksight@v1.123.1's serializers.go -- unrelated to keyThemeType
+	// above, which is the PascalCase response field name).
+	queryParamThemeType = "type"
 )
 
 func isThemeOp(op string) bool {
@@ -179,7 +186,9 @@ func (h *Handler) handleListThemes(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	themes, next, err := h.Backend.ListThemes(accountID, maxResultsParam(c), nextTokenParam(c))
+	themes, next, err := h.Backend.ListThemes(
+		accountID, queryParam(c, queryParamThemeType), maxResultsParam(c), nextTokenParam(c),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}

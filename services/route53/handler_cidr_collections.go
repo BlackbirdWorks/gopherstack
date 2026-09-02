@@ -3,6 +3,7 @@ package route53
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -50,12 +51,14 @@ type xmlChangeCidrCollectionRequest struct {
 	Changes []xmlCidrChangeEntry `xml:"Changes>member"`
 }
 
+// xmlListCidrCollectionsResponse mirrors ListCidrCollectionsOutput
+// (route53@v1.65.6 api_op_ListCidrCollections.go): NextToken is the only
+// continuation member; the real op has no IsTruncated field at all.
 type xmlListCidrCollectionsResponse struct {
 	XMLName         xml.Name                   `xml:"ListCidrCollectionsResponse"`
 	Xmlns           string                     `xml:"xmlns,attr"`
 	NextToken       string                     `xml:"NextToken,omitempty"`
 	CidrCollections []xmlCidrCollectionSummary `xml:"CidrCollections>member"`
-	IsTruncated     bool                       `xml:"IsTruncated"`
 }
 
 type xmlCidrCollectionSummary struct {
@@ -187,16 +190,24 @@ func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
 
 func (h *Handler) listCidrCollections(c *echo.Context) error {
 	ctx := c.Request().Context()
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nexttoken")
+	maxResults := route53DefaultMaxItems
+	if v := q.Get("maxresults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
 
-	collections, err := h.Backend.ListCidrCollections()
+	p, err := h.Backend.ListCidrCollections(nextToken, maxResults)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "Route53 ListCidrCollections", "count", len(collections))
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListCidrCollections", "count", len(p.Data))
 
-	summaries := make([]xmlCidrCollectionSummary, 0, len(collections))
-	for _, col := range collections {
+	summaries := make([]xmlCidrCollectionSummary, 0, len(p.Data))
+	for _, col := range p.Data {
 		summaries = append(summaries, xmlCidrCollectionSummary{
 			ARN:     col.ARN,
 			ID:      col.ID,
@@ -208,7 +219,7 @@ func (h *Handler) listCidrCollections(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, xmlListCidrCollectionsResponse{
 		Xmlns:           route53Namespace,
 		CidrCollections: summaries,
-		IsTruncated:     false,
+		NextToken:       p.Next,
 	})
 }
 
@@ -237,33 +248,44 @@ type xmlCidrBlockSummary struct {
 	LocationName string `xml:"LocationName"`
 }
 
+// listCidrBlocksResponse mirrors ListCidrBlocksOutput (route53@v1.65.6
+// api_op_ListCidrBlocks.go): NextToken is the only continuation member; the
+// real op has no IsTruncated field at all.
 type listCidrBlocksResponse struct {
-	XMLName     xml.Name              `xml:"ListCidrBlocksResponse"`
-	Xmlns       string                `xml:"xmlns,attr"`
-	CidrBlocks  []xmlCidrBlockSummary `xml:"CidrBlocks>member"`
-	IsTruncated bool                  `xml:"IsTruncated"`
+	XMLName    xml.Name              `xml:"ListCidrBlocksResponse"`
+	Xmlns      string                `xml:"xmlns,attr"`
+	NextToken  string                `xml:"NextToken,omitempty"`
+	CidrBlocks []xmlCidrBlockSummary `xml:"CidrBlocks>member"`
 }
 
 func (h *Handler) listCidrBlocks(c *echo.Context, path string) error {
 	// path: /2013-04-01/cidrcollection/{id}/cidrblocks[?location=...]
 	trimmed := strings.TrimPrefix(path, route53CidrCollectionPrefix)
 	collectionID, _, _ := strings.Cut(trimmed, "/")
-	locationName := c.Request().URL.Query().Get("location")
+	q := c.Request().URL.Query()
+	locationName := q.Get("location")
+	nextToken := q.Get("nexttoken")
+	maxResults := route53DefaultMaxItems
+	if v := q.Get("maxresults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
 
-	blocks, err := h.Backend.ListCidrBlocks(collectionID, locationName)
+	p, err := h.Backend.ListCidrBlocks(collectionID, locationName, nextToken, maxResults)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	summaries := make([]xmlCidrBlockSummary, 0, len(blocks))
-	for _, b := range blocks {
+	summaries := make([]xmlCidrBlockSummary, 0, len(p.Data))
+	for _, b := range p.Data {
 		summaries = append(summaries, xmlCidrBlockSummary{CidrBlock: b, LocationName: locationName})
 	}
 
 	return writeXML(c, http.StatusOK, listCidrBlocksResponse{
-		Xmlns:       route53Namespace,
-		CidrBlocks:  summaries,
-		IsTruncated: false,
+		Xmlns:      route53Namespace,
+		CidrBlocks: summaries,
+		NextToken:  p.Next,
 	})
 }
 
@@ -274,31 +296,42 @@ type xmlCidrLocationSummary struct {
 	LocationName string `xml:"LocationName"`
 }
 
+// listCidrLocationsResponse mirrors ListCidrLocationsOutput (route53@v1.65.6
+// api_op_ListCidrLocations.go): NextToken is the only continuation member;
+// the real op has no IsTruncated field at all.
 type listCidrLocationsResponse struct {
 	XMLName       xml.Name                 `xml:"ListCidrLocationsResponse"`
 	Xmlns         string                   `xml:"xmlns,attr"`
+	NextToken     string                   `xml:"NextToken,omitempty"`
 	CidrLocations []xmlCidrLocationSummary `xml:"CidrLocations>member"`
-	IsTruncated   bool                     `xml:"IsTruncated"`
 }
 
 func (h *Handler) listCidrLocations(c *echo.Context, path string) error {
 	// path: /2013-04-01/cidrcollection/{id}[/cidrlocations]
 	trimmed := strings.TrimPrefix(path, route53CidrCollectionPrefix)
 	collectionID, _, _ := strings.Cut(trimmed, "/")
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nexttoken")
+	maxResults := route53DefaultMaxItems
+	if v := q.Get("maxresults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
 
-	locations, err := h.Backend.ListCidrLocations(collectionID)
+	p, err := h.Backend.ListCidrLocations(collectionID, nextToken, maxResults)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	summaries := make([]xmlCidrLocationSummary, 0, len(locations))
-	for _, l := range locations {
+	summaries := make([]xmlCidrLocationSummary, 0, len(p.Data))
+	for _, l := range p.Data {
 		summaries = append(summaries, xmlCidrLocationSummary{LocationName: l})
 	}
 
 	return writeXML(c, http.StatusOK, listCidrLocationsResponse{
 		Xmlns:         route53Namespace,
 		CidrLocations: summaries,
-		IsTruncated:   false,
+		NextToken:     p.Next,
 	})
 }

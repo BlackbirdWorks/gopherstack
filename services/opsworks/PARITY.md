@@ -5,6 +5,17 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cach
                                                        # module source directly, not via import.
 last_audit_commit: 5f0e2722b
 last_audit_date: 2026-08-15
+# gopherstack-6flj/21my re-sweep (2026-08-29): spot-checked filter/sort-drop risk
+# on the ops most exposed to it (DescribeCommands' CommandIds/DeploymentId/
+# InstanceId, DescribeDeployments' DeploymentIds/AppId/StackId,
+# DescribeLoadBasedAutoScaling's LayerIds, DescribeTimeBasedAutoScaling's
+# InstanceIds -- all confirmed honoring the FULL filter list, not truncated to
+# the first element the way the already-fixed DescribeElasticLoadBalancers
+# LayerIds bug was) plus a fresh member-count re-verification of Command (10 of
+# 10 SDK deserializer cases) and StackSummary (6 of 6). No new bug found this
+# pass -- see Notes for what was and wasn't re-checked; this was a targeted
+# spot-check against the prior 4 passes' exhaustive per-item field-diff, not a
+# from-scratch re-audit of all 74 ops.
 overall: B            # re-audited live (gopherstack-vjj2) after the 2026-06-03..2026-08-08
                        # unreachability window closed; 2 more real bugs found+fixed via live
                        # HTTP requests, but there is still no SDK-driven test/integration/
@@ -53,10 +64,10 @@ families:
   ElasticIp: {status: ok, note: "Register/Deregister/Associate/Disassociate/Describe/Update all real. FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): RegisterElasticIpInput's real, required StackId member was entirely unmodeled -- the handler instead read a fabricated 'Region' field that does not exist on the real input at all, and an empty/missing StackId was never rejected (200 instead of the real API's required-member ValidationException). Now validates StackId is present (and that the referenced stack exists) and threads it through to DescribeElasticIps' real StackId filter member, which was also previously discarded. StackId is kept as an internal-only field (storedElasticIP/ElasticIP.StackID) and deliberately never serialized on the wire -- the real types.ElasticIp has no StackId member."}
   Volume: {status: ok, note: "Register/Deregister/Assign/Unassign/Describe/Update all real. DescribeVolumes now also filters by StackId (real DescribeVolumesInput supports it; this backend previously silently dropped the parameter). Wire no longer emits invented 'StackId' field (real types.Volume has none). AssignVolume now verifies the instance belongs to the same stack the volume was registered with. RegisterVolume now validates the required StackId member (gopherstack-4uhx). AssignVolume's own required VolumeId member is now pre-validated for emptiness too (FIXED 2026-08-23, batch14) -- an empty VolumeId now returns ValidationException instead of falling through to ResourceNotFoundException."}
   RdsDbInstance: {status: ok, note: "Register/Deregister/Describe/Update all real. RegisterRdsDbInstance now validates all 4 required members (StackId/RdsDbInstanceArn/DbUser/DbPassword) and the wire now echoes DbPassword back as the literal '*****FILTERED*****' AWS always returns (gopherstack-4uhx). Engine and MissingOnRds remain unmodeled -- see gaps, this is structural (would need cross-service wiring to the rds backend, out of this package's scope)."}
-  EcsCluster: {status: ok, note: "Register/Deregister/Describe all real. FIXED 2026-08-08: DescribeEcsClusters wire emitted an invented 'Status' field -- real types.EcsCluster (SDK v1.31.0) has no such member, only EcsClusterArn/EcsClusterName/StackId/RegisteredAt. Removed from the wire; internal storedEcsCluster.Status kept for bookkeeping only. RegisterEcsCluster now also validates the required StackId member (gopherstack-4uhx), alongside the already-validated EcsClusterArn."}
+  EcsCluster: {status: fixed, note: "Register/Deregister/Describe all real. FIXED 2026-08-08: DescribeEcsClusters wire emitted an invented 'Status' field -- real types.EcsCluster (SDK v1.31.0) has no such member, only EcsClusterArn/EcsClusterName/StackId/RegisteredAt. Removed from the wire; internal storedEcsCluster.Status kept for bookkeeping only. RegisterEcsCluster now also validates the required StackId member (gopherstack-4uhx), alongside the already-validated EcsClusterArn. FIXED 2026-08-30: unfiltered DescribeEcsClusters paginated over unsorted Go map order, dropping/duplicating clusters across a page walk -- now sorted by EcsClusterArn before pagination (see ops family note above)."}
   Permission: {status: ok, note: "SetPermission/DescribePermissions real, composite-keyed by stackID+iamUserArn. SetPermission now validates both required members (StackId/IamUserArn) -- previously accepted an empty IamUserArn with no error at all, and an empty StackId fell through to ResourceNotFoundException instead of ValidationException. Level is now also restricted to the API's documented closed set (deny/show/deploy/manage/iam_only) -- previously accepted any string (gopherstack-4uhx)."}
   AutoScaling: {status: ok, note: "SetTimeBasedAutoScaling/DescribeTimeBasedAutoScaling/SetLoadBasedAutoScaling/DescribeLoadBasedAutoScaling all real"}
-  Misc: {status: ok, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeAgentVersions(static list)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations. DescribeStackProvisioningParameters FIXED 2026-08-15 (gopherstack-6flj): the real, dedicated top-level AgentInstallerUrl member was also being duplicated under a fabricated 'AgentInstallerUrl' key inside the free-form Parameters map, which no real response ever carries -- Parameters is now returned empty (honest: this backend tracks none of AWS's real internal agent-bootstrap keys) rather than containing an invented one."}
+  Misc: {status: fixed, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations. DescribeStackProvisioningParameters FIXED 2026-08-15 (gopherstack-6flj): the real, dedicated top-level AgentInstallerUrl member was also being duplicated under a fabricated 'AgentInstallerUrl' key inside the free-form Parameters map, which no real response ever carries -- Parameters is now returned empty (honest: this backend tracks none of AWS's real internal agent-bootstrap keys) rather than containing an invented one. FIXED 2026-08-30: DescribeAgentVersions's static list is real AWS behavior, but its ConfigurationManager filter was dropped entirely -- see ops family note above."}
 gaps:                     # divergences from the real API, not fixed this pass
   - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
   - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
@@ -537,3 +548,82 @@ Gates: `go build ./...`, `go vet ./services/opsworks/...`, `gofmt -l` clean;
 ./services/opsworks/...` 0 issues after fixing (govet shadow, tparallel,
 golines, unparam; SA1019 exempted per above). No
 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints added.
+
+## 2026-08-29 pass: campaign class audit (constraining parameter never honoured)
+
+Measured 23 Describe/List/Get operations against the pinned SDK
+(opsworks@v1.31.0). Unlike most services in this campaign, opsworks
+constrains by ID-list ("only describe these AppIds/InstanceIds/...") rather
+than a `Filters` array, and every ID-list parameter across all 23 ops was
+already correctly honoured (verified: DescribeApps, DescribeCommands,
+DescribeDeployments, DescribeInstances, DescribeLayers,
+DescribeElasticLoadBalancers, DescribePermissions, DescribeUserProfiles all
+filter/scope correctly; DescribeLoadBasedAutoScaling/
+DescribeTimeBasedAutoScaling's LayerIds/InstanceIds are the ID list to
+describe, not an optional filter, and are used as such). Two real findings:
+
+- **DescribeEcsClusters**: declares `MaxResults`/`NextToken`
+  (api_op_DescribeEcsClusters.go) but `handleDescribeEcsClusters` never read
+  either field from the request body -- always returned every cluster.
+  Fixed with `pkgs/page.New`, defaulting to 100 (the real doc comment
+  specifies no default for this deprecated op).
+- **DescribeVolumes**: `RaidArrayId` was parsed from the request body and
+  passed to the backend method, which discarded it via a blank identifier
+  (`_ string`) -- a documented, deliberate no-op, since this backend never
+  models RAID arrays (`DescribeRaidArrays` always returns empty; no
+  `CreateRaidArray` operation exists in the real API either). Fixed by
+  honouring the parameter rather than ignoring it: a non-empty `RaidArrayId`
+  now excludes every volume (correct, since no volume ever carries that
+  association) instead of silently returning every volume in the
+  stack/instance regardless of the constraint.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestClient`) -- `TestDescribeEcsClusters_Pagination` (two-page
+round-trip, cursor carries the remainder),
+`TestDescribeVolumes_RaidArrayIDExcludesAll`. Both fail against pre-fix code
+(confirmed by reverting handler_ecs_clusters.go/volumes.go only).
+
+FIXED 2026-08-30 (wrapper-key-sweep), two more real findings in this same
+family, both missed by the pass above:
+
+- **DescribeAgentVersions**: declares a `ConfigurationManager`
+  ({Name,Version}) filter (api_op_DescribeAgentVersions.go, wire key
+  "ConfigurationManager") that `handleDescribeAgentVersions` never read at
+  all -- always returned the full static 2-entry catalog regardless of the
+  filter. Now filtered by Name/Version against the catalog.
+- **DescribeEcsClusters** (unfiltered path, no StackId): the MaxResults/
+  NextToken fix above paginates via `pkgs/page.New`, whose own doc comment
+  requires "a fully sorted slice" because its cursor is a raw positional
+  index -- but the backend fed it `b.ecsClusters.All()` directly, and
+  `pkgs/store.Table.All`'s doc comment says its order is Go map order,
+  unspecified from one call to the next. Walking every page with the
+  returned NextToken could silently drop or duplicate clusters (confirmed:
+  a 25-cluster/page-size-5 walk dropped/duplicated clusters on 5/5 runs
+  pre-fix). Fixed by sorting the result by EcsClusterArn (the table's unique
+  primary key, so no tie-break record-id is needed) before pagination. The
+  StackId-filtered path was unaffected -- it already goes through
+  ecsClustersByStack, an append-ordered secondary index.
+
+Test: `TestDescribeAgentVersions_ConfigurationManagerFilterRealClient`,
+`TestDescribeEcsClusters_PaginationStableOrderRealClient`
+(wire_field_fixes_test.go), both driven through the real SDK client and
+confirmed to fail against pre-fix code (the pagination-order test failed on
+5/5 runs pre-fix; passed 8/8 post-fix).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `ElasticIp`/`ElasticIP` and `RdsDb`/`RdsDB` acronym casing
+gives it 9 op/handler pairs needing the ambiguous fold, 9 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `AssociateElasticIp`, `DeregisterElasticIp`, `DeregisterRdsDbInstance`, `DescribeRdsDbInstances`, `DisassociateElasticIp`, `RegisterElasticIp`, `RegisterRdsDbInstance`, `UpdateElasticIp`, `UpdateRdsDbInstance`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (74 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

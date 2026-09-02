@@ -93,8 +93,11 @@ type RouteServerRoute struct {
 const (
 	routeServerStateAvailable  = "available"
 	associationStateAssociated = "associated"
-	propagationStateEnabled    = "enabled"
-	stateDeleting              = "deleting"
+	// propagationStateAvailable is the RouteServerPropagationState value
+	// (ec2@v1.319.1 types/enums.go:10717) for an enabled propagation; the
+	// enum has no "enabled" member.
+	propagationStateAvailable = "available"
+	stateDeleting             = "deleting"
 )
 
 // ---- Route Server backend methods ----
@@ -462,7 +465,7 @@ func (b *InMemoryBackend) EnableRouteServerPropagation(
 	prop := &RouteServerPropagation{
 		RouteServerID: routeServerID,
 		RouteTableID:  routeTableID,
-		State:         propagationStateEnabled,
+		State:         propagationStateAvailable,
 	}
 	b.routeServerPropagations.Put(prop)
 
@@ -485,7 +488,7 @@ func (b *InMemoryBackend) DisableRouteServerPropagation(
 	}
 
 	cp := *prop
-	cp.State = "disabling"
+	cp.State = stateDeleting
 	b.routeServerPropagations.Delete(key)
 
 	return &cp, nil

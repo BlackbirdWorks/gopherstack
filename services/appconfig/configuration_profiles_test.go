@@ -442,7 +442,7 @@ func TestBackend_ListConfigurationProfiles_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, _, err := b.ListConfigurationProfiles("nonexistent", "", 0)
+	_, _, err := b.ListConfigurationProfiles("nonexistent", "", "", 0)
 	require.Error(t, err)
 }
 

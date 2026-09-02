@@ -109,11 +109,15 @@ func compareLastEventTime(a, b LogStream, descending bool) bool {
 	if b.LastEventTimestamp != nil {
 		tb = *b.LastEventTimestamp
 	}
-	if descending {
-		return ta > tb
+	if ta != tb {
+		if descending {
+			return ta > tb
+		}
+
+		return ta < tb
 	}
 
-	return ta < tb
+	return a.LogStreamName < b.LogStreamName
 }
 
 // DescribeLogStreams returns log streams for a group, optionally filtered by prefix, with pagination.

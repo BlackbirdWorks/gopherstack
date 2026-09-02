@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -316,4 +319,54 @@ func TestWorkspacesPoolCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			}
 		})
 	}
+}
+
+// TestDescribeWorkspacesPools_Pagination proves the op pages through every
+// pool exactly once instead of returning them all on a single page with no
+// cursor.
+func TestDescribeWorkspacesPools_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	names := []string{"pool-a", "pool-b", "pool-c"}
+	for _, n := range names {
+		_, err := client.CreateWorkspacesPool(ctx, &wssdk.CreateWorkspacesPoolInput{
+			PoolName:    aws.String(n),
+			BundleId:    aws.String("wsb-abc"),
+			DirectoryId: aws.String("d-xyz"),
+			Description: aws.String("test pool"),
+			Capacity:    &types.Capacity{DesiredUserSessions: aws.Int32(10)},
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.DescribeWorkspacesPools(ctx, &wssdk.DescribeWorkspacesPoolsInput{
+		Limit: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.WorkspacesPools, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more pools remain")
+
+	page2, err := client.DescribeWorkspacesPools(ctx, &wssdk.DescribeWorkspacesPoolsInput{
+		Limit:     aws.Int32(2),
+		NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.WorkspacesPools, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, p := range page1.WorkspacesPools {
+		seen[aws.ToString(p.PoolId)] = true
+	}
+
+	for _, p := range page2.WorkspacesPools {
+		id := aws.ToString(p.PoolId)
+		require.False(t, seen[id], "pool %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(names))
 }

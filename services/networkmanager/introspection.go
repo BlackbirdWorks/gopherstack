@@ -36,6 +36,7 @@ import (
 // entirely by every gatherer below until this fix (gopherstack-6flj).
 type networkResourceItem struct {
 	Tags          *tags.Tags
+	Metadata      map[string]string
 	Arn           string
 	ResourceID    string
 	ResourceType  string
@@ -248,9 +249,15 @@ func (b *InMemoryBackend) GetNetworkResources(
 	filtered := all[:0:0]
 
 	for _, item := range all {
-		if filter.matches(item) {
-			filtered = append(filtered, item)
+		if !filter.matches(item) {
+			continue
 		}
+
+		if m, ok := b.resourceMetadata.Get(item.Arn); ok {
+			item.Metadata = cloneStrMap(m.Metadata)
+		}
+
+		filtered = append(filtered, item)
 	}
 
 	return page.New(filtered, token, limit, defaultPageLimit), nil

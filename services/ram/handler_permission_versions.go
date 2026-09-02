@@ -86,7 +86,7 @@ func (h *Handler) handleDeletePermissionVersion(
 	}
 
 	return json.Marshal(
-		deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "UPDATING"},
+		deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "DELETING"},
 	)
 }
 

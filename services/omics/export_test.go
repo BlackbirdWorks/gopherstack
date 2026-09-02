@@ -51,6 +51,13 @@ func OpDispatchKeysForTest() []string {
 // OpUnknownForTest exposes the unexported opUnknown sentinel.
 func OpUnknownForTest() string { return opUnknown }
 
+// PaginateStringsForTest exposes the unexported paginateStrings pagination
+// helper so its arithmetic can be verified directly, independent of any
+// particular List* operation built on top of it.
+func PaginateStringsForTest(ids []string, nextToken string, maxResults int) ([]string, string) {
+	return paginateStrings(ids, nextToken, maxResults)
+}
+
 // SetRunBatchStatusForTest force-sets a RunBatch's status, bypassing the
 // normal StartRunBatch/CancelRunBatch transitions. This backend completes
 // batches synchronously (no async orchestration to drive them through

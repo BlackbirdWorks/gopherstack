@@ -34,7 +34,13 @@ func TestIntegration_ECS_CreateCluster(t *testing.T) {
 	assert.Equal(t, "ACTIVE", aws.ToString(out.Cluster.Status))
 }
 
-func TestIntegration_ECS_CreateCluster_AlreadyExists(t *testing.T) {
+// TestIntegration_ECS_CreateCluster_Idempotent covers real ECS's documented
+// behaviour: CreateCluster with an existing name returns the existing cluster,
+// not an error. ClusterAlreadyExistsException is not a real ECS exception --
+// it appears in no per-op deserializeOpError switch and has no shape in the
+// pinned SDK's types/errors.go. It was removed as an invented code in
+// fa0e68c21; this test asserted the invented behaviour until now.
+func TestIntegration_ECS_CreateCluster_Idempotent(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
@@ -48,11 +54,13 @@ func TestIntegration_ECS_CreateCluster_AlreadyExists(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateCluster(ctx, &ecs.CreateClusterInput{
+	again, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ClusterAlreadyExistsException")
+	require.NoError(t, err, "real ECS CreateCluster is idempotent on an existing name")
+	require.NotNil(t, again.Cluster)
+	assert.Equal(t, clusterName, aws.ToString(again.Cluster.ClusterName),
+		"the second call must return the existing cluster, not a new or empty one")
 }
 
 func TestIntegration_ECS_DescribeClusters(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -25,6 +26,10 @@ const (
 
 const (
 	orderDescending = "DESCENDING"
+)
+
+const (
+	listByCreationDate = "CREATION_DATE"
 )
 
 const (
@@ -411,6 +416,37 @@ func reverseSlice[T any](items []T) {
 	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 		items[i], items[j] = items[j], items[i]
 	}
+}
+
+// applyListOrdering is the shared category/listBy/order logic for
+// ListJobTemplates, ListPresets, and ListQueues (getCategory returns "" for
+// ListQueues, which has no category field on the real wire). listBy ==
+// listByCreationDate re-sorts by createdAt; the caller's backend List* call
+// already returns NAME order, the documented default.
+func applyListOrdering[T any](
+	items []T, category string, getCategory func(T) string, createdAt func(T) float64, listBy, order string,
+) []T {
+	if category != "" {
+		filtered := items[:0:0]
+
+		for _, it := range items {
+			if getCategory(it) == category {
+				filtered = append(filtered, it)
+			}
+		}
+
+		items = filtered
+	}
+
+	if listBy == listByCreationDate {
+		sort.Slice(items, func(i, j int) bool { return createdAt(items[i]) < createdAt(items[j]) })
+	}
+
+	if order == orderDescending {
+		reverseSlice(items)
+	}
+
+	return items
 }
 
 // limitSlice returns at most maxResults items; 0 means no limit.

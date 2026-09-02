@@ -558,3 +558,66 @@ func TestBackend_UpdateUserPoolClientWithOpts(t *testing.T) {
 		})
 	}
 }
+
+// TestListUserPoolClients_Pagination proves the op pages through every app
+// client exactly once instead of returning them all on a single page with
+// no cursor.
+func TestListUserPoolClients_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	// setupHandlerPoolAndClient already creates one default client.
+	poolID, _ := setupHandlerPoolAndClient(t, h, "clients-pagination-pool")
+
+	extra := []string{"client-a", "client-b", "client-c"}
+	for _, n := range extra {
+		rec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+			"UserPoolId": poolID,
+			"ClientName": n,
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+	}
+
+	const total = 4 // default client + extra
+
+	type listOut struct {
+		NextToken       string           `json:"NextToken,omitempty"`
+		UserPoolClients []map[string]any `json:"UserPoolClients"`
+	}
+
+	rec1 := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
+
+	var page1 listOut
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.UserPoolClients, 2)
+	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more clients remain")
+
+	rec2 := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+		"NextToken":  page1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
+
+	var page2 listOut
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.UserPoolClients, 2)
+	require.Empty(t, page2.NextToken)
+
+	seen := map[string]bool{}
+	for _, c := range page1.UserPoolClients {
+		seen[c["ClientId"].(string)] = true
+	}
+
+	for _, c := range page2.UserPoolClients {
+		id := c["ClientId"].(string)
+		require.False(t, seen[id], "client %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, total)
+}

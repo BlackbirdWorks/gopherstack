@@ -96,25 +96,33 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 		}
 	}
 
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].ActionGroupName < list[j].ActionGroupName },
-	)
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].ActionGroupName != list[j].ActionGroupName {
+			return list[i].ActionGroupName < list[j].ActionGroupName
+		}
+
+		return list[i].ActionGroupID < list[j].ActionGroupID
+	})
 
 	return paginate(list, maxResults, nextToken)
 }
 
 // UpdateAgentActionGroup updates an action group.
 func (b *InMemoryBackend) UpdateAgentActionGroup(
-	agentID, actionGroupID, description string,
+	agentID, actionGroupID, actionGroupName, description string,
 	executor map[string]any,
 ) (*AgentActionGroup, error) {
-	return b.UpdateAgentActionGroupWithSchemas(agentID, actionGroupID, description, executor, nil, nil)
+	return b.UpdateAgentActionGroupWithSchemas(
+		agentID, actionGroupID, actionGroupName, description, executor, nil, nil,
+	)
 }
 
 // UpdateAgentActionGroupWithSchemas updates an action group and any submitted schemas.
+// actionGroupName is required by the real UpdateAgentActionGroup API, but applied only
+// when non-empty here to tolerate callers (and existing tests) built before this parameter
+// existed.
 func (b *InMemoryBackend) UpdateAgentActionGroupWithSchemas(
-	agentID, actionGroupID, description string,
+	agentID, actionGroupID, actionGroupName, description string,
 	executor, apiSchema, functionSchema map[string]any,
 ) (*AgentActionGroup, error) {
 	b.mu.Lock("UpdateAgentActionGroup")
@@ -125,6 +133,10 @@ func (b *InMemoryBackend) UpdateAgentActionGroupWithSchemas(
 	ag, ok := b.agentActionGroups.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
+	}
+
+	if actionGroupName != "" {
+		ag.ActionGroupName = actionGroupName
 	}
 
 	if description != "" {

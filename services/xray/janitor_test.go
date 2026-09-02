@@ -176,7 +176,7 @@ func TestRetrievalCleanup_JanitorSweepsOldTokens(t *testing.T) {
 
 	// Add a trace and start a retrieval.
 	traceID := b.PutTraceForTest(time.Now().Add(-2 * time.Hour))
-	token := b.StartTraceRetrieval([]string{traceID})
+	token := b.StartTraceRetrieval([]string{traceID}, time.Now().Add(-3*time.Hour), time.Now())
 
 	// Back-date the retrieval token creation time so it appears old.
 	b.SetRetrievalTimeForTest(token, time.Now().Add(-2*time.Hour))

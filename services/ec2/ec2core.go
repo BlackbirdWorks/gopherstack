@@ -224,7 +224,7 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 		AssociationID:      newIAMInstanceProfileAssociationID(),
 		InstanceID:         instanceID,
 		IamInstanceProfile: profileARN,
-		State:              stateAvailable,
+		State:              stateAssociated,
 		Timestamp:          time.Now(),
 	}
 	b.iamAssociations.Put(assoc)

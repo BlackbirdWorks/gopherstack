@@ -3,6 +3,7 @@ package resourcegroups
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -23,6 +24,12 @@ const (
 
 // listGroupResourcesFilterResourceType is the filter name for filtering ListGroupResources by resource type.
 const listGroupResourcesFilterResourceType = "resource-type"
+
+// ListGroupingStatuses filter names (types.ListGroupingStatusesFilterName).
+const (
+	listGroupingStatusesFilterNameStatus      = "status"
+	listGroupingStatusesFilterNameResourceArn = "resource-arn"
+)
 
 // errQueryGroupNotGroupable: GroupResources/UngroupResources only work on
 // static-membership groups. Real AWS membership for a ResourceQuery-based
@@ -227,10 +234,13 @@ func (b *InMemoryBackend) ListGroupResources(
 }
 
 // ListGroupingStatuses returns the grouping/ungrouping status history for a group,
-// paginated. Returns statuses, a continuation token (empty when no more results), and any error.
+// filtered by filters (Name: "status" or "resource-arn", per
+// types.ListGroupingStatusesFilterName) and paginated. Returns statuses, a
+// continuation token (empty when no more results), and any error.
 func (b *InMemoryBackend) ListGroupingStatuses(
 	ctx context.Context,
 	nameOrARN string,
+	filters []ListGroupingStatusesFilter,
 	nextToken string,
 	maxResults int,
 ) ([]GroupingStatusItem, string, error) {
@@ -249,12 +259,36 @@ func (b *InMemoryBackend) ListGroupingStatuses(
 		statuses = b.groupingStatuses[region][name]
 	}
 
-	out := make([]GroupingStatusItem, len(statuses))
-	copy(out, statuses)
+	out := make([]GroupingStatusItem, 0, len(statuses))
+	for _, s := range statuses {
+		if groupingStatusMatchesFilters(s, filters) {
+			out = append(out, s)
+		}
+	}
 
 	page, token := paginate(out, func(s GroupingStatusItem) string {
 		return s.ResourceArn + "|" + s.Action + "|" + s.UpdatedAt.Format(time.RFC3339Nano)
 	}, nextToken, maxResults)
 
 	return page, token, nil
+}
+
+// groupingStatusMatchesFilters returns true when s satisfies every provided
+// filter (filters AND together across entries; a single entry's Values
+// OR-match, per AWS's Name/Values filter contract).
+func groupingStatusMatchesFilters(s GroupingStatusItem, filters []ListGroupingStatusesFilter) bool {
+	for _, f := range filters {
+		switch f.Name {
+		case listGroupingStatusesFilterNameStatus:
+			if !slices.Contains(f.Values, s.Status) {
+				return false
+			}
+		case listGroupingStatusesFilterNameResourceArn:
+			if !slices.Contains(f.Values, s.ResourceArn) {
+				return false
+			}
+		}
+	}
+
+	return true
 }

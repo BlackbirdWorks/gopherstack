@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -92,10 +93,19 @@ func (h *Handler) handleListApplications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	apps := h.Backend.ListApplications()
-	summaries := make([]map[string]any, 0, len(apps))
+	q := r.URL.Query()
 
-	for _, app := range apps {
+	var maxResults int
+	if mr := q.Get("maxResults"); mr != "" {
+		if n, convErr := strconv.Atoi(mr); convErr == nil {
+			maxResults = n
+		}
+	}
+
+	p := h.Backend.ListApplications(q["statuses"], q.Get("nextToken"), maxResults)
+	summaries := make([]map[string]any, 0, len(p.Data))
+
+	for _, app := range p.Data {
 		summaries = append(summaries, map[string]any{
 			"id":                 app.ID,
 			jsonKeyAppName:       app.Name,
@@ -107,7 +117,12 @@ func (h *Handler) handleListApplications(w http.ResponseWriter, r *http.Request)
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{"ApplicationSummaries": summaries})
+	out := map[string]any{"ApplicationSummaries": summaries}
+	if p.Next != "" {
+		out["nextToken"] = p.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // handleDefaultApplicationSettingRoutes handles
@@ -290,13 +305,10 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources, svcTags.MapFromKV(req.TagList))
 	if createErr != nil {
 		if errors.Is(createErr, ErrApplicationAlreadyExists) {
-			h.writeError(
-				r,
-				w,
-				http.StatusConflict,
-				"ResourceAlreadyExistsException",
-				createErr.Error(),
-			)
+			// CreateApplication's own deserializer (opensearch@v1.75.4
+			// deserializers.go) models ConflictException, not
+			// ResourceAlreadyExistsException, for this case.
+			h.writeError(r, w, http.StatusConflict, "ConflictException", createErr.Error())
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 		}

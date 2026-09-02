@@ -34,6 +34,18 @@ type traceSummaryServiceIDView struct {
 
 type traceSummaryForecastView struct{}
 
+// availabilityZoneDetailView is the wire shape for one entry of
+// TraceSummary.AvailabilityZones (types.AvailabilityZoneDetail).
+type availabilityZoneDetailView struct {
+	Name string `json:"Name,omitempty"`
+}
+
+// instanceIDDetailView is the wire shape for one entry of TraceSummary.InstanceIds
+// (types.InstanceIdDetail).
+type instanceIDDetailView struct {
+	ID string `json:"Id,omitempty"`
+}
+
 // annotationValueView is the wire shape for a single annotation value: a tagged
 // union with exactly one of StringValue/NumberValue/BooleanValue set, selected by
 // the value's Go kind. X-Ray segment document "annotations" values are only ever
@@ -107,6 +119,8 @@ type traceSummary struct {
 	ID                 string                               `json:"Id"`
 	ServiceIds         []traceSummaryServiceIDView          `json:"ServiceIds,omitempty"` //nolint:revive // AWS field name
 	Users              []string                             `json:"Users,omitempty"`
+	AvailabilityZones  []availabilityZoneDetailView         `json:"AvailabilityZones,omitempty"`
+	InstanceIds        []instanceIDDetailView               `json:"InstanceIds,omitempty"` //nolint:revive // AWS name
 	Duration           float64                              `json:"Duration"`
 	ResponseTime       float64                              `json:"ResponseTime"`
 	StartTime          float64                              `json:"StartTime"`
@@ -164,6 +178,20 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.T
 		s.ServiceIds = make([]traceSummaryServiceIDView, 0, len(sd.ServiceIDs))
 		for _, svc := range sd.ServiceIDs {
 			s.ServiceIds = append(s.ServiceIds, traceSummaryServiceIDView(svc))
+		}
+	}
+
+	if len(sd.AvailabilityZones) > 0 {
+		s.AvailabilityZones = make([]availabilityZoneDetailView, 0, len(sd.AvailabilityZones))
+		for _, az := range sd.AvailabilityZones {
+			s.AvailabilityZones = append(s.AvailabilityZones, availabilityZoneDetailView{Name: az})
+		}
+	}
+
+	if len(sd.InstanceIDs) > 0 {
+		s.InstanceIds = make([]instanceIDDetailView, 0, len(sd.InstanceIDs))
+		for _, id := range sd.InstanceIDs {
+			s.InstanceIds = append(s.InstanceIds, instanceIDDetailView{ID: id})
 		}
 	}
 

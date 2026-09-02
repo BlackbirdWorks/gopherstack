@@ -6,28 +6,54 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// workflowParameterInput mirrors types.WorkflowParameter's real JSON keys
+// (confirmed via awsRestjson1_deserializeDocumentWorkflowParameter).
+type workflowParameterInput struct {
+	Description string `json:"description"`
+	Optional    bool   `json:"optional"`
+}
+
+func toWorkflowParameterTemplate(in map[string]workflowParameterInput) map[string]WorkflowParameter {
+	if in == nil {
+		return nil
+	}
+
+	out := make(map[string]WorkflowParameter, len(in))
+	for name, p := range in {
+		out[name] = WorkflowParameter(p)
+	}
+
+	return out
+}
+
 func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 	var req struct {
-		Tags          map[string]string `json:"tags"`
-		Name          string            `json:"name"`
-		Description   string            `json:"description"`
-		Engine        string            `json:"engine"`
-		DefinitionURI string            `json:"definitionUri"`
-		DefinitionZip []byte            `json:"definitionZip"`
+		Tags              map[string]string                 `json:"tags"`
+		ParameterTemplate map[string]workflowParameterInput `json:"parameterTemplate"`
+		StorageCapacity   *int                              `json:"storageCapacity"`
+		Name              string                            `json:"name"`
+		Description       string                            `json:"description"`
+		Engine            string                            `json:"engine"`
+		DefinitionURI     string                            `json:"definitionUri"`
+		StorageType       string                            `json:"storageType"`
+		DefinitionZip     []byte                            `json:"definitionZip"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	wf, err := h.Backend.CreateWorkflow(
-		req.Name,
-		req.Description,
-		string(req.DefinitionZip),
-		req.DefinitionURI,
-		req.Engine,
-		req.Tags,
-	)
+	wf, err := h.Backend.CreateWorkflow(CreateWorkflowInput{
+		Name:              req.Name,
+		Description:       req.Description,
+		DefinitionZip:     string(req.DefinitionZip),
+		DefinitionURI:     req.DefinitionURI,
+		Engine:            req.Engine,
+		StorageType:       req.StorageType,
+		StorageCapacity:   req.StorageCapacity,
+		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
+		Tags:              req.Tags,
+	})
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -75,15 +101,23 @@ func (h *Handler) handleListWorkflows(c *echo.Context) error {
 
 func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		StorageCapacity *int   `json:"storageCapacity"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		StorageType     string `json:"storageType"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	if err := h.Backend.UpdateWorkflow(id, req.Name, req.Description); err != nil {
+	if err := h.Backend.UpdateWorkflow(
+		id,
+		req.Name,
+		req.Description,
+		req.StorageType,
+		req.StorageCapacity,
+	); err != nil {
 		return h.mapError(c, err)
 	}
 
@@ -97,21 +131,27 @@ func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 
 func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		VersionName string            `json:"versionName"`
-		Description string            `json:"description"`
+		Tags              map[string]string                 `json:"tags"`
+		ParameterTemplate map[string]workflowParameterInput `json:"parameterTemplate"`
+		StorageCapacity   *int                              `json:"storageCapacity"`
+		VersionName       string                            `json:"versionName"`
+		Description       string                            `json:"description"`
+		StorageType       string                            `json:"storageType"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	wv, err := h.Backend.CreateWorkflowVersion(
-		workflowID,
-		req.VersionName,
-		req.Description,
-		req.Tags,
-	)
+	wv, err := h.Backend.CreateWorkflowVersion(CreateWorkflowVersionInput{
+		WorkflowID:        workflowID,
+		VersionName:       req.VersionName,
+		Description:       req.Description,
+		StorageType:       req.StorageType,
+		StorageCapacity:   req.StorageCapacity,
+		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
+		Tags:              req.Tags,
+	})
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -156,14 +196,19 @@ func (h *Handler) handleUpdateWorkflowVersion(
 	workflowID, versionName string,
 ) error {
 	var req struct {
-		Description string `json:"description"`
+		StorageCapacity *int   `json:"storageCapacity"`
+		Description     string `json:"description"`
+		StorageType     string `json:"storageType"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	if err := h.Backend.UpdateWorkflowVersion(workflowID, versionName, req.Description); err != nil {
+	err := h.Backend.UpdateWorkflowVersion(
+		workflowID, versionName, req.Description, req.StorageType, req.StorageCapacity,
+	)
+	if err != nil {
 		return h.mapError(c, err)
 	}
 

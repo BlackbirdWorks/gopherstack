@@ -1,6 +1,10 @@
 package sagemaker
 
-import "github.com/blackbirdworks/gopherstack/pkgs/store"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
 
 func sumRegions[T any](m map[string]*store.Table[T]) int {
 	total := 0
@@ -100,4 +104,56 @@ func SeedMonitoringAlertHistory(b *InMemoryBackend, region string, e *Monitoring
 	defer b.mu.Unlock()
 
 	b.monitoringAlertHistory[region] = append(b.monitoringAlertHistory[region], e)
+}
+
+// SeedModelCreationTime overwrites a model's CreationTime for
+// CreationTimeAfter boundary tests: a wire-level test can't reliably hit
+// the exact second boundary since epoch-seconds JSON round-tripping floors
+// the resource's true (sub-second) CreationTime before it comes back as a
+// filter value, so the two virtually never compare equal without direct
+// control here.
+func SeedModelCreationTime(b *InMemoryBackend, region, name string, t time.Time) {
+	b.mu.Lock("SeedModelCreationTime")
+	defer b.mu.Unlock()
+
+	if m, ok := b.modelsStore(region).Get(name); ok {
+		m.CreationTime = t
+	}
+}
+
+// SeedEndpointConfigCreationTime overwrites an endpoint config's
+// CreationTime -- see [SeedModelCreationTime].
+func SeedEndpointConfigCreationTime(b *InMemoryBackend, region, name string, t time.Time) {
+	b.mu.Lock("SeedEndpointConfigCreationTime")
+	defer b.mu.Unlock()
+
+	if ec, ok := b.endpointConfigsStore(region).Get(name); ok {
+		ec.CreationTime = t
+	}
+}
+
+// SeedAlgorithmCreationTime overwrites an algorithm's CreationTime -- see
+// [SeedModelCreationTime].
+func SeedAlgorithmCreationTime(b *InMemoryBackend, region, name string, t time.Time) {
+	b.mu.Lock("SeedAlgorithmCreationTime")
+	defer b.mu.Unlock()
+
+	if al, ok := b.algorithmsStore(region).Get(name); ok {
+		al.CreationTime = t
+	}
+}
+
+// AssociationTagCount returns the number of tags stored on the association
+// between sourceArn and destinationArn, for tests proving AddAssociation's
+// Tags field (not a real AddAssociationInput member) is never applied.
+func AssociationTagCount(b *InMemoryBackend, region, sourceArn, destinationArn string) int {
+	b.mu.RLock("AssociationTagCount")
+	defer b.mu.RUnlock()
+
+	a, ok := b.associationsStoreRO(region).Get(associationKey(sourceArn, destinationArn))
+	if !ok {
+		return -1
+	}
+
+	return len(a.Tags)
 }

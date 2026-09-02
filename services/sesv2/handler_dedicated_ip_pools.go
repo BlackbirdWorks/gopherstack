@@ -3,6 +3,7 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -48,7 +49,13 @@ func (h *Handler) handleDeleteDedicatedIPPool(poolName string) (any, error) {
 
 func (h *Handler) handleListDedicatedIPPools(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListDedicatedIPPools(nextToken, 0)
+
+	pageSize := 0
+	if v := c.QueryParam("PageSize"); v != "" {
+		pageSize, _ = strconv.Atoi(v)
+	}
+
+	pg := h.Backend.ListDedicatedIPPools(nextToken, pageSize)
 
 	return map[string]any{
 		"DedicatedIpPools": pg.Data,

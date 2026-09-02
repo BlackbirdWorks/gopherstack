@@ -151,12 +151,13 @@ func (b *InMemoryBackend) DescribeJobQueues(
 	)
 }
 
-// UpdateJobQueue updates a job queue's state, priority, CE order, and/or time-limit actions.
+// UpdateJobQueue updates a job queue's state, priority, CE order, scheduling
+// policy, and/or time-limit actions.
 func (b *InMemoryBackend) UpdateJobQueue(
 	ctx context.Context,
 	nameOrARN string,
 	priority *int32,
-	state string,
+	state, schedulingPolicyArn string,
 	ceOrder []ComputeEnvironmentOrder,
 	jobStateTimeLimitActions []JobStateTimeLimitAction,
 	serviceEnvironmentOrder []ServiceEnvironmentOrder,
@@ -181,6 +182,13 @@ func (b *InMemoryBackend) UpdateJobQueue(
 
 	if priority != nil {
 		jq.Priority = *priority
+	}
+
+	// batch@v1.68.4 api_op_UpdateJobQueue.go: "Once a job queue is created,
+	// the fair-share scheduling policy can be replaced but not removed" --
+	// so only a non-empty value ever overwrites the existing one.
+	if schedulingPolicyArn != "" {
+		jq.SchedulingPolicyArn = schedulingPolicyArn
 	}
 
 	if ceOrder != nil {

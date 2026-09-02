@@ -8,7 +8,7 @@ import (
 func (h *Handler) cborGetDataset(input cbor.Map, c *echo.Context) error {
 	ds, err := h.Backend.GetDataset(cborStr(input, "DatasetIdentifier"))
 	if err != nil {
-		status, code := datasetErrorStatus(err)
+		status, code := datasetCBORErrorStatus(err)
 
 		return h.cborError(c, status, code, err.Error())
 	}
@@ -30,7 +30,7 @@ func (h *Handler) cborAssociateDatasetKmsKey(input cbor.Map, c *echo.Context) er
 		cborStr(input, "KmsKeyArn"),
 	)
 	if err != nil {
-		status, code := datasetErrorStatus(err)
+		status, code := datasetCBORErrorStatus(err)
 
 		return h.cborError(c, status, code, err.Error())
 	}
@@ -40,7 +40,7 @@ func (h *Handler) cborAssociateDatasetKmsKey(input cbor.Map, c *echo.Context) er
 
 func (h *Handler) cborDisassociateDatasetKmsKey(input cbor.Map, c *echo.Context) error {
 	if err := h.Backend.DisassociateDatasetKmsKey(cborStr(input, "DatasetIdentifier")); err != nil {
-		status, code := datasetErrorStatus(err)
+		status, code := datasetCBORErrorStatus(err)
 
 		return h.cborError(c, status, code, err.Error())
 	}

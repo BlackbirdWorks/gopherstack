@@ -44,14 +44,15 @@ func (r searchTimestampRange) matches(t time.Time) bool {
 
 // certMetadataFilter is the parsed form of one CertificateFilter's
 // AcmCertificateMetadataFilter union member (exactly one field non-nil/non-
-// empty at a time). Members with no gopherstack-tracked equivalent
-// (AcmeAccountId, AcmeEndpointArn, CertificateKeyPairOrigin) are
-// intentionally included but never match anything real -- see
-// CertificateSearchResult's own AcmCertificateMetadata gap in PARITY.md:
-// gopherstack tracks no such data for any certificate, so honestly matching
-// nothing is correct-by-absence rather than fabricated. ManagedBy IS tracked
-// (Certificate.ManagedBy, set via RequestCertificate's ManagedBy input) and
-// matches for real -- see the matches() switch below.
+// empty at a time). AcmeAccountId/AcmeEndpointArn have no gopherstack-tracked
+// equivalent (ACME resources aren't linked to Certificate records -- see
+// acme_accounts.go) and are intentionally included but never match anything
+// real, matching CertificateSearchResult's own AcmCertificateMetadata gap in
+// PARITY.md. ManagedBy IS tracked (Certificate.ManagedBy, set via
+// RequestCertificate's ManagedBy input) and matches for real, as does
+// CertificateKeyPairOrigin (derived from Certificate.Type via
+// certKeyPairOrigin, same as ListCertificates' equivalent filter) -- see the
+// matches() switch below.
 type certMetadataFilter struct {
 	Status                   *string
 	Type                     *string
@@ -89,9 +90,10 @@ func (f certMetadataFilter) matches(c *Certificate) bool {
 		return (len(c.InUseBy) > 0) == *f.InUse
 	case f.ManagedBy != nil:
 		return c.ManagedBy == *f.ManagedBy
+	case f.CertificateKeyPairOrigin != nil:
+		return certKeyPairOrigin(c) == *f.CertificateKeyPairOrigin
 	default:
-		// AcmeAccountID/AcmeEndpointArn/CertificateKeyPairOrigin: no tracked
-		// data, honestly never matches.
+		// AcmeAccountID/AcmeEndpointArn: no tracked data, honestly never matches.
 		return false
 	}
 }
@@ -259,13 +261,15 @@ var searchSortComparators = map[string]func(a, b *Certificate) bool{
 	// (crypto.go), no longer only the flattened Subject string.
 	"COMMON_NAME":           func(a, b *Certificate) bool { return a.SubjectCommonName < b.SubjectCommonName },
 	listCertSortByCreatedAt: func(a, b *Certificate) bool { return a.CreatedAt.Before(b.CreatedAt) },
+	"CERTIFICATE_KEY_PAIR_ORIGIN": func(a, b *Certificate) bool {
+		return certKeyPairOrigin(a) < certKeyPairOrigin(b)
+	},
 }
 
 // searchSortLess compares two certificates for SearchCertificates' SortBy.
 // CERTIFICATE_ARN and every SortBy value gopherstack tracks no real data for
-// (ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN) fall back
-// to the same stable ARN ordering ListCertificates uses when it has no real
-// value to sort on.
+// (ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID) fall back to the same stable ARN
+// ordering ListCertificates uses when it has no real value to sort on.
 func searchSortLess(sortBy string, a, b *Certificate) bool {
 	if cmp, ok := searchSortComparators[sortBy]; ok {
 		return cmp(a, b)

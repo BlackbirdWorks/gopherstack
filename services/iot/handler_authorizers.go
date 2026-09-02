@@ -99,6 +99,27 @@ func (h *Handler) handleDescribeAuthorizer(c *echo.Context) error {
 
 func (h *Handler) handleListAuthorizers(c *echo.Context) error {
 	authorizers := h.Backend.ListAuthorizers()
+
+	if status := c.QueryParam("status"); status != "" {
+		filtered := authorizers[:0:0]
+
+		for _, a := range authorizers {
+			if a.Status == status {
+				filtered = append(filtered, a)
+			}
+		}
+
+		authorizers = filtered
+	}
+
+	// ListAuthorizers() already returns them name-sorted ascending
+	// (store.Table.Snapshot, keyed by AuthorizerName) -- "Return the list
+	// of authorizers in ascending alphabetical order" is the true (default)
+	// case, so only the false case needs a reversal.
+	if c.QueryParam("isAscendingOrder") != keyBoolTrue {
+		reverseSlice(authorizers)
+	}
+
 	summaries := make([]map[string]any, len(authorizers))
 	for i, a := range authorizers {
 		summaries[i] = map[string]any{
@@ -107,7 +128,15 @@ func (h *Handler) handleListAuthorizers(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"authorizers": summaries})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"authorizers": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateAuthorizer(c *echo.Context) error {

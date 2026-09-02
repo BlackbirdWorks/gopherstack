@@ -2,7 +2,6 @@ package opensearch
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -80,11 +79,10 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if addErr := h.Backend.AddTags(req.ARN, tagMap); addErr != nil {
-		if errors.Is(addErr, ErrDomainNotFound) {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", addErr.Error())
-		} else {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
-		}
+		// AddTags's own deserializer (opensearch@v1.75.4 deserializers.go) has
+		// no ResourceNotFoundException case -- unlike ListTags, an unrecognized
+		// ARN here is ValidationException.
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
 
 		return
 	}
@@ -113,11 +111,10 @@ func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if removeErr := h.Backend.RemoveTags(req.ARN, req.TagKeys); removeErr != nil {
-		if errors.Is(removeErr, ErrDomainNotFound) {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", removeErr.Error())
-		} else {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", removeErr.Error())
-		}
+		// RemoveTags's own deserializer (opensearch@v1.75.4 deserializers.go)
+		// has no ResourceNotFoundException case -- an unrecognized ARN here is
+		// ValidationException.
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", removeErr.Error())
 
 		return
 	}

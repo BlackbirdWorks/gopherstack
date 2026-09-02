@@ -63,9 +63,12 @@ func (b *InMemoryBackend) PutWorkflowRunProperties(
 	)
 }
 
-// ResumeWorkflowRun looks up the workflow run and returns its ID along with
-// an empty node-ID list (AWS returns node IDs that were actually resumed).
-func (b *InMemoryBackend) ResumeWorkflowRun(workflowName, runID string) (string, []string, error) {
+// ResumeWorkflowRun echoes nodeIDs back as "the new nodes that were actually
+// restarted" (ResumeWorkflowRunOutput.NodeIds) -- this backend has no
+// per-node run-attempt state (WorkflowRun.Graph is a disclosed gap, see
+// PARITY.md), so every requested node is honestly reported as restarted
+// rather than silently dropped from the response.
+func (b *InMemoryBackend) ResumeWorkflowRun(workflowName, runID string, nodeIDs []string) (string, []string, error) {
 	b.mu.Lock("ResumeWorkflowRun")
 	defer b.mu.Unlock()
 
@@ -78,7 +81,7 @@ func (b *InMemoryBackend) ResumeWorkflowRun(workflowName, runID string) (string,
 		if run.RunID == runID {
 			run.Status = stateRunning
 
-			return runID, []string{}, nil
+			return runID, nodeIDs, nil
 		}
 	}
 
@@ -218,13 +221,15 @@ func (b *InMemoryBackend) UpdateWorkflow(name string, update Workflow) error {
 	return nil
 }
 
-// DeleteWorkflow deletes a Glue workflow and all its runs by name.
+// DeleteWorkflow deletes a Glue workflow and all its runs by name. Its error
+// switch has no EntityNotFoundException case, unlike GetWorkflow's, so an
+// unknown Name surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteWorkflow(name string) error {
 	b.mu.Lock("DeleteWorkflow")
 	defer b.mu.Unlock()
 
 	if !b.workflows.Has(name) {
-		return ErrNotFound
+		return fmt.Errorf("workflow %q not found: %w", name, ErrValidation)
 	}
 
 	b.workflows.Delete(name)

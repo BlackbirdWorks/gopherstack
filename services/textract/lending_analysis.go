@@ -160,7 +160,7 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 	}()
 
 	if result == nil {
-		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
+		return nil, fmt.Errorf("%w: lending job %s", errJobEvictedBeforeReadback, jobID)
 	}
 
 	return result, nil

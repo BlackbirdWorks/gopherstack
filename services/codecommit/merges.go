@@ -55,10 +55,10 @@ func (b *InMemoryBackend) MergePullRequestByFastForward(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
-	pr.PullRequestStatus = prStatusMerged
+	pr.PullRequestStatus = prStatusClosed
 	pr.LastActivityDate = time.Now().UTC()
 	cp := *pr
 
@@ -76,10 +76,10 @@ func (b *InMemoryBackend) MergePullRequestBySquash(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
-	pr.PullRequestStatus = prStatusMerged
+	pr.PullRequestStatus = prStatusClosed
 	pr.LastActivityDate = time.Now().UTC()
 	cp := *pr
 
@@ -97,10 +97,10 @@ func (b *InMemoryBackend) MergePullRequestByThreeWay(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
-	pr.PullRequestStatus = prStatusMerged
+	pr.PullRequestStatus = prStatusClosed
 	pr.LastActivityDate = time.Now().UTC()
 	cp := *pr
 

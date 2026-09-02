@@ -14,7 +14,7 @@ func TestBackendDeepDiveOperations(t *testing.T) {
 		name     string
 		scenario string
 	}{
-		{name: "create_image_and_usage_report", scenario: "image"},
+		{name: "create_image", scenario: "image"},
 		{name: "create_and_describe_launch_templates", scenario: "launch_template"},
 		{name: "create_and_describe_vpc_endpoints", scenario: "vpc_endpoint"},
 		{name: "describe_network_acls", scenario: "network_acl"},
@@ -39,17 +39,6 @@ func TestBackendDeepDiveOperations(t *testing.T) {
 				images := b.DescribeImages()
 				assert.Condition(t, func() bool {
 					for _, got := range images {
-						if got.ImageID == image.ImageID {
-							return true
-						}
-					}
-
-					return false
-				})
-
-				reports := b.DescribeImageUsageReports()
-				assert.Condition(t, func() bool {
-					for _, got := range reports {
 						if got.ImageID == image.ImageID {
 							return true
 						}

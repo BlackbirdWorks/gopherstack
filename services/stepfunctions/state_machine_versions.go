@@ -61,12 +61,16 @@ func (b *InMemoryBackend) DescribeStateMachineVersion(
 }
 
 // DeleteStateMachineVersion removes a specific version.
+// AWS: DeleteStateMachineVersion's own error switch models
+// ConflictException, InvalidArn, and ValidationException -- no
+// StateMachineVersionDoesNotExist type exists anywhere in this SDK -- so it
+// is idempotent on a missing version.
 func (b *InMemoryBackend) DeleteStateMachineVersion(versionARN string) error {
 	b.mu.Lock("DeleteStateMachineVersion")
 	defer b.mu.Unlock()
 
 	if !b.versions.Has(versionARN) {
-		return fmt.Errorf("%w: %s", ErrStateMachineVersionDoesNotExist, versionARN)
+		return nil
 	}
 
 	// Delete also removes v from the versionsByStateMachine index, replacing
@@ -77,15 +81,15 @@ func (b *InMemoryBackend) DeleteStateMachineVersion(versionARN string) error {
 }
 
 // ListStateMachineVersions returns all versions for a state machine.
+// AWS: unlike its ListExecutions/ListStateMachineAliases siblings,
+// ListStateMachineVersions's own error switch models only InvalidArn,
+// InvalidToken, and ValidationException -- no StateMachineDoesNotExist -- so
+// an unknown stateMachineArn returns an empty page rather than an error.
 func (b *InMemoryBackend) ListStateMachineVersions(
 	smARN, nextToken string, maxResults int,
 ) ([]StateMachineVersion, string, error) {
 	b.mu.RLock("ListStateMachineVersions")
 	defer b.mu.RUnlock()
-
-	if !b.stateMachines.Has(smARN) {
-		return nil, "", fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
-	}
 
 	vers := b.versionsByStateMachine.Get(smARN)
 	all := make([]StateMachineVersion, 0, len(vers))

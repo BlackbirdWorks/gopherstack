@@ -287,7 +287,7 @@ func TestRouteServer_Propagation(t *testing.T) { //nolint:paralleltest // existi
 		require.NoError(t, err)
 		assert.Equal(t, rs.RouteServerID, prop.RouteServerID)
 		assert.Equal(t, rt.ID, prop.RouteTableID)
-		assert.Equal(t, "enabled", prop.State)
+		assert.Equal(t, "available", prop.State)
 	})
 
 	t.Run("get propagations", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -299,7 +299,7 @@ func TestRouteServer_Propagation(t *testing.T) { //nolint:paralleltest // existi
 	t.Run("disable propagation", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		prop, err := b.DisableRouteServerPropagation(rs.RouteServerID, rt.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "disabling", prop.State)
+		assert.Equal(t, "deleting", prop.State)
 
 		props := b.GetRouteServerPropagations(rs.RouteServerID)
 		assert.Empty(t, props)

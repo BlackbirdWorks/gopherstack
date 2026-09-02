@@ -274,7 +274,7 @@ type OutboundConnection struct {
 
 // VpcEndpoint represents a VPC endpoint for an OpenSearch domain.
 type VpcEndpoint struct {
-	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
+	StatusUntil      time.Time      `json:"-"`
 	VpcOptions       map[string]any `json:"VpcOptions"`
 	VpcEndpointID    string         `json:"VpcEndpointId"`
 	VpcEndpointOwner string         `json:"VpcEndpointOwner"`

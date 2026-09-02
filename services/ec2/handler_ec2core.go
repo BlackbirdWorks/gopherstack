@@ -97,9 +97,13 @@ type deleteEgressOnlyInternetGatewayResponse struct {
 	ReturnCode bool     `xml:"returnCode"`
 }
 
+// iamProfileSpec matches types.IamInstanceProfile (ec2@v1.319.1
+// deserializers.go:105766): the second member is "id", not "name" -- this
+// backend has no real IAM instance-profile ID, so it approximates with the
+// ARN's trailing segment, same as before this key fix.
 type iamProfileSpec struct {
-	ARN  string `xml:"arn"`
-	Name string `xml:"name"`
+	ARN string `xml:"arn"`
+	ID  string `xml:"id"`
 }
 
 type iamAssociationItem struct {
@@ -265,6 +269,7 @@ func (h *Handler) handleDescribeEgressOnlyInternetGateways(
 ) (any, error) {
 	ids := parseMemberList(vals, "EgressOnlyInternetGatewayId")
 	igws := h.Backend.DescribeEgressOnlyInternetGateways(ids)
+	igws = applyEOIGWFilters(igws, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeEgressOnlyInternetGatewaysResponse{RequestID: reqID}
 
@@ -296,8 +301,8 @@ func iamAssocToItem(assoc *IamInstanceProfileAssociation) iamAssociationItem {
 		AssociationID: assoc.AssociationID,
 		InstanceID:    assoc.InstanceID,
 		IamInstanceProfile: iamProfileSpec{
-			ARN:  assoc.IamInstanceProfile,
-			Name: iamProfileName(assoc.IamInstanceProfile),
+			ARN: assoc.IamInstanceProfile,
+			ID:  iamProfileName(assoc.IamInstanceProfile),
 		},
 		State:     assoc.State,
 		Timestamp: assoc.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z"),
@@ -343,24 +348,33 @@ func (h *Handler) handleDisassociateIamInstanceProfile(vals url.Values, reqID st
 	}, nil
 }
 
+// handleDescribeIamInstanceProfileAssociations: the real filters are
+// "instance-id" and "state" (api_op_DescribeIamInstanceProfileAssociations.go
+// DescribeIamInstanceProfileAssociationsInput.Filters doc comment). The
+// previous version unconditionally read Filter.1.Value.1 as the instance ID
+// before checking Filter.1.Name, so a lone "state" filter (Filter.1) was
+// misread as an instance-id filter and silently dropped every association.
 func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
 	assocIDs := parseMemberList(vals, "AssociationId")
-	instanceID := vals.Get("Filter.1.Value.1") // basic filter support
 
-	// Try direct instance ID filter.
+	var instanceID, state string
+
 	for i := 1; ; i++ {
-		key := "Filter." + strconv.Itoa(i) + ".Name"
-		name := vals.Get(key)
-
+		name := vals.Get("Filter." + strconv.Itoa(i) + ".Name")
 		if name == "" {
 			break
 		}
 
-		if name == filterKeyInstanceID {
-			instanceID = vals.Get("Filter." + strconv.Itoa(i) + ".Value.1")
+		value := vals.Get("Filter." + strconv.Itoa(i) + ".Value.1")
+
+		switch name {
+		case filterKeyInstanceID:
+			instanceID = value
+		case filterKeyState:
+			state = value
 		}
 	}
 
@@ -369,6 +383,10 @@ func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 	resp := &describeIamInstanceProfileAssociationsResponse{RequestID: reqID}
 
 	for _, a := range assocs {
+		if state != "" && a.State != state {
+			continue
+		}
+
 		resp.Associations.Items = append(resp.Associations.Items, iamAssocToItem(a))
 	}
 
@@ -461,7 +479,7 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayRouteTableId")
+	ids := parseMemberList(vals, "TransitGatewayRouteTableIds")
 	rts := h.Backend.DescribeTransitGatewayRouteTables(ids)
 
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}

@@ -9,10 +9,17 @@ import (
 // --- Job operation handlers ---
 
 type listJobsInput struct {
-	MaxResults *int32  `json:"maxResults,omitempty"`
-	NextToken  *string `json:"nextToken,omitempty"`
-	JobQueue   string  `json:"jobQueue"`
-	JobStatus  string  `json:"jobStatus"`
+	MaxResults *int32               `json:"maxResults,omitempty"`
+	NextToken  *string              `json:"nextToken,omitempty"`
+	JobQueue   string               `json:"jobQueue"`
+	JobStatus  string               `json:"jobStatus"`
+	Filters    []keyValuesPairInput `json:"filters,omitempty"`
+}
+
+// keyValuesPairInput mirrors aws-sdk-go-v2/service/batch/types.KeyValuesPair.
+type keyValuesPairInput struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
 }
 
 type jobSummary struct {
@@ -62,7 +69,12 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 		nextToken = *in.NextToken
 	}
 
-	jobs, outToken, err := h.Backend.ListJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults)
+	filters := make([]KeyValueFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, KeyValueFilter(f))
+	}
+
+	jobs, outToken, err := h.Backend.ListJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults, filters)
 	if err != nil {
 		return nil, err
 	}

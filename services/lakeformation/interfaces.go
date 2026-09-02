@@ -13,7 +13,7 @@ type StorageBackend interface {
 	UpdateResource(resourceArn, roleArn string, opts RegisterResourceOptions) error
 	DeregisterResource(resourceArn string) error
 	DescribeResource(resourceArn string) (*ResourceInfo, error)
-	ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string)
+	ListResources(conditions []FilterCondition, maxResults int, nextToken string) ([]*ResourceInfo, string)
 
 	GrantPermissions(ctx context.Context, entry *PermissionEntry) error
 	RevokePermissions(ctx context.Context, entry *PermissionEntry) error
@@ -29,7 +29,7 @@ type StorageBackend interface {
 	DeleteLFTag(catalogID, tagKey string) error
 	GetLFTag(catalogID, tagKey string) (*LFTag, error)
 	UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error
-	ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string)
+	ListLFTags(catalogID, resourceShareType string, maxResults int, nextToken string) ([]*LFTag, string)
 
 	BatchGrantPermissions(ctx context.Context, entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
 	BatchRevokePermissions(ctx context.Context, entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry

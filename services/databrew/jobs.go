@@ -310,25 +310,28 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobName)
 	}
 
-	// Attempt/DataCatalogOutputs/DatabaseOutputs/JobSample/LogSubscription/
-	// Outputs/RecipeReference are real types.JobRun members
-	// (deserializers.go's awsRestjson1_deserializeDocumentJobRun) this
-	// backend only has one source for: the parent Job's own configuration at
-	// the moment the run starts. Attempt is always 1: this backend never
-	// retries a run (StartJobRun always transitions STARTING->SUCCEEDED, see
+	// Attempt/DataCatalogOutputs/DatabaseOutputs/DatasetName/JobSample/
+	// LogSubscription/Outputs/RecipeReference/ValidationConfigurations are
+	// real types.JobRun members (deserializers.go's
+	// awsRestjson1_deserializeDocumentJobRun) this backend only has one
+	// source for: the parent Job's own configuration at the moment the run
+	// starts. Attempt is always 1: this backend never retries a run
+	// (StartJobRun always transitions STARTING->SUCCEEDED, see
 	// jobRunTransitionDelay), so there is never a second attempt to count.
 	run := &JobRun{
-		JobName:            jobName,
-		RunID:              uuid.New().String(),
-		State:              "STARTING",
-		StartedOn:          float64(time.Now().Unix()),
-		Attempt:            1,
-		DataCatalogOutputs: append([]DataCatalogOutput(nil), j.DataCatalogOutputs...),
-		DatabaseOutputs:    append([]DatabaseOutput(nil), j.DatabaseOutputs...),
-		JobSample:          j.JobSample,
-		LogSubscription:    j.LogSubscription,
-		Outputs:            append([]Output(nil), j.Outputs...),
-		RecipeReference:    j.RecipeReference,
+		JobName:                  jobName,
+		RunID:                    uuid.New().String(),
+		State:                    "STARTING",
+		StartedOn:                float64(time.Now().Unix()),
+		Attempt:                  1,
+		DatasetName:              j.DatasetName,
+		DataCatalogOutputs:       append([]DataCatalogOutput(nil), j.DataCatalogOutputs...),
+		DatabaseOutputs:          append([]DatabaseOutput(nil), j.DatabaseOutputs...),
+		JobSample:                j.JobSample,
+		LogSubscription:          j.LogSubscription,
+		Outputs:                  append([]Output(nil), j.Outputs...),
+		RecipeReference:          j.RecipeReference,
+		ValidationConfigurations: append([]map[string]any(nil), j.ValidationConfigurations...),
 	}
 
 	runStore := b.jobRunsStore(region)

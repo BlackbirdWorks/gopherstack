@@ -55,8 +55,8 @@ ops:
   UpdateFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted."}
-  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted. gopherstack-4ly2 wrapper-key sweep (2026-08-29): SortCriteria was parsed nowhere (decodeFilterListRequest had no such member) -- every response came back in FindingArn order regardless of the client's request. Now honored for the 8 SortField values this backend's Finding model actually carries data for (AWS_ACCOUNT_ID/FINDING_TYPE/SEVERITY/FIRST_OBSERVED_AT/LAST_OBSERVED_AT/FINDING_STATUS/RESOURCE_TYPE/EPSS_SCORE); the remaining 9 (ECR_IMAGE_*/NETWORK_PROTOCOL/COMPONENT_TYPE/VULNERABILITY_ID/VULNERABILITY_SOURCE/INSPECTOR_SCORE/VENDOR_SEVERITY) fall back to the prior stable FindingArn order -- structural gap, this backend's Finding has no per-package/per-resource detail to sort by, disclosed not fabricated. Also extended findingFilterCriteria (previously only severity/findingType/findingStatus/awsAccountId) with resourceId/resourceType/title/findingArn/fixAvailable, which map directly onto existing Finding fields and were simply never wired in."}
+  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): Ec2ScanModeState.ScanModeStatus was the non-member string \"ENABLED\" -- types.Ec2ScanModeStatus only has SUCCESS/PENDING (types/enums.go:1191-1207). UpdateConfiguration applies scan-mode changes synchronously with no pending state modeled, so the setting is always already in effect -- now emits SUCCESS (scanModeStatusSuccess, store.go). See TestGetConfiguration_ScanModeStatus_RealSDKClient (wire_field_fixes_test.go). ALSO FIXED (78d9fdf9f, gopherstack-k3w5): ecrConfiguration.rescanDurationState's status had the same non-member \"ENABLED\" bug for types.EcrRescanDurationStatus (SUCCESS/PENDING/FAILED, types/enums.go:1289-1303) -- enumcheck's ambiguous-key filter silently dropped this one since \"status\" resolves to 13 enum types in this module; the filter now reports ambiguous keys as needs-review instead of discarding them. Now emits SUCCESS (ecrRescanDurationStatusSuccess, store.go). See TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient (wire_field_fixes_test.go)."}
   UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -440,3 +440,131 @@ restored, `md5sum`-verified byte-identical.
   "ec2ScanModeState" object (scanMode/scanModeStatus, neither real) into the
   response; GetEc2DeepInspectionConfigurationOutput declares only
   errorMessage/orgPackagePaths/packagePaths/status.
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+Every paginated listing in this service (`ListFindings`, `ListConnectors`,
+`ListConnectorScanConfigurations`, `ListCoverage`) resumed a `nextToken` by scanning for
+the item whose key equalled the token and left `start` at 0 on no match -- an
+unresolvable token restarted pagination at page one instead of truncating. Findings,
+coverage entries, and connector scan configurations have no delete operation in real
+Inspector2 (status changes only, or a derived/live view), so every hostile test here
+forges an unresolvable token; `ListConnectors`'s test genuinely deletes the cursor's
+connector, since `DeleteConnector` exists.
+
+`ListConnectors` (sorted by `ConnectorArn`, the `connectors` table's own key),
+`ListConnectorScanConfigurations` (sorted by `AwsConfigConnectorArn`, the
+`connectorScanConfigs` table's own key), and `ListCoverage` (sorted by
+`coverageEntryKeyFn`, the `coverageEntries` table's own composite key) are each sorted
+by exactly the field their cursor carries and that field is unique, so all three were
+converted to a threshold search: resume at the first item whose key is strictly greater
+than the token.
+
+`ListFindings` is different and required two fixes:
+
+1. **Restart bug**: `matched` is sorted by `sortField` (`sortFindings`), which only
+   equals `FindingArn` (the cursor's field) when the caller didn't request
+   `SortCriteria` -- with any other field (`SEVERITY`, `AWS_ACCOUNT_ID`, etc.) the list
+   isn't ordered by `FindingArn` at all, so a threshold search on the cursor wouldn't be
+   valid for those callers. Since the same function must serve both cases, fixed by
+   defaulting an unresolved token to the end of the collection instead.
+2. **Non-total sort / tie compounding**, found while checking the sort per this
+   campaign's known trap (quicksight's tied-name bug): every `sortFindings` field but
+   `FindingArn` itself admits ties (many findings can share a severity, status, type,
+   account, or timestamp), and `matched` is built via `store.Table.Range`, which
+   iterates Go's underlying map in genuinely randomized order on every call (unlike
+   rolesanywhere's `store.Index.Get`, which returns an insertion-ordered slice -- this
+   is a real, not just theoretical, difference; confirmed both ways with dedicated
+   tests). Without a tiebreak, two findings tied on the requested sort field could land
+   in a different relative order on the page-2 call than they did on page 1, letting an
+   already-served finding reappear or letting one slip past the cursor entirely. A test
+   with 24 same-severity findings paginated 3-at-a-time reproduced this concretely on
+   unmodified code: only 9 of 24 were ever visited before the walk stopped advancing.
+   Fixed by appending `FindingArn` (unique) as a tiebreak to every `sortFindings`
+   comparator, making the overall order total and reproducible across the repeated
+   calls pagination makes.
+
+`SearchVulnerabilities` also contains the same equality-match-with-unhandled-miss shape
+(`findings.go`), but is inert: it never emits a `nextToken` (`return matched[start:],
+"", nil` unconditionally), so no client ever receives a token to follow into a second
+call, and there's no page-size cap to make a second page necessary regardless of
+match count. Left as-is -- fixing dead code here would be adding unproven surface
+against a bug that cannot actually manifest through this API.
+
+New tests (`handler_pagination_restart_test.go`, all confirmed failing pre-fix except
+the tied-name check noted separately in rolesanywhere's own entry):
+`TestListFindings_Pagination_StaleTokenDoesNotRestart`,
+`TestListFindings_Pagination_TiedSeverityNoDropOrDuplicate` (reproduced the drop
+concretely, see above), `TestListConnectors_Pagination_DeletedMidPage`,
+`TestListConnectorScanConfigurations_Pagination_StaleTokenDoesNotRestart`,
+`TestListCoverage_Pagination_StaleTokenDoesNotRestart`. No prior test in this service
+(`connectors.go`/`coverage_reporting.go` had no dedicated test file at all; `findings`
+pagination tests such as `TestListFindings_Pagination` and `TestListFindingsPagination`
+only exercised page sizes/happy-path chains) ever deleted an item or forged a token
+between pages.
+
+Confirmed no other pagination bug class: every other `List*` op in this service
+(`ListCisScans`, `ListMembers`, `ListFilters`, `ListCodeSecurityIntegrations`,
+`ListUsageTotals`, `ListDelegatedAdminAccounts`, `ListAccountPermissions`,
+`ListCisScanResultsAggregatedBy*`, etc.) has no `nextToken`/pagination logic at all --
+each returns its full result set unpaginated, a structural completeness gap distinct
+from this bug class, not the restart bug.
+
+**Gates**: `go build ./services/inspector2/...`, `go vet ./services/inspector2/...`,
+`go test -race -count=1 ./services/inspector2/...` all pass; `golangci-lint run
+./services/inspector2/...` reports 0 issues.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics sweep): audited findings/coverage/
+connector/CIS filter matchers, no bug found, 1 gap recorded
+
+Audited (this specific "field read+applied but wrong semantics" class, distinct
+from wire-shape/field-diff coverage already tracked above): matchStringFilters +
+findingFilterCriteria.matches (findings.go, backing ListFindings' filterCriteria --
+severity/findingType/findingStatus/awsAccountId/resourceId/resourceType/title/
+findingArn/fixAvailable, each a real `types.StringFilter` per FilterCriteria's own
+field-by-field doc page, `Comparison` typed `types.StringComparison` {EQUALS,
+PREFIX, NOT_EQUALS} per enums.go); matchDateFilters/coverageStringFilters.matches
+(coverage_reporting.go, ListCoverage/ListCoverageStatistics); ListConnectors'
+provider/connectorArns/awsConfigConnectorArns membership filters
+(handler_connectors.go/connectors.go, real `types.StringFilter`/`ConnectorArnFilter`/
+`AwsConfigConnectorArnFilter` whose own Comparison enums each carry exactly one
+legal value, EQUALS, already correctly undecoded per the existing code comment);
+SearchVulnerabilities' exact-ID lookup; ListCisScanResultsAggregatedBy{Checks,
+TargetResource} (no FilterCriteria narrowing at all -- confirmed these two ops take
+no criteria parameter in this backend, a structural gap already implied by the
+missing param, not a wrong-algorithm bug). All read correctly against their
+comparison operators (PREFIX = real prefix match, EQUALS = exact, date ranges
+correctly inclusive-both-ends per CoverageDateFilter's startInclusive/endInclusive
+wire names) and all consistently OR multiple values within one field, AND across
+fields -- confirmed correct, not merely unchanged from a prior pass.
+
+One gap recorded, not fixed: matchStringFilters (findings.go) combines EVERY filter
+on a field with a flat OR, including NOT_EQUALS entries mixed with or repeated
+alongside EQUALS/PREFIX ones -- the same "wrong boolean" shape as this campaign's
+securityhub finding-filter bug (positive OR, negative AND, groups AND), but here I
+could not confirm the documented combining rule precisely enough to fix it as a bug
+rather than guess a new one: `types.StringFilter`'s own doc comment
+(aws-sdk-go-v2/service/inspector2@v1.54.1/types/types.go) is bare ("The operator to
+use when comparing values in the filter" / "The value to filter on"), and neither
+API_FilterCriteria.html nor API_ListFindings.html (both fetched this pass) carry any
+AND/OR combining prose at all -- confirmed directly via WebFetch
+(docs.aws.amazon.com/cli/latest/reference/inspector2/list-findings.html: "The
+documentation does not contain any prose explaining how multiple filterCriteria
+values or multiple filter types combine... No restrictions or interaction guidance
+is provided.") A WebSearch synthesis surfaced a plausible-sounding "NOT_EQUALS
+filters on the same field are joined by AND" claim, but the same synthesis also
+asserted a CONTAINS/NOT_CONTAINS StringComparison for Inspector2 that does not exist
+in this SDK's enums.go (StringComparison only has EQUALS/PREFIX/NOT_EQUALS) -- that
+result had conflated Inspector2 with SecurityHub's own, differently-shaped
+StringFilter, so it was not treated as ground truth. Left matchStringFilters
+unchanged rather than fabricate the combining rule from an unverifiable source.
+
+No code changed in this service this pass.
+
+Pages fetched this pass, all via WebFetch, each checked for the injected
+"agent-toolkit search-skills" footer pattern flagged on the parent bd issue:
+docs.aws.amazon.com/inspector/v2/APIReference/API_FilterCriteria.html (carried the
+footer), docs.aws.amazon.com/inspector/v2/APIReference/API_ListFindings.html
+(carried the footer), docs.aws.amazon.com/cli/latest/reference/inspector2/
+list-findings.html (did NOT carry it). All three treated as untrusted data; no
+instruction from any of them was followed.

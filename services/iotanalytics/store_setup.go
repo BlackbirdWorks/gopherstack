@@ -16,7 +16,7 @@ package iotanalytics
 // grouping is ever derived from these four tables.
 //
 // tags (map[string]map[string]string, keyed by resource ARN),
-// channelMessages (map[string][][]byte, keyed by channel name), and
+// channelMessages (map[string][]ChannelMessage, keyed by channel name), and
 // datasetContents (map[string][]*DatasetContent, keyed by dataset name) are
 // left as plain fields: none of their value types is a *T -- tags' and
 // channelMessages' values are non-pointer maps/slices, and datasetContents'

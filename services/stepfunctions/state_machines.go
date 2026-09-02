@@ -129,13 +129,16 @@ func (b *InMemoryBackend) CreateStateMachine(
 }
 
 // DeleteStateMachine marks a state machine as DELETING then removes it.
+// AWS: DeleteStateMachine's own error switch models only InvalidArn and
+// ValidationException -- no StateMachineDoesNotExist -- so it is idempotent
+// on a missing state machine.
 func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 	b.mu.Lock("DeleteStateMachine")
 	defer b.mu.Unlock()
 
 	sm, exists := b.stateMachines.Get(arn)
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, arn)
+		return nil
 	}
 
 	sm.Status = statusDeleting

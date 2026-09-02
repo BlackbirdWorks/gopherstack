@@ -58,6 +58,30 @@ func pageParams(query url.Values) (int, string) {
 	return maxResults, nextToken
 }
 
+// bodyPageParams reads maxResults/nextToken from a List op's JSON request
+// body. Most List operations here bind them to the body, not the query
+// string (confirmed per-op against aws-sdk-go-v2/service/bedrockagent's
+// serializers.go httpBindings functions) -- unlike ListFlows/ListFlowVersions/
+// ListFlowAliases/ListPrompts, which really do bind them as query params
+// (those keep using pageParams).
+func bodyPageParams(body []byte) (int, string) {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	maxResults := maxPageDefault
+	if req.MaxResults > 0 {
+		maxResults = req.MaxResults
+	}
+
+	return maxResults, req.NextToken
+}
+
 // classifyPath returns the operation name from method+path (used by ExtractOperation).
 
 func classifyPath(method, path string) string {

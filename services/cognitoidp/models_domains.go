@@ -40,15 +40,6 @@ type updateUserPoolDomainFullOutput struct {
 	CloudFrontDomain    string `json:"CloudFrontDomain,omitempty"`
 }
 
-type createUserPoolDomainInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Domain     string `json:"Domain,omitempty"`
-}
-
-type createUserPoolDomainOutput struct {
-	CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
-}
-
 type deleteUserPoolDomainInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	Domain     string `json:"Domain,omitempty"`
@@ -73,13 +64,4 @@ type userPoolDomainDescription struct {
 
 type describeUserPoolDomainOutput struct {
 	DomainDescription *userPoolDomainDescription `json:"DomainDescription,omitempty"`
-}
-
-type updateUserPoolDomainInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Domain     string `json:"Domain,omitempty"`
-}
-
-type updateUserPoolDomainOutput struct {
-	CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 }

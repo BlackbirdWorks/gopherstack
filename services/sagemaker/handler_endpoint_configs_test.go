@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -514,4 +515,48 @@ func TestDeleteEndpointConfig_NotFound(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_ListEndpointConfigs_CreationTimeAfterInclusive asserts
+// CreationTimeAfter is an INCLUSIVE bound -- ListEndpointConfigsInput's own
+// doc: "a creation time greater than or equal to the specified time" -- not
+// the family's default strict bound, so a config filtered by a
+// CreationTimeAfter EQUAL to its own CreationTime must still be returned.
+// CreationTime is seeded to an exact whole second -- see
+// TestHandler_ListModels_CreationTimeAfterInclusive for why a wire-level
+// round trip can't reliably hit this boundary.
+func TestHandler_ListEndpointConfigs_CreationTimeAfterInclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateEndpointConfig", map[string]any{
+		"EndpointConfigName": "boundary-config",
+		"ProductionVariants": []map[string]any{
+			{
+				"VariantName":          "AllTraffic",
+				"ModelName":            "my-model",
+				"InstanceType":         "ml.t2.medium",
+				"InitialInstanceCount": 1,
+			},
+		},
+	})
+
+	boundary := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	sagemaker.SeedEndpointConfigCreationTime(h.Backend, "us-east-1", "boundary-config", boundary)
+
+	rec := doSageMakerRequest(
+		t, h, "ListEndpointConfigs", map[string]any{"CreationTimeAfter": float64(boundary.Unix())},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	configs, ok := resp["EndpointConfigs"].([]any)
+	require.True(t, ok)
+	require.Len(t, configs, 1)
+
+	c, ok := configs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "boundary-config", c["EndpointConfigName"])
 }

@@ -193,9 +193,12 @@ func TestDeleteTopicRule_Handler(t *testing.T) {
 			wantCode: http.StatusNoContent,
 		},
 		{
+			// DeleteTopicRule's own deserializeOpError switch declares no
+			// ResourceNotFoundException case; InvalidRequestException (400)
+			// is the real type. See wire_error_code_topic_rule_test.go.
 			name:     "delete_missing_rule",
 			setup:    nil,
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

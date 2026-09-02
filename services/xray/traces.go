@@ -128,6 +128,27 @@ func accumulateUserFromAnnotations(summary *TraceSummaryData, seg *Segment, seen
 	summary.Users = append(summary.Users, userStr)
 }
 
+// accumulateAWSResourceInfo extracts EC2 instance/AZ info from seg's "aws"
+// block (Segment.AWS, parsed by PutTraceSegments) into summary.AvailabilityZones
+// and summary.InstanceIDs, per the segment document's documented
+// aws.ec2.{availability_zone,instance_id} fields.
+func accumulateAWSResourceInfo(summary *TraceSummaryData, seg *Segment, seenAZ, seenInstance map[string]bool) {
+	ec2, ok := seg.AWS["ec2"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	if az, azOK := ec2["availability_zone"].(string); azOK && az != "" && !seenAZ[az] {
+		seenAZ[az] = true
+		summary.AvailabilityZones = append(summary.AvailabilityZones, az)
+	}
+
+	if id, idOK := ec2["instance_id"].(string); idOK && id != "" && !seenInstance[id] {
+		seenInstance[id] = true
+		summary.InstanceIDs = append(summary.InstanceIDs, id)
+	}
+}
+
 // accumulateServiceID records the service identity from seg into summary.ServiceIDs when not yet seen.
 func accumulateServiceID(summary *TraceSummaryData, seg *Segment, seen map[serviceKey]bool) {
 	svcType := seg.Origin
@@ -205,6 +226,8 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 
 	seen := map[serviceKey]bool{}
 	seenUsers := map[string]bool{}
+	seenAZ := map[string]bool{}
+	seenInstance := map[string]bool{}
 	hasRoot := false
 
 	for _, seg := range segs {
@@ -221,6 +244,7 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 		accumulateAnnotations(&summary, seg)
 		accumulateUserFromAnnotations(&summary, seg, seenUsers)
 		accumulateServiceID(&summary, seg, seen)
+		accumulateAWSResourceInfo(&summary, seg, seenAZ, seenInstance)
 
 		// Root segment has no parent.
 		if seg.ParentID == "" {

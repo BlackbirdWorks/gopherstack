@@ -49,7 +49,7 @@ type StorageBackend interface {
 	// Permission list/version/promotion operations
 	ListPermissions(resourceType string) []*Permission
 	ListPermissionVersions(permissionARN string) ([]*PermissionVersion, error)
-	ListPermissionAssociations(permissionARN string) []SharePermissionAssociation
+	ListPermissionAssociations(permissionARN string, permissionVersion *int32) []SharePermissionAssociation
 	SetDefaultPermissionVersion(permissionARN string, version int32) (*Permission, error)
 	PromotePermissionCreatedFromPolicy(permissionARN, name string) (*Permission, error)
 	PromoteResourceShareCreatedFromPolicy(shareARN string) (*ResourceShare, error)
@@ -60,8 +60,8 @@ type StorageBackend interface {
 	ListReplacePermissionAssociationsWork(workIDs []string, status string) []*ReplacePermissionAssociationsWork
 
 	// Resource and principal list operations
-	ListResources(resourceOwner, shareARN, resourceType string) []*ResourceShareAssociation
-	ListPrincipals(resourceOwner, shareARN string) []*ResourceShareAssociation
+	ListResources(resourceOwner string, shareARNs []string, resourceType string) []*ResourceShareAssociation
+	ListPrincipals(resourceOwner string, shareARNs []string) []*ResourceShareAssociation
 
 	// Resource policy operations
 	GetResourcePolicies(resourceARNs []string) []string

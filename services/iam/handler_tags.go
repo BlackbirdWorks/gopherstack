@@ -1,10 +1,12 @@
 package iam
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"maps"
 	"net/url"
+	"slices"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -28,11 +30,7 @@ func (h *Handler) resourceTagDispatch(kind, tagPrefix, paramName string) map[str
 	return map[string]iamActionFn{
 		"List" + kind + "Tags": func(vals url.Values, reqID string) (any, error) {
 			id := vals.Get(paramName)
-			tags := h.getTags(tagPrefix + id)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
-			}
+			members := tagsMapToKV(h.getTags(tagPrefix + id))
 
 			return &iamListTagsResponse{
 				XMLName: xml.Name{Local: "List" + kind + "TagsResponse"},
@@ -192,7 +190,10 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 	}
 }
 
-// tagsMapToKV converts map[string]string to sorted svcTags.KV slice.
+// tagsMapToKV converts map[string]string to a svcTags.KV slice sorted by key,
+// matching every IAM List*Tags operation's documented order (e.g. iam@v1.58.1
+// api_op_ListRoleTags.go:14: "The returned list of tags is sorted by tag
+// key.").
 func tagsMapToKV(tags map[string]string) []svcTags.KV {
 	if len(tags) == 0 {
 		return nil
@@ -202,6 +203,8 @@ func tagsMapToKV(tags map[string]string) []svcTags.KV {
 	for k, v := range tags {
 		result = append(result, svcTags.KV{Key: k, Value: v})
 	}
+
+	slices.SortFunc(result, func(a, b svcTags.KV) int { return cmp.Compare(a.Key, b.Key) })
 
 	return result
 }

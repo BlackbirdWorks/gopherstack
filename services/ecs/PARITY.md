@@ -6,9 +6,9 @@ last_audit_date: 2026-07-31
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
-  DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "added include=[TAGS] gating (was previously unsupported; tags were never returned)"}
+  DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "added include=[TAGS] gating (was previously unsupported; tags were never returned). FIXED (value-semantics sweep, gopherstack-uox6): DescribeClustersInput.Clusters docs 'If you do not specify a cluster, the default cluster is assumed' -- an empty Clusters list returned EVERY cluster in the account instead, because the backend method was reused (via `b.DescribeClusters(nil)`) as ListClusters' own implementation, and ListClusters (a different operation, no such default-substitution language) legitimately does return everything. Decoupled: ListClusters now enumerates b.clusters directly; DescribeClusters([]) now describes only the 'default' cluster (auto-vivified via the same ensureClusterLocked lazy-creation already used by RunTask/CreateService/RegisterContainerInstance, so a fresh account's implicit default cluster is describable exactly as real AWS's always is). Two existing tests asserted the old 'empty returns all' behavior and were corrected. Proven by the corrected TestECS_DescribeClusters/empty_describes_default_cluster_only and TestDescribeClusters_FailureSemantics (fail without the fix)."}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade delete of serviceDeployments fixed (was keyed wrong, silently a no-op); this sweep: also cascade-cleans the resourceTags side-map entry for the cluster itself plus every cascade-deleted service/container-instance (previously a ghost row that could resurrect stale tags on a same-name recreate, or leak permanently for random-ID resources -- see Notes)"}
-  ListClusters: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "decoupled from DescribeClusters this sweep (gopherstack-uox6) -- see DescribeClusters note; behavior unchanged (still returns every cluster, matching ListClustersInput, which has no default-substitution language)."}
   UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED this sweep: the 2026-07-26 entry's wire:ok claim was false -- updateClusterInput accepted capacityProviders and defaultCapacityProviderStrategy, and validated the latter (see the entry this replaces), but the real UpdateClusterRequest has neither field (only cluster, settings, configuration, serviceConnectDefaults); capacity-provider association is exclusively PutClusterCapacityProviders's job. A real typed SDK client could never have exercised this surface. Both fields removed from the handler input struct and from UpdateClusterInput/Backend.UpdateCluster; sending them now is silently ignored rather than applied, proven by TestUpdateCluster_DoesNotAcceptCapacityProviders (fails without the fix). configuration and serviceConnectDefaults remain unmodeled (pre-existing, not part of this fix)."}
   UpdateClusterSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   PutClusterCapacityProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED prior sweep: defaultCapacityProviderStrategy items are now validated against real (created via CreateCapacityProvider) or FARGATE/FARGATE_SPOT-builtin capacity providers, returning a 400 ClientException for an unknown name instead of silently accepting any string. Same validateCapacityProviderStrategyLocked helper wired into CreateCluster, CreateService, UpdateService, RunTask, and CreateTaskSet. CORRECTED this sweep: the prior note also claimed UpdateCluster was wired into this validation; that was true of the code at the time, but UpdateCluster's capacityProviders/defaultCapacityProviderStrategy fields were themselves a wire-shape bug (see UpdateCluster entry) and have since been removed, so UpdateCluster is no longer part of this list. Scoped narrowly: only strategy items are validated, not the separate capacityProviders association list (see gaps)."}
@@ -16,7 +16,7 @@ ops:
   DescribeTaskDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "include=[TAGS] already supported pre-sweep"}
   DeregisterTaskDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTaskDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the resourceTags side-map entry per deleted revision (previously a permanent ghost row, see Notes)"}
-  ListTaskDefinitions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTaskDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (order-bug sweep): default order was sort.Strings on the full ARN, which compares revision as a string ('family:10' < 'family:2') -- wrong once a family passes revision 9, and the request's sort param (ASC/DESC) was dropped entirely, not even in the input struct. AWS documents 'by default (ASC) task definitions are listed lexicographically by family name and in ascending numerical order by revision' (api_op_ListTaskDefinitions.go). Now sorts by (Family, Revision) with Revision compared numerically, and Sort is threaded through and applied. Proven by TestECS_ListTaskDefinitions_Order (11 revisions across two families, fails without the fix)."}
   ListTaskDefinitionFamilies: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now records a real ServiceDeployment for the initial PRIMARY deployment (was a disguised stub, see gaps/fixes); capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: tags supplied at creation now mirrored into the resourceTags side map (was two never-synced copies -- see TagResource note and Notes)."}
   DescribeServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED gopherstack-rnka: added include=[TAGS] gating (previously tags were always returned unconditionally, unlike DescribeClusters/DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService, which already gated correctly); tags now sourced from the resourceTags side map via ListTagsForResource, not the stale Service.Tags snapshot."}
@@ -31,19 +31,19 @@ ops:
   UpdateServicePrimaryTaskSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeServiceRevisions: {wire: ok, errors: ok, state: ok, persist: ok, note: "derived on read from Service.Deployments, not separately stored — intentional (see Notes)"}
   DescribeServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised stub: filtered a map only the AddServiceDeploymentInternal test seed ever populated. Fixed by syncServiceDeploymentsLocked."}
-  ListServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-7ux2): returned a wholly wrong shape -- a bare serviceDeploymentArns string list instead of ServiceDeployments ([]types.ServiceDeploymentBrief), so a real client decoded nothing. Now returns Brief objects sourced from ServiceDeployment: ClusterArn/ServiceArn/ServiceDeploymentArn/Status/StatusReason/CreatedAt direct; StartedAt mirrors CreatedAt (the real full ServiceDeployment type has no separate started timestamp either, only CreatedAt/FinishedAt); FinishedAt is UpdatedAt when Status is terminal (SUCCESSFUL/STOPPED), absent otherwise; TargetServiceRevisionArn newly threaded from Deployment.ServiceRevisionArn (was tracked on Deployment but never copied onto ServiceDeployment). Alarms/DeploymentCircuitBreaker/DeploymentConfiguration remain absent -- not modeled on ServiceDeployment, nothing honest to source them from"}
-  StopServiceDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix; also now really has data to stop"}
+  ListServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-7ux2): returned a wholly wrong shape -- a bare serviceDeploymentArns string list instead of ServiceDeployments ([]types.ServiceDeploymentBrief), so a real client decoded nothing. Now returns Brief objects sourced from ServiceDeployment: ClusterArn/ServiceArn/ServiceDeploymentArn/Status/StatusReason/CreatedAt direct; StartedAt mirrors CreatedAt (the real full ServiceDeployment type has no separate started timestamp either, only CreatedAt/FinishedAt); FinishedAt is UpdatedAt when Status is terminal (SUCCESSFUL/STOPPED), absent otherwise; TargetServiceRevisionArn newly threaded from Deployment.ServiceRevisionArn (was tracked on Deployment but never copied onto ServiceDeployment). Alarms/DeploymentCircuitBreaker/DeploymentConfiguration remain absent -- not modeled on ServiceDeployment, nothing honest to source them from. FIXED (order-bug sweep): also read via b.serviceDeployments.All(), whose documented contract (pkgs/store/table.go) is unspecified (Go map) iteration order -- no sort was applied, so two calls with no mutation in between could differ. AWS documents no order for this op; now sorted by ServiceDeploymentArn, matching the sibling ListDaemonDeployments convention. Proven by TestECS_ListServiceDeployments_StableOrder."}
+  StopServiceDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix; also now really has data to stop. FIXED 2026-08-30 (gopherstack-101r, fabricated-error-code sweep): the already-STOPPED case emitted 'ServiceDeploymentAlreadyStoppedException', which names no type in ecs@v1.90.0 (absent from types/errors.go and from awsAwsjson11_deserializeOpErrorStopServiceDeployment's switch) -- a prior hand sweep fixed eleven other fabricated codes in this service but missed this twelfth. StopServiceDeployment's own deserializer models ConflictException ('conflict in the current state of the resource'), now used instead. TestStopServiceDeployment_AlreadyStopped_RealClient (error_code_fixes_ecssweep_test.go) confirmed failing pre-fix against the real typed SDK client."}
   ContinueServiceDeployment: {wire: ok, errors: ok, state: partial, persist: n/a, note: "NEW op (was entirely unimplemented / absent from GetSupportedOperations). Lifecycle hooks (blue/green PAUSE stages) are not modeled, so every call returns an honest ClientException that no paused hook exists, after real ARN/hookId validation — never a fabricated success. See gaps."}
-  RunTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy input (was entirely absent from RunTaskInput -- a real SDK field, now validated) and capacityProviderName output on Task (real SDK field; this backend does not model AWS's weight/base task-distribution algorithm across multiple providers in a strategy, so it always selects the first entry -- documented simplification, not a stub, see Task.CapacityProviderName doc comment in models.go)"}
-  StartTask: {wire: ok, errors: ok, state: ok, persist: ok}
+  RunTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy input (was entirely absent from RunTaskInput -- a real SDK field, now validated) and capacityProviderName output on Task (real SDK field; this backend does not model AWS's weight/base task-distribution algorithm across multiple providers in a strategy, so it always selects the first entry -- documented simplification, not a stub, see Task.CapacityProviderName doc comment in models.go). Per-item failure sweep: RunTaskOutput.Failures (api_op_RunTask.go) is checked but left unpopulated -- runTaskOutput has no Failures field on the wire and every requested task is always placed. Deliberately left: real RunTask.Failures reports pre-placement capacity/constraint failures (e.g. insufficient cluster resources for a subset of the requested count), and this backend does not model cluster resource capacity at all, so no real client input can cause a subset of a RunTask batch to fail placement while the rest succeed -- there is nothing to be dishonest about yet."}
+  StartTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (per-item failure sweep): the handler hardcoded Failures to an empty slice and the backend created a task for every requested container instance ARN unconditionally, including ones never registered in the cluster -- StartTaskOutput.Failures (api_op_StartTask.go) was never populated, so a client asking to place a task on a stale/mistyped instance ARN got back a fabricated running task instead of the documented failure. Now unknown ARNs are reported as Failure{Reason: MISSING} and only valid ones get a task, matching the sibling batch-describe ops. Proven by TestStartTask_UnknownContainerInstance_ReportsFailure (fails without the fix)."}
   DescribeTasks: {wire: ok, errors: ok, state: ok, persist: ok}
   StopTask: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTasks: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (value-semantics sweep, gopherstack-uox6): ListTasksInput.DesiredStatus docs 'The default status filter is RUNNING' -- an omitted desiredStatus returned tasks of every status (RUNNING and STOPPED both), not RUNNING only. Fixed in the shared ListTasksFiltered (also used by the plain ListTasks(cluster) Backend-interface convenience method, which is now correctly RUNNING-only by default like the real op). Three internal tests relied on the old widen-on-empty behavior to see STOPPED tasks (a janitor test, a circuit-breaker task-count test) and were corrected to query DesiredStatus explicitly rather than relying on the default. Proven by TestECS_ListTasks_DesiredStatusDefaultsToRunning (fails without the fix). Gap: daemonName (a distinct documented ListTasksInput filter) is not declared/read at all -- other axis (never-read), not fixed here."}
   RegisterContainerInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED this sweep: the prior wire:ok claim was false -- registerContainerInstanceInput required ec2InstanceId, a field that does not exist on the real RegisterContainerInstanceRequest (only instanceIdentityDocument/instanceIdentityDocumentSignature, plus cluster/attributes/tags/versionInfo/etc.); no real typed SDK client could ever populate it. Fixed by accepting instanceIdentityDocument instead and deriving the EC2 instance ID by parsing its instanceId JSON field (the real document served at the EC2 instance-metadata identity-document endpoint, which real ECS also derives instance identity from). If the document is absent or does not parse, EC2InstanceID is left empty rather than fabricated -- an honest 'could not identify' rather than a plausible-looking invented ID. instanceIdentityDocumentSignature is accepted for wire-shape completeness but not cryptographically verified (this backend does not model EC2 instance-identity attestation). attributes/tags/versionInfo/totalResources/containerInstanceArn/platformDevices on the real request are not modeled at registration time (attributes/tags are already reachable via the separate PutAttributes/TagResource operations); out of scope for this fix, not claimed as done."}
   DeregisterContainerInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the container instance's resourceTags side-map entry (previously a ghost row, see Notes)"}
   DescribeContainerInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added include=[TAGS] gating (tags previously had no wire-shape field at all). Remaining gap: CONTAINER_INSTANCE_HEALTH include value / HealthStatus field not modeled -- no health-check state is tracked for container instances (niche, not in the original gap list, deferred)"}
   ListContainerInstances: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateContainerInstancesState: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateContainerInstancesState: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (per-item failure sweep): an unknown container instance ARN aborted the whole batch with a request-level InvalidParameterException, and the wire output type had no Failures field at all, though api_op_UpdateContainerInstancesState.go models UpdateContainerInstancesStateOutput.Failures -- a client draining N instances lost the state change on every valid instance because one stale ARN was in the same request. Now valid instances still transition and unknown ones are reported per-item as Failure{Reason: MISSING}, matching the sibling DescribeContainerInstances/DescribeClusters pattern. Two existing tests asserted the old top-level-error behavior as correct (TestECS_UpdateContainerInstancesState_NotFound, error_code_fixes_ecssweep_test.go's UpdateContainerInstancesState subtest) and were updated to assert the per-item Failures shape instead. Proven by TestUpdateContainerInstancesState_UnknownInstance_ReportsFailure (fails without the fix)."}
   UpdateContainerAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -54,12 +54,12 @@ ops:
   PutAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAccountSettingDefault: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (order-bug sweep): built its response by ranging b.attributes[cluster] (a map[string]*Attribute) directly with no sort, so order was raw Go map order -- can differ between two calls with no mutation in between. AWS documents no order for this op; now sorted (Name, TargetID) for a stable, testable result. Proven by TestECS_ListAttributes_StableOrder."}
   PutAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ExecuteCommand: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTaskProtection: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTaskProtection: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resourceTags side map was NOT in backendSnapshot at all — fixed, see gaps/fixes. Fixed a real bug where TagResource on an Express Gateway Service ARN silently never became visible on Describe or ListTagsForResource (see ExpressGatewayService notes below). FIXED gopherstack-rnka: the identical disconnect for ordinary Service ARNs (Service.Tags was a creation-time-only snapshot, never synced with resourceTags, and RunTask's propagateTags=SERVICE path read the stale snapshot too) is now closed -- see CreateService/UpdateService/DeleteService/DescribeServices notes."}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resourceTags side map was NOT in backendSnapshot at all — fixed, see gaps/fixes. Fixed a real bug where TagResource on an Express Gateway Service ARN silently never became visible on Describe or ListTagsForResource (see ExpressGatewayService notes below). FIXED gopherstack-rnka: the identical disconnect for ordinary Service ARNs (Service.Tags was a creation-time-only snapshot, never synced with resourceTags, and RunTask's propagateTags=SERVICE path read the stale snapshot too) is now closed -- see CreateService/UpdateService/DeleteService/DescribeServices notes. Re-checked this pass (wrapper-key sweep) against the sfn TagResource map/array bug class: ecs's TagResourceInput.Tags is []types.Tag, array of {key,value} (api_op_TagResource.go:82, serializers.go:8688-8700), matching this emulator's []Tag{Key,Value} exactly -- genuinely clean, confirmed via a real-client round-trip test (tag_resource_sdk_test.go)."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "tags supplied at creation are mirrored into the resourceTags side map (previously only stored on the ExpressGatewayService.Tags struct field, never synced -- see Notes for the TagResource-invisibility bug this caused). FIXED gopherstack-rnka: input now carries the full real CreateExpressGatewayServiceInput surface -- Cpu, Memory, HealthCheckPath, ExecutionRoleArn, NetworkConfiguration, PrimaryContainer, ScalingTarget, TaskDefinitionArn, TaskRoleArn -- validated (taskDefinitionArn is mutually exclusive with primaryContainer/executionRoleArn/taskRoleArn/cpu/memory, matching the real API) and stored as the service's first ActiveConfigurations revision, not silently dropped."}
@@ -71,13 +71,15 @@ ops:
   SubmitContainerStateChange: {wire: ok, errors: ok, state: ok, persist: ok}
   SubmitTaskStateChange: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  daemon: {status: ok, note: "Field-diffed for real (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs). Fixed a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. CORRECTED gopherstack-rnka: the prior ledger entry here (2026-07-23) claimed DescribeDaemonOutput.Daemon was flattened -- daemonName/daemonTaskDefinitionArn/capacityProviderArns/tags/etc. living directly on the response instead of nested under CurrentRevisions -- and downgraded this family to partial on that basis. Re-verified against the real types.DaemonDetail shape (ClusterArn/CreatedAt/CurrentRevisions[]DaemonRevisionDetail{Arn,CapacityProviders[]DaemonCapacityProvider{Arn,RunningCount},TotalRunningCount}/DaemonArn/DeploymentArn/Status/UpdatedAt) field-by-field: handler_daemon.go's daemonDetailView/daemonRevisionDetailView/daemonCapacityProviderView already match this exactly, and DO NOT expose daemonName/daemonTaskDefinitionArn/tags/etc. at the top level. Proven with a new real-SDK-client round-trip test (TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting) rather than trusting the prior note. The 2026-07-23 gap description was inaccurate at the time it was written (the code was already correct); upgraded back to ok."}
+  daemon: {status: ok, note: "Field-diffed for real (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs). Fixed a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. CORRECTED gopherstack-rnka: the prior ledger entry here (2026-07-23) claimed DescribeDaemonOutput.Daemon was flattened -- daemonName/daemonTaskDefinitionArn/capacityProviderArns/tags/etc. living directly on the response instead of nested under CurrentRevisions -- and downgraded this family to partial on that basis. Re-verified against the real types.DaemonDetail shape (ClusterArn/CreatedAt/CurrentRevisions[]DaemonRevisionDetail{Arn,CapacityProviders[]DaemonCapacityProvider{Arn,RunningCount},TotalRunningCount}/DaemonArn/DeploymentArn/Status/UpdatedAt) field-by-field: handler_daemon.go's daemonDetailView/daemonRevisionDetailView/daemonCapacityProviderView already match this exactly, and DO NOT expose daemonName/daemonTaskDefinitionArn/tags/etc. at the top level. Proven with a new real-SDK-client round-trip test (TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting) rather than trusting the prior note. The 2026-07-23 gap description was inaccurate at the time it was written (the code was already correct); upgraded back to ok. FIXED (order-bug sweep): ListDaemonTaskDefinitions had the same numeric-vs-lexicographic bug as ListTaskDefinitions -- it sorted by the full ARN string ('daemon-task-definition/family:10' < '...:2'), wrong once a family passes revision 9, though unlike ListTaskDefinitions the request's Sort field WAS threaded through and applied (as a post-hoc reversal of the already-wrong order). AWS documents 'by default (ASC), daemon task definitions are listed in ascending order by family name and revision number' (api_op_ListDaemonTaskDefinitions.go). Now sorts by (Family, Revision) with Revision compared numerically before Sort=DESC reverses it. Proven by TestECS_ListDaemonTaskDefinitions_Order. FIXED (value-semantics sweep, gopherstack-uox6): ListDaemons had the same DescribeClusters-shaped bug -- ListDaemonsInput.ClusterArn docs 'If you do not specify a cluster, the default cluster is assumed', but an empty ClusterArn returned daemons from every cluster in the account instead of scoping to 'default'. Fixed by routing through the same resolveCluster helper every other Cluster-defaulting op uses. Proven by TestECS_ListDaemons_OmittedClusterScopesToDefault (fails without the fix). Gap: ListDaemonDeploymentsInput.CreatedAt (a documented time-range filter) is not declared/read at all -- other axis (never-read), not fixed here."}
 gaps:
   - "PutClusterCapacityProviders/CreateService/UpdateService/RunTask/CreateCluster/CreateTaskSet do not validate that the *association* list itself (capacityProviders, as opposed to a capacityProviderStrategy item) references real capacity providers -- e.g. PutClusterCapacityProviders(capacityProviders=[\"typo-cp\"]) is accepted. FIXED a prior sweep for capacityProviderStrategy *items* specifically (see PutClusterCapacityProviders note); the separate capacityProviders association-list gap is unchanged and intentionally not fixed for the same reason (many call sites, tests using ad-hoc provider names in the association list specifically). CORRECTED this sweep: UpdateCluster removed from this list -- it never legitimately had a capacityProviders field to validate (see UpdateCluster entry), so listing it here as a gap was itself inaccurate."
   - "SDK bumped v1.86.2 -> v1.88.0 last sweep (no local services/ecs/ drift; SDK-only, re-confirmed unchanged this sweep). New surface: ServiceRevision.Overrides -> ServiceRevisionOverrides.RuntimePlatform (types.RuntimePlatformOverride, CpuArchitecture only) — an output-only field AWS populates when it auto-detects an architecture mismatch during an ECS Express deployment (doc: \"You can't set this value\"). Not modeled (DescribeServiceRevisions never populates Overrides); no client-visible regression since the field is optional/omitempty and no test or codepath claims architecture-mismatch detection. Niche, deferred."
   - "ContinueServiceDeployment always returns ClientException (no paused lifecycle hook) because PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT / EXTERNAL deployment controllers). Implementing real hook pausing is a substantial feature (Lambda-invocation simulation, TEST_TRAFFIC_SHIFT/BAKE_TIME lifecycle stages) out of scope for this sweep; the op is real (validates ARN/hookId, returns AWS-shaped errors) rather than a stub. Re-verified unchanged this sweep."
   - "ECS -> ELB/ELBv2 target registration is config-only: Service.LoadBalancers/ServiceRegistries are stored and echoed back on Describe/Update, but nothing calls services/elbv2 to register/deregister targets in a target group, and ELB health does not feed back into ECS task/service health. Cross-service, lives outside services/ecs/ — reported, not fixed. No bd issue found for this in the tracker at time of writing; recommend filing one scoped to services/elbv2 + services/ecs integration."
   - "ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it in response to managed-scaling target utilization. Cross-service, lives outside services/ecs/ — reported, not fixed."
+  - "Value-semantics sweep (gopherstack-uox6): several documented filter fields are never declared on their handler's wire input struct at all (the other axis -- never-read, not a wrong algorithm, not fixed here): ListServiceDeploymentsInput.CreatedAt and .Status (listServiceDeploymentsInput has only Cluster/Service); ListDaemonDeploymentsInput.CreatedAt (ListDaemonDeploymentsInput backend type has only DaemonArn/Status); ListTasksInput.daemonName; ListServicesInput.resourceManagementType. Also validation-shaped, not fixed here: ListTasksInput.startedBy docs 'When you specify startedBy as the filter, it must be the only filter that you use' -- combining it with another filter is silently ANDed rather than rejected; ListAccountSettingsInput.value and ListAttributesInput.attributeValue both document 'You must also specify a name/attribute name to use this parameter' -- supplying value alone is not rejected."
+  - "Value-semantics sweep (gopherstack-uox6): ListContainerInstancesInput.status docs 'If you don't specify this parameter, the default is to include container instances set to all states other than INACTIVE' -- the code has no such exclusion (empty status = no filter at all). Left unfixed: types.ContainerInstanceStatus's own enum (ACTIVE/DRAINING/REGISTERING/DEREGISTERING/REGISTRATION_FAILED) does not even include INACTIVE, and this backend deletes a container instance's row entirely on DeregisterContainerInstance rather than retaining it with Status=INACTIVE, so no container instance persisted in this backend's store can ever carry that status -- the documented default has zero observable effect here (same shape as the discarded-before-response gap recorded in a prior pass). Recorded, not implemented, since there is no reachable state to test it against."
 deferred:
   - "Daemon* operation family (CreateDaemon..UpdateDaemon, 12 ops) — field-diffed for real; see families.daemon above for the full writeup (leak fixed; the wire-shape gap previously logged here was a documentation error, corrected gopherstack-rnka -- the nested revision shape was already correct)."
   - "docker_runner.go / real container lifecycle (vs NoopRunner) — re-audited this sweep. Reviewed RunTask (pull/create/start with rollback-on-failure via rollbackContainers, only registers the task's containers in the tracking map after every container in the task started successfully) and StopTask (snapshots container IDs under lock, stops/removes outside the lock, retains only failed-to-stop IDs for retry). No stubs, no goroutine or container-tracking-map leaks found: a task that fails mid-RunTask is fully rolled back before ever being added to r.containers, so there is no leaked entry for it to begin with. No changes needed."
@@ -760,3 +762,263 @@ both confirmed unchanged from the prior sweep's assessment.
   ecs change (`cli.go` has zero diff in this sweep) and out of scope
   (services/ecs/ only, shared file). `go build ./services/ecs/...` and
   `go build ./...` excluding the root package both pass clean.
+
+### 2026-08-29 -- ERROR PATH sweep: fabricated exception codes (class: iam ErrInvalidAction shape)
+
+Extracted ground truth from all 77 `awsAwsjson11_deserializeOpError<Op>` switches
+in `ecs@v1.90.0/deserializers.go` (JSON-RPC protocol, matched via
+`strings.EqualFold` against `X-Amzn-ErrorType`/body `__type`) and cross-checked
+every `awserr.New(...)` sentinel's code string against both that per-op ground
+truth and `ecs@v1.90.0/types/errors.go`'s 29 real exception shapes.
+
+**11 fabricated error codes found and fixed** -- each was a code string that
+appears in **zero** of the 77 per-op switches AND has no corresponding type in
+`types/errors.go` at all (the strongest signal, same as iam's `ErrInvalidAction`
+being 0-of-176): `TaskNotFoundException`, `TaskDefinitionNotFoundException`,
+`ClusterAlreadyExistsException`, `ServiceAlreadyExistsException`,
+`AccountSettingNotFoundException`, `ContainerInstanceNotFoundException`,
+`CapacityProviderNotFoundException`, `CapacityProviderAlreadyExistsException`,
+`ExpressGatewayServiceNotFoundException`, `ExpressGatewayServiceAlreadyExistsException`.
+All were removed from `errors.go`/their owning files along with their now-dead
+`ErrXxx` sentinels; call sites now use whichever code that specific op's own
+deserializer actually models:
+
+- **StopTask, ExecuteCommand** (`tasks.go`), **DescribeTaskDefinition** /
+  **DeregisterTaskDefinition** (`task_definitions.go`, via the shared
+  `findTaskDefinitionLocked` also used by CreateService/UpdateService/RunTask/
+  StartTask/CreateTaskSet/UpdateTaskSet), **DeleteAccountSetting**
+  (`account_settings.go`), **DeregisterContainerInstance** /
+  **UpdateContainerInstancesState** / **UpdateContainerAgent**
+  (`container_instances.go`), **DeleteCapacityProvider** /
+  **UpdateCapacityProvider** (`capacity_providers.go`): all now use
+  `ErrInvalidParameter` ("InvalidParameterException"), which every one of the
+  77 ops models -- the universal fallback once a fabricated code is ruled out.
+- **CreateService** (`services.go`), **CreateCapacityProvider**
+  (`capacity_providers.go`), **CreateExpressGatewayService**
+  (`express_gateway.go`): duplicate-name/ARN case now uses
+  `ErrInvalidParameter` too -- none of these three `Create*` ops model any
+  "already exists" exception, matching the established real-AWS pattern
+  (`InvalidParameterException: Creation of service was not idempotent.`).
+- **DeleteExpressGatewayService** / **UpdateExpressGatewayService**
+  (`express_gateway.go`): now use the pre-existing `ErrServiceNotFound`
+  ("ServiceNotFoundException", the same code ordinary ECS services use) --
+  both ops' own deserializers model that exact shape.
+- **DescribeExpressGatewayService** (`express_gateway.go`): now uses a new
+  `ErrResourceNotFound` ("ResourceNotFoundException") -- its own deserializer
+  models a *different* code from its Delete/Update siblings for what is
+  conceptually the same "service not found" condition; verified from its own
+  switch, not assumed from the siblings.
+
+**Second-shape bug (should not error at all): `CreateCluster`
+(`clusters.go`) is idempotent in real ECS** -- calling it again with an
+existing `ClusterName` returns the existing cluster (HTTP 200), not an error.
+`CreateCluster`'s own deserializer models zero exceptions for this condition,
+and no "ClusterAlreadyExistsException" type exists anywhere in the SDK, same
+signal as `RemoveClientIDFromOpenIDConnectProvider`'s idempotency bug from the
+iam pass. Fixed to return the existing cluster.
+
+**Pre-existing tests asserting the fabricated codes as correct (found and
+fixed, same shape as the iam `InvalidAction` test):**
+`handler_clusters_test.go`'s `TestECS_CreateCluster_AlreadyExists` (asserted
+400 `ClusterAlreadyExistsException`; renamed
+`TestECS_CreateCluster_Idempotent`, now asserts 200),
+`handler_services_test.go`'s `TestECS_CreateService_AlreadyExists`,
+`handler_express_gateway_test.go`'s `TestECS_CreateExpressGatewayService_DuplicateARN`,
+`handler_container_instances_test.go`'s `TestECS_DeregisterContainerInstance_NotFound`,
+`handler_capacity_providers_test.go`'s `TestECS_CreateCapacityProvider_AlreadyExists`
+(all four updated to assert the real `InvalidParameterException`).
+
+New tests: `error_code_fixes_ecssweep_test.go`, all driving the real
+`aws-sdk-go-v2/service/ecs` client and asserting via `errors.As` against the
+SDK's own typed exception (or, for `CreateCluster`, asserting success on the
+second call) -- confirmed failing against the pre-fix code for every case.
+
+Gates: `go build ./services/ecs/...`, `go vet ./services/ecs/...` and
+repo-wide `go vet ./...` (clean except a pre-existing, unrelated
+`services/appconfig` failure from a concurrently-edited service), `go test
+-race -count=1 ./services/ecs/...` (pass), `golangci-lint run --fix
+./services/ecs/...` (0 issues).
+
+**2026-08-30 (gopherstack request-field re-scan, `cmd/reqfieldscan`)**:
+first pass of `cmd/reqfieldscan` (added `aa4ec0ad2`) against this service's
+request fields -- the ecs pass noted above swept error codes only, request
+fields were unscanned until now. Coverage: 77/77 dispatch-table ops (100%)
+resolved via `service.WrapOp`, no unresolved ops, no blind spots this tool's
+own doc discloses were hit (no local wrapper-around-WrapOp shape like
+cognitoidp's `wrapAccuracy`, no non-`handle<Op>`-named handler this scan
+needed a suffix guess for). 6 fields flagged; hand-verified each against
+`aws-sdk-go-v2/service/ecs@v1.90.0`'s own serializers:
+
+- **`ListDaemonTaskDefinitions.Revision` -- real bug, fixed.**
+  `api_op_ListDaemonTaskDefinitions.go`: "Specify LAST_REGISTERED to return
+  only the last registered revision for each daemon task definition family"
+  -- the field's one documented enum value
+  (`types.DaemonTaskDefinitionRevisionFilterLastRegistered`). The handler
+  built its backend query from `Family`/`FamilyPrefix`/`Status` only, never
+  read `Revision`, so passing `LAST_REGISTERED` silently returned every
+  revision of every matching family instead of narrowing to each family's
+  highest. Fixed by filtering the already-family+revision-sorted result set
+  down to one entry per family when `Revision` case-insensitively equals
+  `"LAST_REGISTERED"`. Proof:
+  `TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered`
+  (`handler_daemon_test.go`), real typed SDK client, confirmed failing
+  (returned all 5 registered revisions instead of the 2 latest) against the
+  unfixed code.
+- **`CreateDaemon.ClientToken` -- verified, structural, not fixed.** No
+  idempotency-token dedup pattern exists anywhere else in this service --
+  grepped the whole package for `ClientToken`; this is the only field of
+  that name in the entire service, meaning no `Create*`/`Run*` op here
+  implements request-token deduplication. Consistent with the rest of the
+  service rather than a localized gap; implementing dedup would be a new
+  cross-cutting feature, not a narrow wire-field fix.
+- **`DiscoverPollEndpoint.Cluster`/`.ContainerInstance` -- verified, not a
+  bug.** `discoverPollEndpointInput`'s own doc comment states plainly:
+  "Currently unused: the handler discards its input" -- the handler's
+  parameter is even declared `_ *discoverPollEndpointInput`. A deliberately
+  disclosed simplification (a single global poll endpoint regardless of
+  cluster/instance), not a silent gap.
+- **`ListContainerInstances.Filter` -- verified, structural, not fixed.**
+  Real AWS's `filter` here is a Cluster Query Language expression (e.g.
+  `attribute:ecs.instance-type =~ t2.*`). Grepped the service for any
+  existing CQL parsing (for this op or any sibling `List*` op with a
+  `filter` parameter): none. A whole unimplemented query-language feature,
+  not a dropped-field fix.
+- **`RegisterContainerInstance.InstanceIdentityDocumentSignature` --
+  verified, not a bug.** The struct's own doc comment states it is "accepted
+  for wire-shape completeness but not cryptographically verified by this
+  emulator" -- a deliberate, disclosed simplification (verifying an EC2
+  instance identity document signature against AWS's public certificate
+  chain is out of scope for an emulator with no real EC2 backing it).
+
+Gates: `go build ./services/ecs/...`, `go build ./...` (repo-wide, clean),
+`go vet ./services/ecs/...`, `go vet ./...` (repo-wide, clean), `go test
+-race -count=1 ./services/ecs/...` (pass), `golangci-lint run
+./services/ecs/...` (0 issues). Work left uncommitted per this pass's
+instructions.
+
+## 2026-08-31 (gopherstack-4glf, never-declared-field sweep, `cmd/reqfielddiff`)
+
+`go run ./cmd/reqfielddiff -dir ecs` reported 15 tier-1 findings ("documented
+default", the axis `reqfieldscan` structurally cannot see: a field never
+declared anywhere in this backend has no struct member for that scanner to
+enumerate). All 15 judged genuinely fixable and fixed -- store the field
+(declaring it for the first time) and, where the SDK names one fixed default
+value, fill it on omission; where the SDK's own doc explicitly says the
+behaviour is contingent (not a fixed value), the field is stored/echoed but
+no default is fabricated.
+
+- **`CreateCluster`/`UpdateCluster.ServiceConnectDefaults`** -- entirely
+  undeclared; a prior pass's comment on `updateClusterInput` explicitly said
+  "not modeled by this backend" (still true for `configuration`, now stale
+  for this field). Added `Cluster.ServiceConnectDefaults`
+  (`*ClusterServiceConnectDefaults{Namespace}`), stored on create, updated
+  only when explicitly supplied on update (mirrors `Settings`'
+  if-non-nil precedent), echoed on Create/Update/DescribeClusters. Config-only
+  -- this backend does not model Service Connect namespace resolution at
+  CreateService time (no `ServiceConnectConfiguration.Namespace` fallback is
+  simulated either), matching the existing config-only precedent already
+  accepted for `Service.LoadBalancers`/`AutoScalingGroupProvider`.
+- **`CreateService`/`UpdateService.AvailabilityZoneRebalancing`** -- own doc
+  comment: create defaults to `ENABLED` when unspecified; update defaults to
+  the existing service's value (a no-op update naturally falls out of
+  "only overwrite when the update input is non-empty", once the field is
+  stored at all). Added `Service.AvailabilityZoneRebalancing`.
+- **`CreateService`/`UpdateService.HealthCheckGracePeriodSeconds`** -- own
+  doc comment: "If you do not specify a health check grace period value, the
+  default value of 0 is used." Added `Service.HealthCheckGracePeriodSeconds
+  *int`; create defaults to a non-nil `0` (not left nil/omitted -- the same
+  vanishing-default shape as the `StartRun.NetworkingMode` omics bug fixed
+  earlier this campaign), update applies only when the pointer is non-nil.
+- **`CreateService`/`UpdateService.Monitoring`** -- own doc comment
+  describes a default CloudWatch resolution, but real AWS echoes this field
+  on `types.ServiceRevision`, not on `types.Service` itself (verified against
+  `ecs@v1.90.0/types/types.go`). Added `Service.Monitoring
+  *MonitoringConfiguration` (new type, mirrors `types.MonitoringConfiguration`/
+  `types.MetricConfiguration`) threaded through to `ServiceRevision.Monitoring`
+  in `buildServiceRevision`. Stored/echoed only -- this backend emits no real
+  CloudWatch metrics, so no resolution behaviour is simulated (config-only,
+  same precedent as above).
+- **`UpdateService.ForceNewDeployment`** -- own doc comment: "you can use
+  this option to start a new deployment with no service definition changes."
+  `UpdateService` previously rotated the PRIMARY deployment (`newActiveDeployment`
+  demoting the prior PRIMARY to ACTIVE) only when `TaskDefinition` itself
+  changed, so `ForceNewDeployment=true` with no other change was silently a
+  no-op. Fixed: the deployment is now rotated whenever `TaskDefinition`
+  changed OR `ForceNewDeployment` is true (reusing the current task
+  definition in the latter case, matching real AWS's "same image/tag"
+  example). This affects a rotation decision the backend already makes,
+  not a new capability.
+- **`RegisterDaemonTaskDefinition.IpcMode`/`.PidMode`** -- own doc comments:
+  "The default is `none`." for both. Added `DaemonTaskDefinition.IpcMode`/
+  `.PidMode`, defaulted to `"none"` on omission, echoed on
+  Register/DescribeDaemonTaskDefinition. Config-only (see `RegisterTaskDefinition`
+  entry below for why real per-container namespace sharing isn't attempted).
+- **`RegisterTaskDefinition.IpcMode`/`.PidMode`** -- own doc comments
+  describe the *un*-set behaviour as contingent ("depends on the Docker
+  daemon setting on the container instance" for IpcMode; no named enum value
+  for PidMode's "private namespace" case), not a single fixed value, so no
+  default is fabricated on omission. Added `TaskDefinition.IpcMode`/`.PidMode`,
+  stored/echoed as given. This service's `docker_runner.go` does run real
+  Docker containers, so actually enforcing shared IPC/PID namespaces across a
+  task's containers (Docker `HostConfig.IpcMode`/`.PidMode`
+  `"container:<id>"` chaining, ordering the first container's creation before
+  the rest) is a real capability this backend could eventually grow into --
+  deliberately not attempted this pass: the multi-container chaining is
+  enough additional surface (creation ordering, partial-failure handling)
+  that a rushed version risked shipping a subtly wrong simulation, which the
+  campaign's own guidance rates worse than the gap. Recorded as a genuine
+  follow-up, not a refusal.
+- **`RegisterTaskDefinition.EnableFaultInjection`** -- own doc comment:
+  default `false`, which is Go's zero value, so no explicit defaulting code
+  is needed. Added `TaskDefinition.EnableFaultInjection bool`, stored/echoed.
+  Config-only -- this is real AWS FIS's inbound fault-injection-from-within-
+  the-task-agent capability, unrelated to this repo's own `pkgs/chaos`/
+  `aws:ecs:stop-task` FIS action already wired in `fis.go`; no such inbound
+  agent endpoint exists here to gate.
+- **`ListAccountSettings.EffectiveSettings`** -- own doc comment: "If true,
+  the account settings for the root user or the default setting for the
+  principalArn are returned." This is the campaign's flagged strong
+  candidate: it changes which records a listing returns, and the backend
+  already has the records (`PutAccountSettingDefault` already stores an
+  account-level default under an empty `PrincipalArn`). Implemented:
+  `effectiveSettings=true` returns `principalArn`'s own explicit setting per
+  name, falling back to the empty-`PrincipalArn` default for any name
+  `principalArn` has no explicit value for; `effectiveSettings=false`
+  (default) is unchanged -- exact-match filtering only, no fallback.
+  `Backend.ListAccountSettings` gained a third `effectiveSettings bool`
+  parameter (interface + one internal test call site updated).
+
+15 of 15 tier-1 findings judged genuinely fixable (0 recorded as
+unmodellable) -- unlike prior sweeps in this campaign, every one of these
+fell into the "reflect back a stored value" or "affects a decision the
+backend already makes" categories the campaign's own guidance calls
+honourable, and none required simulating a capability (real Cloud Map
+namespace resolution, real CloudWatch metric emission, real per-container
+Docker namespace sharing, a real inbound FIS agent endpoint) that this
+backend structurally lacks -- those remain config-only/stored-and-echoed,
+consistent with this service's existing `LoadBalancers`/
+`AutoScalingGroupProvider` precedent, and are disclosed as such above rather
+than silently claimed as enforced.
+
+New tests: `wire_field_additions_ecssweep_test.go`, all driving the real
+`aws-sdk-go-v2/service/ecs` client. Every default-value test (`AvailabilityZoneRebalancing`
+create-default, `HealthCheckGracePeriodSeconds` create-default, daemon
+`IpcMode`/`PidMode` default) omits the field entirely rather than setting it
+explicitly. Confirmed failing pre-fix by temporarily reverting the specific
+defaulting/rotation/fallback logic under test (not by removing the new
+struct fields, since most of these fields did not exist before this pass and
+removing them would fail the whole package to compile rather than
+demonstrate a behavioural gap): `AvailabilityZoneRebalancing` create-default,
+`AvailabilityZoneRebalancing` update-preserves-existing,
+`HealthCheckGracePeriodSeconds` create-default, `ForceNewDeployment`
+rotation, and `EffectiveSettings` fallback all reproduced their expected
+pre-fix failures, then were restored byte-identical (`md5sum`-verified) and
+re-confirmed green. Assertion count: 0 existing assertions changed or
+dropped; all new.
+
+Gates: `go build ./services/ecs/...`, `go vet ./services/ecs/...` (both
+clean), `go test -race -count=1 ./services/ecs/...` (pass), `golangci-lint
+run ./services/ecs/...` (0 issues, after decomposing `CreateService`
+(funlen) into `createServiceDefaults` and `ListAccountSettings` (gocognit)
+into `filterAccountSettings`/`effectiveAccountSettings`). Work left
+uncommitted per this pass's instructions.

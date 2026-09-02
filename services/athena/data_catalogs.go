@@ -6,12 +6,20 @@ import (
 	"sort"
 )
 
+// dataCatalogConnectionTypeParam is the Parameters map key real AWS reads a
+// FEDERATED catalog's connector type from -- CreateDataCatalogInput has no
+// top-level ConnectionType member; only DataCatalog/DataCatalogSummary
+// (response types) do (aws-sdk-go-v2/service/athena@v1.60.4
+// api_op_CreateDataCatalog.go's Parameters doc: "connection-type:MYSQL|
+// REDSHIFT|....").
+const dataCatalogConnectionTypeParam = "connection-type"
+
 // CreateDataCatalog creates a new data catalog and returns a copy of the
 // created record. The real CreateDataCatalogOutput carries an optional
 // DataCatalog field with the newly created catalog; the handler wires the
 // returned pointer straight into that response field.
 func (b *InMemoryBackend) CreateDataCatalog(
-	name, catalogType, description, connectionType string,
+	name, catalogType, description string,
 	params, tags map[string]string,
 ) (*DataCatalog, error) {
 	switch {
@@ -45,7 +53,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		Name:           name,
 		Type:           catalogType,
 		Description:    description,
-		ConnectionType: connectionType,
+		ConnectionType: params[dataCatalogConnectionTypeParam],
 		Parameters:     maps.Clone(params),
 		Status:         status,
 	}
@@ -121,7 +129,7 @@ func (b *InMemoryBackend) ListDataCatalogs(
 
 // UpdateDataCatalog updates an existing data catalog.
 func (b *InMemoryBackend) UpdateDataCatalog(
-	name, catalogType, description, connectionType string,
+	name, catalogType, description string,
 	params map[string]string,
 ) error {
 	b.mu.Lock("UpdateDataCatalog")
@@ -140,12 +148,11 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 		dc.Description = description
 	}
 
-	if connectionType != "" {
-		dc.ConnectionType = connectionType
-	}
-
 	if params != nil {
 		dc.Parameters = params
+		if ct, hasConnType := params[dataCatalogConnectionTypeParam]; hasConnType {
+			dc.ConnectionType = ct
+		}
 	}
 
 	return nil

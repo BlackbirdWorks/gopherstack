@@ -2,7 +2,6 @@ package cloudformation
 
 import (
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"net/url"
 
@@ -78,12 +77,14 @@ func (h *Handler) handleCreateStackRefactor(form url.Values, c *echo.Context) er
 }
 
 func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) error {
-	status, err := h.Backend.DescribeStackRefactor(form.Get("StackRefactorId"))
+	r, err := h.Backend.DescribeStackRefactor(form.Get("StackRefactorId"))
 	if err != nil {
 		return h.xmlError(c, "StackRefactorNotFoundException", err.Error())
 	}
 	type result struct {
-		Status string `xml:"Status"`
+		StackRefactorID string `xml:"StackRefactorId"`
+		Description     string `xml:"Description,omitempty"`
+		Status          string `xml:"Status"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeStackRefactorResponse"`
@@ -94,18 +95,26 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Status: status}, RequestID: uuid.New().String()},
+		response{
+			Xmlns: cfnNS,
+			Result: result{
+				StackRefactorID: r.RefactorID,
+				Description:     r.Description,
+				Status:          r.Status,
+			},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
 func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) error {
 	if err := h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId")); err != nil {
-		code := "ValidationError"
-		if errors.Is(err, ErrStackRefactorNotFound) {
-			code = "StackRefactorNotFoundException"
-		}
-
-		return h.xmlError(c, code, err.Error())
+		// ExecuteStackRefactor's own awsAwsquery_deserializeOpError switch
+		// declares no typed exceptions at all -- not StackRefactorNotFoundException
+		// (that's DescribeStackRefactor's), not anything else -- so every failure,
+		// not-found included, reports the generic query-protocol ValidationError
+		// rather than inventing a typed code this operation cannot receive.
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ExecuteStackRefactorResponse"`
@@ -138,10 +147,55 @@ func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) err
 	)
 }
 
+// resourceLocationXML mirrors types.ResourceLocation (types.go:1178) --
+// StackName and LogicalResourceId only, no other members.
+type resourceLocationXML struct {
+	LogicalResourceID string `xml:"LogicalResourceId,omitempty"`
+	StackName         string `xml:"StackName,omitempty"`
+}
+
+// resourceMappingXML mirrors types.ResourceMapping (types.go:1195).
+type resourceMappingXML struct {
+	Source      *resourceLocationXML `xml:"Source,omitempty"`
+	Destination *resourceLocationXML `xml:"Destination,omitempty"`
+}
+
+// stackRefactorActionXML mirrors types.StackRefactorAction (types.go:2118).
+// It has no StackName/LogicalResourceId/ResourceType members of its own --
+// those live nested under ResourceMapping.Source/.Destination.
+type stackRefactorActionXML struct {
+	ResourceMapping    *resourceMappingXML `xml:"ResourceMapping,omitempty"`
+	Action             string              `xml:"Action,omitempty"`
+	Description        string              `xml:"Description,omitempty"`
+	PhysicalResourceID string              `xml:"PhysicalResourceId,omitempty"`
+}
+
+func toStackRefactorActionXML(a StackRefactorAction) stackRefactorActionXML {
+	return stackRefactorActionXML{
+		Action:             a.Action,
+		Description:        a.Description,
+		PhysicalResourceID: a.PhysicalResourceID,
+		ResourceMapping: &resourceMappingXML{
+			Source: &resourceLocationXML{
+				StackName:         a.ResourceMapping.Source.StackName,
+				LogicalResourceID: a.ResourceMapping.Source.LogicalResourceID,
+			},
+			Destination: &resourceLocationXML{
+				StackName:         a.ResourceMapping.Destination.StackName,
+				LogicalResourceID: a.ResourceMapping.Destination.LogicalResourceID,
+			},
+		},
+	}
+}
+
 func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Context) error {
 	actions, _ := h.Backend.ListStackRefactorActions(form.Get("StackRefactorId"))
+	members := make([]stackRefactorActionXML, 0, len(actions))
+	for _, a := range actions {
+		members = append(members, toStackRefactorActionXML(a))
+	}
 	type result struct {
-		StackRefactorActions []StackRefactorAction `xml:"StackRefactorActions>member"`
+		StackRefactorActions []stackRefactorActionXML `xml:"StackRefactorActions>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackRefactorActionsResponse"`
@@ -154,7 +208,7 @@ func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackRefactorActions: actions},
+			Result:    result{StackRefactorActions: members},
 			RequestID: uuid.New().String(),
 		},
 	)

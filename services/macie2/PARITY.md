@@ -6,9 +6,14 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: 82c8a1c8
-last_audit_date: 2026-07-23
+last_audit_commit: da77e2959
+last_audit_date: 2026-08-29
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
+                          # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
+                          # gap` at the time this A was recorded (BucketCriteria/SortCriteria/pagination
+                          # all discarded) even though `gaps: []` below claimed zero gaps -- the row and
+                          # the gaps list had drifted apart. Now fixed (see SearchResources row) and gaps:
+                          # [] is accurate again.
                           # 2026-08-21 (gopherstack-c8ge): fixed two singleton-config-with-no-Create-op
                           # merge bugs -- UpdateSensitivityInspectionTemplate wholesale-assigned
                           # Description/Excludes/Includes even when a request omitted them (all three are
@@ -40,9 +45,9 @@ ops:
   DeleteFindingsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFindingsFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Finding was missing count/partition/sample/schemaVersion/classificationDetails/resourcesAffected (real Finding shape); Severity.score was a float defaulting to 5.0 -- real types.Severity.Score is an int64 1-3, so 5.0 was out-of-range/not wire-compatible with real client expectations. All added; see also CreateSampleFindings note on the 'SENSITIVE_DATA' category bug."}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: n/a, note: "criteria matching supports eq/neq on a handful of fields only -- acceptable reduced-scope emulation, not a stub"}
+  ListFindings: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "criteria matching supports eq/neq on a handful of fields only -- acceptable reduced-scope emulation, not a stub. FIXED (constraint sweep): SortCriteria was parsed by the handler but never passed to the backend (always sorted by finding ID) -- now applies count/createdAt/updatedAt/type/severity.score (types.SortCriteria's doc-listed AttributeName values backed by this model); resourcesAffected and policyDetails.action.apiCallDetails.firstSeen/lastSeen are also documented values but have no comparable scalar on this model, left as no-ops rather than invented."}
   CreateSampleFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Category was hardcoded to the INVENTED value 'SENSITIVE_DATA', which is not a valid FindingCategory (real enum is CLASSIFICATION/POLICY) -- deleted and replaced with prefix-derived CLASSIFICATION/POLICY. Findings now also populate count/partition/sample/schemaVersion and, for CLASSIFICATION findings, classificationDetails+resourcesAffected with realistic sample S3 bucket/object data, matching real Macie's sample-finding behavior of using non-empty example data."}
-  GetFindingStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetFindingStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (constraint sweep): FindingCriteria was parsed by the handler and passed to the backend, but the backend method discarded it into `_` and grouped/counted every finding regardless of the filter."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -75,15 +80,15 @@ ops:
   UpdateAutomatedDiscoveryConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAutomatedDiscoveryAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchUpdateAutomatedDiscoveryAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeBuckets: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DescribeBuckets: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (constraint sweep): three bugs. (1) Criteria was read under keys (bucketName/region -> {\"value\": ...}) the real wire never carries at all -- real BucketCriteriaAdditionalProperties uses eq/neq/gt/gte/lt/lte/prefix (serializers.go:6840), so a real client's filters were always silently ignored regardless of content. Rewired to the real operator set for bucketName/accountId/region/sharedAccess/publicAccess.effectivePermission (string, eq/neq/prefix) and objectCount/sizeInBytes/classifiableObjectCount/classifiableSizeInBytes (int64, gt/gte/lt/lte); other documented properties (jobDetails.*, replicationDetails.*, objectCountByEncryptionType.*) have no backing model field and are left unfiltered. (2) maxResults/nextToken were never parsed at all -- every bucket always came back on one page. (3) sortCriteria was never parsed -- always hardcoded ascending by bucketName; now applies accountId/bucketName/classifiableObjectCount/classifiableSizeInBytes/objectCount/sizeInBytes (sensitivityScore is a documented AttributeName this backend has no score to sort by, left a no-op). Two existing tests (TestBuckets_DescribeBuckets_FilterByRegion, TestBuckets_DescribeBuckets_FilterByName) sent the old fabricated {\"value\": ...} shape and only passed because the handler shared their mistake -- corrected to eq/prefix."}
   GetBucketStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route method was GET with accountId as a query param; real SDK sends POST /datasources/s3/statistics with accountId in the JSON body -- unreachable via real client before fix. accountId itself is still unused by the (intentionally global, single-account) stats aggregation. 2026-08-15 pass: response key 'classifiableBucketCount' does not exist on the real GetBucketStatisticsOutput at all (real key is 'classifiableObjectCount', a summed object count, not a bucket count) -- a real client's ClassifiableObjectCount was always 0. Also added 'objectCount'/'sizeInBytes' aggregate fields, summed from per-bucket S3BucketMetadata.ObjectCount/SizeInBytes the backend already tracks but never rolled up. 'lastUpdated'/'sizeInBytesCompressed'/'bucketStatisticsBySensitivity' remain unmodeled (no compression/sensitivity-scan tracking in this backend) -- disclosed, not fixed."}
   GetClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClassificationScopes: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClassificationScope: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateClassificationScopeInput.S3 is types.S3ClassificationScopeUpdate{Excludes: *S3ClassificationScopeExclusionUpdate{BucketNames, Operation}} -- an explicit ADD/REMOVE/REPLACE discriminator, not a replacement list -- but the handler decoded S3 as the same freeform map[string]any Excludes used for Get/List and wholesale-replaced the stored value with whatever the request carried, so an ADD call silently dropped every bucket a prior ADD had added. Modeled ClassificationScopeS3Update/ClassificationScopeS3ExclusionUpdate distinct from the Get/List-side ClassificationScopeS3/ClassificationScopeS3Exclusion (now BucketNames []string, not a map) and implemented real ADD/REMOVE/REPLACE list semantics. See TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds."}
-  GetFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetFindingsPublicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-30 (gopherstack-4a8v, reqfieldscan anonymous-struct-decode pass): FindingsPublicationConfig fabricated top-level publishClassificationFindings/publishPolicyFindings members (no omitempty, so emitted on every response) -- confirmed against api_op_GetFindingsPublicationConfiguration.go/api_op_PutFindingsPublicationConfiguration.go and types.SecurityHubConfiguration that both real fields live ONLY nested under securityHubConfiguration; neither Input nor Output has a top-level member of either name. Removed the two fabricated fields; a pre-existing test (TestFindingsPublicationConfig/get_put_publication_config) asserted the fabricated top-level shape as correct and was fixed to assert the real nested shape plus their absence. ClientToken (real PutFindingsPublicationConfigurationInput member, idempotency-only, no member on Output) was being stored via the struct's whole-value copy and echoed back on a later Get; now explicitly discarded after decode, matching this codebase's existing accept-then-drop convention for idempotency tokens (see glue/handler_catalogs.go, inspector2/handler_connectors.go)."}
+  PutFindingsPublicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see GetFindingsPublicationConfiguration row -- same fix, same commit."}
   GetResourceProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-15 pass: response key 'sensitivityScoreOverride' does not exist on the real GetResourceProfileOutput (real key is 'sensitivityScoreOverridden', past participle) -- a real client's SensitivityScoreOverridden was always false even after UpdateResourceProfile set a manual override. Also fixed ResourceStatistics's 'totalDetectionsWithoutSuppression'->'totalDetectionsSuppressed' and 'totalItemsSkippedPermissionError'->'totalItemsSkippedPermissionDenied' (real deserializers.go field names); ResourceStatistics is always the zero-value struct in this backend (nothing populates real numbers), so the value itself is currently unobservable -- key names fixed and disclosed as untested rather than given a hollow test. 'totalItemsSensitive' remains entirely unmodeled."}
   UpdateResourceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceProfileArtifacts: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -93,13 +98,13 @@ ops:
   UpdateRevealConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSensitiveDataOccurrences: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetSensitiveDataOccurrencesAvailability: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetSensitivityInspectionTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29: response ID field emitted wire key 'id' -- real GetSensitivityInspectionTemplateOutput uses 'sensitivityInspectionTemplateId' (distinct from the list-view SensitivityInspectionTemplatesEntry's 'id' key). See TestGetSensitivityInspectionTemplate_RealClient."}
   ListSensitivityInspectionTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix. 2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateSensitivityInspectionTemplateInput carries Description/Excludes/Includes as independently-optional pointers, but the handler wholesale-assigned all three every call (Description as a bare string, indistinguishable omitted-vs-empty), so updating just one wiped the other two. Description is now decoded as *string and all three merge only when actually provided. See TestUpdateSensitivityInspectionTemplate_FieldsSurviveIndependentUpdates."}
   GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetUsageTotals: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "query param was read as 'currencyCode' (not a real GetUsageTotalsInput field at all); real key is 'timeRange' -- fixed extraction/naming. Backend still ignores the value and returns static zeroed totals, matching a no-billing emulator; low functional impact."}
   ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-jqh2 pass 2): parseManagedDataIDsPath (handler_custom_data_identifiers.go) required http.MethodGet for POST /managed-data-identifiers/list -- confirmed against awsRestjson1_serializeOpListManagedDataIdentifiers, real SDK sends POST -- so the op, despite a complete handler and backend, was permanently unroutable by a real client. A pre-existing unit test (handler_usage_test.go) encoded the same wrong GET method and passed anyway (it drives h.Handler() directly); fixed to POST alongside the routing fix. Caught by the new handler_sdk_route_table_test.go (TestExtractOperation_SDKRouteTable, full 81/81 SDK-path coverage)."}
-  SearchResources: {wire: ok, errors: ok, state: ok, persist: n/a}
+  SearchResources: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED 2026-08-30 (gopherstack-3qg6): backend now honors BucketCriteria (Includes/Excludes And[]{SimpleCriterion|TagCriterion}, real And-join per types.SearchResourcesCriteriaBlock's doc comment), SortCriteria (ACCOUNT_ID/RESOURCE_NAME/S3_CLASSIFIABLE_OBJECT_COUNT/S3_CLASSIFIABLE_SIZE_IN_BYTES, types.SearchResourcesSortAttributeName), and maxResults/nextToken (via the same pkgs/page-backed paginate() helper DescribeBuckets uses) -- see search_resources.go, a new criteria engine mirroring but distinct from DescribeBuckets' flat-map one (SearchResources' shape is Includes/Excludes blocks of AND'd SimpleCriterion|TagCriterion, not a flat per-property map). SimpleCriterion filters on ACCOUNT_ID/S3_BUCKET_NAME/S3_BUCKET_EFFECTIVE_PERMISSION/S3_BUCKET_SHARED_ACCESS (all real S3BucketMetadata fields); AUTOMATED_DISCOVERY_MONITORING_STATUS is a real key with no backing field on S3BucketMetadata (models.go) and is left unfiltered rather than invented, same convention bucketStringField already uses for unmodeled DescribeBuckets properties -- not fixed, see gaps. TagCriterion matches bkt.Tags entries by \"key\"/\"value\" (the real SDK's KeyValuePair wire casing, types/types.go:1764), which is the casing DescribeBuckets' own tags pass-through already implicitly commits to. MatchingBucket in the response emits only fields this backend tracks (accountId/bucketName/classifiableObjectCount/classifiableSizeInBytes/objectCount/sizeInBytes); automatedDiscoveryMonitoringStatus/errorCode/errorMessage/jobDetails/lastAutomatedDiscoveryTime/objectCountByEncryptionType/sensitivityScore/sizeInBytesCompressed/unclassifiableObjectCount/unclassifiableObjectSizeInBytes have no backing data (no error simulation, no per-bucket encryption breakdown, no sensitivity scan) and are omitted, not fabricated. Proven via TestSearchResources_FiltersByBucketCriteria/_ExcludesByBucketCriteria/_SortCriteria/_Pagination (search_resources_test.go), real aws-sdk-go-v2 client round trips against decoded responses, all confirmed failing pre-fix."}
 # Families audited as a group (when per-op is impractical):
 families:
   route_matcher: {status: fixed, note: "RouteMatcher path-prefix matching verified against all serializers.SplitURI() calls in the SDK; found 3 method mismatches (UpdateAllowList PATCH->PUT, UpdateSensitivityInspectionTemplate PATCH->PUT, GetBucketStatistics GET->POST) that made those ops unreachable via a real SDK client despite passing unit tests that called h.Handler() directly with the (wrong) method the handler itself expected."}
@@ -319,3 +324,245 @@ restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-29 write-only-state sweep (gopherstack-6flj / gopherstack-21my)
+
+Forward+reverse write-only-state sweep of every backend file (administrator, allow_lists,
+automated_discovery, buckets, classification_jobs, custom_data_identifiers, enablement,
+findings, findings_filters, members, organization, resource_profiles, reveal_configuration,
+sensitivity_inspection, tags, usage) against `macie2@v1.54.4`, on top of the already-thorough
+2026-08-15 wrapper-key/nesting sweep and 2026-08-21 dropped-field sweep. One new bug found:
+
+- **`GetSensitivityInspectionTemplate`** emitted the template ID under wire key `"id"`.
+  `GetSensitivityInspectionTemplateOutput`'s deserializer
+  (`deserializers.go:7839`, function
+  `awsRestjson1_deserializeOpDocumentGetSensitivityInspectionTemplateOutput`) reads it under
+  `"sensitivityInspectionTemplateId"` instead -- a genuinely different key from the one the
+  list-view `SensitivityInspectionTemplatesEntry` shape uses (`"id"`,
+  `deserializers.go:21230`, feeding `ListSensitivityInspectionTemplatesOutput`). A real
+  client's `GetSensitivityInspectionTemplateOutput.SensitivityInspectionTemplateId` was
+  always `nil` regardless of the template's actual ID. Fixed by retagging
+  `SensitivityInspectionTemplate.ID`'s json tag (that Go type backs only the Get response;
+  the List response uses the separately-tagged `SensitivityInspectionTemplateSummary`, which
+  was already correct). One ratifying test fixed
+  (`handler_sensitivity_inspection_test.go`'s `TestSensitivityInspectionTemplates` asserted
+  `getResp["id"]`, the pre-fix wrong key, as correct). New real-client round-trip test:
+  `TestGetSensitivityInspectionTemplate_RealClient` (`wire_field_fixes_test.go`) -- confirmed
+  failing against unmodified code (`SensitivityInspectionTemplateId` decoded empty instead of
+  the real ID) before the fix, passing after.
+
+Fields checked and confirmed readable/computable (not write-only): `ClassificationJob`'s
+`ClientToken` (stored, surfaces on `DescribeClassificationJobOutput`, matching the real
+shape); `ResourceProfileDetection.Suppressed` (set by `UpdateResourceProfileDetections`, read
+by `ListResourceProfileDetections`); `AllowListCriteria`/`Regex`/`S3WordsList` (round-trip
+through Create/Get/Update unchanged); `ClassificationScope` ADD/REMOVE/REPLACE merge (already
+fixed 2026-08-21, re-verified clean); `GetFindingStatistics`'s four `groupBy` keys all compute
+from stored `Finding` fields, not a stub.
+
+Observed, not fixed (reduced-scope/structural, matches existing PARITY.md disclosures):
+`CreateClassificationJob`'s `ClientToken` is not used for idempotent dedup (a repeat call
+with the same token creates a second job) -- this is request-level idempotency semantics, not
+a wire-shape bug, and no other op in this service enforces client-token dedup either;
+`GetUsageStatistics`/`GetUsageTotals` remain all-zero/empty (no billing engine, already
+disclosed); `UpdateSensitivityInspectionTemplate`'s handler additionally accepts an
+undocumented `name` field with no effect on any real client (the real
+`UpdateSensitivityInspectionTemplateInput` has no `Name` member at all) -- harmless
+extra-acceptance, not a drop.
+
+**Tool output:** `enumcheck` flagged `GetSensitiveDataOccurrences`'s `"status": "SUCCESS"` as
+not matching any single candidate enum family; confirmed against
+`types.RevealRequestStatus.Values()` (`SUCCESS`/`PROCESSING`/`ERROR`) that `SUCCESS` is valid
+-- false positive, the tool just can't disambiguate which of several same-named-field enums
+applies. `acceptguard`/`zeroguard`/`xmlitemwrap` had zero macie2 findings.
+
+**Not reached this pass:** `store.go`/`store_setup.go`/`persistence.go`/`provider.go` (read
+only incidentally, not independently audited this session); `handler_buckets.go`,
+`handler_administrator.go`, `handler_members.go`, `handler_organization.go`,
+`handler_usage.go`, `handler_tags.go` handler-layer files were not re-read line-by-line this
+pass (their backends were, in `buckets.go`/`administrator.go`/`members.go`/`organization.go`/
+`usage.go`/`tags.go`, and matched their existing `ok` PARITY rows with no new findings).
+
+**Gates:** `go build ./services/macie2/...`, `go vet ./services/macie2/...`,
+`go test -race -count=1 ./services/macie2/...` (pass), `golangci-lint run --fix
+./services/macie2/...` (0 issues, reformatted one test call's line wrap only).
+
+## 2026-08-30: paginated-listing reproducibility sweep (unstable page-boundary drop)
+
+Targeted class: every `List*`/`DescribeBuckets` op routed through the shared
+`listPaginated`/`mapSortPaginate`/`paginate` helpers (`store.go`) -- an offset-based
+`page.NewHMAC` cursor over a `*store.Table` map walk re-sorted fresh on every call. Read
+all 15 `sort.Slice` sites in the service.
+
+**Found and fixed, 6 sites** (all: sort by a non-unique attribute with no tiebreak, fed
+into an offset cursor over an unstable map-walk source):
+- `sortBuckets` (`buckets.go`, feeds `DescribeBuckets`) -- default and every
+  `sortCriteria.attributeName` branch (`accountId`/`objectCount`/`sizeInBytes`/
+  `classifiable*`/`bucketName`) compared only the requested attribute; nothing stops two
+  buckets sharing an `ObjectCount` (or any of the others). Fixed: tiebreak on `BucketArn`,
+  this table's key.
+- `sortJobSummaries` (`classification_jobs.go`, feeds `ListClassificationJobs`) -- default
+  and every `sortBy.AttributeName` branch (`createdAt`/`jobStatus`/`name`/`jobType`)
+  likewise untied; job names have no uniqueness constraint. Fixed: tiebreak on `JobID`.
+- `ListCustomDataIdentifiers` (`custom_data_identifiers.go`) -- sorted by `Name` alone;
+  `CreateCustomDataIdentifier` never checks for an existing `Name`. Fixed: tiebreak on `ID`.
+- `ListAllowLists` (`allow_lists.go`) -- same shape, `CreateAllowList` never checks `Name`
+  either. Fixed: tiebreak on `ID`.
+- `ListFindingsFilters` (`findings_filters.go`) -- sorted by `Position`, which
+  `CreateFindingsFilter` defaults to `1` for every filter that doesn't specify one, so
+  multiple filters commonly tie by default. Fixed: tiebreak on `ID`.
+- `sortFindings`'s `sortBy != nil` branch (`findings.go`, feeds `ListFindings`) --
+  `count`/`createdAt`/`updatedAt`/`type`/`severity.score` all untied (the `sortBy == nil`
+  default path was already safe, sorting by `ID`). Fixed: tiebreak on `ID`.
+
+Each proven with a dedicated test in the new `pagination_tie_test.go`
+(`TestDescribeBuckets_TiedObjectCount_NoDropOrDupAcrossPages`,
+`TestListClassificationJobs_TiedName_NoDropOrDupAcrossPages`,
+`TestListCustomDataIdentifiers_TiedName_NoDropOrDupAcrossPages`,
+`TestListAllowLists_TiedName_NoDropOrDupAcrossPages`,
+`TestListFindingsFilters_TiedPosition_NoDropOrDupAcrossPages`,
+`TestListFindings_TiedType_NoDropOrDupAcrossPages`), each looped 30x (map-iteration
+dependent) -- all six confirmed failing against unmodified code (a genuine subset
+dropped, not a test artifact -- verified via the actual diff output before fixing), all
+six passing after. The `ListFindingsFilters`/`ListAllowLists` fixes made their two
+wrapper functions structurally identical enough to trip `dupl`; resolved with a paired
+`//nolint:dupl` (precedented 145x elsewhere in the repo, e.g.
+`services/backup/copy_jobs.go`/`backup_jobs.go`), not by weakening either fix.
+
+**Immune by construction, two mechanisms**: `ListClassificationScopes`
+(`classification_jobs.go:361`, sorts by `Name`) and `ListSensitivityInspectionTemplates`
+(`sensitivity_inspection.go:41`, sorts by `Name`) both back onto tables that
+`ensureDefaultScope`/`ensureDefaultTemplate` populate with exactly one row and nothing
+else ever calls `.Put` on -- confirmed via `grep -n "classScopes.Put\|sensitivityTemplates.Put"`,
+one hit each, both inside the guarded singleton-seed function. A one-row collection can't
+have a page boundary. `ListManagedDataIdentifiers` (`custom_data_identifiers.go`) returns
+a hardcoded, deterministic built-in catalog slice, never a map walk -- same shape as
+medialive's `offerings` catalog, immune. The `GroupKey` sort in `GetFindingStatistics`
+(`findings.go:314`) is built from a local Go map's own keys (`counts[key]++`, then
+`result = append(result, {GroupKey: k, ...})` for each `k`) -- unique by construction, no
+tiebreak needed.
+
+**Confirmed ignoring pagination entirely** (a different, disclosed completeness gap, not
+this pass's target): `ListAutomatedDiscoveryAccounts`, `ListOrganizationAdminAccounts`,
+`ListInvitations`, `ListResourceProfileArtifacts`, `ListResourceProfileDetections`,
+`ListTagsForResource` accept no `limit`/`token` at all and always return everything
+unbounded -- can't drop a record at a page boundary that never truncates. Left as-is.
+
+**Test-suite gap this pass filled**: `TestBuckets_DescribeBuckets_SortOrder` and
+`TestBuckets_StableSortOrder` (`handler_buckets_test.go`) only ever used distinct bucket
+names and repeated an unpaginated call -- no existing test in the service constructed a
+tie or compared item identity across a paginated walk before this pass.
+
+Gate output (this pass, `services/macie2/` only): `go build ./services/macie2/...` clean;
+`go vet ./services/macie2/...` clean; `go test ./services/macie2/... -race -count=1` --
+`ok`; `golangci-lint run ./services/macie2/...` -- `0 issues.` (one `dupl` finding caused
+by this pass's own edits, confirmed by temporarily reverting `allow_lists.go`/
+`findings_filters.go` and re-running lint clean, then resolved as described above).
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged three `RelationshipStatus` literals
+in `members.go` as not members of `types.RelationshipStatus`. Real
+`RelationshipStatus` is mixed-case (`Enabled`/`Paused`/`Invited`/`Created`/
+`Removed`/`Resigned`/... -- macie2@v1.54.4 types/enums.go:811), unlike this
+service's other status-shaped fields (`MacieStatus`, `RevealStatus`), which
+really are all-caps `ENABLED`/`PAUSED`/`DISABLED`. All three were genuine
+value bugs:
+
+- `CreateMember`: `"CREATED"` -> `"Created"`.
+- `CreateInvitations`: `"INVITED"` -> `"Invited"`.
+- `AcceptInvitation`: reused the shared `statusEnabled` constant
+  (`"ENABLED"`, correct for `MacieStatus`/`RevealStatus`) for this
+  `RelationshipStatus` field too -- switched to a literal `"Enabled"` at
+  this one call site rather than changing the shared constant, which is
+  still correct everywhere else it's used.
+
+`GetInvitationsCount`'s own `inv.RelationshipStatus == "INVITED"` comparison
+had to be updated to `"Invited"` in the same pass -- it filters the same
+`Invitation.RelationshipStatus` field `CreateInvitations` now sets, so the
+literal-value fix alone would have silently broken invitation counting.
+
+**Left unfixed, out of scope for the confident tier** (both are direct field
+mutations on an existing struct, not one of the three literal/composite
+positions `cmd/enumcheck` covers, so the tool never flagged them):
+`DisassociateMember` sets `RelationshipStatus = "DISASSOCIATED"`, and
+`DeclineInvitations` sets `"RESIGNED"` -- neither is a real
+`RelationshipStatus` member either (real values are `Removed` and
+`Resigned` respectively). Flagged here for a future pass.
+
+Covered by `TestCreateMember_RelationshipStatus_RealClient`,
+`TestCreateInvitations_RelationshipStatus_RealClient`, and
+`TestAcceptInvitation_RelationshipStatus_RealClient` (all in
+`wire_field_fixes_test.go`), each driven through the real SDK client and
+asserted against the real `types.RelationshipStatus` constants.
+
+## reqfieldscan anonymous-struct-decode pass (2026-08-30, bd gopherstack-4a8v)
+
+`cmd/reqfieldscan`'s new anonymous-inline-struct decode path (see
+`handler_findings.go`'s `var req struct{...}` shapes) surfaced 7 previously
+invisible unread-request-field flags. Hand-verified each against
+`macie2@v1.54.4`'s own serializers:
+
+- **Real bug, fixed**: `FindingsPublicationConfig.PublishClassificationFindings`/
+  `PublishPolicyFindings` (`models.go`) were fabricated top-level fields --
+  neither `PutFindingsPublicationConfigurationInput` nor
+  `GetFindingsPublicationConfigurationOutput` has a member of either name;
+  both real fields live only nested under `SecurityHubConfiguration`
+  (`types.SecurityHubConfiguration`). Both booleans lacked `omitempty`, so
+  every `Get`/`Put` response carried two keys no real client ever sends.
+  Removed. See the `GetFindingsPublicationConfiguration`/
+  `PutFindingsPublicationConfiguration` rows above for the full note.
+- **Real bug, fixed**: `FindingsPublicationConfig.ClientToken` was stored via
+  the handler's whole-struct copy and echoed back on a later `Get`, even
+  though `GetFindingsPublicationConfigurationOutput` has no such member.
+  Now explicitly discarded post-decode.
+- **Tool false positive (whole-struct-copy shape)**:
+  `FindingsPublicationConfig.SecurityHubConfiguration` reads as unread
+  because `handlePutFindingsPublicationConfiguration`/
+  `PutFindingsPublicationConfiguration` thread it through via `cp := *cfg`
+  struct-copy assignments, never a per-field selector -- functionally
+  correct and observable via `Get`, just invisible to the tool's
+  whole-struct-*conversion* (`SomeType(x)` call-expression) suppression
+  rule, which does not recognize a dereference-assignment copy.
+- **Honest gap, matches this codebase's established idempotency-token
+  convention** (see `glue/handler_catalogs.go`'s
+  `putDataCatalogExportConfigurationInput`, `inspector2/handler_connectors.go`'s
+  `createConnectorRequest`): `CreateAllowList.ClientToken`
+  (`handler_allow_lists.go`) and `CreateFindingsFilter.ClientToken`
+  (`handler_findings_filters.go`) are accepted, never stored, never echoed
+  -- an idempotency-retry aid with no backend dedup window to honor. Neither
+  response type has a field to echo it into either.
+- **Honest gap, already documented above** (`GetUsageStatistics` row, "no
+  billing engine"): `GetUsageStatistics.SortBy` (`handler_usage.go`) is
+  dropped along with `FilterBy`/`MaxResults`/`NextToken` -- the backend
+  returns an unconditionally empty `[]UsageRecord{}`, so there is nothing
+  for any of these to filter or sort.
+
+No other findings in this slice; `go build`/`go vet`/`go test -race
+-count=1 ./services/macie2/...`/`golangci-lint run ./services/macie2/...`
+all clean after the fix.
+
+## errcodeaudit fabricated-error-code pass (2026-08-30, bd gopherstack-r3pr)
+
+`cmd/errcodeaudit` flagged 2 confident findings.
+
+- **Real bug, fixed**: `handler.go`'s `RESTRouter.BadRequestBody` (fires
+  only on a request-body *read* failure, e.g. a body over
+  `httputils.MaxRequestBodyBytes`, before any operation is dispatched)
+  wrote `"BadRequestException"`, a code `macie2@v1.54.4`'s SDK models
+  nowhere (its 8 exception types are AccessDenied/Conflict/
+  InternalServer/ResourceNotFound/ServiceQuotaExceeded/Throttling/
+  UnprocessableEntity/Validation) -- a real client's
+  `errors.As(*types.ValidationException)` could never match it. Switched
+  to the existing `errValidation` ("ValidationException") constant already
+  used elsewhere in this package; `types.ValidationException`'s own doc
+  ("an error that occurred due to a syntax error in a request") is the
+  right fit. See `TestCreateAllowList_RealClient_OversizedBody`
+  (`error_codes_fix_test.go`), which drives the real SDK client with an
+  oversized `CreateAllowList` body and confirmed failing pre-fix.
+- **Tool false positive (free-form field, not a wire error code)**:
+  `classification_jobs.go:60`'s `JobLastRunErrorStatus{Code: "NONE"}` is a
+  status field inside a classification-job resource returned by a
+  *successful* `Create`/`Describe`/`List` response, not a wire error
+  envelope -- no `errors.As` ground truth applies. Same class as
+  `glue/jobs.go:471`, `ce/cost_allocation_tags.go:64`,
+  `xray/handler_trace_segments.go:43` (bd gopherstack-r3pr).

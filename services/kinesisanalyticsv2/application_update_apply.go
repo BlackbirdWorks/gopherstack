@@ -148,10 +148,6 @@ func applyBasicFields(app *Application, params UpdateApplicationParams) {
 		app.ServiceExecutionRole = params.ServiceExecutionRoleUpdate
 	}
 
-	if params.ApplicationDescription != "" {
-		app.ApplicationDescription = params.ApplicationDescription
-	}
-
 	if params.RuntimeEnvironmentUpdate != "" {
 		app.RuntimeEnvironment = params.RuntimeEnvironmentUpdate
 	}

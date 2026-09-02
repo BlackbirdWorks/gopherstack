@@ -3,8 +3,16 @@ package cognitoidp
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// resourceServersPageSize is this backend's default page size for
+// ListResourceServers; real AWS doesn't document an exact default, so this
+// is chosen generously (larger than any realistic per-pool resource-server
+// count) so pagination only activates when a caller explicitly requests a
+// smaller MaxResults.
+const resourceServersPageSize = 100
 
 func toResourceServerType(rs *ResourceServer) resourceServerAccurateType {
 	scopes := make([]resourceServerScopeType, len(rs.Scopes))
@@ -62,12 +70,14 @@ func (h *Handler) handleListResourceServersAccurate(
 		return nil, err
 	}
 
-	out := make([]resourceServerAccurateType, len(servers))
-	for i, rs := range servers {
+	pg := page.New(servers, in.NextToken, in.MaxResults, resourceServersPageSize)
+
+	out := make([]resourceServerAccurateType, len(pg.Data))
+	for i, rs := range pg.Data {
 		out[i] = toResourceServerType(rs)
 	}
 
-	return &listResourceServersAccurateOutput{ResourceServers: out}, nil
+	return &listResourceServersAccurateOutput{ResourceServers: out, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleUpdateResourceServerAccurate(
@@ -91,57 +101,6 @@ func (h *Handler) handleDeleteResourceServerAccurate(
 	}
 
 	return &deleteResourceServerAccurateOutput{}, nil
-}
-
-func (h *Handler) handleCreateResourceServer(
-	_ context.Context,
-	in *createResourceServerInput,
-) (*createResourceServerOutput, error) {
-	return &createResourceServerOutput{
-		ResourceServer: &resourceServerType{UserPoolID: in.UserPoolID, Identifier: in.Identifier, Name: in.Name},
-	}, nil
-}
-
-func (h *Handler) handleDeleteResourceServer(
-	_ context.Context,
-	_ *deleteResourceServerInput,
-) (*deleteResourceServerOutput, error) {
-	return &deleteResourceServerOutput{}, nil
-}
-
-func (h *Handler) handleDescribeResourceServer(
-	_ context.Context,
-	in *describeResourceServerInput,
-) (*describeResourceServerOutput, error) {
-	return &describeResourceServerOutput{
-		ResourceServer: &resourceServerType{UserPoolID: in.UserPoolID, Identifier: in.Identifier},
-	}, nil
-}
-
-func (h *Handler) handleListResourceServers(
-	_ context.Context,
-	_ *listResourceServersInput,
-) (*listResourceServersOutput, error) {
-	return &listResourceServersOutput{ResourceServers: []resourceServerType{}}, nil
-}
-
-func (h *Handler) handleUpdateResourceServer(
-	_ context.Context,
-	in *updateResourceServerInput,
-) (*updateResourceServerOutput, error) {
-	return &updateResourceServerOutput{
-		ResourceServer: &resourceServerType{UserPoolID: in.UserPoolID, Identifier: in.Identifier, Name: in.Name},
-	}, nil
-}
-
-func (h *Handler) resourceServersOpsA() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateResourceServer":   service.WrapOp(h.handleCreateResourceServer),
-		"DeleteResourceServer":   service.WrapOp(h.handleDeleteResourceServer),
-		"DescribeResourceServer": service.WrapOp(h.handleDescribeResourceServer),
-		"ListResourceServers":    service.WrapOp(h.handleListResourceServers),
-		"UpdateResourceServer":   service.WrapOp(h.handleUpdateResourceServer),
-	}
 }
 
 func (h *Handler) resourceServersOpsB() map[string]service.JSONOpFunc {

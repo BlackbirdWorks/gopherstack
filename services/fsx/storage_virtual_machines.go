@@ -126,9 +126,12 @@ func (b *InMemoryBackend) deleteStorageVirtualMachineLocked(svmID string) {
 	delete(b.tags, svm.ResourceARN)
 }
 
-// DescribeStorageVirtualMachines returns SVMs, optionally filtered by ID.
+// DescribeStorageVirtualMachines returns SVMs, optionally filtered by ID or
+// Filters. Real StorageVirtualMachineFilterName (aws-sdk-go-v2/service/fsx@v1.68.4
+// types/enums.go) has exactly one value, file-system-id.
 func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // existing issue.
 	ids []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*StorageVirtualMachine, string, error) {
@@ -151,7 +154,17 @@ func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // exist
 			all = append(all, svm)
 		}
 	} else {
-		all = b.storageVirtualMachines.All()
+		for _, svm := range b.storageVirtualMachines.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				if name == filterNameFileSystemID {
+					return svm.FileSystemID, true
+				}
+
+				return "", false
+			}) {
+				all = append(all, svm)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool {
 			return all[i].StorageVirtualMachineID < all[j].StorageVirtualMachineID

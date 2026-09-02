@@ -36,7 +36,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *redshift.InMemoryBackend, id string) {
 				t.Helper()
 
-				clusters, _, err := b.DescribeClusters(id, "", 0)
+				clusters, _, err := b.DescribeClusters(id, "", 0, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, clusters, 1)
 				assert.Equal(t, id, clusters[0].ClusterIdentifier)
@@ -48,7 +48,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *redshift.InMemoryBackend, _ string) {
 				t.Helper()
 
-				clusters, _, err := b.DescribeClusters("", "", 0)
+				clusters, _, err := b.DescribeClusters("", "", 0, nil, nil)
 				require.NoError(t, err)
 				assert.Empty(t, clusters)
 			},
@@ -97,7 +97,7 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 	freshH := redshift.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	clusters, _, err := fresh.DescribeClusters("", "", 0)
+	clusters, _, err := fresh.DescribeClusters("", "", 0, nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, clusters, 1)
 }

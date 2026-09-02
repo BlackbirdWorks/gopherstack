@@ -43,7 +43,7 @@ func TestHandler_IndexPolicy(t *testing.T) {
 		{
 			name:   "DescribeIndexPolicies/WithEntries",
 			action: "DescribeIndexPolicies",
-			body:   map[string]any{},
+			body:   map[string]any{"logGroupIdentifiers": []string{"/grp1", "/grp2"}},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "PutIndexPolicy",
@@ -52,6 +52,12 @@ func TestHandler_IndexPolicy(t *testing.T) {
 					`{"logGroupIdentifier":"/grp2","policyDocument":"{}"}`)
 			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DescribeIndexPolicies/MissingLogGroupIdentifiers",
+			action:   "DescribeIndexPolicies",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteIndexPolicy/OK",
@@ -157,7 +163,7 @@ func TestHandler_IndexPolicyResponseShape(t *testing.T) {
 		{
 			name:       "DescribeIndexPolicies/HasIndexPolicies",
 			action:     "DescribeIndexPolicies",
-			body:       map[string]any{},
+			body:       map[string]any{"logGroupIdentifiers": []string{"/grp"}},
 			wantFields: []string{"indexPolicies"},
 			wantCode:   http.StatusOK,
 		},

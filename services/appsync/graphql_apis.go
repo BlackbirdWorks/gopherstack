@@ -134,6 +134,10 @@ func applyGraphqlAPIConfig(api *GraphqlAPI, cfg *GraphqlAPIConfig) {
 		api.IntrospectionConfig = cfg.IntrospectionConfig
 	}
 
+	if cfg.OwnerContact != "" {
+		api.OwnerContact = cfg.OwnerContact
+	}
+
 	if cfg.QueryDepthLimit != 0 {
 		api.QueryDepthLimit = cfg.QueryDepthLimit
 	}

@@ -43,9 +43,20 @@ func eventFilterMatches(fc *FilterCriteria, record map[string]any) bool {
 }
 
 // patternMatchesObject evaluates an event-pattern object against a decoded value.
-// Every key in the pattern must be satisfied (logical AND across keys).
+// Every key in the pattern must be satisfied (logical AND across keys), except
+// the "$or" combinator documented for "Or (multiple fields)": its value is an
+// array of sibling pattern fragments evaluated against the same value, and the
+// object matches only if at least one fragment does.
 func patternMatchesObject(pattern map[string]json.RawMessage, value map[string]any) bool {
 	for key, rawRule := range pattern {
+		if key == "$or" {
+			if !orClauseMatches(rawRule, value) {
+				return false
+			}
+
+			continue
+		}
+
 		fieldVal, present := value[key]
 
 		if !fieldMatchesRule(rawRule, fieldVal, present) {
@@ -54,6 +65,28 @@ func patternMatchesObject(pattern map[string]json.RawMessage, value map[string]a
 	}
 
 	return true
+}
+
+// orClauseMatches evaluates a "$or" array of sibling pattern-fragment objects
+// against value, matching if any fragment matches.
+func orClauseMatches(rawRule json.RawMessage, value map[string]any) bool {
+	var branches []json.RawMessage
+	if err := json.Unmarshal(rawRule, &branches); err != nil {
+		return false
+	}
+
+	for _, branch := range branches {
+		var branchPattern map[string]json.RawMessage
+		if err := json.Unmarshal(branch, &branchPattern); err != nil {
+			continue
+		}
+
+		if patternMatchesObject(branchPattern, value) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // fieldMatchesRule evaluates a single pattern field. rawRule is either a nested
@@ -155,7 +188,7 @@ func operatorMatches(rule json.RawMessage, fieldVal any, present bool) bool {
 func singleOperatorMatches(name string, arg json.RawMessage, fieldVal any, present bool) bool {
 	switch name {
 	case "exists":
-		return existsMatches(arg, present)
+		return existsMatches(arg, fieldVal, present)
 	case "prefix":
 		return affixMatches(arg, fieldVal, present, strings.HasPrefix)
 	case "suffix":
@@ -171,9 +204,18 @@ func singleOperatorMatches(name string, arg json.RawMessage, fieldVal any, prese
 	}
 }
 
-func existsMatches(arg json.RawMessage, present bool) bool {
+// existsMatches implements the "exists" operator. AWS docs: "the Exists
+// operator only works on leaf nodes in your event source JSON. It doesn't
+// match intermediate nodes" -- a field present as a nested object is an
+// intermediate node, not a leaf, so it never satisfies exists regardless of
+// the requested polarity.
+func existsMatches(arg json.RawMessage, fieldVal any, present bool) bool {
 	var want bool
 	if err := json.Unmarshal(arg, &want); err != nil {
+		return false
+	}
+
+	if _, isObject := fieldVal.(map[string]any); present && isObject {
 		return false
 	}
 

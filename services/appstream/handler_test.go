@@ -142,7 +142,6 @@ func createUser(t *testing.T, h *appstream.Handler, userName string) {
 	t.Helper()
 	rec := doRequest(t, h, "CreateUser", map[string]any{
 		"UserName":           userName,
-		"Email":              userName + "@example.com",
 		"AuthenticationType": "USERPOOL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

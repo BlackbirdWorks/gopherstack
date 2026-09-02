@@ -146,7 +146,6 @@ func TestDescribeTagsForTargetGroupAndListener(t *testing.T) {
 		"Action":                {"DescribeTags"},
 		"Version":               {"2015-12-01"},
 		"ResourceArns.member.1": {tgArn},
-		"ResourceArns.member.2": {"arn:aws:doesnotexist"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -166,7 +165,25 @@ func TestDescribeTagsForTargetGroupAndListener(t *testing.T) {
 		} `xml:"DescribeTagsResult"`
 	}
 	parseXMLBody(t, rec, &resp)
-	assert.Len(t, resp.Result.TagDescriptions.Members, 2)
+	assert.Len(t, resp.Result.TagDescriptions.Members, 1)
+}
+
+// AWS: DescribeTags models LoadBalancerNotFound/TargetGroupNotFound/
+// ListenerNotFound/RuleNotFound/TrustStoreNotFound for a resource ARN that
+// does not exist -- it must raise, not silently omit the unknown ARN.
+func TestDescribeTags_UnknownResourceArn_Errors(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	tgArn := mustCreateTG(t, h, "tag-tg-unknown-sibling")
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                {"DescribeTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {tgArn},
+		"ResourceArns.member.2": {"arn:aws:doesnotexist"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRemoveTagsFromTG tests removing tags from a target group.

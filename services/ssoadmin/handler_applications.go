@@ -195,8 +195,12 @@ func (h *Handler) handleListApplicationProviders(c *echo.Context, body []byte) e
 func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
-		NextToken   string `json:"NextToken"`
-		MaxResults  int    `json:"MaxResults"`
+		Filter      struct {
+			ApplicationAccount  string `json:"ApplicationAccount"`
+			ApplicationProvider string `json:"ApplicationProvider"`
+		} `json:"Filter"`
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -205,6 +209,12 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 	sort.Slice(apps, func(i, j int) bool { return apps[i].ApplicationArn < apps[j].ApplicationArn })
 	out := make([]applicationView, 0, len(apps))
 	for _, app := range apps {
+		if req.Filter.ApplicationAccount != "" && app.ApplicationAccount != req.Filter.ApplicationAccount {
+			continue
+		}
+		if req.Filter.ApplicationProvider != "" && app.ApplicationProviderArn != req.Filter.ApplicationProvider {
+			continue
+		}
 		out = append(out, applicationView{
 			ApplicationArn:         app.ApplicationArn,
 			ApplicationProviderArn: app.ApplicationProviderArn,

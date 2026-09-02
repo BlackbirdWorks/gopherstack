@@ -507,6 +507,101 @@ func TestGetFindings_MultipleFilterCombinations(t *testing.T) {
 	}
 }
 
+// TestGetFindings_MultiValueSameFieldCombination verifies the documented
+// StringFilter same-field combination rule (securityhub@v1.75.4
+// types.StringFilter doc comment): CONTAINS/EQUALS/PREFIX entries on the
+// same field are joined by OR ("a finding matches if it matches any one of
+// those filters"), NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS entries are
+// joined by AND, and a PREFIX group combines with a NOT_EQUALS/
+// PREFIX_NOT_EQUALS group by first taking the OR of the PREFIX matches and
+// then excluding anything the negative group rejects.
+func TestGetFindings_MultiValueSameFieldCombination(t *testing.T) {
+	t.Parallel()
+
+	t.Run("positive comparisons on the same field are OR'd", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		enableHub(t, h)
+
+		f1 := validFinding(map[string]any{"Id": "f-or-1", "Title": "Finding CloudFront issue"})
+		f2 := validFinding(map[string]any{"Id": "f-or-2", "Title": "Finding CloudWatch issue"})
+		f3 := validFinding(map[string]any{"Id": "f-or-3", "Title": "Finding Unrelated issue"})
+
+		doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+			"Findings": []any{f1, f2, f3},
+		})
+
+		// AWS doc example: "Title CONTAINS CloudFront OR Title CONTAINS
+		// CloudWatch match a finding that includes either CloudFront,
+		// CloudWatch, or both strings in the title."
+		rec := doRequest(t, h, http.MethodPost, "/findings", map[string]any{
+			"Filters": map[string]any{
+				"Title": []any{
+					map[string]any{"Value": "CloudFront", "Comparison": "CONTAINS"},
+					map[string]any{"Value": "CloudWatch", "Comparison": "CONTAINS"},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		findings, _ := resp["Findings"].([]any)
+
+		gotIDs := make([]string, 0, len(findings))
+		for _, f := range findings {
+			id, _ := f.(map[string]any)["Id"].(string)
+			gotIDs = append(gotIDs, id)
+		}
+
+		assert.ElementsMatch(t, []string{"f-or-1", "f-or-2"}, gotIDs)
+	})
+
+	t.Run("prefix group ORs then excludes the not-equals group", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		enableHub(t, h)
+
+		// AWS doc example on types.StringFilter: PREFIX AwsIam OR PREFIX
+		// AwsEc2, then exclude AwsIamPolicy and AwsEc2NetworkInterface.
+		f1 := validFinding(map[string]any{"Id": "f-mix-1", "ResourceType": "AwsIamRole"})
+		f2 := validFinding(map[string]any{"Id": "f-mix-2", "ResourceType": "AwsIamPolicy"})
+		f3 := validFinding(map[string]any{"Id": "f-mix-3", "ResourceType": "AwsEc2Instance"})
+		f4 := validFinding(map[string]any{"Id": "f-mix-4", "ResourceType": "AwsEc2NetworkInterface"})
+		f5 := validFinding(map[string]any{"Id": "f-mix-5", "ResourceType": "AwsS3Bucket"})
+
+		doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+			"Findings": []any{f1, f2, f3, f4, f5},
+		})
+
+		rec := doRequest(t, h, http.MethodPost, "/findings", map[string]any{
+			"Filters": map[string]any{
+				"ResourceType": []any{
+					map[string]any{"Value": "AwsIam", "Comparison": "PREFIX"},
+					map[string]any{"Value": "AwsEc2", "Comparison": "PREFIX"},
+					map[string]any{"Value": "AwsIamPolicy", "Comparison": "NOT_EQUALS"},
+					map[string]any{"Value": "AwsEc2NetworkInterface", "Comparison": "NOT_EQUALS"},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		findings, _ := resp["Findings"].([]any)
+
+		gotIDs := make([]string, 0, len(findings))
+		for _, f := range findings {
+			id, _ := f.(map[string]any)["Id"].(string)
+			gotIDs = append(gotIDs, id)
+		}
+
+		assert.ElementsMatch(t, []string{"f-mix-1", "f-mix-3"}, gotIDs)
+	})
+}
+
 func TestBackend_UpdateFindings(t *testing.T) {
 	t.Parallel()
 

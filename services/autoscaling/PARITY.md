@@ -3,6 +3,32 @@ service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
 last_audit_commit: 1c4ee34e
 last_audit_date: 2026-07-23
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
+# 66/67 ops N-of-N). Handler.autoscalingErrorCode is one global sentinel
+# table applied to all ops. Confirmed the AlreadyExists/ResourceInUse/
+# ScalingActivityInProgress/ActiveInstanceRefreshNotFound sentinels are each
+# used only by ops that model that exact code -- no wrong-code bugs found
+# there. "ValidationError" (ErrInvalidParameter and 5 other not-found
+# sentinels' shared code) does not exist anywhere in this SDK's exception set
+# -- confirmed: the whole autoscaling API models only 11 typed exceptions
+# (AlreadyExistsFault/LimitExceededFault/ResourceContentionFault/
+# ResourceInUseFault/ScalingActivityInProgressFault/
+# ActiveInstanceRefreshNotFoundFault/InstanceRefreshInProgressFault/
+# IrreversibleInstanceRefreshFault/InvalidNextToken/
+# IdempotentParameterMismatchError/ServiceLinkedRoleFailure), none matching
+# generic not-found/invalid-parameter -- left as-is per campaign restraint
+# (no op models anything this class of failure could be corrected to).
+# ErrUnknownAction ("InvalidAction") fires only for an unrecognized Action=
+# value at the routing layer, before any operation is identified -- a real
+# typed SDK client can never construct such a request, so this path is
+# unreachable by real traffic and not a bug of this class.
+# Missing-error bug found and fixed: StartInstanceRefresh accepted a second
+# concurrent call unconditionally instead of rejecting it -- the op's own
+# deserializer models InstanceRefreshInProgress for exactly this case. Added
+# ErrInstanceRefreshInProgress and an in-progress check (instance_refreshes.go).
+# See error_sentinel_fixes_test.go (real-SDK errors.As assertion, confirmed
+# failing pre-fix).
 overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling version bump
                        # (still v1.64.2 in go.mod/go.sum). This pass independently
                        # field-diffed the prior pass's "gaps" list against actual code
@@ -35,7 +61,7 @@ overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling ver
 ops:
   CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. Prior pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe. bd gopherstack-2uti: MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements (attribute-based instance-type selection, 24 of 25 sub-fields) is now parsed; also fixed a real loop-termination bug in parseLaunchTemplateOverrides - an override carrying only InstanceRequirements (no InstanceType/WeightedCapacity/LaunchTemplateSpecification, the common real-world shape) was indistinguishable from 'no more members', silently truncating every override after it too. bd gopherstack-02ue (this pass): the 25th and last InstanceRequirements field, BaselinePerformanceFactors, is now modelled too - see Notes for its wire-shape outlier (singular 'Reference' key, 'item'-wrapped list)"}
   DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it). bd gopherstack-2uti: projects InstanceRequirements on each override (see CreateAutoScalingGroup). bd gopherstack-02ue (this pass): projects BaselinePerformanceFactors too"}
-  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior passes: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open); wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy). bd gopherstack-2uti / bd gopherstack-02ue: inherits the InstanceRequirements (incl. BaselinePerformanceFactors) parsing fix via the shared parseMixedInstancesPolicy/parseLaunchTemplateOverrides helpers"}
+  UpdateAutoScalingGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior passes: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open); wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy). bd gopherstack-2uti / bd gopherstack-02ue: inherits the InstanceRequirements (incl. BaselinePerformanceFactors) parsing fix via the shared parseMixedInstancesPolicy/parseLaunchTemplateOverrides helpers. write-only-state sweep (this pass): PlacementGroup was a plain string guarded by != \"\" (not *string like the real UpdateAutoScalingGroupInput.PlacementGroup, api_op_UpdateAutoScalingGroup.go), whose doc says \"To remove the placement group setting, pass an empty string for placement-group\" -- a client's explicit clear was silently dropped. Now *string with a nil check. Round-trip test: wire_field_fixes_test.go."}
   DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: DeletionProtection is now a real gate, not just a stored/echoed value - prevent-all-deletion rejects every delete, prevent-force-deletion rejects only ForceDelete=true, matching real AWS's ResourceInUse (ErrorCode) fault. Previously the field didn't exist on the model at all"}
   CreateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -55,9 +81,9 @@ ops:
   TerminateInstanceInAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: now defers actual removal to Terminating:Wait + CompleteLifecycleAction/timeout when a terminating hook is registered, instead of always terminating instantly; also fixed the replacement-instance path never adding the new instance to instanceIndex"}
   PutLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NotificationMetadata was never parsed from the request"}
   DescribeLifecycleHooks: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeScheduledActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeScheduledActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-31 (value-semantics pass): ScheduledActionNames only filtered when AutoScalingGroupName was ALSO given (len(actionNames)>0 && groupName!=\"\"); api_op_DescribeScheduledActions.go documents ScheduledActionNames unconditionally (\"If you omit this property, all scheduled actions are described\") with AutoScalingGroupName as a separate optional field, not a precondition. Supplying names without a group name fell through to the time-range path, which does not consult actionNames at all -- every group's actions in the (usually unbounded) time window were returned instead, silently dropping the name filter and admitting unwanted actions from other groups. scheduledActionsByNamesLocked now searches every group when groupName is empty (ScheduledActionName is unique only within a group, so a name can legitimately match entries in more than one). Regression test TestAutoscalingHandler_DescribeScheduledActions/scheduled_action_names_filters_without_group_name, proved failing pre-fix."}
   DeleteTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-31 (value-semantics pass): tagMatchesFilters recognised auto-scaling-group/key/value but not the fourth documented Filter Name, propagate-at-launch (types.Filter, types/types.go:844-847, \"Accepts a Boolean value ... results only include tags associated with the specified Boolean value\") -- an unrecognised Name silently matched every tag, so this filter was a no-op. Also found while fixing it: DescribeTags never copied PropagateAtLaunch from the stored Tag into the response ResourceTag at all, so the response's own PropagateAtLaunch field always reported false regardless of the real stored value -- a real client could not read the field's correct value at all, let alone filter on it. Both fixed together (tags.go); regression test TestInMemoryBackend_DescribeTags_WithFilters/filter_by_propagate_at_launch, proved failing pre-fix. NOT fixed, recorded separately: the standalone CreateOrUpdateTags API (distinct from tags set at CreateAutoScalingGroup time, which correctly thread PropagateAtLaunch via parseTags) drops PropagateAtLaunch on both create and update, always storing/leaving false -- a write-path bug, not a Describe-filter-semantics bug, kept out of this pass's scope."}
   DescribeAutoScalingInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteNotificationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -703,3 +729,272 @@ confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/autoscaling/...` (pass),
 `golangci-lint run ./services/autoscaling/...` (0 issues).
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every generic indexed-list parse site enumerated against its own operation's
+serializer in `autoscaling@v1.70.4` (request-side parameter reads, not the
+response-wrapper-key class the 2026-08-29 error/wrapper passes above cover).
+
+**~42 call sites checked by hand this pass, 0 bugs found:** 31 `parseMembers`
+call sites (`InstanceIds`/`SecurityGroups`/`ClassicLinkVPCSecurityGroups`/
+`LaunchConfigurationNames`/`NotificationTypes`/`AutoScalingGroupNames`/
+`AvailabilityZones`/`LoadBalancerNames`/`TargetGroupARNs`/
+`TerminationPolicies`/`ScalingProcesses`/`ScheduledActionNames`/
+`LifecycleHookNames`/`InstanceRefreshIds`/`Metrics`/`PolicyNames`, each
+checked against its own operation's serializer independently -- several keys
+like `InstanceIds`/`TargetGroupARNs`/`AvailabilityZones` are read identically
+across multiple sibling operations, and each one's own serializer was read
+rather than inferred from the first), `parseTags`/`parseResourceTags` (3
+sites) plus `parseTagFilters` (already correctly iterating every
+`Values.member.M`, not just the first), `parseBlockDeviceMappings`/
+`parseEbsBlockDevice`, `parseLifecycleHookSpecifications`,
+`parseCapacityReservationTarget`/`parseCapacityReservationSpecification`,
+`parseTrafficSources` (Attach+Detach), and `parseBatchScheduledActions`. All
+confirmed to use the generic query-protocol `.member.N` wrapper this
+handler already assumes, with the field's own `serializeDocument*` function
+read in each case rather than pattern-matched by name.
+
+**Not re-derived from scratch this pass** (previously exhaustively verified
+against the identical bug class with serializers.go line citations -- see
+"bd gopherstack-2uti" and the immediately-following predictive-scaling
+section above): the `TargetTrackingConfiguration`/
+`PredictiveScalingConfiguration`/`MixedInstancesPolicy.LaunchTemplate.
+Overrides[].InstanceRequirements` nested-list machinery in
+`handler_scaling_policies.go`/`handler_auto_scaling_groups.go`, including the
+`BaselinePerformanceFactors.Cpu.Reference.item.M` singular/`item`-wrapped
+outlier that prior pass already caught. Spot-checked
+`parseLaunchTemplateOverrides`'s outer `Overrides.member.N` wrapper and the
+`CapacityReservationSpecification`/`CapacityReservationTarget` sub-lists this
+pass; did not re-walk every leaf field of the ~25-field `InstanceRequirements`
+struct a second time.
+
+**Missing feature, left alone (not this bug class):** `DescribeAutoScalingGroups`
+never parses its real `Filters` member (confirmed on
+`DescribeAutoScalingGroupsInput`); `DescribePolicies` never parses `PolicyTypes`.
+Both are parameters never read, not wrong keys.
+
+**Coverage: N-of-N for every generic-helper call site found this pass (73
+of 73: 42 freshly checked + the ~31 already covered by the 2026-08-08/02ue
+scaling-policy pass, cross-referenced rather than re-verified).** What
+remains unchecked by any pass: the handful of pure-scalar object parsers
+(`parseInstanceLifecyclePolicy`, `parseInstanceMaintenancePolicy`,
+`parseAvailabilityZoneDistribution`, `parseAvailabilityZoneImpairmentPolicy`,
+`parseInstancesDistribution`) carry no `.N` indexing at all, so they are
+outside this bug class by construction and were not separately audited here.
+
+No code changes in this service this pass -- the enumeration found nothing
+to fix.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 5 operations fixed
+
+Measured from each op's own Input struct in the pinned SDK (`autoscaling@v1.70.4`): 13 Describe ops
+carry `Filters`/a named filter field/`MaxRecords`/`NextToken`. This pass closes the two gaps the prior
+pass explicitly flagged and left alone as "not this bug class" (quoted above), plus three more found
+by reading every one of the 13 Input structs directly:
+
+- **`DescribePolicies`** (`scaling_policies.go`/`handler_scaling_policies.go`/`interfaces.go`):
+  `PolicyTypes` (`api_op_DescribePolicies.go`: "The valid values are SimpleScaling, StepScaling,
+  TargetTrackingScaling, and PredictiveScaling") was parsed nowhere -- confirmed exactly the prior
+  pass's note. Fixed: `PolicyTypes.member` now filters alongside `PolicyNames`.
+- **`DescribeAutoScalingGroups`** (`auto_scaling_groups.go`/`handler_auto_scaling_groups.go`/
+  `interfaces.go`): `Filters` wasn't even part of the backend method signature -- confirmed exactly
+  the prior pass's note. The Go SDK's `Filter` type carries no closed `Name` enum; the API reference's
+  own worked examples are the only place the valid forms are spelled out (`API_DescribeAutoScalingGroups.html`
+  Examples 2-3): `tag-key`, `tag-value`, `tag:<key>`, ANDed across filters, each satisfied by any one
+  tag on the group. All three forms implemented in `autoScalingGroupMatchesFilters`/
+  `groupHasTagMatchingFilter`.
+- **`DescribeScalingActivities`** (`activities.go`/`handler_activities.go`): the `Filters` member
+  (`Status`, documented "This filter can only be used in combination with the AutoScalingGroupName
+  parameter") was never read, and `MaxRecords` truncated the slice with **no `NextToken` returned** --
+  results past the cutoff were silently dropped, not paginated. Fixed: `Status` filter applied;
+  real `pkgs/page`-backed pagination replaces the truncate, defaulting/capping at the documented 100
+  (`api_op_DescribeScalingActivities.go`: "The default value is 100 and the maximum value is 100").
+  **Gap left**: `StartTimeLowerBound`/`StartTimeUpperBound` (the other two documented `Filter.Name`
+  values) are not applied -- noted in code, not fabricated. **Restriction left unenforced**: the doc's
+  "Status can only be used with AutoScalingGroupName" is not rejected when violated (applied
+  regardless) -- a permissiveness gap, not a correctness one, left as-is given the added risk of a new
+  validation error path outweighing the benefit for a documented-but-unenforced restriction.
+- **`DescribeScheduledActions`** (`scheduled_actions.go`/`handler_scheduled_actions.go`): `StartTime`/
+  `EndTime` (`api_op_DescribeScheduledActions.go`: "the latest/earliest scheduled start time to
+  return... If scheduled action names are provided, this property is ignored") were never read. Fixed:
+  both now bound the returned set's `StartTime`, applied only when `actionNames` is empty per the
+  documented precedence (matching the existing name-lookup branch this backend already had).
+- **`DescribeTrafficSources`** (`traffic_sources.go`/`handler_traffic_sources.go`): `TrafficSourceType`
+  (`api_op_DescribeTrafficSources.go`: `elb`/`elbv2`/`vpc-lattice`) was never read. Fixed.
+
+**Confirmed already correct, not touched**: `DescribeTags`'s `Filters` (`handler_tags.go`'s
+`parseTagFilters`/`tagMatchesFilters`) was already correctly applied per-tag; `DescribeScheduledActions`'s
+`ScheduledActionNames` was already correct.
+
+**CORRECTED 2026-08-30 (gopherstack-zslr)**: the claim two lines above that
+`DescribeLaunchConfigurations`'s pagination "were already correct" and that
+`DescribeLaunchConfigurations`/`DescribeNotificationConfigurations`/`DescribeAutoScalingInstances`/
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`/`DescribeWarmPool`/`DescribeInstanceRefreshes`
+"already implements [pagination] correctly for each" was wrong -- re-reading each handler directly
+(not spot-checked this time) found all ten ignored `MaxRecords`/`NextToken` entirely: every one read
+the backend's full result and returned it in one unbounded response, several with a `NextToken` XML
+field already declared on the result struct and never populated. `DescribeScalingActivities` above this
+note is the one op in the file that legitimately already had correct pagination (it's cited, correctly,
+as the pattern to copy). See "MaxRecords/NextToken pagination sweep" below for the fix.
+
+Gates: `go build ./services/autoscaling/...`, `go vet ./...` (repo-wide -- also required a call-site fix
+in `/cli_asg_ec2_wiring_test.go`, outside this service, since `DescribeAutoScalingGroups`'s signature
+changed), `go test ./services/autoscaling/... -race -count=1` (pass), `golangci-lint run
+./services/autoscaling/...` (0 issues after decomposing `DescribeScheduledActions` to clear gocognit --
+this repo bans the nolint for that linter). New tests in `list_filter_params_test.go` drive the real
+typed SDK client (`assdk.Client`) for every read path under test; fixture setup for the scaling-activity
+`InProgress` status and the traffic-source-type cases goes through the backend directly (lifecycle-hook
+wait state and raw `TrafficSource` structs are awkward to reach through the SDK's own input validation),
+consistent with the narrow exception for setup that doesn't touch the code path being tested.
+
+## 2026-08-30: MaxRecords/NextToken pagination sweep, 10 operations (gopherstack-zslr)
+
+Corrects the false "already implements [pagination] correctly" claim two sections above (see the
+CORRECTED note there) for the ten Describe ops that carry `MaxRecords`/`NextToken` on their real Input
+(`go doc github.com/aws/aws-sdk-go-v2/service/autoscaling.Describe*Input`, one op at a time) but whose
+handlers never read either field: `DescribeLaunchConfigurations`, `DescribeAutoScalingInstances`,
+`DescribeScheduledActions`, `DescribeTags`, `DescribeLoadBalancers`, `DescribeLoadBalancerTargetGroups`,
+`DescribeNotificationConfigurations`, `DescribeTrafficSources`, `DescribeWarmPool`,
+`DescribeInstanceRefreshes`, `DescribePolicies` (11 operations; `DescribeWarmPool` turned out to be a
+partial exception, see below). `handler_launch_configurations.go`'s `describeLaunchConfigurationsResult`
+already declared a `NextToken` XML field that was never populated -- the tell this campaign has seen
+several times now (a shape that promises a cursor the handler never fills in).
+
+All now paginate via `pkgs/page.New` (the repo's generic opaque-index-token pager -- see
+`pkgs-catalog.md`: "use instead of hand-rolled NextToken/cursor logic"), matching the existing
+`DescribeScalingActivities` reference (not `DescribeAutoScalingGroups`'s older hand-rolled
+base64-last-name marker, predating `pkgs/page`). Each op's own documented default/max page size was
+read individually (`go doc`, not assumed uniform): `DescribeLoadBalancers`/
+`DescribeLoadBalancerTargetGroups` are 100/100; `DescribeAutoScalingInstances`/`DescribeTrafficSources`/
+`DescribeWarmPool` are 50/50 (no distinct default documented for the latter two); the other seven are
+50/100.
+
+**The two listings that ranged a map with zero sort calls** (flagged going in, confirmed by reading both
+before touching either):
+- **`DescribeNotificationConfigurations`** (`notifications.go`): account-wide (`groupNames` empty)
+  ranged `b.notificationConfigs` (a `map[string][]*NotificationConfiguration]`) directly into the result
+  slice. Fixed: sorted by `(AutoScalingGroupName, TopicARN, NotificationType)` -- `NotificationConfiguration`
+  has no single-field unique key, but that triple is: `PutNotificationConfiguration` replaces any existing
+  config for exactly that combination. Verified end-to-end via the real SDK client (real
+  `DescribeNotificationConfigurationsInput.AutoScalingGroupNames` is optional, so the account-wide branch
+  is reachable through the typed client, unlike the case below).
+- **`DescribeInstanceRefreshes`** (`instance_refreshes.go`): same pattern over
+  `b.instanceRefreshes` when `groupName` is empty. Fixed: sorted by `InstanceRefreshID`, a
+  `uuid.NewString()` value (`StartInstanceRefreshWithInput`) -- globally unique, no tiebreak needed,
+  matching the existing `DescribeScalingActivities` UUID-sort precedent. **Not reachable through the real
+  SDK client**: `go doc` confirms `DescribeInstanceRefreshesInput.AutoScalingGroupName` is `*string` with
+  "This member is required", so a real client refuses to build the account-wide request that exercises
+  this branch at all -- the bug is real (a raw HTTP caller bypassing SDK-side validation can still hit
+  it) but untestable through `assdk.Client`. Covered instead by
+  `TestDescribeInstanceRefreshes_AccountWide_SortIsDeterministic`, which calls
+  `backend.DescribeInstanceRefreshes("", nil)` directly 21 times against the same seeded state and
+  asserts identical order every time; the SDK-reachable single-group path (deterministic already, since
+  `b.instanceRefreshes[groupName]` is a plain slice, not a map) is covered separately by
+  `TestDescribeInstanceRefreshes_SDKRoundTrip_Pagination`, seeded via the existing test-only
+  `AddInstanceRefresh` helper to get 25 refreshes onto one group without tripping
+  `StartInstanceRefresh`'s one-active-refresh-per-group rule.
+
+**Two more sort-uniqueness gaps found while wiring pagination, not in the original two flagged sites**,
+same failure shape (a sort key that's only unique within a group, exposed once an account-wide query
+scans every group):
+- **`DescribeScheduledActions`** (`scheduled_actions.go`): sorted by `ScheduledActionName` alone when
+  `groupName` is empty (`scheduledActionsInTimeRangeLocked` then scans `b.scheduledActions.All()` across
+  every group), but `ScheduledActionName` is unique only within a group (`scheduledActions` is keyed by
+  `scopedKey(groupName, name)`) -- two different groups can share an action name. Tiebroken with
+  `AutoScalingGroupName`.
+- **`DescribePolicies`** (`scaling_policies.go`): same shape, sorted by `PolicyName` alone
+  (`scalingPolicies` keyed by `scopedKey(groupName, PolicyName)`). Tiebroken with
+  `AutoScalingGroupName`. `TestDescribePolicies_SDKRoundTrip_Pagination` seeds all 25 policies on
+  distinct groups with the SAME `PolicyName` specifically to force this tie and prove the tiebreak
+  makes the pagination cursor deterministic.
+
+Both are timestamp/name-shaped keys admitting ties exactly as the task brief predicted ("A name...
+admits ties and needs the id appended"), found by reading each backend method's `sort.Slice` while
+wiring its handler's pagination rather than trusting the handler-level fix alone.
+
+**`DescribeWarmPool` is a structural partial exception**, not a full fix like the other nine: real
+`DescribeWarmPoolOutput` carries `Instances []types.Instance` (the pool's actual member instances) plus
+`NextToken`, but this backend's `WarmPool` model has no instance list at all -- `PutWarmPool` only
+stores pool-level config (`MinSize`/`MaxGroupPreparedCapacity`/`PoolState`/`Status`), and nothing
+anywhere provisions simulated warm-pool instances into it (confirmed: no `Warmed:`-prefixed
+`LifecycleState` anywhere in the package, which is how real AWS represents warm-pool instances within
+the ASG's own instance list). `Instances` is therefore always empty, so pagination over it is correctly
+a no-op today -- not a bug I could reproduce, and not something to fabricate fixture data for. Fixed the
+part that's real: `MaxRecords`/`NextToken` are read and threaded through `pkgs/page.New` (an empty slice)
+so a client supplying either doesn't error, and the previously entirely-absent `Instances`/`NextToken`
+XML fields were added to the response for wire completeness. Unlike the other nine,
+`TestDescribeWarmPool_MaxRecordsNextToken_Wired` does **not** fail against the pre-fix handler (both
+versions produce an equivalently-empty/absent `Instances`/`NextToken` on the wire, since there was
+nothing to truncate either way) -- it only proves the new plumbing doesn't error, not that it fixes an
+observable bug. Genuine warm-pool instance modeling (so this pagination has something real to page over)
+is out of scope here; noted as a separate, larger gap.
+
+**Restraint**: `DescribeLoadBalancers`, `DescribeLoadBalancerTargetGroups`, and `DescribeTrafficSources`
+are all scoped to a single `AutoScalingGroupName` (not account-wide) and already read from a plain
+`[]string`/`[]TrafficSource` slice field on the group (`LoadBalancerNames`/`TargetGroupARNs`/
+`TrafficSources`), not a map -- insertion-ordered and already deterministic across calls with no sort
+needed. No filter had to move ahead of pagination in this service (unlike the iam sweep referenced in
+the task brief): every filter already in these handlers (`DescribeTags`'s `Filters`,
+`DescribeTrafficSources`'s `TrafficSourceType`, `DescribePolicies`'s `PolicyNames`/`PolicyTypes`,
+`DescribeScheduledActions`'s name/time-range filtering) already runs inside the backend method, before
+the handler's new `page.New` call -- there was no pre-existing "paginate then filter" ordering bug to
+fix.
+
+Every fix except `DescribeInstanceRefreshes`'s account-wide sort (see above) is proven with a
+`TestDescribe*_SDKRoundTrip_Pagination` test in `list_pagination_ignored_test.go`: 25 records seeded,
+`MaxRecords`=10, asserts page 1 is full and carries a `NextToken`, the remainder comes back exactly once
+across however many follow-up pages with no duplicates, confirmed failing against the pre-fix handler
+via a scoped `git stash` of only the ten source files (test file untouched, so it compiles against both
+versions) -- 11 of the 12 new tests failed pre-fix as expected;
+`TestDescribeWarmPool_MaxRecordsNextToken_Wired` passed both before and after, per the structural
+exception above.
+
+No AWS documentation was fetched for this pass (all wire-shape facts came from `go doc` against the
+pinned `aws-sdk-go-v2` module and from reading this service's own source), so the security note about an
+injected `aws agent-toolkit search-skills` footer in fetched docs does not apply here.
+
+Gates: `go build ./services/autoscaling/...` clean; `go vet ./services/autoscaling/...` clean (repo-wide
+`go vet ./...` also clean -- no call-site fix needed in any root `cli_*_test.go`, unlike the constraint-
+parameter sweep above); `go test ./services/autoscaling/... -race -count=1 -shuffle=on` -- `ok`;
+`golangci-lint run ./services/autoscaling/...` -- `0 issues` (after adding `//nolint:dupl` to
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups`, newly flagged once both shared the same
+`page.New` pagination shape -- confirmed pre-existing "different resource types, same list-XML
+structure" duplication, not new debt, before suppressing).
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`): a list field whose per-item
+XML wrapper was named for the *status type* (`DBParameterGroupStatus`) where the pinned
+deserializer's list decoder matches on the *group* name (`DBParameterGroup`), so the list
+decoded as empty for every SDK client despite the emitted XML looking correct on skim.
+Asked whether this repo's wrapper-key/nested-shape campaign (gopherstack-6flj/21my) covers
+response element naming, or whether it only escaped for rds.
+
+**It covers it, and autoscaling was already fully swept at both layers.** gopherstack-21my's
+own notes record: "autoscaling -- both layers verified across all 21 Describe/Get ops and
+essentially every nested item type reachable from them (AutoScalingGroup incl.
+MixedInstancesPolicy/... , Instance, AutoScalingInstanceDetails, TagDescription/ResourceTag,
+ScalingPolicy incl. .../CustomizedMetricSpecification/PredefinedMetricSpecification,
+ScheduledUpdateGroupAction, LifecycleHook, LaunchConfiguration incl. .../InstanceMonitoring,
+Activity, NotificationConfiguration, InstanceRefresh incl. RefreshPreferences,
+WarmPoolConfiguration, LoadBalancerState, LoadBalancerTargetGroupState, TrafficSourceState,
+CapacityForecast/LoadForecast). All clean at both layers -- no wrong-key or wrong-nesting
+bugs found." That predates the rds bug and used the identical method (read each op's own
+`awsAwsquery_deserializeDocument*`/`*List` function, compare element names).
+
+This pass independently re-spot-checked the exact shape class that bit rds -- a list field
+nested inside a larger struct, checking the *wrapping* element name each list decoder
+matches on, not just top-level keys -- against `aws-sdk-go-v2/service/autoscaling@v1.70.4`
+(matches `go.mod`): `TargetGroupARNs`, `LoadBalancerNames`, `SuspendedProcesses`,
+`EnabledMetrics`, `TrafficSources` (deserializers.go:18654/14208/18414/11001/19294) all
+match on `strings.EqualFold("member", t.Name.Local)`, and `auto_scaling_groups.go`'s
+`xmlStringValueList`/`xmlSuspendedProcessList`/`xmlTrafficSourceList`/`xmlEnabledMetricList`
+all emit `xml:"member"` per item -- correct. No status-shaped list (the rds bug's specific
+shape, a list of `*Status` structs wrapped under a non-`member` name) exists anywhere in
+this service's deserializers -- confirmed by `grep -n
+"func awsAwsquery_deserializeDocument.*StatusList\b"` against `deserializers.go`, zero
+matches. **Zero new bugs found; nothing changed in this service.** `go build`, `go vet`
+(repo-wide, clean), `go test -race ./services/autoscaling/...` all pass on the unmodified
+tree. No AWS documentation was fetched this pass (all facts came from the pinned module
+cache and existing repo source).

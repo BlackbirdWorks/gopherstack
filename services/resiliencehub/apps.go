@@ -1,6 +1,7 @@
 package resiliencehub
 
 import (
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -175,29 +176,51 @@ func (b *InMemoryBackend) DeleteApp(appArn string, forceDelete bool) error {
 	return nil
 }
 
-// listAppsFilter holds ListApps' optional filters. Only one may be set at a
-// time, matching the real API's own documented rule ("Only one filter is
-// supported for this operation").
+// listAppsFilter holds ListApps' optional filters. Only one of
+// appArn/awsApplicationArn/name may be set at a time, matching the real
+// API's own documented rule ("Only one filter is supported for this
+// operation"); fromLastAssessmentTime/toLastAssessmentTime is a separate
+// time-window filter that combines with it.
 type listAppsFilter struct {
-	appArn            string
-	awsApplicationArn string
-	name              string
+	fromLastAssessmentTime time.Time
+	toLastAssessmentTime   time.Time
+	appArn                 string
+	awsApplicationArn      string
+	name                   string
+	reverseOrder           bool
 }
 
 func matchesAppFilter(a *App, f listAppsFilter) bool {
 	switch {
 	case f.appArn != "":
-		return a.ARN == f.appArn
+		if a.ARN != f.appArn {
+			return false
+		}
 	case f.awsApplicationArn != "":
-		return a.AwsApplicationArn == f.awsApplicationArn
+		if a.AwsApplicationArn != f.awsApplicationArn {
+			return false
+		}
 	case f.name != "":
-		return a.Name == f.name
-	default:
-		return true
+		if a.Name != f.name {
+			return false
+		}
 	}
+
+	if !f.fromLastAssessmentTime.IsZero() && a.LastAppComplianceEvaluationTime.Before(f.fromLastAssessmentTime) {
+		return false
+	}
+
+	if !f.toLastAssessmentTime.IsZero() && a.LastAppComplianceEvaluationTime.After(f.toLastAssessmentTime) {
+		return false
+	}
+
+	return true
 }
 
-// ListApps returns a page of Apps matching f.
+// ListApps returns a page of Apps matching f, sorted by
+// LastAppComplianceEvaluationTime ascending (descending if f.reverseOrder),
+// matching ListAppsInput's documented default sort
+// (api_op_ListApps.go, resiliencehub@v1.38.3).
 func (b *InMemoryBackend) ListApps(f listAppsFilter, token string, limit int) page.Page[*App] {
 	b.mu.RLock("ListApps")
 	defer b.mu.RUnlock()
@@ -210,6 +233,14 @@ func (b *InMemoryBackend) ListApps(f listAppsFilter, token string, limit int) pa
 			filtered = append(filtered, a)
 		}
 	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		if f.reverseOrder {
+			return filtered[i].LastAppComplianceEvaluationTime.After(filtered[j].LastAppComplianceEvaluationTime)
+		}
+
+		return filtered[i].LastAppComplianceEvaluationTime.Before(filtered[j].LastAppComplianceEvaluationTime)
+	})
 
 	return page.New(filtered, token, limit, defaultPageLimit)
 }

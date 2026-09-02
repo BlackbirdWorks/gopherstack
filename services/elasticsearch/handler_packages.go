@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // packageSourceJSON is the JSON representation of a package's S3 source
@@ -184,25 +186,76 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{
 		"PackageID":           parts[0],
 		"DomainName":          parts[1],
-		"DomainPackageStatus": "DISSOCIATED",
+		"DomainPackageStatus": "DISSOCIATING",
 	}})
+}
+
+// describePackagesFilter is the wire shape of types.DescribePackagesFilter --
+// Name/Value, not the Name/Values shape nameValuesFilter covers for the
+// cross-cluster-connection Describe ops (verified against DescribePackages's
+// own serializeOpDocument, api_op_DescribePackages.go's Input doc comment).
+type describePackagesFilter struct {
+	Name  string   `json:"Name"`
+	Value []string `json:"Value"`
 }
 
 func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PackageIDs []string `json:"PackageIDs"`
+		NextToken  string                   `json:"NextToken"`
+		Filters    []describePackagesFilter `json:"Filters"`
+		MaxResults int                      `json:"MaxResults"`
 	}
 	if !h.decodeRequest(w, r, &req) {
 		return
 	}
 
-	packages := h.Backend.DescribePackages(h.reqContext(r), req.PackageIDs)
-	result := make([]packageJSON, 0, len(packages))
+	packages := h.Backend.DescribePackages(h.reqContext(r), nil)
+	matched := make([]*Package, 0, len(packages))
 	for _, pkg := range packages {
+		if matchesDescribePackagesFilters(req.Filters, pkg) {
+			matched = append(matched, pkg)
+		}
+	}
+
+	pg := page.New(matched, req.NextToken, req.MaxResults, defaultCrossClusterPageSize)
+	result := make([]packageJSON, 0, len(pg.Data))
+	for _, pkg := range pg.Data {
 		result = append(result, toPackageJSON(pkg))
 	}
 
-	h.writeJSON(r, w, map[string]any{"PackageDetailsList": result})
+	resp := map[string]any{"PackageDetailsList": result}
+	if pg.Next != "" {
+		resp["NextToken"] = pg.Next
+	}
+
+	h.writeJSON(r, w, resp)
+}
+
+// matchesDescribePackagesFilters applies DescribePackages's Filters
+// parameter -- Name is one of PackageID/PackageName/PackageStatus
+// (types.DescribePackagesFilterName's three enum values), matched against
+// any of Value's entries.
+func matchesDescribePackagesFilters(filters []describePackagesFilter, pkg *Package) bool {
+	for _, f := range filters {
+		var value string
+
+		switch f.Name {
+		case "PackageID":
+			value = pkg.ID
+		case "PackageName":
+			value = pkg.Name
+		case "PackageStatus":
+			value = pkg.Status
+		default:
+			return false
+		}
+
+		if !slices.Contains(f.Value, value) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {

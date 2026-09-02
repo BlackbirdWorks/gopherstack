@@ -851,6 +851,23 @@ const (
 	ec2PageMinMovingAddresses    = 5 // api_op_DescribeMovingAddresses.go: "between 5 and 1000"
 
 	ec2PageMaxVolumesModifications = 500 // api_op_DescribeVolumesModifications.go: "up to a limit of 500"
+
+	// Per-operation MaxResults bounds for the reqfielddiff never-declared-field
+	// sweep below: these six ops accepted MaxResults/NextToken on the wire but
+	// the handler read neither, always returning every item in one page.
+	ec2PageDefaultNIPermissions = 50 // api_op_DescribeNetworkInterfacePermissions.go: "50 results ... by default"
+
+	ec2PageMaxReservedInstancesOfferings = 100 // api_op_DescribeReservedInstancesOfferings.go: "maximum is 100"
+
+	ec2PageMinScheduledInstanceAvailability = 5   // api_op_DescribeScheduledInstanceAvailability.go: "between 5 and 300"
+	ec2PageMaxScheduledInstanceAvailability = 300 // same: "The default value is 300"
+
+	ec2PageMinScheduledInstances     = 5   // api_op_DescribeScheduledInstances.go: "between 5 and 300"
+	ec2PageMaxScheduledInstances     = 300 // same
+	ec2PageDefaultScheduledInstances = 100 // same: "The default value is 100"
+
+	ec2PageMinVpnConnectionDeviceTypes = 200  // api_op_GetVpnConnectionDeviceTypes.go: "between 200 and 1000"
+	ec2PageMaxVpnConnectionDeviceTypes = 1000 // same
 )
 
 // parseEC2Pagination validates MaxResults against [minResults, maxResults]

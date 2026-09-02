@@ -200,3 +200,17 @@ Real bugs fixed this pass (see `ops:` above for detail):
   same behavior graph ARN"), so nothing ever returns this error. Left as-is
   — it maps to a real `ConflictException` (not an invented error code), it's
   exported API surface, and removing it is out of scope for this pass.
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s `decodePageToken` accepted a
+token that base64-decoded to a negative integer and returned it verbatim; every one of its 7
+callers (`administrator.go`, `datasource_packages.go`, `graphs.go`, `members.go` x2,
+`investigations.go` x2) only clamps the upper bound (`if start > len(x) { start = len(x) }`),
+which does not catch a negative `start`, so `x[start:end]` panicked with `slice bounds out of
+range [-5:]` given a token base64-decoding to `-5`. Fixed at the decode site: `decodePageToken`
+now rejects a negative offset like any other malformed token, so all 7 callers inherit the fix.
+
+Proof: `TestDecodePageToken_NegativeOffset` and `TestListGraphs_NegativeToken`
+(`whitebox_test.go`) confirmed panicking pre-fix, pass now. Gates: `go build
+./services/detective/...`, `go vet ./services/detective/...`, `go test -race -count=1
+./services/detective/...`, `golangci-lint run ./services/detective/...` (0 issues). Work left
+uncommitted per this pass's instructions.

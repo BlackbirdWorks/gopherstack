@@ -28,7 +28,6 @@ func TestAppStream_Users(t *testing.T) {
 			action: "CreateUser",
 			body: map[string]any{
 				"UserName":           "alice@example.com",
-				"Email":              "alice@example.com",
 				"AuthenticationType": "USERPOOL",
 			},
 			wantCode: http.StatusOK,
@@ -41,7 +40,6 @@ func TestAppStream_Users(t *testing.T) {
 			},
 			body: map[string]any{
 				"UserName":           "dup-user",
-				"Email":              "dup@example.com",
 				"AuthenticationType": "USERPOOL",
 			},
 			wantCode: http.StatusBadRequest,
@@ -130,7 +128,6 @@ func TestAppStream_UserARNPartition(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateUser", map[string]any{
 		"UserName":           "govcloud-user",
-		"Email":              "govcloud-user@example.com",
 		"AuthenticationType": "USERPOOL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -156,7 +153,6 @@ func TestAppStream_UserARNFormat(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "CreateUser", map[string]any{
 		"UserName":           "testuser",
-		"Email":              "testuser@example.com",
 		"AuthenticationType": "USERPOOL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -180,7 +176,6 @@ func TestAppStream_UserStatusEnabled(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateUser", map[string]any{
 		"UserName":           "enabled-user",
-		"Email":              "enabled@example.com",
 		"AuthenticationType": "USERPOOL",
 	})
 	doRequest(t, h, "EnableUser", map[string]any{
@@ -361,7 +356,6 @@ func TestAppStream_DescribeUserStackAssociations(t *testing.T) {
 	doRequest(t, h, "CreateStack", map[string]any{"Name": "assoc-stack"})
 	doRequest(t, h, "CreateUser", map[string]any{
 		"UserName":           "assoc-user",
-		"Email":              "assoc@example.com",
 		"AuthenticationType": "USERPOOL",
 	})
 

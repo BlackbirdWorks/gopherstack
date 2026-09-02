@@ -193,6 +193,14 @@ func (b *InMemoryBackend) RejectInputDeviceTransfer(deviceID string) error {
 // transferType must be "OUTGOING" or "INCOMING"; in this mock both resolve
 // against the same pending-transfer store (we don't track the recipient side
 // separately).
+// ListInputDeviceTransfers returns transfers matching transferType.
+// TransferInputDevice is the only way this backend creates a pending
+// transfer, and it always makes THIS account the source giving a device
+// away to targetCustomerID -- there is no path for another account to
+// initiate a transfer targeting this one, so an INCOMING transfer can never
+// genuinely exist here. transferType=="INCOMING" therefore always returns
+// an empty page rather than echoing back the same OUTGOING transfers under
+// a different label.
 func (b *InMemoryBackend) ListInputDeviceTransfers(
 	transferType string,
 	maxResults int,
@@ -208,6 +216,10 @@ func (b *InMemoryBackend) ListInputDeviceTransfers(
 	b.mu.RLock("ListInputDeviceTransfers")
 	defer b.mu.RUnlock()
 
+	if transferType == transferTypeIncoming {
+		return []*InputDeviceTransfer{}, "", nil
+	}
+
 	all := make([]*storedInputDevice, 0, len(b.pendingTransferDeviceIDs))
 	for deviceID := range b.pendingTransferDeviceIDs {
 		if d, ok := b.inputDevices.Get(deviceID); ok {
@@ -221,7 +233,7 @@ func (b *InMemoryBackend) ListInputDeviceTransfers(
 
 	transfers := make([]*InputDeviceTransfer, 0, len(pg.Data))
 	for _, d := range pg.Data {
-		transfers = append(transfers, d.toPendingTransfer(transferType))
+		transfers = append(transfers, d.toPendingTransfer(transferTypeOutgoing))
 	}
 
 	return transfers, pg.Next, nil

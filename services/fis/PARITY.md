@@ -20,7 +20,7 @@ ops:
   GetTargetResourceType: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListTargetResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'same fabricated-field bug as ListActions: reused targetResourceTypeDTO (with parameters) instead of the real types.TargetResourceTypeSummary shape (resourceType + description only) -- fixed this sweep with a dedicated targetResourceTypeSummaryDTO; see Notes'}
   GetSafetyLever: {wire: ok, errors: ok, state: ok, persist: ok, note: 'removed gopherstack-invented "tags" field from the wire response — types.SafetyLever has no tags field in the real SDK; see Notes'}
-  UpdateSafetyLeverState: {wire: ok, errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever'}
+  UpdateSafetyLeverState: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever. FIXED (gopherstack-101r): the request body was wrapped in an invented "updateSafetyLeverStateInput" envelope; the real body (serializers.go:2100-2105, awsRestjson1_serializeOpDocumentUpdateSafetyLeverStateInput) is {"state": {"reason", "status"}}, with id a URL path param (already correct). A real client''s correctly-shaped request previously hit the empty-status ValidationException branch instead of applying the update. Renamed updateSafetyLeverStateRequest.UpdateSafetyLeverStateInput -> State with json tag "state"; four raw-body tests asserting the old envelope updated to match (safety_levers_test.go, experiment_execution_test.go). Round-trip test: wire_field_fixes_test.go (TestUpdateSafetyLeverState_RealEnvelope).'}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: 50-tag quota + aws:-prefix rejection enforced; safety-lever tag storage retained internally (see Notes)}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -311,3 +311,91 @@ executionId, and experimentReport) instead of `types.ExperimentSummary`
 `state`, `tags`). Dedicated `experimentTemplateSummaryDTO` and
 `experimentSummaryDTO` structs now enforce exact SDK wire parity.
 
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 10 `errors.go` sentinel literals (`ExperimentTemplateNotFound`,
+  `ExperimentNotFound`, `ActionNotFound`, `TargetResourceTypeNotFound`,
+  `ExperimentNotRunning`, `ResourceNotFound`, `SafetyLeverNotFound`, `SafetyLeverEngaged`,
+  `TooManyTagsException`, `TargetAccountConfigurationNotFound`) as absent from fis's real
+  type/deserializer set. All are **tool false positives**: every `writeBackendError` call
+  routes through `classifyError()` in handler.go, which already collapses every sentinel
+  onto one of the real FIS API's only four exception shapes
+  (`ValidationException`/`ResourceNotFoundException`/`ConflictException`/
+  `ServiceQuotaExceededException`, added in commit `efc42cbc4`, "Parity 4") — the
+  `errors.go` literal is only ever used for `errors.Is` identity and the message text, never
+  the wire `Type` field. No new fix needed.
+
+- **Re-verified independently, 2026-08-30 (gopherstack-r3pr, no code change)**: traced
+  `classifyError` (handler.go:407-426) against the pinned SDK directly — `types/errors.go`
+  declares exactly 4 exception types (`ConflictException`/`ResourceNotFoundException`/
+  `ServiceQuotaExceededException`/`ValidationException`), and `StopExperiment`'s own
+  `awsRestjson1_deserializeOpErrorStopExperiment` (deserializers.go) only switches on
+  `ResourceNotFoundException`/`ValidationException` — confirming `ErrExperimentNotRunning`'s
+  `ValidationException` mapping (no `ConflictException` on that op) is correct. Also checked
+  `experiments.go:991,1049` (`ActionExecutionFailed`/`MissingReportOutputConfiguration`,
+  flagged as weaker-signal): both are `ExperimentError.Code`/`ExperimentReportError.Code`,
+  plain `*string` fields (types.go) on `Experiment`/`ExperimentReport` state describing a
+  terminal status inside an ordinary success response, not a wire error envelope — same
+  free-form-field shape as the known glue/macie2/ce/xray false-positive class. Verdict
+  unchanged: this service's earlier false-positive claim stands.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed:** `paginatePage` (`handler.go`) sliced `items[start:end]` without
+clamping `start` to the current item count. A `nextToken` decoding to an offset beyond the
+list (list shrank between calls, or a hand-constructed/replayed token) panicked with "slice
+bounds out of range". The same missing clamp was independently duplicated (not via
+`paginatePage`) in five handlers that hand-rolled the identical `start`/`end`/`encodePageToken`
+sequence instead of calling it: `handleListActions`, `handleListTargetResourceTypes`
+(`handler_actions.go`), `handleListExperiments`, `handleListExperimentResolvedTargets`
+(`handler_experiments.go`), `handleListExperimentTemplates` (`handler_experiment_templates.go`).
+Fixed `paginatePage` by clamping `start = min(start, len(items))` before computing `end`, and
+rewired all five hand-rolled call sites to call `paginatePage` instead of duplicating its logic
+— closing the bug at all 7 call sites (the 2 that already called `paginatePage` —
+`ListTargetAccountConfigurations`/`ListExperimentTargetAccountConfigurations` — needed no
+handler change) and removing the duplication itself, so a future fix here can't miss a copy.
+
+Proof: `TestPaginatePage_StaleOrTamperedTokenPastEnd` (pagination_arithmetic_internal_test.go,
+unit, calls `paginatePage` directly) and
+`TestListActions_SDKRoundTrip_StaleNextTokenDoesNotPanic` (pagination_sdk_roundtrip_test.go,
+real `aws-sdk-go-v2/service/fis` client) both reproduce the panic pre-fix.
+
+`paginateWithToken`/`encodePageToken`/`decodePageToken` (offset/limit decoding and token
+codec) verified separately and found correct — boundary walk, exact-division, default/cap on
+`maxResults`, round-trip, malformed-token rejection all pass
+(`pagination_arithmetic_internal_test.go`).
+
+Gates: `go build ./services/fis/...`, `go vet ./services/fis/...` and `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/fis/...`,
+`golangci-lint run ./services/fis/...` (0 issues).
+
+### 2026-08-31 (error-target sweep, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir fis` flagged 3 findings (`ListTagsForResource`, `TagResource`,
+`UntagResource`, all `code=ResourceNotFoundException`). Verified against
+`fis@v1.40.4` deserializers.go: all three operations' own
+`awsRestjson1_deserializeOpError<Op>` switch is `default:` only -- zero declared
+exceptions, the only 3 of 26 FIS operations in this shape (every other operation
+declares a nonempty subset of `ValidationException`/`ResourceNotFoundException`/
+`ConflictException`/`ServiceQuotaExceededException`; confirmed by extracting every
+op's declared set via the deserializer source, not by re-reading the prior
+`classifyError` doc comment, which turned out to be wrong -- see below).
+
+**Verdict: refusal, reason (a) -- the operation's own model declares no type for the
+condition.** Unlike ses's delete ops this pass, these three are not delete-style
+(List/Tag/Untag), so treating an unknown ARN as success would misrepresent the
+result (a `TagResource` on a nonexistent ARN cannot honestly report the tags as
+applied). No alternative declared code exists to substitute either -- the emulator's
+current `ResourceNotFoundException`/404 is left as the closest faithful guess a real
+client's generic-error fallback would still see as 404, since no typed decode is
+possible for these three regardless of which code string is sent.
+
+**Artefact correction, not a behavior fix:** `handler.go`'s `classifyError` doc
+comment asserted "every operation's generated deserializer ... only recognizes these
+four `__type` strings" -- false for these three, which recognize none. Corrected the
+comment to name the exception and explain why `ResourceNotFoundException`/404 is
+still emitted there despite not being decodable.
+
+No code behavior changed. `go build ./services/fis/...`, `go vet
+./services/fis/...`, `go test -race -count=1 ./services/fis/...` (pass),
+`golangci-lint run ./services/fis/...` (0 issues).

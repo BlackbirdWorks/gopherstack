@@ -427,7 +427,12 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 
 	filter := buildListPoliciesFilter(in.Filter)
 
-	policies, nextToken, err := h.Backend.ListPolicies(resolvedID, filter, in.NextToken, in.MaxResults)
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultListPageSize
+	}
+
+	policies, nextToken, err := h.Backend.ListPolicies(resolvedID, filter, in.NextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}

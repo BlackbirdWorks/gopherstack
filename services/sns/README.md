@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 34 (34 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): ListPhoneNumbersOptedOut's backend method (InMemoryBackend.ListPhoneNumbersOptedOut) accepts a maxResults int parameter, but the real ListPhoneNumbersOptedOutInput (api_op_ListPhoneNumbersOptedOut.go) has no MaxResults member at all -- only NextToken (itself serialized under the unusual lowercase 'nextToken' key for this one op, confirmed against awsAwsjson1_serializeOpDocumentListPhoneNumbersOptedOutInput -- verified NOT a bug, gopherstack's handler_sms.go already reads the matching lowercase form key). The extra backend parameter is inert (the handler always passes a form value that a real client never sends), not a wire defect -- noted here only because it looked suspicious at first read.
 - 2026-08-14 (gopherstack-3tpf): ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (aws-sdk-go-v2/service/sns@v1.42.4 api_op_ConfirmSubscription.go:14 doc comment: 'This call requires an AWS signature only when the AuthenticateOnUnsubscribe flag is set to "true"') is accepted by the real SDK request shape but has no field on gopherstack's ConfirmSubscriptionInput and is silently dropped. Structurally undeliverable without the caller-identity/SigV4-principal infrastructure gopherstack does not have (see gopherstack-cu4g, open): Unsubscribe (subscriptions.go:217) takes no caller identity at all today, so there is nothing to condition an 'unauthenticated unsubscribe' rejection on. Same class as sts's disclosed JWTPayloadSizeExceededException gap and secretsmanager's disclosed PutSecretValueInput.RotationToken gap. DISCLOSED, not fixed.
 
 ### Deferred

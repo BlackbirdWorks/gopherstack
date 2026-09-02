@@ -14,7 +14,9 @@ type LogFileFilter struct {
 	FilenameContains string
 	// FileLastWritten, when > 0, keeps only files written at or after this epoch-ms time.
 	FileLastWritten int64
-	// FileSize, when > 0, keeps only files at least this many bytes.
+	// FileSize, when > 0, keeps only files strictly larger than this many
+	// bytes (AWS: "Filters the available log files for files larger than
+	// the specified size" -- exclusive, not "at least").
 	FileSize int64
 }
 
@@ -45,7 +47,7 @@ func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string, filter LogFileFi
 		if filter.FileLastWritten > 0 && f.LastWritten < filter.FileLastWritten {
 			continue
 		}
-		if filter.FileSize > 0 && f.Size < filter.FileSize {
+		if filter.FileSize > 0 && f.Size <= filter.FileSize {
 			continue
 		}
 		result = append(result, f)

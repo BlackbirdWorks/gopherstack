@@ -304,6 +304,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrAlreadyExists, "InvalidStructureException"},
 		{ErrValidation, "ValidationException"},
 		{ErrConflict, "ConflictException"},
+		// ErrResourceInUse fires only from DeleteCustomActionType (the sole
+		// call site, custom_action_types.go). "ResourceInUseException" names
+		// no type CodePipeline defines anywhere (aws-sdk-go-v2/service/
+		// codepipeline@v1.49.4/types/errors.go has no such type), and
+		// DeleteCustomActionType's own deserializeOpErrorDeleteCustomActionType
+		// (deserializers.go:560) models only ConcurrentModificationException
+		// and ValidationException -- neither fits "referenced by a pipeline".
+		// Left unfixed: no operation here models a code for this failure.
 		{ErrResourceInUse, "ResourceInUseException"},
 		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrStageNotFound, "StageNotFoundException"},
@@ -316,6 +324,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrStageNotRetryable, "StageNotRetryableException"},
 		{ErrUnableToRollbackStage, "UnableToRollbackStageException"},
 		{ErrActionExecutionNotFound, "ActionExecutionNotFoundException"},
+		// errUnknownAction fires when the routed Action string matches no
+		// known CodePipeline operation -- a dispatch-level condition no
+		// operation's own deserializer models (there is no operation to
+		// consult), so this deliberately keeps the pre-existing fallback
+		// code rather than inventing one (same reasoning as codedeploy's
+		// own errUnknownAction row, 5e0b4978a).
 		{errUnknownAction, "InvalidActionException"},
 		{errInvalidRequest, "ValidationException"},
 	}

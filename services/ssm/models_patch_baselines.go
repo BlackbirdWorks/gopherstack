@@ -271,9 +271,11 @@ type DescribePatchGroupsOutput struct {
 
 // DescribePatchPropertiesInput is the request payload for DescribePatchProperties.
 type DescribePatchPropertiesInput struct {
+	MaxResults      *int32 `json:"MaxResults,omitempty"`
 	OperatingSystem string `json:"OperatingSystem,omitempty"`
 	Property        string `json:"Property,omitempty"`
 	PatchSet        string `json:"PatchSet,omitempty"`
+	NextToken       string `json:"NextToken,omitempty"`
 }
 
 // DescribePatchPropertiesOutput is the response payload for DescribePatchProperties.

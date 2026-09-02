@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateOrganization(
 		return nil, fmt.Errorf("%w: Alias is required", ErrValidation)
 	}
 	if _, exists := b.orgsByAlias[alias]; exists {
-		return nil, fmt.Errorf("%w: organization with alias %q already exists", ErrConflict, alias)
+		return nil, fmt.Errorf("%w: organization with alias %q already exists", ErrNameUnavailable, alias)
 	}
 
 	orgID := "m-" + strings.ReplaceAll(newID(), "-", "")[:20]
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) DescribeOrganization(orgID string) (*Organization, err
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	return org, nil
@@ -109,7 +109,7 @@ func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	delete(b.orgsByAlias, org.Alias)

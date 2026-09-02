@@ -12,14 +12,8 @@ var (
 	// ErrUserNotFound is returned when a user does not exist in the user pool.
 	ErrUserNotFound = awserr.New("UserNotFoundException", awserr.ErrNotFound)
 
-	// ErrUserAlreadyExists is returned when a user already exists in the user pool.
-	ErrUserAlreadyExists = awserr.New("UserAlreadyExistsException", awserr.ErrAlreadyExists)
-
 	// ErrUserPoolNotFound is returned when the requested user pool does not exist.
 	ErrUserPoolNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-
-	// ErrUserPoolAlreadyExists is returned when a user pool with the given name already exists.
-	ErrUserPoolAlreadyExists = awserr.New("UserPoolAlreadyExistsException", awserr.ErrAlreadyExists)
 
 	// ErrClientNotFound is returned when the requested app client does not exist.
 	ErrClientNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -29,6 +23,12 @@ var (
 
 	// ErrNotAuthorized is returned when authentication fails (wrong password, etc.).
 	ErrNotAuthorized = awserr.New("NotAuthorizedException", awserr.ErrInvalidParameter)
+
+	// ErrTokenUnauthorized is returned when RevokeToken is called with a token
+	// issued for a different client. RevokeToken's own deserializer models
+	// UnauthorizedException ("the request isn't authorized... invalid access
+	// token"), not the generic NotAuthorizedException most other ops use.
+	ErrTokenUnauthorized = awserr.New("UnauthorizedException", awserr.ErrInvalidParameter)
 
 	// ErrCodeMismatch is returned when the provided confirmation code does not match.
 	ErrCodeMismatch = awserr.New("CodeMismatchException", awserr.ErrInvalidParameter)

@@ -12,7 +12,7 @@ func (b *InMemoryBackend) PutInboundDmarcSettings(orgID string, enforced bool) e
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	b.inboundDmarc[orgID] = enforced
 
@@ -25,7 +25,7 @@ func (b *InMemoryBackend) DescribeInboundDmarcSettings(orgID string) (bool, erro
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return false, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return false, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	return b.inboundDmarc[orgID], nil

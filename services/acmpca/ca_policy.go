@@ -7,12 +7,12 @@ import (
 
 // PutPolicy stores a resource policy on the given CA.
 func (b *InMemoryBackend) PutPolicy(ctx context.Context, caARN, policy string) error {
-	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "ResourceArn", ErrInvalidArn); err != nil {
 		return err
 	}
 
 	if policy == "" {
-		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
+		return fmt.Errorf("%w: Policy is required", ErrInvalidPolicy)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -31,7 +31,7 @@ func (b *InMemoryBackend) PutPolicy(ctx context.Context, caARN, policy string) e
 
 // GetPolicy returns the resource policy for the given CA.
 func (b *InMemoryBackend) GetPolicy(ctx context.Context, caARN string) (string, error) {
-	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "ResourceArn", ErrInvalidArn); err != nil {
 		return "", err
 	}
 
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) GetPolicy(ctx context.Context, caARN string) (string, 
 
 // DeletePolicy deletes the resource policy for the given CA.
 func (b *InMemoryBackend) DeletePolicy(ctx context.Context, caARN string) error {
-	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "ResourceArn", ErrInvalidArn); err != nil {
 		return err
 	}
 

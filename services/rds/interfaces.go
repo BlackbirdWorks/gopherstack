@@ -37,7 +37,9 @@ type StorageBackend interface {
 	StartDBInstance(id string) (*DBInstance, error)
 	StopDBInstance(id string) (*DBInstance, error)
 	RebootDBInstance(id string) (*DBInstance, error)
-	CreateDBInstanceReadReplica(id, sourceID, sourceRegion string) (*DBInstance, error)
+	CreateDBInstanceReadReplica(
+		id, sourceID, sourceRegion, paramGroupName, optionGroupName string,
+	) (*DBInstance, error)
 	PromoteReadReplica(id string) (*DBInstance, error)
 	DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup
 	DescribeValidDBInstanceModifications(id string) (*DBInstance, error)
@@ -225,6 +227,7 @@ type StorageBackend interface {
 	// S3 restore operations
 	RestoreDBInstanceFromS3(
 		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+		paramGroupName, optionGroupName string,
 	) (*DBInstance, error)
 	RestoreDBClusterFromS3(
 		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,

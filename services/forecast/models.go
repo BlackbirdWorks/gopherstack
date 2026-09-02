@@ -52,6 +52,7 @@ type Resource struct {
 	ARN       string
 	Name      string
 	Status    string
+	Message   string
 	Kind      resourceKind
 }
 

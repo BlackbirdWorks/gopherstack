@@ -120,6 +120,7 @@ type describeClusterParametersResponse struct {
 
 func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) {
 	groupName := vals.Get("ParameterGroupName")
+	source := vals.Get("Source")
 
 	params, err := h.Backend.DescribeClusterParameters(groupName)
 	if err != nil {
@@ -128,6 +129,10 @@ func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) 
 
 	members := make([]xmlClusterParameter, 0, len(params))
 	for _, p := range params {
+		if source != "" && p.Source != source {
+			continue
+		}
+
 		members = append(members, xmlClusterParameter(p))
 	}
 

@@ -3,6 +3,9 @@ package awsconfig_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	configservicesdk "github.com/aws/aws-sdk-go-v2/service/configservice"
+	"github.com/aws/aws-sdk-go-v2/service/configservice/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -55,6 +58,26 @@ func TestDeleteRemediationConfiguration(t *testing.T) {
 	if len(out) != 0 {
 		t.Fatalf("expected empty after delete, got %v", out)
 	}
+}
+
+// TestDeleteRemediationConfiguration_NotFound drives the real SDK client and
+// asserts the typed exception configservice's own deserializeOpError models
+// for this op (configservice@v1.68.4 deserializers.go, "You specified an
+// Config rule without a remediation configuration." types/errors.go:1283).
+// The emulator previously deleted unconditionally and never raised.
+func TestDeleteRemediationConfiguration_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.DeleteRemediationConfiguration(t.Context(), &configservicesdk.DeleteRemediationConfigurationInput{
+		ConfigRuleName: aws.String("no-such-rule"),
+	})
+	require.Error(t, err)
+
+	var nsrc *types.NoSuchRemediationConfigurationException
+	require.ErrorAs(t, err, &nsrc, "expected a real NoSuchRemediationConfigurationException from the SDK deserializer")
 }
 
 func TestPutRemediationExceptions(t *testing.T) {

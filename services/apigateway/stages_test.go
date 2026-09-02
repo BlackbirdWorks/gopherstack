@@ -111,10 +111,17 @@ func TestStage_ClientCertificateId_Create(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stage, err := b.CreateStage(apigateway.CreateStageInput{
-		RestAPIID:           api.ID,
-		StageName:           "prod",
-		DeploymentID:        depl.ID,
+	_, err = b.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+	require.NoError(t, err)
+
+	// Real CreateStageInput has no ClientCertificateId member (aws-sdk-go-v2
+	// apigateway@v1.42.4 api_op_CreateStage.go) -- it's only settable via
+	// UpdateStage's PATCH after creation.
+	stage, err := b.UpdateStage(api.ID, "prod", apigateway.UpdateStageInput{
 		ClientCertificateID: cert.ClientCertificateID,
 	})
 	require.NoError(t, err)
@@ -212,10 +219,17 @@ func TestStage_AccessLogSettings(t *testing.T) {
 	api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "log-api"})
 	depl, _ := b.CreateDeployment(api.ID, "", "v1")
 
-	stage, err := b.CreateStage(apigateway.CreateStageInput{
+	_, err := b.CreateStage(apigateway.CreateStageInput{
 		RestAPIID:    api.ID,
 		StageName:    "prod",
 		DeploymentID: depl.ID,
+	})
+	require.NoError(t, err)
+
+	// Real CreateStageInput has no AccessLogSettings member (aws-sdk-go-v2
+	// apigateway@v1.42.4 api_op_CreateStage.go) -- it's only settable via
+	// UpdateStage's PATCH after creation.
+	stage, err := b.UpdateStage(api.ID, "prod", apigateway.UpdateStageInput{
 		AccessLogSettings: &apigateway.AccessLogSettings{
 			DestinationARN: "arn:aws:logs:us-east-1:123456789012:log-group:my-api",
 			Format:         "$context.requestId",
@@ -256,6 +270,13 @@ func TestStage_MethodSettings(t *testing.T) {
 	api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "ms-api"})
 	depl, _ := b.CreateDeployment(api.ID, "", "v1")
 
+	_, err := b.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+	require.NoError(t, err)
+
 	settings := map[string]apigateway.MethodSetting{
 		"GET /items": {
 			LoggingLevel:     "INFO",
@@ -263,10 +284,11 @@ func TestStage_MethodSettings(t *testing.T) {
 			DataTraceEnabled: false,
 		},
 	}
-	stage, err := b.CreateStage(apigateway.CreateStageInput{
-		RestAPIID:      api.ID,
-		StageName:      "prod",
-		DeploymentID:   depl.ID,
+
+	// Real CreateStageInput has no MethodSettings member (aws-sdk-go-v2
+	// apigateway@v1.42.4 api_op_CreateStage.go) -- it's only settable via
+	// UpdateStage's PATCH after creation.
+	stage, err := b.UpdateStage(api.ID, "prod", apigateway.UpdateStageInput{
 		MethodSettings: settings,
 	})
 	require.NoError(t, err)
@@ -439,31 +461,27 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 
 	depl, _ := b.CreateDeployment(api.ID, "", "v1")
 
+	// Real CreateStageInput has no ClientCertificateId member (aws-sdk-go-v2
+	// apigateway@v1.42.4 api_op_CreateStage.go) -- it's only settable via
+	// UpdateStage's PATCH after creation.
 	tests := []struct {
-		check func(t *testing.T, stage *apigateway.Stage)
-		name  string
-		input apigateway.CreateStageInput
+		check    func(t *testing.T, stage *apigateway.Stage)
+		name     string
+		stage    string
+		withCert bool
 	}{
 		{
-			name: "with_cert",
-			input: apigateway.CreateStageInput{
-				RestAPIID:           api.ID,
-				StageName:           "prod",
-				DeploymentID:        depl.ID,
-				ClientCertificateID: cert.ClientCertificateID,
-			},
+			name:     "with_cert",
+			stage:    "prod",
+			withCert: true,
 			check: func(t *testing.T, stage *apigateway.Stage) {
 				t.Helper()
 				assert.Equal(t, cert.ClientCertificateID, stage.ClientCertificateID)
 			},
 		},
 		{
-			name: "without_cert",
-			input: apigateway.CreateStageInput{
-				RestAPIID:    api.ID,
-				StageName:    "dev",
-				DeploymentID: depl.ID,
-			},
+			name:  "without_cert",
+			stage: "dev",
 			check: func(t *testing.T, stage *apigateway.Stage) {
 				t.Helper()
 				assert.Empty(t, stage.ClientCertificateID)
@@ -474,11 +492,23 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stage, createErr := b.CreateStage(tt.input)
+			stage, createErr := b.CreateStage(apigateway.CreateStageInput{
+				RestAPIID:    api.ID,
+				StageName:    tt.stage,
+				DeploymentID: depl.ID,
+			})
 			require.NoError(t, createErr)
+
+			if tt.withCert {
+				stage, createErr = b.UpdateStage(api.ID, tt.stage, apigateway.UpdateStageInput{
+					ClientCertificateID: cert.ClientCertificateID,
+				})
+				require.NoError(t, createErr)
+			}
+
 			tt.check(t, stage)
 
-			got, getErr := b.GetStage(api.ID, tt.input.StageName)
+			got, getErr := b.GetStage(api.ID, tt.stage)
 			require.NoError(t, getErr)
 			tt.check(t, got)
 		})

@@ -52,7 +52,7 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 			_, err = b.CreateStackInstances(t.Context(), "inst-test-ss", tc.accounts, nil, tc.regions)
 			require.NoError(t, err)
 
-			instances, err := b.ListStackInstances("inst-test-ss", "")
+			instances, err := b.ListStackInstances("inst-test-ss", "", cloudformation.ListStackInstancesFilter{})
 			require.NoError(t, err)
 			assert.Len(t, instances.Data, tc.wantLen)
 
@@ -83,7 +83,7 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, nil, []string{"us-east-1"})
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("dedup-ss", "")
+	instances, err := b.ListStackInstances("dedup-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Len(t, instances.Data, 1, "expected no duplicate instances")
 }
@@ -288,7 +288,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 			_, err = b.DeleteStackInstances(t.Context(), "del-sel-ss", tc.deleteAccounts, nil, tc.deleteRegions)
 			require.NoError(t, err)
 
-			remaining, err := b.ListStackInstances("del-sel-ss", "")
+			remaining, err := b.ListStackInstances("del-sel-ss", "", cloudformation.ListStackInstancesFilter{})
 			require.NoError(t, err)
 			assert.Len(t, remaining.Data, tc.wantRemaining)
 		})

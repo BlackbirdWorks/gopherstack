@@ -138,9 +138,12 @@ func (h *Handler) handleDeleteVpcIngressConnection(
 	return &deleteVpcIngressConnectionOutput{VpcIngressConnection: toVpcIngressConnectionOutput(vic)}, nil
 }
 
+// listVpcIngressConnectionsFilterInput mirrors types.ListVpcIngressConnectionsFilter
+// (aws-sdk-go-v2/service/apprunner@v1.42.4 types/types.go): ServiceArn and
+// VpcEndpointId -- not VpcIngressConnectionArn, which this type has no member for.
 type listVpcIngressConnectionsFilterInput struct {
-	ServiceArn              string `json:"ServiceArn"`
-	VpcIngressConnectionArn string `json:"VpcIngressConnectionArn"`
+	ServiceArn    string `json:"ServiceArn"`
+	VpcEndpointID string `json:"VpcEndpointId"`
 }
 
 type listVpcIngressConnectionsInput struct {
@@ -163,14 +166,14 @@ func (h *Handler) handleListVpcIngressConnections(
 	_ context.Context,
 	in *listVpcIngressConnectionsInput,
 ) (*listVpcIngressConnectionsOutput, error) {
-	var serviceArnFilter, connArnFilter string
+	var serviceArnFilter, vpcEndpointIDFilter string
 	if in.Filter != nil {
 		serviceArnFilter = in.Filter.ServiceArn
-		connArnFilter = in.Filter.VpcIngressConnectionArn
+		vpcEndpointIDFilter = in.Filter.VpcEndpointID
 	}
 
 	vics, nextToken, err := h.Backend.ListVpcIngressConnections(
-		serviceArnFilter, connArnFilter, in.MaxResults, in.NextToken,
+		serviceArnFilter, vpcEndpointIDFilter, in.MaxResults, in.NextToken,
 	)
 	if err != nil {
 		return nil, err

@@ -808,7 +808,7 @@ func (n *noopBackend) GetDomainName(_ string) (*apigateway.DomainName, error) {
 	return nil, errNoopNotImplemented
 }
 
-func (n *noopBackend) GetDomainNames() ([]apigateway.DomainName, error) {
+func (n *noopBackend) GetDomainNames(_ string) ([]apigateway.DomainName, error) {
 	return nil, errNoopNotImplemented
 }
 
@@ -847,6 +847,10 @@ func (n *noopBackend) GetUsagePlan(_ string) (*apigateway.UsagePlan, error) {
 }
 
 func (n *noopBackend) GetUsagePlans() ([]apigateway.UsagePlan, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetUsagePlansForKey(_ string) ([]apigateway.UsagePlan, error) {
 	return nil, errNoopNotImplemented
 }
 

@@ -580,26 +580,15 @@ func (b *InMemoryBackend) secretVersionEntry(
 }
 
 // batchMatchesFilters returns true if the secret matches all provided filters.
-// Name and description filters use prefix matching, consistent with ListSecrets.
+// BatchGetSecretValueInput.Filters is []types.Filter (api_op_BatchGetSecretValue.go),
+// the identical shared type ListSecretsInput.Filters uses, so all 7 documented keys
+// apply here too (name/description/tag-key/tag-value/primary-region/owning-service/
+// all) -- delegates to secretMatchesFilter rather than re-implementing a narrower
+// switch, so the two operations can't drift.
 func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bool {
 	for _, f := range filters {
-		switch f.Key {
-		case "name":
-			if !anyMatchPrefix(f.Values, secret.Name) {
-				return false
-			}
-		case "description":
-			if !anyMatchPrefix(f.Values, secret.Description) {
-				return false
-			}
-		case "tag-key":
-			if !secretHasTagKey(secret, f.Values) {
-				return false
-			}
-		case "tag-value":
-			if !secretHasTagValue(secret, f.Values) {
-				return false
-			}
+		if !secretMatchesFilter(secret, SecretFilter(f)) {
+			return false
 		}
 	}
 

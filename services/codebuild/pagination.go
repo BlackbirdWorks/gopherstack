@@ -42,3 +42,26 @@ func paginateIDs(all []string, nextToken, sortOrder string, maxResults int32) (p
 
 	return page.New(ordered, nextToken, int(maxResults), defaultListPageSize), nil
 }
+
+// paginateCommandExecutions applies the same nextToken/maxResults/sortOrder
+// pagination as [paginateIDs], but over full *CommandExecution objects
+// (ListCommandExecutionsForSandbox's real wire returns CommandExecution
+// records directly, unlike every other List op in this package which returns
+// bare ID/ARN/name strings for a separate BatchGet* describe step).
+func paginateCommandExecutions(
+	all []*CommandExecution, nextToken, sortOrder string, maxResults int32,
+) (page.Page[*CommandExecution], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[*CommandExecution]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	ordered := all
+	if sortOrder == sortOrderDescending {
+		ordered = make([]*CommandExecution, len(all))
+		for i, v := range all {
+			ordered[len(all)-1-i] = v
+		}
+	}
+
+	return page.New(ordered, nextToken, int(maxResults), defaultListPageSize), nil
+}

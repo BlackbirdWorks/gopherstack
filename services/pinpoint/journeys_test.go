@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -684,5 +685,62 @@ func TestHandler_CreateJourney(t *testing.T) {
 				assert.Equal(t, "DRAFT", resp["State"])
 			}
 		})
+	}
+}
+
+// TestHandler_GetJourneys_DuplicateNames_NoDropOrDupAcrossPages proves GetJourneys loses
+// (or repeats) journeys at a page boundary when several journeys in the same app share a
+// Name. Journey names have no uniqueness constraint (CreateJourney never checks for an
+// existing Name), yet GetJourneys sorts solely by Name with no secondary key, over a
+// *store.Table map walk whose iteration order varies between calls; handleListJourneys
+// then pages that resort with an offset cursor (applyPageParams). Looped since this
+// depends on map iteration reshuffling a tie group between the calls backing page 1 and
+// page 2, which does not reproduce on every run.
+func TestHandler_GetJourneys_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "journey-pg-tie-app")
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys",
+				map[string]any{"Name": "dup-journey-name"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			created[resp["Id"].(string)] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+		path := "/v1/apps/" + appID + "/journeys?page-size=2"
+
+		for range dupCount + 1 {
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, _ := resp["Item"].([]any)
+			for _, item := range items {
+				j, isMap := item.(map[string]any)
+				require.True(t, isMap)
+				seen[j["Id"].(string)] = true
+			}
+
+			nextToken, hasToken := resp["NextToken"].(string)
+			if !hasToken {
+				break
+			}
+
+			path = "/v1/apps/" + appID + "/journeys?page-size=2&token=" + url.QueryEscape(nextToken)
+		}
+
+		assert.Equal(t, created, seen, "paged GetJourneys dropped or duplicated same-named journeys across pages")
 	}
 }

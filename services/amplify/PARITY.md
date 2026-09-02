@@ -1,9 +1,18 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.41.4
-last_audit_commit: 08bd3ef27
-last_audit_date: 2026-08-19
-overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/DeleteBranch now
+last_audit_commit: da77e2959
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,
+                       # Branch.Backend/ComputeRoleArn/EnableSkewProtection, and
+                       # DomainAssociation.AutoSubDomainCreationPatterns/
+                       # AutoSubDomainIAMRole/CertificateSettings were real, accepted
+                       # request members silently dropped in their entirety -- three of
+                       # them behind a doc comment that explicitly (and incorrectly)
+                       # claimed the fields were deliberately unmodeled. DomainAssociation's
+                       # response-side Certificate is now also computed (previously never
+                       # emitted at all). See "Fixed this sweep (2026-08-29)" below.
+                       # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/DeleteBranch now
                        # return the deleted resource (were bare 204s, dropping a required
                        # response member); GetArtifactUrl echoed the artifact TYPE under the
                        # "artifactId" key instead of the real ID; DomainAssociation and
@@ -13,15 +22,15 @@ overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/Del
                        # parity, Stage enum fix, commitTime, real build steps, real artifact
                        # producer + cascade delete, enum validation.
 ops:
-  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): environmentVariables/description/repository are required response members that were tagged omitempty/omitzero and dropped whenever left unset -- a real client's typed field decoded nil instead of a present zero value; see Notes"}
-  GetApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
-  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
-  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics; fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics. Same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): environmentVariables/description/repository are required response members that were tagged omitempty/omitzero and dropped whenever left unset -- a real client's typed field decoded nil instead of a present zero value; see Notes. FIXED 2026-08-29 (write-only-state sweep): computeRoleArn/jobConfig are real, accepted CreateAppInput members with no field in createAppRequest at all -- silently dropped, never round-tripped to GetApp/ListApps. See Notes."}
+  GetApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14). Same computeRoleArn/jobConfig fix as CreateApp (2026-08-29)."}
+  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14). Same computeRoleArn/jobConfig fix as CreateApp (2026-08-29)."}
+  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics; fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics. Same required-field presence fix as CreateApp (gopherstack-r80d batch 14). Same computeRoleArn/jobConfig fix as CreateApp (2026-08-29), with correct partial-update (nil-means-unchanged) semantics."}
   DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: response was a bare 204 No Content dropping DeleteAppOutput.App (a required member, api_op_DeleteApp.go:44) entirely -- a real client's out.App decoded nil; now returns {\"app\": <App>} of the app as it existed pre-delete. 2026-07-23: cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): activeJobId/customDomains/description/framework/environmentVariables are required response members that were tagged omitempty and dropped whenever left unset/reachably-empty; see Notes"}
-  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
-  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
-  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics; fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics. Same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
+  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): activeJobId/customDomains/description/framework/environmentVariables are required response members that were tagged omitempty and dropped whenever left unset/reachably-empty; see Notes. FIXED 2026-08-29 (write-only-state sweep): backend/computeRoleArn/enableSkewProtection are real, accepted CreateBranchInput members that createBranchRequest's own doc comment explicitly (and incorrectly) claimed gopherstack does not model at all -- silently dropped, never round-tripped to GetBranch/ListBranches. See Notes."}
+  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14). Same backend/computeRoleArn/enableSkewProtection fix as CreateBranch (2026-08-29)."}
+  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14). Same backend/computeRoleArn/enableSkewProtection fix as CreateBranch (2026-08-29)."}
+  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics; fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics. Same required-field presence fix as CreateBranch (gopherstack-r80d batch 14). Same backend/computeRoleArn/enableSkewProtection fix as CreateBranch (2026-08-29), with correct partial-update (nil-means-unchanged) semantics."}
   DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: same bug as DeleteApp -- bare 204 dropped DeleteBranchOutput.Branch (required, api_op_DeleteBranch.go:44); now returns {\"branch\": <Branch>}. 2026-07-23: cascades jobs/artifacts -- see leaks"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -33,11 +42,11 @@ ops:
   StopJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
   CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
-  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): statusReason is a required response member that was tagged omitempty and dropped -- gopherstack never tracks a real reason (disclosed, honestly empty, not fabricated); see Notes"}
-  UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
-  DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
-  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). fixed 2026-08-19: domainAssociationView carried a fabricated \"appId\" field with no case in the real deserializer -- types.DomainAssociation has no AppId member at all (types/types.go:542); removed. Applies to every op returning a DomainAssociation (Create/Update/Delete/Get/List)."}
-  ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): statusReason is a required response member that was tagged omitempty and dropped -- gopherstack never tracks a real reason (disclosed, honestly empty, not fabricated); see Notes. FIXED 2026-08-29 (write-only-state sweep): autoSubDomainCreationPatterns/autoSubDomainIAMRole/certificateSettings are real, accepted CreateDomainAssociationInput members with no field anywhere in the handler's inline request struct -- silently dropped. certificate (response) is now computed from the stored certificateSettings (or the real documented AMPLIFY_MANAGED default when omitted), closing the reverse direction too. See Notes."}
+  UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). Same autoSubDomainCreationPatterns/autoSubDomainIAMRole/certificateSettings fix as CreateDomainAssociation (2026-08-29); certificateSettings left unchanged when the caller omits it on update (does not reset to AMPLIFY_MANAGED)."}
+  DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). Same autoSubDomainCreationPatterns/autoSubDomainIAMRole/certificate fix as CreateDomainAssociation (2026-08-29)."}
+  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). fixed 2026-08-19: domainAssociationView carried a fabricated \"appId\" field with no case in the real deserializer -- types.DomainAssociation has no AppId member at all (types/types.go:542); removed. Applies to every op returning a DomainAssociation (Create/Update/Delete/Get/List). Same autoSubDomainCreationPatterns/autoSubDomainIAMRole/certificate fix as CreateDomainAssociation (2026-08-29)."}
+  ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). Same autoSubDomainCreationPatterns/autoSubDomainIAMRole/certificate fix as CreateDomainAssociation (2026-08-29)."}
   CreateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): description is a required response member that was tagged omitempty and dropped whenever the caller left it unset (CreateWebhookInput.Description is optional); see Notes"}
   UpdateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
   DeleteWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
@@ -46,7 +55,7 @@ ops:
   CreateBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: backendEnvironmentView carried a fabricated \"appId\" field with no case in the real deserializer -- types.BackendEnvironment has no AppId member at all (types/types.go:230); removed. Applies to every op returning a BackendEnvironment (Create/Delete/Get/List)."}
   DeleteBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-29 (gopherstack-6flj constrained-parameter sweep): environmentName is a real ListBackendEnvironmentsInput filter member that neither the handler nor InMemoryBackend.ListBackendEnvironments ever read -- every call returned every backend environment for the app regardless of the filter. See Notes."}
   GenerateAccessLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "URL-only response, nothing to persist"}
   GetArtifactUrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: the \"artifactId\" key (required string, api_op_GetArtifactUrl.go:39) carried InMemoryBackend.GetArtifactURL's first return value, which was artifact.ArtifactType (\"BUILD\") not the artifact's real ID -- same key, wrong value, no decode failure since both are strings. Now echoes artifact.ArtifactID."}
   ListArtifacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: per-item Artifact wire view (artifactView) carried a fabricated \"artifactType\" field with no case at all in the real deserializer (types.Artifact has only ArtifactId/ArtifactFileName, types/types.go:157) -- removed. 2026-07-23: janitor.go now creates a real Artifact record (type BUILD, an internal-only bookkeeping field, never on the wire) for every job it advances to SUCCEED, indexed by job so ListArtifacts/GetArtifactUrl have real content -- see Notes"}
@@ -54,16 +63,24 @@ families:
   routing: {status: ok, note: "every op's HTTP method + REST path verified 1:1 against aws-sdk-go-v2/service/amplify@v1.40.0 serializers.go SplitURI/request.Method calls (all 35 ops); no route-matcher bugs found -- POST-not-PUT for UpdateApp/UpdateBranch/UpdateDomainAssociation/UpdateWebhook already correct, tag ARN scoping (amplifyServiceIdentifier check) already correct"}
   errors: {status: ok, note: "handleBackendError/amplifyErrorJSON emit both the X-Amzn-Errortype header and a __type body field; this sweep added a BadRequestException mapping for awserr.ErrInvalidParameter (the new Platform/Stage/JobType/RETRY-jobId validation errors) alongside the existing NotFoundException/AlreadyExists mappings"}
 gaps:
-  - "App: computeRoleArn, jobConfig, webhookCreateTime -- new optional response members added to types.App since the 2026-07-23 audit's v1.40.0 baseline (now v1.41.4); never emitted. Not required members, layer-3 (never-emitted), disclosed but not fixed this sweep per sweep scope."
-  - "Branch: backend, computeRoleArn, destinationBranch, enableSkewProtection, thumbnailUrl -- same: new optional types.Branch members since v1.40.0, never emitted, layer-3, disclosed not fixed."
+  - "App: webhookCreateTime -- optional response member on types.App, never emitted. Unlike computeRoleArn/jobConfig (FIXED 2026-08-29, see Notes -- these were real *accepted request* members silently dropped, not merely never-emitted), webhookCreateTime has no corresponding request field anywhere; it is server-computed from the app's default repository webhook, which this backend does not model as a distinct create-time concept from CreateWebhook's own webhooks. Layer-3 (never-emitted, optional), disclosed not fixed."
+  - "Branch: destinationBranch, thumbnailUrl -- optional types.Branch members with no corresponding CreateBranch/UpdateBranch *request* field at all (confirmed against api_op_CreateBranch.go/api_op_UpdateBranch.go's own field lists) -- real Amplify computes both server-side (destinationBranch/sourceBranch only apply to an auto-created PR-preview branch this backend doesn't model; thumbnailUrl comes from a build screenshot). backend/computeRoleArn/enableSkewProtection were FIXED 2026-08-29 (see Notes) since those three *are* real accepted request members that were being silently dropped -- this remaining gap is genuinely structural (never-settable), not a write-only-state bug. Layer-3, disclosed not fixed."
   - "JobSummary: sourceUrl, sourceUrlType -- optional members on types.JobSummary, never emitted (jobSummaryView), layer-3, disclosed not fixed."
-  - "DomainAssociation: certificate, updateStatus, autoSubDomainCreationPatterns, autoSubDomainIAMRole -- optional types.DomainAssociation members, never emitted (domainAssociationView), layer-3, disclosed not fixed."
+  - "DomainAssociation: updateStatus -- optional types.DomainAssociation member with no corresponding request field (real Amplify computes it from its own async certificate-provisioning state machine, which this backend doesn't model). certificate/autoSubDomainCreationPatterns/autoSubDomainIAMRole were FIXED 2026-08-29 (see Notes): all three are real accepted CreateDomainAssociationInput/UpdateDomainAssociationInput members that were silently dropped in their entirety. Layer-3, disclosed not fixed."
   # Every gap/deferred item from the 2026-07-23 audit was field-diffed against
   # aws-sdk-go-v2/service/amplify@v1.40.0/types and fixed for real that sweep.
-  # The gaps above are new, surfaced by this sweep's field-diff against the
-  # now-pinned v1.41.4 -- all are optional (non-required) response members
-  # never emitted at all (layer 3), out of scope to fix per this sweep's
-  # brief; none is a wrong key/shape/type bug.
+  # The gaps above were originally recorded 2026-08-19 as "all are optional
+  # (non-required) response members never emitted at all (layer 3)... none is
+  # a wrong key/shape/type bug" -- that framing was wrong for computeRoleArn/
+  # jobConfig/backend/enableSkewProtection/autoSubDomainCreationPatterns/
+  # autoSubDomainIAMRole/certificate: those seven are real, accepted *request*
+  # members that were being silently dropped, not merely unemitted response
+  # fields -- FIXED 2026-08-29, see Notes. The gaps remaining above
+  # (webhookCreateTime, destinationBranch/thumbnailUrl, sourceUrl/
+  # sourceUrlType, updateStatus) really are never-emitted-with-no-request-
+  # path optional response members; re-verified individually against each
+  # field's own Create/UpdateInput rather than assumed by pattern-matching
+  # against the ones that turned out to be real bugs.
 deferred: []
   # "Full App/Branch field parity" and "server-side enum validation" (the two
   # prior deferred items) are both done this sweep -- see gaps history above.
@@ -73,6 +90,132 @@ leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worke
 ## Notes
 
 Protocol: **restjson1**. Timestamps are Unix epoch-seconds `float64` (createTime/updateTime/startTime/endTime/commitTime/lastDeployTime), not ISO8601 -- already correct throughout (toAppView/toBranchView/toJobSummaryView/toProductionBranchView/etc.), including every new timestamp field added this sweep.
+
+### Fixed this sweep (2026-08-29, gopherstack-6flj constrained-parameter sweep): ListBackendEnvironments' EnvironmentName filter never plumbed
+
+Measured every List op against its own Input struct in `amplify@v1.41.4`. Seven of
+the eight (`ListApps`, `ListArtifacts`, `ListBranches`, `ListDomainAssociations`,
+`ListJobs`, `ListTagsForResource`, `ListWebhooks`) declare only `MaxResults`/
+`NextToken` (or nothing at all, for `ListTagsForResource`) beyond required
+path-bound scoping IDs (`AppId`/`BranchName`/`JobId`) -- no real filter to check
+beyond pagination, which is already handled uniformly by the shared
+`amplifyPaginate` helper (`store.go`) called from every List backend method,
+confirmed reached from every corresponding handler.
+
+`ListBackendEnvironments` is the one exception: its real Input
+(`api_op_ListBackendEnvironments.go`) also carries `EnvironmentName` ("The name
+of the backend environment"), confirmed query-bound via
+`awsRestjson1_serializeOpHttpBindingsListBackendEnvironmentsInput`
+(`encoder.SetQuery("environmentName")`). Neither `listBackendEnvironments`
+(`handler_environments.go`) nor `InMemoryBackend.ListBackendEnvironments`
+(`environments.go`) read it at all -- a client filtering to one environment name
+got every backend environment for the app back instead. Fixed by adding
+`environmentName` as a third backend parameter (exact-match filter applied
+before pagination, empty string meaning "no filter" like every other filter
+convention in this package) and reading `q.Get("environmentName")` in the
+handler. `StorageBackend`'s only implementer is `InMemoryBackend`, confirmed via
+`go vet ./...` repo-wide; test call sites in `environments_test.go` and
+`persistence_test.go` updated to pass `""` for the new parameter.
+
+New test in `list_filter_params_test.go`, driven through the real
+`amplifysdk.Client`: `TestListBackendEnvironments_EnvironmentNameFilter`,
+confirmed to fail against unmodified code first (returned all 3 seeded
+environments instead of the 1 matching `environmentName`).
+
+Every other List op's declared parameters were confirmed already correctly
+plumbed -- no change.
+
+### Fixed this sweep (2026-08-29): write-only-state sweep found seven accepted-and-dropped request members across three resource types
+
+Confirmed protocol as `restjson1` from `awsRestjson1_deserializeOp*` prefixes in
+`deserializers.go` (not from `_PROTOCOLS.md`, per this sweep's brief) -- unchanged from
+the 2026-08-19 pass. Method: rather than trusting the existing `createAppRequest`/
+`createBranchRequest`/domain-association inline request structs' field lists (several of
+which carried doc comments *explicitly claiming* certain real fields were deliberately
+unmodeled), enumerated every member of the real `CreateAppInput`/`CreateBranchInput`/
+`CreateDomainAssociationInput` structs directly from `api_op_Create*.go` and diffed
+field-by-field. Three of those documented "deliberately not modeled" claims turned out to
+be wrong -- a stale assumption carried forward across at least two prior sweeps rather than
+independently re-verified, exactly the trap the campaign's "a prior pass does not mean a
+service is done" rule warns about.
+
+1. **`App.ComputeRoleArn`/`App.JobConfig`** (api_op_CreateApp.go, api_op_UpdateApp.go --
+   both real, optional, accepted request members) had no field anywhere in
+   `createAppRequest` -- silently dropped by `json.Unmarshal`. `JobConfig.BuildComputeType`
+   is a nested required-within-the-optional-object member (`STANDARD_8GB`/`LARGE_16GB`/
+   `XLARGE_72GB`). Fixed: `App.ComputeRoleARN`/`App.JobConfigBuildComputeType` added to the
+   internal model, `appJobConfigInput`/`appJobConfigView` added for the nested wire object,
+   wired through `AppOptions`/`applyAppOptionsCreate`/`applyAppOptionsUpdate` (partial-update
+   semantics preserved) and `toAppView`.
+2. **`Branch.Backend`/`Branch.ComputeRoleArn`/`Branch.EnableSkewProtection`**
+   (api_op_CreateBranch.go, api_op_UpdateBranch.go) -- `createBranchRequest`'s own doc
+   comment explicitly said these three were "gopherstack does not model at all: there is no
+   Gen2 CloudFormation-backed backend, SSR compute role, or deployment-skew concept behind
+   this emulator" -- a design decision that turned out to just be a gap: all three are real,
+   accepted, independently settable request fields with no dependency on any other backend
+   feature (`Backend` is a single `{stackArn: string}` object, not an actual CloudFormation
+   integration). Fixed the same way as App: `Branch.ComputeRoleARN`/`Branch.BackendStackARN`/
+   `Branch.EnableSkewProtection` added, `branchBackendInput`/`branchBackendView` added for
+   the nested `{stackArn}` wire object, wired through `BranchOptions`/
+   `applyBranchOptionsCreate`/`applyBranchOptionsUpdate`/`toBranchView`.
+3. **`DomainAssociation.AutoSubDomainCreationPatterns`/`.AutoSubDomainIAMRole`/
+   `.CertificateSettings`** (api_op_CreateDomainAssociation.go,
+   api_op_UpdateDomainAssociation.go) -- the handler's inline anonymous request structs in
+   `createDomainAssociation`/`updateDomainAssociation` had fields for only
+   `domainName`/`subDomainSettings`/`enableAutoSubDomain`, silently dropping all three.
+   `CertificateSettings` (request-only, `{type, customCertificateArn}`) is additionally a
+   **reverse-direction** find per the primer's "ask whether each response member is
+   computable" method: the real response object `Certificate` (`{type,
+   certificateVerificationDNSRecord, customCertificateArn}`) is fully computable from the
+   stored certificate type/custom-ARN plus the domain's existing
+   `certificateVerificationDNSRecord` -- gopherstack had never emitted `certificate` at all.
+   Real Amplify's documented default (`AMPLIFY_MANAGED`) when `CertificateSettings` is
+   omitted on Create is modeled via `resolveCertificateSettings`; on Update, an omitted
+   `CertificateSettings` leaves the existing certificate type unchanged (not reset to the
+   Create-time default) since `UpdateDomainAssociationInput.CertificateSettings` is a
+   genuine partial-update field, not a required-on-every-call one -- caught by asking
+   "what does an omitted-on-update field mean" rather than assuming Create's semantics.
+   Also caught mid-fix: the wire key for `AutoSubDomainIAMRole` is
+   `autoSubDomainIAMRole` (capital IAM), not the `autoSubDomainIamRole` casing this fix
+   initially used -- confirmed against `serializers.go:717`/`deserializers.go:7713` and
+   corrected before landing, a reminder that AWS's own field-name casing is never safe to
+   infer from the Go identifier.
+
+**Caught one non-bug while auditing the same three CreateBranchInput/CreateAppInput
+surfaces**: `Branch.DestinationBranch`/`Branch.ThumbnailUrl` and `App`'s (already-disclosed)
+`webhookCreateTime` have *no* corresponding request field at all on any real Create/Update
+input -- confirmed against each op's own field list, not assumed by association with the
+three real bugs above -- so those remain correctly disclosed, unfixed gaps (server-computed,
+structurally unmodelable without simulating PR-preview branch auto-creation / build
+screenshots / webhook-provisioning timestamps this backend doesn't have).
+
+**Proof**: `wire_field_fixes_test.go`, four tests driving the real
+`aws-sdk-go-v2/service/amplify` client's Create op through to the matching Get op for each
+fix (`TestCreateBranch_BackendComputeRoleEnableSkewProtectionRoundTrip`,
+`TestCreateApp_ComputeRoleArnJobConfigRoundTrip`,
+`TestCreateDomainAssociation_AutoSubDomainAndCertificateRoundTrip`, plus
+`TestCreateDomainAssociation_DefaultCertificateIsAmplifyManaged` for the omitted-
+`CertificateSettings` default path). All four hand-reverted (`git show HEAD:<path>` restore
+of every touched file, including the four test files whose only change was widening
+`CreateDomainAssociation`/`UpdateDomainAssociation`'s call signature), confirmed all four
+fail with the exact predicted symptom (nil `Backend`/empty `ComputeRoleArn`/nil
+`JobConfig`/nil `AutoSubDomainCreationPatterns`/nil `Certificate`), restored, `md5sum`-
+verified byte-identical against the scratchpad backup taken before the revert.
+
+**Gates**: `go build ./services/amplify/...`, `go vet`, `go test -race -count=1
+./services/amplify/...` (pass), `golangci-lint run ./services/amplify/...` (0 issues --
+`applyAppOptionsUpdate`/`applyBranchOptionsUpdate` each grew a cyclop violation from the
+extra fields and were decomposed into an `...UpdateStrings` helper rather than suppressed,
+per this repo's ban on cyclop/gocyclo/gocognit/funlen nolints; `--fix` applied for
+fieldalignment on the new wire structs).
+
+**Ops not reached this pass**: no full per-op re-sweep of the other 30 ops was performed --
+this pass targeted the write-only-state method specifically (every Create*/Update*Input
+member vs. its handler's request struct) for the three resource types whose gaps entries
+looked most likely to be stale per-field claims, not a from-scratch field-diff of every op
+(those were covered by the 2026-07-23/2026-08-19/gopherstack-r80d passes and not
+re-verified here beyond the fields above). Job/Webhook/BackendEnvironment/Artifact request
+surfaces were not re-audited this pass.
 
 ### Fixed this sweep (2026-08-19)
 
@@ -346,3 +489,30 @@ value -- see the type's doc comment in models.go for the exact convention.
   snapshot missing the new fields simply decodes them as their zero value, which is always a valid
   starting point (e.g. an app snapshotted before this sweep decodes with `EnvironmentVariables ==
   nil`, indistinguishable from "never set one").
+
+## Handler-collision determinism sweep verification (2026-08-31, gopherstack-fr30)
+
+`cmd/reqfielddiff`/`cmd/reqfieldscan` used to resolve a handler by breaking
+case-insensitive name ties on Go's randomized map iteration order
+(ef0eef041 fixed it). amplify is named in that fix's census (an exported
+`InMemoryBackend` method like `GetApp`/`ListApps`/`DeleteBranch` collides
+case-insensitively with the real unexported handler `getApp`/`listApps`/
+`deleteBranch`), so it was a candidate for having been measured wrong.
+
+Checked directly: ran the unpatched `reqfielddiff` from `ef0eef041~1` five
+times and diffed each run against the current (fixed) tool's output. Every
+run was **byte-identical** for amplify (`emulator-declared fields: 508`,
+same 36-entry undeclared list, in all 5 pre-fix runs and post-fix). Reason:
+amplify's handler names are the plain `lowerFirst(op)` convention
+(`getApp`, `createBranch`, ...) with no acronym-casing mismatch against the
+op name, so `findHandlerByName`'s exact-match candidate list resolves
+every op deterministically before the ambiguous case-insensitive fold path
+(where the exported/unexported collision lives) is ever reached. The
+collision exists structurally in this package but this tool never actually
+exercises it. `reqfieldscan` was independently re-verified byte-identical
+too, consistent with that tool's own doc claim that its narrower
+`wrapOpFuncs`-only universe has zero real collisions here.
+
+No bug found or fixed in this service from this sweep -- the honest result
+is a bound (zero, in this service) on how much damage the pre-fix
+nondeterminism actually did, not an unmeasured gap.

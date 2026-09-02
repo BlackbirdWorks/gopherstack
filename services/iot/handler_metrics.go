@@ -124,7 +124,9 @@ func (h *Handler) handleUpdateFleetMetric(c *echo.Context) error {
 func (h *Handler) handleDeleteFleetMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/fleet-metric/")
 	if err := h.Backend.DeleteFleetMetric(name); err != nil {
-		return respondErr(c, err)
+		// DeleteFleetMetric's own deserializeOpError switch declares no
+		// ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -188,7 +190,9 @@ func (h *Handler) handleUpdateCustomMetric(c *echo.Context) error {
 func (h *Handler) handleDeleteCustomMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/custom-metric/")
 	if err := h.Backend.DeleteCustomMetric(name); err != nil {
-		return respondErr(c, err)
+		// DeleteCustomMetric's own deserializeOpError switch declares no
+		// ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -252,7 +256,9 @@ func (h *Handler) handleUpdateDimension(c *echo.Context) error {
 func (h *Handler) handleDeleteDimension(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/dimensions/")
 	if err := h.Backend.DeleteDimension(name); err != nil {
-		return respondErr(c, err)
+		// DeleteDimension's own deserializeOpError switch declares no
+		// ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)

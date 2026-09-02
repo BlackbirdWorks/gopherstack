@@ -2,7 +2,10 @@ package redshift_test
 
 import (
 	"encoding/base64"
+	"encoding/xml"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -510,6 +513,85 @@ func TestDescribeClusterSnapshots_Pagination(t *testing.T) {
 	})
 }
 
+// snapshotsPageXML mirrors just the fields of describeClusterSnapshotsResponse
+// this test needs; it lives in the external test package so cannot reference
+// the unexported handler type directly.
+type snapshotsPageXML struct {
+	XMLName xml.Name `xml:"DescribeClusterSnapshotsResponse"`
+	Result  struct {
+		Marker    string `xml:"Marker"`
+		Snapshots struct {
+			Snapshot []struct {
+				SnapshotIdentifier string `xml:"SnapshotIdentifier"`
+			} `xml:"Snapshot"`
+		} `xml:"Snapshots"`
+	} `xml:"DescribeClusterSnapshotsResult"`
+}
+
+// TestDescribeClusterSnapshots_PaginationOrderIsReproducible walks every
+// snapshot via Marker-based pagination and asserts the concatenation of pages
+// reproduces the full set exactly -- no drops, no duplicates. DescribeClusterSnapshots
+// pages over b.snapshots.All(), an unspecified-order map walk (see pkgs/store's
+// Table.All doc), so a second call backing the second page can observe a
+// completely different order than the first, corrupting the Marker-based walk
+// even though SnapshotIdentifier -- the marker value -- is itself unique.
+func TestDescribeClusterSnapshots_PaginationOrderIsReproducible(t *testing.T) {
+	t.Parallel()
+
+	const numSnapshots = 130
+	const pageSize = 25
+
+	for iter := range 30 {
+		h := newRedshiftHandler()
+		postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=order-cluster")
+
+		want := make(map[string]bool, numSnapshots)
+		for i := range numSnapshots {
+			id := fmt.Sprintf("order-snap-%03d", i)
+			want[id] = true
+
+			rec := postRedshiftForm(
+				t,
+				h,
+				"Action=CreateClusterSnapshot&Version=2012-12-01&ClusterIdentifier=order-cluster&SnapshotIdentifier="+id,
+			)
+			require.Equalf(t, http.StatusOK, rec.Code, "iteration %d: setup create snapshot %q", iter, id)
+		}
+
+		got := make(map[string]int, numSnapshots)
+		marker := ""
+
+		for page := range numSnapshots/pageSize + 5 {
+			body := fmt.Sprintf("Action=DescribeClusterSnapshots&Version=2012-12-01&MaxRecords=%d", pageSize)
+			if marker != "" {
+				body += "&Marker=" + url.QueryEscape(marker)
+			}
+
+			rec := postRedshiftForm(t, h, body)
+			require.Equalf(t, http.StatusOK, rec.Code, "iteration %d page %d", iter, page)
+
+			var parsed snapshotsPageXML
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &parsed))
+
+			for _, s := range parsed.Result.Snapshots.Snapshot {
+				got[s.SnapshotIdentifier]++
+			}
+
+			if parsed.Result.Marker == "" {
+				break
+			}
+
+			marker = parsed.Result.Marker
+		}
+
+		for id := range want {
+			assert.Equalf(t, 1, got[id], "iteration %d: snapshot %s expected exactly once, got %d", iter, id, got[id])
+		}
+
+		assert.Lenf(t, got, numSnapshots, "iteration %d: total distinct snapshots returned", iter)
+	}
+}
+
 // TestRestoreFromClusterSnapshot_CopiesClusterProperties verifies that
 // RestoreFromClusterSnapshot uses the source cluster's properties, not defaults.
 func TestRestoreFromClusterSnapshot_CopiesClusterProperties(t *testing.T) {
@@ -636,7 +718,7 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 			"restored cluster should start in restoring state when an activation delay is configured")
 
 		require.Eventually(t, func() bool {
-			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0)
+			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0, nil, nil)
 
 			return descErr == nil && len(clusters) == 1 && clusters[0].Status == "available"
 		}, time.Second, 5*time.Millisecond,

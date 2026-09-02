@@ -495,20 +495,72 @@ func (h *Handler) getGeoLocation(c *echo.Context) error {
 }
 
 type listGeoLocationsResponse struct {
-	XMLName      xml.Name         `xml:"ListGeoLocationsResponse"`
-	Xmlns        string           `xml:"xmlns,attr"`
-	MaxItems     string           `xml:"MaxItems"`
-	GeoLocations []xmlGeoLocation `xml:"GeoLocationDetailsList>GeoLocationDetails"`
-	IsTruncated  bool             `xml:"IsTruncated"`
+	XMLName             xml.Name         `xml:"ListGeoLocationsResponse"`
+	Xmlns               string           `xml:"xmlns,attr"`
+	MaxItems            string           `xml:"MaxItems"`
+	NextContinentCode   string           `xml:"NextContinentCode,omitempty"`
+	NextCountryCode     string           `xml:"NextCountryCode,omitempty"`
+	NextSubdivisionCode string           `xml:"NextSubdivisionCode,omitempty"`
+	GeoLocations        []xmlGeoLocation `xml:"GeoLocationDetailsList>GeoLocationDetails"`
+	IsTruncated         bool             `xml:"IsTruncated"`
+}
+
+// seekGeoLocationStart returns the index of the first entry in
+// geoLocationTable matching the (continentCode, countryCode,
+// subdivisionCode) resume point (api_op_ListGeoLocations.go's
+// startcontinentcode/startcountrycode/startsubdivisioncode). Equality
+// matching is safe here (unlike the equality-with-zero-default bug class
+// elsewhere in this campaign): geoLocationTable is a fixed compile-time
+// slice, never mutated, so a marker this handler issued can never stop
+// matching between calls. All three empty means "from the beginning".
+func seekGeoLocationStart(continentCode, countryCode, subdivisionCode string) int {
+	if continentCode == "" && countryCode == "" && subdivisionCode == "" {
+		return 0
+	}
+
+	for i, loc := range geoLocationTable {
+		if loc.ContinentCode == continentCode &&
+			loc.CountryCode == countryCode &&
+			loc.SubdivisionCode == subdivisionCode {
+			return i
+		}
+	}
+
+	return 0
 }
 
 func (h *Handler) listGeoLocations(c *echo.Context) error {
-	return writeXML(c, http.StatusOK, listGeoLocationsResponse{
-		Xmlns:        route53Namespace,
-		GeoLocations: geoLocationTable,
-		IsTruncated:  false,
-		MaxItems:     "100",
-	})
+	q := c.Request().URL.Query()
+	startContinentCode := q.Get("startcontinentcode")
+	startCountryCode := q.Get("startcountrycode")
+	startSubdivisionCode := q.Get("startsubdivisioncode")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
+
+	start := seekGeoLocationStart(startContinentCode, startCountryCode, startSubdivisionCode)
+	all := geoLocationTable[start:]
+
+	resp := listGeoLocationsResponse{
+		Xmlns:    route53Namespace,
+		MaxItems: strconv.Itoa(maxItems),
+	}
+
+	if len(all) > maxItems {
+		resp.GeoLocations = all[:maxItems]
+		next := all[maxItems]
+		resp.IsTruncated = true
+		resp.NextContinentCode = next.ContinentCode
+		resp.NextCountryCode = next.CountryCode
+		resp.NextSubdivisionCode = next.SubdivisionCode
+	} else {
+		resp.GeoLocations = all
+	}
+
+	return writeXML(c, http.StatusOK, resp)
 }
 
 // geoLocationTable is a static table of AWS Route 53 supported geo locations.

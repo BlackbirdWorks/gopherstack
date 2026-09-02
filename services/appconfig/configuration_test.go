@@ -61,7 +61,7 @@ func TestBackend_GetConfiguration_ReturnsDeployedVersion(t *testing.T) {
 	content := []byte(`{"feature":"on"}`)
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, content)
 
-	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	got, err := b.GetConfiguration(appID, envID, profileID)
@@ -81,7 +81,7 @@ func TestBackend_CurrentDeployedConfiguration_MatchesDeployedVersion(t *testing.
 	content := []byte(`{"feature":"on"}`)
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, content)
 
-	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	gotContent, gotContentType, _, err := b.CurrentDeployedConfiguration("cfg-app", "cfg-env", "cfg-profile")

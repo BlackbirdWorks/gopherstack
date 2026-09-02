@@ -19,7 +19,7 @@ func (b *InMemoryBackend) CreateMobileDeviceAccessRule(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	now := time.Now()
 	rule := &MobileDeviceAccessRule{
@@ -50,9 +50,12 @@ func (b *InMemoryBackend) DeleteMobileDeviceAccessRule(orgID, ruleID string) err
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.mobileDeviceRules.Delete(orgKey(orgID, ruleID)) {
+		// DeleteMobileDeviceAccessRule's own error model declares no
+		// not-found type for the rule itself (only Organization*); no
+		// correct code exists to send here (gopherstack-6flj/uox6 sweep).
 		return fmt.Errorf("%w: mobile device access rule %q not found", ErrNotFound, ruleID)
 	}
 
@@ -99,7 +102,7 @@ func (b *InMemoryBackend) ListMobileDeviceAccessRules(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	byOrg := b.mobileDeviceRulesByOrg.Get(orgID)
 	rules := make([]*MobileDeviceAccessRule, 0, len(byOrg))
@@ -140,7 +143,7 @@ func (b *InMemoryBackend) GetMobileDeviceAccessEffect(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return "", nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return "", nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	byOrg := b.mobileDeviceRulesByOrg.Get(orgID)
 	rules := make([]*MobileDeviceAccessRule, 0, len(byOrg))

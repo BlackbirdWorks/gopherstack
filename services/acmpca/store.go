@@ -189,10 +189,10 @@ func (b *InMemoryBackend) policiesStoreRO(region string) map[string]string {
 	return map[string]string{}
 }
 
-// validateRequiredParameter returns ErrInvalidParameter when a required field is empty.
-func validateRequiredParameter(value, fieldName string) error {
+// validateRequiredParameter returns sentinel when a required field is empty.
+func validateRequiredParameter(value, fieldName string, sentinel error) error {
 	if value == "" {
-		return fmt.Errorf("%w: %s is required", ErrInvalidParameter, fieldName)
+		return fmt.Errorf("%w: %s is required", sentinel, fieldName)
 	}
 
 	return nil

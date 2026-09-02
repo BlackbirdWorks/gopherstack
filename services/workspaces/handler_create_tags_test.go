@@ -10,15 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCreateOpsWithTags_RoundTrip drives every workspaces Create* op whose
-// real Input struct accepts Tags (workspaces@v1.73.1:
+// TestCreateOpsWithTags_RoundTrip drives every workspaces Create*/Register*
+// op whose real Input struct accepts Tags (workspaces@v1.73.1:
 // api_op_CreateConnectionAlias.go, api_op_CreateIpGroup.go,
 // api_op_CreateWorkspaceBundle.go, api_op_CreateWorkspaceImage.go,
 // api_op_CreateWorkspacesPool.go, api_op_CreateWorkspaces.go (nested on
-// WorkspaceRequest), all `Tags []types.Tag`) through the real SDK client and
-// asserts DescribeTags sees what was supplied at creation. Real WorkSpaces
-// has no TagResource/ListTagsForResource API -- DescribeTags(ResourceId) is
-// the read path (gopherstack-2mwl).
+// WorkspaceRequest), api_op_RegisterWorkspaceDirectory.go, all
+// `Tags []types.Tag`) through the real SDK client and asserts DescribeTags
+// sees what was supplied at creation. Real WorkSpaces has no
+// TagResource/ListTagsForResource API -- DescribeTags(ResourceId) is the
+// read path (gopherstack-2mwl).
 func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -161,6 +162,28 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 
 		got, err := client.DescribeTags(t.Context(), &wssdk.DescribeTagsInput{
 			ResourceId: out.PendingRequests[0].WorkspaceId,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, wantTags, got.TagList)
+	})
+
+	// gopherstack-4shm: RegisterWorkspaceDirectoryInput.Tags was decoded and
+	// dropped entirely -- every other Create* op in this same file already
+	// applies its Tags via the shared b.tags map (see e.g. bundles.go's
+	// CreateWorkspaceBundle), but RegisterWorkspaceDirectory never did.
+	t.Run("workspace directory", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestHandlerAndClient(t)
+
+		_, err := client.RegisterWorkspaceDirectory(t.Context(), &wssdk.RegisterWorkspaceDirectoryInput{
+			DirectoryId: aws.String("d-tags11111"),
+			Tags:        wantTags,
+		})
+		require.NoError(t, err)
+
+		got, err := client.DescribeTags(t.Context(), &wssdk.DescribeTagsInput{
+			ResourceId: aws.String("d-tags11111"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantTags, got.TagList)

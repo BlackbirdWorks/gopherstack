@@ -224,7 +224,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = restored.DescribeIAMPolicyAssignment(testAccountID, ns, "assign1")
 	require.NoError(t, err)
 
-	_, err = restored.DescribeAccountCustomization(testAccountID, ns)
+	_, err = restored.DescribeAccountCustomization(testAccountID, ns, false)
 	require.NoError(t, err)
 
 	_, err = restored.DescribeBrand(testAccountID, "brand1", "")

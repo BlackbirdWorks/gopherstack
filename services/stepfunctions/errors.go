@@ -29,4 +29,5 @@ var (
 	ErrInvalidExecutionInput           = errors.New("InvalidExecutionInput")
 	ErrValidation                      = errors.New("ValidationException")
 	ErrMapRunDoesNotExist              = errors.New("MapRunDoesNotExist")
+	ErrTooManyTags                     = errors.New("TooManyTags")
 )

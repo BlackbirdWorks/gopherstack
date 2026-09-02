@@ -58,10 +58,14 @@ func (h *Handler) handleStartCommandExecution(
 }
 
 type listCommandExecutionsForSandboxInput struct {
-	SandboxID string `json:"sandboxId"`
+	SandboxID  string `json:"sandboxId"`
+	NextToken  string `json:"nextToken"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults"`
 }
 
 type listCommandExecutionsForSandboxOutput struct {
+	NextToken         string              `json:"nextToken,omitempty"`
 	CommandExecutions []*CommandExecution `json:"commandExecutions"`
 }
 
@@ -78,5 +82,10 @@ func (h *Handler) handleListCommandExecutionsForSandbox(
 		return nil, err
 	}
 
-	return &listCommandExecutionsForSandboxOutput{CommandExecutions: ces}, nil
+	pg, err := paginateCommandExecutions(ces, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listCommandExecutionsForSandboxOutput{CommandExecutions: pg.Data, NextToken: pg.Next}, nil
 }

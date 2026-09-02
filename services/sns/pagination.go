@@ -2,11 +2,16 @@ package sns
 
 import (
 	"encoding/base64"
+	"errors"
 	"strconv"
 )
 
+var errNegativeToken = errors.New("sns: pagination token decodes to a negative offset")
+
 // decodeToken decodes a base64 pagination token into an integer offset.
-// An empty token is treated as offset 0.
+// An empty token is treated as offset 0. A token that decodes to a negative
+// offset is rejected like any other malformed token, since paginate would
+// otherwise slice items[offset:end] with a negative offset and panic.
 func decodeToken(token string) (int, error) {
 	if token == "" {
 		return 0, nil
@@ -20,6 +25,10 @@ func decodeToken(token string) (int, error) {
 	offset, err := strconv.Atoi(string(decoded))
 	if err != nil {
 		return 0, err
+	}
+
+	if offset < 0 {
+		return 0, errNegativeToken
 	}
 
 	return offset, nil

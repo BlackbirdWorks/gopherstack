@@ -2,6 +2,8 @@ package opensearch
 
 import (
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // CreateOutboundConnection creates a new outbound cross-cluster connection.
@@ -64,14 +66,20 @@ func (b *InMemoryBackend) CreateOutboundConnection(
 	return &cp, nil
 }
 
-// DescribeOutboundConnections returns all outbound connections, excluding any
-// whose deleting window has elapsed.
-func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
+// DescribeOutboundConnections returns outbound connections excluding any
+// whose deleting window has elapsed, filtered and paginated per the request.
+// connectionIDs comes from Filter entries named "connection-id" -- the only
+// Filter Name documented anywhere in api_op_DescribeOutboundConnections.go or
+// API_Filter.html for this operation (neither enumerates a Name value set);
+// an empty slice matches everything.
+func (b *InMemoryBackend) DescribeOutboundConnections(
+	connectionIDs []string, nextToken string, maxResults int,
+) page.Page[*OutboundConnection] {
 	b.mu.RLock("DescribeOutboundConnections")
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]*OutboundConnection, 0, b.outboundConnections.Len())
+	all := make([]*OutboundConnection, 0, b.outboundConnections.Len())
 
 	for _, c := range b.outboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
@@ -79,10 +87,12 @@ func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 		}
 
 		cp := *c
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out
+	return filterAndPageConnections(
+		all, func(c *OutboundConnection) string { return c.ConnectionID }, connectionIDs, nextToken, maxResults,
+	)
 }
 
 // DeleteOutboundConnection removes an outbound connection by ID. With a

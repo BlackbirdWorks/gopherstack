@@ -108,6 +108,10 @@ func (h *Handler) handleGetIPSet(ctx context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
 	s, err := h.Backend.GetIPSet(ctx, req.ID)
 	if err != nil {
 		return nil, err
@@ -153,6 +157,14 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	// Validate CIDRs against stored IP version — fetch first.
 	existing, err := h.Backend.GetIPSet(ctx, req.ID)
 	if err != nil {
@@ -194,6 +206,14 @@ func (h *Handler) handleDeleteIPSet(ctx context.Context, body []byte) ([]byte, e
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteIPSet(ctx, req.ID, req.LockToken); err != nil {

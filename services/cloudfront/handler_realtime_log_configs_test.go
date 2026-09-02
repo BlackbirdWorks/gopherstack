@@ -426,3 +426,75 @@ func TestInMemoryBackend_RealtimeLogConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestListRealtimeLogConfigs_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListRealtimeLogConfigs' item struct emitted only ARN/Name/
+// SamplingRate, dropping Fields and EndPoints entirely from every item even
+// though the real RealtimeLogConfig item deserializer (cloudfront@v1.67.4
+// deserializers.go, awsRestxml_deserializeDocumentRealtimeLogConfig) reads both
+// -- the sibling GetRealtimeLogConfig already emitted them correctly, so this
+// was the "Get and List differ, only Get got it right" trap. Seeds two distinct
+// configs with distinguishable non-zero Fields/EndPoints and asserts both come
+// back populated and correctly matched by ARN.
+func TestListRealtimeLogConfigs_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(name, field, roleARN, streamARN string, rate int64) *cfsdk.CreateRealtimeLogConfigOutput {
+		out, err := client.CreateRealtimeLogConfig(t.Context(), &cfsdk.CreateRealtimeLogConfigInput{
+			Name:         aws.String(name),
+			SamplingRate: aws.Int64(rate),
+			Fields:       []string{field},
+			EndPoints: []types.EndPoint{
+				{
+					StreamType: aws.String("Kinesis"),
+					KinesisStreamConfig: &types.KinesisStreamConfig{
+						RoleARN:   aws.String(roleARN),
+						StreamARN: aws.String(streamARN),
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("list-shape-log-1", "timestamp",
+		"arn:aws:iam::123456789012:role/first", "arn:aws:kinesis:us-east-1:123456789012:stream/first", 50)
+	second := mk("list-shape-log-2", "c-ip",
+		"arn:aws:iam::123456789012:role/second", "arn:aws:kinesis:us-east-1:123456789012:stream/second", 75)
+
+	listed, err := client.ListRealtimeLogConfigs(t.Context(), &cfsdk.ListRealtimeLogConfigsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.RealtimeLogConfigs)
+	require.Len(t, listed.RealtimeLogConfigs.Items, 2)
+
+	byARN := make(map[string]types.RealtimeLogConfig, 2)
+	for _, item := range listed.RealtimeLogConfigs.Items {
+		require.NotNil(t, item.ARN)
+		byARN[*item.ARN] = item
+	}
+
+	item1, ok := byARN[*first.RealtimeLogConfig.ARN]
+	require.True(t, ok)
+	require.Len(t, item1.Fields, 1)
+	assert.Equal(t, "timestamp", item1.Fields[0])
+	require.Len(t, item1.EndPoints, 1)
+	require.NotNil(t, item1.EndPoints[0].KinesisStreamConfig)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/first", *item1.EndPoints[0].KinesisStreamConfig.RoleARN)
+	assert.Equal(t, "arn:aws:kinesis:us-east-1:123456789012:stream/first",
+		*item1.EndPoints[0].KinesisStreamConfig.StreamARN)
+
+	item2, ok := byARN[*second.RealtimeLogConfig.ARN]
+	require.True(t, ok)
+	require.Len(t, item2.Fields, 1)
+	assert.Equal(t, "c-ip", item2.Fields[0])
+	require.Len(t, item2.EndPoints, 1)
+	require.NotNil(t, item2.EndPoints[0].KinesisStreamConfig)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/second", *item2.EndPoints[0].KinesisStreamConfig.RoleARN)
+	assert.Equal(t, "arn:aws:kinesis:us-east-1:123456789012:stream/second",
+		*item2.EndPoints[0].KinesisStreamConfig.StreamARN)
+}

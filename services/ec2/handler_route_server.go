@@ -87,6 +87,11 @@ type modifyRouteServerResponse struct {
 	RouteServer routeServerItem `xml:"routeServer"`
 }
 
+// routeServerEndpointItem.FailureReason is a flat scalar (ec2@v1.319.1
+// deserializers.go awsEc2query_deserializeDocumentRouteServerEndpoint reads
+// it via decoder.Value()), not a nested <code>/<message> element -- a real
+// client fails outright ("expected value for failureReason element, got
+// xml.StartElement") the first time this backend populates a failure reason.
 type routeServerEndpointItem struct {
 	RouteServerEndpointID string `xml:"routeServerEndpointId"`
 	RouteServerID         string `xml:"routeServerId,omitempty"`
@@ -95,14 +100,11 @@ type routeServerEndpointItem struct {
 	EniID                 string `xml:"eniId,omitempty"`
 	EniAddress            string `xml:"eniAddress,omitempty"`
 	State                 string `xml:"state,omitempty"`
-	FailureReason         struct {
-		Code    string `xml:"code,omitempty"`
-		Message string `xml:"message,omitempty"`
-	} `xml:"failureReason"`
+	FailureReason         string `xml:"failureReason,omitempty"`
 }
 
 func toRouteServerEndpointItem(ep *RouteServerEndpoint) routeServerEndpointItem {
-	item := routeServerEndpointItem{
+	return routeServerEndpointItem{
 		RouteServerEndpointID: ep.RouteServerEndpointID,
 		RouteServerID:         ep.RouteServerID,
 		SubnetID:              ep.SubnetID,
@@ -110,11 +112,8 @@ func toRouteServerEndpointItem(ep *RouteServerEndpoint) routeServerEndpointItem 
 		EniID:                 ep.EniID,
 		EniAddress:            ep.EniAddress,
 		State:                 ep.State,
+		FailureReason:         joinStateReason(ep.StateReasonCode, ep.StateReasonMessage),
 	}
-	item.FailureReason.Code = ep.StateReasonCode
-	item.FailureReason.Message = ep.StateReasonMessage
-
-	return item
 }
 
 type createRouteServerEndpointResponse struct {
@@ -150,12 +149,12 @@ type routeServerBGPStatusItem struct {
 	BgpPeerState string `xml:"bgpPeerState,omitempty"`
 }
 
+// routeServerPeerItem.FailureReason is a flat scalar for the same reason as
+// routeServerEndpointItem.FailureReason above (ec2@v1.319.1 deserializers.go
+// awsEc2query_deserializeDocumentRouteServerPeer, "failureReason" case).
 type routeServerPeerItem struct {
-	BgpStatus     routeServerBGPStatusItem `xml:"bgpStatus"`
-	FailureReason struct {
-		Code    string `xml:"code,omitempty"`
-		Message string `xml:"message,omitempty"`
-	} `xml:"failureReason"`
+	BgpStatus             routeServerBGPStatusItem  `xml:"bgpStatus"`
+	FailureReason         string                    `xml:"failureReason,omitempty"`
 	RouteServerPeerID     string                    `xml:"routeServerPeerId"`
 	RouteServerEndpointID string                    `xml:"routeServerEndpointId,omitempty"`
 	RouteServerID         string                    `xml:"routeServerId,omitempty"`
@@ -168,8 +167,21 @@ type routeServerPeerItem struct {
 	BgpOptions            routeServerBGPOptionsItem `xml:"bgpOptions"`
 }
 
+// joinStateReason combines a resource's state-reason code and message into
+// the single flat string several route-server response fields expect.
+func joinStateReason(code, message string) string {
+	switch {
+	case code == "":
+		return message
+	case message == "":
+		return code
+	default:
+		return code + ": " + message
+	}
+}
+
 func toRouteServerPeerItem(p *RouteServerPeer) routeServerPeerItem {
-	item := routeServerPeerItem{
+	return routeServerPeerItem{
 		RouteServerPeerID:     p.RouteServerPeerID,
 		RouteServerEndpointID: p.RouteServerEndpointID,
 		RouteServerID:         p.RouteServerID,
@@ -179,6 +191,7 @@ func toRouteServerPeerItem(p *RouteServerPeer) routeServerPeerItem {
 		EniID:                 p.EniID,
 		EniAddress:            p.EniAddress,
 		PeerAddress:           p.PeerAddress,
+		FailureReason:         joinStateReason(p.StateReasonCode, p.StateReasonMessage),
 		BgpOptions: routeServerBGPOptionsItem{
 			PeerAsn:               p.BgpPeerAsn,
 			PeerLivenessDetection: p.BgpPeerLivenessDetectionMode,
@@ -188,10 +201,6 @@ func toRouteServerPeerItem(p *RouteServerPeer) routeServerPeerItem {
 			BgpPeerState: p.BgpStatusPeerState,
 		},
 	}
-	item.FailureReason.Code = p.StateReasonCode
-	item.FailureReason.Message = p.StateReasonMessage
-
-	return item
 }
 
 type createRouteServerPeerResponse struct {
@@ -300,12 +309,15 @@ type routeServerRouteItem struct {
 	RouteInstalled        bool    `xml:"routeInstalled,omitempty"`
 }
 
+// getRouteServerRoutingDatabaseResponse matches
+// GetRouteServerRoutingDatabaseOutput (ec2@v1.319.1
+// api_op_GetRouteServerRoutingDatabase.go): areRoutesPersisted/nextToken/
+// routeSet only -- there is no routeServerId member on the response.
 type getRouteServerRoutingDatabaseResponse struct {
-	XMLName       xml.Name `xml:"GetRouteServerRoutingDatabaseResponse"`
-	Xmlns         string   `xml:"xmlns,attr"`
-	RequestID     string   `xml:"requestId"`
-	RouteServerID string   `xml:"routeServerId,omitempty"`
-	Routes        struct {
+	XMLName   xml.Name `xml:"GetRouteServerRoutingDatabaseResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Routes    struct {
 		Items []routeServerRouteItem `xml:"item"`
 	} `xml:"routeSet"`
 	AreRoutesPersisted bool `xml:"areRoutesPersisted,omitempty"`
@@ -596,7 +608,7 @@ func (h *Handler) handleGetRouteServerRoutingDatabase(vals url.Values, reqID str
 	}
 
 	resp := &getRouteServerRoutingDatabaseResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, RouteServerID: routeServerID, AreRoutesPersisted: arePersisted,
+		Xmlns: ec2XMLNS, RequestID: reqID, AreRoutesPersisted: arePersisted,
 	}
 	for _, r := range routes {
 		resp.Routes.Items = append(resp.Routes.Items, routeServerRouteItem{

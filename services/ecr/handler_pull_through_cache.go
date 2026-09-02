@@ -96,12 +96,17 @@ func (h *Handler) handleDescribePullThroughCacheRules(
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(next prefix).
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default when maxResults is not used.
+	}
+
 	var nextToken string
-	if in.MaxResults > 0 && len(rules) > in.MaxResults {
+	if len(rules) > maxResults {
 		nextToken = base64.StdEncoding.EncodeToString(
-			[]byte(rules[in.MaxResults].EcrRepositoryPrefix),
+			[]byte(rules[maxResults].EcrRepositoryPrefix),
 		)
-		rules = rules[:in.MaxResults]
+		rules = rules[:maxResults]
 	}
 
 	out := make([]createPullThroughCacheRuleOutput, 0, len(rules))

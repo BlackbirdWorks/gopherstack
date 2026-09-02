@@ -3,6 +3,16 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultNCMaxRecords and maxNCMaxRecords are DescribeNotificationConfigurations's documented
+// default/max page size (api_op_DescribeNotificationConfigurations.go: "The default value is 50
+// and the maximum value is 100").
+const (
+	defaultNCMaxRecords = 50
+	maxNCMaxRecords     = 100
 )
 
 func (h *Handler) handleDescribeAutoScalingNotificationTypes(_ url.Values) (any, error) {
@@ -62,14 +72,24 @@ func (h *Handler) handleDescribeNotificationConfigurations(vals url.Values) (any
 		return nil, err
 	}
 
-	members := make([]xmlNotificationConfiguration, 0, len(configs))
-	for _, c := range configs {
+	maxRecords := defaultNCMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxNCMaxRecords)
+		}
+	}
+
+	p := page.New(configs, vals.Get("NextToken"), maxRecords, defaultNCMaxRecords)
+
+	members := make([]xmlNotificationConfiguration, 0, len(p.Data))
+	for _, c := range p.Data {
 		members = append(members, xmlNotificationConfiguration(c))
 	}
 
 	return &describeNotificationConfigurationsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeNotificationConfigurationsResult{
+			NextToken:                  p.Next,
 			NotificationConfigurations: xmlNotificationConfigurationList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-notification-configurations"},
@@ -110,6 +130,7 @@ type xmlNotificationConfigurationList struct {
 }
 
 type describeNotificationConfigurationsResult struct {
+	NextToken                  string                           `xml:"NextToken,omitempty"`
 	NotificationConfigurations xmlNotificationConfigurationList `xml:"NotificationConfigurations"`
 }
 

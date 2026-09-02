@@ -13,14 +13,10 @@ type describeAccountAttributesResponse struct {
 	} `xml:"accountAttributeSet"`
 }
 
-type cidrItem struct {
-	CIDR string `xml:"cidrIp"`
-}
-
 type prefixListItem struct {
-	PrefixListID   string     `xml:"prefixListId"`
-	PrefixListName string     `xml:"prefixListName"`
-	CidrsSet       []cidrItem `xml:"cidrSet>item"`
+	PrefixListID   string   `xml:"prefixListId"`
+	PrefixListName string   `xml:"prefixListName"`
+	CidrsSet       []string `xml:"cidrSet>item"`
 }
 
 type describePrefixListsResponse struct {
@@ -44,21 +40,39 @@ type describeIDFormatResponse struct {
 	} `xml:"statusSet"`
 }
 
+// describeAggregateIDFormatResponse wraps its list under statusSet
+// (deserializers.go:196919), not "statuses" -- the real client's
+// deserializer only matches "statusSet" and would otherwise decode an empty
+// Statuses slice.
 type describeAggregateIDFormatResponse struct {
 	XMLName   xml.Name `xml:"DescribeAggregateIdFormatResponse"`
 	RequestID string   `xml:"requestId"`
 	Statuses  struct {
 		Items []idFormatItem `xml:"item"`
-	} `xml:"statuses"`
+	} `xml:"statusSet"`
 	UseLongIDsAggregated bool `xml:"useLongIdsAggregated"`
 }
 
-type describePrincipalIDFormatResponse struct {
-	XMLName    xml.Name `xml:"DescribePrincipalIdFormatResponse"`
-	RequestID  string   `xml:"requestId"`
-	Principals struct {
+// principalIDFormatItem matches types.PrincipalIdFormat (ec2@v1.319.1
+// deserializers.go:143696): a principal ARN plus its per-resource-type ID
+// format statuses, not a flat idFormatItem list.
+type principalIDFormatItem struct {
+	Arn       string `xml:"arn,omitempty"`
+	StatusSet struct {
 		Items []idFormatItem `xml:"item"`
-	} `xml:"principals"`
+	} `xml:"statusSet"`
+}
+
+// describePrincipalIDFormatResponse wraps its list under principalSet
+// (deserializers.go:203012), not "principals" -- the real client's
+// deserializer only matches "principalSet" and would otherwise decode an
+// empty Principals slice.
+type describePrincipalIDFormatResponse struct {
+	XMLName      xml.Name `xml:"DescribePrincipalIdFormatResponse"`
+	RequestID    string   `xml:"requestId"`
+	PrincipalSet struct {
+		Items []principalIDFormatItem `xml:"item"`
+	} `xml:"principalSet"`
 }
 
 // instanceEventNotifAttrsResponse is shared by Describe/Register/Deregister
@@ -96,6 +110,7 @@ func (h *Handler) handleDescribeAccountAttributes(vals url.Values, reqID string)
 func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PrefixListId")
 	lists := h.Backend.DescribePrefixLists(ids)
+	lists = applyPrefixListFilters(lists, parseEC2Filters(vals))
 
 	resp := &describePrefixListsResponse{RequestID: reqID}
 	for _, pl := range lists {
@@ -103,9 +118,7 @@ func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any,
 			PrefixListID:   pl.PrefixListID,
 			PrefixListName: pl.PrefixListName,
 		}
-		for _, cidr := range pl.CIDRs {
-			item.CidrsSet = append(item.CidrsSet, cidrItem{CIDR: cidr})
-		}
+		item.CidrsSet = append(item.CidrsSet, pl.CIDRs...)
 		resp.PrefixListSet.Items = append(resp.PrefixListSet.Items, item)
 	}
 
@@ -113,7 +126,10 @@ func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any,
 }
 
 func (h *Handler) handleDescribeIDFormat(vals url.Values, reqID string) (any, error) {
-	resources := parseMemberList(vals, "Resource")
+	var resources []string
+	if r := vals.Get("Resource"); r != "" {
+		resources = []string{r}
+	}
 	items := h.Backend.DescribeIDFormat(resources)
 
 	resp := &describeIDFormatResponse{RequestID: reqID}
@@ -143,7 +159,10 @@ func (h *Handler) handleModifyIDFormat(vals url.Values, reqID string) (any, erro
 
 func (h *Handler) handleDescribeIdentityIDFormat(vals url.Values, reqID string) (any, error) {
 	principalARN := vals.Get("PrincipalArn")
-	resources := parseMemberList(vals, "Resource")
+	var resources []string
+	if r := vals.Get("Resource"); r != "" {
+		resources = []string{r}
+	}
 	items := h.Backend.DescribeIdentityIDFormat(principalARN, resources)
 
 	resp := &describeIDFormatResponse{RequestID: reqID}
@@ -185,16 +204,23 @@ func (h *Handler) handleDescribeAggregateIDFormat(_ url.Values, reqID string) (a
 	return resp, nil
 }
 
+// handleDescribePrincipalIDFormat: DescribePrincipalIdFormatInput has no
+// PrincipalArn field at all (api_op_DescribePrincipalIdFormat.go) -- the
+// operation always describes the calling principal. It does declare a
+// Resources filter (wire key "Resource.N",
+// awsEc2query_serializeOpDocumentDescribePrincipalIdFormatInput), which this
+// handler must honor.
 func (h *Handler) handleDescribePrincipalIDFormat(vals url.Values, reqID string) (any, error) {
-	principalARN := vals.Get("PrincipalArn")
-	items := h.Backend.DescribePrincipalIDFormat(principalARN)
+	items := h.Backend.DescribePrincipalIDFormat(parseMemberList(vals, "Resource"))
 	resp := &describePrincipalIDFormatResponse{RequestID: reqID}
+	principal := principalIDFormatItem{}
 	for _, item := range items {
-		resp.Principals.Items = append(resp.Principals.Items, idFormatItem{
+		principal.StatusSet.Items = append(principal.StatusSet.Items, idFormatItem{
 			Resource:   item.Resource,
 			UseLongIDs: item.UseLongIDs,
 		})
 	}
+	resp.PrincipalSet.Items = append(resp.PrincipalSet.Items, principal)
 
 	return resp, nil
 }

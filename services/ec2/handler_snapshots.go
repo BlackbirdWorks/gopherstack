@@ -80,8 +80,10 @@ type modifySnapshotTierResponse struct {
 func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error) {
 	sourceID := vals.Get("SourceSnapshotId")
 	description := vals.Get("Description")
+	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
+	kmsKeyID := vals.Get("KmsKeyId")
 
-	snap, err := h.Backend.CopySnapshot(sourceID, description)
+	snap, err := h.Backend.CopySnapshot(sourceID, description, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,21 +103,16 @@ func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error)
 }
 
 func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, error) {
-	// InstanceSpecification.InstanceId is the primary instance; volumes derived from it.
-	// Also accept direct VolumeId.1, VolumeId.2... form.
-	volumeIDs := parseMemberList(vals, "VolumeId")
-	if len(volumeIDs) == 0 {
-		// Fallback: single volume via InstanceSpecification (simplified)
-		if vid := vals.Get("InstanceSpecification.ExcludeBootVolume"); vid != "" {
-			volumeIDs = []string{vid}
-		}
+	instanceID := vals.Get("InstanceSpecification.InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceSpecification.InstanceId is required", ErrInvalidParameter)
 	}
-	if len(volumeIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one VolumeId is required", ErrInvalidParameter)
-	}
+
+	excludeBootVolume := vals.Get("InstanceSpecification.ExcludeBootVolume") == "true"
+	excludeDataVolumeIDs := parseMemberList(vals, "InstanceSpecification.ExcludeDataVolumeId")
 	description := vals.Get("Description")
 
-	snaps, err := h.Backend.CreateSnapshots(volumeIDs, description)
+	snaps, err := h.Backend.CreateSnapshots(instanceID, excludeBootVolume, excludeDataVolumeIDs, description)
 	if err != nil {
 		return nil, err
 	}
@@ -373,16 +370,34 @@ type listSnapshotsInRecycleBinResponse struct {
 	} `xml:"snapshotSet"`
 }
 
-type importSnapshotTaskItem struct {
-	ImportTaskID string `xml:"importTaskId"`
-	Description  string `xml:"description"`
-	Status       string `xml:"status"`
+// snapshotTaskDetailItem matches types.SnapshotTaskDetail, nested under
+// ImportSnapshotTask/ImportSnapshotOutput's "snapshotTaskDetail" element
+// (ec2@v1.319.1 deserializers.go:158042) -- status does NOT sit at the top
+// level of importSnapshotTaskItem/importSnapshotResponse.
+type snapshotTaskDetailItem struct {
+	Status      string `xml:"status,omitempty"`
+	SnapshotID  string `xml:"snapshotId,omitempty"`
+	Description string `xml:"description,omitempty"`
+	KmsKeyID    string `xml:"kmsKeyId,omitempty"`
+	Encrypted   bool   `xml:"encrypted"`
 }
 
+// importSnapshotTaskItem matches types.ImportSnapshotTask (ec2@v1.319.1
+// deserializers.go:109707).
+type importSnapshotTaskItem struct {
+	ImportTaskID       string                 `xml:"importTaskId"`
+	Description        string                 `xml:"description,omitempty"`
+	SnapshotTaskDetail snapshotTaskDetailItem `xml:"snapshotTaskDetail"`
+}
+
+// importSnapshotResponse matches ImportSnapshotOutput (ec2@v1.319.1
+// deserializers.go:215941, same description/snapshotTaskDetail nesting).
 type importSnapshotResponse struct {
-	XMLName      xml.Name `xml:"ImportSnapshotResponse"`
-	RequestID    string   `xml:"requestId"`
-	ImportTaskID string   `xml:"importTaskId"`
+	XMLName            xml.Name               `xml:"ImportSnapshotResponse"`
+	RequestID          string                 `xml:"requestId"`
+	ImportTaskID       string                 `xml:"importTaskId"`
+	Description        string                 `xml:"description,omitempty"`
+	SnapshotTaskDetail snapshotTaskDetailItem `xml:"snapshotTaskDetail"`
 }
 
 type describeImportSnapshotTasksResponse struct {
@@ -395,8 +410,36 @@ type describeImportSnapshotTasksResponse struct {
 }
 
 type fastLaunchImageItem struct {
-	ImageID string `xml:"imageId"`
-	State   string `xml:"state"`
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	ImageID               string                        `xml:"imageId"`
+	State                 string                        `xml:"state"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
+}
+
+func toFastLaunchImageItem(item FastLaunchImageItem, ownerID string) fastLaunchImageItem {
+	out := fastLaunchImageItem{
+		ImageID:             item.ImageID,
+		State:               item.State,
+		ResourceType:        item.ResourceType,
+		OwnerID:             ownerID,
+		MaxParallelLaunches: item.MaxParallelLaunches,
+	}
+	if item.HasLaunchTemplate {
+		out.LaunchTemplate = &fastLaunchLaunchTemplateItem{
+			LaunchTemplateID:   item.LaunchTemplateID,
+			LaunchTemplateName: item.LaunchTemplateName,
+			Version:            item.LaunchTemplateVersion,
+		}
+	}
+
+	if item.HasSnapshotConfiguration {
+		out.SnapshotConfiguration = &fastLaunchSnapshotConfigItem{TargetResourceCount: item.SnapshotTargetResourceCount}
+	}
+
+	return out
 }
 
 type enableDisableFastSnapshotRestoresResponse struct {
@@ -479,8 +522,10 @@ func (h *Handler) handleRestoreSnapshotTier(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, error) {
 	description := vals.Get("Description")
+	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
+	kmsKeyID := vals.Get("KmsKeyId")
 
-	task, err := h.Backend.ImportSnapshot(description)
+	task, err := h.Backend.ImportSnapshot(description, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -488,6 +533,14 @@ func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, erro
 	return &importSnapshotResponse{
 		RequestID:    reqID,
 		ImportTaskID: task.ImportTaskID,
+		Description:  task.Description,
+		SnapshotTaskDetail: snapshotTaskDetailItem{
+			Status:      task.Status,
+			SnapshotID:  task.SnapshotID,
+			Description: task.Description,
+			Encrypted:   task.Encrypted,
+			KmsKeyID:    task.KmsKeyID,
+		},
 	}, nil
 }
 
@@ -510,7 +563,13 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 			importSnapshotTaskItem{
 				ImportTaskID: t.ImportTaskID,
 				Description:  t.Description,
-				Status:       t.Status,
+				SnapshotTaskDetail: snapshotTaskDetailItem{
+					Status:      t.Status,
+					SnapshotID:  t.SnapshotID,
+					Description: t.Description,
+					Encrypted:   t.Encrypted,
+					KmsKeyID:    t.KmsKeyID,
+				},
 			},
 		)
 	}

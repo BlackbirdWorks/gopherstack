@@ -6,7 +6,14 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// customVerifTemplateMaxResults is the real op's hard cap: MaxResults must
+// be 1-50, and an absent or out-of-range value falls back to 50 (own doc
+// comment, api_op_ListCustomVerificationEmailTemplates.go).
+const customVerifTemplateMaxResults = 50
 
 // CreateCustomVerificationEmailTemplate creates a custom verification email template.
 func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerificationEmailTemplate) error {
@@ -51,7 +58,10 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 	return nil
 }
 
-// DeleteCustomVerificationEmailTemplate removes a custom verification email template.
+// DeleteCustomVerificationEmailTemplate removes a custom verification email
+// template. Idempotent: the op's own deserializer (ses@v1.37.4
+// deserializers.go) declares no exception at all, unlike Get/Send/Update on
+// the same resource, so a missing template is treated as already deleted.
 func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName string) error {
 	if strings.TrimSpace(templateName) == "" {
 		return fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
@@ -59,10 +69,6 @@ func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName str
 
 	b.mu.Lock("DeleteCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
-
-	if !b.customVerifTemplates.Has(templateName) {
-		return fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, templateName)
-	}
 
 	b.customVerifTemplates.Delete(templateName)
 
@@ -86,8 +92,11 @@ func (b *InMemoryBackend) GetCustomVerificationEmailTemplate(
 	return *tmpl, nil
 }
 
-// ListCustomVerificationEmailTemplates returns a sorted slice of all custom verification email templates.
-func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerificationEmailTemplate {
+// ListCustomVerificationEmailTemplates returns a page of custom
+// verification email templates sorted by name.
+func (b *InMemoryBackend) ListCustomVerificationEmailTemplates(
+	nextToken string, maxResults int,
+) page.Page[CustomVerificationEmailTemplate] {
 	b.mu.RLock("ListCustomVerificationEmailTemplates")
 	defer b.mu.RUnlock()
 	out := make([]CustomVerificationEmailTemplate, 0, b.customVerifTemplates.Len())
@@ -96,7 +105,11 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerific
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TemplateName < out[j].TemplateName })
 
-	return out
+	if maxResults < 1 || maxResults > customVerifTemplateMaxResults {
+		maxResults = customVerifTemplateMaxResults
+	}
+
+	return page.New(out, nextToken, maxResults, customVerifTemplateMaxResults)
 }
 
 // SendCustomVerificationEmail adds email to the account's identity list and

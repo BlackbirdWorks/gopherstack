@@ -27,6 +27,7 @@ func toIDMappingTableSummary(t *IDMappingTable) *IDMappingTableSummary {
 		MembershipArn:            t.MembershipArn,
 		MembershipIdentifier:     t.MembershipIdentifier,
 		Name:                     t.Name,
+		Description:              t.Description,
 		InputReferenceConfig:     t.InputReferenceConfig,
 		CreateTime:               t.CreateTime,
 		UpdateTime:               t.UpdateTime,

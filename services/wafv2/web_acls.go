@@ -356,8 +356,12 @@ func cloneWebACL(w *WebACL) *WebACL {
 
 // DeleteFirewallManagerRuleGroups removes all Firewall Manager rule group
 // associations from the WebACL identified by webACLARN, then returns a fresh
-// copy of the updated WebACL.
-func (b *InMemoryBackend) DeleteFirewallManagerRuleGroups(ctx context.Context, webACLARN string) (*WebACL, error) {
+// copy of the updated WebACL. lockToken is checked the same way every other
+// Update*/Delete* op does: an empty token skips the match check by design
+// (see PARITY.md), a non-empty mismatched one is rejected.
+func (b *InMemoryBackend) DeleteFirewallManagerRuleGroups(
+	ctx context.Context, webACLARN, lockToken string,
+) (*WebACL, error) {
 	b.mu.Lock("DeleteFirewallManagerRuleGroups")
 	defer b.mu.Unlock()
 
@@ -370,6 +374,10 @@ func (b *InMemoryBackend) DeleteFirewallManagerRuleGroups(ctx context.Context, w
 	w, ok := b.webACLs.Get(regionKey(region, webACLID))
 	if !ok {
 		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLID)
+	}
+
+	if lockToken != "" && lockToken != w.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for web ACL %q", ErrOptimisticLock, webACLID)
 	}
 
 	w.LockToken = uuid.NewString()

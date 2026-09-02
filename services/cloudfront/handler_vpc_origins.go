@@ -122,32 +122,51 @@ func (h *Handler) handleGetVpcOrigin(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, vpcOriginResponseXML(origin))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// handleListVpcOrigins paginates via Marker/MaxItems (both query-bound, cloudfront@v1.67.4
+// serializers.go).
 func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 	items := h.Backend.ListVpcOrigins()
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		items,
+		func(origin *VpcOrigin) string { return origin.ID },
+	)
+
 	type vpcSummaryXML struct {
-		XMLName xml.Name `xml:"VpcOriginSummary"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName           xml.Name `xml:"VpcOriginSummary"`
+		ID                string   `xml:"Id"`
+		ARN               string   `xml:"Arn"`
+		Name              string   `xml:"Name"`
+		OriginEndpointARN string   `xml:"OriginEndpointArn"`
+		AccountID         string   `xml:"AccountId"`
 	}
 
 	type vpcListXML struct {
 		XMLName     xml.Name        `xml:"VpcOriginList"`
 		XMLNS       string          `xml:"xmlns,attr"`
+		NextMarker  string          `xml:"NextMarker,omitempty"`
 		Items       []vpcSummaryXML `xml:"Items>VpcOriginSummary"`
 		MaxItems    int             `xml:"MaxItems"`
 		Quantity    int             `xml:"Quantity"`
 		IsTruncated bool            `xml:"IsTruncated"`
 	}
 
-	summaries := make([]vpcSummaryXML, 0, len(items))
-	for _, origin := range items {
-		summaries = append(summaries, vpcSummaryXML{ID: origin.ID, ARN: origin.ARN, Name: origin.Name})
+	summaries := make([]vpcSummaryXML, 0, len(page))
+	for _, origin := range page {
+		summaries = append(summaries, vpcSummaryXML{
+			ID:                origin.ID,
+			ARN:               origin.ARN,
+			Name:              origin.Name,
+			OriginEndpointARN: origin.EndpointArn,
+			AccountID:         h.Backend.AccountID(),
+		})
 	}
 
-	list := vpcListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := vpcListXML{
+		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
+		Items: summaries, IsTruncated: isTruncated,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

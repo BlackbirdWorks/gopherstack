@@ -419,6 +419,10 @@ func (h *Handler) handleGetIntegrationTableProperties(
 	}, nil
 }
 
+// defaultListIntegrationResourcePropertiesLimit is used when
+// ListIntegrationResourcePropertiesInput.MaxRecords is unset.
+const defaultListIntegrationResourcePropertiesLimit = 100
+
 // listIntegrationResourcePropertiesInput holds input for ListIntegrationResourceProperties.
 type listIntegrationResourcePropertiesInput struct {
 	Marker     string `json:"Marker,omitempty"`
@@ -442,12 +446,20 @@ type listIntegrationResourcePropertiesOutput struct {
 
 func (h *Handler) handleListIntegrationResourceProperties(
 	_ context.Context,
-	_ *listIntegrationResourcePropertiesInput,
+	in *listIntegrationResourcePropertiesInput,
 ) (*listIntegrationResourcePropertiesOutput, error) {
 	props := h.Backend.ListIntegrationResourceProperties()
-	list := make([]integrationResourcePropertyOut, 0, len(props))
 
-	for _, p := range props {
+	limit := int(in.MaxRecords)
+	if limit <= 0 {
+		limit = defaultListIntegrationResourcePropertiesLimit
+	}
+
+	page, next := paginateSlice(props, in.Marker, limit)
+
+	list := make([]integrationResourcePropertyOut, 0, len(page))
+
+	for _, p := range page {
 		list = append(list, integrationResourcePropertyOut{
 			ResourceArn:      p.ResourceArn,
 			SourceProperties: p.SourceProperties,
@@ -455,7 +467,7 @@ func (h *Handler) handleListIntegrationResourceProperties(
 		})
 	}
 
-	return &listIntegrationResourcePropertiesOutput{IntegrationResourcePropertyList: list}, nil
+	return &listIntegrationResourcePropertiesOutput{IntegrationResourcePropertyList: list, Marker: next}, nil
 }
 
 // modifyIntegrationInput holds input for ModifyIntegration.

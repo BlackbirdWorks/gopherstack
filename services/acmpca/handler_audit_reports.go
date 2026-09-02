@@ -31,7 +31,7 @@ type describeCertificateAuthorityAuditReportOutput struct {
 func (h *Handler) jsonCreateAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input createCertificateAuthorityAuditReportInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArgs
 	}
 
 	report, err := h.Backend.CreateCertificateAuthorityAuditReport(
@@ -53,7 +53,7 @@ func (h *Handler) jsonCreateAuditReport(ctx context.Context, body []byte) (any, 
 func (h *Handler) jsonDescribeAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateAuthorityAuditReportInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArgs
 	}
 
 	report, err := h.Backend.DescribeCertificateAuthorityAuditReport(

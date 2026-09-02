@@ -98,7 +98,7 @@ func TestSensitivityInspectionTemplates(t *testing.T) {
 
 				var getResp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-				assert.Equal(t, templateID, getResp["id"])
+				assert.Equal(t, templateID, getResp["sensitivityInspectionTemplateId"])
 
 				// UpdateSensitivityInspectionTemplate
 				rec = doRequest(

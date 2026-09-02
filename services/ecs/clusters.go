@@ -42,8 +42,15 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if b.clusters.Has(name) {
-		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, name)
+	// Real ECS's CreateCluster is idempotent: calling it again with an
+	// existing ClusterName returns the existing cluster rather than
+	// erroring (CreateCluster's own deserializeOpError models no
+	// "already exists" exception at all, and no such type exists anywhere
+	// in ecs@v1.90.0's SDK).
+	if existing, ok := b.clusters.Get(name); ok {
+		cp := *existing
+
+		return &cp, nil
 	}
 
 	if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
@@ -58,6 +65,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		Settings:                        input.Settings,
 		CapacityProviders:               input.CapacityProviders,
 		DefaultCapacityProviderStrategy: input.DefaultCapacityProviderStrategy,
+		ServiceConnectDefaults:          input.ServiceConnectDefaults,
 	}
 	b.clusters.Put(cluster)
 
@@ -72,25 +80,31 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 // ListClusters returns all clusters.
 func (b *InMemoryBackend) ListClusters() ([]Cluster, error) {
-	clusters, _, err := b.DescribeClusters(nil)
-
-	return clusters, err
-}
-
-// DescribeClusters returns cluster metadata.
-// Unknown cluster names are returned as failures, not errors, matching AWS behaviour.
-func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error) {
-	b.mu.RLock("DescribeClusters")
+	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	if len(clusterNames) == 0 {
-		all := b.clusters.All()
-		out := make([]Cluster, 0, len(all))
-		for _, c := range all {
-			out = append(out, b.enrichCluster(c))
-		}
+	all := b.clusters.All()
+	out := make([]Cluster, 0, len(all))
+	for _, c := range all {
+		out = append(out, b.enrichCluster(c))
+	}
 
-		return out, nil, nil
+	return out, nil
+}
+
+// DescribeClusters returns cluster metadata. Per DescribeClustersInput.Clusters
+// ("If you do not specify a cluster, the default cluster is assumed."), an
+// empty clusterNames describes only the "default" cluster -- unlike
+// ListClusters, a different operation whose own input documents no such
+// default-substitution and legitimately returns everything.
+// Unknown cluster names are returned as failures, not errors, matching AWS behaviour.
+func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error) {
+	b.mu.Lock("DescribeClusters")
+	defer b.mu.Unlock()
+
+	if len(clusterNames) == 0 {
+		b.ensureClusterLocked(defaultCluster)
+		clusterNames = []string{defaultCluster}
 	}
 
 	out := make([]Cluster, 0, len(clusterNames))
@@ -288,6 +302,10 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 
 	if input.Settings != nil {
 		c.Settings = input.Settings
+	}
+
+	if input.ServiceConnectDefaults != nil {
+		c.ServiceConnectDefaults = input.ServiceConnectDefaults
 	}
 
 	cp := b.enrichCluster(c)

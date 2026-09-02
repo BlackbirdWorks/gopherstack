@@ -339,3 +339,68 @@ func TestSendEmail(t *testing.T) {
 		})
 	}
 }
+
+// TestSendEmail_UnverifiedIdentity drives the real SDK client and asserts the
+// specific typed exception SendEmail's own deserializeOpError models for an
+// unverified From identity (sesv2@v1.66.4 types/errors.go:220, "The message
+// can't be sent because the sending domain isn't verified."). The emulator
+// previously raised a plain BadRequestException, which a real client's
+// errors.As against MailFromDomainNotVerifiedException would never match.
+func TestSendEmail_UnverifiedIdentity(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newSESv2SDKClient(t, h)
+
+	_, err := client.SendEmail(t.Context(), &sesv2sdk.SendEmailInput{
+		FromEmailAddress: aws.String("unverified@example.com"),
+		Destination: &sesv2types.Destination{
+			ToAddresses: []string{"recipient@example.com"},
+		},
+		Content: &sesv2types.EmailContent{
+			Simple: &sesv2types.Message{
+				Subject: &sesv2types.Content{Data: aws.String("Hello")},
+				Body: &sesv2types.Body{
+					Text: &sesv2types.Content{Data: aws.String("Hello World")},
+				},
+			},
+		},
+	})
+	require.Error(t, err)
+
+	var mfnv *sesv2types.MailFromDomainNotVerifiedException
+	require.ErrorAs(t, err, &mfnv, "expected a real MailFromDomainNotVerifiedException from the SDK deserializer")
+}
+
+// TestSendBulkEmail_UnverifiedIdentity drives the real SDK client and asserts
+// that each entry's Status is MAIL_FROM_DOMAIN_NOT_VERIFIED (types.go:305)
+// for an unverified From identity, instead of the whole call succeeding. The
+// emulator previously discarded SendEmail's per-entry error entirely
+// (msgID, _ := b.SendEmail(...)) and always reported SUCCESS.
+func TestSendBulkEmail_UnverifiedIdentity(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newSESv2SDKClient(t, h)
+
+	out, err := client.SendBulkEmail(t.Context(), &sesv2sdk.SendBulkEmailInput{
+		FromEmailAddress: aws.String("unverified-bulk@example.com"),
+		DefaultContent: &sesv2types.BulkEmailContent{
+			Template: &sesv2types.Template{
+				TemplateData: aws.String(`{}`),
+				TemplateContent: &sesv2types.EmailTemplateContent{
+					Subject: aws.String("Hi"),
+					Text:    aws.String("body"),
+				},
+			},
+		},
+		BulkEmailEntries: []sesv2types.BulkEmailEntry{
+			{Destination: &sesv2types.Destination{ToAddresses: []string{"to1@example.com"}}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.BulkEmailEntryResults, 1)
+	assert.Equal(t, sesv2types.BulkEmailStatusMailFromDomainNotVerified, out.BulkEmailEntryResults[0].Status)
+	assert.Empty(t, aws.ToString(out.BulkEmailEntryResults[0].MessageId))
+	assert.Empty(t, h.Backend.ListEmails(), "an unverified sender must not record any email")
+}

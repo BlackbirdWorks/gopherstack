@@ -625,11 +625,12 @@ func (b *InMemoryBackend) ListMultipartUploads(
 		uploads,
 		aws.ToString(input.KeyMarker),
 		aws.ToString(input.UploadIdMarker),
+		delimiter,
 	)
 
-	uploads, commonPrefixes := groupUploadsByDelimiter(uploads, prefix, delimiter)
+	entries := groupUploadsByDelimiter(uploads, prefix, delimiter)
 
-	isTruncated, nextKeyMarker, nextUploadIDMarker := truncateUploads(&uploads, maxUploads)
+	uploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIDMarker := truncateUploads(entries, maxUploads)
 
 	return &s3.ListMultipartUploadsOutput{
 		Bucket:             aws.String(bucketName),
@@ -685,17 +686,34 @@ func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []typ
 }
 
 // seekMultipartMarker skips all upload entries that come at or before the
-// (keyMarker, uploadIDMarker) pagination cursor.
+// (keyMarker, uploadIDMarker) pagination cursor. When keyMarker is itself a
+// CommonPrefix boundary (ends with delimiter -- every CommonPrefix
+// groupUploadsByDelimiter emits does, by construction), every upload whose
+// key falls under that prefix must also be skipped: it was already
+// summarized and returned as that one CommonPrefix entry. A plain
+// `k > keyMarker` alone would resume inside that same prefix's key range
+// and re-emit the CommonPrefix on the next page.
 func seekMultipartMarker(
 	uploads []types.MultipartUpload,
-	keyMarker, uploadIDMarker string,
+	keyMarker, uploadIDMarker, delimiter string,
 ) []types.MultipartUpload {
 	if keyMarker == "" {
 		return uploads
 	}
 
+	skipWholePrefix := delimiter != "" && strings.HasSuffix(keyMarker, delimiter)
+
 	for i, u := range uploads {
 		k := aws.ToString(u.Key)
+
+		if skipWholePrefix {
+			if k > keyMarker && !strings.HasPrefix(k, keyMarker) {
+				return uploads[i:]
+			}
+
+			continue
+		}
+
 		if k > keyMarker {
 			return uploads[i:]
 		}
@@ -708,46 +726,104 @@ func seekMultipartMarker(
 	return nil
 }
 
-// truncateUploads enforces the MaxUploads page size, returning the IsTruncated flag and
-// the next-page markers. The uploads slice is truncated in-place.
-func groupUploadsByDelimiter(
-	uploads []types.MultipartUpload,
-	prefix, delimiter string,
-) ([]types.MultipartUpload, []types.CommonPrefix) {
+// uploadListEntry is one lexicographically-ordered slot in a delimited
+// ListMultipartUploads listing: either one upload or one common-prefix
+// group, never both. A single ordered sequence (rather than two
+// separately-truncated lists) is what lets truncateUploads cut the page and
+// compute the next-page markers in true key order -- see listObjectEntry
+// (services/s3/listing.go) for the general shape of the bug this avoids.
+type uploadListEntry struct {
+	upload *types.MultipartUpload
+	prefix string
+}
+
+// groupUploadsByDelimiter groups uploads that share a common prefix (when
+// delimiter is set) into ordered uploadListEntry values, preserving the
+// input's sorted order.
+func groupUploadsByDelimiter(uploads []types.MultipartUpload, prefix, delimiter string) []uploadListEntry {
+	entries := make([]uploadListEntry, 0, len(uploads))
+
 	if delimiter == "" {
-		return uploads, nil
+		for i := range uploads {
+			entries = append(entries, uploadListEntry{upload: &uploads[i]})
+		}
+
+		return entries
 	}
-	var filtered []types.MultipartUpload
-	var commonPrefixes []types.CommonPrefix
-	seen := make(map[string]struct{})
-	for _, u := range uploads {
+
+	var lastCP string
+	haveCP := false
+
+	for i := range uploads {
+		u := &uploads[i]
 		key := aws.ToString(u.Key)
 		keyAfterPrefix := strings.TrimPrefix(key, prefix)
+
 		if idx := strings.Index(keyAfterPrefix, delimiter); idx >= 0 {
 			cp := prefix + keyAfterPrefix[:idx+len(delimiter)]
-			if _, ok := seen[cp]; !ok {
-				seen[cp] = struct{}{}
-				commonPrefixes = append(commonPrefixes, types.CommonPrefix{Prefix: aws.String(cp)})
+			if !haveCP || cp != lastCP {
+				lastCP = cp
+				haveCP = true
+				entries = append(entries, uploadListEntry{prefix: cp})
 			}
+
+			continue
+		}
+
+		entries = append(entries, uploadListEntry{upload: u})
+	}
+
+	return entries
+}
+
+// truncateUploads cuts entries (already in true lexicographic key order) at
+// maxUploads, splitting the retained prefix back into the Uploads/
+// CommonPrefixes wire lists and deriving NextKeyMarker/NextUploadIdMarker
+// from the last entry actually included, whichever kind it is.
+//
+// The predecessor of this function truncated only the flat-upload list and
+// derived NextKeyMarker/NextUploadIdMarker from `uploads[maxUploads]` -- the
+// first upload NOT returned, i.e. a token naming the first item of the next
+// page -- while seekMultipartMarker's decoder resumes after the item that
+// matches the marker. Naming the next page's first item and then skipping
+// past whatever matches it drops that exact upload on every truncation
+// boundary (Class D) -- no delimiter, deletion, or tampering needed, a
+// plain walk over more uploads than one page holds triggers it every time.
+// It also never truncated or counted CommonPrefixes toward maxUploads,
+// which is the delimiter-listing sibling of the same "cut two lists
+// independently" bug fixed in services/s3/listing.go.
+func truncateUploads(entries []uploadListEntry, maxUploads int32) (
+	[]types.MultipartUpload, []types.CommonPrefix, bool, string, string,
+) {
+	isTruncated := int64(len(entries)) > int64(maxUploads)
+	page := entries
+
+	var nextKeyMarker, nextUploadIDMarker string
+
+	if isTruncated {
+		page = entries[:maxUploads]
+
+		last := page[len(page)-1]
+		if last.upload != nil {
+			nextKeyMarker = aws.ToString(last.upload.Key)
+			nextUploadIDMarker = aws.ToString(last.upload.UploadId)
 		} else {
-			filtered = append(filtered, u)
+			nextKeyMarker = last.prefix
 		}
 	}
 
-	return filtered, commonPrefixes
-}
+	uploads := make([]types.MultipartUpload, 0, len(page))
+	var commonPrefixes []types.CommonPrefix
 
-func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, string, string) {
-	uploadCount := int32(len(*uploads)) //nolint:gosec // G115: len is bounded by maxUploads limit
-	if uploadCount <= maxUploads {
-		return false, "", ""
+	for _, e := range page {
+		if e.upload != nil {
+			uploads = append(uploads, *e.upload)
+		} else {
+			commonPrefixes = append(commonPrefixes, types.CommonPrefix{Prefix: aws.String(e.prefix)})
+		}
 	}
 
-	nextKey := aws.ToString((*uploads)[maxUploads].Key)
-	nextID := aws.ToString((*uploads)[maxUploads].UploadId)
-	*uploads = (*uploads)[:maxUploads]
-
-	return true, nextKey, nextID
+	return uploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIDMarker
 }
 
 // ListParts returns the parts that have been uploaded for a specific multipart upload.

@@ -56,5 +56,5 @@ func TestInMemoryBackend_AuditReportValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.DescribeCertificateAuthorityAuditReport(context.Background(), ca.ARN, "")
-	require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+	require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 }

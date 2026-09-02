@@ -257,3 +257,42 @@ client's `CreateApplication`, whose `Description` field alone exceeds
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServerErrorException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## Equality-matched-cursor restart sweep (2026-08-30)
+
+All three paginated listings in this service (`ListApplications`,
+`ListApplicationVersions`, `ListApplicationDependencies`) resumed a `nextToken` by
+scanning for the item whose key equalled the token and left `start` at 0 on no match --
+deleting the resource a cursor named (or a forged token) restarted pagination at page
+one instead of truncating.
+
+`ListApplications` (sorted by `Name`, `store.Table`'s own unique key -- see the
+existing `ops:` note above) and `ListApplicationVersions` (sorted by `SemanticVersion`,
+unique per app) are each sorted by exactly the field their own cursor carries, so both
+were converted to a threshold search: resume at the first item whose key is strictly
+greater than the token. `ListApplicationDependencies` is different: its collection is
+sorted by `(ApplicationID, SemanticVersion)`, but the cursor carries only
+`ApplicationID`, which is **not** unique within that sort (`collectDependencies`
+dedupes only on the `ApplicationID+"@"+SemanticVersion` pair, so the same dependency
+`ApplicationID` can legitimately appear at multiple semantic versions) -- a threshold
+search on the bare `ApplicationID` would skip same-ID entries at other versions. Fixed
+by defaulting an unresolved token to the end of the collection there instead.
+
+Real AWS SAR has no per-version delete operation, so `ListApplicationVersions`'s
+hostile test forges an unresolvable token; dependency entries are derived, not
+independently deletable, so `ListApplicationDependencies`'s hostile test does the same.
+`ListApplications` genuinely deletes the cursor's application mid-page
+(`DeleteApplication` exists).
+
+New tests (`handler_pagination_restart_test.go`, all confirmed failing pre-fix):
+`TestListApplications_Pagination_DeletedMidPage`,
+`TestListApplicationVersions_Pagination_StaleTokenDoesNotRestart`,
+`TestListApplicationDependencies_Pagination_StaleTokenDoesNotRestart`. Prior pagination
+coverage (`TestListApplications_Pagination_NextToken`,
+`TestListApplicationVersions_PaginationNextToken`,
+`TestListApplicationDependencies_Pagination`) only ever exercised the happy path where
+every named cursor still resolves.
+
+**Gates**: `go build ./services/serverlessrepo/...`, `go vet ./services/serverlessrepo/...`,
+`go test -race -count=1 ./services/serverlessrepo/...` all pass; `golangci-lint run
+./services/serverlessrepo/...` reports 0 issues.

@@ -95,12 +95,12 @@ func TestNeptuneInstanceAndTagRegionIsolation(t *testing.T) {
 	}
 
 	// Each region sees exactly one instance.
-	eastInsts, err := backend.DescribeDBInstances(ctxEast, "", "")
+	eastInsts, err := backend.DescribeDBInstances(ctxEast, "", nil)
 	require.NoError(t, err)
 	require.Len(t, eastInsts, 1)
 	assert.Contains(t, eastInsts[0].DBInstanceArn, "us-east-1")
 
-	westInsts, err := backend.DescribeDBInstances(ctxWest, "", "")
+	westInsts, err := backend.DescribeDBInstances(ctxWest, "", nil)
 	require.NoError(t, err)
 	require.Len(t, westInsts, 1)
 	assert.Contains(t, westInsts[0].DBInstanceArn, "us-west-2")

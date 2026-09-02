@@ -28,11 +28,11 @@ func (b *InMemoryBackend) UploadServerCertificate(name, path, certBody, certChai
 	defer b.mu.Unlock()
 
 	if name == "" {
-		return nil, fmt.Errorf("%w: ServerCertificateName must not be empty", ErrMalformedPolicyDocument)
+		return nil, fmt.Errorf("%w: ServerCertificateName must not be empty", ErrInvalidInput)
 	}
 
 	if certBody == "" {
-		return nil, fmt.Errorf("%w: CertificateBody must not be empty", ErrMalformedPolicyDocument)
+		return nil, fmt.Errorf("%w: CertificateBody must not be empty", ErrMalformedCertificate)
 	}
 
 	if _, exists := b.serverCertificates.Get(name); exists {

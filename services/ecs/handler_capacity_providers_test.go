@@ -333,6 +333,10 @@ func TestECS_CreateCapacityProvider(t *testing.T) {
 	}
 }
 
+// TestECS_CreateCapacityProvider_AlreadyExists asserts the real code:
+// CreateCapacityProvider's own deserializer models no "already exists"
+// exception (no such shape exists anywhere in ecs@v1.90.0), only
+// InvalidParameterException for a duplicate name.
 func TestECS_CreateCapacityProvider_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -341,7 +345,7 @@ func TestECS_CreateCapacityProvider_AlreadyExists(t *testing.T) {
 	rec := doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "my-cp"})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AlreadyExists")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 func TestECS_DeleteCapacityProvider(t *testing.T) {

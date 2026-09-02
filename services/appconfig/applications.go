@@ -147,6 +147,7 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 	}
 
 	for _, d := range slices.Clone(b.deploymentsByApp.Get(applicationID)) {
+		delete(b.tags, b.deploymentArn(d.ApplicationID, d.EnvironmentID, d.DeploymentNumber))
 		b.deployments.Delete(deploymentKeyFn(d))
 	}
 

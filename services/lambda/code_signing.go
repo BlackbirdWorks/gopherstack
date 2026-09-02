@@ -126,7 +126,7 @@ func (b *InMemoryBackend) PutFunctionCodeSigningConfig(functionName, cscARN stri
 	}
 
 	if _, ok := b.codeSigningConfigs.Get(cscARN); !ok {
-		return ErrFunctionNotFound
+		return ErrCodeSigningConfigNotFound
 	}
 
 	b.fnCodeSigningConfigs[functionName] = cscARN

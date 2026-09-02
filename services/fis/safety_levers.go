@@ -37,7 +37,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	id string,
 	input *updateSafetyLeverStateRequest,
 ) (*SafetyLever, error) {
-	status := input.UpdateSafetyLeverStateInput.Status
+	status := input.State.Status
 	if status != statusDisengaged && status != "engaged" {
 		return nil, fmt.Errorf(
 			"%w: safetyLever status must be \"engaged\" or \"disengaged\"; got %q",
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 
 	b.safetyLever.State = SafetyLeverState{
 		Status: status,
-		Reason: input.UpdateSafetyLeverStateInput.Reason,
+		Reason: input.State.Reason,
 	}
 
 	cp := *b.safetyLever

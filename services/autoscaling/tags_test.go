@@ -76,7 +76,7 @@ func TestInMemoryBackend_CreateOrUpdateTags(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.wantTag.Key != "" {
-				groups, gErr := b.DescribeAutoScalingGroups([]string{tt.tags[0].ResourceID})
+				groups, gErr := b.DescribeAutoScalingGroups([]string{tt.tags[0].ResourceID}, nil)
 				require.NoError(t, gErr)
 				found := false
 				for _, tag := range groups[0].Tags {
@@ -161,6 +161,26 @@ func TestInMemoryBackend_DescribeTags_WithFilters(t *testing.T) {
 				})
 			},
 			filters:   []autoscaling.TagFilter{{Name: "key", Values: []string{"env"}}},
+			wantCount: 1,
+		},
+		{
+			// types.Filter's DescribeTags doc (types/types.go:844-847) documents
+			// "propagate-at-launch - Accepts a Boolean value ... The results only
+			// include information about the tags associated with the specified
+			// Boolean value."
+			name: "filter_by_propagate_at_launch",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "tfilter3-asg",
+					MinSize:              0,
+					MaxSize:              5,
+					Tags: []autoscaling.Tag{
+						{Key: "env", Value: "prod", PropagateAtLaunch: true},
+						{Key: "team", Value: "platform", PropagateAtLaunch: false},
+					},
+				})
+			},
+			filters:   []autoscaling.TagFilter{{Name: "propagate-at-launch", Values: []string{"false"}}},
 			wantCount: 1,
 		},
 	}

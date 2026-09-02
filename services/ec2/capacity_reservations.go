@@ -51,6 +51,7 @@ type CapacityReservationTopologyEntry struct {
 	CapacityReservationID string
 	InstanceType          string
 	AvailabilityZone      string
+	State                 string
 }
 
 // CreateCapacityReservation creates a new capacity reservation.
@@ -294,6 +295,7 @@ func (b *InMemoryBackend) DescribeCapacityReservationTopology(ids []string) []*C
 			CapacityReservationID: cr.CapacityReservationID,
 			InstanceType:          cr.InstanceType,
 			AvailabilityZone:      cr.AvailabilityZone,
+			State:                 cr.State,
 		})
 	}
 

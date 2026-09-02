@@ -37,6 +37,7 @@ var (
 	)
 	ErrStackRefactorNotFound = errors.New("stack refactor not found")
 	ErrStackPolicyDenied     = errors.New("update action denied by stack policy")
+	ErrHookResultNotFound    = errors.New("hook result not found")
 )
 
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.

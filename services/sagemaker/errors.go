@@ -7,17 +7,24 @@ import (
 // ErrValidation is returned for invalid input parameters.
 var ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 
-// ErrResourceNotFound is the shared base sentinel for the AIBenchmarkJob,
-// AIRecommendationJob, AIWorkloadConfig, and generic Job families (all added
-// in the SDK bump that introduced CreateJob et al.). Field-diffed against
-// aws-sdk-go-v2/service/sagemaker's deserializers.go: every one of these
-// ops' error deserializers recognizes a "ResourceNotFound" wire exception on
-// not-found — distinct from "ValidationException", which handleError still
-// emits for the generic awserr.ErrNotFound sentinel used by the rest of the
-// service's (older, previously-audited) CRUD families. handleError
-// special-cases errors.Is(err, ErrResourceNotFound) ahead of the generic
-// ErrNotFound branch so only these new families get the accurate wire type;
-// nothing else in the service constructs an error wrapping this sentinel.
+// ErrResourceNotFound is the shared base sentinel for resource families whose
+// relevant ops' error deserializers recognize a "ResourceNotFound" wire
+// exception on not-found — distinct from "ValidationException", which
+// handleError emits for the generic awserr.ErrNotFound sentinel used by
+// families whose ops model no not-found exception at all (their Describe/
+// Delete deserializers have an empty case switch, so any code -- including
+// ValidationException, which matches real AWS's observed behavior for these
+// -- lands on the same unmodeled smithy.GenericAPIError either way).
+// Field-diffed op by op against aws-sdk-go-v2/service/sagemaker's
+// deserializers.go, this base sentinel now also covers: AIBenchmarkJob,
+// AIRecommendationJob, AIWorkloadConfig, and generic Job (added with
+// CreateJob et al.); EdgeDeploymentPlan (Describe/Delete/Create*Stage);
+// DeviceFleet and Device (Describe*/Update*); InferenceRecommendationsJob
+// (Describe/Stop); HyperParameterTuningJob (Describe/Stop); TrainingJob
+// (Describe/Stop/Delete/Update); TransformJob (Describe/Stop); and
+// EdgePackagingJob (Describe). handleError special-cases
+// errors.Is(err, ErrResourceNotFound) ahead of the generic ErrNotFound
+// branch so these families get the accurate wire type.
 var ErrResourceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 
 // ErrConflictException is the shared base sentinel for the resources whose

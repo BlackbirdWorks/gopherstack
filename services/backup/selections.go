@@ -27,7 +27,10 @@ func (b *InMemoryBackend) CreateBackupSelection(
 		// planID is not a known ID — try it as a plan name.
 		p, exists := b.plans.Get(planID)
 		if !exists {
-			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+			// CreateBackupSelection's own deserializeOpError switch declares
+			// no ResourceNotFoundException case -- InvalidParameterValueException
+			// is the real type for an unresolved BackupPlanId.
+			return nil, fmt.Errorf("%w: backup plan %s not found", ErrValidation, planID)
 		}
 		// Switch planID to the canonical UUID stored on the plan.
 		planID = p.BackupPlanID

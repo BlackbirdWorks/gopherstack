@@ -35,7 +35,7 @@ ops:
   StartLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — previewResults was []ImageIdentifier (imageDigest/imageTag only); real GetLifecyclePolicyPreviewOutput.previewResults is []types.LifecyclePolicyPreviewResult carrying action{type}, appliedRulePriority, imageDigest, imagePushedAt (epoch), imageTags, storageClass — entirely missing action/priority/pushedAt/storageClass, and the top-level summary.expiringImageTotalCount field was absent too. Fixed: evaluateLifecyclePolicy now returns []LifecyclePolicyPreviewEntry carrying the full AWS-shaped detail. FIXED (round 3, genuinely new finding) — Start's own response was ALSO wrong: it reused the same lifecyclePolicyPreviewView as Get and therefore leaked previewResults/summary into Start's response, but direct diff of StartLifecyclePolicyPreviewOutput's real deserializer shows Start returns ONLY lifecyclePolicyText/registryId/repositoryName/status -- no previewResults/summary/nextToken at all (those belong to Get only). Fixed via a new, narrower lifecyclePolicyPreviewStartView. Start genuinely never had a Filter/ImageIds/MaxResults/NextToken gap in the first place (StartLifecyclePolicyPreviewInput has no such fields in the real SDK) -- the prior audit's gap note conflated Start and Get."}
   GetLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see StartLifecyclePolicyPreview note. FIXED (round 3) — Filter (tagStatus)/ImageIds/MaxResults/NextToken are now implemented at the handler layer (post-fetch filtering/pagination over the backend's full preview result, mirroring the DescribeImages/ListImages pattern): ImageIds restricts to exactly those images and (per the real API doc) is mutually exclusive with Filter/MaxResults/NextToken; otherwise Filter.tagStatus (TAGGED/UNTAGGED/ANY) filters and MaxResults/NextToken (default 100) paginate via the same base64(imageDigest)-cursor convention used elsewhere in this package."}
   GetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  SetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "'wire: ok' overstated (gopherstack-wks5 field-identity sweep, 2026-08-30): SetRepositoryPolicyInput's real Force bool member (api_op_SetRepositoryPolicy.go -- \"you must force the operation\" to override the lockout safety check) is parsed into repositoryPolicyInput.Force but never passed to Backend.SetRepositoryPolicy, which takes only (ctx, repositoryName, policyText). Not fixed: real Force gates a self-lockout evaluation (would the new policy deny the caller SetRepositoryPolicy/GetRepositoryPolicy in future) that requires an IAM policy-simulation engine this repo has no pkgs/ package for -- out of scope for a wire-identity fix, disclosed for a future pass. See efs PARITY.md's PutFileSystemPolicy entry for the identical pattern (BypassPolicyLockoutSafetyCheck)."}
   DeleteRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — RegistryPolicyResult carried a gopherstack-invented 'status' field (\"ACTIVE\"); the real GetRegistryPolicyOutput/PutRegistryPolicyOutput/DeleteRegistryPolicyOutput shapes have only policyText+registryId. Field deleted."}
   PutRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented 'status' field (\"SetComplete\") deleted; see GetRegistryPolicy note"}
@@ -48,7 +48,7 @@ ops:
   PutImageTagMutability: {wire: ok, errors: ok, state: ok, persist: ok, note: "exclusion filters (WILDCARD + literal) enforced correctly"}
   StartImageScan: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImageScanFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "BASIC vs ENHANCED finding shapes genuinely differ; paginated via index-based nextToken; ScanNotFoundException for never-scanned images. FIXED (round 2) — ImageScanFindingsResult.completedAt was a bare time.Time under the WRONG key entirely: real ecr.types.ImageScanFindings has no 'completedAt' field at all; the real key is 'imageScanCompletedAt' (epoch seconds, per awsAwsjson11_deserializeDocumentImageScanFindings), plus a second field 'vulnerabilitySourceUpdatedAt' that gopherstack didn't emit at all. A real SDK client parsing gopherstack's old response would silently get a nil/zero ImageScanCompletedAt (unknown JSON keys are ignored, so no hard failure, but the field was simply never populated client-side). Fixed: renamed to ImageScanCompletedAt/VulnerabilitySourceUpdatedAt (float64, epoch seconds); VulnerabilitySourceUpdatedAt is only populated for ENHANCED scans (BASIC omits it, matching AWS's Inspector-only semantics for that field). FIXED (round 4) — the nested \"imageScanFindings\" object reused ImageScanFindingsResult wholesale, so it ALSO leaked imageId/repositoryName/registryId/status/description (the output's own top-level fields) into the nested object; the real nested ImageScanFindings type has only 5 fields, none of those. Harmless to a real client (unknown keys ignored) but a wire-shape imprecision; fixed via a purpose-built imageScanFindingsView. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- ImageScanFinding.Attributes was a bare map[string]string; the real ImageScanFinding.Attributes deserializes via awsAwsjson11_deserializeDocumentAttributeList, a list of {key, value} objects (types.Attribute), so any real SDK client's decode failed outright once a BASIC scan finding carried attributes (always true -- buildBasicFindings seeds package_name/package_version on every finding). Not a dropped field or wrong value: DescribeImageScanFindings was unusable for BASIC scans. Fixed by adding an Attribute{Key, Value string} type and changing ImageScanFinding.Attributes to []Attribute; proven via a real aws-sdk-go-v2/service/ecr client round trip (wire_scan_finding_attributes_test.go), hand-reverted/confirmed-failing (unexpected JSON type map[package_name:... package_version:...])/restored, md5sum-verified byte-identical."}
-  PutReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutReplicationConfiguration: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-uox6 (2026-08-30): repoMatchesFilters switched on \"PREFIX\", but the real RepositoryFilterType enum's only value is \"PREFIX_MATCH\" (types/enums.go:385) -- \"PREFIX\" is not a real AWS value for either type sharing this internal RepositoryFilter struct. A real client's PREFIX_MATCH replication filter fell through the switch entirely and matched no repository, silently disabling prefix-filtered replication. Fixed by correcting the case string; the pre-existing replication_test.go fixture that used the fabricated \"PREFIX\" value (and only ever exercised the negative/non-matching case, so it never caught this) was corrected to PREFIX_MATCH and a new positive-match test added."}
   DescribeImageReplicationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId omitted entirely; real GetSigningConfigurationOutput has it (unlike PutSigningConfigurationOutput, which genuinely lacks it -- three siblings, two shapes, confirmed against each op's own deserializer). Now set from Backend.AccountID()."}
   PutSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified (round 4) -- correctly has no registryId, matching the real PutSigningConfigurationOutput shape; see GetSigningConfiguration/DeleteSigningConfiguration notes for the sibling contrast."}
@@ -65,10 +65,12 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   registry-v2-proxy: {status: ok, note: "docker distribution/v3 in-memory storage driver embedded for /v2/ blob+manifest paths; ExtractResource avoids buffering upload bodies"}
-  lifecycle-evaluation: {status: ok, note: "priority-ordered rules, imageCountMoreThan + sinceImagePushed count types, tagStatus any/tagged/untagged with prefix+wildcard pattern matching, janitor sweeps on a timer independent of API calls"}
+  lifecycle-evaluation: {status: fixed, note: "gopherstack-uox6 (2026-08-30): this line previously claimed \"ok\" while covering only 2 of 4 documented countTypes and 1 of 2 documented action types -- a false-ok PARITY claim, not a disclosed gap. action.type==\"transition\" (targetStorageClass=\"archive\") was skipped entirely by evaluateLifecyclePolicy's top-level gate (only \"expire\" passed), so ANY archive rule -- under any countType, not just the two below -- matched and did nothing; countType sinceImagePulled and sinceImageTransitioned had no case in applyRule's switch and silently matched zero images despite the backend already tracking every field they need (LastRecordedPullTime/LastActivatedAt/LastArchivedAt, stamped by UpdateImageStorageClass/BatchGetImage/GetDownloadUrlForLayer). All three implemented per docs.aws.amazon.com/AmazonECR/latest/userguide/lifecycle_policy_examples.html's JSON template and worked examples: transition rules now archive (not delete) the image via the same StorageClass/ImageStatus/LastArchivedAt transition UpdateImageStorageClass performs; sinceImagePulled uses the documented 3-way fallback (LastRecordedPullTime, else LastActivatedAt if restored-and-not-repulled-since, else ImagePushedAt if never pulled); sinceImageTransitioned only considers already-archived images, thresholded on LastArchivedAt. Also added the general \"storageClass\" selection filter (a sibling of tagStatus in the policy template, not exclusive to sinceImageTransitioned) and threaded targetStorageClass through the preview response's action object (previously only echoed type). Now: priority-ordered rules, all 4 documented count types (imageCountMoreThan/sinceImagePushed/sinceImagePulled/sinceImageTransitioned), both documented action types (expire/transition), tagStatus any/tagged/untagged with prefix+wildcard pattern matching, storageClass standard/archive selection filtering, janitor sweeps on a timer independent of API calls. Tests: TestLifecycle_ArchiveAction_TransitionsStorageClass, TestLifecycle_SinceImagePulled_FallbackChain, TestLifecycle_SinceImageTransitioned_OnlyArchivedImages, TestLifecycle_Selection_StorageClass_GeneralFilter (lifecycle_archive_pulled_transitioned_test.go), each confirmed failing pre-fix."}
   mock-scanning: {status: ok, note: "deterministic per-digest CVE selection (sha256-seeded bitmask) so repeated scans of the same image are stable; BASIC and ENHANCED shapes are genuinely different data, not the same list reshaped"}
 gaps:
   - "ListImageReferrers (round 4, disclosed): PutImage never records an OCI-referrer edge from a pushed artifact manifest's 'subject' field back to the subject image, so this op is structurally always empty. Real AWS returns actual referrer artifacts here; gopherstack has no backing model for the relationship at all. Filter/MaxResults/NextToken deliberately left off the wire structs since there is nothing for them to affect."
+  - "SetRepositoryPolicy Force (gopherstack-wks5, 2026-08-30): see the ops entry above -- disclosed, not fixed, crosses into IAM policy simulation."
+  - "RegistryId (gopherstack-wks5, 2026-08-30, structural, not a per-op bug): a type-identity field scan (go/types, matching decode-target struct fields by object identity rather than name, covering every op registered via service.WrapOp -- the generic JSON-protocol dispatcher whose reflection-based decode is invisible to a literal Bind()/Unmarshal() grep) found the optional registryId request field parsed but never consulted in ~23 input structs across nearly every op (BatchCheckLayerAvailability, BatchDeleteImage, BatchGetImage, CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule, DeleteRepository, DescribeImageScanFindings, GetDownloadUrlForLayer, GetLifecyclePolicy, GetLifecyclePolicyPreview, ListImageReferrers, ListImages, PutImage, PutImageScanningConfiguration, PutImageTagMutability, PutLifecyclePolicy, GetRepositoryPolicy/SetRepositoryPolicy/DeleteRepositoryPolicy, UpdateImageStorageClass, UpdatePullThroughCacheRule, UploadLayerPart, ValidatePullThroughCacheRule). This is consistent across the entire service, not an isolated miss: gopherstack models exactly one account per backend instance and no op anywhere validates registryId against it, so accepting-and-ignoring a caller-supplied registryId that matches the caller's own account (the overwhelmingly common case -- registryId exists for rare cross-account resource-policy scenarios) is a no-op by construction, same reasoning as this file's own DeleteReplicationConfiguration-style single-account gaps in sibling services. The one behavioral edge this leaves open: a caller passing a registryId for a DIFFERENT (non-existent, in this single-account model) account currently still operates on the local account's resource instead of returning RepositoryNotFoundException/ImageNotFoundException, a narrow divergence from real cross-account semantics. Not fixed this pass -- would need a uniform per-op mismatch check across all ~23 sites, a design decision bigger than a wire-identity fix."
   # All other gaps documented through round 2 were closed for real in round 3
   # (2026-07-24), including the ImageAlreadyExistsException trigger condition
   # (previously deferred as unconfirmable without a live AWS account -- see
@@ -590,3 +592,286 @@ SDK client request that reaches this branch today.
 returns `(http.StatusInternalServerError, "ServerException")`; confirmed it
 fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
 byte-identical restore after).
+
+**Per-item-failure sweep (this pass):** checked `BatchCheckLayerAvailability`,
+`BatchDeleteImage`, `BatchGetImage`, `BatchGetRepositoryScanningConfiguration` --
+the four ops whose SDK output models a per-item `Failures` field
+(`types.LayerFailure`/`types.ImageFailure`/`types.RepositoryScanningConfigurationFailure`).
+All four (`layers.go`, `images.go`, `image_scanning.go`) correctly report a per-item
+failure (missing layer digest, image not found by digest/tag, repository not found)
+while still returning results for every other requested item in the same call. No
+bugs found in this class.
+
+## gopherstack-6flj constrained-parameter sweep (2026-08-29)
+
+Measured every List/Describe collection op against its own Input struct in
+`ecr@v1.60.4`. Two real bug classes, both silent (200 OK, wrong membership):
+
+1. **Undocumented-unlimited `maxResults` on five ops.** `DescribeImages`,
+   `ListImages`, `DescribeRepositories`, `DescribePullThroughCacheRules`, and
+   `DescribeRepositoryCreationTemplates` all gated their page-limit logic on
+   `in.MaxResults > 0`, so an unset `maxResults` returned every matching item
+   in one page instead of the docs' "if this parameter is not used, returns
+   up to 100 results and a nextToken". `ListPullTimeUpdateExclusions`
+   (`handler_account_settings.go`) already had this right
+   (`paginatePullTimeUpdateExclusions`) and was the tell that the other five
+   were an inconsistency, not a deliberate choice. All five now default
+   `maxResults` to 100 before paginating.
+2. **`ImageStatus` filter never plumbed on `DescribeImages`/`ListImages`.**
+   Both ops' real `Filter` types (`DescribeImagesFilter`/`ListImagesFilter`)
+   carry `ImageStatus` alongside `TagStatus`; gopherstack's wire structs
+   (`describeImagesFilter`/`listImagesFilter`) only had `TagStatus` — the
+   field was entirely absent from the request struct, so it could never be
+   read regardless of what a client sent. Both ops also document "If not
+   specified, only images with ACTIVE status are returned" — a real,
+   observable default, since `UpdateImageStorageClass` can move an image to
+   `ARCHIVED` (`images.go`'s `ImageStatus` field). Before this fix, an
+   archived image kept appearing in every default-filter `DescribeImages`/
+   `ListImages` call forever. Fixed by adding `ImageStatus` to both filter
+   structs and a shared `passesImageStatusFilter` (mirrors the existing
+   `passesTagFilter` convention): unset or explicit `"ACTIVE"` means
+   ACTIVE-only, `"ANY"` disables the filter, anything else matches exactly.
+   `ListImages`'s backend signature gained an `imageStatusFilter string`
+   parameter (only caller: `handler_images.go`; `interfaces_test.go`'s
+   `stubBackend` and `images_test.go`'s direct backend calls updated to
+   match — confirmed via `go vet ./...` repo-wide, no other implementers).
+
+`ListImageReferrers`'s `Filter`/`MaxResults`/`NextToken` omission (documented
+in round 4 above) was re-confirmed still correct: the backend's
+`ListImageReferrers` unconditionally returns `[]ImageReferrer{}` because
+`PutImage` never records a referrer edge, so those fields would have zero
+observable effect. Left as-is.
+
+Also checked and confirmed already correct: `ListGraphqlApis`-style filters
+don't apply here, but `DescribeImages`'s/`ListImages`'s `TagStatus`,
+`DescribeRepositoryCreationTemplates`'s `Prefixes`, and
+`DescribePullThroughCacheRules`'s `EcrRepositoryPrefixes` were all already
+correctly plumbed through to their backends. `DescribeImageScanFindings`
+already defaulted `maxResults` to 100 (`image_scanning.go`) — the one op in
+this family that got it right independently.
+
+One pre-existing test asserted the old (wrong) default behavior:
+`TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClass`
+(`handler_images_test.go`) called `DescribeImages` with no filter right after
+archiving an image and expected it back — now given an explicit
+`imageStatus: ARCHIVED` filter, since an unfiltered call correctly excludes
+it post-fix.
+
+New tests in `list_filter_params_test.go`, driven through the real
+`ecrsdk.Client` (`newTestECRClient`), each confirmed to fail against
+unmodified code first: `TestDescribeImages_DefaultPageSize`,
+`TestListImages_DefaultPageSize`, `TestDescribeRepositories_DefaultPageSize`,
+`TestDescribePullThroughCacheRules_DefaultPageSize`,
+`TestDescribeRepositoryCreationTemplates_DefaultPageSize`,
+`TestDescribeImages_ImageStatusFilter_DefaultsToActiveOnly`,
+`TestDescribeImages_ImageStatusFilter_Explicit`,
+`TestListImages_ImageStatusFilter_DefaultsToActiveOnly`.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Four Class B bugs found and fixed**, all the same shape: a `nextToken`
+cursor compared to each item by exact equality, defaulting to index 0 (the
+whole collection) when nothing matched instead of the correct resume point
+or an empty page.
+
+- `filterAndPaginateImages` (`handler_images.go` — `DescribeImages`, 1 op):
+  images are sorted ascending by `ImageDigest`; a digest deleted since the
+  token was issued has no exact match. Fixed by searching for the first
+  `ImageDigest >= cursorKey` and defaulting `start = len(imgs)` on a miss.
+- `handleListImages`'s inline cursor logic (`handler_images.go` —
+  `ListImages`, 1 op): identical shape, hand-rolled rather than routed
+  through a shared helper (see "operations bypassing a helper" below). Its
+  composite `digest:tag` cursor is still monotonic with the list's
+  `(digest, tag)` sort order, so the same `>=`/default-to-`len` fix applies.
+- `paginatePullTimeUpdateExclusions` (`handler_account_settings.go` —
+  `ListPullTimeUpdateExclusions`, 1 op): ARNs are sorted ascending
+  (documented in the existing comment); same `>=`/default-to-`len` fix.
+- `paginateLifecyclePreviewEntries` (`handler_lifecycle_policy.go` —
+  `GetLifecyclePolicyPreview`, 1 op): entries are sorted by `ImagePushedAt`
+  (push time), **not** by the `ImageDigest` the cursor names — digest order
+  has no relationship to list position here, so the `>=` threshold used
+  above doesn't apply. Extracted into `advanceToDigestCursor`, which now
+  returns no items (not a restart at page one) on either an unmatched digest
+  or an undecodable token — the previous code silently used the
+  full unfiltered list on a decode failure, a second miss path the tests
+  below also cover.
+
+4 operations affected total. None of the four helpers permits a silent
+default to zero any more — three by construction (the miss default is now
+`len(...)`, not `0`) and the fourth (`advanceToDigestCursor`) by being
+factored into a function whose only two return paths are "found, from here"
+or "not found, none" (no signature change needed to force this; the
+extraction itself removes the mistake's foothold).
+
+Every fix is proven by a table-driven unit test against the helper directly
+(`pagination_arithmetic_internal_test.go`) with a stale-cursor (deleted
+item) and, where applicable, a tampered/malformed-token case, both failing
+pre-fix; plus two real `aws-sdk-go-v2/service/ecr` client round trips
+(`pagination_sdk_roundtrip_test.go`: `DescribeImages` and `ListImages`,
+each deleting the cursor's target between calls).
+
+All seven checks pass post-fix for all four helpers. No Class A or C shape
+found in this package.
+
+Gates: `go build ./services/ecr/...`, `go vet ./services/ecr/...` and
+`go vet ./...` (repo-wide, clean — no signature changed),
+`go test -race -count=1 ./services/ecr/...`, `golangci-lint run
+./services/ecr/...` (0 issues).
+
+**2026-08-30 (negative-continuation-token sweep)**: `image_scanning.go`'s
+`DescribeImageScanFindings` parsed `nextToken` with a bare `strconv.Atoi` and no bounds check;
+its `startIdx >= total` guard does not catch a negative `startIdx`, so
+`cp.Findings[startIdx:endIdx]` / `cp.EnhancedFindings[startIdx:endIdx]` panicked given a
+negative `nextToken`. Fixed at the decode site: the parsed value is now validated `>= 0`
+before being assigned.
+
+Proof: `TestDescribeImageScanFindings_NegativeOffsetToken` (`image_scanning_test.go`) confirmed
+panicking pre-fix, passes now. Gates: `go build ./services/ecr/...`, `go vet
+./services/ecr/...`, `go test -race -count=1 ./services/ecr/...`, `golangci-lint run
+./services/ecr/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-wks5, field-identity request-parameter sweep)**: exhaustive
+type-aware scan of every request-decode struct field across `ecr` and `efs`, using
+`go/types` to match field reads by object identity (not name) rather than a literal
+`Bind()`/`Unmarshal()` grep. Initial pass under-covered `ecr`: this service's dispatch
+goes through `pkgs/service.WrapOp[In, Out]` (the AWS JSON-protocol generic dispatcher),
+whose reflection-based decode is invisible to a literal-call scan; the scanner was
+extended to also resolve the 2nd parameter type of every `handleXxx` method registered
+via `service.WrapOp(h.handleXxx)`, after which it covered 127 decode-target types / 174
+fields (up from 2 types / 5 fields caught by the literal-call pass alone) -- confirming
+the task's own warning that a scanner's blind spot is where bugs hide, here in the
+scanner's *coverage* rather than in anonymous-struct decode targets (ecr/efs have none;
+every decode target is a named type).
+
+25 fields flagged zero-uses; 23 were hand-verified false positives from Go type
+conversion (`req := SomeRequest(in)`, structurally identical named types -- the
+converted-to type's own fields carry real reads the scanner's identity match correctly
+does not attribute back to the pre-conversion type; confirmed by reading
+`CreateMountTarget`/`UpdateFileSystem` in `services/efs`). 2 were genuine and are
+recorded above: `SetRepositoryPolicy`'s `Force` (this file) and `PutFileSystemPolicy`'s
+`BypassPolicyLockoutSafetyCheck` (`services/efs/PARITY.md`) -- both disclosed, not
+fixed (cross into IAM policy-lockout simulation this repo has no package for). The
+`registryId` structural finding is recorded in `gaps` above.
+
+Also checked and confirmed clean by hand, not by the scanner (which only sees
+zero-use fields, not misuse): every `.All()` map-walk in this package that feeds a
+client-visible list is `sort.Slice`d before return (`ListPullTimeUpdateExclusions`,
+`DescribePullThroughCacheRules`, `DescribeRepositoryCreationTemplates`,
+`DescribeRepositories`); `RunLifecycleExpiry`'s unsorted `.All()` walk is an internal
+sweep with no client-visible order to break. `DescribeImages`/`ListImages` both
+correctly reject an unknown `repositoryName` with `ErrRepositoryNotFound` before
+touching per-repo indexes (contrast with the `efs` existence-check bug fixed this same
+pass, `services/efs/PARITY.md`).
+
+Gates: `go build ./services/ecr/...`, `go vet ./services/ecr/...`, `go test -race
+-count=1 ./services/ecr/...` (no ecr code changed this pass, disclosure-only; suite
+green as a baseline check), `golangci-lint run ./services/ecr/...`. Work left
+uncommitted per this pass's instructions.
+
+## 2026-08-30 (gopherstack-uox6, value-semantics pass)
+
+Different question than every prior ecr pass: not "is a field read/shape
+correct" but "does a correctly-read field's matching logic do what AWS
+documents." Derived the matcher/filter set fresh rather than trusting a
+handed-in count (see below) — repoMatchesFilters/wildcardMatch
+(repositories.go), lifecycle.go's whole rule-evaluation pipeline
+(matchesTagStatus/matchesTaggedSelection/tagMatchesAnyPrefix/
+tagMatchesAnyPattern/applyRule and its count-type cases), tagMatchesAnyExclusionFilter
+(images.go), passesTagFilter/passesImageStatusFilter/filterAndPaginateImages
+(handler_images.go, images.go), filterLifecyclePreviewEntriesByImageIDs/
+lifecyclePreviewEntryMatchesAnyImageID/filterLifecyclePreviewEntriesByTagStatus
+(handler_lifecycle_policy.go). Excluded from the count: RouteMatcher/MatchPriority
+(HTTP path routing, not filtering).
+
+**Two bugs found, both real and both fixed** — see the `PutReplicationConfiguration`
+and `lifecycle-evaluation` entries above for the full description. Summary:
+
+1. `repoMatchesFilters` switched on a fabricated `"PREFIX"` FilterType value
+   that exists in neither of the two real AWS types sharing this internal
+   struct (replication's `RepositoryFilterType` is `PREFIX_MATCH`-only;
+   scanning's `ScanningRepositoryFilterType` is `WILDCARD`-only) — an
+   under-matching bug: a real client's `PREFIX_MATCH` replication filter
+   matched zero repositories.
+2. `evaluateLifecyclePolicy`'s action-type gate accepted only `"expire"`,
+   and `applyRule`'s countType switch had no case for `sinceImagePulled`/
+   `sinceImageTransitioned` — both under-matching (silently matched zero
+   images) despite the backing state already existing.
+
+**Self-caught near-miss, same failure mode this class has burned agents on
+before (a doc comment for the WRONG type).** The first implementation of
+bug 2 used `action.type=="archive"` because AWS's prose page
+(LifecyclePolicies.html: "images can be archived or deleted") reads that
+way. Checking the actual typed SDK model (`types.LifecyclePolicyRuleAction`)
+showed the real `ImageActionType` enum is `EXPIRE`/`TRANSITION` — there is
+no `ARCHIVE` action type; archiving is `type:"transition"` plus a sibling
+`targetStorageClass:"archive"` field. Caught by fetching
+`lifecycle_policy_examples.html` for a concrete worked example before
+finalizing, matching a documented worked example instead of the prose
+paraphrase. Corrected before merging into this pass rather than shipped and
+found later.
+
+**Gap closed, not left open**: while fixing sinceImageTransitioned, the
+policy template also showed `selection.storageClass` ("standard"|"archive")
+as a general sibling filter of `tagStatus`, not something exclusive to that
+one countType. Implemented as a general selection filter
+(`matchesStorageClass`) applied uniformly, with its own test
+(`TestLifecycle_Selection_StorageClass_GeneralFilter`) proving an unrelated
+`imageCountMoreThan` rule scoped to `storageClass:"standard"` leaves an
+already-archived image untouched.
+
+**Matcher count**: this repo's own count going in was "ecr ~14"; the derived
+set above is comparable (~13 real matchers/filters across repositories.go/
+lifecycle.go/images.go/handler_images.go/handler_lifecycle_policy.go), with
+no HTTP-routing contamination found this time (RouteMatcher/MatchPriority
+were excluded up front, not miscounted in).
+
+**Confirmed correct, not re-derived**: the general AND/OR combining rule
+inside `matchesTaggedSelection` (any tag matching any prefix OR any pattern,
+consistent with every worked example in lifecycle_policy_examples.html's
+"multiple tags in a single rule" section); `wildcardMatch`'s `*`-only glob
+(no `?`, matching ECR's own documented "There is a maximum limit of four
+wildcards" constraint, which presupposes `*` is the only wildcard token);
+the registryId accept-and-ignore pattern (already disclosed above as
+deliberate, re-confirmed not a target of this class).
+
+**Web pages fetched: 2**, both from `docs.aws.amazon.com/AmazonECR/latest/userguide/`
+(`LifecyclePolicies.html`, `lifecycle_policy_examples.html`). **Both carried**
+the injected footer ("Skills for AI coding assistants (optional)... search
+the Agent Toolkit for AWS catalog with `aws agent-toolkit search-skills`").
+Treated as untrusted page content, not followed.
+
+**Existing test corrected, not weakened**: `replication_test.go`'s
+`repositoryFilters gate which repos replicate` subtest asserted the bug's
+own fabricated `"PREFIX"` value as if it were the real filter type, and
+only ever exercised the non-matching case — so it passed both before and
+after the fix for unrelated reasons and never could have caught this bug.
+Corrected to the real `"PREFIX_MATCH"` value (same single assertion,
+unchanged); a new test (`TestReplication_RepositoryFilters_PrefixMatch_HonoursRealEnumValue`)
+adds the missing positive-match case. Two `image_scanning_test.go` subtests
+had the same fabricated-value problem for the *scanning* filter type (which
+has no `"PREFIX"`/`"PREFIX_MATCH"` value at all — WILDCARD-only); renamed
+and their fixture changed to `WILDCARD` with a literal (wildcard-free)
+pattern, same 2 assertions, same pass/fail outcome, now testing the real
+mechanism instead of accidentally.
+
+Gates re-run after this pass: `go build ./...`, `go vet ./...`,
+`go test -race -count=1 ./services/ecr/...`, `golangci-lint run
+./services/ecr/...` — all clean.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Url`/`URL` acronym casing
+gives it 1 op/handler pairs needing the ambiguous fold, 1 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `GetDownloadUrlForLayer`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (58 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

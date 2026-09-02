@@ -27,7 +27,8 @@ func TestHandler_NodeLifecycle_RealWireShape(t *testing.T) {
 	netID, memID := createTestNetwork(t, h)
 
 	createRec := doRoutedRequest(t, h, http.MethodPost, "/networks/"+netID+"/nodes", map[string]any{
-		"MemberId": memID,
+		"MemberId":           memID,
+		"ClientRequestToken": "tok-lifecycle-node",
 		"NodeConfiguration": map[string]any{
 			"InstanceType":     "bc.t3.small",
 			"AvailabilityZone": "us-east-1a",
@@ -112,7 +113,7 @@ func TestHandler_CreateNode(t *testing.T) {
 				netID = tt.networkID
 			}
 
-			body := map[string]any{"NodeConfiguration": tt.nodeConfig}
+			body := map[string]any{"NodeConfiguration": tt.nodeConfig, "ClientRequestToken": "tok-createnode"}
 			if !tt.omitMember {
 				body["MemberId"] = memID
 			}
@@ -150,7 +151,8 @@ func TestHandler_GetNode(t *testing.T) {
 			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
 			createRec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
-				"MemberId": memID,
+				"MemberId":           memID,
+				"ClientRequestToken": "tok-getnode",
 				"NodeConfiguration": map[string]any{
 					"InstanceType":     "bc.t3.small",
 					"AvailabilityZone": "us-east-1a",
@@ -191,9 +193,10 @@ func TestHandler_ListNodes(t *testing.T) {
 			netID, memID := createTestNetwork(t, h)
 			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
-			for range tt.nodeCount {
+			for i := range tt.nodeCount {
 				rec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
-					"MemberId": memID,
+					"MemberId":           memID,
+					"ClientRequestToken": fmt.Sprintf("tok-listnode-%d", i),
 					"NodeConfiguration": map[string]any{
 						"InstanceType": "bc.t3.small",
 					},
@@ -232,8 +235,9 @@ func TestHandler_DeleteNode(t *testing.T) {
 			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
 			createRec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
-				"MemberId":          memID,
-				"NodeConfiguration": map[string]any{"InstanceType": "bc.t3.small"},
+				"MemberId":           memID,
+				"ClientRequestToken": "tok-deletenode",
+				"NodeConfiguration":  map[string]any{"InstanceType": "bc.t3.small"},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -457,7 +461,8 @@ func TestHandler_NodeSummaryAvailabilityZone(t *testing.T) {
 				t, h, http.MethodPost,
 				fmt.Sprintf("/networks/%s/nodes", n.ID),
 				map[string]any{
-					"MemberId": m.ID,
+					"MemberId":           m.ID,
+					"ClientRequestToken": "tok-az-node",
 					"NodeConfiguration": map[string]any{
 						"InstanceType":     tt.instanceType,
 						"AvailabilityZone": "us-east-1a",
@@ -580,7 +585,8 @@ func TestHandler_CreateNodeWithTags(t *testing.T) {
 		t, h, http.MethodPost,
 		"/networks/"+n.ID+"/nodes",
 		map[string]any{
-			"MemberId": m.ID,
+			"MemberId":           m.ID,
+			"ClientRequestToken": "tok-node-tags",
 			"NodeConfiguration": map[string]any{
 				"InstanceType":     "bc.t3.small.ethereum",
 				"AvailabilityZone": "us-east-1a",
@@ -653,7 +659,8 @@ func TestHandler_NodeLifecycleBasicViaHTTP(t *testing.T) {
 				t, h, http.MethodPost,
 				"/networks/"+n.ID+"/nodes",
 				map[string]any{
-					"MemberId": m.ID,
+					"MemberId":           m.ID,
+					"ClientRequestToken": "tok-az-node",
 					"NodeConfiguration": map[string]any{
 						"InstanceType":     tt.instanceType,
 						"AvailabilityZone": "us-east-1a",

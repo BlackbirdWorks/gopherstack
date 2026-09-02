@@ -304,7 +304,10 @@ func (b *InMemoryBackend) GetConnectionFunction(idOrName string) (*ConnectionFun
 	return b.copyConnectionFunction(fn), nil
 }
 
-// ListConnectionFunctions returns all connection functions sorted by name.
+// ListConnectionFunctions returns all connection functions sorted by name, with ID as a
+// tiebreaker: names are not unique (CreateConnectionFunctionWithCode), and the Marker
+// cursor in handleListConnectionFunctions needs a unique key per item to avoid dropping
+// same-named functions that straddle a page boundary.
 func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	b.mu.RLock("ListConnectionFunctions")
 	defer b.mu.RUnlock()
@@ -313,7 +316,13 @@ func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	for _, fn := range b.connectionFunctions.All() {
 		out = append(out, b.copyConnectionFunction(fn))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+
+		return out[i].ID < out[j].ID
+	})
 
 	return out
 }

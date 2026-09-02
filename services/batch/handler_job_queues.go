@@ -129,7 +129,7 @@ func (h *Handler) handleUpdateJobQueue(
 ) (*updateJobQueueOutput, error) {
 	jq, err := h.Backend.UpdateJobQueue(
 		ctx,
-		in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder,
+		in.JobQueue, in.Priority, in.State, in.SchedulingPolicyArn, in.ComputeEnvironmentOrder,
 		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
 		in.ServiceEnvironmentOrder,
 	)

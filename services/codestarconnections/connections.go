@@ -12,6 +12,15 @@ import (
 )
 
 // CreateConnection creates a new CodeStar connection.
+//
+// The name/ProviderType/tag validation below (ErrValidation, wire
+// InvalidInputException) has no correct declared type to send: this op's
+// own switch (codestarconnections@v1.38.4 deserializers.go
+// deserializeOpErrorCreateConnection) is exactly [LimitExceededException,
+// ResourceNotFoundException, ResourceUnavailableException] -- no
+// InvalidInputException, and no ValidationException equivalent exists
+// anywhere in this SDK module. Recorded, not fixed (gopherstack-6flj/uox6
+// error-envelope sweep).
 func (b *InMemoryBackend) CreateConnection(
 	ctx context.Context,
 	name, providerType, hostArn string,

@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -57,8 +58,13 @@ func (b *InMemoryBackend) DeleteSuppressedDestination(email string) error {
 	return nil
 }
 
-// ListSuppressedDestinations lists all suppressed destinations.
+// ListSuppressedDestinations lists suppressed destinations, optionally
+// filtered by reason and/or LastUpdateTime bounds. TenantName is not
+// honored: SuppressedDestination doesn't track which tenant (if any) added
+// it, and there is no separate per-tenant suppression list store.
 func (b *InMemoryBackend) ListSuppressedDestinations(
+	reasons []string,
+	startDate, endDate *time.Time,
 	nextToken string,
 	pageSize int,
 ) page.Page[*SuppressedDestination] {
@@ -69,6 +75,18 @@ func (b *InMemoryBackend) ListSuppressedDestinations(
 
 	items := make([]*SuppressedDestination, 0, len(snap))
 	for _, d := range snap {
+		if len(reasons) > 0 && !slices.Contains(reasons, d.Reason) {
+			continue
+		}
+
+		if startDate != nil && d.LastUpdateTime.Before(*startDate) {
+			continue
+		}
+
+		if endDate != nil && d.LastUpdateTime.After(*endDate) {
+			continue
+		}
+
 		cp := *d
 		items = append(items, &cp)
 	}

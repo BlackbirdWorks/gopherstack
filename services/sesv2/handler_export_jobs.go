@@ -105,11 +105,12 @@ func (h *Handler) handleGetExportJob(jobID string) (any, error) {
 
 // listExportJobsInput mirrors ListExportJobsInput -- real SES v2 serves
 // ListExportJobs as POST /v2/email/list-export-jobs with filter/pagination in
-// the JSON body, not query params (ExportSourceType/JobStatus filters aren't
-// modelled by the backend yet, so only pagination is honored).
+// the JSON body, not query params.
 type listExportJobsInput struct {
-	NextToken string `json:"NextToken"`
-	PageSize  int32  `json:"PageSize"`
+	ExportSourceType string `json:"ExportSourceType"`
+	JobStatus        string `json:"JobStatus"`
+	NextToken        string `json:"NextToken"`
+	PageSize         int32  `json:"PageSize"`
 }
 
 func (h *Handler) handleListExportJobs(c *echo.Context) (any, error) {
@@ -118,7 +119,7 @@ func (h *Handler) handleListExportJobs(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	pg := h.Backend.ListExportJobs(in.NextToken, int(in.PageSize))
+	pg := h.Backend.ListExportJobs(in.ExportSourceType, in.JobStatus, in.NextToken, int(in.PageSize))
 
 	items := make([]*exportJobOutput, 0, len(pg.Data))
 	for _, j := range pg.Data {

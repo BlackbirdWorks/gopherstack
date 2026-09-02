@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (h *Handler) dispatchOrgOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchOrgOps(op, path, query string, body []byte) (any, int, bool, error) {
 	detectorID := extractID(path, pathDetector)
 
 	switch op {
@@ -20,7 +20,7 @@ func (h *Handler) dispatchOrgOps(op, path string, body []byte) (any, int, bool, 
 		return nil, code, true, err
 
 	case opListOrganizationAdminAccounts:
-		result, code := h.handleListOrganizationAdminAccounts()
+		result, code := h.handleListOrganizationAdminAccounts(query)
 
 		return result, code, true, nil
 
@@ -97,8 +97,10 @@ func (h *Handler) handleDisableOrganizationAdminAccount(body []byte) (int, error
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListOrganizationAdminAccounts() (any, int) {
-	accounts := h.Backend.ListOrganizationAdminAccounts()
+func (h *Handler) handleListOrganizationAdminAccounts(query string) (any, int) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	accounts, next := h.Backend.ListOrganizationAdminAccounts(maxResults, nextToken)
 
 	out := make([]map[string]any, 0, len(accounts))
 	for _, a := range accounts {
@@ -108,7 +110,12 @@ func (h *Handler) handleListOrganizationAdminAccounts() (any, int) {
 		})
 	}
 
-	return map[string]any{"adminAccounts": out}, http.StatusOK
+	resp := map[string]any{"adminAccounts": out}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK
 }
 
 func (h *Handler) handleDescribeOrganizationConfiguration(detectorID string) (any, int, error) {

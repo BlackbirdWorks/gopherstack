@@ -371,10 +371,14 @@ func (b *InMemoryBackend) ListGroupsPage(userPoolID string, limit int, nextToken
 
 	sort.Slice(all, func(i, j int) bool { return all[i].GroupName < all[j].GroupName })
 
-	// Apply token-based pagination.
+	// Apply token-based pagination. A miss (the group the token named was
+	// deleted) defaults startIdx to the end of the collection: leaving it at
+	// 0 would resume a stale cursor at page one, forever.
 	startIdx := 0
 
 	if nextToken != "" {
+		startIdx = len(all)
+
 		for i, g := range all {
 			if g.GroupName == nextToken {
 				startIdx = i
@@ -429,9 +433,14 @@ func (b *InMemoryBackend) ListUsersInGroupPage(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Username < all[j].Username })
 
+	// A miss (the user the token named left the group) defaults startIdx to
+	// the end of the collection: leaving it at 0 would resume a stale cursor
+	// at page one, forever.
 	startIdx := 0
 
 	if nextToken != "" {
+		startIdx = len(all)
+
 		for i, u := range all {
 			if u.Username == nextToken {
 				startIdx = i

@@ -270,6 +270,48 @@ func TestAutoscalingHandler_DescribeScheduledActions(t *testing.T) {
 			body:       "Action=DescribeScheduledActions&Version=2011-01-01&AutoScalingGroupName=no-such",
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			// api_op_DescribeScheduledActions.go documents ScheduledActionNames
+			// unconditionally ("The names of one or more scheduled actions") --
+			// AutoScalingGroupName is a separate, optional field, not a
+			// precondition for the name filter to apply.
+			name: "scheduled_action_names_filters_without_group_name",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(
+					t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=sa-asg-nogroup"+
+						"&MinSize=0&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=sa-asg-nogroup2"+
+						"&MinSize=0&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t, h,
+					"Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01"+
+						"&AutoScalingGroupName=sa-asg-nogroup"+
+						"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=wanted-name"+
+						"&ScheduledUpdateGroupActions.member.1.DesiredCapacity=5",
+				)
+				postAutoscalingForm(
+					t, h,
+					"Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01"+
+						"&AutoScalingGroupName=sa-asg-nogroup2"+
+						"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=unwanted-name"+
+						"&ScheduledUpdateGroupActions.member.1.DesiredCapacity=5",
+				)
+			},
+			body: "Action=DescribeScheduledActions&Version=2011-01-01" +
+				"&ScheduledActionNames.member.1=wanted-name",
+			wantStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "wanted-name")
+				assert.NotContains(t, body, "unwanted-name")
+			},
+		},
 	}
 
 	for _, tt := range tests {

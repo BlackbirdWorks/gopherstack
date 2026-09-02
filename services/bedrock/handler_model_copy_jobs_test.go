@@ -190,3 +190,38 @@ func TestParity_ModelCopyJob_TargetModelNameRoundTrip(t *testing.T) {
 	assert.Contains(t, aws.ToString(got.TargetModelArn), "my-target-copy")
 	assert.NotContains(t, aws.ToString(got.TargetModelArn), "copy-mcj-")
 }
+
+// TestParity_ListModelCopyJobs_TargetModelNameContainsFilter locks in the
+// outputModelNameContains query filter (bedrock@v1.66.4
+// api_op_ListModelCopyJobs.go's TargetModelNameContains, wire query key
+// "outputModelNameContains" per serializers.go:6928-6930, not
+// "targetModelNameContains") -- ListModelCopyJobs previously took no
+// arguments at all, so no filter, sort, or maxResults query parameter
+// reached the backend regardless of what a real client sent.
+func TestParity_ListModelCopyJobs_TargetModelNameContainsFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := bedrock.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestBedrockClient(t, bedrock.NewHandler(backend))
+
+	_, err := backend.CreateModelCopyJob(
+		"arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1",
+		"other-copy",
+		nil,
+	)
+	require.NoError(t, err)
+
+	wantJob, err := backend.CreateModelCopyJob(
+		"arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1",
+		"finished-copy",
+		nil,
+	)
+	require.NoError(t, err)
+
+	out, err := client.ListModelCopyJobs(t.Context(), &bedrocksdk.ListModelCopyJobsInput{
+		TargetModelNameContains: aws.String("finished"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ModelCopyJobSummaries, 1)
+	assert.Equal(t, wantJob.JobArn, aws.ToString(out.ModelCopyJobSummaries[0].JobArn))
+}

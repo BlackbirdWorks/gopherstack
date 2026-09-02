@@ -1318,14 +1318,18 @@ func TestBatchCreateFirewallRule(t *testing.T) {
 					},
 					// Invalid Action -- fails handleCreateFirewallRule's Action
 					// validation, exactly as it would for a standalone
-					// CreateFirewallRule call.
+					// CreateFirewallRule call. CreateFirewallRule's own
+					// deserializer declares ValidationException, not
+					// InvalidRequestException (gopherstack-6flj/uox6) --
+					// previously asserted InvalidRequestException here, which
+					// was itself the bug this pass fixed.
 					{"FirewallRuleGroupId": grpID, "Name": "bc-partial-bad", "Action": "DENY", "Priority": 200},
 				}
 			},
 			wantTopCode:    http.StatusOK,
 			wantCreatedLen: 1,
 			wantErrorLen:   1,
-			wantErrorCode:  "InvalidRequestException",
+			wantErrorCode:  "ValidationException",
 		},
 		{
 			name: "group_not_found_reported_per_entry_not_top_level",
@@ -1427,13 +1431,18 @@ func TestBatchUpdateFirewallRule(t *testing.T) {
 					{"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID, "Priority": 555},
 					// Missing FirewallDomainListId -- fails handleUpdateFirewallRule's
 					// required-field check, same as a standalone call would.
+					// UpdateFirewallRule's own deserializer declares
+					// ValidationException, not InvalidRequestException
+					// (gopherstack-6flj/uox6) -- previously asserted
+					// InvalidRequestException here, which was itself the bug
+					// this pass fixed.
 					{"FirewallRuleGroupId": grpID, "Priority": 100},
 				}
 			},
 			wantTopCode:    http.StatusOK,
 			wantUpdatedLen: 1,
 			wantErrorLen:   1,
-			wantErrorCode:  "InvalidRequestException",
+			wantErrorCode:  "ValidationException",
 		},
 		{
 			name: "missing_entries_rejected_as_ValidationException",

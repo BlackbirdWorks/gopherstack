@@ -75,10 +75,10 @@ func TestRebootBroker_PromotedConfigurationGrowsHistory(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	cfg1, err := b.CreateConfiguration("cfg-one", "", mq.EngineTypeActiveMQ, "", nil)
+	cfg1, err := b.CreateConfiguration("cfg-one", "", mq.EngineTypeActiveMQ, "", "", nil)
 	require.NoError(t, err)
 
-	cfg2, err := b.CreateConfiguration("cfg-two", "", mq.EngineTypeActiveMQ, "", nil)
+	cfg2, err := b.CreateConfiguration("cfg-two", "", mq.EngineTypeActiveMQ, "", "", nil)
 	require.NoError(t, err)
 
 	br, err := b.CreateBrokerWithOptions(

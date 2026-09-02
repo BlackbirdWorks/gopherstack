@@ -2,12 +2,25 @@ package cloudfront
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
+
+// handleTagAPIError maps TagResource/UntagResource errors. Both ops' own
+// deserializers (cloudfront@v1.67.4 deserializers.go) model NoSuchResource
+// for an unrecognized resource ARN, not NoSuchDistribution -- unlike most
+// other ops that reuse ErrNotFound.
+func (h *Handler) handleTagAPIError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchResource", err.Error()))
+	}
+
+	return h.handleError(c, err)
+}
 
 type tagXML struct {
 	Key   string `xml:"Key"`
@@ -62,7 +75,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	}
 
 	if tagErr := h.Backend.TagResource(resourceARN, kv); tagErr != nil {
-		return h.handleError(c, tagErr)
+		return h.handleTagAPIError(c, tagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -87,7 +100,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	}
 
 	if untagErr := h.Backend.UntagResource(resourceARN, keys); untagErr != nil {
-		return h.handleError(c, untagErr)
+		return h.handleTagAPIError(c, untagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -98,7 +111,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 
 	kv, err := h.Backend.ListTags(resourceARN)
 	if err != nil {
-		return h.handleError(c, err)
+		return h.handleTagAPIError(c, err)
 	}
 
 	// Sort tags by key for deterministic output.

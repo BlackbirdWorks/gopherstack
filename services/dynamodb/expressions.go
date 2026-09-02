@@ -83,16 +83,16 @@ func projectItem(
 	item map[string]any,
 	projectionExpression string,
 	attrNames map[string]string,
-) map[string]any {
+) (map[string]any, error) {
 	if projectionExpression == "" {
-		return item
+		return item, nil
 	}
 
 	l := expr.NewLexer(projectionExpression)
 	p := expr.NewParser(l)
 	proj, err := p.ParseProjection()
 	if err != nil {
-		return item // Return full item if projection fails? Or error? Standard seems to be quiet.
+		return nil, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}
 
 	eval := &expr.Evaluator{
@@ -100,7 +100,7 @@ func projectItem(
 		AttrNames: attrNames,
 	}
 
-	return eval.ApplyProjection(proj)
+	return eval.ApplyProjection(proj), nil
 }
 
 // Projector holds a pre-parsed projection expression for efficient repeated use.

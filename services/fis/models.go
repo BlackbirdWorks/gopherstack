@@ -927,8 +927,11 @@ type safetyLeverStateDTO struct {
 }
 
 // updateSafetyLeverStateRequest is the JSON body for PATCH /safetyLevers/{id}.
+// The real wire shape is {"state": {...}} (aws-sdk-go-v2/service/fis@v1.40.4
+// serializers.go:2100-2105 -- awsRestjson1_serializeOpDocumentUpdateSafetyLeverStateInput
+// keys the body "state"), not an "updateSafetyLeverStateInput" envelope.
 type updateSafetyLeverStateRequest struct {
-	UpdateSafetyLeverStateInput updateSafetyLeverStateInputDTO `json:"updateSafetyLeverStateInput"`
+	State updateSafetyLeverStateInputDTO `json:"state"`
 }
 
 // updateSafetyLeverStateInputDTO is the nested input for UpdateSafetyLeverState.

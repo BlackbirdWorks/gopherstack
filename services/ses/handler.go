@@ -419,7 +419,7 @@ func (h *Handler) dispatchRefinedOps(vals url.Values, reqID, action string) (any
 	case "ListReceiptFilters":
 		return h.handleListReceiptFilters(reqID), nil
 	case "ListReceiptRuleSets":
-		return h.handleListReceiptRuleSets(reqID), nil
+		return h.handleListReceiptRuleSets(vals, reqID), nil
 	case "DeleteReceiptFilter":
 		return h.handleDeleteReceiptFilter(vals, reqID)
 	case "DeleteReceiptRule":
@@ -429,7 +429,7 @@ func (h *Handler) dispatchRefinedOps(vals url.Values, reqID, action string) (any
 	case "GetCustomVerificationEmailTemplate":
 		return h.handleGetCustomVerificationEmailTemplate(vals, reqID)
 	case "ListCustomVerificationEmailTemplates":
-		return h.handleListCustomVerificationEmailTemplates(reqID), nil
+		return h.handleListCustomVerificationEmailTemplates(vals, reqID), nil
 	case "DescribeReceiptRuleSet":
 		return h.handleDescribeReceiptRuleSet(vals, reqID)
 	case "SetActiveReceiptRuleSet":

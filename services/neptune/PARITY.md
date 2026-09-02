@@ -14,14 +14,14 @@ overall: A            # every previously-open gap this pass either genuinely fix
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
-  DBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClusterCreateTime was hardcoded to a fixed 2024-01-01 literal for every cluster (fixed: real timestamp per creation, including restore paths which previously omitted it and DBClusterResourceID entirely). FailoverDBCluster was a disguised no-op (fixed: real writer/reader promotion via DBClusterMembers.IsClusterWriter, with TargetDBInstanceIdentifier support and InvalidDBClusterStateFault when no reader exists). PromoteReadReplicaDBCluster re-verified this pass against the SDK: its own doc comment on both the operation and its DBClusterIdentifier field says 'Not supported.' -- gopherstack's describe-only echo (no state mutation) is therefore the CORRECT behavior for a genuinely-unsupported op, not a stub; reclassified from gap to ok. NetworkType FIXED this pass: gained on CreateDBCluster/ModifyDBCluster input (neptune@v1.48.4 api_op_CreateDBCluster.go:171/api_op_ModifyDBCluster.go:136, plain *string wire member 'NetworkType') and echoed on Describe; unspecified-on-create defaults to IPV4 per the SDK's documented default (api_op_CreateDBCluster.go:161), matching real AWS always answering a concrete value. Accepted as any string, not validated against IPV4/DUAL (no smithy enum backs it)."}
+  DBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClusterCreateTime was hardcoded to a fixed 2024-01-01 literal for every cluster (fixed: real timestamp per creation, including restore paths which previously omitted it and DBClusterResourceID entirely). FailoverDBCluster was a disguised no-op (fixed: real writer/reader promotion via DBClusterMembers.IsClusterWriter, with TargetDBInstanceIdentifier support and InvalidDBClusterStateFault when no reader exists). PromoteReadReplicaDBCluster re-verified this pass against the SDK: its own doc comment on both the operation and its DBClusterIdentifier field says 'Not supported.' -- gopherstack's describe-only echo (no state mutation) is therefore the CORRECT behavior for a genuinely-unsupported op, not a stub; reclassified from gap to ok. NetworkType FIXED this pass: gained on CreateDBCluster/ModifyDBCluster input (neptune@v1.48.4 api_op_CreateDBCluster.go:171/api_op_ModifyDBCluster.go:136, plain *string wire member 'NetworkType') and echoed on Describe; unspecified-on-create defaults to IPV4 per the SDK's documented default (api_op_CreateDBCluster.go:161), matching real AWS always answering a concrete value. Accepted as any string, not validated against IPV4/DUAL (no smithy enum backs it). 2026-08-29 (write-only-state sweep): member-count check against types.DBCluster's own deserializer (awsAwsquery_deserializeDocumentDBCluster, 44 of 44 members enumerated) found GlobalClusterIdentifier -- a real DBCluster response member -- was completely unmodeled: zero struct field, so DescribeDBClusters could never echo it even though the GlobalCluster family already tracks membership relations on the other side (global_clusters.go's own doc comment even names this exact gap: 'real Neptune clusters join via CreateDBCluster's GlobalClusterIdentifier at creation time, which this backend does not model'). Worse, CreateDBClusterInput's real, optional GlobalClusterIdentifier member (api_op_CreateDBCluster.go:129) was entirely unparsed by CreateDBCluster -- discarded input, not just a missing echo. Fixed: DBCluster gained the field (json/xml GlobalClusterIdentifier,omitempty); CreateDBCluster now parses it, requires the named global cluster to already exist (GlobalClusterNotFound otherwise), and attaches the new cluster as a member (writer if the global cluster has no members yet, reader otherwise) via new attachClusterToGlobalClusterLocked. Reciprocal fixes to the write side found by the same sweep: CreateGlobalCluster's SourceDBClusterIdentifier path set the GlobalCluster's own member list but never the source DBCluster's new field (fixed); promoteGlobalClusterWriter's attach-an-unresolved-but-real-cluster path (Failover/SwitchoverGlobalCluster) had the same gap (fixed); RemoveFromGlobalCluster/DeleteGlobalCluster never cleared the field on departing/deleted members (fixed, via new clusterByARNLocked/clusterIdentifierFromARN ARN-to-cluster resolution). See TestCreateDBCluster_JoinsExistingGlobalCluster, TestCreateDBCluster_JoinNonexistentGlobalCluster, TestCreateGlobalCluster_WithSource_SetsMemberClusterField, TestRemoveFromGlobalCluster_ClearsMemberClusterField (wire_field_fixes_test.go). EngineMode (accepted on CreateDBCluster's opts and echoed on every DBCluster response) is NOT a real member of types.DBCluster or CreateDBClusterInput at all under any name (zero grep hits in types.go/api_op_CreateDBCluster.go/api_op_ModifyDBCluster.go) -- an invented field, but DORMANT: no real typed client can ever populate the request side (the field doesn't exist on CreateDBClusterInput to set), and an unrecognized response element is silently skipped by the real XML deserializer's default case, so it costs nothing to a real caller. Not removed this pass (unreachable, and removing it risks disturbing internal test helpers/AddClusterInternal that may reference it) -- flagged here rather than fixed."}
   DBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "InstanceCreateTime field was entirely absent from the model/wire shape (fixed: added and populated on create). RebootDBInstance intentionally stays a state-preserving op (matches AWS's eventual-consistency behavior for reboot; DescribeDBInstances shows 'available' immediately either way). NetworkType FIXED this pass: CreateDBInstanceInput/ModifyDBInstanceInput carry no NetworkType member of their own (verified against the SDK -- absent from both input structs), matching the doc comment on DBInstance.NetworkType ('Inherited from the DB cluster'); now captured from the parent cluster's NetworkType at instance-create time and echoed on Describe. CreateDBInstance FIXED this pass (gopherstack-uhsb): Engine is a required CreateDBInstanceInput member documented 'Valid Values: neptune', but the handler never read it at all -- any value silently had zero effect since the backend hardcodes DBInstance.Engine to \"neptune\" regardless. Rather than continuing to ignore the field, an explicit Engine value that isn't \"neptune\" is now rejected with InvalidParameterValue (no typed exception exists for this in CreateDBInstance's error switch, so it falls through to the same generic-error path every other unmodeled InvalidParameterValue case already uses) -- same reasoning as the elasticache ApplyImmediately=false precedent: validating and rejecting the one AWS-documented illegal case is more faithful than silently accepting anything. Engine omitted or \"neptune\" is unaffected."}
   DBClusterParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: ModifyDBClusterParameterGroup/ResetDBClusterParameterGroup were disguised no-ops -- they validated the group and the Parameters.Parameter.N.* the real client sends, then discarded every value, so DescribeDBClusterParameters always answered empty regardless of what was 'set'. Added a real per-group ParameterValue override store (parameter_catalog.go) seeded against a documented Neptune engine-parameter catalog (neptune_query_timeout, neptune_enable_audit_log, neptune_streams, neptune_result_cache, neptune_dfe_query_engine, neptune_ml_iam_role, neptune_lab_mode, neptune_shard_hash_partitions), enforcing the real static-parameter/pending-reboot ApplyMethod rule and the non-modifiable-parameter rule, with ResetAllParameters and per-parameter reset both wired to real state. DescribeEngineDefaultClusterParameters now returns that catalog instead of an always-empty list. Delete cascades the override store (no ghost rows)."}
   DBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same fix as DBClusterParameterGroup, sharing the catalog/override-store logic in parameter_catalog.go (real Neptune parameter names are shared across both instance- and cluster-level groups)."}
   DBSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "SupportedNetworkTypes modeled (real StringList wire shape) but never populated -- see the gaps entry below for why."}
   ClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "Multiple real bugs fixed this pass: (1) SnapshotCreateTime/ClusterCreateTime fields were entirely absent from the model; (2) CopyDBClusterSnapshot silently dropped Port/AllocatedStorage/KmsKeyID/IAMDatabaseAuthenticationEnabled/PercentProgress instead of copying them from the source; (3) ModifyDBClusterSnapshotAttribute/DescribeDBClusterSnapshotAttributes were a disguised no-op pair (Modify validated params and discarded them; Describe always returned an empty attribute list) AND Modify's response body omitted the required *Result XML element entirely, which makes the real aws-sdk-go-v2 client fail every call with a smithy.DeserializationError even though gopherstack answered HTTP 200 -- both fixed with a real RestoreAttributeValues store on DBClusterSnapshot, correct list-item wire shape (AttributeValues is a repeated <AttributeValue> list, was a single string), and the correct ValuesToAdd.AttributeValue.N / ValuesToRemove.AttributeValue.N wire param names (was ValuesToAdd.member.N, which a real client never sends, so Modify's add/remove would have silently no-opped forever even after the rest of the fix)."}
-  EventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "DescribeEvents FIXED this pass (see the top-level Events family below) -- it is dispatched from this family's handler file but is not itself an EventSubscription op, so it is tracked separately. 2026-08-15 (gopherstack-6flj): CustomerAwsId was never modeled (zero grep hits) despite the backend already tracking accountID for ARN construction -- fixed and emitted (CreateEventSubscription now sets it; wire converter carries it as omitempty)."}
-  GlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster were disguised no-ops (validated the global cluster and returned an unchanged clone). ModifyGlobalCluster's interface signature didn't even accept the new values a caller sent -- now applies DeletionProtection/EngineVersion/NewGlobalClusterIdentifier (rename, including ARN) for real. Failover/Switchover now flip GlobalClusterMembers[].IsWriter to promote TargetDbClusterIdentifier -- when the target already is a tracked member it is promoted directly; when it resolves to a real DB cluster in the account but was never attached (this backend has no separate 'join global cluster' op the way real Neptune's CreateDBCluster-time GlobalClusterIdentifier attachment works), it is attached as the new writer, demoting the prior one; a target this backend cannot resolve at all is left as a no-op rather than erroring, since it cannot distinguish a legitimate not-yet-modeled cross-region secondary from a typo. CreateGlobalCluster/DescribeGlobalClusters/DeleteGlobalCluster/RemoveFromGlobalCluster were already real. 2026-08-15 (gopherstack-6flj): DatabaseName was never modeled anywhere in the service (zero grep hits) despite being a real, optional CreateGlobalClusterInput member -- fixed: threaded from CreateGlobalCluster's form value through the backend and echoed (omitempty) by every global-cluster response op. FailoverState (real, transient in-process failover/switchover record) intentionally left unmodeled -- this backend's Failover/Switchover apply member promotion synchronously with no in-process window to observe, so there is nothing honest to populate it with (same reasoning already applied to RebootDBInstance elsewhere in this file); fabricating a status would invent a transition this backend cannot distinguish. CreateGlobalClusterInput's EngineVersion/DeletionProtection/StorageEncrypted are also silently ignored at create time (only ever settable via ModifyGlobalCluster or derived from an attached source cluster) -- disclosed, not fixed this pass; each carries real validation/interaction surface deserving its own pass rather than a same-session bolt-on."}
+  EventSubscription: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "DescribeEvents FIXED this pass (see the top-level Events family below) -- it is dispatched from this family's handler file but is not itself an EventSubscription op, so it is tracked separately. 2026-08-15 (gopherstack-6flj): CustomerAwsId was never modeled (zero grep hits) despite the backend already tracking accountID for ARN construction -- fixed and emitted (CreateEventSubscription now sets it; wire converter carries it as omitempty). FIXED 2026-08-30 (gopherstack-2jj4): CreateEventSubscription never parsed EventCategories at all, see Notes."}
+  GlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster were disguised no-ops (validated the global cluster and returned an unchanged clone). ModifyGlobalCluster's interface signature didn't even accept the new values a caller sent -- now applies DeletionProtection/EngineVersion/NewGlobalClusterIdentifier (rename, including ARN) for real. Failover/Switchover now flip GlobalClusterMembers[].IsWriter to promote TargetDbClusterIdentifier -- when the target already is a tracked member it is promoted directly; when it resolves to a real DB cluster in the account but was never attached (this backend has no separate 'join global cluster' op the way real Neptune's CreateDBCluster-time GlobalClusterIdentifier attachment works), it is attached as the new writer, demoting the prior one; a target this backend cannot resolve at all is left as a no-op rather than erroring, since it cannot distinguish a legitimate not-yet-modeled cross-region secondary from a typo. CreateGlobalCluster/DescribeGlobalClusters/DeleteGlobalCluster/RemoveFromGlobalCluster were already real. 2026-08-15 (gopherstack-6flj): DatabaseName was never modeled anywhere in the service (zero grep hits) despite being a real, optional CreateGlobalClusterInput member -- fixed: threaded from CreateGlobalCluster's form value through the backend and echoed (omitempty) by every global-cluster response op. FailoverState (real, transient in-process failover/switchover record) intentionally left unmodeled -- this backend's Failover/Switchover apply member promotion synchronously with no in-process window to observe, so there is nothing honest to populate it with (same reasoning already applied to RebootDBInstance elsewhere in this file); fabricating a status would invent a transition this backend cannot distinguish. CreateGlobalClusterInput's EngineVersion/DeletionProtection/StorageEncrypted are also silently ignored at create time (only ever settable via ModifyGlobalCluster or derived from an attached source cluster) -- disclosed, not fixed this pass; each carries real validation/interaction surface deserving its own pass rather than a same-session bolt-on. 2026-08-29: the 'this backend has no separate join global cluster op' limitation named above is now FIXED -- CreateDBCluster's GlobalClusterIdentifier member is modeled (see the DBCluster family note above), so a cluster actually can join an existing global cluster as a first-class create-time op now, not just via Failover/Switchover's best-effort attach-as-writer fallback. CreateGlobalCluster/RemoveFromGlobalCluster/DeleteGlobalCluster/promoteGlobalClusterWriter were also all missing the reciprocal write back to the member DBCluster's own (now-existing) GlobalClusterIdentifier field -- fixed, see the DBCluster family note."}
   ClusterEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeleteDBClusterEndpoint returned an empty response body; the real DeleteDBClusterEndpointOutput echoes the deleted endpoint's fields as a flat (non-nested) payload and the SDK deserializer hard-fails without a *Result element -- fixed (backend now returns the deleted endpoint; handler renders it under DeleteDBClusterEndpointResult, matching CreateDBClusterEndpointResponse's existing flat-under-Result shape). ModifyDBClusterEndpoint FIXED this pass: it silently ignored StaticMembers.member.N/ExcludedMembers.member.N even though the real API accepts and applies them -- now replaces the respective member list when a non-empty list is supplied (nil vs explicitly-empty is indistinguishable on this wire format, matching CreateDBClusterEndpoint's existing convention for the same two fields)."}
   Tags: {wire: ok, errors: ok, state: ok, persist: ok}
   Events: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: DescribeEvents always returned an empty list -- there was no event log backing this backend at all, so the response was empty regardless of what a caller had actually done (a genuine gap, not a legitimate no-op: AWS's own DescribeEvents surfaces real account activity). Added a bounded per-region event log (events.go, maxEventsLogPerRegion=500) fed by recordEvent calls from the key cluster/instance/snapshot lifecycle mutators (create/delete/start/stop/failover), with SourceIdentifier/SourceType/StartTime/EndTime/Duration/EventCategories filtering matching DescribeEventsInput's real fields (AWS's default 60-minute lookback window is honored when neither StartTime nor Duration is given)."}
@@ -274,3 +274,255 @@ and back, confirmed byte-identical via `md5sum`. Gates run clean: `go build
 `golangci-lint run ./services/neptune/...` (0 issues after adding an
 `unknownOp` constant elasticache already uses, to keep `goconst` happy with
 the third `"Unknown"` literal the migration introduced).
+
+**2026-08-29 (wire-key sweep, gopherstack-6flj/21my class):** Write-only-state
+sweep of the DBCluster/GlobalCluster families, member counts derived from
+types.DBCluster's own deserializer case list (44 of 44) rather than trusting
+this file's prior "wire: ok" grade.
+
+- Found and fixed: DBCluster.GlobalClusterIdentifier (real response member)
+  was completely unmodeled -- no struct field at all, so it could never be
+  echoed regardless of what the GlobalCluster family tracked on its own side.
+  CreateDBClusterInput.GlobalClusterIdentifier (real, optional request
+  member) was also entirely unparsed -- discarded input. Both fixed
+  end-to-end, including the reciprocal write-back CreateGlobalCluster/
+  RemoveFromGlobalCluster/DeleteGlobalCluster/promoteGlobalClusterWriter all
+  needed once the field existed to write into. See DBCluster/GlobalCluster
+  family notes above and TestCreateDBCluster_JoinsExistingGlobalCluster et
+  al. in wire_field_fixes_test.go.
+- Found, disclosed, not fixed: DBCluster.EngineMode is an invented field
+  (zero grep hits anywhere in types.go or either Create/ModifyDBClusterInput)
+  -- classified DORMANT, since no real typed client can ever set the request
+  side and an unrecognized response element is silently skipped by the real
+  deserializer.
+- Not reached this pass: DBInstance/ClusterSnapshot/DBSubnetGroup/
+  DBClusterParameterGroup/DBParameterGroup/ClusterEndpoint/EventSubscription/
+  Events/Maintenance/StaticCatalog families -- PARITY.md already documents
+  recent, detailed field-diffed passes for these (grade A, last_audit_date
+  2026-08-11) and this session's time budget went to DBCluster/GlobalCluster
+  instead of re-verifying already-recent work across the full 161-op surface.
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 12 `errors.go` sentinel literals (`DBClusterNotFound`,
+  `DBClusterAlreadyExists`, `DBSubnetGroupNotFound`, `DBClusterParameterGroupAlreadyExists`,
+  `DBClusterSnapshotNotFound`, `DBClusterSnapshotAlreadyExists`, `DBClusterEndpointNotFound`,
+  `DBClusterEndpointAlreadyExists`, `SubscriptionAlreadyExists`, `GlobalClusterNotFound`,
+  `GlobalClusterAlreadyExists`, `InvalidDBInstanceStateFault`) as absent from neptune's real
+  type/deserializer set. All are **tool false positives**: every backend error routes
+  through the single `handleOpError`→`neptuneErrorCode()` mapping table in handler.go, which
+  already carries the SDK-verified code for each sentinel (documented inline with the exact
+  Fault-suffix trap this campaign targets — e.g. `DBInstanceNotFound` genuinely has no
+  `Fault` suffix while `DBClusterNotFoundFault` does) and is the sole path to the wire; the
+  `errors.go` literal is only ever used for `errors.Is` identity. No new fix needed.
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every request-side indexed-list or filter-key parse site enumerated against
+its own operation's serializer in `neptune@v1.48.4` (a different surface from
+the 2026-08-15 response-wrapper-key pass above: this is what the handler
+*reads off incoming requests*, not what it *writes into responses*).
+
+**30 of 30 call sites checked, all resolved by hand** (small enough surface
+that scripting wasn't needed): 9 `parseMemberList` call sites, 6
+`parseNeptuneFilterValue(s)` call sites, and 15 more through five small
+fixed-key helpers (`parseTagEntries` x8, `parseTagKeyMembers` x1,
+`parseSubnetIDMembers` x2, `parseSourceIDMembers` x1, `parseParameterEntries`
+x3) -- each helper's hardcoded key verified once against its serializer,
+since every call site shares the same literal key.
+
+**Two real bugs found, both fixed:**
+
+1. **Wrong inner element name (shape 3).** `ModifyEventSubscription` and
+   `DescribeEvents` both read `EventCategories.member.N`. The real serializer
+   (`awsAwsquery_serializeDocumentEventCategoriesList`, serializers.go:4971-4972)
+   wraps each entry in `EventCategory`, not the generic `member` -- so a real
+   client's `EventCategories` was silently dropped on both ops. Notably,
+   the sibling `SourceIds` field on `CreateEventSubscription` was *already*
+   fixed to `SourceIds.SourceId.N` (see the comment on `parseSourceIDMembers`)
+   while this identically-shaped field was not -- confirms the "don't infer
+   from a sibling fix" warning cuts both ways.
+2. **Wrong cardinality, list read as scalar (shape 2).** `parseNeptuneFilterValue`
+   read only `Filters.Filter.N.Values.Value.1`; the real serializer
+   (`awsAwsquery_serializeDocumentFilterValueList`, serializers.go:5012-5013)
+   makes `Values` a repeated `Value` list of arbitrary length, so a filter
+   with 2+ values behaved like a 1-value filter and silently excluded
+   matches on every value after the first. Affected `DescribeDBClusters`
+   (engine/engine-version/status), `DescribeDBInstances` (db-cluster-id),
+   and `DescribePendingMaintenanceActions` (db-cluster-id/db-instance-id).
+   Renamed to `parseNeptuneFilterValues` (returns `[]string`); `DBClusterFilters`
+   fields and the two other filter parameters widened to `[]string`, matched
+   via `slices.Contains`.
+
+**Everything else already correct**, including several call sites carrying
+an inline comment citing the exact serializer line that had *already* fixed
+this same bug class in an earlier pass (`SourceIds.SourceId.N`,
+`StaticMembers`/`ExcludedMembers.member.N`, `SubnetIds.SubnetIdentifier.N`) --
+those are why this pass found only 2 new bugs rather than the higher count
+an untouched service would show.
+
+**FIXED 2026-08-30 (gopherstack-2jj4)**, previously left alone as a missing
+feature: `CreateEventSubscription` never parsed `EventCategories` from the
+request at all (real, optional input member, confirmed on
+`CreateEventSubscriptionInput`) -- a parameter never read, not a wrong key.
+`CreateEventSubscriptionInput`'s own serializer
+(`awsAwsquery_serializeOpDocumentCreateEventSubscriptionInput`,
+serializers.go:5967-5972) calls the identical
+`awsAwsquery_serializeDocumentEventCategoriesList` used by
+`ModifyEventSubscription` -- confirmed on this op's own serializer, not
+inferred from that sibling -- so the wire key is the same
+`EventCategories.EventCategory.N` shape (a wrapped list, not a bare
+`member.N`), not a bare-vs-wrapped mismatch requiring different handling.
+`handleCreateEventSubscription` now parses it via the same `parseMemberList`
+helper and threads it through a widened `CreateEventSubscription` backend
+signature (`sourceIDs, eventCategories []string`) into
+`EventSubscription.EventCategoriesList`. Proven via
+`TestCreateEventSubscription_EventCategories`
+(wire_field_fixes_indexedlist_test.go), confirmed failing pre-fix (empty
+list) via a real SDK client asserting the decoded
+`EventSubscription.EventCategoriesList` on both the immediate response and a
+subsequent `DescribeEventSubscriptions`.
+
+Tests: `wire_field_fixes_indexedlist_test.go`, all three driving the real
+typed SDK client and asserting on the decoded response. Confirmed failing
+against unmodified code first (`git stash` of just the fixed source files,
+run, `git stash pop`).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+all clean for `services/neptune`; repo-wide `go vet` clean except a
+pre-existing, uncommitted route53 signature mismatch from a concurrently
+active agent working in that directory (not touched here).
+
+## gopherstack-21my per-item field pass (2026-08-31, paired with s3control)
+
+Confirmed protocol from `deserializers.go` before starting:
+`awsAwsquery_deserializeOpError*` functions everywhere in the pinned SDK, so
+neptune is `awsAwsquery_` -- the case-only class is live.
+
+Prior passes (2026-08-15/29, documented above) already ran a real per-item
+member-count check for `DBCluster` (44/44 against
+`awsAwsquery_deserializeDocumentDBCluster`) and a wrapping-shape sweep
+across the whole named-list-item convention this service uses. This pass
+extended the same member-count technique to the families PARITY.md had
+previously graded `wire: ok` from older, less exhaustive audits rather than
+a byte-for-byte deserializer diff: `DBInstance` (54 real members),
+`DBClusterSnapshot` (20), `DBSubnetGroup` (7), `DBClusterParameterGroup`
+(4), `Parameter` (9), `EventSubscription` (10), `DBClusterEndpoint` (10).
+
+**BUG (fixed), hard-failure-adjacent: `DBInstance` never emitted the
+top-level `DbInstancePort` member.** `types.DBInstance` (neptune@v1.48.4
+types/types.go:694) carries `DbInstancePort *int32` as a field genuinely
+distinct from the nested `Endpoint.Port` -- the real deserializer
+case-switches on `"DbInstancePort"` separately from `"Endpoint"`
+(`awsAwsquery_deserializeDocumentDBInstance`). `xmlDBInstance`
+(handler_db_instances.go) only ever emitted the port nested under
+`Endpoint>Port`; the top-level field was absent from the struct entirely
+(not a naming bug -- the element was never there), so every real client's
+`DBInstance.DbInstancePort` decoded `nil` regardless of the tracked port.
+Since it's a pointer field in the client's type, this is the "pointer
+decodes nil" signature this campaign has called out as more serious than a
+blank string -- any caller dereferencing it without a nil check panics.
+Fixed: `toXMLInstance` now also sets the new `DBInstancePort` field
+(`xml:"DbInstancePort"`) from the same `inst.Port` value already used for
+`Endpoint>Port` -- single shared conversion function, so `CreateDBInstance`,
+`DescribeDBInstances`, and every other DBInstance-emitting op get it at
+once; no sibling disagreement possible here since there's only one
+converter. Test: `TestCreateDBInstance_DbInstancePort`
+(wire_field_fixes_test.go), creates a cluster+instance via the real SDK
+client, asserts `DbInstancePort` is non-nil and equals 8182 on both the
+`CreateDBInstance` response and a subsequent `DescribeDBInstances`;
+confirmed failing pre-fix (`require.NotNil` failed, field was nil).
+
+**Everything else checked this pass came back clean at the per-item
+layer**: `DBClusterSnapshot` (14 of 20 real members emitted; the other 6 --
+`AvailabilityZones`, `LicenseModel`, `MasterUsername`,
+`SourceDBClusterSnapshotArn`, `StorageType`, plus `DBClusterSnapshot`
+itself already known -- have no backing field anywhere on the
+`DBClusterSnapshot` backend model, genuine unmodeled gaps, not
+tracked-but-dropped), `DBSubnetGroup` (6 of 7; `SupportedNetworkTypes` is
+the pre-existing documented gap above), `DBClusterParameterGroup` (4 of 4),
+`Parameter` (9 of 9), `EventSubscription` (10 of 10), `DBClusterEndpoint`
+(10 of 10, including confirming the odd-looking but genuinely correct
+per-item element name `DBClusterEndpointList` -- verified against
+`awsAwsquery_deserializeDocumentDBClusterEndpointList`, which really does
+case-switch on that literal string for each list member, not `member` or
+`DBClusterEndpoint`).
+
+No case-only mismatch found this pass. No sibling (singular vs. list)
+disagreement found for any family checked -- neptune's DBInstance/
+DBClusterSnapshot/DBClusterParameterGroup/Parameter/EventSubscription/
+DBClusterEndpoint all route Create and Describe/List through the same
+shared XML struct and, in most cases, the same converter function, which
+structurally forecloses the "list emits a subset of what singular emits"
+trap this campaign found repeatedly elsewhere.
+
+Not reached this pass: `GlobalCluster` (already had its own 2026-08-29
+member-count pass), `ClusterEndpoint`'s request-parsing side (already swept
+2026-08-29), `Events`/`Maintenance`/`StaticCatalog` families.
+
+Gates: see the combined s3control+neptune gate note in
+`services/s3control/PARITY.md`'s matching 2026-08-31 entry -- both services
+build/vet/test/lint clean; repo-wide `go vet ./...` currently fails only in
+`services/ec2` (a different agent's concurrent in-progress, uncommitted
+work, confirmed via `git status --short services/ec2`), not touched here.
+
+## 2026-08-31 -- gopherstack-6flj/21my: ops never named in this file
+
+Computed the queue directly: every `List*`/`Describe*` op in
+`neptune@v1.48.4`'s `api_op_*.go` files whose literal name never appears
+anywhere in this PARITY.md. Seven such ops: `DescribeDBClusterEndpoints`,
+`DescribeDBClusterParameterGroups`, `DescribeDBClusterSnapshots`,
+`DescribeDBParameterGroups`, `DescribeDBSubnetGroups`,
+`DescribeEventCategories`, `ListTagsForResource`. Protocol re-confirmed:
+`awsAwsquery_` throughout `deserializers.go` (query/XML,
+`strings.EqualFold` case-folded), matching this file's existing Notes.
+
+Four of the seven (`DescribeDBClusterEndpoints`, `DescribeDBClusterParameterGroups`,
+`DescribeDBClusterSnapshots`, `DescribeDBSubnetGroups`) already had a
+per-item member-count sweep against their family types (`DBClusterEndpoint`
+10/10, `DBClusterParameterGroup` 4/4, `DBClusterSnapshot` 14/20 tracked,
+`DBSubnetGroup` 6/7 tracked) recorded under the "gopherstack-21my per-item
+field pass (2026-08-31, paired with s3control)" section above -- that pass
+checked the type, this pass independently re-verified the wrapper key each
+of these four *operations* emits it under (`DBClusterEndpoints`,
+`DBClusterParameterGroups`, `DBClusterSnapshots`, `DBSubnetGroups`, all
+confirmed against `awsAwsquery_deserializeOpDocumentDescribe*Output`) --
+all four correct, no new findings.
+
+`DescribeDBParameterGroups`, `DescribeEventCategories`,
+`ListTagsForResource` had not been swept at either layer before. Full
+wrapper-key and per-item sweep:
+
+- `DescribeDBParameterGroups`: wraps `DBParameterGroups` (correct); item
+  type `DBParameterGroup` has exactly 4 real members
+  (`awsAwsquery_deserializeDocumentDBParameterGroup`,
+  deserializers.go:15751-15790) -- `DBParameterGroupArn`,
+  `DBParameterGroupFamily`, `DBParameterGroupName`, `Description`, all 4
+  emitted correctly (`xmlDBParameterGroup`, handler_parameter_groups.go).
+  Clean.
+- `DescribeEventCategories`: wraps `EventCategoriesMapList` (correct); item
+  wrapper `EventCategoriesMap` (correct) with `SourceType`+`EventCategories`
+  (a nested `EventCategory`-wrapped list, correct) -- all confirmed against
+  `awsAwsquery_deserializeDocumentEventCategoriesMapList`/
+  `...EventCategoriesMap`/`...EventCategoriesList`. This op's response is
+  static/hardcoded (4 source types), which is legitimate static-catalog
+  behavior, same class already documented for `DescribeDBEngineVersions`
+  elsewhere in this file -- not a stub. Clean.
+- `ListTagsForResource`: wraps `TagList` (correct); item `Tag` has 2
+  members, `Key`/`Value` (`awsAwsquery_deserializeDocumentTag`,
+  deserializers.go:22863-22876), both emitted correctly via the shared
+  `pkgs/tags.KV` type. Clean.
+
+**No bugs found in this batch.** No wrapper-key mismatch, no per-item field
+mismatch, no transposition, no case-only mismatch, no element emitted that
+isn't a real member, no hard decode error. All seven ops in this queue are
+genuinely clean at both layers -- consistent with this service's very
+recent (same-day) deep per-item sweep already having covered most of the
+adjacent surface (`DBInstance.DbInstancePort` fix, etc., documented above).
+
+No web pages fetched this pass (SDK lookups went through the pinned module
+cache only).
+
+Gates: `go build ./services/neptune/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/neptune/...` (pass, no new
+tests -- no bug found to write a regression test for), `golangci-lint run
+./services/neptune/...` (0 issues). No source changes this pass.

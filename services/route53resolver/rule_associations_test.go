@@ -92,10 +92,18 @@ func TestResolverRuleAssociationErrors(t *testing.T) {
 		wantCode int
 	}{
 		{
+			// GetResolverRuleAssociation's own deserializer models no
+			// ValidationException/InvalidRequestException (only
+			// InternalServiceErrorException/InvalidParameterException/
+			// ResourceNotFoundException/ThrottlingException) -- an empty ID
+			// falls through to the backend lookup, which reports
+			// ResourceNotFoundException/404, a type the op does declare
+			// (gopherstack-6flj/uox6). Previously asserted 400/BadRequest,
+			// which was itself the bug this pass fixed.
 			name:     "get_missing_id",
 			action:   "GetResolverRuleAssociation",
 			body:     map[string]any{},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "get_not_found",

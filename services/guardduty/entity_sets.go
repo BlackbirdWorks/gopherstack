@@ -79,12 +79,14 @@ func (b *InMemoryBackend) GetThreatEntitySet(detectorID, setID string) (*ThreatE
 }
 
 // ListThreatEntitySets returns threat entity set IDs for a detector.
-func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, error) {
+func (b *InMemoryBackend) ListThreatEntitySets(
+	detectorID string, maxResults int32, nextToken string,
+) ([]string, string, error) {
 	b.mu.RLock("ListThreatEntitySets")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.threatEntitySetsByDetector.Get(detectorID)
@@ -96,7 +98,15 @@ func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, err
 
 	sort.Strings(ids)
 
-	return ids, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(ids, offset, size)
+
+	return page, next, nil
 }
 
 // UpdateThreatEntitySet updates a threat entity set.
@@ -230,12 +240,14 @@ func (b *InMemoryBackend) GetTrustedEntitySet(detectorID, setID string) (*Truste
 }
 
 // ListTrustedEntitySets returns trusted entity set IDs for a detector.
-func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, error) {
+func (b *InMemoryBackend) ListTrustedEntitySets(
+	detectorID string, maxResults int32, nextToken string,
+) ([]string, string, error) {
 	b.mu.RLock("ListTrustedEntitySets")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.trustedEntitySetsByDetector.Get(detectorID)
@@ -247,7 +259,15 @@ func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, er
 
 	sort.Strings(ids)
 
-	return ids, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(ids, offset, size)
+
+	return page, next, nil
 }
 
 // UpdateTrustedEntitySet updates a trusted entity set.

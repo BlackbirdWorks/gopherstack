@@ -676,7 +676,7 @@ func TestDuplicateEmailTemplate(t *testing.T) {
 
 	rec2 := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/dup-email/email",
 		map[string]any{"Subject": "Hello again"})
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestDuplicateInAppTemplate(t *testing.T) {
@@ -688,7 +688,7 @@ func TestDuplicateInAppTemplate(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec1.Code)
 
 	rec2 := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/dup-inapp/inapp", map[string]any{})
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 // ──────────────────────────────────────────────────

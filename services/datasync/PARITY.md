@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: datasync
 sdk_module: aws-sdk-go-v2/service/datasync@v1.61.4
-last_audit_commit: 5eee2c54
-last_audit_date: 2026-08-10
+last_audit_commit: 58b3ad76d
+last_audit_date: 2026-08-28
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed
 ops:
   CreateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -15,7 +15,7 @@ ops:
   DescribeLocationS3: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented S3BucketArn/Subdirectory fields (not on real wire), added AgentArns -- FIXED this sweep"}
   UpdateLocationS3: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLocation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListLocations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListLocations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "removed invented 'CreationTime' field from each LocationListEntry -- real types.LocationListEntry (datasync@v1.61.4 api_op_ListLocations.go) has exactly two members, LocationArn and LocationUri; harmless to a typed client (unknown JSON keys ignored) but not on the real wire -- FIXED prior sweep (2026-08-28, gopherstack-wrapper-key-sweep). Filters (LocationFilter: Name/Operator/Values, types.go) was declared on the input but never read at all -- every filter silently ignored, returning all locations regardless of the request. Now applies LocationUri/LocationType by Operator (Equals/NotEquals/In/Contains/NotContains/BeginsWith/Less*/Greater*) before pagination; CreationTime is compared as a UTC RFC3339 string since neither the SDK nor its doc comments settle the filter value's wire format -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns). RE-CONFIRMED 2026-08-30 (redshift/personalize/datasync leg of this sweep): re-diffed against ListLocationsInput and LocationFilterName's enum (LocationUri/LocationType/CreationTime) -- filter names, cardinality, and Operator handling all still correct, no regression."}
   CreateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added required AuthenticationType field + validation; added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationAzureBlob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ContainerUrl field (not on real wire; LocationUri IS the container URL), added AuthenticationType; added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AuthenticationType; added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}
@@ -50,7 +50,7 @@ ops:
   DescribeTask: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "added same fields to output, echoed verbatim; Status still tracks RUNNING/AVAILABLE execution lifecycle (prior sweep). Re-verified this sweep: ErrorCode/ErrorDetail/Source+DestinationNetworkInterfaceArns omission is still correct -- the backend holds no execution-failure text anywhere (CancelTaskExecution only sets a coarse ERROR status enum, never a message) and no ENI state at all, so populating them would mean fabricating content, not surfacing state the backend already has"}
   UpdateTask: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added same fields with AWS's \"only supplied fields change\" semantics (nil = untouched, non-nil = replace, matching the documented \"specify empty to remove\" behavior for ManifestConfig/TaskReportConfig) -- FIXED this sweep"}
   DeleteTask: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTasks: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTasks: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Filters (TaskFilter: Name/Operator/Values, types.go) was declared on the input but never read -- every filter silently ignored. Now applies LocationId (matches either SourceLocationArn or DestinationLocationArn) and CreationTime (UTC RFC3339 string comparison, format not settled by the SDK) by Operator before pagination -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns). RE-CONFIRMED 2026-08-30: re-diffed against ListTasksInput and TaskFilterName's enum (LocationId/CreationTime) -- still correct, no regression."}
   StartTaskExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelTaskExecution: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "now rejects cancelling an execution already in a terminal state (SUCCESS/ERROR) with InvalidRequestException instead of silently overwriting it to ERROR, matching the identical guard UpdateTaskExecution already had -- FIXED this sweep (gopherstack-g8k9)"}
   DescribeTaskExecution: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -222,3 +222,24 @@ leaks: {status: clean, note: "no goroutines/timers/janitors in this service; all
   any other value (including empty, which now explicitly defaults to `NTLM`) is now rejected
   with `InvalidRequestException` instead of silently succeeding -- a more-permissive-than-AWS
   bug class.
+
+## 2026-08-30 wire-key-read sweep, continued (remaining Describe/List operations)
+
+Completed the wire-key-read sweep across all 19 Describe/List operations (derived from
+`handler.go`'s dispatch-table registrations). The prior pass on this branch fixed ListLocations and
+ListTasks (dropped Filters, both re-confirmed still correct earlier this same pass, see the
+`ListLocations`/`ListTasks` rows above). This pass audited the remaining 17 and found no bugs.
+
+All 12 `DescribeLocation*` ops, `DescribeAgent`, `DescribeTask`, and `DescribeTaskExecution` have
+exactly one real Input field each (a single scoping ARN); every handler struct tags it under the
+correct PascalCase wire key (confirmed against `awsAwsjson11_serializeOpDocumentDescribeAgentInput`
+for a sample -- datasync's JSON1.1 wire keys are PascalCase, unlike personalize's camelCase) and
+reads it before calling the backend. `ListAgents` has no filter field in the real API (MaxResults/
+NextToken only) -- confirmed correctly unscoped. `ListTagsForResource` reads ResourceArn correctly,
+backend paginates over sorted tag keys. `ListTaskExecutions` reads its real `TaskArn` scoping field
+(`listTaskExecutionsInput.TaskArn`, `json:"TaskArn"`) and the backend filters by it via
+`executionsByTask` before pagination -- confirmed correct, not previously covered by name in this
+file. No dropped filter, no wrong key, no wrong cardinality found across any of these 17.
+
+Gates: `go build ./services/datasync/...` (no changes made, nothing to build-verify beyond
+confirming the tree is unchanged). Work left uncommitted per this pass's instructions.

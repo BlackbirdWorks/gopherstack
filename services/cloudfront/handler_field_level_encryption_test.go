@@ -679,3 +679,114 @@ func TestInMemoryBackend_FieldLevelEncryption(t *testing.T) {
 		})
 	}
 }
+
+// TestListFieldLevelEncryptionConfigs_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListFieldLevelEncryptionConfigs' item struct (fleSummaryXML,
+// handler_field_level_encryption.go) omitted QueryArgProfileConfig entirely, even though
+// the real FieldLevelEncryptionSummary deserializer
+// (awsRestxml_deserializeDocumentFieldLevelEncryptionSummary) reads it and the sibling
+// GetFieldLevelEncryptionConfig (fleConfigInnerXML) already emits it correctly from the
+// same backing FieldLevelEncryption.QueryArgProfiles/.ForwardWhenQueryArgProfileIsUnknown
+// fields -- the "Get right, List wrong" trap. Seeds two configs with distinguishable
+// query-arg profiles and asserts both round-trip.
+func TestListFieldLevelEncryptionConfigs_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	profile, err := h.Backend.CreateFieldLevelEncryptionProfile("list-shape-profile", "", nil)
+	require.NoError(t, err)
+
+	first, err := h.Backend.CreateFieldLevelEncryption("list-shape-fle-1", "first", []cloudfront.FLEQueryArgProfile{
+		{QueryArg: "first-arg", ProfileID: profile.ID},
+	})
+	require.NoError(t, err)
+
+	second, err := h.Backend.CreateFieldLevelEncryption("list-shape-fle-2", "second", []cloudfront.FLEQueryArgProfile{
+		{QueryArg: "second-arg", ProfileID: profile.ID},
+	})
+	require.NoError(t, err)
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListFieldLevelEncryptionConfigs(t.Context(), &cfsdk.ListFieldLevelEncryptionConfigsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.FieldLevelEncryptionList)
+	require.Len(t, listed.FieldLevelEncryptionList.Items, 2)
+
+	byID := make(map[string]types.FieldLevelEncryptionSummary, 2)
+	for _, item := range listed.FieldLevelEncryptionList.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[first.ID]
+	require.True(t, ok)
+	require.NotNil(t, item1.QueryArgProfileConfig)
+	require.NotNil(t, item1.QueryArgProfileConfig.QueryArgProfiles)
+	require.Len(t, item1.QueryArgProfileConfig.QueryArgProfiles.Items, 1)
+	assert.Equal(t, "first-arg", aws.ToString(item1.QueryArgProfileConfig.QueryArgProfiles.Items[0].QueryArg))
+	assert.Equal(t, profile.ID, aws.ToString(item1.QueryArgProfileConfig.QueryArgProfiles.Items[0].ProfileId))
+
+	item2, ok := byID[second.ID]
+	require.True(t, ok)
+	require.NotNil(t, item2.QueryArgProfileConfig)
+	require.NotNil(t, item2.QueryArgProfileConfig.QueryArgProfiles)
+	require.Len(t, item2.QueryArgProfileConfig.QueryArgProfiles.Items, 1)
+	assert.Equal(t, "second-arg", aws.ToString(item2.QueryArgProfileConfig.QueryArgProfiles.Items[0].QueryArg))
+}
+
+// TestListFieldLevelEncryptionProfiles_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListFieldLevelEncryptionProfiles' item struct (flePSummaryXML,
+// handler_field_level_encryption.go) omitted EncryptionEntities entirely, even though the
+// real FieldLevelEncryptionProfileSummary deserializer
+// (awsRestxml_deserializeDocumentFieldLevelEncryptionProfileSummary) reads it and the
+// sibling GetFieldLevelEncryptionProfile (fleProfileConfigInnerXML) already emits it
+// correctly from the same backing FieldLevelEncryptionProfile.EncryptionEntities field --
+// the "Get right, List wrong" trap. Seeds two profiles with distinguishable encryption
+// entities and asserts both round-trip.
+func TestListFieldLevelEncryptionProfiles_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	first, err := h.Backend.CreateFieldLevelEncryptionProfile(
+		"list-shape-profile-1", "first profile", []cloudfront.EncryptionEntity{
+			{ProviderID: "provider-one", FieldPatterns: []string{"field-one"}},
+		},
+	)
+	require.NoError(t, err)
+
+	second, err := h.Backend.CreateFieldLevelEncryptionProfile(
+		"list-shape-profile-2", "second profile", []cloudfront.EncryptionEntity{
+			{ProviderID: "provider-two", FieldPatterns: []string{"field-two"}},
+		},
+	)
+	require.NoError(t, err)
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListFieldLevelEncryptionProfiles(
+		t.Context(), &cfsdk.ListFieldLevelEncryptionProfilesInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, listed.FieldLevelEncryptionProfileList)
+	require.Len(t, listed.FieldLevelEncryptionProfileList.Items, 2)
+
+	byID := make(map[string]types.FieldLevelEncryptionProfileSummary, 2)
+	for _, item := range listed.FieldLevelEncryptionProfileList.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[first.ID]
+	require.True(t, ok)
+	require.Len(t, item1.EncryptionEntities.Items, 1)
+	assert.Equal(t, "provider-one", aws.ToString(item1.EncryptionEntities.Items[0].ProviderId))
+	require.Len(t, item1.EncryptionEntities.Items[0].FieldPatterns.Items, 1)
+	assert.Equal(t, "field-one", item1.EncryptionEntities.Items[0].FieldPatterns.Items[0])
+
+	item2, ok := byID[second.ID]
+	require.True(t, ok)
+	require.Len(t, item2.EncryptionEntities.Items, 1)
+	assert.Equal(t, "provider-two", aws.ToString(item2.EncryptionEntities.Items[0].ProviderId))
+}

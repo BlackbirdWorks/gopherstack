@@ -1075,12 +1075,14 @@ func fromQueryFilters(f *queryFiltersObject) *QueryLineageFilters {
 	}
 }
 
-// addAssociationRequest is the request body for AddAssociation.
+// addAssociationRequest is the request body for AddAssociation. Tags is
+// deliberately absent: AddAssociationInput has no Tags member at all
+// (api_op_AddAssociation.go) -- an association can only be tagged
+// afterward, via AddTags against its resulting association ARN.
 type addAssociationRequest struct {
-	SourceArn       string      `json:"SourceArn"`
-	DestinationArn  string      `json:"DestinationArn"`
-	AssociationType string      `json:"AssociationType"`
-	Tags            []tagObject `json:"Tags"`
+	SourceArn       string `json:"SourceArn"`
+	DestinationArn  string `json:"DestinationArn"`
+	AssociationType string `json:"AssociationType"`
 }
 
 func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte, error) {
@@ -1097,14 +1099,12 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: DestinationArn is required", errInvalidRequest)
 	}
 
-	tags := fromTagObjects(req.Tags)
-
 	assoc, err := h.Backend.AddAssociation(
 		ctx,
 		req.SourceArn,
 		req.DestinationArn,
 		req.AssociationType,
-		tags,
+		nil,
 	)
 	if err != nil {
 		return nil, err

@@ -84,7 +84,7 @@ func (b *InMemoryBackend) GetConfigurationProfile(
 
 // ListConfigurationProfiles returns paginated profiles for an application.
 func (b *InMemoryBackend) ListConfigurationProfiles(
-	applicationID, nextToken string,
+	applicationID, nextToken, profileType string,
 	maxResults int,
 ) ([]ConfigurationProfile, string, error) {
 	b.mu.RLock("ListConfigurationProfiles")
@@ -98,6 +98,10 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 	out := make([]ConfigurationProfile, 0, len(profiles))
 
 	for _, p := range profiles {
+		if profileType != "" && p.Type != profileType {
+			continue
+		}
+
 		out = append(out, *p)
 	}
 

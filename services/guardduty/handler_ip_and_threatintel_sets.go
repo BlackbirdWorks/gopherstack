@@ -5,7 +5,8 @@ import (
 	"net/http"
 )
 
-func (h *Handler) dispatchIPSetOps(op, path string, body []byte) (any, int, bool, error) {
+//nolint:dupl // IPSet and ThreatIntelSet dispatch identical op sets
+func (h *Handler) dispatchIPSetOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateIPSet:
 		detectorID := extractID(path, pathDetector)
@@ -33,7 +34,7 @@ func (h *Handler) dispatchIPSetOps(op, path string, body []byte) (any, int, bool
 
 	case opListIPSets:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListIPSets(detectorID)
+		result, code, err := h.handleListIPSets(detectorID, query)
 
 		return result, code, true, err
 	}
@@ -124,16 +125,24 @@ func (h *Handler) handleDeleteIPSet(detectorID, ipSetID string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListIPSets(detectorID string) (any, int, error) {
-	ids, err := h.Backend.ListIPSets(detectorID)
+func (h *Handler) handleListIPSets(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	ids, next, err := h.Backend.ListIPSets(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"ipSetIds": ids}, http.StatusOK, nil
+	resp := map[string]any{"ipSetIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) dispatchThreatIntelSetOps(op, path string, body []byte) (any, int, bool, error) {
+//nolint:dupl // IPSet and ThreatIntelSet dispatch identical op sets
+func (h *Handler) dispatchThreatIntelSetOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateThreatIntelSet:
 		detectorID := extractID(path, pathDetector)
@@ -161,7 +170,7 @@ func (h *Handler) dispatchThreatIntelSetOps(op, path string, body []byte) (any, 
 
 	case opListThreatIntelSets:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListThreatIntelSets(detectorID)
+		result, code, err := h.handleListThreatIntelSets(detectorID, query)
 
 		return result, code, true, err
 	}
@@ -254,11 +263,18 @@ func (h *Handler) handleDeleteThreatIntelSet(detectorID, setID string) (int, err
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListThreatIntelSets(detectorID string) (any, int, error) {
-	ids, err := h.Backend.ListThreatIntelSets(detectorID)
+func (h *Handler) handleListThreatIntelSets(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	ids, next, err := h.Backend.ListThreatIntelSets(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"threatIntelSetIds": ids}, http.StatusOK, nil
+	resp := map[string]any{"threatIntelSetIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }

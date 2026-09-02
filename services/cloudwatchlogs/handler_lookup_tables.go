@@ -16,7 +16,7 @@ type createLookupTableInput struct {
 }
 
 func (h *Handler) handleCreateLookupTable(
-	ctx context.Context, //nolint:revive // existing issue.
+	ctx context.Context,
 	body []byte,
 ) (any, error) {
 	var in createLookupTableInput
@@ -29,7 +29,7 @@ func (h *Handler) handleCreateLookupTable(
 		return map[string]any{}, nil
 	}
 
-	t, err := b.CreateLookupTable(in.LookupTableName, in.TableBody, in.Description, in.KmsKeyID, in.QueryID)
+	t, err := b.CreateLookupTable(ctx, in.LookupTableName, in.TableBody, in.Description, in.KmsKeyID, in.QueryID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ type describeLookupTablesInput struct {
 }
 
 func (h *Handler) handleDescribeLookupTables(
-	ctx context.Context, //nolint:revive // existing issue.
+	ctx context.Context,
 	body []byte,
 ) (any, error) {
 	var in describeLookupTablesInput
@@ -145,7 +145,7 @@ func (h *Handler) handleDescribeLookupTables(
 		return map[string]any{"lookupTables": []any{}}, nil
 	}
 
-	tables, nextToken := b.DescribeLookupTables(in.LookupTableNamePrefix, in.NextToken, int(in.MaxResults))
+	tables, nextToken := b.DescribeLookupTables(ctx, in.LookupTableNamePrefix, in.NextToken, int(in.MaxResults))
 	out := make([]map[string]any, 0, len(tables))
 
 	for i := range tables {

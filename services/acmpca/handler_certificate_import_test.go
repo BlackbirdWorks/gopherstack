@@ -37,7 +37,7 @@ func TestACMPCAHandler_ImportCertificateBase64(t *testing.T) {
 		})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		resp := parseACMPCAResponse(t, rec)
-		assert.Equal(t, "InvalidParameterException", resp["__type"])
+		assert.Equal(t, "MalformedCertificateException", resp["__type"])
 	})
 
 	t.Run("accepts base64-encoded Certificate", func(t *testing.T) {

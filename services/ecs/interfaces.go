@@ -52,7 +52,7 @@ type Backend interface {
 		cluster string,
 		containerInstances []string,
 		status string,
-	) ([]ContainerInstance, error)
+	) ([]ContainerInstance, []Failure, error)
 
 	// Task sets
 
@@ -78,7 +78,7 @@ type Backend interface {
 	// Account settings
 
 	DeleteAccountSetting(name, principalArn string) (*AccountSetting, error)
-	ListAccountSettings(name, principalArn string) ([]AccountSetting, error)
+	ListAccountSettings(name, principalArn string, effectiveSettings bool) ([]AccountSetting, error)
 	PutAccountSetting(name, value, principalArn string) (*AccountSetting, error)
 	PutAccountSettingDefault(name, value string) (*AccountSetting, error)
 
@@ -115,7 +115,7 @@ type Backend interface {
 
 	// Task placement
 
-	StartTask(input StartTaskInput) ([]Task, error)
+	StartTask(input StartTaskInput) ([]Task, []Failure, error)
 
 	// Namespace-scoped service listing
 

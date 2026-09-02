@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -406,6 +407,64 @@ func TestHandler_ListMonitoringAlertHistory_FiltersByScheduleAndStatus(t *testin
 	require.Len(t, resp.MonitoringAlertHistory, 1)
 	assert.Equal(t, "sched-1", resp.MonitoringAlertHistory[0]["MonitoringScheduleName"])
 	assert.Equal(t, "InAlert", resp.MonitoringAlertHistory[0]["AlertStatus"])
+}
+
+// TestHandler_ListMonitoringAlertHistory_SortByStatus proves SortBy honors
+// its real second value, "Status" (api_op_ListMonitoringAlertHistory.go,
+// types.MonitoringAlertHistorySortKey -- CreationTime default, Status the
+// other real value). The default CreationTime order and the Status order
+// are constructed to disagree, so a stale "always sort by CreationTime"
+// implementation is distinguishable from one that actually reads SortBy.
+func TestHandler_ListMonitoringAlertHistory_SortByStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	older := time.Now().Add(-2 * time.Hour)
+	newer := time.Now().Add(-1 * time.Hour)
+
+	sagemaker.SeedMonitoringAlertHistory(h.Backend, "us-east-1", &sagemaker.MonitoringAlertHistoryEntry{
+		MonitoringScheduleName: "sortby-sched",
+		MonitoringAlertName:    "alert-1",
+		AlertStatus:            "OK",
+		CreationTime:           older,
+	})
+	sagemaker.SeedMonitoringAlertHistory(h.Backend, "us-east-1", &sagemaker.MonitoringAlertHistoryEntry{
+		MonitoringScheduleName: "sortby-sched",
+		MonitoringAlertName:    "alert-1",
+		AlertStatus:            "InAlert",
+		CreationTime:           newer,
+	})
+
+	// Default order (SortBy unspecified -> CreationTime, SortOrder
+	// unspecified -> Descending): newer (InAlert) first.
+	defaultRec := doSageMakerRequest(t, h, "ListMonitoringAlertHistory", map[string]any{
+		"MonitoringScheduleName": "sortby-sched",
+	})
+	assert.Equal(t, http.StatusOK, defaultRec.Code)
+
+	var defaultResp struct {
+		MonitoringAlertHistory []map[string]any `json:"MonitoringAlertHistory"`
+	}
+	require.NoError(t, json.Unmarshal(defaultRec.Body.Bytes(), &defaultResp))
+	require.Len(t, defaultResp.MonitoringAlertHistory, 2)
+	assert.Equal(t, "InAlert", defaultResp.MonitoringAlertHistory[0]["AlertStatus"])
+
+	// SortBy=Status (SortOrder unspecified -> Descending): "OK" sorts after
+	// "InAlert" lexicographically, so OK comes first -- the reverse of the
+	// default CreationTime order above.
+	statusRec := doSageMakerRequest(t, h, "ListMonitoringAlertHistory", map[string]any{
+		"MonitoringScheduleName": "sortby-sched",
+		"SortBy":                 "Status",
+	})
+	assert.Equal(t, http.StatusOK, statusRec.Code)
+
+	var statusResp struct {
+		MonitoringAlertHistory []map[string]any `json:"MonitoringAlertHistory"`
+	}
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+	require.Len(t, statusResp.MonitoringAlertHistory, 2)
+	assert.Equal(t, "OK", statusResp.MonitoringAlertHistory[0]["AlertStatus"], "SortBy=Status must be honored")
 }
 
 // ---------------------------------------------------------------------------

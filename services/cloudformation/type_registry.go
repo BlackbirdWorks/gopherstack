@@ -170,8 +170,15 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 		if !hasCfg && !registered {
 			errs = append(errs, BatchDescribeTypeConfigurationsError{
 				TypeConfigurationIdentifier: &ident,
-				ErrorCode:                   "TypeNotFoundException",
-				ErrorMessage:                fmt.Sprintf("type configuration not found: %s", name),
+				// BatchDescribeTypeConfigurations' own deserializer declares
+				// CFNRegistryException/TypeConfigurationNotFoundException, not
+				// TypeNotFoundException -- that code belongs to
+				// ActivateType/DeactivateType/DeregisterType/DescribeType/
+				// PublishType, which operate on types rather than type
+				// configurations (confirmed against
+				// aws-sdk-go-v2/service/cloudformation@v1.76.1/deserializers.go).
+				ErrorCode:    "TypeConfigurationNotFoundException",
+				ErrorMessage: fmt.Sprintf("type configuration not found: %s", name),
 			})
 
 			continue
@@ -211,11 +218,13 @@ func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 				visibility = typeVisibilityPublic
 			}
 			result = append(result, TypeSummary{
-				TypeName:    t.TypeName,
-				TypeArn:     t.TypeArn,
-				Type:        t.Type,
-				Visibility:  visibility,
-				Description: t.Configuration,
+				TypeName:         t.TypeName,
+				TypeArn:          t.TypeArn,
+				Type:             t.Type,
+				Visibility:       visibility,
+				Description:      t.Configuration,
+				DefaultVersionID: t.DefaultVersion,
+				IsActivated:      t.IsActivated,
 			})
 		}
 	}

@@ -231,7 +231,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 			j := batch.NewJanitor(b, time.Minute, 24*time.Hour, tt.ttl)
 			j.SweepOnce(t.Context())
 
-			jobs, _, err := b.ListJobs(context.Background(), queue.JobQueueName, tt.status, "", 0)
+			jobs, _, err := b.ListJobs(context.Background(), queue.JobQueueName, tt.status, "", 0, nil)
 			require.NoError(t, err)
 
 			if tt.wantEvicted {

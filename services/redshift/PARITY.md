@@ -49,34 +49,34 @@ ops:
   ModifyLakehouseConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6xxt): took `_ url.Values`, ignoring ClusterIdentifier plus CatalogName/LakehouseIdcApplicationArn/LakehouseIdcRegistration/LakehouseRegistration, and returned a bare empty response -- see families.LakehouseConfiguration below."}
 families:
   Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified. FIXED THIS PASS: xmlCluster never embedded Tags inline (real Cluster.Tags []Tag) -- every cluster response silently omitted tags a real client would expect on the object itself, not just via DescribeTags. Also added SnapshotScheduleIdentifier/SnapshotScheduleState (see SnapshotSchedule below)."}
-  Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified. See Cluster row for the inline-Tags wire gap fixed this pass."}
-  ClusterParameterGroup: {status: ok, note: "no changes needed"}
-  ClusterSubnetGroup: {status: ok, note: "FIXED 2026-08-08 (bd gopherstack-emho): CreateClusterSubnetGroup previously accepted a fabricated 'VpcId' request param not present in the real CreateClusterSubnetGroupInput (confirmed against awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go -- real fields are only ClusterSubnetGroupName/Description/SubnetIds/Tags). Handler no longer reads it. The response's VpcId field IS real on ClusterSubnetGroup (types.ClusterSubnetGroup.VpcId), normally derived by AWS from the subnets' own VPC, but this backend has no EC2 cross-reference to derive it from (Provider.Init does not wire an EC2 backend into Redshift, and Subnet only tracks SubnetIdentifier/SubnetStatus, no VPC linkage) -- left honestly empty rather than fabricated, matching the EndpointAccess precedent below. AddSubnetGroupInternal (test-seeding only, not wire-reachable) can still set it directly."}
-  ClusterSecurityGroup: {status: ok, note: "FIXED 2026-08-23 (third pass, closing the prior continued pass's follow-up): RevokeClusterSecurityGroupIngress now returns AuthorizationNotFound when nothing matched the given CIDRIP/EC2SecurityGroupName, closing the follow-up left open by the prior continued pass -- see dated entry above. SECOND FIND (same pass, sibling check per this campaign's own rule): AuthorizeClusterSecurityGroupIngress had the inverse gap -- re-authorizing a CIDR/EC2 group already on the security group silently appended a duplicate entry instead of returning AuthorizationAlreadyExists (declared in this op's own error switch, and already enforced by the sibling AuthorizeEndpointAccess family's own duplicate-rejection test). Fixed both; see dated entry above."}
-  Snapshot/ClusterSnapshot: {status: ok, note: "FIXED 2026-08-23 (third pass): AuthorizeSnapshotAccess had the same missing-duplicate-check gap as AuthorizeClusterSecurityGroupIngress (re-authorizing an already-authorized account silently added a second AccountsWithRestoreAccess entry instead of returning AuthorizationAlreadyExists, declared in this op's own error switch) -- see dated entry above. A pre-existing test asserted the buggy behavior outright (\"AWS allows multiple accounts\"); corrected to assert the real error instead. FIXED 2026-08-23 (continued pass): ModifyClusterSnapshot/BatchModifyClusterSnapshots omitted-vs-explicit-(-1) retention clobber, RevokeSnapshotAccess wrong error code (InvalidParameterValue -> AuthorizationNotFound) -- see dated entry above. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep, broken in both directions): BatchDeleteClusterSnapshots' Identifiers is a list of DeleteClusterSnapshotMessage structs, not a flat string list -- the real serialized wire key is Identifiers.DeleteClusterSnapshotMessage.N.SnapshotIdentifier (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go: awsAwsquery_serializeDocumentDeleteClusterSnapshotMessageList wraps the array in DeleteClusterSnapshotMessage, and the nested object serializer emits SnapshotIdentifier as a child field, not a value at the array index itself). The handler instead read 'Identifiers.DeleteClusterSnapshotMessage.N' directly and, failing that, fell back to 'Identifiers.SnapshotIdentifier.N' -- neither is a key any real SDK client ever sends, so a real BatchDeleteClusterSnapshots call always deleted nothing while still returning 200 OK with an empty Resources list. Three pre-existing tests all posted the second (also wrong) fallback shape, so tests and handler agreed on the fabricated request format -- same entrenching pattern as ssm's AddedLabels and ec2's ModifyVpcEndpointServicePermissions. Fixed to read the real nested key; BatchModifyClusterSnapshots' SnapshotIdentifierList (a genuine flat string list, serializeDocumentSnapshotIdentifierList wraps it in 'String') was re-verified and is correct as-is, so this is NOT a copy-paste bug across both batch ops, just the one whose real Input shape is structs."}
+  Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified. See Cluster row for the inline-Tags wire gap fixed this pass. FIXED 2026-08-30 (wire-key-read sweep): DescribeTags read TagKey/TagValue as bare scalars, but real DescribeTagsInput.TagKeys/TagValues are []string wire-encoded as the indexed lists TagKeys.TagKey.N/TagValues.TagValue.N (confirmed against awsAwsquery_serializeDocumentTagKeyList/TagValueList) -- wrong key name AND wrong cardinality, so a real client's TagKeys/TagValues filter was always a silent no-op returning every tag. Also confirmed DeleteTags already used the correct TagKeys.TagKey.N form, which is what exposed the inconsistency. Fixed to parse the real indexed keys via the existing parseRedshiftTagKeysAt helper, with OR semantics across TagKeys/TagValues (matches DescribeClusters' clusterMatchesTagKeysOrValues convention and the real docs' \"any combination of the specified keys and values\" wording) via new shared tagMatchesFilter/anyTagMatchesFilter helpers (handler_tags.go). A pre-existing test (filter_by_key_and_value) asserted AND semantics, which was itself wrong; corrected to assert the real OR behavior."}
+  ClusterParameterGroup: {status: ok, note: "no changes needed. CHECKED 2026-08-30 (wire-key-read sweep): DescribeClusterParameterGroupsInput.TagKeys/TagValues are declared and unread, but ClusterParameterGroup (param_groups.go) has no Tags field at all -- this backend never models tags on parameter groups (unlike UsageLimit/HsmClientCertificate/HsmConfiguration, fixed this pass). Left unread deliberately: implementing the filter would have nothing real to filter against, and DescribeTags itself already documents (see its own handler comment) that only cluster resources are tag-tracked here. Not re-flagged as a gap since it's the same documented single-resource-type-tagging limitation, just newly confirmed against this specific op."}
+  ClusterSubnetGroup: {status: ok, note: "FIXED 2026-08-08 (bd gopherstack-emho): CreateClusterSubnetGroup previously accepted a fabricated 'VpcId' request param not present in the real CreateClusterSubnetGroupInput (confirmed against awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go -- real fields are only ClusterSubnetGroupName/Description/SubnetIds/Tags). Handler no longer reads it. The response's VpcId field IS real on ClusterSubnetGroup (types.ClusterSubnetGroup.VpcId), normally derived by AWS from the subnets' own VPC, but this backend has no EC2 cross-reference to derive it from (Provider.Init does not wire an EC2 backend into Redshift, and Subnet only tracks SubnetIdentifier/SubnetStatus, no VPC linkage) -- left honestly empty rather than fabricated, matching the EndpointAccess precedent below. AddSubnetGroupInternal (test-seeding only, not wire-reachable) can still set it directly. CHECKED 2026-08-30 (wire-key-read sweep): DescribeClusterSubnetGroupsInput.TagKeys/TagValues are also declared and unread, same missing-Tags-field situation as ClusterParameterGroup above -- left unread for the same reason."}
+  ClusterSecurityGroup: {status: ok, note: "FIXED 2026-08-23 (third pass, closing the prior continued pass's follow-up): RevokeClusterSecurityGroupIngress now returns AuthorizationNotFound when nothing matched the given CIDRIP/EC2SecurityGroupName, closing the follow-up left open by the prior continued pass -- see dated entry above. SECOND FIND (same pass, sibling check per this campaign's own rule): AuthorizeClusterSecurityGroupIngress had the inverse gap -- re-authorizing a CIDR/EC2 group already on the security group silently appended a duplicate entry instead of returning AuthorizationAlreadyExists (declared in this op's own error switch, and already enforced by the sibling AuthorizeEndpointAccess family's own duplicate-rejection test). Fixed both; see dated entry above. CHECKED 2026-08-30 (wire-key-read sweep): DescribeClusterSecurityGroupsInput.TagKeys/TagValues are also declared and unread, same missing-Tags-field situation as ClusterParameterGroup/ClusterSubnetGroup above -- left unread for the same reason."}
+  Snapshot/ClusterSnapshot: {status: ok, note: "FIXED 2026-08-23 (third pass): AuthorizeSnapshotAccess had the same missing-duplicate-check gap as AuthorizeClusterSecurityGroupIngress (re-authorizing an already-authorized account silently added a second AccountsWithRestoreAccess entry instead of returning AuthorizationAlreadyExists, declared in this op's own error switch) -- see dated entry above. A pre-existing test asserted the buggy behavior outright (\"AWS allows multiple accounts\"); corrected to assert the real error instead. FIXED 2026-08-23 (continued pass): ModifyClusterSnapshot/BatchModifyClusterSnapshots omitted-vs-explicit-(-1) retention clobber, RevokeSnapshotAccess wrong error code (InvalidParameterValue -> AuthorizationNotFound) -- see dated entry above. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep, broken in both directions): BatchDeleteClusterSnapshots' Identifiers is a list of DeleteClusterSnapshotMessage structs, not a flat string list -- the real serialized wire key is Identifiers.DeleteClusterSnapshotMessage.N.SnapshotIdentifier (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go: awsAwsquery_serializeDocumentDeleteClusterSnapshotMessageList wraps the array in DeleteClusterSnapshotMessage, and the nested object serializer emits SnapshotIdentifier as a child field, not a value at the array index itself). The handler instead read 'Identifiers.DeleteClusterSnapshotMessage.N' directly and, failing that, fell back to 'Identifiers.SnapshotIdentifier.N' -- neither is a key any real SDK client ever sends, so a real BatchDeleteClusterSnapshots call always deleted nothing while still returning 200 OK with an empty Resources list. Three pre-existing tests all posted the second (also wrong) fallback shape, so tests and handler agreed on the fabricated request format -- same entrenching pattern as ssm's AddedLabels and ec2's ModifyVpcEndpointServicePermissions. Fixed to read the real nested key; BatchModifyClusterSnapshots' SnapshotIdentifierList (a genuine flat string list, serializeDocumentSnapshotIdentifierList wraps it in 'String') was re-verified and is correct as-is, so this is NOT a copy-paste bug across both batch ops, just the one whose real Input shape is structs. FIXED 2026-08-30 (wire-key-read sweep): DescribeClusterSnapshots read only SnapshotIdentifier/ClusterIdentifier/SnapshotType/Marker/MaxRecords -- StartTime/EndTime (real DescribeClusterSnapshotsInput fields, api_op_DescribeClusterSnapshots.go) were declared and never read at all, so a real client's time-window filter silently returned every snapshot regardless. Fixed via new filterSnapshotsByTimeRange, applied before the existing marker-pagination cut (filter-before-paginate). ClusterExists/OwnerAccount/TagKeys/TagValues/SortingEntities/SnapshotArn remain unread -- Snapshot (models.go) has no Tags or OwnerAccount field at all (this backend's snapshots are single-account and untagged), so those would be fabricated filter semantics; left honestly absent rather than invented, not re-flagged as a gap."}
   ClusterCredentials: {status: ok}
   Resize: {status: ok, note: "FIXED THIS PASS, see ResizeCluster op row"}
   DataShare: {status: ok, note: "Associate/Authorize/Deauthorize/Reject/Disassociate/DescribeDataShares* field-diffed against types.DataShare. FIXED: DataShareType was completely absent from the model/wire (real Cluster... err DataShare.DataShareType, defaults to INTERNAL, the only enum value); now serialized. All mutation ops confirmed to mutate the store.Table-returned pointer in place (not stubs)."}
-  EventSubscription/Events: {status: ok, note: "field-diffed against types.EventSubscription/Event. FIXED: EventSubscription.SubscriptionCreationTime was computed (SubscriptionCreated) but never serialized into any response; now emitted as RFC3339. DescribeEventCategories/DescribeEvents verified against SDK shapes, no other gaps found."}
+  EventSubscription/Events: {status: ok, note: "field-diffed against types.EventSubscription/Event. FIXED: EventSubscription.SubscriptionCreationTime was computed (SubscriptionCreated) but never serialized into any response; now emitted as RFC3339. DescribeEventCategories/DescribeEvents verified against SDK shapes, no other gaps found. CHECKED 2026-08-30 (wire-key-read sweep): DescribeEventsInput.StartTime/EndTime/Duration are declared and unread by handleDescribeEvents (only SourceIdentifier/SourceType are read) -- but this is inert, not a bug: nothing in this package ever writes to the b.events store (grepped every call site; no AddEvent/internal seed method exists, not even test-only), so DescribeEvents unconditionally returns an empty list regardless of any filter. Left as-is rather than adding dead filtering code for a store nothing populates."}
   Logging: {status: ok, note: "NEW FAMILY ROW 2026-08-23 (continued pass) -- EnableLogging/DisableLogging/DescribeLoggingStatus had no families: row at all before this pass, despite real per-cluster state (events.go's loggingStatuses map). EnableLogging/DisableLogging held up clean. FIXED: DescribeLoggingStatus was a static stub (hardcoded LoggingEnabled=false, ignored ClusterIdentifier, never consulted loggingStatuses) -- see dated entry above."}
-  ScheduledAction: {status: ok, note: "FIXED THIS PASS (major): TargetAction was parsed as a single flat top-level string param and never serialized in ANY response -- real CreateScheduledActionInput.TargetAction is a nested ScheduledActionType{PauseCluster|ResumeCluster|ResizeCluster} struct sent as TargetAction.ResizeCluster.ClusterIdentifier=... etc (query-protocol nested member convention), and the object is meaningless without it. Rebuilt as a real tagged-union type (ScheduledActionTarget) with correct nested request parsing (parseTargetAction) and response serialization (targetActionToXML), verified symmetric against both serializers.go and deserializers.go. Also fixed: Enable request param was completely ignored (State was hardcoded ACTIVE forever); now a real tri-state *bool driving ACTIVE/DISABLED. FIXED 2026-08-08 (bd gopherstack-emho): NextInvocations was previously unmodeled; this backend's Schedule field already carries a real at()/cron() expression, so a real evaluator (schedule.go) now computes it instead of leaving it fabricated or perpetually empty -- unparseable/unsupported expressions (e.g. rate(), which real Redshift does not accept here) still yield an honest empty list. StartTime/EndTime remain unmodeled -- see items_still_open."}
-  UsageLimit: {status: ok, note: "Create/Delete/Describe/Modify field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Tags were accepted and stored on create but never echoed on the wire -- xmlUsageLimit now includes Tags>Tag via the existing tagMapToKVList/parseRedshiftTags shared helpers (same convention as Integration/Qev2IdcApplication), verified against awsAwsquery_deserializeDocumentUsageLimit's Tags case in deserializers.go."}
+  ScheduledAction: {status: ok, note: "FIXED THIS PASS (major): TargetAction was parsed as a single flat top-level string param and never serialized in ANY response -- real CreateScheduledActionInput.TargetAction is a nested ScheduledActionType{PauseCluster|ResumeCluster|ResizeCluster} struct sent as TargetAction.ResizeCluster.ClusterIdentifier=... etc (query-protocol nested member convention), and the object is meaningless without it. Rebuilt as a real tagged-union type (ScheduledActionTarget) with correct nested request parsing (parseTargetAction) and response serialization (targetActionToXML), verified symmetric against both serializers.go and deserializers.go. Also fixed: Enable request param was completely ignored (State was hardcoded ACTIVE forever); now a real tri-state *bool driving ACTIVE/DISABLED. FIXED 2026-08-08 (bd gopherstack-emho): NextInvocations was previously unmodeled; this backend's Schedule field already carries a real at()/cron() expression, so a real evaluator (schedule.go) now computes it instead of leaving it fabricated or perpetually empty -- unparseable/unsupported expressions (e.g. rate(), which real Redshift does not accept here) still yield an honest empty list. StartTime/EndTime remain unmodeled -- see items_still_open. FIXED 2026-08-30 (wire-key-read sweep): DescribeScheduledActions read only ScheduledActionName -- Active (real DescribeScheduledActionsInput field) was declared and never read, so a real client's Active=true/false filter silently returned both enabled and disabled actions. Fixed by comparing against ScheduledAction.State (real backend data, already set correctly by scheduledActionState). New named constant scheduledActionStateActiveValue introduced deliberately instead of reusing the pre-existing dataShareStatusActive constant, which happens to share the same \"ACTIVE\" string by coincidence -- this campaign has already found bugs from exactly that kind of borrowed-constant coupling (see the ReservedNodeExchangeStatus fix in wire_field_fixes_test.go). TargetActionType/Filters/StartTime/EndTime remain unread: TargetActionType and the iam-role/cluster-identifier Filters names are real, cheap, and backed by existing data (IamRole, TargetAction's populated union member) but were left for a follow-up pass to keep this fix's blast radius small; StartTime/EndTime filter on computed next-invocation times, not stored data, and are a materially larger addition (see NextInvocations note above)."}
+  UsageLimit: {status: ok, note: "Create/Delete/Describe/Modify field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Tags were accepted and stored on create but never echoed on the wire -- xmlUsageLimit now includes Tags>Tag via the existing tagMapToKVList/parseRedshiftTags shared helpers (same convention as Integration/Qev2IdcApplication), verified against awsAwsquery_deserializeDocumentUsageLimit's Tags case in deserializers.go. FIXED 2026-08-30 (wire-key-read sweep): DescribeUsageLimits read only ClusterIdentifier/FeatureType -- TagKeys/TagValues (real DescribeUsageLimitsInput fields) were declared and never read at all, even though UsageLimit.Tags is real, populated backend data (the fix immediately above this one). Fixed using the same anyTagMatchesFilter helper introduced for the Tags family fix."}
   SnapshotCopyGrant: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Tags now echoed on the wire (Tags>Tag), same fix pattern and SDK verification as UsageLimit above (awsAwsquery_deserializeDocumentSnapshotCopyGrant)."}
   SnapshotSchedule: {status: partial, note: "FIXED THIS PASS (real no-op found): ModifyClusterSnapshotSchedule validated ClusterIdentifier/ScheduleIdentifier existence but never recorded the association anywhere -- a textbook no-stub violation (looked like it worked, did nothing). Now sets/clears Cluster.SnapshotScheduleIdentifier/SnapshotScheduleState (real Cluster wire fields, confirmed against types.Cluster), and SnapshotSchedule.AssociatedClusters/AssociatedClusterCount are derived live by scanning clusters for a match and serialized correctly (AssociatedClusters>member>ClusterIdentifier/ScheduleAssociationState). Round-trip verified with a dedicated test. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep): Create/ModifySnapshotScheduleOutput both carry Tags (confirmed against deserializers.go:43027's generic TagList, wrapped in <Tag>), and this backend already tracks SnapshotSchedule.Tags (accepted on Create, stored, never dropped), but xmlSnapshotSchedule (shared by Create/Modify/Describe) had no field for it at all -- every schedule's tags were silently absent from every response. Added, reusing the existing tagMapToKVList helper. NOT fixed, left partial: Create/ModifySnapshotScheduleOutput also carry NextInvocations ([]time.Time). This service already computes NextInvocations for ScheduledAction via schedule.go's nextInvocations(), but that evaluator explicitly does not (and real ScheduledAction.Schedule does not) support rate(...) expressions or the 3-field cron(Minutes Hours Day-of-month) form CreateSnapshotScheduleInput.ScheduleDefinitions documents (e.g. \"cron(30 12 *)\", \"rate(12 hours)\") -- a different grammar from ScheduledAction's 6-field cron, not a drop-in reuse. Computing it correctly needs a second parser, disproportionate to this pass; ScheduleDefinitions/AssociatedClusters/Tags (the fields with real backing state and no format ambiguity) were fixed, NextInvocations was not -- see items_still_open."}
   SnapshotCopy: {status: ok, note: "Enable/Disable/ModifySnapshotCopyRetentionPeriod field-diffed, real state mutation confirmed, no changes needed"}
   AuthenticationProfile: {status: ok, note: "field-diffed against types.AuthenticationProfile (no Tags field on this type in the real SDK, confirmed), no changes needed"}
   ResourcePolicy: {status: ok, note: "FIXED THIS PASS: error code ErrResourcePolicyNotFound was a fabricated 'ResourcePolicyNotFound' string -- real GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy return ResourceNotFoundFault for a missing policy (confirmed against the op error-dispatch table in deserializers.go), now fixed."}
-  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Create handlers previously passed nil for tags unconditionally (never parsing Tags.Tag.N.* from the request) and the wire never echoed them; both now parse via parseRedshiftTags and serialize via tagMapToKVList, verified against awsAwsquery_deserializeDocumentHsmClientCertificate/HsmConfiguration's Tags case. Also found and fixed while verifying: CreateHsmConfiguration read the IP address request param as 'HsmIPAddress' but the real wire param is case-different 'HsmIpAddress' (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput) -- url.Values lookups are case-sensitive, so a real SDK client's HsmIpAddress was silently dropped on every call; fixed. FIXED 2026-08-13 (gopherstack-afi1, required-member sweep): CreateHsmConfiguration also dropped both required HSM secrets -- HsmPartitionPassword and HsmServerPublicCertificate (api_op_CreateHsmConfiguration.go:64,70) -- entirely; the backend signature had no parameters for them at all. HsmConfiguration's real response shape (types/types.go:1118-1137) has no fields for either, so neither is echoed by real AWS either. Following this service's own existing precedent for CreateCluster's MasterUserPassword (handler.go:543-549,551: validated for shape/policy, never threaded into CreateCluster or persisted), both are now validated for presence in handleCreateHsmConfiguration and then discarded rather than passed to the backend or stored -- HsmPartitionPassword is a credential and is never logged, stored, or echoed in any response. Missing-required-member requests return InvalidParameterValue: this op's own deserializeOpErrorCreateHsmConfiguration switch declares only HsmConfigurationAlreadyExistsFault/HsmConfigurationQuotaExceededFault/InvalidTagFault/TagLimitExceededFault, no validation-style exception, so this follows the same ErrInvalidParameter convention already used for this handler's pre-existing HsmConfigurationIdentifier-required check."}
+  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Create handlers previously passed nil for tags unconditionally (never parsing Tags.Tag.N.* from the request) and the wire never echoed them; both now parse via parseRedshiftTags and serialize via tagMapToKVList, verified against awsAwsquery_deserializeDocumentHsmClientCertificate/HsmConfiguration's Tags case. Also found and fixed while verifying: CreateHsmConfiguration read the IP address request param as 'HsmIPAddress' but the real wire param is case-different 'HsmIpAddress' (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput) -- url.Values lookups are case-sensitive, so a real SDK client's HsmIpAddress was silently dropped on every call; fixed. FIXED 2026-08-13 (gopherstack-afi1, required-member sweep): CreateHsmConfiguration also dropped both required HSM secrets -- HsmPartitionPassword and HsmServerPublicCertificate (api_op_CreateHsmConfiguration.go:64,70) -- entirely; the backend signature had no parameters for them at all. HsmConfiguration's real response shape (types/types.go:1118-1137) has no fields for either, so neither is echoed by real AWS either. Following this service's own existing precedent for CreateCluster's MasterUserPassword (handler.go:543-549,551: validated for shape/policy, never threaded into CreateCluster or persisted), both are now validated for presence in handleCreateHsmConfiguration and then discarded rather than passed to the backend or stored -- HsmPartitionPassword is a credential and is never logged, stored, or echoed in any response. Missing-required-member requests return InvalidParameterValue: this op's own deserializeOpErrorCreateHsmConfiguration switch declares only HsmConfigurationAlreadyExistsFault/HsmConfigurationQuotaExceededFault/InvalidTagFault/TagLimitExceededFault, no validation-style exception, so this follows the same ErrInvalidParameter convention already used for this handler's pre-existing HsmConfigurationIdentifier-required check. FIXED 2026-08-30 (wire-key-read sweep): DescribeHsmClientCertificates/DescribeHsmConfigurations each read only their own Identifier param -- TagKeys/TagValues (real, declared Input fields on both ops) were never read at all, even though both HsmClientCertificate.Tags/HsmConfiguration.Tags are real, populated backend data. Fixed using the same anyTagMatchesFilter helper introduced for the Tags family fix."}
   CustomDomainAssociation: {status: ok, note: "field-diffed, no changes needed to Create/Delete/Describe/Modify wire shapes. FIXED: ErrCustomDomainAlreadyExists was a fabricated 'CustomDomainAssociationAlreadyExistsFault' code -- no such fault exists in the real SDK; the real conflict fault for CreateCustomDomainAssociation is CustomCnameAssociationFault (confirmed against the op's error-dispatch table), now fixed. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep): the 'no changes needed to Create/Modify wire shapes' claim above was wrong -- both CreateCustomDomainAssociationOutput and ModifyCustomDomainAssociationOutput carry CustomDomainCertExpiryTime (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/api_op_Create/ModifyCustomDomainAssociation.go), which this backend's response structs never had a field for at all. Added CustomDomainCertExpiryTime to the CustomDomainAssociation model and both Create/Modify responses, generated the same fabricated-but-consistent-365-day way Redshift Serverless's own equivalent field already is (see families.Redshift Serverless' slCertExpiryDays). DescribeCustomDomainAssociations intentionally NOT touched -- its real Association shape is structurally different (grouped by certificate via CertificateAssociations, not a flat per-domain list), a pre-existing, larger, separately-scoped gap the code comment above it already documents; adding the field there would not fix that shape mismatch."}
-  EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- reconfirmed 2026-08-08: real types.VpcEndpoint.NetworkInterfaces needs AvailabilityZone/PrivateIpAddress/NetworkInterfaceId/SubnetId per ENI, none of which this backend's Subnet type carries (no CIDR/AZ data at all), and VpcEndpointId would have to be a fabricated ID with no real ENI allocation behind it -- left absent rather than invented, see items_still_open."}
-  EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed"}
-  Integration: {status: ok, note: "FIXED THIS PASS: (1) CreateIntegration read 'KmsKeyId' but the real wire param is case-different 'KMSKeyId' (confirmed against the query-protocol serializer) -- url.Values lookups are case-sensitive, so this silently dropped the KMS key for every real client call; (2) tags use 'TagList' not 'Tags' on this op specifically (unlike every other Create* op in this service) and were not parsed at all -- added parseTagListPrefixed and wired it in, response now includes Tags; (3) CreateTime was never serialized -- added; (4) ModifyIntegration was missing IntegrationName (real ModifyIntegrationInput supports renaming), added with existing-name-conflict handling."}
+  EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- reconfirmed 2026-08-08: real types.VpcEndpoint.NetworkInterfaces needs AvailabilityZone/PrivateIpAddress/NetworkInterfaceId/SubnetId per ENI, none of which this backend's Subnet type carries (no CIDR/AZ data at all), and VpcEndpointId would have to be a fabricated ID with no real ENI allocation behind it -- left absent rather than invented, see items_still_open. FIXED 2026-08-30 (wire-key-read sweep): DescribeEndpointAccess read only ClusterIdentifier/EndpointName -- ResourceOwner and VpcId (real DescribeEndpointAccessInput fields) were declared and never read, even though EndpointAccess.ResourceOwner/VpcID are both real backend fields (ResourceOwner set directly from CreateEndpointAccessInput.ResourceOwner; VpcID derived from the subnet group per the note above, which is often empty since this backend's ClusterSubnetGroup.VpcID is itself never populated by the wire-reachable Create path -- a separate, pre-existing, NOT-fixed gap noted here for visibility). Both filters now applied post-fetch in the handler."}
+  EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed. FIXED 2026-08-31 (value-semantics pass): DescribeEndpointAuthorization's Account filter compared the wrong side of the grantor/grantee pair. api_op_DescribeEndpointAuthorization.go documents Account precisely: 'the account ID of either the cluster owner (grantor) or grantee. If Grantee parameter is true, then the Account value is of the grantor' -- the handler had this backwards in both branches (Grantee=true compared against ea.Grantee instead of ea.Grantor; Grantee=false/default compared against ea.Grantor instead of ea.Grantee). Since this backend's every AuthorizeEndpointAccess-created record has Grantor pinned to b.accountID, the bug meant an Account filter almost never matched anything in the default (grantor) view unless the caller happened to pass their own account id, and the grantee view was equally backward. Regression test (TestHandler_DescribeEndpointAuthorization_GranteeAccountSide) proved both directions failed against the unfixed code before the swap."}
+  Integration: {status: ok, note: "FIXED THIS PASS: (1) CreateIntegration read 'KmsKeyId' but the real wire param is case-different 'KMSKeyId' (confirmed against the query-protocol serializer) -- url.Values lookups are case-sensitive, so this silently dropped the KMS key for every real client call; (2) tags use 'TagList' not 'Tags' on this op specifically (unlike every other Create* op in this service) and were not parsed at all -- added parseTagListPrefixed and wired it in, response now includes Tags; (3) CreateTime was never serialized -- added; (4) ModifyIntegration was missing IntegrationName (real ModifyIntegrationInput supports renaming), added with existing-name-conflict handling. FIXED 2026-08-31 (value-semantics pass): integrationMatchesFilters switched on DescribeIntegrationsFilterName's four real values (integration-arn/source-arn/source-types/status, types/enums.go:194-202) but only handled two -- 'status' fell through the switch with no default and silently matched every integration regardless of the filter, even though Integration.Status is real, tracked data. 'source-types' remains deliberately unenforced (this backend has no SourceArn-to-AWS-resource-type classifier); 'status' is now handled. Regression test TestHandler_DescribeIntegrations_StatusFilter."}
   IdcApplication: {status: ok, note: "FIXED THIS PASS (bd gopherstack-0eyk): CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult were serializing redshiftIdcAppXML's fields directly under the Result element; the real deserializer (awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput/...Modify... in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, confirmed by reading it directly) requires them nested one level deeper under an inner <RedshiftIdcApplication> element -- a real SDK client parsing either response previously got every field as zero-value. Both response structs' xml tags fixed to `...Result>RedshiftIdcApplication`, matching the sibling Qev2IdcApplication family's pattern. DescribeRedshiftIdcApplications's <member> list wrapping and DeleteRedshiftIdcApplication (no response body) were re-checked against the same deserializers.go and confirmed already correct -- no changes needed there. Tests strengthened: Create/Modify success cases now assert the literal nested envelope string, not just substring presence of field values, so this class of bug is caught going forward; Describe's list_all case likewise now asserts the <member> wrapping explicitly. FIXED 2026-08-08 (bd gopherstack-emho): ApplicationType ('None'/'Lakehouse' enum) was unmodeled -- CreateIdcApplication now accepts and stores it (confirmed real request field via awsAwsquery_serializeOpDocumentCreateRedshiftIdcApplicationInput), echoed on Create/Describe/Modify responses; it is create-only, matching real ModifyRedshiftIdcApplicationInput which has no field for it (confirmed against awsAwsquery_serializeOpDocumentModifyRedshiftIdcApplicationInput). ServiceIntegrations deliberately left unmodeled -- it is a 3-level-deep tagged union (ServiceIntegrationsUnion -> {LakeFormation,Redshift,S3AccessGrants} -> per-family scope unions), disproportionate to this pass's scope; see items_still_open. AuthorizedTokenIssuerList/SsoTagKeys/IdcManagedApplicationArn/IdcOnboardStatus/IdentityNamespace remain unmodeled too."}
   Qev2IdcApplication: {status: ok, note: "NEW FAMILY THIS PASS (2026-07-25, SDK v1.62.3 -> v1.65.0 added CreateQev2IdcApplication/DeleteQev2IdcApplication/DescribeQev2IdcApplications/ModifyQev2IdcApplication). Confirmed via aws-sdk-go-v2/service/redshift@v1.65.0/types.Qev2IdcApplication and the Create/Delete/Describe/Modify Input/Output shapes that this is a DISTINCT resource from RedshiftIdcApplication, not a sub-resource -- no shared ID space, no cross-reference field either direction, and Qev2IdcApplication has no IamRoleArn (RedshiftIdcApplication's federated-auth role) at all. Implemented as its own store.Table/model/handler file pair. Wire-diffed field-by-field against serializers.go/deserializers.go: Create/Modify responses correctly nest the inner <Qev2IdcApplication> element (the bug found in the sibling family above, avoided here); Describe response uses real Marker/MaxRecords pagination (this op IS paginated in the real API, unlike DescribeRedshiftIdcApplications which this backend never paginates) implemented via the exact same sorted-snapshot/marker-cutoff convention as DescribeClusters; list items use <member> wrapping (confirmed against awsAwsquery_deserializeDocumentQev2IdcApplicationList); Tags round-trip via Tags.Tag.N.Key/Value on create and Tags>Tag on responses, matching this package's tagMapToKVList/parseRedshiftTags helpers exactly (real field name is 'Tags', not 'TagList' as CreateIntegration idiosyncratically uses). Cardinality: name-keyed uniqueness -> Qev2IdcApplicationAlreadyExists (real fault code, confirmed against types/errors.go; no separate quota fault exists for this family, unlike RedshiftIdcApplicationQuotaExceededFault). Modify only accepts IdcDisplayName (real ModifyQev2IdcApplicationInput has no other mutable field) -- IdcInstanceArn/Qev2IdcApplicationName verified immutable post-creation and covered by a regression test."}
   ReservedNode: {status: ok, note: "AcceptReservedNodeExchange/PurchaseReservedNodeOffering/Describe*/GetReservedNodeExchange* field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): RecurringCharges is now derived from the node's own UsagePrice (this backend's real per-offering pricing model, see defaultReservedNodeOfferings) -- a No Upfront offering's nonzero UsagePrice produces one RecurringCharges>RecurringCharge{Hourly} entry, an All Upfront offering's zero UsagePrice produces none, verified against awsAwsquery_deserializeDocumentRecurringChargeList's RecurringCharges>RecurringCharge wrapper. ReservedNodeOfferingType remains unmodeled -- see items_still_open."}
-  TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: fixed, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open. gopherstack-muzq (2026-08-21): CreateTableRestoreStatus stamped Status IN_PROGRESS (the correct AWS-documented initial response, unchanged) but nothing in this backend ever advanced it -- no ticker, no later call -- while its sibling ServerlessTableRestoreStatus (serverless_table_restore.go) lands directly on SUCCEEDED at creation, since neither does real async data-copy work. Fixed by extending the existing cluster reconciler (reconciler.go's advanceClusterStates/StartReconciler machinery) with a parallel advanceTableRestoreStates, keyed by a new tableRestoreReadyAt map (100ms tableRestoreCompletionDelay), called both lazily on DescribeTableRestoreStatus and periodically by the same reconciler tick -- no new infrastructure class, matching the existing cluster-lifecycle pattern in this exact file. New test case reaches_succeeded in TestBackend_TableRestoreStatus asserts the terminal SUCCEEDED state; the pre-existing create_returns_in_progress case is still correct and kept as-is."}
+  TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: fixed, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open. gopherstack-muzq (2026-08-21): CreateTableRestoreStatus stamped Status IN_PROGRESS (the correct AWS-documented initial response, unchanged) but nothing in this backend ever advanced it -- no ticker, no later call -- while its sibling ServerlessTableRestoreStatus (serverless_table_restore.go) lands directly on SUCCEEDED at creation, since neither does real async data-copy work. Fixed by extending the existing cluster reconciler (reconciler.go's advanceClusterStates/StartReconciler machinery) with a parallel advanceTableRestoreStates, keyed by a new tableRestoreReadyAt map (100ms tableRestoreCompletionDelay), called both lazily on DescribeTableRestoreStatus and periodically by the same reconciler tick -- no new infrastructure class, matching the existing cluster-lifecycle pattern in this exact file. New test case reaches_succeeded in TestBackend_TableRestoreStatus asserts the terminal SUCCEEDED state; the pre-existing create_returns_in_progress case is still correct and kept as-is. FIXED 2026-08-31 (value-semantics pass): that same fix made the following bug observable for the first time (Status previously never left IN_PROGRESS, so no request could ever be excluded). DescribeTableRestoreStatusInput.TableRestoreRequestId's own doc: 'If you don't specify a TableRestoreRequestId value, then DescribeTableRestoreStatus returns the status of all in-progress table restore requests' -- a documented NARROWING default (only in-progress, not every request regardless of status), but the handler returned every stored request unconditionally when the id was omitted, only filtering by id when one was given. A request that had already reached SUCCEEDED stayed in the default (unfiltered) listing forever. Fixed: omitting TableRestoreRequestId now also excludes anything not still IN_PROGRESS; an explicit TableRestoreRequestId lookup is unaffected and still returns a succeeded request. Regression test TestHandler_DescribeTableRestoreStatus_DefaultOmitsSucceeded, proved failing pre-fix (used the real 100ms tableRestoreCompletionDelay via require.Eventually, not a sleep)."}
   Partner: {status: ok, note: "FIXED THIS PASS (severe, systemic): AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus all read/wrote a fabricated 'PartnerIntegrationId' parameter/wire-field name -- no such name exists anywhere in the real SDK (AddPartnerInput/Output, DeletePartnerInput/Output, UpdatePartnerStatusInput/Output, and PartnerIntegrationInfo all use 'PartnerName', confirmed against every relevant api_op_*.go and the DescribePartners deserializer). Every real client's PartnerName value was silently dropped on every request, and every response field a real client tried to read came back empty. Fixed across all 4 ops plus the internal error message text. Regression test locks in the exact wire element name. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep): AddPartner/DeletePartner/UpdatePartnerStatus responses ALSO carried an invented ClusterIdentifier field with no counterpart in AddPartnerOutput/DeletePartnerOutput/UpdatePartnerStatusOutput (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4's api_op_*.go -- each carries only DatabaseName/PartnerName) -- removed from all three response structs. A pre-existing test (TestAddPartner_ResponseIncludesClusterIdentifier) only checked the cluster id string appeared somewhere in the body, so it entrenched the fabricated field rather than catching it; renamed and rewritten to assert the field's absence."}
-  Descriptive/static ops: {status: ok, note: "RE-AUDITED gopherstack-3jqz (required-member sweep pass 3): the prior claim here -- 'RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed' -- was FALSE; both took `_ url.Values`, read neither ConsumerIdentifiers nor NamespaceIdentifier, and returned static XML with no state change at all. Moved out of this family (now families.NamespaceRegistration, fixed for real). Re-checking every other op this line vouched for: ListRecommendations and GetIdentityCenterAuthToken hold up -- both genuinely read and validate their input (ListRecommendations derives recommendations from DescribeClusters(id) and surfaces a real ClusterNotFoundFault for an unknown id; GetIdentityCenterAuthToken requires and checks IdentityCenterApplicationArn). DescribeAccountAttributes/DescribeClusterVersions/DescribeClusterTracks/DescribeOrderableClusterOptions/DescribeStorage/DescribeNodeConfigurationOptions/DescribeClusterDbRevisions are legitimately static/filter-less (already disclosed by 'NOT exhaustively field-diffed' below, not a new finding). Two more real bugs of the exact same shape as RegisterNamespace were found here by the same 'does the handler even read `vals`' check (ModifyAquaConfiguration, ModifyLakehouseConfiguration) and moved out to their own families below, same as NamespaceRegistration -- FIXED gopherstack-6xxt, see families.AquaConfiguration/families.LakehouseConfiguration. Restored to ok now that both are real."}
+  Descriptive/static ops: {status: ok, note: "RE-AUDITED gopherstack-3jqz (required-member sweep pass 3): the prior claim here -- 'RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed' -- was FALSE; both took `_ url.Values`, read neither ConsumerIdentifiers nor NamespaceIdentifier, and returned static XML with no state change at all. Moved out of this family (now families.NamespaceRegistration, fixed for real). Re-checking every other op this line vouched for: ListRecommendations and GetIdentityCenterAuthToken hold up -- both genuinely read and validate their input (ListRecommendations derives recommendations from DescribeClusters(id) and surfaces a real ClusterNotFoundFault for an unknown id; GetIdentityCenterAuthToken requires and checks IdentityCenterApplicationArn). DescribeAccountAttributes/DescribeClusterVersions/DescribeClusterTracks/DescribeOrderableClusterOptions/DescribeStorage/DescribeClusterDbRevisions are legitimately static/filter-less (already disclosed by 'NOT exhaustively field-diffed' below, not a new finding). CORRECTION 2026-08-31 (value-semantics pass): DescribeNodeConfigurationOptions is NOT filter-less -- it has a real NumberOfNodes filter (nodeConfigFilterValue/nodeConfigFilterInt) this line mischaracterized. That filter's NodeConfigurationOptionsFilter.Operator (eq/lt/le/gt/ge/between/in, types/types.go:1379-1388) was parsed nowhere -- every filter was compared with == against only the first supplied value, so a real client's gt/lt/le/ge/between/in filter silently behaved like an eq on the wrong value. The earlier wire-key-read sweep (see the citation at line ~1394 below) fixed the WIRE KEY (Filter.NodeConfigurationOptionsFilter.N.Value.item.M) but its own regression test only exercised Operator=Eq, so the operator-ignored bug was invisible to it -- a clean example of the wire-key and value-semantics axes needing separate verification. Fixed: NumberOfNodes now honours its Operator via numericFilterMatches; NodeType's Operator (documented as 'in'-only) is still not honoured -- only the first value seeds the synthesized target node type -- recorded as a gap rather than fixed, since choosing among several candidate node types when more than one is given isn't specified precisely enough to implement without guessing. Regression tests in handler_sdk_roundtrip_test.go's TestDescribeNodeConfigurationOptions_FilterWireKey (gt, between subtests) proved both failed against the unfixed code. Two more real bugs of the exact same shape as RegisterNamespace were found here by the same 'does the handler even read `vals`' check (ModifyAquaConfiguration, ModifyLakehouseConfiguration) and moved out to their own families below, same as NamespaceRegistration -- FIXED gopherstack-6xxt, see families.AquaConfiguration/families.LakehouseConfiguration. Restored to ok now that both are real."}
   NamespaceRegistration: {status: ok, note: "FIXED (gopherstack-3jqz, required-member sweep pass 3): RegisterNamespace/DeregisterNamespace previously ignored `_ url.Values` -- the entire request -- and returned static XML with no state change; see the ops: entries above. Both are the awsAwsquery_* (Query) protocol (redshift@v1.65.4 serializers.go), confirmed NOT the stale awsQuery_* prefix the repo's SDK-shape tooling defaults to detecting. NamespaceIdentifier is a union (NamespaceIdentifierUnion: ProvisionedIdentifier{ClusterIdentifier} or ServerlessIdentifier{NamespaceIdentifier,WorkgroupIdentifier}, confirmed against awsAwsquery_serializeDocumentNamespaceIdentifierUnion) arriving as dotted query keys (NamespaceIdentifier.ProvisionedIdentifier.ClusterIdentifier / NamespaceIdentifier.ServerlessIdentifier.{NamespaceIdentifier,WorkgroupIdentifier}), ConsumerIdentifiers as ConsumerIdentifiers.member.N via the existing parseStringList helper. Both variants now validate against REAL backend state before accepting: ProvisionedIdentifier checks b.clusters (ClusterNotFound if missing, InvalidClusterState if not 'available' -- both error codes taken from the op's own declared awsAwsquery_deserializeOpErrorRegisterNamespace/DeregisterNamespace switch, the same three-fault set for both ops: ClusterNotFound/InvalidClusterState/InvalidNamespaceFault), ServerlessIdentifier checks b.slNamespaces/b.slWorkgroups (InvalidNamespaceFault if either is missing) -- this package already models Redshift Serverless namespaces/workgroups internally (serverless.go), so this is real cross-reference validation, not a fabricated check. A new NamespaceRegistration record (namespace_registration.go, persisted via the standard store.Registry/store.Table mechanism) tracks ConsumerIdentifiers/Status per namespace identity; DeregisterNamespace removes exactly the given consumers from the existing set (real AWS scopes deregistration per-consumer, not per-namespace) rather than deleting the whole record. Status is always 'Registering'/'Deregistering' -- confirmed these are the ONLY two enum values NamespaceRegistrationStatus declares (types/enums.go); there is no describe/list operation anywhere in this SDK version for a client to observe a terminal state, so returning the in-flight status on every call is the real, complete contract, not a partial implementation. Proven via TestSDKRoundTrip_RegisterNamespace (real aws-sdk-go-v2 client, six subtests covering both union variants' accept/reject paths, hand-verified to fail against the unfixed handler) and TestNamespaceRegistration_ConsumerIdentifiersStateMutation (drives the backend directly, since there is no wire-level Describe to round-trip the consumer-list mutation through)."}
   AquaConfiguration: {status: ok, note: "FIXED (gopherstack-6xxt): handleModifyAquaConfiguration previously took `_ url.Values`, ignoring the required ClusterIdentifier (api_op_ModifyAquaConfiguration.go) entirely, performing no existence check, and always returning a canned AquaConfigurationStatus=auto/AquaStatus=disabled that didn't even match this backend's own DescribeClusters convention (toXMLClusterWithTags already emits disabled/disabled for every cluster's inline AquaConfiguration). The real op is documented retired (\"Calling this operation does not change AQUA configuration. Amazon Redshift automatically determines whether to use AQUA\") but still requires and existence-checks ClusterIdentifier -- ClusterNotFound is declared in its own error switch (awsAwsquery_deserializeOpErrorModifyAquaConfiguration: ClusterNotFound/InvalidClusterState/UnsupportedOperation). New backend method ModifyAquaConfiguration(id) (cluster_mgmt.go) does the real existence check; the response now shares a single defaultAquaConfig() helper (handler.go) with toXMLClusterWithTags so the two can never diverge again. InvalidClusterState/UnsupportedOperation left undeclared/unused -- no real precondition for either is documented for this retired op, matching this service's existing convention of not inventing trigger conditions for declared-but-unreachable exceptions (see glue's OperationTimeoutException reasoning for the same judgment call in a sibling service)."}
   LakehouseConfiguration: {status: ok, note: "FIXED (gopherstack-6xxt): handleModifyLakehouseConfiguration previously took `_ url.Values`, ignoring ClusterIdentifier plus CatalogName/LakehouseIdcApplicationArn/LakehouseIdcRegistration/LakehouseRegistration (api_op_ModifyLakehouseConfiguration.go) and returning a bare empty response. Classic Cluster (models.go) had no CatalogArn/LakehouseRegistrationStatus fields at all despite both being real, confirmed types.Cluster members (aws-sdk-go-v2/service/redshift@v1.65.4/types/types.go:153,343) -- this backend already modeled the equivalent state for Redshift Serverless (Namespace.CatalogArn/LakehouseRegistrationStatus, families.Redshift Serverless above), so the classic version was simply left behind; now added to Cluster and echoed on every Cluster-returning response (xmlCluster/toXMLClusterWithTags), not just this op's own. New backend method ModifyLakehouseConfiguration (lakehouse.go) follows UpdateLakehouseConfigurationSL's (serverless_lakehouse.go) existing carry-forward-when-omitted pattern: CatalogArn is derived via arn.Build(\"glue\",...,\"catalog/\"+CatalogName) same as the serverless sibling, and a new cluster-keyed store.Table (ClusterLakehouseConfig) holds LakehouseIdcApplicationArn, which has no Cluster member on the real wire either -- observable only through this op's own response, same convention as ServerlessLakehouseConfig. SECOND-LAYER FIND beyond the bd issue's stated scope: LakehouseIdcApplicationArn, when the caller is setting a new one, is now validated against this backend's own RedshiftIdcApplication store (idc_applications.go) via a lock-safe inline scan (idcApplicationExistsLocked) -- real cross-reference validation this backend can perform because it already models that resource, returning RedshiftIdcApplicationNotExists (declared in this op's own error switch, reusing the existing ErrIdcApplicationNotFound sentinel) on a miss; the Serverless sibling has no equivalent IDC-application backend to check against, so it does not do this. SECOND-LAYER FIND: DryRun does NOT map to a DryRunException here the way the Serverless sibling's UpdateLakehouseConfiguration does -- confirmed absent from awsAwsquery_deserializeOpErrorModifyLakehouseConfiguration's declared switch (ClusterNotFound/DependentServiceAccessDenied/DependentServiceUnavailableFault/InvalidClusterState/RedshiftIdcApplicationNotExists/UnauthorizedOperation/UnsupportedOperation, no DryRun-shaped fault) -- ModifyLakehouseConfigurationInput.DryRun's own doc text ('validates the request without actually modifying the lakehouse configuration') is honored literally instead: a successful DryRun runs every validation and returns the would-be result as a normal 200, without persisting it. DependentServiceAccessDenied/DependentServiceUnavailableFault/UnauthorizedOperation/InvalidClusterState remain undeclared/unused -- no real precondition for any is discoverable from this backend's state, left honest rather than inventing triggers."}
@@ -1293,3 +1293,491 @@ entries to re-check against the "does the state already exist in the backend" te
 changes this pass. Gates: `go build ./services/redshift/...` clean; `go test
 ./services/redshift/... -count=1` -- `ok github.com/blackbirdworks/gopherstack/services/redshift
 0.328s`.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Redshift's older query/XML API leaves most status-like fields (`Cluster.ClusterStatus`,
+`ClusterAvailabilityStatus`, `AvailabilityZoneRelocationStatus`, `IPRange.Status`,
+`EC2SecurityGroup.Status`, `ReservedNode.State`, `DomainConfigurationStatus`-adjacent fields,
+`Cluster.LakehouseRegistrationStatus`) as untyped `*string` on the real SDK with no documented
+enum at all — those are out of scope by definition (no enum to violate) and were confirmed
+untyped, not assumed. Every field that IS a real typed enum (`redshift@v1.65.4 types/enums.go`:
+`AquaConfigurationStatus`, `AquaStatus`, `AuthorizationStatus`, `DataShareStatus`,
+`DataShareStatusForConsumer`/`ForProducer`, `NamespaceRegistrationStatus`,
+`PartnerIntegrationStatus`, `ScheduledActionState`, `ScheduleState`, `ZeroETLIntegrationStatus`,
+`TableRestoreStatusType`, `ReservedNodeExchangeStatusType`, `LakehouseRegistration`,
+`LakehouseIdcRegistration`) was traced through every assignment. `cmd/enumcheck` was run both
+before and after and flagged **none** of the finding below.
+
+**Found and fixed**: `reserved_nodes.go` `DescribeReservedNodeExchangeStatus` returned
+`partnerStatusActive` ("Active") — a constant borrowed from the unrelated
+`PartnerIntegrationStatus` enum — for `ReservedNodeExchangeStatus.Status`, whose real member is
+`types.ReservedNodeExchangeStatusType` (REQUESTED/PENDING/IN_PROGRESS/RETRYING/SUCCEEDED/FAILED,
+`types/enums.go:468`), which has no `"Active"` member at all. Fixed to a new
+`reservedNodeExchangeStatusSucceeded = "SUCCEEDED"` constant, scoped to this field rather than
+reusing another family's constant for its string value — this backend has no real exchange-
+request pipeline to simulate, so the immediate-terminal value is the honest choice, matching this
+service's own `slTableRestoreStatusSucceeded`/reconciler precedent for the same "no async
+pipeline" pattern. A pre-existing test
+(`TestRedshiftHandler_DescribeReservedNodeExchangeStatus`'s `"success"` case) asserted the raw
+XML body contained `"Active"` — updated to assert `"SUCCEEDED"` instead, per this campaign's "do
+not trust existing tests" rule.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`AquaConfigurationStatus`/`AquaStatus` (both `"disabled"`, documented permanently-retired field),
+`AuthorizationStatus` (2/2: Authorized/Revoking), `DataShareStatus` (3/6: ACTIVE/AUTHORIZED/
+DEAUTHORIZED/REJECTED used across `DataShare`/`DataShareAssociation`), `NamespaceRegistrationStatus`
+(2/2), `PartnerIntegrationStatus` (1/4: Active), `ScheduledActionState` (2/2), `ScheduleState`
+(1/3: ACTIVE, reused via the misleadingly-named `dataShareStatusActive` constant for both
+`ScheduleAssociationState` and `SnapshotScheduleState` — same string value is coincidentally
+legal for both `DataShareStatus` and `ScheduleState`, so not a value bug, but noted as a naming
+smell worth a follow-up rename), `ZeroETLIntegrationStatus` (1/7: active), `TableRestoreStatusType`
+(2/5: IN_PROGRESS/SUCCEEDED for the classic-cluster path; `ServerlessTableRestoreStatus` jumps
+straight to SUCCEEDED, same no-async-pipeline convention). `DataShareStatusForConsumer`/
+`ForProducer` are real typed enums but only ever appear as client-supplied *input* filter
+parameters on `DescribeDataSharesForConsumer`/`ForProducer` (passthrough, not backend-assigned)
+— out of scope for this pass, not a fabrication risk since a real typed SDK client can only send
+a legal member.
+
+Also confirmed, not a bug: `lakehouseStatusRegistered`/`lakehouseStatusDeregistered`
+("Registered"/"Deregistered", `lakehouse.go`) back `Cluster.LakehouseRegistrationStatus`, which
+is untyped `*string` on the real SDK (no enum exists) — already documented in this file's own
+header comment as a deliberate, honest derivation from the client's real
+`types.LakehouseRegistration` request value, re-confirmed correct this pass, not re-touched.
+
+Gates: `go build ./services/redshift/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes this pass), `go test -race -count=1 ./services/redshift/...` (pass, including
+new `wire_field_fixes_test.go` and the one corrected pre-existing test, each new/changed
+assertion hand-verified to fail against the pre-fix literal then restored),
+`golangci-lint run --fix ./services/redshift/...` (0 issues). Work left uncommitted per this
+pass's instructions.
+
+## 2026-08-29 error-path sweep (wrong-code bug hunt, no fix needed)
+
+Cross-referenced the `errCodeSentinels`/`resolveErrCode` table (`handler.go`) and a sample of
+call sites (crawlers-equivalent multi-code ops: `DeleteCluster`, `CreateClusterSnapshot`,
+`RevokeEndpointAccess`, `DescribeReservedNodeExchangeStatus`) against each op's own
+`awsAwsquery_deserializeOpError<Op>` switch (redshift@v1.65.4 deserializers.go, all 145 ops
+extracted). Found no wrong-sentinel bugs: every checked sentinel's wire code appears in the
+modeled set of every op that raises it. This service's `errors.go` already carries extensive
+per-op SDK-verified citations from a prior pass (e.g. `ErrSnapshotAccessNotFound`,
+`ErrSecurityGroupIngressNotFound`, `ErrNamespaceRegistrationInvalidClusterState` all cite their
+specific `deserializeOpError<Op>` switch by name), and that prior work held up under
+re-verification. `DescribeReservedNodeExchangeStatus` models both `ReservedNodeNotFound` and a
+second, AWS-side-misspelled `ReservedNodeExchangeNotFond` code the SDK also recognizes; this
+backend only implements the first condition (reserved node doesn't exist) — a coverage gap
+(no exchange-status-not-found case exists in this backend at all), not a wrong-code bug, so left
+unfixed per this pass's scope.
+
+Only change: `errors.go`'s header comment cited SDK version v1.62.3 (stale — go.mod pins
+v1.65.4); re-verified every code string against v1.65.4's `types/errors.go` (unchanged) and
+updated the comment to the correct version. No behavior change.
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide), `go test -race -count=1
+./services/redshift/...`, `golangci-lint run --fix ./services/redshift/...` — all clean, no
+regressions (expected, since no runtime code changed).
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family)
+
+Enumerated every hand-parsed indexed-list query key in this service -- every `vals.Get(fmt.Sprintf(...))`
+call site plus every `parseStringList`/`parseTagListPrefixed`/`parseParameterList` caller (19 sites) --
+and resolved each against its own operation's `awsAwsquery_serializeOpDocument<Op>Input` in the pinned
+redshift@v1.65.4 SDK, following up the wrapper-list serializer it calls to the actual `value.Array("...")`
+element name. 19-of-19 resolved (17 by direct serializer read, 2 by hand-tracing a two-level nested
+serializer). Two real bugs found, both real client's-eye-view zeros regardless of what the backend stored:
+
+1. **`nodeConfigFilterValue` (`handler_advisor.go`), wrong key entirely.** Looked for
+   `<prefix>.Values.<M>` after matching a filter's `.Name` key. The real wire shape (serializers.go:
+   `awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput` wraps `Filters` under object key
+   `"Filter"`, `awsAwsquery_serializeDocumentNodeConfigurationOptionsFilterList` names each element
+   `NodeConfigurationOptionsFilter`, and `awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter`
+   wraps `Values` under singular object key `"Value"`, itself an `array("item")` per
+   `awsAwsquery_serializeDocumentValueStringList`) puts every value at
+   `Filter.NodeConfigurationOptionsFilter.N.Value.item.M` -- plural "Values" never appears on the wire at
+   all. A real client's `NodeType`/`NumberOfNodes`/`Mode` filters on `DescribeNodeConfigurationOptions`
+   were silently ignored entirely (fell through to the full unfiltered option set), same bug class as
+   rds's `Values.Value`/neptune's `EventCategory`, just a different wrapper depth. Fixed the prefix match
+   to `.Value.item.`.
+2. **`parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition")` (`handler_snapshot_schedules.go`,
+   both `CreateSnapshotSchedule` and `ModifySnapshotSchedule`), missing separator, not a wrong element
+   name.** `awsAwsquery_serializeDocumentScheduleDefinitionList` confirms the element name itself
+   (`ScheduleDefinition`) was already right, but the prefix argument was missing its trailing `.`, so the
+   handler looked for `ScheduleDefinitions.ScheduleDefinition1` while a real client always sends
+   `ScheduleDefinitions.ScheduleDefinition.1` -- schedule definitions were silently dropped on every
+   Create/Modify regardless of what a client sent. Fixed both call sites to `"ScheduleDefinitions.ScheduleDefinition."`.
+
+**Confirmed NOT present in this service**: the rds `Values.Value`/neptune `EventCategory` bugs
+themselves don't recur verbatim -- `parseDescribeFilters`-equivalent generic `Filters.Filter.N.Values.*`
+parsing doesn't exist here (redshift's only generic filter surface is the advisor one above, fixed);
+`EventCategories.EventCategory.N`/`SourceIds.SourceId.N` (`handler_events.go`, `CreateEventSubscription`/
+`ModifyEventSubscription`) already read the correct element names, cross-checked against
+`awsAwsquery_serializeDocumentEventCategoriesList`/`awsAwsquery_serializeDocumentSourceIdsList`. No list
+truncated to its first element (checked every loop terminates on first empty index, not a fixed `.1`/`[0]`
+read). No Create/Modify divergence found among the 19 resolved sites (each list-accepting param used
+consistently across its Create/Modify pair, where both exist). One structural gap noted but not fixed
+(out of this class's scope, filed for awareness only): `handleCreateCluster` (`handler.go`) only ever
+reads 5 of `CreateClusterInput`'s fields (`ClusterIdentifier`/`NodeType`/`DBName`/`MasterUsername`/
+`MasterUserPassword`) -- `IamRoles`/`VpcSecurityGroupIds`/`ClusterSubnetGroupName`/etc. are silently
+ignored at creation time even though `ModifyClusterIamRoles` and friends manage the equivalent state
+post-creation. This is a missing-feature gap, not a wrong-key bug -- no wire key is misread, the keys are
+simply never looked at.
+
+Two new SDK-driven tests added to `handler_sdk_roundtrip_test.go`
+(`TestDescribeNodeConfigurationOptions_FilterWireKey`, `TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey`),
+both confirmed failing against the pre-fix code (asserted defaults/empty results) before the fix, passing after.
+
+Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...` and `go vet ./...` (repo-wide,
+clean -- no signature changes), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
+./services/redshift/...` (0 issues, ran plain after an initial `paralleltest`/`tparallel` finding on the
+new test's subtests, fixed by adding the missing `t.Parallel()` calls, re-ran clean).
+
+## 2026-08-29 ordering-bug sweep (paginate-before-filter, iam class)
+
+Audited every filtered-and-paginated operation for order of operations (filter-then-paginate is
+correct; paginate-then-filter silently shorts the page and can be missed entirely past the cursor).
+Found and fixed one real instance in classic `DescribeClusters`; the entire serverless List family (11
+ops) plus `DescribeClusterSnapshots`/`DescribeQev2IdcApplications` were already correct. All other
+classic `Describe*` ops implement no pagination at all in either handler or backend (confirmed by
+grepping every backend `Describe*` signature for a marker/token parameter), so there is no cursor to
+get the order wrong.
+
+1. **`DescribeClusters` (`handler.go`/`store.go`), paginate-then-filter, plus wrong param names and
+   wrong match semantics.** The handler read singular `TagKey`/`TagValue` query params, applied them as
+   an AND filter to the *page* `Backend.DescribeClusters` had already cut by `Marker`/`MaxRecords`, and
+   discarded the singular strings supplied by no real client. Real `DescribeClustersInput` (redshift@
+   v1.65.4 `api_op_DescribeClusters.go`) has `TagKeys`/`TagValues []string`, wire-encoded as
+   `TagKeys.TagKey.N`/`TagValues.TagValue.N` (`serializers.go:12572`,
+   `awsAwsquery_serializeDocumentTagKeyList`), matched as "any tag whose key is in TagKeys OR whose
+   value is in TagValues" per the operation doc comment -- not an AND of one key/value pair. Moved the
+   tag filter into `InMemoryBackend.DescribeClusters` (new `tagKeys, tagValues []string` params),
+   applied to the full snapshot before the `Marker` cut/`MaxRecords` slice, and added
+   `clusterMatchesTagKeysOrValues` implementing the real any-key-or-value semantics via `Tags.Range`.
+   Marker/nextMarker were already computed correctly independent of the tag filter (unlike the iam bug,
+   a client that kept following `Marker` to empty would eventually see every match, just via
+   short/uneven pages) -- so this was the "page comes back short" half of the class, not the
+   "truncation lies" half. `handler_cluster_mgmt.go`/`handler_advisor.go`'s id-only lookups pass
+   `nil, nil` (unaffected, since a non-empty `ClusterIdentifier` bypasses tag filtering and pagination
+   entirely). The prior `TestDescribeClusters_TagFilter` (`handler_cluster_test.go`) hand-built form
+   posts with the wrong singular param names and asserted the bug's own output as correct; replaced
+   with SDK-driven `TestDescribeClusters_TagKeysFilter` and
+   `TestDescribeClusters_TagKeysFilter_PaginationOrdering` (`handler_cluster_tagkeys_test.go`), the
+   latter creating more tag-matching clusters than fit in one page and asserting the full match set is
+   reachable by following `Marker`. Both confirmed failing against the pre-fix handler (wrong clusters
+   returned / filter engaging as a no-op) before the fix.
+
+**Clean, verified**: all 11 `services/redshift/serverless_*.go` `List*` backends (`ListRecoveryPointsSL`,
+`ListServerlessUsageLimits`, `ListNamespaces`, `ListServerlessSnapshots`, `ListEndpointAccessSL`,
+`ListWorkgroups`, `ListServerlessTracks`, `ListSnapshotCopyConfigurationsSL`,
+`ListCustomDomainAssociationsSL`, `ListTableRestoreStatusSL`, `ListServerlessScheduledActions`) filter
+the full index before slicing by `nextToken`/`maxResults`, and their handlers pass request fields
+straight through with no post-backend re-filtering. `DescribeClusterSnapshots` (`handler_snapshots.go`)
+filters fully in the backend, then paginates the filtered slice in the handler via a base64 marker --
+correct. `DescribeQev2IdcApplications` has only a single-ID lookup, no combinable filter.
+
+**Gaps noted, not fixed** (no pagination implemented at all, so no ordering bug is possible; each is a
+structural/never-plumbed gap, judged unobservable for a typically small collection per operation, left
+for a future "never-plumbed pagination" pass rather than folded into this one): `DescribeEvents`,
+`DescribeReservedNodeOfferings`, `DescribeDataShares*`, `DescribeEndpointAccess`,
+`DescribeEndpointAuthorization`, `DescribeClusterParameterGroups`/`Parameters`, and others enumerated
+above under classic `Describe*` -- none read `Marker`/`MaxRecords` from the request at all.
+
+New test file: `handler_cluster_tagkeys_test.go` (SDK-driven, real `redshiftsdk.Client`, per this
+service's `newTestRedshiftClient` harness -- required here since the bug included wrong wire-key
+binding, not just handler logic over an already-correct value).
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, `DescribeClusters` signature
+changed), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
+./services/redshift/...` (0 issues after fixing a `govet` shadow and an `nlreturn` finding).
+
+**2026-08-30 (negative-continuation-token sweep)**: Redshift Serverless's 11 `List*` ops
+(`serverless_namespaces.go`, `serverless_table_restore.go`, `serverless_workgroups.go`,
+`serverless_snapshots.go`, `serverless_recovery.go`, `serverless_snapshot_copy_config.go`,
+`serverless_endpoint_access.go`, `serverless_usage_limits.go`, `serverless_custom_domains.go`,
+`serverless_tracks.go`, `serverless_scheduled_actions.go`) each copy-pasted an identical
+inline `nextToken` decode with a bare `strconv.Atoi` and no negative check; each caller's
+`startIdx >= len(list)` guard does not catch a negative `startIdx`, so `list[startIdx:end]`
+panicked given `nextToken="-5"`. No shared decode function existed to fix in one place — this
+was 11 duplicated inline blocks, not one helper — so this pass extracted a new shared
+`decodeServerlessPageToken` (`serverless.go`, next to the existing `serverlessDefaultPageSize`
+helper) and replaced all 11 inline blocks with a single call, consolidating what should always
+have been one decode site.
+
+Proof: `TestServerlessNamespaceIndex_NegativeToken` (`serverless_index_test.go`) confirmed
+panicking pre-fix, passes now (the fix in `serverless.go` covers all 11 ops via one function,
+so this single reproduction stands for the class). Gates: `go build ./services/redshift/...`,
+`go vet ./services/redshift/...`, `go test -race -count=1 ./services/redshift/...`,
+`golangci-lint run ./services/redshift/...` (0 issues). Work left uncommitted per this pass's
+instructions.
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `DescribeClusterSnapshots`
+(`snapshots.go`) built its unfiltered result from `b.snapshots.All()` -- an unspecified-order map
+walk (`pkgs/store`'s `Table.All` doc) -- with no sort at all before `handleDescribeClusterSnapshots`
+(`handler_snapshots.go`) applied its `Marker`-based pagination. Two calls could observe different
+underlying orders, so a client paging with `MaxRecords` smaller than the snapshot count could drop
+or duplicate a snapshot at a page boundary even though `SnapshotIdentifier` (the marker value, and
+the table's own key) is itself unique -- the same shape the campaign brief documents for 3 elbv2
+listings resumed by a unique listener ARN and 3 ssoadmin listings resumed by a unique request id.
+Fixed by reading via `b.snapshots.Snapshot()` instead of `.All()` -- `Snapshot()` sorts by the
+table's own key (`SnapshotIdentifier`) ascending, deterministically, matching the existing
+`DescribeClusters` pattern this same file already uses for the same reason.
+
+Every other `Describe*`/`List*` site in this service was audited: the 40+ non-serverless `Describe*`
+ops (`custom_domains.go`, `endpoint_access.go`, `events.go`, `auth_profiles.go`, `data_shares.go`,
+`hsm.go`, `param_groups.go`, and the rest) accept no `Marker`/`MaxRecords` at all -- they always
+return the full set in one response, so there is no page boundary for this bug class to hit (a
+separate, pre-existing gap: these ops ignore `Marker`/`MaxRecords` entirely, not newly introduced or
+touched this pass). `DescribeClusters` and `DescribeQev2IdcApplications` already page via
+`.Snapshot()`/sort-by-table-key and were confirmed safe, unchanged. All 11 Redshift Serverless
+`List*` ops page via the pre-sorted `sortedStringIndex` (`serverless_index.go`) keyed by each
+resource's own unique name -- confirmed safe, unchanged.
+
+Proof: `TestDescribeClusterSnapshots_PaginationOrderIsReproducible`
+(`handler_snapshots_test.go`) creates 130 same-cluster snapshots, walks them with `MaxRecords=25`
+across `Marker`-resumed pages, and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed on the first iteration against the unfixed code (some
+snapshots missing entirely, others double-counted), passes after the `.Snapshot()` fix. Existing
+`TestDescribeClusterSnapshots_Pagination` subtests never exercised a real multi-page walk (every
+snapshot count used fits in one `MaxRecords=20` page), so they could not have caught this.
+
+Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...`,
+`go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...`
+(0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 wire-key-read sweep, continued (remaining Describe/List operations)
+
+Completed the wire-key-read sweep across all 43 Describe/List operations (derived from
+`handler.go`'s dispatch-table registrations, not this file's prose). The prior pass on this
+branch covered 13 (7 fixed bugs: Tags, ClusterSnapshots, ScheduledActions, UsageLimits,
+HsmClientCertificates, HsmConfigurations, EndpointAccess; 6 confirmed-correct: ClusterParameterGroups,
+ClusterSubnetGroups, ClusterSecurityGroups, Events, DescribeClusters, ReservedNodeExchangeStatus
+enum). This pass audited the remaining 30 and found 8 more real bugs, all the same "declared field
+never read" shape:
+
+- `DescribeClusterParameters`: `Source` (real values `engine-default`/`user`, `param_groups.go`'s
+  `ClusterParameter.Source`) was declared and never read -- every request returned every parameter
+  regardless of `Source`. Fixed (`handler_param_groups.go`).
+- `DescribeEventCategories`: `SourceType` (5 legal values, 4 modeled in this backend's static
+  catalog) was declared and never read -- `_ url.Values` ignored the whole request. Fixed
+  (`handler_events.go`).
+- `DescribeCustomDomainAssociations`: `CustomDomainCertificateArn` was declared and never read,
+  even though it's real backend data already echoed in every response. Fixed
+  (`handler_custom_domains.go`). NOTE: the response shape itself remains the pre-existing,
+  separately-scoped gap already documented under `families.CustomDomainAssociation` above (real
+  `Association` groups by certificate via `CertificateAssociations`, this backend emits a flat
+  per-domain list) -- not touched, out of scope for a filter fix.
+- `DescribeInboundIntegrations`: full no-stub violation, not just a dropped filter -- `_
+  url.Values` ignored the request AND the handler never consulted the integrations store at all,
+  always returning empty regardless of real `Integration` data (every integration this backend can
+  create already has a real `TargetArn`, i.e. it always targets something in Redshift). Fixed by
+  filtering the same store `DescribeIntegrations` reads, keyed on `IntegrationArn`/`TargetArn`
+  (`handler_integrations.go`). Response reshaped into a dedicated `inboundIntegrationXML` (CreateTime/
+  IntegrationArn/SourceArn/Status/TargetArn only, confirmed against `types.InboundIntegration`,
+  types/types.go:1160) instead of reusing `integrationXML`, which carries fields
+  (IntegrationName/Description/KMSKeyId/Tags) not on `InboundIntegration`'s real wire shape at all.
+- `DescribeIntegrations`: `Filters` (real enum `integration-arn`/`source-arn`/`source-types`,
+  `DescribeIntegrationsFilterName`, types/enums.go:194) was declared and never read. Fixed
+  `integration-arn` and `source-arn` (both exact-match against real, already-stored `Integration`
+  fields); `source-types` deliberately left unenforced -- it classifies `SourceArn` by AWS resource
+  type (e.g. "rds", "aurora-mysql"), data this backend does not derive from the stored ARN string,
+  so implementing it would fabricate a classification rather than read real data.
+- `DescribeSnapshotCopyGrants`: `TagKeys`/`TagValues` were declared and never read, even though
+  `SnapshotCopyGrant.Tags` is real, populated data already echoed on every response (same shape as
+  the previous pass's UsageLimit/Hsm* fixes). Fixed via the existing `anyTagMatchesFilter` helper
+  (`handler_snapshot_copy.go`).
+- `DescribeSnapshotSchedules`: both `ClusterIdentifier` and `TagKeys`/`TagValues` were declared and
+  never read. `SnapshotSchedule.AssociatedClusters` (derived at read time from
+  `Cluster.SnapshotScheduleIdentifier`) and `SnapshotSchedule.Tags` are both real, populated data.
+  Fixed both (`handler_snapshot_schedules.go`).
+- `DescribeTableRestoreStatus`: `TableRestoreRequestId` -- the real per-request identifier,
+  `TableRestoreStatus.TableRestoreRequestID` -- was declared and never read; only `ClusterIdentifier`
+  was. A client polling one specific restore request got back every restore status for the account
+  instead. Fixed (`handler_table_restore.go`).
+
+Confirmed correct / left alone, with reasoning:
+
+- `DescribeAccountAttributes`: `AttributeNames` declared, never read, but the whole response is a
+  static empty envelope regardless (no account-quota data modeled anywhere in this backend) --
+  filtering an unconditionally empty set is provably inert. Not fixed, matches this file's existing
+  "legitimately static/filter-less" note.
+- `DescribeClusterVersions`: `ClusterVersion`/`ClusterParameterGroupFamily` declared, never read,
+  but the static catalog has exactly one entry (`modelVersion10`) -- provably inert, same standard as
+  a single-legal-value enum.
+- `DescribeClusterTracks` / `DescribeOrderableClusterOptions`: `MaintenanceTrackName` /
+  `ClusterVersion`+`NodeType` declared, never read. Both catalogs are small, hardcoded reference
+  tables (2 and 4 entries) rather than real per-account resource state -- consistent with this file's
+  prior explicit judgment call on the same ops ("legitimately static/filter-less", `families.
+  Descriptive/static ops` above). Re-examined this pass and left as-is rather than reversing that
+  call: unlike the fixed bugs above, there is no real per-account backend record being silently
+  hidden here, only a fixed reference list whose contents do not vary by account or request.
+- `DescribeEventSubscriptions`: `TagKeys`/`TagValues` declared, never read -- `EventSubscription`
+  (`events.go`) has no `Tags` field at all, missing backend data, not a misread key.
+- `DescribeNodeConfigurationOptions`: `NodeType`/`NumberOfNodes` (carried inside `Filters`, not
+  top-level params) are already read via `nodeConfigFilterValue`'s indexed-list fallback, verified
+  against the real wire key (`Filter.NodeConfigurationOptionsFilter.N.Name`/`.Value.item.M`,
+  `awsAwsquery_serializeDocumentValueStringList` uses `item` not `member`). `Operator` (eq/lt/le/gt/
+  ge/between/in) is not honoured -- every filter is treated as equality -- a real gap, but a missing
+  feature on an already-correctly-read field, not the silent-full-list class this sweep targets; not
+  fixed, left for a follow-up pass.
+- `DescribeReservedNodeExchangeStatus`: `ReservedNodeExchangeRequestId` declared, never read, but
+  this backend does not model exchange requests as distinct entities at all (`Describe
+  ReservedNodeExchangeStatus` returns a hardcoded "Succeeded" keyed only on whether the reserved
+  node exists) -- missing backend data, not a misread key.
+- `DescribeStorage`: real Input struct has zero fields (`noSmithyDocumentSerde` only) -- nothing to
+  misread.
+- `DescribeAuthenticationProfiles`, `DescribeClusterDbRevisions`, `DescribeDataShares`,
+  `DescribeDataSharesForConsumer`, `DescribeDataSharesForProducer`, `DescribeDefaultClusterParameters`,
+  `DescribeEndpointAuthorization`, `DescribeLoggingStatus`, `DescribePartners`,
+  `DescribeQev2IdcApplications`, `DescribeRedshiftIdcApplications`, `DescribeReservedNodeOfferings`,
+  `DescribeReservedNodes`, `DescribeResize`: every real request field is already read; re-diffed
+  field-by-field against each op's Input struct, no gaps found.
+
+New tests (`wire_field_fixes_test.go`, real `aws-sdk-go-v2` client, decoded-response assertions,
+each hand-confirmed to fail against the pre-fix handler):
+`TestDescribeClusterParameters_FiltersBySource`, `TestDescribeEventCategories_FiltersBySourceType`,
+`TestDescribeCustomDomainAssociations_FiltersByCertificateArn`,
+`TestDescribeInboundIntegrations_ReturnsRealData`, `TestDescribeIntegrations_FiltersBySourceArn`,
+`TestDescribeSnapshotCopyGrants_FiltersByTagKeys`,
+`TestDescribeSnapshotSchedules_FiltersByClusterIdentifier`,
+`TestDescribeTableRestoreStatus_FiltersByRequestId`.
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, clean), `go test -race
+-count=1 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...` (0 issues).
+Work left uncommitted per this pass's instructions.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged `PurchaseReservedNodeOffering`'s
+`State: "payment-pending"`. Not actually an enum-class bug: real
+`types.ReservedNode.State` is a plain `*string`
+(redshift@v1.65.4 types/types.go), not a typed enum, so `cmd/enumcheck`'s
+match against an unrelated `State` enum sharing the wire key name was a
+false positive for that tool's class. But the doc comment on that field
+enumerates AWS's own legal values, and gopherstack's word order was
+backwards: real AWS's pending-payment value is `"pending-payment"` (state,
+then reason), not `"payment-pending"` (reason, then state). Fixed the
+literal. Covered by `TestPurchaseReservedNodeOffering_State`
+(`handler_sdk_roundtrip_test.go`), driven through the real SDK client.
+
+## 2026-08-30 anonymous-struct-decode sweep (gopherstack-4a8v): re-verified clean, no code change
+
+`cmd/reqfieldscan`'s fifth dispatch shape (anonymous inline `var req
+struct{...}` literal-decode, no `WrapOp`) made this service newly visible
+to that scanner: dispatch coverage 47/60 resolved (78%, both coverage lines
+identical, no guard warning — the 13 unresolved ops are the
+Get/Put/DeleteResourcePolicy, Create/Update/Delete/ListSnapshotCopyConfiguration,
+Create/Get/List/Update/DeleteEndpointAccess, and GetIdentityCenterAuthToken
+families. Root cause confirmed by reading the tool's own resolution path
+(main.go's package doc) plus this package's handlers: the literal-decode
+path resolves an op name only via a "handle"+opName fallback match
+(case-insensitive), and every one of these 13 ops' real, correctly-shaped
+`var req struct{...}` decoder lives on `*ServerlessHandler` under an
+`SL`-suffixed function name (`handleGetResourcePolicySL`,
+`handleCreateSnapshotCopyConfigurationSL`, `handleListEndpointAccessSL`,
+`handleGetIdentityCenterAuthTokenSL`, ...) that "handle"+opName never
+matches. Three of the 13 (`GetResourcePolicy`/`PutResourcePolicy`/
+`DeleteResourcePolicy`) additionally have a same-named classic-Redshift
+handler (`handleGetResourcePolicy(vals url.Values)`, query-param based, no
+JSON body) that the fallback matches instead, finding no decode there
+either; the other ten have no classic-Redshift op of the same name at all
+and simply match nothing. `RestoreFromRecoveryPoint` is the one op in this
+family whose Serverless handler kept the unsuffixed name
+(`handleRestoreFromRecoveryPoint`), so it alone resolved. A disclosed
+measurement gap, not a plausibility problem — worth a follow-up to
+cmd/reqfieldscan, not chased here (out of this pass's scope:
+cmd/reqfieldscan is held by another agent this pass). One field flagged:
+`RestoreFromRecoveryPoint`'s `MaintainIntegration`
+(`handler_serverless_recovery.go:65`).
+
+Hand-verified against `redshiftserverless@v1.38.5`'s
+`api_op_RestoreFromRecoveryPoint.go`: `MaintainIntegration` is a real
+`*bool` member ("If true, maintain existing data sharing, zero-ETL and S3
+event integrations when restoring"), parsed off the wire and never passed
+to `RestoreFromRecoveryPointSL`. This is the identical field, on the
+identical sibling operation's honest-gap precedent already fixed and
+documented in the 2026-08-13 pass above: `RestoreFromSnapshotSL`
+(`serverless_restore.go`) accepts the same field on
+`RestoreFromSnapshotParams` and explicitly discards it
+(`_ = p.MaintainIntegration`) with the reasoning "this backend does not
+model data-sharing/zero-ETL/S3-event integration state on namespaces at
+all, so there is nothing to maintain or drop." `RestoreFromRecoveryPointSL`
+has exactly the same limitation — no integration state exists anywhere on
+`Namespace` for either restore path to gate. Confirmed structurally, not
+just by analogy: grepped this package's `Namespace`/`ServerlessNamespace`
+struct and found no data-sharing/zero-ETL/S3-event field on either.
+
+**No code or test changes made to this service this pass.** The flagged
+field is an honest, structurally-identical restatement of an
+already-fixed-and-documented sibling gap, not a new bug — restraint per
+this campaign's own instructions, not a fabricated clean bill. This
+service's earlier verdict (see `overall: A` header and the Serverless
+family notes above) holds.
+
+Gates: not re-run (no change); `go build ./...` and `go vet ./...`
+(repo-wide) confirmed clean as part of this session's checks.
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation), classic Redshift
+
+Byte-for-byte item-level check against redshift@v1.65.4 deserializers.go
+(awsAwsquery_, confirmed by the `strings.EqualFold` match sites, not assumed
+from age or neighbours). Classic Redshift (as opposed to Redshift Serverless,
+which is out of scope here -- see the earlier `gopherstack-4a8v` entry above)
+had not been touched by this issue's two-layer batches before now (`rds` in
+6flj's notes is Amazon RDS, a different service).
+
+Covered, both wrapper key and every populated per-item field name, including
+nested wrapping shape:
+
+- **DescribeClusters** (`Cluster`, the richest item shape in this service):
+  AquaConfiguration{AquaConfigurationStatus,AquaStatus}, MasterUsername,
+  PreferredMaintenanceWindow, Endpoint{Address,Port}, ClusterStatus, NodeType,
+  ClusterAvailabilityStatus, MultiAZ, ClusterIdentifier,
+  SnapshotScheduleIdentifier, DBName, KmsKeyId, AvailabilityZoneRelocationStatus,
+  SnapshotScheduleState, CatalogArn, LakehouseRegistrationStatus,
+  ClusterParameterGroups>ClusterParameterGroup{ParameterGroupName,
+  ParameterApplyStatus}, ClusterNodes>member{NodeRole,PrivateIPAddress,
+  PublicIPAddress}, IamRoles>ClusterIamRole{IamRoleArn,ApplyStatus},
+  Tags>Tag{Key,Value}, NumberOfNodes, EnhancedVpcRouting, Encrypted. Wrapper
+  `Clusters>Cluster` confirmed against `awsAwsquery_deserializeDocumentClusterList`
+  (item-type-name leaf, not `member` -- one of the query-protocol exceptions to
+  the usual `member` convention, matching this service's own struct tags exactly).
+  All clean.
+- **DescribeClusterSnapshots** (`Snapshot`): SnapshotIdentifier,
+  ClusterIdentifier, SnapshotType, SnapshotCreateTime, Status,
+  AccountsWithRestoreAccess>AccountWithRestoreAccess{AccountId,AccountAlias},
+  ManualSnapshotRetentionPeriod. Wrapper `Snapshots>Snapshot`. All clean.
+- **DescribeClusterSecurityGroups** (`ClusterSecurityGroup`):
+  ClusterSecurityGroupName, Description, EC2SecurityGroups>EC2SecurityGroup
+  {EC2SecurityGroupName,EC2SecurityGroupOwnerId,Status}, IPRanges>IPRange
+  {CIDRIP,Status}. Wrapper `ClusterSecurityGroups>ClusterSecurityGroup`. All clean.
+- **DescribeEventSubscriptions** (`EventSubscription`): SubscriptionCreationTime,
+  CustSubscriptionId, CustomerAwsId, SnsTopicArn, Status, SourceType, Severity,
+  SourceIdsList>SourceId, EventCategoriesList>EventCategory, Enabled. Wrapper
+  `EventSubscriptionsList>EventSubscription` (note: the wrapper key itself is
+  `EventSubscriptionsList`, not the more guessable `EventSubscriptions` --
+  confirmed exact). All clean.
+
+No hard mismatches, no case-only mismatches, no wrong list-wrapping shape found
+in any of the above. No unwrapped-list-deserializer call site exists for
+`ClusterList`, `ClusterSecurityGroups`, `EventSubscriptionsList`, or
+`SnapshotList` in the pinned SDK (grepped `*ListUnwrapped`/`*Unwrapped` by name
+-- zero call sites outside their own func definitions). No code changes this
+pass -- everything checked was already correct.
+
+NOT REACHED at item level: the ~90+ remaining Describe/List ops in this
+service (DescribeClusterParameters, DescribeClusterParameterGroups,
+DescribeClusterSubnetGroups, DescribeClusterVersions, DescribeClusterDbRevisions,
+DescribeOrderableClusterOptions, DescribeReservedNodes,
+DescribeReservedNodeOfferings, DescribeHsmClientCertificates,
+DescribeHsmConfigurations, DescribeScheduledActions, DescribeUsageLimits,
+DescribeDataShares and family, DescribeCustomDomainAssociations,
+DescribeInboundIntegrations, DescribeIntegrations, DescribeSnapshotCopyGrants,
+DescribeSnapshotSchedules, DescribeTableRestoreStatus, DescribeTags,
+DescribeAuthenticationProfiles, DescribePartners, DescribeNodeConfigurationOptions,
+and the remaining IDC-application/lakehouse/advisor families).
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/redshift/...` (pass, no test changes needed
+since no code changed), `golangci-lint run ./services/redshift/...` (0 issues).

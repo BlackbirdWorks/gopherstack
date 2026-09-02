@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	medialivesdk "github.com/aws/aws-sdk-go-v2/service/medialive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -365,6 +367,46 @@ func TestListClusterAlerts(t *testing.T) {
 					assert.Equal(t, tt.wantAlertCode, first["alertType"])
 				}
 			}
+		})
+	}
+}
+
+// TestListClusterAlerts_RealClient_StateFilter drives ListClusterAlerts
+// through the real aws-sdk-go-v2 client with StateFilter set
+// (ListClusterAlertsInput.StateFilter, the real "stateFilter" query param --
+// api_op_ListClusterAlerts.go:41-44, serializers.go). The handler never read
+// stateFilter at all: a non-ACTIVE cluster's synthetic "cluster-not-ready"
+// alert (always state SET) was returned unconditionally regardless of what
+// state a client filtered for, so a client asking for CLEARED alerts would
+// wrongly get the SET one back.
+func TestListClusterAlerts_RealClient_StateFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestMediaLiveClient(t, h)
+
+	clusterID := createTestCluster(t, h)
+	medialive.ForceClusterState(h.Backend.(*medialive.InMemoryBackend), clusterID, "DELETING")
+
+	tests := []struct {
+		stateFilter string
+		wantCount   int
+	}{
+		{stateFilter: "SET", wantCount: 1},
+		{stateFilter: "ALL", wantCount: 1},
+		{stateFilter: "CLEARED", wantCount: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.stateFilter, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := client.ListClusterAlerts(t.Context(), &medialivesdk.ListClusterAlertsInput{
+				ClusterId:   aws.String(clusterID),
+				StateFilter: aws.String(tt.stateFilter),
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.Alerts, tt.wantCount)
 		})
 	}
 }

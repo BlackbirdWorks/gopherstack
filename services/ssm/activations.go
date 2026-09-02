@@ -362,7 +362,7 @@ func (b *InMemoryBackend) DeleteActivation(
 
 	activations := b.activationsStore(region)
 	if !activations.Has(input.ActivationID) {
-		return nil, ErrActivationNotFound
+		return nil, ErrInvalidActivationID
 	}
 
 	activations.Delete(input.ActivationID)
@@ -428,6 +428,8 @@ func (b *InMemoryBackend) DescribeActivations(
 			list = append(list, cp)
 		}
 	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ActivationID < list[j].ActivationID })
 
 	var maxResults int
 	if input.MaxResults != nil {

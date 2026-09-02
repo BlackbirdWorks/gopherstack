@@ -719,7 +719,7 @@ func TestValidateReleaseLabel(t *testing.T) {
 func newSessionForTest(t *testing.T, h *emr.Handler, clusterName string) (string, string) {
 	t.Helper()
 
-	rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": clusterName})
+	rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": clusterName, "SessionEnabled": true})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cluster struct {
@@ -755,7 +755,8 @@ func TestEMR_StartSession(t *testing.T) {
 			setup: func(t *testing.T, h *emr.Handler) string {
 				t.Helper()
 
-				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "session-cluster"})
+				rec := doEMRRequest(t, h, "RunJobFlow",
+					map[string]any{"Name": "session-cluster", "SessionEnabled": true})
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out struct {
@@ -910,7 +911,8 @@ func TestEMR_ListSessions(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "list-sessions-cluster"})
+			createRec := doEMRRequest(t, h, "RunJobFlow",
+				map[string]any{"Name": "list-sessions-cluster", "SessionEnabled": true})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var cluster struct {

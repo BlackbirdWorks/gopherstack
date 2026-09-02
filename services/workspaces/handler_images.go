@@ -290,20 +290,23 @@ type describeWorkspaceImagePermissionsOutput struct {
 func (h *Handler) handleDescribeWorkspaceImagePermissions(
 	_ context.Context, req *describeWorkspaceImagePermissionsInput,
 ) (*describeWorkspaceImagePermissionsOutput, error) {
-	imageID, perms, err := h.Backend.DescribeWorkspaceImagePermissions(req.ImageId)
+	imageID, pg, err := h.Backend.DescribeWorkspaceImagePermissions(
+		req.ImageId, req.NextToken, int(req.MaxResults),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]imgPermResp, 0, len(perms))
-	for accountID, allowCopy := range perms {
-		r := imgPermResp{SharedAccountId: accountID}
-		r.ImagePermission.AllowCopyImage = allowCopy
+	items := make([]imgPermResp, 0, len(pg.Data))
+	for _, p := range pg.Data {
+		r := imgPermResp{SharedAccountId: p.SharedAccountID}
+		r.ImagePermission.AllowCopyImage = p.AllowCopyImage
 		items = append(items, r)
 	}
 
 	return &describeWorkspaceImagePermissionsOutput{
 		ImageId:          imageID,
+		NextToken:        pg.Next,
 		ImagePermissions: items,
 	}, nil
 }

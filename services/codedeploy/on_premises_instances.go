@@ -60,7 +60,9 @@ func (b *InMemoryBackend) RegisterOnPremisesInstance(name, iamSessionArn, iamUse
 	defer b.mu.Unlock()
 
 	if !onPremInstanceNameRe.MatchString(name) {
-		return fmt.Errorf("%w: instance name %q does not match pattern [A-Za-z0-9._-]{1,100}", ErrValidation, name)
+		return fmt.Errorf(
+			"%w: instance name %q does not match pattern [A-Za-z0-9._-]{1,100}", ErrInvalidInstanceName, name,
+		)
 	}
 
 	if iamSessionArn != "" && iamUserArn != "" {

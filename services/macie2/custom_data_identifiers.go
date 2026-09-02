@@ -130,7 +130,17 @@ func (b *InMemoryBackend) ListCustomDataIdentifiers(
 			}, true
 		},
 		func(result []*CustomDataIdentifierSummary) {
-			sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+			// Name has no uniqueness constraint (CreateCustomDataIdentifier never
+			// checks for an existing Name); ID as a tiebreaker keeps a total order
+			// so the offset-based page.NewHMAC cursor can't drop or duplicate
+			// identifiers that tie on Name.
+			sort.Slice(result, func(i, j int) bool {
+				if result[i].Name != result[j].Name {
+					return result[i].Name < result[j].Name
+				}
+
+				return result[i].ID < result[j].ID
+			})
 		},
 		token,
 		b.paginationSecret,

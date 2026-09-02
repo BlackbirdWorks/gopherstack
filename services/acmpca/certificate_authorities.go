@@ -103,7 +103,7 @@ func resolveCAType(caType string) (string, error) {
 	}
 
 	if caType != caTypePRoot && caType != caTypeSubordinate {
-		return "", fmt.Errorf("%w: CertificateAuthorityType must be ROOT or SUBORDINATE", ErrInvalidParameter)
+		return "", fmt.Errorf("%w: CertificateAuthorityType must be ROOT or SUBORDINATE", ErrInvalidArgs)
 	}
 
 	return caType, nil
@@ -233,7 +233,7 @@ func resolveKeyStorageSecurityStandard(std string) (string, error) {
 	case keyStorageStandardFips2, keyStorageStandardFips3, keyStorageStandardCCPC1:
 		return std, nil
 	default:
-		return "", fmt.Errorf("%w: unsupported KeyStorageSecurityStandard %q", ErrInvalidParameter, std)
+		return "", fmt.Errorf("%w: unsupported KeyStorageSecurityStandard %q", ErrInvalidArgs, std)
 	}
 }
 
@@ -249,7 +249,7 @@ func resolveUsageMode(mode string) (string, error) {
 	case usageModeGeneralPurpose, usageModeShortLivedCertificate:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("%w: unsupported UsageMode %q", ErrInvalidParameter, mode)
+		return "", fmt.Errorf("%w: unsupported UsageMode %q", ErrInvalidArgs, mode)
 	}
 }
 
@@ -283,17 +283,17 @@ func validateCrlConfiguration(crl *CrlConfiguration) error {
 
 	switch {
 	case !crl.Enabled && crlDisabledExtraFieldsSet(crl):
-		return fmt.Errorf("%w: CrlConfiguration with Enabled=false must not set any other field", ErrInvalidParameter)
+		return fmt.Errorf("%w: CrlConfiguration with Enabled=false must not set any other field", ErrInvalidArgs)
 	case crl.Enabled && crl.S3BucketName == "":
-		return fmt.Errorf("%w: CrlConfiguration.S3BucketName is required when Enabled=true", ErrInvalidParameter)
+		return fmt.Errorf("%w: CrlConfiguration.S3BucketName is required when Enabled=true", ErrInvalidArgs)
 	}
 
 	if crl.CrlType != "" && crl.CrlType != crlTypeComplete && crl.CrlType != crlTypePartitioned {
-		return fmt.Errorf("%w: unsupported CrlType %q", ErrInvalidParameter, crl.CrlType)
+		return fmt.Errorf("%w: unsupported CrlType %q", ErrInvalidArgs, crl.CrlType)
 	}
 
 	if crl.S3ObjectACL != "" && crl.S3ObjectACL != s3ObjectACLPublicRead && crl.S3ObjectACL != s3ObjectACLBucketOwner {
-		return fmt.Errorf("%w: unsupported S3ObjectAcl %q", ErrInvalidParameter, crl.S3ObjectACL)
+		return fmt.Errorf("%w: unsupported S3ObjectAcl %q", ErrInvalidArgs, crl.S3ObjectACL)
 	}
 
 	return nil
@@ -301,7 +301,7 @@ func validateCrlConfiguration(crl *CrlConfiguration) error {
 
 func validateOcspConfiguration(ocsp *OcspConfiguration) error {
 	if ocsp != nil && !ocsp.Enabled && ocsp.OcspCustomCname != "" {
-		return fmt.Errorf("%w: OcspConfiguration with Enabled=false must not set OcspCustomCname", ErrInvalidParameter)
+		return fmt.Errorf("%w: OcspConfiguration with Enabled=false must not set OcspCustomCname", ErrInvalidArgs)
 	}
 
 	return nil
@@ -348,7 +348,7 @@ func (b *InMemoryBackend) verifyCertificateAuthorityActive(ctx context.Context, 
 func (b *InMemoryBackend) DescribeCertificateAuthority(
 	ctx context.Context, caARN string,
 ) (*CertificateAuthority, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return nil, err
 	}
 
@@ -382,8 +382,13 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 	case resourceOwnerOtherAccounts:
 		return page.Page[CertificateAuthority]{Data: []CertificateAuthority{}}, nil
 	default:
+		// ListCertificateAuthorities's own error model declares only
+		// InvalidNextTokenException -- not InvalidArgsException, and no
+		// other declared code fits a bad ResourceOwner value. No correct
+		// code exists to send here; left rather than substituted
+		// (gopherstack-6flj/uox6 error-envelope sweep).
 		return page.Page[CertificateAuthority]{}, fmt.Errorf(
-			"%w: unsupported ResourceOwner %q", ErrInvalidParameter, resourceOwner,
+			"%w: unsupported ResourceOwner %q", ErrInvalidArgs, resourceOwner,
 		)
 	}
 
@@ -403,6 +408,13 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 
 	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
 
+	// api_op_ListCertificateAuthorities.go: "Although the maximum value is
+	// 1000, the action only returns a maximum of 100 items." -- the page size
+	// never exceeds defaultMaxItems (100) even when the caller requests more.
+	if maxItems <= 0 || maxItems > defaultMaxItems {
+		maxItems = defaultMaxItems
+	}
+
 	return page.New(cas, nextToken, maxItems, defaultMaxItems), nil
 }
 
@@ -412,9 +424,16 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 ) error {
 	if permanentDeletionDays != 0 &&
 		(permanentDeletionDays < permanentDeletionMinDays || permanentDeletionDays > permanentDeletionMaxDays) {
+		// DeleteCertificateAuthority's own error model declares
+		// ConcurrentModification, InvalidArn, InvalidState, ResourceNotFound
+		// -- not InvalidArgsException, and no other declared code fits a
+		// day-count range check either (InvalidArnException's doc is
+		// specifically about ARNs). No ValidationException exists anywhere
+		// in this SDK module. No correct code exists to send here; left
+		// rather than substituted (gopherstack-6flj/uox6 sweep).
 		return fmt.Errorf(
 			"%w: PermanentDeletionTimeInDays must be between %d and %d",
-			ErrInvalidParameter,
+			ErrInvalidArgs,
 			permanentDeletionMinDays,
 			permanentDeletionMaxDays,
 		)
@@ -480,12 +499,12 @@ func WithUpdateCARevocationConfiguration(rc *RevocationConfiguration) UpdateCAOp
 func (b *InMemoryBackend) UpdateCertificateAuthority(
 	ctx context.Context, caARN, status string, opts ...UpdateCAOption,
 ) error {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return err
 	}
 
 	if status != "" && status != caStatusActive && status != caStatusDisabled {
-		return fmt.Errorf("%w: status must be ACTIVE or DISABLED", ErrInvalidParameter)
+		return fmt.Errorf("%w: status must be ACTIVE or DISABLED", ErrInvalidArgs)
 	}
 
 	var o updateCAOptions
@@ -523,7 +542,7 @@ func (b *InMemoryBackend) UpdateCertificateAuthority(
 
 // GetCertificateAuthorityCsr returns the CSR PEM for the given CA.
 func (b *InMemoryBackend) GetCertificateAuthorityCsr(ctx context.Context, caARN string) (string, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return "", err
 	}
 
@@ -545,7 +564,7 @@ func (b *InMemoryBackend) GetCertificateAuthorityCsr(ctx context.Context, caARN 
 func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
 	ctx context.Context, caARN, certPEM, chainPEM string,
 ) error {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return err
 	}
 
@@ -561,12 +580,12 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
 
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
-		return fmt.Errorf("%w: failed to decode certificate PEM for CA %s", ErrInvalidParameter, caARN)
+		return fmt.Errorf("%w: failed to decode certificate PEM for CA %s", ErrMalformedCertificate, caARN)
 	}
 
 	parsedCert, parseErr := x509.ParseCertificate(block.Bytes)
 	if parseErr != nil {
-		return fmt.Errorf("%w: failed to parse certificate for CA %s: %w", ErrInvalidParameter, caARN, parseErr)
+		return fmt.Errorf("%w: failed to parse certificate for CA %s: %w", ErrMalformedCertificate, caARN, parseErr)
 	}
 
 	ca.NotBefore = parsedCert.NotBefore
@@ -585,7 +604,7 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
 func (b *InMemoryBackend) GetCertificateAuthorityCertificate(
 	ctx context.Context, caARN string,
 ) (string, string, error) {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return "", "", err
 	}
 
@@ -608,7 +627,7 @@ func (b *InMemoryBackend) GetCertificateAuthorityCertificate(
 
 // RestoreCertificateAuthority restores a deleted CA into the DISABLED state.
 func (b *InMemoryBackend) RestoreCertificateAuthority(ctx context.Context, caARN string) error {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return err
 	}
 

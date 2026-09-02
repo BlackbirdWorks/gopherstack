@@ -7,7 +7,7 @@
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
 last_audit_commit: e4139790
-last_audit_date: 2026-08-21
+last_audit_date: 2026-08-29
 overall: A            # zero wire bugs this pass (2026-08-19); every single-resource CRUD op's flat
                        # (unwrapped) body reconfirmed correct against the SDK's actually
                        # invoked per-op deserializer, not the dead OpDocument helper.
@@ -393,3 +393,77 @@ issues). No files changed in this service; only this PARITY.md note and
 `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: appmesh moved from the
 ranked table into "Already examined" (settled-services count now 28, 2079
 required output fields read end to end).
+
+### 2026-08-29 wrapper-key/silent-drop sweep (bd gopherstack-6flj/21my): zero bugs
+
+Independent write-only-state pass over `aws-sdk-go-v2/service/appmesh@v1.38.4`
+(pin unchanged, reconfirmed against go.mod), separate from and in addition
+to the four prior dated sweeps above. `go run ./cmd/enumcheck`,
+`./cmd/acceptguard`, `./cmd/zeroguard`, and `./cmd/xmlitemwrap` all produced
+zero findings for appmesh this pass.
+
+Specifically re-checked, not just re-trusted from prior "ok" statuses:
+
+- Every List op's query-param surface (`limit`/`nextToken`, plus
+  `TagResource`/`UntagResource`/`ListTagsForResource`'s `resourceArn`) --
+  confirmed no App Mesh List op accepts an ordering/filter param beyond
+  those already modeled (unlike swf's `ListOpen/ClosedWorkflowExecutions`,
+  which turned out to drop `ReverseOrder` -- App Mesh's List ops have no
+  such member in the real SDK to drop).
+- `ListTagsForResourceInput.Limit` real range/default (1-100, default 100
+  per `api_op_ListTagsForResource.go`) matches gopherstack's existing
+  `listParams` default -- no drift.
+- `RouteData`/`GatewayRouteData`/`VirtualServiceData` required-member sets
+  spot-re-read directly from `types/types.go` (not from the batch-13 note)
+  as a sampling check against this pass's own claim rather than trusting
+  the prior pass's count -- unchanged, still correctly emitted by
+  `routeToWire`/`grToWire`/`vsToWire`.
+
+No new bug found. This service has now been independently swept four times
+(2026-07-23, 2026-08-10, 2026-08-19, 2026-08-21, 2026-08-29) with the last
+three finding zero new wire bugs -- consistent with a genuinely small,
+already-well-covered REST surface (38 ops, 7 resource families, no
+List-op filtering/ordering complexity), not evidence that no further sweep
+is needed (per this campaign's own "nineteen for nineteen" standing rule,
+a clean pass is recorded honestly rather than a bug being manufactured to
+match a quota). **Not reached this pass:** the opaque
+`RouteSpec`/`VirtualNodeSpec`/`VirtualGatewaySpec`/`GatewayRouteSpec`
+`json.RawMessage` passthrough fields (see `gaps` above -- structural, sized
+and explicitly deferred by the 2026-08-10 sweep, not re-examined here) and
+the `meshOwner` cross-account gap (also `gaps`, unchanged). No files in
+this service were modified this pass; only this note was added.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found — this is the one hand-rolled
+paginator across all eight services audited this pass whose cursor design
+structurally can't take the equality-miss-defaults-to-zero shape at all.
+
+`paginateStrings` (`store.go`) backs 7 List operations (`meshes.go`,
+`virtual_gateways.go` x2, `virtual_services.go`, `virtual_nodes.go`,
+`virtual_routers.go` x2). Its token is the **last** item returned on a page
+(not the next page's first item, unlike every other cursor convention seen
+this pass), and resuming searches for the first sorted name **strictly
+greater than** the token — a threshold, not an exact match. A name deleted
+since the token was issued still resolves correctly to the next surviving
+name (nothing to match, so nothing to silently default to 0); an
+exhausted or entirely-tampered cursor is caught by an explicit guard
+(`start == 0 && (empty || sorted[0] <= nextToken)`) that returns no items
+and no cursor, never a restart at page one.
+
+All seven checks pass, including a stale cursor naming a genuinely deleted
+item between the resume point and the next survivor
+(`pagination_arithmetic_internal_test.go`), and a real
+`aws-sdk-go-v2/service/appmesh` `ListMeshes` round trip that deletes such
+an item between calls (`pagination_sdk_roundtrip_test.go`).
+
+Gates: `go build ./services/appmesh/...`, `go vet ./services/appmesh/...`
+and `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/appmesh/...`, `golangci-lint run ./services/appmesh/...` — 0
+issues introduced this pass; one pre-existing, unrelated `unparam` finding
+on `newTestHandlerAndClient` (`sdk_roundtrip_helper_test.go`, present in
+HEAD before this pass, its only other caller already ignores the same
+return value) was left untouched as out of this pass's scope. No
+production code changed this pass — test-only additions confirming
+correctness.

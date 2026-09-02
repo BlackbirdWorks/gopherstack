@@ -183,6 +183,7 @@ func (h *Handler) handleListCollaborationChangeRequests(
 	_ = json.Unmarshal(body, &req)
 	items, next, err := h.Backend.ListCollaborationChangeRequests(
 		req.CollaborationIdentifier,
+		qp(c, "status"),
 		qp(c, "maxResults"),
 		qp(c, "nextToken"),
 	)

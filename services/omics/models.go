@@ -245,18 +245,19 @@ type RunFilter struct {
 
 // Run represents an HealthOmics workflow run.
 type Run struct {
-	StartTime     *time.Time            `json:"startTime,omitempty"`
-	StopTime      *time.Time            `json:"stopTime,omitempty"`
-	CreationTime  time.Time             `json:"creationTime"`
-	Configuration *ConfigurationDetails `json:"configuration,omitempty"`
-	Tags          map[string]string     `json:"tags"`
-	Params        map[string]any        `json:"parameters"`
-	Arn           string                `json:"arn"`
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	WorkflowID    string                `json:"workflowId"`
-	RoleARN       string                `json:"roleArn"`
-	RunGroupID    string                `json:"runGroupId,omitempty"`
+	StartTime       *time.Time            `json:"startTime,omitempty"`
+	StopTime        *time.Time            `json:"stopTime,omitempty"`
+	StorageCapacity *int                  `json:"storageCapacity,omitempty"`
+	CreationTime    time.Time             `json:"creationTime"`
+	Configuration   *ConfigurationDetails `json:"configuration,omitempty"`
+	Tags            map[string]string     `json:"tags"`
+	Params          map[string]any        `json:"parameters"`
+	Arn             string                `json:"arn"`
+	ID              string                `json:"id"`
+	Name            string                `json:"name"`
+	WorkflowID      string                `json:"workflowId"`
+	RoleARN         string                `json:"roleArn"`
+	RunGroupID      string                `json:"runGroupId,omitempty"`
 	// RunBatchID is serialized as "batchId" (real GetRunOutput/RunListItem
 	// wire key -- confirmed against the SDK deserializer; there is no real
 	// StartRunInput field to set this, it's populated internally by
@@ -269,9 +270,52 @@ type Run struct {
 	RunSettingID   string `json:"runSettingId,omitempty"`
 	NetworkingMode string `json:"networkingMode,omitempty"`
 	RunOutputURI   string `json:"runOutputUri,omitempty"`
-	UUID           string `json:"uuid,omitempty"`
-	Status         string `json:"status"`
-	pollCount      int    // tracks PENDING→RUNNING→COMPLETED progression; not serialized
+	// CacheID/CacheBehavior associate this run with a RunCache
+	// (CreateRunCache/GetRunCache). CacheBehavior defaults to the referenced
+	// cache's own CacheBehavior when a CacheID is given and this field is
+	// omitted (real StartRunInput.CacheBehavior: "You had set the default
+	// value when you created the cache").
+	CacheID       string `json:"cacheId,omitempty"`
+	CacheBehavior string `json:"cacheBehavior,omitempty"`
+	// RetentionMode/ScratchStorageMode/StorageType/WorkflowType are stored
+	// and echoed as documented defaults; this backend does not implement
+	// RetentionMode=REMOVE's automatic eviction of old runs (it already
+	// never auto-removes runs, which is what RETAIN, the default, already
+	// describes) or WorkflowType=READY2RUN's public workflow catalog (only
+	// PRIVATE workflows -- this backend's own workflow store -- exist here).
+	RetentionMode       string `json:"retentionMode,omitempty"`
+	ScratchStorageMode  string `json:"scratchStorageMode,omitempty"`
+	StorageType         string `json:"storageType,omitempty"`
+	WorkflowType        string `json:"workflowType,omitempty"`
+	WorkflowVersionName string `json:"workflowVersionName,omitempty"`
+	UUID                string `json:"uuid,omitempty"`
+	Status              string `json:"status"`
+	pollCount           int    // tracks PENDING→RUNNING→COMPLETED progression; not serialized
+}
+
+// StartRunInput holds input for StartRun (real StartRunInput fields this
+// backend models). RunBatchID/RunSettingID have no real StartRunInput
+// counterpart -- they're set internally by StartRunBatch's constituent-run
+// creation, never by a direct StartRun caller.
+type StartRunInput struct {
+	StorageCapacity     *int
+	Tags                map[string]string
+	Params              map[string]any
+	CacheID             string
+	RetentionMode       string
+	RunSettingID        string
+	NetworkingMode      string
+	RunOutputURI        string
+	WorkflowID          string
+	CacheBehavior       string
+	RunBatchID          string
+	ScratchStorageMode  string
+	StorageType         string
+	WorkflowType        string
+	WorkflowVersionName string
+	RunGroupID          string
+	Name                string
+	RoleARN             string
 }
 
 // ConfigurationDetails describes the configuration used for a workflow run
@@ -307,19 +351,61 @@ type WorkflowFilter struct {
 	Type string
 }
 
+// WorkflowParameter describes one entry of a workflow's ParameterTemplate
+// (real types.WorkflowParameter).
+type WorkflowParameter struct {
+	Description string `json:"description,omitempty"`
+	Optional    bool   `json:"optional,omitempty"`
+}
+
 // Workflow represents an HealthOmics workflow.
 type Workflow struct {
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
-	Arn          string            `json:"arn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Engine       string            `json:"engine"`
-	Type         string            `json:"type,omitempty"`
-	UUID         string            `json:"uuid,omitempty"`
-	Status       string            `json:"status"`
-	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
+	// ParameterTemplate is stored/echoed only when explicitly supplied on
+	// CreateWorkflow -- when blank, real AWS auto-parses it from the
+	// workflow definition file, which this backend cannot honestly
+	// simulate without parsing a real workflow archive (same restraint as
+	// Engine's auto-detection, see PARITY.md).
+	ParameterTemplate map[string]WorkflowParameter `json:"parameterTemplate,omitempty"`
+	StorageCapacity   *int                         `json:"storageCapacity,omitempty"`
+	Arn               string                       `json:"arn"`
+	ID                string                       `json:"id"`
+	Name              string                       `json:"name"`
+	Description       string                       `json:"description"`
+	Engine            string                       `json:"engine"`
+	Type              string                       `json:"type,omitempty"`
+	StorageType       string                       `json:"storageType,omitempty"`
+	UUID              string                       `json:"uuid,omitempty"`
+	Status            string                       `json:"status"`
+	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
+}
+
+// CreateWorkflowInput holds input for CreateWorkflow (real CreateWorkflowInput
+// fields this backend models; DefinitionZip/DefinitionUri are accepted but
+// discarded -- this backend does not store or execute workflow definition
+// content, see the Engine doc comment in PARITY.md).
+type CreateWorkflowInput struct {
+	ParameterTemplate map[string]WorkflowParameter
+	StorageCapacity   *int
+	Tags              map[string]string
+	Name              string
+	Description       string
+	DefinitionZip     string
+	DefinitionURI     string
+	Engine            string
+	StorageType       string
+}
+
+// CreateWorkflowVersionInput holds input for CreateWorkflowVersion.
+type CreateWorkflowVersionInput struct {
+	ParameterTemplate map[string]WorkflowParameter
+	StorageCapacity   *int
+	Tags              map[string]string
+	WorkflowID        string
+	VersionName       string
+	Description       string
+	StorageType       string
 }
 
 // WorkflowVersionFilter is filter criteria for listing workflow versions.
@@ -329,16 +415,19 @@ type WorkflowVersionFilter struct {
 
 // WorkflowVersion represents a version of a workflow.
 type WorkflowVersion struct {
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	Arn          string            `json:"arn"`
-	WorkflowID   string            `json:"workflowId"`
-	VersionName  string            `json:"versionName"`
-	Description  string            `json:"description"`
-	Engine       string            `json:"engine,omitempty"`
-	Type         string            `json:"type,omitempty"`
-	Status       string            `json:"status"`
-	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
+	CreationTime      time.Time                    `json:"creationTime"`
+	Tags              map[string]string            `json:"tags"`
+	ParameterTemplate map[string]WorkflowParameter `json:"parameterTemplate,omitempty"`
+	StorageCapacity   *int                         `json:"storageCapacity,omitempty"`
+	Arn               string                       `json:"arn"`
+	WorkflowID        string                       `json:"workflowId"`
+	VersionName       string                       `json:"versionName"`
+	Description       string                       `json:"description"`
+	Engine            string                       `json:"engine,omitempty"`
+	Type              string                       `json:"type,omitempty"`
+	StorageType       string                       `json:"storageType,omitempty"`
+	Status            string                       `json:"status"`
+	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // StoreStatusFilter is filter criteria shared by ListAnnotationStores,
@@ -748,6 +837,11 @@ type RunCache struct {
 	Description     string            `json:"description,omitempty"`
 	CacheS3Location string            `json:"cacheS3Uri"`
 	Status          string            `json:"status"`
+	// CacheBehavior is the cache's own documented default behavior for runs
+	// that use it and don't override CacheBehavior on StartRun (real
+	// CreateRunCacheInput.CacheBehavior: "If you don't specify a value, the
+	// default behavior is CACHE_ON_FAILURE").
+	CacheBehavior string `json:"cacheBehavior,omitempty"`
 }
 
 // RunBatch represents an HealthOmics run batch (real GetBatchOutput shape --

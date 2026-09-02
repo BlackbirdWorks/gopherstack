@@ -213,8 +213,10 @@ func (b *InMemoryBackend) DeleteConnectionType(name string) error {
 	return nil
 }
 
-// DescribeConnectionType returns the info for a built-in or registered custom type,
-// or ErrNotFound when the type is unknown.
+// DescribeConnectionType returns the info for a built-in or registered custom
+// type. Its error switch has no EntityNotFoundException case, unlike
+// DeleteConnectionType's, so an unknown ConnectionType surfaces as
+// InvalidInputException.
 func (b *InMemoryBackend) DescribeConnectionType(name string) (*ConnectionTypeInfo, error) {
 	norm := normalizeConnectionType(name)
 	if norm == "" {
@@ -234,7 +236,7 @@ func (b *InMemoryBackend) DescribeConnectionType(name string) (*ConnectionTypeIn
 		return &clone, nil
 	}
 
-	return nil, awserr.New("connection type "+norm+" not found", awserr.ErrNotFound)
+	return nil, awserr.New("connection type "+norm+" not found", awserr.ErrInvalidParameter)
 }
 
 // ListConnectionTypes returns all built-in and registered custom connection types

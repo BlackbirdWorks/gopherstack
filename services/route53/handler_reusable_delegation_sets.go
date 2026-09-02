@@ -3,6 +3,7 @@ package route53
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -138,20 +139,28 @@ type listReusableDSResponse struct {
 	Xmlns          string             `xml:"xmlns,attr"`
 	Marker         string             `xml:"Marker"`
 	MaxItems       string             `xml:"MaxItems"`
+	NextMarker     string             `xml:"NextMarker,omitempty"`
 	DelegationSets []xmlDelegationSet `xml:"DelegationSets>DelegationSet"`
 	IsTruncated    bool               `xml:"IsTruncated"`
 }
 
 func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
-	marker := c.Request().URL.Query().Get("marker")
+	q := c.Request().URL.Query()
+	marker := q.Get("marker")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
-	sets, err := h.Backend.ListReusableDelegationSets()
+	p, err := h.Backend.ListReusableDelegationSets(marker, maxItems)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	items := make([]xmlDelegationSet, 0, len(sets))
-	for _, ds := range sets {
+	items := make([]xmlDelegationSet, 0, len(p.Data))
+	for _, ds := range p.Data {
 		items = append(items, xmlDelegationSet{
 			ID:              ds.ID,
 			CallerReference: ds.CallerReference,
@@ -163,7 +172,8 @@ func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
 		Xmlns:          route53Namespace,
 		Marker:         marker,
 		DelegationSets: items,
-		IsTruncated:    false,
-		MaxItems:       "100",
+		IsTruncated:    p.Next != "",
+		NextMarker:     p.Next,
+		MaxItems:       strconv.Itoa(maxItems),
 	})
 }

@@ -104,6 +104,52 @@ func TestAvailabilityConfigurationLifecycle(t *testing.T) {
 	}
 }
 
+// TestAvailabilityConfiguration accepts either a stored DomainName or an
+// inline EwsProvider/LambdaProvider ("The request must contain either one
+// provider definition (EwsProvider or LambdaProvider) or the DomainName
+// parameter" -- api_op_TestAvailabilityConfiguration.go), so a client can
+// probe credentials before ever calling CreateAvailabilityConfiguration.
+func TestAvailabilityConfigurationInlineProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		provider      string
+		wantReasonSub string
+		wantPassed    bool
+	}{
+		{
+			name:       "ews provider no stored config",
+			provider:   `"EwsProvider":{"EwsEndpoint":"https://ews.example.com","EwsUsername":"user","EwsPassword":"pass"}`,
+			wantPassed: true,
+		},
+		{
+			name:          "lambda provider invalid arn no stored config",
+			provider:      `"LambdaProvider":{"LambdaArn":"not-an-arn"}`,
+			wantPassed:    false,
+			wantReasonSub: "must begin with arn:",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			orgID := createTestOrg(t, h, "inline-avail-org")
+
+			rec := doOp(t, h, "TestAvailabilityConfiguration", fmt.Sprintf(
+				`{"OrganizationId":%q,"DomainName":"never-created.com",%s}`, orgID, tc.provider,
+			))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			m := decodeJSON(t, rec)
+			assert.Equal(t, tc.wantPassed, m["TestPassed"])
+			if tc.wantReasonSub != "" {
+				assert.Contains(t, m["FailureReason"], tc.wantReasonSub)
+			}
+		})
+	}
+}
+
 func TestAvailabilityConfigurationErrors(t *testing.T) {
 	t.Parallel()
 
@@ -116,19 +162,26 @@ func TestAvailabilityConfigurationErrors(t *testing.T) {
 		{
 			name:      "create duplicate",
 			action:    "sequence",
-			wantError: "EntityAlreadyExistsException",
+			wantError: "NameAvailabilityException",
 		},
 		{
+			// org-123456789012 is never created in this subtest, so this
+			// exercises the ORG-not-found check, not an entity-not-found
+			// one. DeleteAvailabilityConfiguration's own error model
+			// declares OrganizationNotFoundException for this, not the
+			// shared EntityNotFoundException sentinel (gopherstack-6flj/uox6).
 			name:      "delete nonexistent",
 			action:    "DeleteAvailabilityConfiguration",
 			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com"}`,
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 		{
+			// Same org-not-created shape as above; UpdateAvailabilityConfiguration's
+			// own error model also declares OrganizationNotFoundException.
 			name:      "update nonexistent",
 			action:    "UpdateAvailabilityConfiguration",
 			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com","LambdaProvider":{"LambdaArn":"arn:aws:lambda:us-east-1:000:function:f"}}`, //nolint:lll // existing issue.
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 	}
 

@@ -48,6 +48,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				RegistryName     string `json:"RegistryName"`
 				SchemaNamePrefix string `json:"SchemaNamePrefix"`
 				NextToken        string `json:"NextToken"`
+				Limit            int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -57,6 +58,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				input.RegistryName,
 				input.SchemaNamePrefix,
 				input.NextToken,
+				int(input.Limit),
 			)
 			if err != nil {
 				return nil, err
@@ -72,6 +74,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				RegistryName string `json:"RegistryName"`
 				Keywords     string `json:"Keywords"`
 				NextToken    string `json:"NextToken"`
+				Limit        int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -81,6 +84,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				input.RegistryName,
 				input.Keywords,
 				input.NextToken,
+				int(input.Limit),
 			)
 			if err != nil {
 				return nil, err
@@ -109,6 +113,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
 				NextToken    string `json:"NextToken"`
+				Limit        int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -118,6 +123,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				input.RegistryName,
 				input.SchemaName,
 				input.NextToken,
+				int(input.Limit),
 			)
 			if err != nil {
 				return nil, err

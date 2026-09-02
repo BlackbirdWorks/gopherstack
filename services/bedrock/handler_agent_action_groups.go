@@ -167,6 +167,7 @@ func (h *AgentsHandler) handleUpdateAgentActionGroup(
 	ag, err := h.Backend.UpdateAgentActionGroupWithSchemas(
 		agentID,
 		actionGroupID,
+		req.ActionGroupName,
 		req.Description,
 		req.ActionGroupExecutor,
 		req.APISchema,

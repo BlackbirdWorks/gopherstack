@@ -79,6 +79,7 @@ func (h *Handler) handleDeleteCarrierGateway(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeCarrierGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "CarrierGatewayId")
 	gateways := h.Backend.DescribeCarrierGateways(ids)
+	gateways = applyCarrierGatewayFilters(gateways, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeCarrierGatewaysResponse{RequestID: reqID}
 	for _, gw := range gateways {

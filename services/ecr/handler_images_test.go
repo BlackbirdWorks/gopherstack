@@ -1098,7 +1098,12 @@ func TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClas
 	})
 	require.Equal(t, http.StatusOK, archiveRec.Code)
 
-	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "storage-class-time-repo"})
+	// DescribeImages defaults to ACTIVE-only per AWS docs, so an archived image
+	// needs an explicit ImageStatus filter to appear in the response.
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{
+		"repositoryName": "storage-class-time-repo",
+		"filter":         map[string]any{"imageStatus": "ARCHIVED"},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	detail := parseAccuracy(t, rec)["imageDetails"].([]any)[0].(map[string]any)
 	archivedAt, ok := detail["lastArchivedAt"].(float64)

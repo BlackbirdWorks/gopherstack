@@ -94,7 +94,7 @@ func (b *InMemoryBackend) PutFunctionRecursionConfig(
 }
 
 // GetFunctionScalingConfig returns the scaling config for a function.
-func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*FunctionScalingConfig, error) {
+func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*GetFunctionScalingConfigOutput, error) {
 	b.mu.RLock("GetFunctionScalingConfig")
 	defer b.mu.RUnlock()
 
@@ -103,22 +103,23 @@ func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*FunctionScalin
 		return nil, ErrFunctionNotFound
 	}
 
-	cfg, ok := b.functionScalingConfigs[name]
-	if !ok {
-		return &FunctionScalingConfig{FunctionArn: fn.FunctionArn}, nil
+	out := &GetFunctionScalingConfigOutput{FunctionArn: fn.FunctionArn}
+
+	if cfg, hasConfig := b.functionScalingConfigs[name]; hasConfig {
+		applied := *cfg
+		requested := *cfg
+		out.AppliedFunctionScalingConfig = &applied
+		out.RequestedFunctionScalingConfig = &requested
 	}
 
-	out := *cfg
-	out.FunctionArn = fn.FunctionArn
-
-	return &out, nil
+	return out, nil
 }
 
 // PutFunctionScalingConfig sets the scaling config for a function.
 func (b *InMemoryBackend) PutFunctionScalingConfig(
 	name string,
 	input *PutFunctionScalingConfigInput,
-) (*FunctionScalingConfig, error) {
+) (*PutFunctionScalingConfigOutput, error) {
 	b.mu.Lock("PutFunctionScalingConfig")
 	defer b.mu.Unlock()
 
@@ -127,11 +128,10 @@ func (b *InMemoryBackend) PutFunctionScalingConfig(
 		return nil, ErrFunctionNotFound
 	}
 
-	cfg := &FunctionScalingConfig{MaximumConcurrency: input.MaximumConcurrency}
-	b.functionScalingConfigs[name] = cfg
+	if input.FunctionScalingConfig != nil {
+		cfg := *input.FunctionScalingConfig
+		b.functionScalingConfigs[name] = &cfg
+	}
 
-	out := *cfg
-	out.FunctionArn = fn.FunctionArn
-
-	return &out, nil
+	return &PutFunctionScalingConfigOutput{FunctionState: fn.State}, nil
 }

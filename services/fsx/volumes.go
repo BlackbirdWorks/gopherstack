@@ -20,18 +20,26 @@ type storedVolume struct {
 	ResourceARN             string            `json:"resourceArn"`
 }
 
+// toPublic renders v's wire shape. OntapConfiguration is only populated for
+// ONTAP volumes: real AWS's OpenZFS volumes have no StorageVirtualMachineId
+// concept at all (OpenZFS volumes nest under a parent volume, not an SVM).
 func (v *storedVolume) toPublic() *Volume {
-	return &Volume{
-		CreationTime:            epochTime(v.CreationTime),
-		VolumeID:                v.VolumeID,
-		VolumeType:              v.VolumeType,
-		FileSystemID:            v.FileSystemID,
-		StorageVirtualMachineID: v.StorageVirtualMachineID,
-		Name:                    v.Name,
-		Lifecycle:               v.Lifecycle,
-		ResourceARN:             v.ResourceARN,
-		Tags:                    tagsMapToSlice(v.Tags),
+	vol := &Volume{
+		CreationTime: epochTime(v.CreationTime),
+		VolumeID:     v.VolumeID,
+		VolumeType:   v.VolumeType,
+		FileSystemID: v.FileSystemID,
+		Name:         v.Name,
+		Lifecycle:    v.Lifecycle,
+		ResourceARN:  v.ResourceARN,
+		Tags:         tagsMapToSlice(v.Tags),
 	}
+
+	if v.StorageVirtualMachineID != "" {
+		vol.OntapConfiguration = &OntapVolumeConfiguration{StorageVirtualMachineID: v.StorageVirtualMachineID}
+	}
+
+	return vol
 }
 
 // createOntapVolumeConfigInput is the real CreateVolumeInput.OntapConfiguration
@@ -145,26 +153,43 @@ func (b *InMemoryBackend) resolveVolumeParentLocked(input *createVolumeInput) (s
 	}
 }
 
+// createVolumeFromBackupInput mirrors the real CreateVolumeFromBackupInput
+// wire shape (fsx@v1.68.4 api_op_CreateVolumeFromBackup.go): there is no
+// top-level VolumeType or StorageVirtualMachineId at all -- the operation is
+// ONTAP-only, and the SVM anchor lives nested under
+// OntapConfiguration.StorageVirtualMachineId, exactly like CreateVolume's own
+// OntapConfiguration (see createOntapVolumeConfigInput, shared here).
 type createVolumeFromBackupInput struct {
-	BackupID                string `json:"BackupId"`
-	VolumeType              string `json:"VolumeType,omitempty"`
-	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
-	Name                    string `json:"Name"`
-	Tags                    []Tag  `json:"Tags,omitempty"`
+	BackupID           string                        `json:"BackupId"`
+	Name               string                        `json:"Name"`
+	OntapConfiguration *createOntapVolumeConfigInput `json:"OntapConfiguration,omitempty"`
+	Tags               []Tag                         `json:"Tags,omitempty"`
 }
 
-// CreateVolumeFromBackup creates a volume from a backup.
+// CreateVolumeFromBackup creates an ONTAP volume from a backup. Real AWS
+// requires OntapConfiguration.StorageVirtualMachineId to name the target SVM
+// (types.MissingVolumeConfiguration otherwise) -- there is no other way for a
+// real client to specify it, since CreateVolumeFromBackupInput carries no
+// top-level StorageVirtualMachineId.
 func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupInput) (*Volume, error) {
 	if err := validateTags(input.Tags); err != nil {
 		return nil, err
 	}
 
+	if input.OntapConfiguration == nil || input.OntapConfiguration.StorageVirtualMachineID == "" {
+		return nil, ErrMissingVolumeConfiguration
+	}
+
 	b.mu.Lock("CreateVolumeFromBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups.Get(input.BackupID)
-	if !ok {
+	if !b.backups.Has(input.BackupID) {
 		return nil, ErrBackupNotFound
+	}
+
+	svm, ok := b.storageVirtualMachines.Get(input.OntapConfiguration.StorageVirtualMachineID)
+	if !ok {
+		return nil, ErrStorageVirtualMachineNotFound
 	}
 
 	id := newFSxVolumeID()
@@ -172,18 +197,13 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
 
-	volType := input.VolumeType
-	if volType == "" {
-		volType = "ONTAP"
-	}
-
 	v := &storedVolume{
 		CreationTime:            now,
 		Tags:                    tags,
 		VolumeID:                id,
-		VolumeType:              volType,
-		FileSystemID:            src.FileSystemID,
-		StorageVirtualMachineID: input.StorageVirtualMachineID,
+		VolumeType:              fileSystemTypeONTAP,
+		FileSystemID:            svm.FileSystemID,
+		StorageVirtualMachineID: svm.StorageVirtualMachineID,
 		Name:                    input.Name,
 		Lifecycle:               lifecycleAvailable,
 		ResourceARN:             arn,
@@ -266,9 +286,13 @@ func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) st
 	return id
 }
 
-// DescribeVolumes returns volumes, optionally filtered by ID.
+// DescribeVolumes returns volumes, optionally filtered by ID or Filters.
+// Real VolumeFilterName (aws-sdk-go-v2/service/fsx@v1.68.4 types/enums.go)
+// has 2 values: file-system-id, storage-virtual-machine-id -- both tracked
+// directly on storedVolume.
 func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 	ids []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*Volume, string, error) {
@@ -291,7 +315,20 @@ func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 			all = append(all, v)
 		}
 	} else {
-		all = b.volumes.All()
+		for _, v := range b.volumes.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				switch name {
+				case filterNameFileSystemID:
+					return v.FileSystemID, true
+				case "storage-virtual-machine-id":
+					return v.StorageVirtualMachineID, true
+				default:
+					return "", false
+				}
+			}) {
+				all = append(all, v)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool { return all[i].VolumeID < all[j].VolumeID })
 	}
@@ -314,6 +351,15 @@ type restoreVolumeFromSnapshotInput struct {
 }
 
 // RestoreVolumeFromSnapshot restores a volume to a snapshot state.
+//
+// The VolumeId check below stays on ErrVolumeNotFound -- this op's own
+// switch (fsx@v1.68.4 deserializers.go
+// deserializeOpErrorRestoreVolumeFromSnapshot) is [BadRequest,
+// InternalServerError, VolumeNotFound], which declares it. SnapshotNotFound
+// is not declared here (unlike its legitimate declarers
+// DeleteSnapshot/DescribeSnapshots/UpdateSnapshot), so the SnapshotId check
+// uses ErrValidation (BadRequest) instead, this op's own declared
+// generic-client-error type (gopherstack-6flj/uox6 error-envelope sweep).
 func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnapshotInput) (*Volume, error) {
 	b.mu.Lock("RestoreVolumeFromSnapshot")
 	defer b.mu.Unlock()
@@ -324,7 +370,7 @@ func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnap
 	}
 
 	if !b.snapshots.Has(input.SnapshotID) {
-		return nil, ErrSnapshotNotFound
+		return nil, fmt.Errorf("%w: snapshot %q not found", ErrValidation, input.SnapshotID)
 	}
 
 	return v.toPublic(), nil

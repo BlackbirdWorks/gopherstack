@@ -135,8 +135,10 @@ func paginateList[T any](
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
+
 		for i, item := range all {
-			if getName(item) == nextToken {
+			if getName(item) >= nextToken {
 				start = i
 
 				break

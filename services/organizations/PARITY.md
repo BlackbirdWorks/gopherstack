@@ -7,8 +7,60 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
-last_audit_date: 2026-07-23
-overall: A            # RESTORED this pass (gopherstack-0m6h): the 5 sibling responsibility-transfer
+last_audit_date: 2026-08-30
+overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
+                      # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
+                      # sort with no total-order comparator leaves ties to depend on that unspecified
+                      # order, varying call to call, which page.New's index-based cursor can't tolerate --
+                      # same bug class already fixed across cloudwatchlogs this same branch). Found and
+                      # fixed 2: ListPolicies (sorted by PolicySummary.Name alone; CreatePolicy enforces no
+                      # name uniqueness, so two same-type policies can tie -- added PolicySummary.ID as a
+                      # secondary key) and ListDelegatedAdministrators' unfiltered branch (sorted by
+                      # AccountID alone, but the table is keyed by ServicePrincipal+AccountID, so one
+                      # account delegated for multiple services ties -- added ServicePrincipal as a
+                      # secondary key). Every other List/Describe op's sort key was checked against its
+                      # own source and confirmed already a total order over that source: ListAccounts/
+                      # ListAccountsForParent (Account.ID, the table's own primary key), ListOrganizational-
+                      # UnitsForParent (OrganizationalUnit.Name, sibling-name uniqueness enforced at
+                      # CreateOrganizationalUnit), ListHandshakesForAccount/ListHandshakesForOrganization
+                      # (Handshake.ID), ListAWSServiceAccessForOrganization (ServicePrincipal, the table's
+                      # own primary key), ListTagsForResource (Tag.Key, map keys are inherently unique),
+                      # ListTargetsForPolicy (PolicyTargetSummary.TargetID, sourced from a
+                      # map[string][]string slice value -- deterministic insertion order, not a map walk,
+                      # so no sort-totality risk regardless of key uniqueness), ListPoliciesForTarget (no
+                      # sort at all, but same deterministic-slice source as ListTargetsForPolicy). Both
+                      # fixes proven via new pagination_sort_totality_test.go (TestListPoliciesSortIsTotal:
+                      # a real paginated HTTP walk with 3 same-named policies repeated 30x, proving the
+                      # drop/duplicate-across-page-boundary directly on the wire;
+                      # TestListDelegatedAdministratorsOrderIsStableAcrossCalls: asserts backend-internal
+                      # return-order stability directly, since the real DelegatedAdministrator wire type
+                      # has no ServicePrincipal member to distinguish same-account rows by, so a wire-level
+                      # drop/duplicate count can't observe this one), both hand-reverted and confirmed to
+                      # fail against unfixed code. See the ListPolicies/ListDelegatedAdministrators ops:
+                      # entries for detail.
+                      # --- 2026-08-29 (cursor-population sweep, same day, separate pass from the constraint-
+                      # not-honoured one below -- this one reads response SHAPES, not filter semantics):
+                      # every List/Describe op declaring a real NextToken (20 of 28, from the pinned SDK
+                      # Output structs directly) already populates it through the shared page.New helper
+                      # (handler_*.go). Two exceptions, both provably bounded and correctly left as-is:
+                      # ListParents (api_op_ListParents.go's own doc comment -- "In the current release, a
+                      # child can have only a single parent" -- so its declared-but-unset NextToken can
+                      # never observably matter) and ListRoots (this backend's ListRoots always returns
+                      # exactly b.root, a single value, matching AWS's real one-root-per-organization
+                      # model). ListEffectivePolicyValidationErrors/ListAccountsWithInvalidEffectivePolicy/
+                      # ListInboundResponsibilityTransfers are also unpaginated, but their backends always
+                      # return zero items (stub-shaped, a separate no-stub-rule concern, not a cursor bug)
+                      # so the gap is equally unobservable today -- not fixed, no code changed.
+                      # --- wrapper-key-sweep, constraint-not-honoured class (2026-08-29) history below, preserved ---
+                      # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListHandshakesForAccount/
+                      # ListHandshakesForOrganization never read Filter.ParentHandshakeId at all --
+                      # any client filtering by it got the full unfiltered handshake list back.
+                      # Fixed; see the two ops: entries. Every other List op's own filter/pagination
+                      # parameters (ListPolicies.Filter, ListPoliciesForTarget.Filter,
+                      # ListDelegatedAdministrators.ServicePrincipal, ListCreateAccountStatus.States,
+                      # ListChildren.ChildType, etc.) were checked against their SDK Input structs and
+                      # confirmed already correctly applied.
+                      # RESTORED prior pass (gopherstack-0m6h): the 5 sibling responsibility-transfer
                       # ops (DescribeResponsibilityTransfer/ListInboundResponsibilityTransfers/
                       # ListOutboundResponsibilityTransfers/TerminateResponsibilityTransfer/
                       # UpdateResponsibilityTransfer) that downgraded this to B now model the real,
@@ -44,7 +96,7 @@ ops:
   DescribePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content, when supplied, goes through the same validatePolicyContent() as CreatePolicy (syntax+size, corrected SCP/RCP limits) before ANY field (name/description/content) is mutated, matching AWS's atomic per-request failure semantics."}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects deletion while still attached to any target"}
-  ListPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires non-empty Filter, matches AWS; already paginated"}
+  ListPolicies: {wire: ok, errors: ok, state: fixed, persist: ok, note: "requires non-empty Filter, matches AWS; already paginated. 2026-08-30 (ordering pass): sort key was PolicySummary.Name alone, sourced from b.policies.All() (store.Table map walk, unspecified order); CreatePolicy enforces no name-uniqueness (real AWS Organizations doesn't require unique policy names either), so two same-type policies can tie on Name -- an untied comparator leaves relative order to depend on map-walk order, which varies call to call, and page.New's index-based cursor assumes a stably-ordered slice across calls. Fixed by adding PolicySummary.ID as a secondary sort key. TestListPoliciesSortIsTotal (pagination_sort_totality_test.go) reproduces the drop/duplicate-across-page-boundary via a real paginated HTTP walk with 3 same-named policies, repeated 30x; hand-reverted and confirmed to fail against unfixed code."}
   AttachPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "enforces AWS's 5-policies-per-type-per-target limit and duplicate-attachment rejection"}
   DetachPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPoliciesForTarget: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field was missing from the request DTO entirely and results were never truncated; added field + wired page.New"}
@@ -59,7 +111,7 @@ ops:
   ListAWSServiceAccessForOrganization: {wire: fixed, errors: ok, state: ok, persist: ok, note: "handler previously discarded the request body entirely (`_ []byte`), so MaxResults/NextToken were unreachable; added listAWSServiceAccessRequest + page.New wiring, guarded for empty body (matches ListHandshakesForAccount's pattern) since real SDK clients still send at least '{}'"}
   RegisterDelegatedAdministrator: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires EnableAWSServiceAccess first, matches AWS's ErrServiceNotEnabled behavior"}
   DeregisterDelegatedAdministrator: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDelegatedAdministrators: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field missing from request DTO, results never truncated; added field + wired page.New"}
+  ListDelegatedAdministrators: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field missing from request DTO, results never truncated; added field + wired page.New. 2026-08-30 (ordering pass): the unfiltered branch (ServicePrincipal==\"\") sources from b.delegatedAdmins.All() (store.Table map walk), keyed by ServicePrincipal+AccountID (delegatedAdminKeyFn), NOT by AccountID alone -- so a single account registered as delegated admin for multiple different service principals (RegisterDelegatedAdministrator only rejects a duplicate servicePrincipal+accountID pair, never a repeat AccountID across services) produces multiple DelegatedAdmin rows tied on AccountID under a sort keyed on AccountID alone. Real types.DelegatedAdministrator (organizations@v1.53.5 types/types.go:192) has no ServicePrincipal member, so this can't be proven through the wire response the way ListPolicies' sibling bug can (every row for one account is AccountID-indistinguishable, and the table's total entry count doesn't change with reordering, so a wire-level drop/duplicate count is unaffected either way) -- proven instead via TestListDelegatedAdministratorsOrderIsStableAcrossCalls asserting InMemoryBackend.ListDelegatedAdministrators(\"\")'s own return order (via the exported, wire-excluded DelegatedAdmin.ServicePrincipal field) is identical across repeated calls with nothing changed in between, which page.New's index-based cursor requires and the map-walk source doesn't provide unaided. Fixed by adding ServicePrincipal as a secondary sort key. Hand-reverted and confirmed to fail against unfixed code."}
   ListDelegatedServicesForAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same gap, fixed the same way"}
   AcceptHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -67,8 +119,8 @@ ops:
   DescribeHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   InviteAccountToOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-i8lo (2026-08-22): Target.Type (HandshakeParty, organizations@v1.53.5 types/types.go:420, required alongside Id:415) was decoded but never validated -- only Target.Id was checked. Now rejects a missing Target.Type with InvalidInputException."}
   LeaveOrganization: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHandshakesForAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated; empty-body-tolerant parsing pattern (len(body)>0 guard) reused for the new ListAWSServiceAccessForOrganization fix"}
-  ListHandshakesForOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
+  ListHandshakesForAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already paginated; empty-body-tolerant parsing pattern (len(body)>0 guard) reused for the new ListAWSServiceAccessForOrganization fix. 2026-08-29 (wrapper-key-sweep): Filter.ParentHandshakeId (types.HandshakeFilter.ParentHandshakeId, organizations@v1.53.5 types/types.go:390 -- \"only used for handshake types that are a child of another type\") was missing from the wire struct entirely, so any client filtering by it silently got the full unfiltered list back. Added the field; since this backend never creates a handshake with a parent (EnableAllFeatures synthesizes a single already-ACCEPTED handshake rather than the real ENABLE_ALL_FEATURES/APPROVE_ALL_FEATURES parent/child flow), a non-empty ParentHandshakeId now correctly excludes everything -- see TestHandshakeFilter_Handler."}
+  ListHandshakesForOrganization: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already paginated. 2026-08-29 (wrapper-key-sweep): same Filter.ParentHandshakeId gap as ListHandshakesForAccount -- fixed the same way."}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content now capped at 40,000 chars, the ResourcePolicyContent shape's hard max (botocore organizations/2016-11-28, not account-quota state like PolicyContent) -> ConstraintViolationException; was previously unbounded"}
@@ -87,7 +139,7 @@ families:
   persistence: {status: ok, note: "Handler exposes Snapshot(ctx)/Restore(ctx,[]byte) exactly, delegating to InMemoryBackend's own Snapshot/Restore -- correctly registered by cli.go's setupPersistence. Versioned snapshot format (organizationsSnapshotVersion) discards incompatible old snapshots cleanly instead of partially decoding them."}
   arn_shapes: {status: ok, note: "all ARNs built via pkgs/arn.Build, organization/account/root/ou/policy/resource-policy/handshake resource paths verified against real SDK doc comments (global service, no region segment)"}
   id_formats: {status: ok, note: "12-digit account IDs, ou- root- p- h- o- prefixes match AWS patterns"}
-  timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit."}
+  timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit. RE-VERIFIED 2026-08-29 (dedicated timestamp-encoding pattern hunt): protocol confirmed JSON-RPC 1.1 (awsAwsjson11_* serializer prefix, organizations@v1.53.5); all 12 *time.Time members across the whole SDK package (Account.JoinedTimestamp, CreateAccountStatus.{Completed,Requested}Timestamp, DelegatedAdministrator.{DelegationEnabledDate,JoinedTimestamp}, DelegatedService.DelegationEnabledDate, EffectivePolicy.LastUpdatedTimestamp, EnabledServicePrincipal.DateEnabled, Handshake.{Expiration,Requested}Timestamp, ResponsibilityTransfer.{End,Start}Timestamp) confirmed against deserializers.go's smithytime.ParseEpochSeconds calls and gopherstack's float64 wire structs -- all correct, 12-of-12. Request-side StartTimestamp/EndTimestamp (InviteOrganizationToTransferResponsibility, TerminateResponsibilityTransfer) parsed via time.Unix(int64(req.Field), 0).UTC(), matching serializers.go's smithytime.FormatEpochSeconds encoding -- also correct. ListEffectivePolicyValidationErrorsOutput.EvaluationTimestamp (a 13th member, Output-struct-only, not in types.go) is never emitted -- correctly ABSENT, not this pass's scope: the op always returns an empty EffectivePolicyValidationErrors list (no validation engine modeled) and there is no genuine 'last evaluated' instant to report without fabricating one."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "ListAccountsWithInvalidEffectivePolicy / ListEffectivePolicyValidationErrors don't paginate (MaxResults/NextToken silently accepted-but-ignored in the same way the 6 fixed ops used to be), but both are provably always-empty results given no real policy-schema validation exists, so pagination there is moot until schema validation is implemented (no bd issue filed yet)"
   - "AWS auto-creates and attaches a default 'FullAWSAccess' SCP to the root when the SERVICE_CONTROL_POLICY policy type is enabled (or org created with ALL features); this backend does not fabricate that default policy, so ListPolicies/ListPoliciesForTarget won't show it. Deep AWS behavior detail, not flagged as broken since no client mutation is silently dropped -- documented here for the next auditor (no bd issue filed yet)"

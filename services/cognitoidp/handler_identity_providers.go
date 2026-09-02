@@ -4,8 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// identityProvidersPageSize is this backend's default page size for
+// ListIdentityProviders; real AWS doesn't document an exact default, so this
+// is chosen generously (larger than any realistic per-pool provider count)
+// so pagination only activates when a caller explicitly requests a smaller
+// MaxResults.
+const identityProvidersPageSize = 100
 
 func (h *Handler) handleAdminDisableProviderForUser(
 	_ context.Context,
@@ -85,9 +93,11 @@ func (h *Handler) handleListIdentityProvidersFull(
 		return nil, err
 	}
 
-	out := make([]identityProviderSummaryJSON, 0, len(idps))
+	pg := page.New(idps, in.NextToken, in.MaxResults, identityProvidersPageSize)
 
-	for _, idp := range idps {
+	out := make([]identityProviderSummaryJSON, 0, len(pg.Data))
+
+	for _, idp := range pg.Data {
 		s := identityProviderSummaryJSON{
 			ProviderName: idp.ProviderName,
 			ProviderType: idp.ProviderType,
@@ -104,7 +114,7 @@ func (h *Handler) handleListIdentityProvidersFull(
 		out = append(out, s)
 	}
 
-	return &listIdentityProvidersFullOutput{Providers: out}, nil
+	return &listIdentityProvidersFullOutput{Providers: out, NextToken: pg.Next}, nil
 }
 
 func toIdentityProviderJSON(idp *IdentityProvider) *identityProviderJSON {
@@ -153,29 +163,6 @@ func (h *Handler) handleAdminLinkProviderForUser(
 	return &adminLinkProviderForUserOutput{}, nil
 }
 
-func (h *Handler) handleCreateIdentityProvider(
-	_ context.Context,
-	in *createIdentityProviderInput,
-) (*createIdentityProviderOutput, error) {
-	idp, err := h.Backend.CreateIdentityProvider(in.UserPoolID, in.ProviderName, in.ProviderType, in.ProviderDetails)
-	if err != nil {
-		return nil, err
-	}
-
-	ts := float64(idp.CreatedAt.Unix())
-
-	return &createIdentityProviderOutput{
-		IdentityProvider: &identityProviderType{
-			UserPoolID:       idp.UserPoolID,
-			ProviderName:     idp.ProviderName,
-			ProviderType:     idp.ProviderType,
-			ProviderDetails:  idp.ProviderDetails,
-			CreationDate:     &ts,
-			LastModifiedDate: &ts,
-		},
-	}, nil
-}
-
 func (h *Handler) handleDeleteIdentityProvider(
 	_ context.Context,
 	in *deleteIdentityProviderInput,
@@ -187,94 +174,6 @@ func (h *Handler) handleDeleteIdentityProvider(
 	return &deleteIdentityProviderOutput{}, nil
 }
 
-func (h *Handler) handleDescribeIdentityProvider(
-	_ context.Context,
-	in *describeIdentityProviderInput,
-) (*describeIdentityProviderOutput, error) {
-	idp, err := h.Backend.DescribeIdentityProvider(in.UserPoolID, in.ProviderName)
-	if err != nil {
-		return nil, err
-	}
-
-	ts := float64(idp.CreatedAt.Unix())
-	mod := float64(idp.LastModifiedAt.Unix())
-
-	return &describeIdentityProviderOutput{
-		IdentityProvider: &identityProviderType{
-			UserPoolID:       idp.UserPoolID,
-			ProviderName:     idp.ProviderName,
-			ProviderType:     idp.ProviderType,
-			ProviderDetails:  idp.ProviderDetails,
-			CreationDate:     &ts,
-			LastModifiedDate: &mod,
-		},
-	}, nil
-}
-
-func (h *Handler) handleGetIdentityProviderByIdentifier(
-	_ context.Context,
-	in *getIdentityProviderByIdentifierInput,
-) (*getIdentityProviderByIdentifierOutput, error) {
-	idp, err := h.Backend.GetIdentityProviderByIdentifier(in.UserPoolID, in.IdpIdentifier)
-	if err != nil {
-		return nil, err
-	}
-
-	ts := float64(idp.CreatedAt.Unix())
-
-	return &getIdentityProviderByIdentifierOutput{
-		IdentityProvider: &identityProviderType{
-			UserPoolID:      idp.UserPoolID,
-			ProviderName:    idp.ProviderName,
-			ProviderType:    idp.ProviderType,
-			ProviderDetails: idp.ProviderDetails,
-			CreationDate:    &ts,
-		},
-	}, nil
-}
-
-func (h *Handler) handleListIdentityProviders(
-	_ context.Context,
-	in *listIdentityProvidersInput,
-) (*listIdentityProvidersOutput, error) {
-	idps, err := h.Backend.ListIdentityProviders(in.UserPoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	summaries := make([]identityProviderSummary, 0, len(idps))
-	for _, idp := range idps {
-		summaries = append(summaries, identityProviderSummary{
-			ProviderName: idp.ProviderName,
-			ProviderType: idp.ProviderType,
-		})
-	}
-
-	return &listIdentityProvidersOutput{Providers: summaries}, nil
-}
-
-func (h *Handler) handleUpdateIdentityProvider(
-	_ context.Context,
-	in *updateIdentityProviderInput,
-) (*updateIdentityProviderOutput, error) {
-	idp, err := h.Backend.UpdateIdentityProvider(in.UserPoolID, in.ProviderName, in.ProviderDetails)
-	if err != nil {
-		return nil, err
-	}
-
-	mod := float64(idp.LastModifiedAt.Unix())
-
-	return &updateIdentityProviderOutput{
-		IdentityProvider: &identityProviderType{
-			UserPoolID:       idp.UserPoolID,
-			ProviderName:     idp.ProviderName,
-			ProviderType:     idp.ProviderType,
-			ProviderDetails:  idp.ProviderDetails,
-			LastModifiedDate: &mod,
-		},
-	}, nil
-}
-
 func (h *Handler) identityProvidersOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"AdminDisableProviderForUser": service.WrapOp(h.handleAdminDisableProviderForUser),
@@ -283,13 +182,8 @@ func (h *Handler) identityProvidersOpsA() map[string]service.JSONOpFunc {
 
 func (h *Handler) identityProvidersOpsB() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AdminLinkProviderForUser":        service.WrapOp(h.handleAdminLinkProviderForUser),
-		"CreateIdentityProvider":          service.WrapOp(h.handleCreateIdentityProvider),
-		"DeleteIdentityProvider":          service.WrapOp(h.handleDeleteIdentityProvider),
-		"DescribeIdentityProvider":        service.WrapOp(h.handleDescribeIdentityProvider),
-		"GetIdentityProviderByIdentifier": service.WrapOp(h.handleGetIdentityProviderByIdentifier),
-		"ListIdentityProviders":           service.WrapOp(h.handleListIdentityProviders),
-		"UpdateIdentityProvider":          service.WrapOp(h.handleUpdateIdentityProvider),
+		"AdminLinkProviderForUser": service.WrapOp(h.handleAdminLinkProviderForUser),
+		"DeleteIdentityProvider":   service.WrapOp(h.handleDeleteIdentityProvider),
 	}
 }
 

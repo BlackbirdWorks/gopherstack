@@ -2,25 +2,53 @@
 service: workmail
 sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
 last_audit_commit: dc877102
-last_audit_date: 2026-07-23
+# 2026-08-30: pagination-tie sweep (separate from the cursor-population sweep below -- this one
+# asks whether a name-sorted List op can lose or duplicate a record at a page boundary when two
+# records tie on the sort key). Of the 16 backend List* methods, 14 source from a store.Index
+# (*ByOrg.Get/byOrgEntity.Get), whose order does not vary between calls (pkgs/store/index.go),
+# so a tie-prone sort (e.g. ListGroups/ListUsers/ListResources by Name, where the table's own key
+# is GroupID/UserID/ResourceID, not Name) still cannot reorder or drop a record between two
+# separate List calls. ListGroupMembers and ListResourceDelegates walk a raw
+# map[orgID]map[parentID]map[childID]bool set and sort by that same childID (MemberID/
+# DelegateID) -- since a Go map cannot hold two entries under one key, that sort can never tie
+# regardless of iteration order. ListOrganizations is the one real map-walk
+# (store.Table.All()) sorted by a field (Alias) other than the table's own key (OrgID): confirmed
+# safe because CreateOrganization explicitly rejects a duplicate Alias
+# (`b.orgsByAlias[alias]` check, organizations.go) before insert, so Alias is unique by
+# construction. No fixes needed; 0 code changes. Existing tests construct only distinct
+# names/aliases, so none could have exercised a tie even where one is possible in principle.
+# 2026-08-30: cursor-population sweep (does every List response struct that DECLARES a NextToken
+# actually SET one before the collection can exceed a page?). Enumerated all 15 SDK ops whose
+# Input/Output declare NextToken (ListAliases, ListAvailabilityConfigurations, ListGroupMembers,
+# ListGroupsForEntity, ListGroups, ListImpersonationRoles, ListMailboxExportJobs,
+# ListMailboxPermissions, ListMailDomains, ListMobileDeviceAccessOverrides, ListOrganizations,
+# ListPersonalAccessTokens, ListResourceDelegates, ListResources, ListUsers). Found genuinely
+# clean: every one of the 15 backend methods sorts its result deterministically then delegates to
+# a single shared `paginate[T any]` helper (store.go), and every one of the 15 handlers reads
+# req.NextToken/MaxResults and returns the resulting token -- no exceptions, no bypasses, no
+# handler that discards the params. workmail and ram both already had this shared-helper pattern
+# and came back clean; workspaces had no such helper at all (10 bugs found), and mgn/cognitoidp
+# each had one op that bypassed their otherwise-correct shared helper.
+# No fixes needed this pass; 0 code changes.
 overall: A            # 6 gaps + 1 (already-fixed, stale-labeled) deferred item closed; 1 real leak class fixed; banned nolint removed
+                      # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings expanded on inspection: the shared ErrConflict sentinel (fabricated EntityAlreadyExistsException, a type this SDK defines nowhere) was used by 9 different creation ops, each modeling a DIFFERENT real code. Split into ErrNameUnavailable (NameAvailabilityException: CreateAvailabilityConfiguration/CreateGroup/CreateOrganization/CreateResource/CreateUser), ErrEmailInUse (EmailAddressInUseException: CreateAlias/RegisterToWorkMail), ErrMailDomainInUse (MailDomainInUseException: RegisterMailDomain). CreateImpersonationRole kept ErrConflict/the fabricated code: its own model defines no AlreadyExists exception at all, no replacement invented. The default-500 "InternalServiceError" code left unchanged: WorkMail models no generic internal-error type across all 92 ops, so no code choice here is ever errors.As-matchable regardless. 4 existing tests (handler_users_test.go, handler_aliases_test.go, handler_organizations_test.go, handler_availability_config_test.go) previously asserted the fabricated "AlreadyExists"-shaped string as correct; corrected. EnableInteroperability (this pass's assigned follow-up check): independently reverified already fixed (gopherstack-sm09, closed same day) -- CreateOrganization threads it onto InteroperabilityEnabled and DescribeOrganization echoes it back correctly.
 ops:
-  CreateOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "Domains was []string; real wire is [{DomainName,HostedZoneId}] objects -- json.Unmarshal failed for any client-specified domain (500 InternalServiceError). Fixed (prior pass). Default + client-specified domains now also populate DkimVerificationStatus/Records (see GetMailDomain)."}
+  CreateOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "Domains was []string; real wire is [{DomainName,HostedZoneId}] objects -- json.Unmarshal failed for any client-specified domain (500 InternalServiceError). Fixed (prior pass). Default + client-specified domains now also populate DkimVerificationStatus/Records (see GetMailDomain). errcodeaudit 2026-08-29 FIX: duplicate-alias rejection emitted the fabricated EntityAlreadyExistsException; switched to the real NameAvailabilityException this op's own model defines."}
   DescribeOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MigrationAdmin field (types.DescribeOrganizationOutput.MigrationAdmin). Field-diffed the whole SDK surface: no operation in aws-sdk-go-v2/service/workmail@v1.37.2 ever sets MigrationAdmin (it's populated out-of-band by an Exchange interoperability/migration flow this backend doesn't simulate), so it is correctly always empty/omitted -- matches every real org that never configured migration. Not a stub: the field is modeled and wired, it's just never non-empty because nothing in the real API's surface can make it non-empty either."}
   DeleteOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-delete now also purges tags (org's own + every contained user/group/resource's, via ARN-prefix match) and globalAliases rows (primary emails + CreateAlias aliases) for the whole org -- previously both were left as permanent ghost rows post-delete (DeleteOrganization's own doc comment said tags were 'deliberately left untouched'). See leaks below."}
   ListOrganizations: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "now wires FirstName/LastName/IdentityProviderUserId/HiddenFromGlobalAddressList from CreateUserInput -- previously accepted on the wire but silently discarded (never reached the User struct, so DescribeUser could never surface them even before this pass' DescribeUser fix)."}
+  CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "now wires FirstName/LastName/IdentityProviderUserId/HiddenFromGlobalAddressList from CreateUserInput -- previously accepted on the wire but silently discarded (never reached the User struct, so DescribeUser could never surface them even before this pass' DescribeUser fix). errcodeaudit 2026-08-29 FIX: duplicate-name rejection emitted the fabricated EntityAlreadyExistsException (no such type in this SDK); switched to the real NameAvailabilityException CreateUser's own model defines. Verified via TestCreateUser_NameUnavailable (real client, errors.As)."}
   DescribeUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED: City/Company/Country/Department/Initials/JobTitle/Office/Street/Telephone/ZipCode/HiddenFromGlobalAddressList/IdentityProviderIdentityStoreId/IdentityProviderUserId/MailboxProvisionedDate/MailboxDeprovisionedDate all now modeled on User and wired through DescribeUser's response. MailboxProvisionedDate/MailboxDeprovisionedDate are set alongside EnabledDate/DisabledDate in RegisterToWorkMail/DeregisterFromWorkMail (real WorkMail provisions/deprovisions the mailbox at the same time it enables/disables WorkMail use)."}
   UpdateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "now accepts City/Company/Country/Department/Initials/JobTitle/Office/Street/Telephone/ZipCode/IdentityProviderUserId/Role/HiddenFromGlobalAddressList (UpdateUserInput's full field set) -- previously only DisplayName/FirstName/LastName were wired."}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans CreateAlias-created aliases + their globalAliases rows, mailbox permissions (as target entity AND as grantee), group memberships, resource delegate listings, mailboxQuotas, and tags -- see leaks below. Also now clears the user's primary email from globalAliases on delete (was previously the only one of the three entity types that skipped this; verified unreachable in practice since delete requires DISABLED state, which only follows DeregisterFromWorkMail, which already clears Email -- defensive fix for consistency with DeleteGroup/DeleteResource, not a live bug)."}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED: Filters (DisplayNamePrefix/PrimaryEmailPrefix/State/UsernamePrefix/IdentityProviderUserIdPrefix) now filter the result set (userMatchesFilter in users.go); previously accepted on the wire but silently ignored, returning the full unfiltered page."}
-  RegisterToWorkMail: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified real ENABLED transition + EnabledDate + email index writes, not a disguised no-op. Now also sets MailboxProvisionedDate for users."}
+  RegisterToWorkMail: {wire: ok, errors: partial, state: ok, persist: ok, note: "verified real ENABLED transition + EnabledDate + email index writes, not a disguised no-op. Now also sets MailboxProvisionedDate for users. errcodeaudit 2026-08-29 FIX: email-in-use rejection emitted the fabricated EntityAlreadyExistsException; switched to the real EmailAddressInUseException, matching its own model and doc ('the email address ... is already created for a different user, group, or resource'). Verified via TestRegisterToWorkMail_EmailInUse. NOTED, not fixed: the op never checks whether the target entity itself is already registered (real WorkMail: 'performs no change if enabled, fails if deleted') before silently re-associating email -- a missing-validation gap, separate from the error-code bug, not fixed in this pass."}
   DeregisterFromWorkMail: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified real DISABLED transition + EnabledDate cleared. Now also sets MailboxDeprovisionedDate for users."}
   ResetPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "password intentionally not stored (matches other gopherstack auth-adjacent ops); existence is still validated."}
   GetMailboxDetails: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateMailboxQuota: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePrimaryEmailAddress: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: duplicate-name rejection emitted the fabricated EntityAlreadyExistsException; switched to the real NameAvailabilityException CreateGroup's own model defines."}
   DescribeGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans aliases/globalAliases/permissions(target+grantee)/group-memberships-of-others/resource-delegate-listings/tags via the same cascadeCleanEntity helper DeleteUser/DeleteResource use -- see leaks below."}
@@ -29,7 +57,7 @@ ops:
   DisassociateMemberFromGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListGroupMembers: {wire: ok, errors: ok, state: ok, persist: ok}
   ListGroupsForEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "response reused the ListGroups item shape (Id/Name/Email/State); real shape is types.GroupIdentifier (GroupId/GroupName only) -- every field the SDK actually reads was zero-valued. Fixed with a dedicated groupIdentifierResp type (prior pass). GAP CLOSED this pass: Filters.GroupNamePrefix (the op's single filter dimension) now filters the result set; previously accepted but ignored."}
-  CreateResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: duplicate-name rejection emitted the fabricated EntityAlreadyExistsException; switched to the real NameAvailabilityException CreateResource's own model defines."}
   DescribeResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "BookingOptions / HiddenFromGlobalAddressList not modeled -- gap, not in this pass' declared 6; see gaps below."}
   UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans aliases/globalAliases/permissions(target+grantee)/group-memberships/other-resources'-delegate-listings/tags via cascadeCleanEntity -- see leaks below."}
@@ -37,13 +65,13 @@ ops:
   AssociateDelegateToResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateDelegateFromResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceDelegates: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAlias: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: alias-in-use rejection emitted the fabricated EntityAlreadyExistsException; switched to the real EmailAddressInUseException CreateAlias's own model defines."}
   DeleteAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "primary email correctly included as first alias entry."}
   PutMailboxPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMailboxPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMailboxPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterMailDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "now sets DkimVerificationStatus=PENDING and populates Records (see GetMailDomain gap-close note)."}
+  RegisterMailDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "now sets DkimVerificationStatus=PENDING and populates Records (see GetMailDomain gap-close note). errcodeaudit 2026-08-29 FIX: duplicate-registration rejection emitted the fabricated EntityAlreadyExistsException; switched to the real MailDomainInUseException RegisterMailDomain's own model defines. Verified via TestRegisterMailDomain_InUse."}
   DeregisterMailDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "default-domain protection verified (MailDomainStateException)."}
   GetMailDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED: DkimVerificationStatus (PENDING on RegisterMailDomain, VERIFIED on the org's own domains from CreateOrganization) and Records (types.DnsRecord list: MX + SPF TXT + autodiscover CNAME + 3 DKIM CNAMEs, via dnsRecordsForDomain in mail_domains.go) now modeled and wired through the response. Record token/value contents are simulation-only placeholders (real WorkMail issues real per-domain DKIM tokens); the wire shape ({Hostname,Type,Value} per entry) is what a real SDK client actually reads and is correct. IsDefault/IsTestDomain/OwnershipVerificationStatus still correct (prior pass)."}
   ListMailDomains: {wire: ok, errors: ok, state: ok, persist: ok, note: "item shape is types.MailDomainSummary, wire key is DefaultDomain (not IsDefault) and there is no IsTestDomain field -- was silently emitting IsDefault=false/absent forever from the real client's point of view. Fixed (prior pass)."}
@@ -52,7 +80,7 @@ ops:
   DeleteAccessControlRule: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessControlEffect: {wire: ok, errors: ok, state: ok, persist: ok, note: "creation-order rule evaluation, CIDR matching verified (prior pass). GAP CLOSED this pass: now accepts ImpersonationRoleId (GetAccessControlEffectInput's fifth condition input) and evaluates it against each rule's ImpersonationRoleIds/NotImpersonationRoleIds, matching the same ALL-non-empty-conditions-must-match semantics as Actions/IpRanges/UserIds."}
   ListAccessControlRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "response used IPRanges/NotIPRanges (wrong casing); real wire is IpRanges/NotIpRanges -- an SDK client would see empty slices always. Fixed (prior pass). Now also echoes ImpersonationRoleIds/NotImpersonationRoleIds."}
-  CreateImpersonationRole: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateImpersonationRole: {wire: ok, errors: partial, state: ok, persist: ok, note: "errcodeaudit 2026-08-29: duplicate-name rejection emits the fabricated EntityAlreadyExistsException. Left as-is: CreateImpersonationRole's own error model (deserializers.go awsAwsjson11_deserializeOpErrorCreateImpersonationRole) defines no AlreadyExists-shaped exception at all -- no replacement code invented."}
   GetImpersonationRole: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateImpersonationRole: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteImpersonationRole: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,7 +89,7 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "real API's only documented lookup key is Email; backend previously only matched by internal ID or Name, so a real client's DescribeEntity(Email=...) call always 404'd. Fixed to check the byEmail reverse-index maps first, falling back to ID/Name for compatibility."}
-  CreateAvailabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAvailabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: duplicate rejection emitted the fabricated EntityAlreadyExistsException; switched to the real NameAvailabilityException this op's own model defines."}
   DeleteAvailabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAvailabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAvailabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -104,7 +132,7 @@ families:
 gaps:
   - "CORRECTED 2026-08-23 (manifest-harvest pass): this bullet was stale. DescribeResource already models both BookingOptions and HiddenFromGlobalAddressList -- field-diffed against DescribeResourceOutput/types.BookingOptions (workmail@v1.39.4 api_op_DescribeResource.go:54-84, types/types.go:85-98): both fields present on handler_resources.go's describeResourceResp, BookingOptions carries all 3 real sub-fields (AutoAcceptRequests/AutoDeclineConflictingRequests/AutoDeclineRecurringRequests, interfaces.go), and CreateResource/UpdateResource both thread BookingOptions through. Already covered end-to-end by TestDescribeResource_BookingOptionsAndHiddenFromGAL (handler_resources_test.go), which passes. No code change needed -- the implementation predates this note and the note was never updated to match."
   - "Organization.State is hardcoded to ACTIVE (org creation is synchronous); real AWS transitions through Creating/Active/etc, but nothing in this backend ever leaves an org in a non-terminal state, so this is a non-issue in practice, not a hidden bug. Left as-is (re-verified this pass, not fixed -- there is nothing to fix: no code path produces an incorrect State)."
-  - "CreateOrganizationInput.EnableInteroperability is accepted on the wire (domainReq/createOrgReq) but discarded -- DescribeOrganization's InteroperabilityEnabled field is consequently always false. Found during this pass' field-diff of CreateOrganization/DescribeOrganization but out of the declared 6-gap scope; not fixed. Needs a bd issue."
+  - "ALREADY FIXED (2026-08-29 gopherstack-sm09 re-verification): this bullet was stale. CreateOrganization threads EnableInteroperability onto Organization.InteroperabilityEnabled (organizations.go:47, landed in fb80d66cd) and DescribeOrganization echoes it back (handler_organizations.go:78); TestCreateOrganization_EnableInteroperability (handler_organizations_test.go) proves both true and false round-trip through the real handler. No code change needed -- the fix predates this note and the note was never updated to match."
 deferred: []
 # The single previously-deferred item (Tags persistence) was independently
 # re-verified this pass and found to be NOT actually deferred -- see the
@@ -311,3 +339,191 @@ above (fixed). One ratifying test
 as correct; rewritten as `...NarrowShape` to assert their absence instead.
 Tests: `services/workmail/wire_field_fixes_test.go` (4 new real-SDK-client
 tests via the existing `newWorkMailSDKClient` helper).
+
+## 2026-08-30 WrapOp reflective-decode re-scan (gopherstack-4shm follow-up)
+
+Re-scanned with `cmd/reqfieldscan` (resolves `WrapOp`'s generic parameter,
+closing the literal-decode-anchored blind spot gopherstack-4shm was filed
+for): 92/92 ops in the dispatch table, 92 request types, 313 fields.
+
+2 fields flagged unread, both on `testAvailabilityConfigReq`: `EwsProvider`
+and `LambdaProvider`. Real bug, fixed: "The request must contain either one
+provider definition (EwsProvider or LambdaProvider) or the DomainName
+parameter. If the DomainName parameter is provided, the configuration
+stored under the DomainName will be tested." (workmail@v1.39.4
+api_op_TestAvailabilityConfiguration.go) -- `handleTestAvailabilityConfiguration`
+only ever used `DomainName`, so a client probing inline (not-yet-created)
+credentials before a `CreateAvailabilityConfiguration` call always got
+`EntityNotFoundException` instead of a real test result. Fixed by threading
+`EwsProvider`/`LambdaProvider` through to `TestAvailabilityConfiguration`,
+which now tests inline credentials directly when either is given, falling
+back to the stored-config lookup otherwise; the endpoint/username/ARN
+validation logic itself was already correct and is now shared (via new
+`testEwsProvider`/`testLambdaProvider` helpers) between the inline and
+stored-config paths instead of being duplicated. Tests:
+`handler_availability_config_test.go`
+(`TestAvailabilityConfigurationInlineProvider`, two cases: a valid inline
+EWS provider against a domain with no stored config, and an invalid inline
+Lambda ARN), confirmed failing (400 EntityNotFoundException) against
+unmodified code before the fix.
+
+Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/workmail/...` (pass),
+`golangci-lint run ./services/workmail/...` (0 issues).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir workmail` reported 45 class-A findings (44
+`EntityNotFoundException`, 1 `MailDomainStateException`), covering 63
+individual sentinel-reference lines across 15 files. All 45 verified real
+against workmail@v1.39.4's own per-op `awsAwsjson11_deserializeOpError*`
+switches: the shared `ErrNotFound` sentinel (wire code
+`EntityNotFoundException`) was used unconditionally for both
+"organization does not exist" and "entity/resource does not exist within a
+valid organization" checks across ~40 operations, but per-op verification
+showed most operations declare `OrganizationNotFoundException` for the
+first condition and either `ResourceNotFoundException`,
+`MailDomainNotFoundException`, or **nothing** for the second — not
+`EntityNotFoundException`. (`ErrNotFound` remains correct and untouched for
+the ~48 other operations across this package whose own model does declare
+`EntityNotFoundException`, e.g. `DescribeGroup`, `UpdateGroup`,
+`AssociateMemberToGroup`, `UpdateImpersonationRole`,
+`GetImpersonationRoleEffect`, all four Mobile-Device-Access-Override ops,
+`DescribeResource`/`UpdateResource`, `DescribeUser`/`UpdateUser`,
+`RegisterToWorkMail`/`DeregisterFromWorkMail`, `ResetPassword`,
+`UpdatePrimaryEmailAddress`, `PutAccessControlRule`/`GetAccessControlEffect`
+— checked individually, not assumed.)
+
+**Three new sentinels added** (`errors.go`), each wired into
+`handleError`'s switch ahead of the generic `ErrNotFound` case:
+`ErrOrganizationNotFound` (`OrganizationNotFoundException`),
+`ErrResourceNotFound` (`ResourceNotFoundException`),
+`ErrMailDomainNotFound` (`MailDomainNotFoundException`). The shared
+`ErrNotFound` sentinel itself is untouched.
+
+**43 call sites fixed to `ErrOrganizationNotFound`** (the organization-ID
+lookup in `CreateAvailabilityConfiguration`, `CreateGroup`,
+`CreateMobileDeviceAccessRule`, `CreateResource`, `CreateUser`,
+`DeleteAccessControlRule`, `DeleteAvailabilityConfiguration`,
+`DeleteEmailMonitoringConfiguration`, `DeleteGroup`,
+`DeleteIdentityProviderConfiguration`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeleteOrganization`,
+`DeletePersonalAccessToken`, `DeleteResource`, `DeleteRetentionPolicy`,
+`DeleteUser`, `DeregisterMailDomain`, `DescribeEmailMonitoringConfiguration`,
+`DescribeIdentityProviderConfiguration`, `DescribeInboundDmarcSettings`,
+`DescribeOrganization`, `GetImpersonationRole`, `GetMailDomain`,
+`GetMobileDeviceAccessEffect`, `GetPersonalAccessTokenMetadata`,
+`ListAccessControlRules`, `ListAvailabilityConfigurations`,
+`ListImpersonationRoles`, `ListMailDomains`, `ListMailboxExportJobs`,
+`ListMobileDeviceAccessRules`, `ListResources`, `ListUsers`,
+`PutEmailMonitoringConfiguration`, `PutIdentityProviderConfiguration`,
+`PutInboundDmarcSettings`, `PutRetentionPolicy`, `RegisterMailDomain`,
+`TestAvailabilityConfiguration`, `UpdateAvailabilityConfiguration`,
+`UpdateDefaultMailDomain`, `AssumeImpersonationRole`).
+
+**6 call sites fixed to `ErrResourceNotFound`** (entity lookup on ops that
+declare `ResourceNotFoundException`): `AssumeImpersonationRole` (role),
+`GetImpersonationRole` (role), `UpdateAvailabilityConfiguration` (config),
+`TestAvailabilityConfiguration` (config, stored-config path),
+`DescribeIdentityProviderConfiguration` (config),
+`GetPersonalAccessTokenMetadata` (token).
+
+**2 call sites fixed to `ErrMailDomainNotFound`**: `GetMailDomain`,
+`UpdateDefaultMailDomain` (both declare `MailDomainNotFoundException`).
+
+**12 sites left unchanged and recorded** — the operation's own model
+declares no fitting type for the specific condition, so no code was
+substituted (comments added at each site naming the declared set):
+`DeleteImpersonationRole` (role-not-found; only Organization* declared),
+`DeleteGroup` (group-not-found), `DeleteResource` (resource-not-found),
+`DeleteUser` (user-not-found), `DeleteAccessControlRule` (rule-not-found),
+`DeleteAvailabilityConfiguration` (config-not-found),
+`DeleteMobileDeviceAccessRule` (rule-not-found),
+`DeletePersonalAccessToken` (token-not-found),
+`DeleteRetentionPolicy` (policy-not-found),
+`DeleteIdentityCenterApplication` (declares no not-found type of any kind —
+not even `OrganizationNotFoundException`, since this op is not
+organization-scoped in this backend at all),
+`DeregisterMailDomain` ×2 (domain-not-found: no `MailDomainNotFoundException`
+declared here despite `GetMailDomain`/`UpdateDefaultMailDomain` declaring
+it for the same "domain not found in this org" condition; and
+"cannot deregister the default domain": neither `MailDomainStateException`
+nor `EntityNotFoundException` is declared, and `MailDomainInUseException`'s
+own doc — "in use by ANOTHER user or organization" — describes a different
+condition, so it was not substituted despite being the closest declared
+conflict type). All 12: reason is "the operation's own model declares no
+type for this condition", not a reachability or infrastructure gap.
+
+**2 pre-existing tests corrected** (asserted only the wire `__type` string,
+not a typed error — the class this sweep targets): `TestAssumeImpersonationRoleErrors`
+/"org not found" and `TestAvailabilityConfigurationErrors`/"delete
+nonexistent"+"update nonexistent" all expected `EntityNotFoundException`
+for what is actually an organization-not-found path (in the availability-config
+cases, the org in the request body was never created in that subtest, so
+the org check — not an entity check — was what those subtests actually
+exercised). Corrected the expected string to `OrganizationNotFoundException`
+in all 3; assertion count unchanged (1 `assert.Contains` per subtest,
+before and after).
+
+**3 new real-client typed-error tests added**
+(`error_envelope_fixes_test.go`): `TestDescribeOrganization_OrganizationNotFound_RealClient`,
+`TestGetImpersonationRole_ResourceNotFound_RealClient`,
+`TestGetMailDomain_MailDomainNotFound_RealClient` — each drives the real
+`aws-sdk-go-v2/service/workmail` client and asserts `errors.As` against the
+specific typed exception; confirmed failing against unmodified code
+(temporarily reverted the corresponding sentinel, re-ran, restored).
+
+Gates: `go build ./services/workmail/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/workmail/...` (pass),
+`golangci-lint run ./services/workmail/...` (0 issues).
+
+## 2026-08-31 errtargetaudit re-sweep: all 12 findings re-verified as the prior pass's recorded refusals
+
+`errtargetaudit -dir workmail` (post-reachability-fix, post-sentinel-collision-fix)
+reports 12 class-A findings (11 `EntityNotFoundException`, 1
+`MailDomainStateException`): `DeleteAccessControlRule`,
+`DeleteAvailabilityConfiguration`, `DeleteGroup`,
+`DeleteIdentityCenterApplication`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeletePersonalAccessToken`,
+`DeleteResource`, `DeleteRetentionPolicy`, `DeleteUser`, and
+`DeregisterMailDomain` (both its `EntityNotFoundException` and
+`MailDomainStateException` findings). These are exactly the 12 sites the
+prior pass above ("2026-08-31 Error-envelope sweep") already found, checked
+against each op's own declared error set, and deliberately left unchanged
+with an explanatory comment at each site -- not a new backlog.
+
+Independently re-verified all 12 directly against
+`workmail@v1.39.4/deserializers.go`'s per-op
+`awsAwsjson11_deserializeOpError<Op>` switch (not just re-reading the prior
+PARITY note): none of `DeleteAccessControlRule`,
+`DeleteAvailabilityConfiguration`, `DeleteImpersonationRole`,
+`DeleteMobileDeviceAccessRule`, `DeletePersonalAccessToken`,
+`DeleteRetentionPolicy`, or `DeregisterMailDomain` declare
+`EntityNotFoundException`/`ResourceNotFoundException` at all (each declares
+only `{OrganizationNotFoundException, OrganizationStateException}`, plus
+`InvalidParameterException` on most); `DeleteGroup`/`DeleteUser`/
+`DeleteResource` add `{DirectoryServiceAuthenticationFailedException,
+DirectoryUnavailableException, EntityStateException,
+UnsupportedOperationException}` but still no not-found type for the
+entity itself; `DeleteIdentityCenterApplication` declares only
+`{InvalidParameterException, OrganizationStateException}` -- no
+`OrganizationNotFoundException` either, confirming the prior note's "not
+even organization-scoped" claim; `DeregisterMailDomain` declares
+`{InvalidCustomSesConfigurationException, InvalidParameterException,
+MailDomainInUseException, OrganizationNotFoundException,
+OrganizationStateException}` -- no `MailDomainNotFoundException` and no
+`MailDomainStateException`, confirming both of its findings. Spot-checked
+the source comments at each of `access_control.go:65` and
+`mail_domains.go:96,105` -- still present, still accurate, no drift since
+the prior pass.
+
+**Verdict: 0 new findings, 12/12 previously-recorded refusals, no code
+changed this pass.**
+
+Gates: `go build ./services/workmail/...` (clean), `go vet
+./services/iot/... ./services/workmail/...` (clean; repo-wide `go vet ./...`
+was broken at the time of this pass by a concurrent, out-of-scope edit to
+`services/codeconnections/handler_hosts.go` from another agent -- confirmed
+via `git status`/`git diff --stat`, unrelated to this pass), `go test -race
+-count=1 ./services/workmail/...` (pass, no new tests -- nothing to prove),
+`golangci-lint run ./services/workmail/...` (0 issues).

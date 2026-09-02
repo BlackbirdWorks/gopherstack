@@ -92,6 +92,10 @@ func (b *InMemoryBackend) DescribeNotebookExecution(ctx context.Context, id stri
 	return &cp, nil
 }
 
+// notebookExecutionsDefaultLookback matches ListNotebookExecutionsInput.From's
+// own doc comment ("The default is the timestamp of 30 days ago.").
+const notebookExecutionsDefaultLookback = 30 * 24 * time.Hour
+
 // ListNotebookExecutions returns paginated notebook executions matching the filter.
 func (b *InMemoryBackend) ListNotebookExecutions(
 	ctx context.Context, params ListNotebookExecutionsParams,
@@ -101,6 +105,12 @@ func (b *InMemoryBackend) ListNotebookExecutions(
 	b.mu.RLock("ListNotebookExecutions")
 	defer b.mu.RUnlock()
 
+	from := params.From
+	if from == nil {
+		cutoff := time.Now().UTC().Add(-notebookExecutionsDefaultLookback)
+		from = &cutoff
+	}
+
 	executions := b.notebookExecutionsInRegion(region)
 	list := make([]NotebookExecution, 0, len(executions))
 
@@ -109,7 +119,20 @@ func (b *InMemoryBackend) ListNotebookExecutions(
 			continue
 		}
 
+		if params.ExecutionEngineID != "" && ne.ExecutionEngineID != params.ExecutionEngineID {
+			continue
+		}
+
 		if params.Status != "" && ne.Status != params.Status {
+			continue
+		}
+
+		startTime := epochSecondsToTime(ne.StartTime)
+		if startTime.Before(*from) {
+			continue
+		}
+
+		if params.To != nil && startTime.After(*params.To) {
 			continue
 		}
 

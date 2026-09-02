@@ -113,3 +113,35 @@ func TestHandler_NetworkAnalyzerConfig_TraceContentWireShape(t *testing.T) {
 	assert.Empty(t, got2.TraceContent.LogLevel, "update replaces TraceContent wholesale")
 	assert.Equal(t, "ENABLED", got2.TraceContent.WirelessDeviceFrameInfo)
 }
+
+// TestHandler_ListWirelessDevices_EntryShape verifies each ListWirelessDevices
+// entry matches the real wire shape, types.WirelessDeviceStatistics
+// (iotwireless@v1.59.4 types/types.go): Arn/DestinationName/
+// FuotaDeviceStatus/Id/LastUplinkReceivedAt/LoRaWAN/McGroupId/
+// MulticastDeviceStatus/Name/Positioning/Sidewalk/Type. gopherstack's list
+// entry carried Description/ThingArn/ThingName instead, none of which are
+// members of that type -- a real client's decoder silently drops them, but
+// they have no business being on the wire.
+func TestHandler_ListWirelessDevices_EntryShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
+		`{"Name":"dev1","Type":"LoRaWAN","DestinationName":"dest1","Description":"a real description"}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got struct {
+		WirelessDeviceList []map[string]any `json:"WirelessDeviceList"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.WirelessDeviceList, 1)
+
+	entry := got.WirelessDeviceList[0]
+	assert.NotContains(t, entry, "Description", "Description is not a WirelessDeviceStatistics member")
+	assert.NotContains(t, entry, "ThingArn", "ThingArn is not a WirelessDeviceStatistics member")
+	assert.NotContains(t, entry, "ThingName", "ThingName is not a WirelessDeviceStatistics member")
+}

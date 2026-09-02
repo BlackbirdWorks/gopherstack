@@ -495,3 +495,333 @@ lookup) -- confirming the original symptom; restored and `md5sum`-verified byte-
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed:** `paginateStrings` (`store.go`), the tail of `paginatedCopies` —
+the shared pagination path for all 20 `List*` operations built on it (annotation stores,
+annotation import jobs, annotation store versions, configurations, reference stores, shares,
+run groups, runs, run caches, run batches, workflows, sequence stores, variant stores,
+variant import jobs, read sets, read set activation/export/import jobs, multipart uploads) —
+looked up the cursor by exact id match (`id == nextToken`) and left `start` at its zero-value
+default when no match was found. Net effect: if the id named by the cursor had been deleted
+between the two `List*` calls, pagination silently restarted from the beginning, redelivering
+every already-seen item instead of resuming past the gap. Fixed by searching for the first
+`id >= nextToken` instead of `==`, defaulting `start = len(ids)` on no match (was 0) — matches
+the same fix applied to the equivalent bug independently found in `services/dax`
+(`paginateList`/`paginateClusters`/`ListTags`) this same pass.
+
+Proof: `TestPaginateStrings_StaleCursorAfterDeletion`/`TestPaginateStrings_CursorPastEnd`
+(pagination_arithmetic_test.go, unit, calls `paginateStrings` directly via a new
+`PaginateStringsForTest` export) and
+`TestListReferenceStores_SDKRoundTrip_PaginationSurvivesDeleteBetweenPages`
+(pagination_sdk_roundtrip_test.go, real `aws-sdk-go-v2/service/omics` client, deletes the
+store the cursor names before fetching page 2) both fail pre-fix and pass post-fix.
+
+**Recorded, not fixed:** `ListReadSetUploadParts` (`read_sets.go`) has the identical
+exact-match-cursor shape (`strconv.Itoa(p.PartNumber) == nextToken`, no fallback), and its
+`parts` slice is never sorted before pagination (insertion order, not `PartNumber` order) —
+but it was found dormant, not reachable: there is no operation that removes an individual
+upload part (only whole-upload delete/abort via `AbortMultipartReadSetUpload`/
+`CompleteMultipartReadSetUpload`, and `UploadReadSetPart` re-uploading the same
+part+source *updates* the existing entry in place rather than moving or removing it). A
+correct fix would also need either a numeric (not string-lexicographic) comparison or an
+explicit sort by `PartNumber`, since `"10" < "9"` as strings — deferred as a design decision
+rather than patched blind, per this pass's instruction to record undefined/unreachable
+behaviour rather than invent a rule for it.
+
+`paginatedCopies` itself (the sort + call to `paginateStrings` + per-id copy) was re-read and
+found otherwise correct — every caller sorts implicitly via `sort.Strings(ids)` inside
+`paginatedCopies`, so no caller-side ordering bug.
+
+Gates: `go build`, `go vet` (default/e2e/integration), `go test -race -count=1`,
+`golangci-lint run` (0 issues) — all `./services/omics/...`.
+
+## 2026-08-31 (gopherstack-uox6, value-semantics sweep)
+
+Swept every List/Describe filter matcher in this service against its own SDK doc
+comment (annotation/variant stores + versions, shares, runs/run groups/run
+batches/run tasks, workflows/workflow versions, read sets, reference stores,
+references, sequence stores) for the class this issue targets — a request
+parameter read and applied, but WRONG, as opposed to never read at all (already
+covered by the request-field-never-read axis). ONE BUG:
+
+- **`StartRun`'s `NetworkingMode` ignored its own documented default.**
+  `StartRunInput.NetworkingMode`'s doc comment (`api_op_StartRun.go:136-138`):
+  "Optional configuration for run networking behavior. If not specified, this
+  will default to RESTRICTED." `runs.go`'s `startRunLocked` stored whatever
+  string it was given, including `""`, and `Run.NetworkingMode` is tagged
+  `json:"networkingMode,omitempty"` — so an omitted value was dropped from the
+  wire entirely rather than resolving to `RESTRICTED`, and a real client's
+  `*string` on both `StartRunOutput.NetworkingMode` and `GetRunOutput.NetworkingMode`
+  decoded to nil/`""` instead of the documented default. Fixed by defaulting to
+  `RESTRICTED` inside `startRunLocked` when the caller passes an empty string —
+  this also correctly applies the same default to `StartRunBatch`'s constituent
+  runs, which always pass `""` here since `DefaultRunSetting.NetworkingMode` is
+  not modeled for batches (disclosed below), and real AWS applies the identical
+  per-run default there too. Proven via
+  `Test_SDKRoundTrip_StartRun_NetworkingModeDefault` (`wire_field_additions_test.go`),
+  a real `aws-sdk-go-v2` client test asserting both the omitted-default case
+  (`RESTRICTED` on `StartRunOutput` and `GetRunOutput`) and that an explicit
+  `VPC` value is not overridden; hand-reverted to confirm it fails against the
+  pre-fix code (`""` instead of `"RESTRICTED"`), restored byte-identical.
+
+**Everything else checked came back clean, member by member:**
+
+- Query-protocol concerns don't apply here — omics is REST-JSON and every
+  filter struct is decoded via `encoding/json` with no explicit struct tags, so
+  Go's case-insensitive field matching handles every wire key checked
+  (`resourceArns`/`status`/`type` on `types.Filter` for `ListShares`,
+  confirmed against `awsRestjson1_serializeDocumentFilter`); no casing bug
+  found or possible via this path.
+- `shareResourceType`'s ARN-pattern switch and `ListShares`'s `resourceOwner`
+  switch (`SELF`/`OTHER`) both compare against the exact real enum members
+  (`types.ShareResourceType`, `types.ResourceOwner`) — verified against
+  `enums.go`, no invented value, no partial-spelling collision.
+- `shareMatchesFilter`'s `ResourceArns`/`Status`/`Type` are each real "any of"
+  lists (`slices.Contains`, every element checked, not just the first) —
+  matches `types.Filter`'s own doc comments ("You can specify up to 10
+  values").
+- Every other filter checked (`ReadSetFilter`, `RunFilter`, `RunGroupFilter`,
+  `RunBatchFilter`, `RunTaskFilter`, `WorkflowFilter`, `WorkflowVersionFilter`,
+  `StoreStatusFilter`, `ImportJobFilter`, `SequenceStoreFilter`,
+  `ReferenceStoreFilter`, `ReferenceFilter`) is a documented single-value
+  equality (`Name`/`Status`/`Type`/`StoreName`/`RunGroupId`/`BatchId`) with no
+  documented case-insensitivity, wildcard, or negation modifier anywhere in
+  the pinned SDK — plain `==` is correct for all of them, verified against
+  each field's own doc comment rather than assumed.
+- MaxResults/MaxItems: no `List*Input` in this service documents a numeric
+  default or maximum except `ListBatch`'s `MaxItems` ("If not specified,
+  defaults to 100") — `batchQueryParams` + the shared `maxPageSize = 100`
+  cap/default already match it exactly. Every other List op's MaxResults doc
+  comment states no number, so the uniform 100 cap contradicts nothing (same
+  clean verdict as the campaign's quicksight List/Describe pass).
+- `ListRunBatches`'s disclosed `RunGroupID`-accepted-but-not-applied gap
+  (real AWS filters by the *contained runs'* run-group, which this simplified
+  RunBatch model doesn't track) was re-verified against the SDK rather than
+  trusted from the existing comment — still correct, still structural.
+
+**Recorded as the request-field-never-read axis, not this one (declared
+nowhere in this backend's filter/request structs, so not applicable to
+"wrong algorithm on a read field"):** `ReadSetFilter` is missing
+`CreatedAfter`/`CreatedBefore`/`CreationType`/`GeneratedFrom`/`ReferenceArn`/
+`SampleId`/`SubjectId`; `ReferenceFilter` is missing `CreatedAfter`/
+`CreatedBefore`/`Md5`; `ReferenceStoreFilter`/`SequenceStoreFilter` are
+missing `CreatedAfter`/`CreatedBefore` (and `SequenceStoreFilter` also
+`UpdatedAfter`/`UpdatedBefore`); `StartRunInput`'s own `RetentionMode`
+("default value is RETAIN"), `ScratchStorageMode` ("default to SHARED"), and
+`StorageCapacity` ("Defaults to 1200 GiB") are never read by `StartRun` at
+all (distinct from `RunBatch.DefaultRunSetting`'s identical, already-disclosed
+gap for the same three fields) — a bug requires the field to be read first;
+these aren't.
+
+**Left open, correctly, as unfabricatable rather than fixed or fabricated:**
+`CreateWorkflowInput.Engine`'s doc comment ("By default, Amazon Web Services
+HealthOmics detects the engine automatically from your workflow definition")
+describes content-based auto-detection from a real zip archive, which this
+backend cannot honestly simulate without parsing workflow definition files —
+left empty on omission rather than guessing a value, the same restraint this
+issue's brief asks for on `PatchOrchestratorFilter`-shaped traps.
+
+No web pages fetched — everything resolved from the pinned SDK module cache
+(`aws-sdk-go-v2/service/omics@v1.49.5`).
+
+Gates: `go build ./services/omics/... ./services/docdb/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/omics/...`,
+`golangci-lint run ./services/omics/...` (0 issues).
+
+## 2026-08-31 (gopherstack-4glf, never-declared-field sweep, `cmd/reqfielddiff`)
+
+`go run ./cmd/reqfielddiff -dir omics` reported 25 tier-1 findings
+("documented default"). 19 of 25 fixed; 6 recorded as unmodellable/false
+positive with reasoning below. This pass's own earlier 2026-08-31 entry
+(value-semantics sweep) had already found and recorded `StartRun`'s
+`RetentionMode`/`ScratchStorageMode`/`StorageCapacity` as never read at all,
+explicitly deferring them to "the request-field-never-read axis, not this
+one" -- this pass is that deferred axis, and closes all three.
+
+**Fixed (19):**
+
+- **`StartRun.RetentionMode`/`.ScratchStorageMode`/`.StorageType`/
+  `.WorkflowType`** -- each has an unambiguous documented default (RETAIN,
+  SHARED, STATIC, PRIVATE respectively). None was declared anywhere in this
+  backend. Added all four to `Run`/`StartRunInput`, defaulted in the new
+  `startRunDefaults` helper, echoed via `GetRun`/`ListRuns` (verified against
+  `GetRunOutput`'s own field list -- these four are GetRun-only, not on
+  `StartRunOutput`). REMOVE's automatic old-run eviction and READY2RUN's
+  public workflow catalog are NOT implemented; both are disclosed as
+  structural gaps in the field's own doc comment on `Run`, not silently
+  claimed. RETAIN is honest regardless, since it already describes this
+  backend's actual behavior (never auto-removing runs).
+- **`StartRun.StorageCapacity`** -- own doc comment: "The default run storage
+  capacity is 1200 GiB." Defaults to 1200 only when `StorageType` resolves to
+  STATIC -- real AWS's own doc states DYNAMIC "ignores any value that you
+  enter," so fabricating a capacity number for DYNAMIC storage would claim
+  something untrue; none is set in that case (`Run.StorageCapacity` is
+  `*int`, nil when inapplicable).
+- **`StartRun.WorkflowVersionName`** -- entirely undeclared; explicit values
+  are now stored/echoed. No "default version" is fabricated on omission:
+  real AWS lets a workflow designate one version as default and falls back
+  to it, but this backend has no such designation mechanism at all (no
+  `CreateWorkflowVersion`/`UpdateWorkflowVersion` field sets a version as
+  default) -- inventing a "first version created" or similar substitute
+  would be exactly the kind of guessed behavior this campaign's guidance
+  warns against, so omission leaves the field empty, same as today.
+- **`StartRun.CacheBehavior`** (plus the previously-tier5, not independently
+  targeted, but necessarily-paired `CacheId`) -- own doc comment: "You
+  specify this value if you want to override the default behavior for the
+  cache. You had set the default value when you created the cache." Added
+  `Run.CacheID`/`.CacheBehavior`; when `CacheID` is given and `CacheBehavior`
+  is not, the referenced cache's own `CacheBehavior` is looked up and used
+  (`startRunDefaults`). `CacheId` was necessary scaffolding, not scope creep:
+  `CacheBehavior` is meaningless without it, and it was undeclared too.
+  Actual task-output caching (skipping re-execution of a previously
+  cache-hit task) is NOT simulated -- this backend has no task-execution
+  graph to apply it to (a single stub task per run) -- so, like ECS's
+  `Monitoring` fix, this is a stored/echoed preference, matching real AWS's
+  own API contract (real AWS never exposes cache-hit/-miss as a distinct API
+  response either; it is purely CloudWatch/execution-internal).
+- **`CreateRunCache.CacheBehavior`** -- own doc comment: "If you don't
+  specify a value, the default behavior is CACHE_ON_FAILURE." Added
+  `RunCache.CacheBehavior`, defaulted on create.
+- **`UpdateRunCache.CacheBehavior`** -- own doc comment: "Update the default
+  run cache behavior" (no omission-default stated -- PATCH semantics: applied
+  only when non-empty, like `Name`/`Description` already were).
+- **`CreateWorkflow`/`CreateWorkflowVersion.ParameterTemplate`** -- own doc
+  comment: blank means auto-parse from the workflow definition file, which
+  this backend cannot honestly simulate without parsing a real archive (same
+  restraint as `Engine`'s auto-detection, recorded 2026-08-31 above) --
+  NOT implemented, left empty on omission. But an EXPLICITLY supplied
+  template is a different question: it's a plain structured value handed
+  directly on the wire, no parsing required, and it was being silently
+  dropped regardless of whether the caller provided one. Added
+  `Workflow`/`WorkflowVersion.ParameterTemplate` (new `WorkflowParameter`
+  type mirroring `types.WorkflowParameter`), stored/echoed only when
+  non-blank.
+- **`CreateWorkflow`/`CreateWorkflowVersion`/`UpdateWorkflow`/
+  `UpdateWorkflowVersion.StorageCapacity`/`.StorageType`** -- reqfielddiff's
+  "documented default" tier flagged these on the strength of the word
+  "default" appearing in their doc comments, but re-reading each doc comment
+  closely: none of them states what happens when the field ITSELF is
+  omitted at create/update time -- they describe what the value means for
+  runs that inherit it ("The default static storage capacity ... for runs
+  that use this workflow"), which is a different claim. This is the same
+  heuristic false-positive shape as ECS's `ServiceConnectDefaults` (see
+  2026-08-31 ecs sweep). Unlike `StartRun`'s own `StorageCapacity`/
+  `StorageType` (which DO state a fixed default for their own omission --
+  "By default, the run uses STATIC storage type"), no numeric/enum default
+  is fabricated here: the fields are declared and stored/echoed exactly as
+  given, nil/empty when omitted. Added `StorageCapacity *int`/`StorageType
+  string` to `Workflow`/`WorkflowVersion`, threaded through new
+  `CreateWorkflowInput`/`CreateWorkflowVersionInput` structs (the backend
+  signatures were already gaining 3 new fields each; a positional-parameter
+  refactor was overdue) and two new `UpdateWorkflow`/`UpdateWorkflowVersion`
+  parameters (PATCH semantics: applied only when non-zero/non-nil).
+
+**Recorded as unmodellable or false positive, not fixed (6):**
+
+- **`CreateWorkflow`/`CreateWorkflowVersion.ParameterTemplatePath`** -- own
+  doc comment: "The path to the workflow parameter template JSON file
+  *within the repository*." This field only means something when the
+  workflow is created from a source-code repository
+  (`DefinitionRepository`), which reqfielddiff's own tier-5 list already
+  flags as unmodeled in this backend (no strong signal, structural gap) --
+  this backend never clones or reads a repository. Storing a bare path
+  string with nothing to resolve it against would be inert config with no
+  observable meaning; recorded rather than fabricated.
+- **`CreateWorkflow`/`CreateWorkflowVersion.ReadmePath`** -- same reasoning
+  as `ParameterTemplatePath`: "The path to the workflow README markdown file
+  *within the repository*." `ReadmePath` IS present on `GetWorkflowOutput`
+  (verified -- unlike `ParameterTemplatePath`, which appears nowhere on any
+  Get* output), but its only documented meaning is still repository-relative
+  path resolution this backend cannot perform; echoing a string with no
+  connection to any actual README content would misrepresent what the field
+  does.
+- **`CreateWorkflow.WorkflowBucketOwnerId`** -- own doc comment: "the
+  expected owner of the S3 bucket that contains the workflow definition. If
+  not specified, the service skips the validation." This is a pure
+  validation-gating field with no wire-visible echo anywhere (absent from
+  `GetWorkflowOutput`, confirmed) -- honoring it would require real S3
+  bucket-ownership verification, which this backend cannot perform (it
+  already discards `DefinitionZip`/`DefinitionURI` entirely, a pre-existing
+  disclosed simplification). Since no such validation exists regardless of
+  this field's value, storing it would create a field with no effect and no
+  visible echo -- pure inert config, not worth a wire slot.
+- **`ListBatch.MaxItems`** -- re-verified against source instead of trusted:
+  this field IS already correctly modeled. `batchQueryParams` (handler.go)
+  reads the real "maxItems" query key (NOT "maxResults" -- verified against
+  `serializers.go`'s `encoder.SetQuery("maxItems")`), and `paginateStrings`
+  (store.go) already applies the documented default of 100
+  (`maxPageSize = 100`) whenever `maxResults <= 0`. This service's own prior
+  PARITY entry (2026-08-31, value-semantics sweep) already stated this
+  explicitly: "batchQueryParams + the shared maxPageSize = 100 cap/default
+  already match it exactly." reqfielddiff's declared-field enumeration
+  doesn't recognize a raw `q.Get("maxItems")` read inside a shared helper as
+  a "declared field" for this specific operation, which is why it still
+  flagged tier-1 despite the behavior being correct and already verified --
+  a genuine detector blind spot, not a bug. No code change.
+
+**Ratio and what it says about detector precision:** 19/25 (76%) of this
+service's tier-1 findings were genuinely fixable, higher than ecs's true
+positive rate would suggest in isolation but consistent with the campaign's
+overall experience that "documented default" is the tier most worth mining
+-- most of omics's misses here were the SAME two shapes already seen
+elsewhere (repository-relative paths tied to an unmodeled feature; a
+heuristic matching the word "default" in unrelated prose) rather than novel
+failure modes, which suggests the detector's false-positive surface is
+narrow and identifiable rather than diffuse.
+
+**Where the fix belongs:** every fixed field here landed at the BACKEND
+layer (`Run`/`RunCache`/`Workflow`/`WorkflowVersion` models, populated inside
+`startRunLocked`/`CreateRunCache`/`CreateWorkflow`/`CreateWorkflowVersion`),
+beneath both the input-decode and response-encode wire structs, matching the
+lesson from the `StartRun.NetworkingMode` fix earlier this campaign: several
+of these fields (e.g. `WorkflowType`, `RetentionMode`) are read on `GetRun`
+by a DIFFERENT handler (`handleGetRun`) than the one that creates the run
+(`handleStartRun`) -- defaulting inside the wire layer would have required
+duplicating the same default in two unrelated handler files, and getting one
+of them right while missing the other is exactly the two-response-shapes
+trap the earlier entry describes.
+
+**Backend signature changes (interface + all in-repo callers updated,
+verified via `go build ./...`/`go vet ./...` repo-wide -- no other service
+calls into any of these):**
+`StartRun(workflowID, roleARN, ..., tags) (*Run, error)` ->
+`StartRun(StartRunInput) (*Run, error)`;
+`CreateRunCache(name, cacheS3Location, tags)` ->
+`CreateRunCache(name, cacheS3Location, cacheBehavior, tags)`;
+`UpdateRunCache(id, name, description)` ->
+`UpdateRunCache(id, name, description, cacheBehavior)`;
+`CreateWorkflow(name, description, definitionZip, definitionURI, engine, tags)`
+-> `CreateWorkflow(CreateWorkflowInput)`;
+`UpdateWorkflow(id, name, description)` ->
+`UpdateWorkflow(id, name, description, storageType, storageCapacity)`;
+`CreateWorkflowVersion(workflowID, versionName, description, tags)` ->
+`CreateWorkflowVersion(CreateWorkflowVersionInput)`;
+`UpdateWorkflowVersion(workflowID, versionName, description)` ->
+`UpdateWorkflowVersion(workflowID, versionName, description, storageType, storageCapacity)`.
+Two internal test call sites (`persistence_test.go`) updated to match; no
+assertions dropped, only call syntax.
+
+New tests: `wire_field_additions_omicssweep_test.go`, all driving the real
+`aws-sdk-go-v2/service/omics` client. Every default-value test (`StartRun`
+five-defaults test, `CreateRunCache` default) omits the field entirely. The
+`CacheBehavior`-inherits-from-cache test seeds two caches with different
+`CacheBehavior` values (one on each side of the distinction) so it can tell
+"inherited the referenced cache's default" apart from "picked some fixed
+default." Confirmed failing pre-fix by temporarily reverting
+`startRunDefaults` to only its pre-existing `NetworkingMode` line and
+`CreateRunCache`'s default-fill (not by removing the new struct fields,
+since most fields did not exist before this pass and removing them fails
+the whole package to compile rather than demonstrate a behavioural gap):
+all three targeted tests (`StartRun` defaults, `StartRun` cache-inherits,
+`CreateRunCache` default) reproduced their expected pre-fix failures, then
+were restored byte-identical (`md5sum`-verified) and re-confirmed green.
+Assertion count: 0 existing assertions changed or dropped; all new.
+
+Gates: `go build ./services/omics/...`, `go vet ./services/omics/...` (both
+clean), `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/omics/...` (pass), `golangci-lint run ./services/omics/...` (0
+issues, `golangci-lint run --fix` used once for fieldalignment on the new
+structs, re-verified with plain `run` afterward). Work left uncommitted per
+this pass's instructions.

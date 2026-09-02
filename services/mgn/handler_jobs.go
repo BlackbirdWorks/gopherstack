@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+//nolint:dupl // structurally parallel to handleListApplications; both decode Filters, list, paginate
 func (h *Handler) handleDescribeJobs(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
 	var req describeJobsRequest
 	if err := decodeJSONBody(body, &req); err != nil {
@@ -13,7 +14,11 @@ func (h *Handler) handleDescribeJobs(_ context.Context, _ *http.Request, body []
 
 	f := DescribeJobsFilters{}
 	if req.Filters != nil {
-		f.JobIDs = req.Filters.JobIDs
+		f = DescribeJobsFilters{
+			JobIDs:   req.Filters.JobIDs,
+			FromDate: req.Filters.FromDate,
+			ToDate:   req.Filters.ToDate,
+		}
 	}
 
 	pg, err := h.Backend.DescribeJobs(f, req.NextToken, int(req.MaxResults))

@@ -203,6 +203,61 @@ type MSKAuthenticationConfiguration struct {
 type SourceDescription struct {
 	KinesisStreamSourceDescription *KinesisStreamSourceDescription `json:"KinesisStreamSourceDescription,omitempty"`
 	MSKSourceDescription           *MSKSourceDescription           `json:"MSKSourceDescription,omitempty"`
+	DatabaseSourceDescription      *DatabaseSourceDescription      `json:"DatabaseSourceDescription,omitempty"`  //nolint:lll // AWS field name
+	DirectPutSourceDescription     *DirectPutSourceDescription     `json:"DirectPutSourceDescription,omitempty"` //nolint:lll // AWS field name
+}
+
+// DatabaseSourceAuthenticationConfiguration holds how Firehose authenticates to a
+// database source's secret.
+type DatabaseSourceAuthenticationConfiguration struct {
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration,omitempty"`
+}
+
+// DatabaseSourceVPCConfiguration holds the VPC endpoint service used to reach a
+// database source.
+type DatabaseSourceVPCConfiguration struct {
+	VPCEndpointServiceName string `json:"VpcEndpointServiceName,omitempty"`
+}
+
+// DatabaseIncludeExcludeList is the shared Include/Exclude pattern-list shape used by
+// DatabaseSourceDescription's Databases/Tables/Columns members.
+type DatabaseIncludeExcludeList struct {
+	Include []string `json:"Include,omitempty"`
+	Exclude []string `json:"Exclude,omitempty"`
+}
+
+// DatabaseSnapshotInfo describes one table's snapshot progress. Always empty in this
+// backend: no database-source snapshot mechanics are modeled (same documented-
+// simplification pattern as the MSK/Redshift mechanics gaps).
+type DatabaseSnapshotInfo struct {
+	FailureDescription *FailureDescription `json:"FailureDescription,omitempty"`
+	ID                 string              `json:"Id,omitempty"`
+	Table              string              `json:"Table,omitempty"`
+	RequestedBy        string              `json:"RequestedBy,omitempty"`
+	Status             string              `json:"Status,omitempty"`
+	RequestTimestamp   int64               `json:"RequestTimestamp,omitempty"`
+}
+
+// DatabaseSourceDescription describes a database source
+// (aws-sdk-go-v2/service/firehose types.DatabaseSourceDescription -- preview API).
+type DatabaseSourceDescription struct {
+	DatabaseSourceAuthenticationConfiguration *DatabaseSourceAuthenticationConfiguration `json:"DatabaseSourceAuthenticationConfiguration,omitempty"` //nolint:lll // AWS field name
+	DatabaseSourceVPCConfiguration            *DatabaseSourceVPCConfiguration            `json:"DatabaseSourceVPCConfiguration,omitempty"`            //nolint:lll // AWS field name
+	Databases                                 *DatabaseIncludeExcludeList                `json:"Databases,omitempty"`
+	Tables                                    *DatabaseIncludeExcludeList                `json:"Tables,omitempty"`
+	Columns                                   *DatabaseIncludeExcludeList                `json:"Columns,omitempty"`
+	Endpoint                                  string                                     `json:"Endpoint,omitempty"`
+	SnapshotWatermarkTable                    string                                     `json:"SnapshotWatermarkTable,omitempty"` //nolint:lll // AWS field name
+	SSLMode                                   string                                     `json:"SSLMode,omitempty"`
+	Type                                      string                                     `json:"Type,omitempty"`
+	SnapshotInfo                              []DatabaseSnapshotInfo                     `json:"SnapshotInfo,omitempty"`
+	SurrogateKeys                             []string                                   `json:"SurrogateKeys,omitempty"`
+	Port                                      int32                                      `json:"Port,omitempty"`
+}
+
+// DirectPutSourceDescription describes a Direct PUT source.
+type DirectPutSourceDescription struct {
+	ThroughputHintInMBs int32 `json:"ThroughputHintInMBs,omitempty"`
 }
 
 // RedshiftCopyCommand holds the Redshift COPY command configuration. On the wire this

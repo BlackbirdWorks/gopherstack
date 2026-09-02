@@ -120,7 +120,11 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 
 			// Create network
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "net1", "MemberConfiguration": testMemberConfiguration("initial")})
+				map[string]any{
+					"Name":                "net1",
+					"ClientRequestToken":  "tok-net1",
+					"MemberConfiguration": testMemberConfiguration("initial"),
+				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createNetResp map[string]any
@@ -132,6 +136,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 			rec = doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
 				map[string]any{
 					"InvitationId":        invitationID,
+					"ClientRequestToken":  "tok-newmember",
 					"MemberConfiguration": testMemberConfiguration("new-member"),
 				})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -212,6 +217,7 @@ func TestHandler_MemberErrors(t *testing.T) {
 				rec = doRequest(t, h, http.MethodPost, "/networks/nonexistent/members",
 					map[string]any{
 						"InvitationId":        "some-invitation-id",
+						"ClientRequestToken":  "tok-badnet",
 						"MemberConfiguration": testMemberConfiguration("m1"),
 					})
 			case "list_bad_network":
@@ -318,6 +324,7 @@ func TestHandler_CreateMember_InvitationId(t *testing.T) {
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
 				map[string]any{
 					"InvitationId":        invitationID,
+					"ClientRequestToken":  "tok-invite",
 					"MemberConfiguration": testMemberConfiguration("m1"),
 				})
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -344,6 +351,7 @@ func TestHandler_CreateMember_ConsumesInvitation(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
 		map[string]any{
 			"InvitationId":        invitationID,
+			"ClientRequestToken":  "tok-consume-1",
 			"MemberConfiguration": testMemberConfiguration("m1"),
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -357,6 +365,7 @@ func TestHandler_CreateMember_ConsumesInvitation(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
 		map[string]any{
 			"InvitationId":        invitationID,
+			"ClientRequestToken":  "tok-consume-2",
 			"MemberConfiguration": testMemberConfiguration("m2"),
 		})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -692,6 +701,7 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members", map[string]any{
 		"InvitationId":        invitationID,
+		"ClientRequestToken":  "tok-tagged-member",
 		"MemberConfiguration": memberConfig,
 	})
 

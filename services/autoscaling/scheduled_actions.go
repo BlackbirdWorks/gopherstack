@@ -3,6 +3,7 @@ package autoscaling
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -83,21 +84,57 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 	return failed, nil
 }
 
-// DescribeScheduledActions returns scheduled actions for the given group, optionally filtered by name.
+// DescribeScheduledActions returns scheduled actions for the given group,
+// optionally filtered by name, or by [startTime, endTime] against each
+// action's StartTime (api_op_DescribeScheduledActions.go: "If scheduled
+// action names are provided, this property is ignored" -- so the time range
+// only applies when actionNames is empty, matching the branch below,
+// regardless of whether groupName is also given: AutoScalingGroupName is a
+// separate, optional field, not a precondition for the name filter). A zero
+// startTime/endTime means that bound is not documented/not supplied.
 func (b *InMemoryBackend) DescribeScheduledActions(
 	groupName string,
 	actionNames []string,
+	startTime, endTime time.Time,
 ) ([]ScheduledAction, error) {
 	b.mu.RLock("DescribeScheduledActions")
 	defer b.mu.RUnlock()
 
-	if groupName != "" {
-		if !b.groups.Has(groupName) {
-			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
-		}
+	if groupName != "" && !b.groups.Has(groupName) {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	if len(actionNames) > 0 && groupName != "" {
+	if len(actionNames) > 0 {
+		return b.scheduledActionsByNamesLocked(groupName, actionNames), nil
+	}
+
+	result := b.scheduledActionsInTimeRangeLocked(groupName, startTime, endTime)
+
+	// ScheduledActionName is unique only within a group (scheduledActions is keyed by
+	// scopedKey(groupName, name)), not account-wide -- when groupName is empty this ranges every
+	// group's actions, so two different groups can share a name and need AutoScalingGroupName as
+	// a tiebreak for a stable pagination cursor.
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ScheduledActionName != result[j].ScheduledActionName {
+			return result[i].ScheduledActionName < result[j].ScheduledActionName
+		}
+
+		return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
+	})
+
+	return result, nil
+}
+
+// scheduledActionsByNamesLocked looks up each named scheduled action,
+// skipping unknown names. When groupName is given, each name is scoped to
+// that group's scheduledActions entry. Otherwise -- a real client may supply
+// ScheduledActionNames without AutoScalingGroupName -- every group is
+// searched: ScheduledActionName is unique only within a group (scopedKey),
+// not account-wide, so a name can legitimately match entries in more than
+// one group; matches are grouped-then-sorted by AutoScalingGroupName for a
+// deterministic order. The caller must hold at least a read lock.
+func (b *InMemoryBackend) scheduledActionsByNamesLocked(groupName string, actionNames []string) []ScheduledAction {
+	if groupName != "" {
 		result := make([]ScheduledAction, 0, len(actionNames))
 
 		for _, name := range actionNames {
@@ -109,26 +146,61 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 			result = append(result, *a)
 		}
 
-		return result, nil
+		return result
+	}
+
+	all := b.scheduledActions.All()
+
+	var result []ScheduledAction
+
+	for _, name := range actionNames {
+		var matches []ScheduledAction
+
+		for _, a := range all {
+			if a.ScheduledActionName == name {
+				matches = append(matches, *a)
+			}
+		}
+
+		sort.Slice(matches, func(i, j int) bool {
+			return matches[i].AutoScalingGroupName < matches[j].AutoScalingGroupName
+		})
+
+		result = append(result, matches...)
+	}
+
+	return result
+}
+
+// scheduledActionsInTimeRangeLocked returns every scheduled action for
+// groupName (or account-wide when empty) whose StartTime falls within
+// [startTime, endTime]; a zero bound is unset. The caller must hold at least
+// a read lock.
+func (b *InMemoryBackend) scheduledActionsInTimeRangeLocked(
+	groupName string, startTime, endTime time.Time,
+) []ScheduledAction {
+	matchesTimeRange := func(a *ScheduledAction) bool {
+		if !startTime.IsZero() && a.StartTime.Before(startTime) {
+			return false
+		}
+
+		return endTime.IsZero() || !a.StartTime.After(endTime)
 	}
 
 	var result []ScheduledAction
 
+	actions := b.scheduledActions.All()
 	if groupName != "" {
-		for _, a := range b.scheduledActionsByGroup.Get(groupName) {
-			result = append(result, *a)
-		}
-	} else {
-		for _, a := range b.scheduledActions.All() {
+		actions = b.scheduledActionsByGroup.Get(groupName)
+	}
+
+	for _, a := range actions {
+		if matchesTimeRange(a) {
 			result = append(result, *a)
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ScheduledActionName < result[j].ScheduledActionName
-	})
-
-	return result, nil
+	return result
 }
 
 // PutScheduledUpdateGroupAction creates or updates a single scheduled action.

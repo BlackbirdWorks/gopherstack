@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if name == "" {
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 
 	for _, g := range b.groupsByOrg.Get(orgID) {
 		if g.Name == name {
-			return nil, fmt.Errorf("%w: group %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: group %q already exists", ErrNameUnavailable, name)
 		}
 	}
 
@@ -107,10 +107,13 @@ func (b *InMemoryBackend) DeleteGroup(orgID, entityID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, entityID)
 	if g == nil {
+		// DeleteGroup's own error model declares no not-found type for the
+		// group itself (only Organization*); no correct code exists to send
+		// here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: group %q not found", ErrNotFound, entityID)
 	}
 

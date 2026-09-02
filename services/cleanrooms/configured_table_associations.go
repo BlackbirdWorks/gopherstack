@@ -92,6 +92,7 @@ func (b *InMemoryBackend) ListConfiguredTableAssociations(
 			MembershipArn:                        a.MembershipArn,
 			ConfiguredTableIdentifier:            a.ConfiguredTableIdentifier,
 			Name:                                 a.Name,
+			AnalysisRuleTypes:                    a.AnalysisRuleTypes,
 			CreateTime:                           a.CreateTime,
 			UpdateTime:                           a.UpdateTime,
 			ID:                                   a.ID,

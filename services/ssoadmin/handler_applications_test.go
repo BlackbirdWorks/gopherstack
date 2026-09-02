@@ -300,6 +300,90 @@ func TestDeleteApplication(t *testing.T) {
 	}
 }
 
+// TestListApplications_Filter verifies ListApplicationsInput.Filter
+// (ApplicationAccount/ApplicationProvider, aws-sdk-go-v2/service/ssoadmin
+// types.ListApplicationsFilter) is actually applied -- it was previously
+// declared on the wire and never read at all, so every call returned every
+// application in the instance regardless of the filter.
+func TestListApplications_Filter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "app-filter-instance")
+
+	rec1 := doRequest(t, h, "CreateApplication", map[string]any{
+		"InstanceArn":            instanceArn,
+		"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+		"Name":                   "AppOne",
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doRequest(t, h, "CreateApplication", map[string]any{
+		"InstanceArn":            instanceArn,
+		"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/other",
+		"Name":                   "AppTwo",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "no_filter_returns_both",
+			filter:    nil,
+			wantNames: []string{"AppOne", "AppTwo"},
+		},
+		{
+			name:      "application_provider_matches_one",
+			filter:    map[string]any{"ApplicationProvider": "arn:aws:sso::123456789012:applicationProvider/custom"},
+			wantNames: []string{"AppOne"},
+		},
+		{
+			name: "application_provider_matches_none",
+			filter: map[string]any{
+				"ApplicationProvider": "arn:aws:sso::123456789012:applicationProvider/nonexistent",
+			},
+			wantNames: []string{},
+		},
+		{
+			name:      "application_account_matches_both",
+			filter:    map[string]any{"ApplicationAccount": "123456789012"},
+			wantNames: []string{"AppOne", "AppTwo"},
+		},
+		{
+			name:      "application_account_matches_none",
+			filter:    map[string]any{"ApplicationAccount": "999999999999"},
+			wantNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := map[string]any{"InstanceArn": instanceArn}
+			if tt.filter != nil {
+				body["Filter"] = tt.filter
+			}
+
+			rec := doRequest(t, h, "ListApplications", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseResponse(t, rec)
+			apps, _ := resp["Applications"].([]any)
+
+			gotNames := make([]string, 0, len(apps))
+			for _, a := range apps {
+				gotNames = append(gotNames, a.(map[string]any)["Name"].(string))
+			}
+
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
 func TestApplicationAdditionalOperations(t *testing.T) {
 	t.Parallel()
 

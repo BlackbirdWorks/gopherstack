@@ -434,14 +434,17 @@ type Cancellation struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// Update represents an EKS update record.
+// Update represents an EKS update record. NodegroupName is backend-internal
+// (not part of the real Update wire shape) -- it exists only so ListUpdates
+// can honor ListUpdatesInput.NodegroupName.
 type Update struct {
-	CreatedAt    time.Time     `json:"createdAt"`
-	Cancellation *Cancellation `json:"cancellation,omitempty"`
-	ID           string        `json:"id"`
-	ClusterName  string        `json:"clusterName"`
-	Status       string        `json:"status"`
-	Type         string        `json:"type"`
-	Params       []UpdateParam `json:"params,omitempty"`
-	Errors       []UpdateError `json:"errors,omitempty"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	Cancellation  *Cancellation `json:"cancellation,omitempty"`
+	ID            string        `json:"id"`
+	ClusterName   string        `json:"clusterName"`
+	NodegroupName string        `json:"-"`
+	Status        string        `json:"status"`
+	Type          string        `json:"type"`
+	Params        []UpdateParam `json:"params,omitempty"`
+	Errors        []UpdateError `json:"errors,omitempty"`
 }

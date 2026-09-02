@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"context"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -9,7 +10,10 @@ import (
 // StorageBackend is the interface for sesv2 storage operations.
 type StorageBackend interface {
 	// Core identity ops
-	CreateEmailIdentity(identity, configurationSetName string, tags map[string]string) (*EmailIdentity, error)
+	CreateEmailIdentity(
+		identity, configurationSetName string,
+		tags map[string]string,
+	) (*EmailIdentity, error)
 	GetEmailIdentity(identity string) (*EmailIdentity, error)
 	ListEmailIdentities(nextToken string, pageSize int) page.Page[*EmailIdentity]
 	DeleteEmailIdentity(identity string) error
@@ -40,7 +44,10 @@ type StorageBackend interface {
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
 	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
-	PutConfigurationSetVdmOptions(name string, dashboardOptions, guardianOptions map[string]any) error
+	PutConfigurationSetVdmOptions(
+		name string,
+		dashboardOptions, guardianOptions map[string]any,
+	) error
 
 	// Event destination ops
 	CreateConfigurationSetEventDestination(
@@ -96,12 +103,15 @@ type StorageBackend interface {
 	) page.Page[*CustomVerificationEmailTemplate]
 
 	// Dedicated IP pool ops
-	CreateDedicatedIPPool(poolName, scalingMode string, tags map[string]string) (*DedicatedIPPool, error)
+	CreateDedicatedIPPool(
+		poolName, scalingMode string,
+		tags map[string]string,
+	) (*DedicatedIPPool, error)
 	GetDedicatedIPPool(poolName string) (*DedicatedIPPool, error)
 	DeleteDedicatedIPPool(poolName string) error
 	ListDedicatedIPPools(nextToken string, pageSize int) page.Page[string]
 	GetDedicatedIP(ip string) (map[string]any, error)
-	GetDedicatedIps() []map[string]any
+	GetDedicatedIps(poolName, nextToken string, pageSize int) page.Page[map[string]any]
 	PutDedicatedIPInPool(ip, poolName string) error
 	PutDedicatedIPPoolScalingAttributes(poolName, scalingMode string) error
 	PutDedicatedIPWarmupAttributes(ip string, warmupPercentage int) error
@@ -140,19 +150,27 @@ type StorageBackend interface {
 	// Export job ops
 	CreateExportJob(sourceType string) (*ExportJob, error)
 	GetExportJob(jobID string) (*ExportJob, error)
-	ListExportJobs(nextToken string, pageSize int) page.Page[*ExportJob]
+	ListExportJobs(
+		exportSourceType, jobStatus, nextToken string,
+		pageSize int,
+	) page.Page[*ExportJob]
 	CancelExportJob(jobID string) error
 
 	// Import job ops
 	CreateImportJob(destination ImportDestination) (*ImportJob, error)
 	GetImportJob(jobID string) (*ImportJob, error)
-	ListImportJobs(nextToken string, pageSize int) page.Page[*ImportJob]
+	ListImportJobs(importDestinationType, nextToken string, pageSize int) page.Page[*ImportJob]
 
 	// Suppressed destination ops
 	PutSuppressedDestination(email, reason string) error
 	GetSuppressedDestination(email string) (*SuppressedDestination, error)
 	DeleteSuppressedDestination(email string) error
-	ListSuppressedDestinations(nextToken string, pageSize int) page.Page[*SuppressedDestination]
+	ListSuppressedDestinations(
+		reasons []string,
+		startDate, endDate *time.Time,
+		nextToken string,
+		pageSize int,
+	) page.Page[*SuppressedDestination]
 
 	// Account ops
 	GetAccount() (*AccountDetails, error)
@@ -188,7 +206,10 @@ type StorageBackend interface {
 	) (*createMultiRegionEndpointOutput, error)
 	GetMultiRegionEndpoint(endpointName string) (*multiRegionEndpointOutput, error)
 	DeleteMultiRegionEndpoint(endpointName string) (string, error)
-	ListMultiRegionEndpoints(nextToken string, pageSize int) ([]multiRegionEndpointSummaryOutput, string, error)
+	ListMultiRegionEndpoints(
+		nextToken string,
+		pageSize int,
+	) ([]multiRegionEndpointSummaryOutput, string, error)
 
 	// Tenant ops
 	CreateTenant(tenantName string, tags map[string]string) (*tenantOutput, error)
@@ -197,8 +218,15 @@ type StorageBackend interface {
 	ListTenants(nextToken string, pageSize int) ([]tenantInfoOutput, string, error)
 	CreateTenantResourceAssociation(tenantName, resourceArn string) error
 	DeleteTenantResourceAssociation(tenantName, resourceArn string) error
-	PutTenantSuppressionAttributes(tenantName string, suppressedReasons []string, suppressionScope string) error
-	ListResourceTenants(resourceArn, nextToken string, pageSize int) ([]resourceTenantOutput, string, error)
+	PutTenantSuppressionAttributes(
+		tenantName string,
+		suppressedReasons []string,
+		suppressionScope string,
+	) error
+	ListResourceTenants(
+		resourceArn, nextToken string,
+		pageSize int,
+	) ([]resourceTenantOutput, string, error)
 	ListTenantResources(
 		tenantName string,
 		filter map[string]string,
@@ -209,7 +237,11 @@ type StorageBackend interface {
 	// Reputation entity ops -- real (derived from stored customer-managed
 	// status/policy overrides), not stubs; see PARITY.md.
 	GetReputationEntity(entityID string) (reputationEntityOutput, error)
-	ListReputationEntities(nextToken string, pageSize int) ([]reputationEntityOutput, string, error)
+	ListReputationEntities(
+		filter map[string]string,
+		nextToken string,
+		pageSize int,
+	) ([]reputationEntityOutput, string, error)
 	UpdateReputationEntityCustomerManagedStatus(entityID, status string) error
 	UpdateReputationEntityPolicy(entityID, policy string) error
 

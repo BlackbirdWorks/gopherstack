@@ -84,14 +84,14 @@ func TestKAV2_RollbackApplication(t *testing.T) {
 	h := newTestKAV2Handler(t)
 
 	doKAV2Request(t, h, "CreateApplication", map[string]any{
-		"ApplicationName":        "rollback-http-app",
-		"RuntimeEnvironment":     "FLINK-1_18",
-		"ApplicationDescription": "original",
+		"ApplicationName":      "rollback-http-app",
+		"RuntimeEnvironment":   "FLINK-1_18",
+		"ServiceExecutionRole": "arn:aws:iam::000000000000:role/original",
 	})
 
 	updateRec := doKAV2Request(t, h, "UpdateApplication", map[string]any{
 		"ApplicationName":             "rollback-http-app",
-		"ApplicationDescription":      "changed",
+		"ServiceExecutionRoleUpdate":  "arn:aws:iam::000000000000:role/changed",
 		"CurrentApplicationVersionId": 1,
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
@@ -108,6 +108,6 @@ func TestKAV2_RollbackApplication(t *testing.T) {
 
 	detail, ok := rollbackOut["ApplicationDetail"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "original", detail["ApplicationDescription"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/original", detail["ServiceExecutionRole"])
 	assert.InEpsilon(t, 3.0, detail["ApplicationVersionId"], 1e-9)
 }

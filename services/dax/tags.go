@@ -121,8 +121,10 @@ func (b *InMemoryBackend) ListTags(
 	startIdx := 0
 
 	if nextToken != "" {
+		startIdx = len(keys)
+
 		for i, k := range keys {
-			if k == nextToken {
+			if k >= nextToken {
 				startIdx = i
 
 				break

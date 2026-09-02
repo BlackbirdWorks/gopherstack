@@ -232,9 +232,18 @@ func (b *InMemoryBackend) ResetImageAttribute(imageID, attribute string) error {
 
 // InstanceImageMetadataItem holds image-related metadata for a single instance.
 type InstanceImageMetadataItem struct {
-	InstanceID string `json:"instanceID,omitempty"`
-	ImageID    string `json:"imageID,omitempty"`
-	ImageState string `json:"imageState,omitempty"`
+	LaunchTime       time.Time
+	InstanceID       string `json:"instanceID,omitempty"`
+	ImageID          string `json:"imageID,omitempty"`
+	ImageName        string `json:"imageName,omitempty"`
+	ImageState       string `json:"imageState,omitempty"`
+	ImageOwnerID     string `json:"imageOwnerID,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	ZoneID           string `json:"zoneID,omitempty"`
+	InstanceType     string `json:"instanceType,omitempty"`
+	OwnerID          string `json:"ownerID,omitempty"`
+	StateName        string `json:"stateName,omitempty"`
+	StateCode        int    `json:"stateCode,omitempty"`
 }
 
 // DescribeInstanceImageMetadata returns image metadata for instances (or all).
@@ -258,10 +267,32 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 		if b.imageDisabled[inst.ImageID] {
 			imageState = stateDisabledImg
 		}
+
+		var imageName string
+		if img := b.lookupImageLocked(inst.ImageID); img != nil {
+			imageName = img.Name
+		}
+
+		az := inst.Placement.AvailabilityZone
+
+		var zoneID string
+		if az != "" {
+			zoneID = az + "1"
+		}
+
 		out = append(out, InstanceImageMetadataItem{
-			InstanceID: inst.ID,
-			ImageID:    inst.ImageID,
-			ImageState: imageState,
+			InstanceID:       inst.ID,
+			ImageID:          inst.ImageID,
+			ImageName:        imageName,
+			ImageState:       imageState,
+			ImageOwnerID:     b.AccountID,
+			AvailabilityZone: az,
+			ZoneID:           zoneID,
+			InstanceType:     inst.InstanceType,
+			OwnerID:          b.AccountID,
+			StateName:        inst.State.Name,
+			StateCode:        inst.State.Code,
+			LaunchTime:       inst.LaunchTime,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].InstanceID < out[j].InstanceID })
@@ -296,10 +327,14 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 
 // ImportImage creates an import task for importing a VM image.
 func (b *InMemoryBackend) ImportImage(
-	description, architecture, platform string,
+	description, architecture, platform string, encrypted bool, kmsKeyID string,
 ) (*ImageImportTask, error) {
 	b.mu.Lock("ImportImage")
 	defer b.mu.Unlock()
+
+	if encrypted && kmsKeyID == "" {
+		kmsKeyID = defaultEBSKmsKeyAlias
+	}
 
 	task := &ImageImportTask{
 		ImportTaskID: "import-ami-" + uuid.New().String()[:8],
@@ -307,6 +342,8 @@ func (b *InMemoryBackend) ImportImage(
 		Architecture: architecture,
 		Platform:     platform,
 		Status:       stateTaskCompleted,
+		Encrypted:    encrypted,
+		KmsKeyID:     kmsKeyID,
 	}
 	b.imageImportTasks.Put(task)
 
@@ -448,8 +485,25 @@ func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 
 // ---- Snapshot recycle bin ----
 
-// EnableFastLaunch enables Windows fast launch for an AMI.
-func (b *InMemoryBackend) EnableFastLaunch(imageID string) error {
+// FastLaunchConfig carries the EnableFastLaunch request parameters that
+// DescribeFastLaunchImages must echo back (ec2@v1.319.1
+// DescribeFastLaunchImagesSuccessItem: launchTemplate/maxParallelLaunches/
+// resourceType/snapshotConfiguration). EnableFastLaunch previously discarded
+// all of these, storing only a bool.
+type FastLaunchConfig struct {
+	ResourceType                string
+	LaunchTemplateID            string
+	LaunchTemplateName          string
+	LaunchTemplateVersion       string
+	MaxParallelLaunches         int
+	SnapshotTargetResourceCount int
+	HasLaunchTemplate           bool
+	HasSnapshotConfiguration    bool
+}
+
+// EnableFastLaunch enables Windows fast launch for an AMI, storing the
+// requested configuration for DescribeFastLaunchImages to report back.
+func (b *InMemoryBackend) EnableFastLaunch(imageID string, cfg FastLaunchConfig) error {
 	if imageID == "" {
 		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
@@ -457,29 +511,51 @@ func (b *InMemoryBackend) EnableFastLaunch(imageID string) error {
 	b.mu.Lock("EnableFastLaunch")
 	defer b.mu.Unlock()
 
-	b.fastLaunchImages[imageID] = true
+	b.fastLaunchImages[imageID] = &FastLaunchImageItem{
+		ImageID:                     imageID,
+		State:                       stateEnabledFastLaunch,
+		ResourceType:                cfg.ResourceType,
+		LaunchTemplateID:            cfg.LaunchTemplateID,
+		LaunchTemplateName:          cfg.LaunchTemplateName,
+		LaunchTemplateVersion:       cfg.LaunchTemplateVersion,
+		MaxParallelLaunches:         cfg.MaxParallelLaunches,
+		SnapshotTargetResourceCount: cfg.SnapshotTargetResourceCount,
+		HasLaunchTemplate:           cfg.HasLaunchTemplate,
+		HasSnapshotConfiguration:    cfg.HasSnapshotConfiguration,
+	}
 
 	return nil
 }
 
-// DisableFastLaunch disables Windows fast launch for an AMI.
-func (b *InMemoryBackend) DisableFastLaunch(imageID string) error {
+// DisableFastLaunch disables Windows fast launch for an AMI, returning the
+// configuration that was in effect (or nil if the AMI was never enabled) so
+// the handler can echo it back on DisableFastLaunchOutput.
+func (b *InMemoryBackend) DisableFastLaunch(imageID string) (*FastLaunchImageItem, error) {
 	if imageID == "" {
-		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DisableFastLaunch")
 	defer b.mu.Unlock()
 
+	prev := b.fastLaunchImages[imageID]
 	delete(b.fastLaunchImages, imageID)
 
-	return nil
+	return prev, nil
 }
 
-// FastLaunchImageItem holds fast launch enabled state for a single AMI.
+// FastLaunchImageItem holds fast launch state and configuration for a single AMI.
 type FastLaunchImageItem struct {
-	ImageID string `json:"imageID,omitempty"`
-	State   string `json:"state,omitempty"`
+	ImageID                     string `json:"imageID,omitempty"`
+	State                       string `json:"state,omitempty"`
+	ResourceType                string `json:"resourceType,omitempty"`
+	LaunchTemplateID            string `json:"launchTemplateID,omitempty"`
+	LaunchTemplateName          string `json:"launchTemplateName,omitempty"`
+	LaunchTemplateVersion       string `json:"launchTemplateVersion,omitempty"`
+	MaxParallelLaunches         int    `json:"maxParallelLaunches,omitempty"`
+	SnapshotTargetResourceCount int    `json:"snapshotTargetResourceCount,omitempty"`
+	HasLaunchTemplate           bool   `json:"hasLaunchTemplate,omitempty"`
+	HasSnapshotConfiguration    bool   `json:"hasSnapshotConfiguration,omitempty"`
 }
 
 // DescribeFastLaunchImages returns AMIs with fast launch enabled.
@@ -493,11 +569,11 @@ func (b *InMemoryBackend) DescribeFastLaunchImages(imageIDs []string) []FastLaun
 	}
 
 	var out []FastLaunchImageItem
-	for imageID := range b.fastLaunchImages {
+	for imageID, item := range b.fastLaunchImages {
 		if len(filter) > 0 && !filter[imageID] {
 			continue
 		}
-		out = append(out, FastLaunchImageItem{ImageID: imageID, State: stateEnabledFastLaunch})
+		out = append(out, *item)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ImageID < out[j].ImageID })
 
@@ -536,11 +612,6 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		SourceImageID:  src.ImageID,
 	}
 	b.images.Put(newImage)
-	b.imageUsageReports.Put(&ImageUsageReport{
-		ImageID:        newImage.ImageID,
-		State:          stateAvailable,
-		GenerationDate: time.Now().UTC().Format(time.RFC3339),
-	})
 
 	cp := *newImage
 
@@ -560,7 +631,6 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
 	}
 	b.images.Delete(imageID)
-	b.imageUsageReports.Delete(imageID)
 	delete(b.tags, imageID)
 
 	return nil

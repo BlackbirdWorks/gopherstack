@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -21,17 +22,8 @@ func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem 
 		TagSet:          tagItemsFromMap(tags),
 	}
 
-	for _, sid := range ep.SubnetIDs {
-		item.SubnetIDs.Items = append(item.SubnetIDs.Items, struct {
-			SubnetID string `xml:"subnetId"`
-		}{SubnetID: sid})
-	}
-
-	for _, rtID := range ep.RouteTableIDs {
-		item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, struct {
-			RouteTableID string `xml:"routeTableId"`
-		}{RouteTableID: rtID})
-	}
+	item.SubnetIDs.Items = append(item.SubnetIDs.Items, ep.SubnetIDs...)
+	item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, ep.RouteTableIDs...)
 
 	for _, pr := range ep.PayerResponsibilities {
 		item.PayerResponsibilitySet = append(item.PayerResponsibilitySet, payerResponsibilityEntryItem(pr))
@@ -77,15 +69,36 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeImageUsageReports(_ url.Values, reqID string) (any, error) {
+// handleDescribeImageUsageReports previously ignored ReportId.N and
+// ImageId.N entirely
+// (awsEc2query_serializeOpDocumentDescribeImageUsageReportsInput declares
+// both as FlatKey lists), so filtering by either always returned every
+// report.
+func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string) (any, error) {
+	reportIDs := parseMemberList(vals, "ReportId")
+	imageIDs := parseMemberList(vals, "ImageId")
+
 	reports := h.Backend.DescribeImageUsageReports()
 	items := make([]imageUsageReportItem, 0, len(reports))
 	for _, report := range reports {
-		items = append(items, imageUsageReportItem{
-			ImageID:        report.ImageID,
-			State:          report.State,
-			GenerationDate: report.GenerationDate,
-		})
+		if len(reportIDs) > 0 && !slices.Contains(reportIDs, report.ReportID) {
+			continue
+		}
+
+		if len(imageIDs) > 0 && !slices.Contains(imageIDs, report.ImageID) {
+			continue
+		}
+
+		item := imageUsageReportItem{
+			ImageID:  report.ImageID,
+			ReportID: report.ReportID,
+			State:    report.State,
+		}
+		if !report.CreatedAt.IsZero() {
+			item.CreationTime = report.CreatedAt.Format(time.RFC3339)
+		}
+
+		items = append(items, item)
 	}
 
 	return &describeImageUsageReportsResponse{
@@ -171,16 +184,13 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 }
 
 func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any, error) {
-	// support both Filter.N.Name=vpc-id filter and NetworkAclId.N direct IDs
+	// vpc-id (among other documented filter names) is applied generically
+	// below via applyNetworkACLFilters, so fetch unfiltered by VPC here.
 	filters := parseEC2Filters(vals)
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
-	var vpcIDs []string
-	if v, ok := filters[filterKeyVPCID]; ok {
-		vpcIDs = v
-	}
-
-	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(vpcIDs), aclIDs)
+	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(nil), aclIDs)
+	acls = applyNetworkACLFilters(acls, filters, h.Backend)
 
 	maxResults := 0
 	if v := vals.Get("MaxResults"); v != "" {
@@ -291,9 +301,10 @@ type createImageResponse struct {
 }
 
 type imageUsageReportItem struct {
-	ImageID        string `xml:"imageId"`
-	State          string `xml:"state"`
-	GenerationDate string `xml:"generationDate"`
+	ImageID      string `xml:"imageId,omitempty"`
+	ReportID     string `xml:"reportId,omitempty"`
+	State        string `xml:"state,omitempty"`
+	CreationTime string `xml:"creationTime,omitempty"`
 }
 
 type imageUsageReportSet struct {
@@ -315,15 +326,11 @@ type createLaunchTemplateResponse struct {
 }
 
 type vpcEndpointSubnetIDSet struct {
-	Items []struct {
-		SubnetID string `xml:"subnetId"`
-	} `xml:"item"`
+	Items []string `xml:"item"`
 }
 
 type vpcEndpointRouteTableIDSet struct {
-	Items []struct {
-		RouteTableID string `xml:"routeTableId"`
-	} `xml:"item"`
+	Items []string `xml:"item"`
 }
 
 type vpcEndpointItem struct {

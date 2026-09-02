@@ -245,10 +245,13 @@ func TestAssumeImpersonationRoleErrors(t *testing.T) {
 		wantError string
 	}{
 		{
+			// AssumeImpersonationRole's own error model declares
+			// OrganizationNotFoundException for this, not the shared
+			// EntityNotFoundException sentinel (gopherstack-6flj/uox6).
 			name:      "org not found",
 			orgID:     "org-nonexistent0001",
 			roleID:    "role-abc",
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 	}
 

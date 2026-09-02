@@ -28,7 +28,7 @@ func TestBackend_SetAlarmState_ToAlarm_RecordsHistory(t *testing.T) {
 	err = b.SetAlarmState(t.Context(), "cpu-alarm", "ALARM", "CPU exceeded 80%", "")
 	require.NoError(t, err)
 
-	hist, err := b.DescribeAlarmHistory("cpu-alarm", "", "", "", time.Time{}, time.Time{}, 0)
+	hist, err := b.DescribeAlarmHistory("cpu-alarm", nil, "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, hist.Data)
 

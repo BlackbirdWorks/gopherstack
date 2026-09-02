@@ -15,7 +15,7 @@ import (
 
 var (
 	// ErrHPTuningJobNotFound is returned when an HP tuning job does not exist.
-	ErrHPTuningJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrHPTuningJobNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrHPTuningJobAlreadyExists is returned when an HP tuning job already exists.
 	ErrHPTuningJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )

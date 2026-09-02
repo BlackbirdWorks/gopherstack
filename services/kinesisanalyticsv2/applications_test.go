@@ -264,7 +264,6 @@ func TestBackend_UpdateApplication(t *testing.T) {
 		name              string
 		appName           string
 		updateServiceRole string
-		updateDescription string
 		currentVersionID  int64
 		wantVersionID     int64
 		createFirst       bool
@@ -275,7 +274,6 @@ func TestBackend_UpdateApplication(t *testing.T) {
 			appName:           "update-app",
 			createFirst:       true,
 			updateServiceRole: "arn:aws:iam::000000000000:role/new-role",
-			updateDescription: "updated description",
 			wantVersionID:     2,
 		},
 		{
@@ -308,7 +306,7 @@ func TestBackend_UpdateApplication(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.createFirst {
-				_, err := b.CreateApplication(ctx, tt.appName, "FLINK-1_18", "", "", "", nil)
+				_, err := b.CreateApplication(ctx, tt.appName, "FLINK-1_18", "", "original description", "", nil)
 				require.NoError(t, err)
 			}
 
@@ -316,7 +314,6 @@ func TestBackend_UpdateApplication(t *testing.T) {
 				Name:                        tt.appName,
 				CurrentApplicationVersionID: tt.currentVersionID,
 				ServiceExecutionRoleUpdate:  tt.updateServiceRole,
-				ApplicationDescription:      tt.updateDescription,
 			})
 
 			if tt.wantErr {
@@ -328,7 +325,8 @@ func TestBackend_UpdateApplication(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantVersionID, app.ApplicationVersionID)
 			assert.Equal(t, tt.updateServiceRole, app.ServiceExecutionRole)
-			assert.Equal(t, tt.updateDescription, app.ApplicationDescription)
+			assert.Equal(t, "original description", app.ApplicationDescription,
+				"UpdateApplication has no ApplicationDescription member in real AWS; it must not change")
 			assert.NotEmpty(t, opID)
 		})
 	}

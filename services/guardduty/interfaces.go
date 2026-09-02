@@ -23,7 +23,7 @@ type StorageBackend interface {
 		findingCriteria map[string]any,
 	) (*Filter, error)
 	DeleteFilter(detectorID, filterName string) error
-	ListFilters(detectorID string) ([]string, error)
+	ListFilters(detectorID string, maxResults int32, nextToken string) ([]string, string, error)
 
 	GetFindings(detectorID string, findingIDs []string) ([]*Finding, error)
 	ListFindings(detectorID string, query FindingsQuery) (ids []string, nextToken string, err error)
@@ -42,7 +42,7 @@ type StorageBackend interface {
 	GetIPSet(detectorID, ipSetID string) (*IPSet, error)
 	UpdateIPSet(detectorID, ipSetID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteIPSet(detectorID, ipSetID string) error
-	ListIPSets(detectorID string) ([]string, error)
+	ListIPSets(detectorID string, maxResults int32, nextToken string) ([]string, string, error)
 
 	CreateThreatIntelSet(
 		detectorID, name, format, location string,
@@ -53,7 +53,7 @@ type StorageBackend interface {
 	GetThreatIntelSet(detectorID, setID string) (*ThreatIntelSet, error)
 	UpdateThreatIntelSet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteThreatIntelSet(detectorID, setID string) error
-	ListThreatIntelSets(detectorID string) ([]string, error)
+	ListThreatIntelSets(detectorID string, maxResults int32, nextToken string) ([]string, string, error)
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -64,7 +64,7 @@ type StorageBackend interface {
 	DeleteMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	GetMembers(detectorID string, accountIDs []string) ([]*Member, []map[string]any, error)
 	InviteMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
-	ListMembers(detectorID string, onlyAssociated bool) ([]*Member, error)
+	ListMembers(detectorID string, onlyAssociated bool, maxResults int32, nextToken string) ([]*Member, string, error)
 	StartMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	StopMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	DisassociateMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
@@ -81,12 +81,12 @@ type StorageBackend interface {
 	DeclineInvitations(accountIDs []string) []map[string]any
 	DeleteInvitations(accountIDs []string) []map[string]any
 	GetInvitationsCount() int
-	ListInvitations() []*Invitation
+	ListInvitations(maxResults int32, nextToken string) ([]*Invitation, string)
 
 	// Organization management
 	EnableOrganizationAdminAccount(adminAccountID string) error
 	DisableOrganizationAdminAccount(adminAccountID string) error
-	ListOrganizationAdminAccounts() []*OrgAdminAccount
+	ListOrganizationAdminAccounts(maxResults int32, nextToken string) ([]*OrgAdminAccount, string)
 	DescribeOrganizationConfiguration(detectorID string) (*OrgConfig, error)
 	UpdateOrganizationConfiguration(
 		detectorID string,
@@ -104,7 +104,11 @@ type StorageBackend interface {
 	) (*PublishingDestination, error)
 	DeletePublishingDestination(detectorID, destID string) error
 	DescribePublishingDestination(detectorID, destID string) (*PublishingDestination, error)
-	ListPublishingDestinations(detectorID string) ([]*PublishingDestination, error)
+	ListPublishingDestinations(
+		detectorID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*PublishingDestination, string, error)
 	UpdatePublishingDestination(detectorID, destID string, props DestinationProperties) error
 
 	// Malware scanning
@@ -127,7 +131,7 @@ type StorageBackend interface {
 	) (*MalwareProtectionPlan, error)
 	DeleteMalwareProtectionPlan(planID string) error
 	GetMalwareProtectionPlan(planID string) (*MalwareProtectionPlan, error)
-	ListMalwareProtectionPlans() []*MalwareProtectionPlan
+	ListMalwareProtectionPlans(nextToken string) ([]*MalwareProtectionPlan, string)
 	UpdateMalwareProtectionPlan(planID, role string, protectedResource, actions map[string]any) error
 	SendObjectMalwareScan(s3ObjectDetails map[string]any) (string, error)
 
@@ -139,7 +143,7 @@ type StorageBackend interface {
 		expectedBucketOwner string,
 	) (*ThreatEntitySet, error)
 	GetThreatEntitySet(detectorID, setID string) (*ThreatEntitySet, error)
-	ListThreatEntitySets(detectorID string) ([]string, error)
+	ListThreatEntitySets(detectorID string, maxResults int32, nextToken string) ([]string, string, error)
 	UpdateThreatEntitySet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteThreatEntitySet(detectorID, setID string) error
 
@@ -151,7 +155,7 @@ type StorageBackend interface {
 		expectedBucketOwner string,
 	) (*TrustedEntitySet, error)
 	GetTrustedEntitySet(detectorID, setID string) (*TrustedEntitySet, error)
-	ListTrustedEntitySets(detectorID string) ([]string, error)
+	ListTrustedEntitySets(detectorID string, maxResults int32, nextToken string) ([]string, string, error)
 	UpdateTrustedEntitySet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteTrustedEntitySet(detectorID, setID string) error
 

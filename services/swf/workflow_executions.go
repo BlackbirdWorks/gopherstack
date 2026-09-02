@@ -19,6 +19,7 @@ type ExecutionFilter struct {
 	WorkflowTypeVersion string
 	Tag                 string
 	CloseStatus         string
+	ReverseOrder        bool
 }
 
 func (f ExecutionFilter) matchOpen(e *WorkflowExecution) bool {
@@ -659,6 +660,7 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(
 			out = append(out, *e)
 		}
 	}
+	sortExecutionsByTimestamp(out, false, filter.ReverseOrder)
 
 	return out
 }
@@ -681,8 +683,40 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 			out = append(out, *e)
 		}
 	}
+	// Real AWS orders by close time when closeTimeFilter was the caller's
+	// selector, else by start time (ListClosedWorkflowExecutionsInput doc:
+	// "the returned results are ordered by their close times"/"start times"
+	// depending on which of the mutually-exclusive filters was given).
+	sortExecutionsByTimestamp(out, filter.CloseOldestDate != nil, filter.ReverseOrder)
 
 	return out
+}
+
+// sortExecutionsByTimestamp orders execs by StartTimestamp (or CloseTimestamp
+// when byCloseTime is set), descending by default -- matching real AWS's
+// documented default ("descending order of the start [or close] time") --
+// or ascending when reverseOrder is set (ListOpen/ListClosedWorkflowExecutionsInput.ReverseOrder).
+func sortExecutionsByTimestamp(execs []WorkflowExecution, byCloseTime, reverseOrder bool) {
+	slices.SortFunc(execs, func(a, b WorkflowExecution) int {
+		ak, bk := a.StartTimestamp, b.StartTimestamp
+		if byCloseTime {
+			ak, bk = a.CloseTimestamp, b.CloseTimestamp
+		}
+
+		c := 0
+		switch {
+		case ak < bk:
+			c = -1
+		case ak > bk:
+			c = 1
+		}
+
+		if !reverseOrder {
+			c = -c
+		}
+
+		return c
+	})
 }
 
 // RequestCancelWorkflowExecution requests cancellation of a running execution.

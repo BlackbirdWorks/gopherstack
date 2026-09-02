@@ -26,7 +26,12 @@ type StorageBackend interface {
 	UpdateFileSystem(input *updateFileSystemInput) (*FileSystem, error)
 
 	CreateBackup(input *createBackupInput) (*Backup, error)
-	DescribeBackups(backupIDs []string, maxResults int32, nextToken string) ([]*Backup, string, error)
+	DescribeBackups(
+		backupIDs []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Backup, string, error)
 	DeleteBackup(backupID string) error
 	CopyBackup(input *copyBackupInput) (*Backup, error)
 
@@ -44,6 +49,7 @@ type StorageBackend interface {
 	DeleteDataRepositoryAssociation(associationID string) error
 	DescribeDataRepositoryAssociations(
 		ids []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*DataRepositoryAssociation, string, error)
@@ -51,7 +57,12 @@ type StorageBackend interface {
 
 	CancelDataRepositoryTask(taskID string) error
 	CreateDataRepositoryTask(input *createDataRepositoryTaskInput) (*DataRepositoryTask, error)
-	DescribeDataRepositoryTasks(ids []string, maxResults int32, nextToken string) ([]*DataRepositoryTask, string, error)
+	DescribeDataRepositoryTasks(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*DataRepositoryTask, string, error)
 
 	CreateFileCache(input *createFileCacheInput) (*FileCacheCreating, error)
 	DeleteFileCache(fileCacheID string) error
@@ -60,7 +71,12 @@ type StorageBackend interface {
 
 	CreateSnapshot(input *createSnapshotInput) (*Snapshot, error)
 	DeleteSnapshot(snapshotID string) error
-	DescribeSnapshots(ids []string, maxResults int32, nextToken string) ([]*Snapshot, string, error)
+	DescribeSnapshots(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Snapshot, string, error)
 	UpdateSnapshot(input *updateSnapshotInput) (*Snapshot, error)
 	CopySnapshotAndUpdateVolume(input *copySnapshotAndUpdateVolumeInput) (*Volume, error)
 
@@ -68,6 +84,7 @@ type StorageBackend interface {
 	DeleteStorageVirtualMachine(svmID string) error
 	DescribeStorageVirtualMachines(
 		ids []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*StorageVirtualMachine, string, error)
@@ -76,7 +93,12 @@ type StorageBackend interface {
 	CreateVolume(input *createVolumeInput) (*Volume, error)
 	CreateVolumeFromBackup(input *createVolumeFromBackupInput) (*Volume, error)
 	DeleteVolume(volumeID string) error
-	DescribeVolumes(ids []string, maxResults int32, nextToken string) ([]*Volume, string, error)
+	DescribeVolumes(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Volume, string, error)
 	RestoreVolumeFromSnapshot(input *restoreVolumeFromSnapshotInput) (*Volume, error)
 	UpdateVolume(input *updateVolumeInput) (*Volume, error)
 
@@ -84,6 +106,7 @@ type StorageBackend interface {
 	DetachAndDeleteS3AccessPoint(name string) error
 	DescribeS3AccessPointAttachments(
 		names []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*S3AccessPointAttachment, string, error)
@@ -342,17 +365,35 @@ type StorageVirtualMachine struct {
 // Volume represents an FSx ONTAP or OpenZFS volume.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
-// number of epoch seconds here, not an RFC3339 string.
+// number of epoch seconds here, not an RFC3339 string. Real types.Volume
+// (fsx@v1.68.4 types/types.go) has NO top-level StorageVirtualMachineId
+// member at all -- it lives nested under OntapConfiguration.
+// StorageVirtualMachineId (deserializers.go:12447 case
+// "StorageVirtualMachineId"), confirmed via the live per-op deserializer
+// (deserializers.go:15307's Volume case switch has no top-level case for it).
+// A prior pass emitted it as a fabricated top-level key, which any real
+// typed SDK client silently drops, leaving a volume's SVM association
+// permanently unreadable through every op that returns a Volume.
 type Volume struct {
-	CreationTime            epochTime `json:"CreationTime"`
-	VolumeID                string    `json:"VolumeId"`
-	VolumeType              string    `json:"VolumeType"`
-	FileSystemID            string    `json:"FileSystemId"`
-	StorageVirtualMachineID string    `json:"StorageVirtualMachineId,omitempty"`
-	Name                    string    `json:"Name"`
-	Lifecycle               string    `json:"Lifecycle"`
-	ResourceARN             string    `json:"ResourceARN"`
-	Tags                    []Tag     `json:"Tags,omitempty"`
+	CreationTime       epochTime                 `json:"CreationTime"`
+	OntapConfiguration *OntapVolumeConfiguration `json:"OntapConfiguration,omitempty"`
+	VolumeID           string                    `json:"VolumeId"`
+	VolumeType         string                    `json:"VolumeType"`
+	FileSystemID       string                    `json:"FileSystemId"`
+	Name               string                    `json:"Name"`
+	Lifecycle          string                    `json:"Lifecycle"`
+	ResourceARN        string                    `json:"ResourceARN"`
+	Tags               []Tag                     `json:"Tags,omitempty"`
+}
+
+// OntapVolumeConfiguration is the ONTAP-specific block on Volume
+// (types.OntapVolumeConfiguration, types/types.go). Only
+// StorageVirtualMachineId is modeled -- the remaining real members
+// (JunctionPath, SizeInBytes, SecurityStyle, OntapVolumeType,
+// SnaplockConfiguration, TieringPolicy, ...) stay a disclosed, unmodeled gap
+// (see PARITY.md).
+type OntapVolumeConfiguration struct {
+	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
 }
 
 // AdministrativeAction represents an in-progress or completed FSx

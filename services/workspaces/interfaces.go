@@ -3,6 +3,8 @@ package workspaces
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // WorkspaceCreationSpec holds all fields for creating a workspace.
@@ -32,7 +34,9 @@ type StorageBackend interface {
 		workspaceIDs, directoryID, userID, bundleID []string,
 		limit int32, nextToken string,
 	) ([]*Workspace, string, error)
-	GetWorkspacesConnectionStatus(workspaceIDs []string) ([]*WorkspaceConnectionStatus, error)
+	GetWorkspacesConnectionStatus(
+		workspaceIDs []string, nextToken string,
+	) ([]*WorkspaceConnectionStatus, string, error)
 	ModifyWorkspaceProperties(workspaceID string, props WorkspaceProperties) error
 	ModifyWorkspaceState(workspaceID, state string) error
 	RebootWorkspaces(workspaceIDs []string) ([]FailedRequest, error)
@@ -91,6 +95,7 @@ type StorageBackend interface {
 	// Custom Bundles
 	CreateWorkspaceBundle(
 		name, description, imageID, computeType string,
+		userStorageGiB, rootStorageGiB int32,
 		tags map[string]string,
 	) (*storedCustomBundle, error)
 	DeleteWorkspaceBundle(bundleID string) error
@@ -126,7 +131,9 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*storedImage, string, error)
-	DescribeWorkspaceImagePermissions(imageID string) (string, map[string]bool, error)
+	DescribeWorkspaceImagePermissions(
+		imageID, nextToken string, maxResults int,
+	) (string, page.Page[ImagePermission], error)
 	UpdateWorkspaceImagePermission(imageID, sharedAccountID string, allowCopy bool) error
 	DescribeCustomWorkspaceImageImport(imageID string) (*storedImage, error)
 	DescribeImageAssociations(
@@ -159,7 +166,7 @@ type StorageBackend interface {
 	TerminateWorkspacesPoolSession(sessionID string) error
 
 	// Directories
-	RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error
+	RegisterWorkspaceDirectory(directoryID string, subnetIDs []string, tags map[string]string) error
 	DeregisterWorkspaceDirectory(directoryID string) error
 
 	// Account
@@ -446,13 +453,83 @@ type AccountModification struct {
 }
 
 // WorkspaceDirectory holds WorkSpace directory details.
+//
+// IPGroupIDs / EndpointEncryptionMode / CertificateBasedAuthProperties /
+// SamlProperties / SelfservicePermissions / WorkspaceAccessProperties /
+// WorkspaceCreationProperties are all real members of the wire type
+// (aws-sdk-go-v2/service/workspaces@v1.73.1/types.WorkspaceDirectory) that
+// real AWS's DescribeWorkspaceDirectories echoes back -- there is no
+// separate Describe op for any of these settings, only Modify* ops, so
+// DescribeWorkspaceDirectories is the only place a real client ever reads
+// them. Pointer sub-structs are nil (omitted) when the directory was never
+// touched by the corresponding Modify op, matching this backend's honest
+// no-default-simulated posture elsewhere.
 type WorkspaceDirectory struct {
-	DirectoryID   string
-	DirectoryName string
-	DirectoryType string
-	Alias         string
-	State         string
-	SubnetIDs     []string
+	CertificateBasedAuthProperties *CertificateBasedAuthProperties
+	SamlProperties                 *SamlProperties
+	SelfservicePermissions         *SelfservicePermissions
+	WorkspaceAccessProperties      *WorkspaceAccessProperties
+	WorkspaceCreationProperties    *WorkspaceCreationProperties
+	DirectoryID                    string
+	DirectoryName                  string
+	DirectoryType                  string
+	Alias                          string
+	State                          string
+	EndpointEncryptionMode         string
+	SubnetIDs                      []string
+	IPGroupIDs                     []string
+}
+
+// CertificateBasedAuthProperties mirrors types.CertificateBasedAuthProperties.
+type CertificateBasedAuthProperties struct {
+	Status                  string
+	CertificateAuthorityArn string
+}
+
+// SamlProperties mirrors types.SamlProperties.
+type SamlProperties struct {
+	Status                  string
+	UserAccessUrl           string //nolint:revive,staticcheck // matches real SDK field name
+	RelayStateParameterName string
+}
+
+// SelfservicePermissions mirrors types.SelfservicePermissions.
+type SelfservicePermissions struct {
+	RestartWorkspace   string
+	IncreaseVolumeSize string
+	ChangeComputeType  string
+	SwitchRunningMode  string
+	RebuildWorkspace   string
+}
+
+// WorkspaceAccessProperties mirrors types.WorkspaceAccessProperties (device
+// type members only -- AccessEndpointConfig is not modeled by
+// ModifyWorkspaceAccessProperties's handler and stays omitted).
+type WorkspaceAccessProperties struct {
+	DeviceTypeWindows    string
+	DeviceTypeOsx        string
+	DeviceTypeWeb        string
+	DeviceTypeIos        string
+	DeviceTypeAndroid    string
+	DeviceTypeChromeOs   string
+	DeviceTypeZeroClient string
+	DeviceTypeLinux      string
+}
+
+// WorkspaceCreationProperties mirrors types.WorkspaceCreationProperties
+// (workspaces@v1.73.1 api_op_ModifyWorkspaceCreationProperties.go)'s five
+// real members. InstanceIamRoleArn stays unmodeled: this backend has no IAM
+// role state to validate or attach it to. EnableWorkDocs is deliberately
+// absent -- the real SDK removed it ("Remove parameter EnableWorkDocs from
+// WorkSpacesServiceModel due to end of support of Amazon WorkDocs service",
+// CHANGELOG.md), so it is not a real member of this type at all. Pointer
+// booleans distinguish an explicit false from never having been set.
+type WorkspaceCreationProperties struct {
+	EnableInternetAccess            *bool
+	EnableMaintenanceMode           *bool
+	UserEnabledAsLocalAdministrator *bool
+	DefaultOu                       string
+	CustomSecurityGroupId           string //nolint:revive,staticcheck // matches real SDK field name
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

@@ -34,7 +34,7 @@ func createTestTenant(t *testing.T, h *cloudfront.Handler, distID, domain string
 }
 
 // TestCreateDistributionTenant_DomainConflict_WithExistingTenant verifies that creating a tenant
-// with a domain already claimed by another tenant returns a real 409 DomainConflictException.
+// with a domain already claimed by another tenant returns a real 409 CNAMEAlreadyExists.
 func TestCreateDistributionTenant_DomainConflict_WithExistingTenant(t *testing.T) {
 	t.Parallel()
 
@@ -50,8 +50,8 @@ func TestCreateDistributionTenant_DomainConflict_WithExistingTenant(t *testing.T
 		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	if !strings.Contains(rr.Body.String(), "DomainConflictException") {
-		t.Errorf("expected DomainConflictException in body, got: %s", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), "CNAMEAlreadyExists") {
+		t.Errorf("expected CNAMEAlreadyExists in body, got: %s", rr.Body.String())
 	}
 }
 
@@ -296,9 +296,12 @@ func TestUpdateDomainAssociation_ConflictAndValidation(t *testing.T) {
 		`<Domain>owned.example.com</Domain>` +
 		`<TargetResource><DistributionTenantId>` + tenantB + `</DistributionTenantId></TargetResource>` +
 		`</UpdateDomainAssociationRequest>`
+	// UpdateDomainAssociation's own deserializer (cloudfront@v1.67.4
+	// deserializers.go) models no conflict-shaped exception -- this is
+	// InvalidArgument (400), not 409.
 	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-association", body)
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -496,7 +499,7 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestGetDistributionTenant_NotFound verifies the not-found path returns NoSuchDistributionTenant.
+// TestGetDistributionTenant_NotFound verifies the not-found path returns EntityNotFound.
 func TestGetDistributionTenant_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -506,8 +509,8 @@ func TestGetDistributionTenant_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	if !strings.Contains(rr.Body.String(), "NoSuchDistributionTenant") {
-		t.Errorf("expected NoSuchDistributionTenant in body, got: %s", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), "EntityNotFound") {
+		t.Errorf("expected EntityNotFound in body, got: %s", rr.Body.String())
 	}
 }
 
@@ -525,4 +528,55 @@ func extractBetween(s, start, end string) string {
 	}
 
 	return s[i : i+j]
+}
+
+// TestListDistributionTenants_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListDistributionTenants' item struct (tenantSummaryXML,
+// handler_distribution_tenants.go) omitted ETag, CreatedTime, and LastModifiedTime
+// entirely, even though the real DistributionTenantSummary deserializer
+// (awsRestxml_deserializeDocumentDistributionTenantSummary) reads all three and they are
+// backed by real state (DistributionTenant.ETag/.CreationTime/.LastModifiedTime, set at
+// CreateDistributionTenant). Seeds two tenants and asserts every field round-trips
+// non-empty.
+func TestListDistributionTenants_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(distID, name, domain string) *cfsdk.CreateDistributionTenantOutput {
+		out, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+			DistributionId: aws.String(distID),
+			Name:           aws.String(name),
+			Domains:        []types.DomainItem{{Domain: aws.String(domain)}},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("dist-list-shape-1", "tenant-list-shape-1", "list-shape-1.example.com")
+	second := mk("dist-list-shape-2", "tenant-list-shape-2", "list-shape-2.example.com")
+
+	listed, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.DistributionTenantList, 2)
+
+	byID := make(map[string]types.DistributionTenantSummary, 2)
+	for _, item := range listed.DistributionTenantList {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.DistributionTenant.Id]
+	require.True(t, ok)
+	assert.NotEmpty(t, aws.ToString(item1.ETag), "ETag must round-trip, not decode empty")
+	assert.NotNil(t, item1.CreatedTime, "CreatedTime must round-trip, not decode nil")
+	assert.NotNil(t, item1.LastModifiedTime, "LastModifiedTime must round-trip, not decode nil")
+
+	item2, ok := byID[*second.DistributionTenant.Id]
+	require.True(t, ok)
+	assert.NotEmpty(t, aws.ToString(item2.ETag))
+	assert.NotNil(t, item2.CreatedTime)
+	assert.NotNil(t, item2.LastModifiedTime)
 }

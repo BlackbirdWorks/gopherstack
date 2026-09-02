@@ -30,6 +30,18 @@ const txnTokenTTL = 10 * time.Minute
 // removed by the janitor so the token can be reused.
 const txnPendingTTL = 5 * time.Minute
 
+// txnTokenRecord is the state kept for a committed TransactWriteItems
+// idempotency token: when it expires, and a hash of the request that
+// committed it. AWS raises IdempotentParameterMismatchException when a
+// caller reuses a ClientRequestToken with a different request; without the
+// hash, a reused token could only be checked against expiry, so a second
+// call with entirely different TransactItems would be treated as a matching
+// replay and silently short-circuited to a bare success.
+type txnTokenRecord struct {
+	expiry time.Time
+	hash   string
+}
+
 // StoredGlobalTable holds the metadata for a DynamoDB global table.
 type StoredGlobalTable struct {
 	CreationDateTime            time.Time                         `json:"CreationDateTime"`
@@ -179,9 +191,9 @@ type InMemoryDB struct {
 	// streamARNKeyFn doc for why this can't be a store.Index.
 	streamARNIndex       *store.Table[Table]
 	registry             *store.Registry
-	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
-	txnPending           map[string]time.Time // in-progress idempotency tokens → start time
-	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
+	txnTokens            map[string]txnTokenRecord // committed idempotency tokens → expiry+request hash
+	txnPending           map[string]time.Time      // in-progress idempotency tokens → start time
+	fisReplicationPaused map[string]time.Time      // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
@@ -328,7 +340,7 @@ func NewInMemoryDB() *InMemoryDB {
 
 	db := &InMemoryDB{
 		registry:             store.NewRegistry(),
-		txnTokens:            make(map[string]time.Time),
+		txnTokens:            make(map[string]txnTokenRecord),
 		txnPending:           make(map[string]time.Time),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
@@ -912,7 +924,7 @@ func (db *InMemoryDB) Reset() {
 	// exports/imports/streamARNIndex to one call; only the plain (non-store)
 	// maps need explicit resets below.
 	db.registry.ResetAll()
-	db.txnTokens = make(map[string]time.Time)
+	db.txnTokens = make(map[string]txnTokenRecord)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
 	db.iteratorStore = NewShardIteratorStore()

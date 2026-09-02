@@ -5,6 +5,16 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultIRMaxRecords and maxIRMaxRecords are DescribeInstanceRefreshes's documented
+// default/max page size (api_op_DescribeInstanceRefreshes.go: "The default value is 50 and the
+// maximum value is 100").
+const (
+	defaultIRMaxRecords = 50
+	maxIRMaxRecords     = 100
 )
 
 func (h *Handler) handleCancelInstanceRefresh(vals url.Values) (any, error) {
@@ -44,8 +54,17 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 		return nil, err
 	}
 
-	members := make([]xmlInstanceRefresh, 0, len(refreshes))
-	for _, r := range refreshes {
+	maxRecords := defaultIRMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxIRMaxRecords)
+		}
+	}
+
+	p := page.New(refreshes, vals.Get("NextToken"), maxRecords, defaultIRMaxRecords)
+
+	members := make([]xmlInstanceRefresh, 0, len(p.Data))
+	for _, r := range p.Data {
 		endTime := ""
 		if !r.EndTime.IsZero() {
 			endTime = r.EndTime.UTC().Format(time.RFC3339)
@@ -74,6 +93,7 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 	return &describeInstanceRefreshesResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeInstanceRefreshesResult{
+			NextToken:         p.Next,
 			InstanceRefreshes: xmlInstanceRefreshList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-instance-refreshes"},
@@ -174,6 +194,7 @@ type xmlInstanceRefreshList struct {
 }
 
 type describeInstanceRefreshesResult struct {
+	NextToken         string                 `xml:"NextToken,omitempty"`
 	InstanceRefreshes xmlInstanceRefreshList `xml:"InstanceRefreshes"`
 }
 

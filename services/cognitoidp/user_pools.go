@@ -20,10 +20,6 @@ func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
 	b.mu.Lock("CreateUserPool")
 	defer b.mu.Unlock()
 
-	if b.poolNameExists(name) {
-		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
-	}
-
 	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)
 
@@ -106,7 +102,12 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	return nil
 }
 
-// ListUserPools returns all user pools sorted by name.
+// ListUserPools returns all user pools sorted by name, tiebroken by ID.
+// PoolName is not unique -- CreateUserPool has no "already exists" exception
+// (real AWS Cognito allows multiple pools with the same name), so a Name-only
+// sort admits ties; handleListUserPools' marker-based pagination (which
+// resumes by pool ID) needs the complete order, not just the marker, to be
+// reproducible across calls.
 func (b *InMemoryBackend) ListUserPools() []*UserPool {
 	b.mu.RLock("ListUserPools")
 	defer b.mu.RUnlock()
@@ -119,7 +120,13 @@ func (b *InMemoryBackend) ListUserPools() []*UserPool {
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+
+		return out[i].ID < out[j].ID
+	})
 
 	return out
 }
@@ -262,10 +269,6 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 	b.mu.Lock("CreateUserPoolWithOpts")
 	defer b.mu.Unlock()
 
-	if b.poolNameExists(name) {
-		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
-	}
-
 	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)
 
@@ -289,6 +292,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		EmailConfiguration:     opts.EmailConfiguration,
 		AccountRecoverySetting: opts.AccountRecoverySetting,
 		DeletionProtection:     opts.DeletionProtection,
+		MfaConfiguration:       opts.MfaConfiguration,
 	}
 
 	b.pools.Put(pool)

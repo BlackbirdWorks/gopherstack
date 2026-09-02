@@ -1,8 +1,6 @@
 package comprehend
 
 import (
-	"time"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
@@ -16,15 +14,15 @@ func (h *Handler) deleteResourcePolicy(input map[string]any) (map[string]any, er
 }
 
 func (h *Handler) describeResourcePolicy(input map[string]any) (map[string]any, error) {
-	policy, revision, err := h.Backend.GetResourcePolicy(stringValue(input, "ResourceArn", ""))
+	policy, revision, createdAt, modifiedAt, err := h.Backend.GetResourcePolicy(stringValue(input, "ResourceArn", ""))
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{
 		"ResourcePolicy":   policy,
-		"CreationTime":     awstime.Epoch(time.Now().UTC()),
-		"LastModifiedTime": awstime.Epoch(time.Now().UTC()),
+		"CreationTime":     awstime.Epoch(createdAt),
+		"LastModifiedTime": awstime.Epoch(modifiedAt),
 		"PolicyRevisionId": revision,
 	}, nil
 }

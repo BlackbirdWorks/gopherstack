@@ -60,9 +60,10 @@ func (h *Handler) handleDeleteVolume(_ context.Context, in *deleteVolumeInput) (
 // --- DescribeVolumes ---
 
 type describeVolumesInput struct {
-	NextToken  string   `json:"NextToken,omitempty"`
-	VolumeIDs  []string `json:"VolumeIds,omitempty"`
-	MaxResults int32    `json:"MaxResults,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
+	VolumeIDs  []string     `json:"VolumeIds,omitempty"`
+	Filters    []wireFilter `json:"Filters,omitempty"`
+	MaxResults int32        `json:"MaxResults,omitempty"`
 }
 
 type describeVolumesOutput struct {
@@ -71,7 +72,7 @@ type describeVolumesOutput struct {
 }
 
 func (h *Handler) handleDescribeVolumes(_ context.Context, in *describeVolumesInput) (*describeVolumesOutput, error) {
-	vols, next, err := h.Backend.DescribeVolumes(in.VolumeIDs, in.MaxResults, in.NextToken)
+	vols, next, err := h.Backend.DescribeVolumes(in.VolumeIDs, in.Filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

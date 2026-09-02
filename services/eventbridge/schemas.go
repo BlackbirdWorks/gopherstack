@@ -17,6 +17,23 @@ const (
 	schemaTypeJSONSchemaDraft4 = "JSONSchemaDraft4"
 )
 
+// effectiveSchemaVersion resolves a possibly-empty requested SchemaVersion to
+// the schema's current version, as PutCodeBinding/DescribeCodeBinding/
+// GetCodeBindingSource all do (real SDK: SchemaVersion is optional on each,
+// "Specifying this limits the results to only this schema version").
+func (b *InMemoryBackend) effectiveSchemaVersion(registryName, schemaName, requested string) (string, error) {
+	if requested != "" {
+		return requested, nil
+	}
+
+	schema, ok := b.getSchema(registryName, schemaName)
+	if !ok {
+		return "", fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+	}
+
+	return schema.SchemaVersion, nil
+}
+
 // CreateSchema creates a new schema (version "1") within a registry.
 func (b *InMemoryBackend) CreateSchema(
 	ctx context.Context, //nolint:revive // existing issue.
@@ -51,8 +68,13 @@ func (b *InMemoryBackend) CreateSchema(
 	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
+	// CreateSchema's own deserializeOpError switch (schemas deserializers.go)
+	// declares neither NotFoundException nor ConflictException -- only
+	// BadRequestException/ForbiddenException/InternalServerErrorException/
+	// ServiceUnavailableException -- unlike most sibling ops, so both checks
+	// below use ErrInvalidParameter (gopherstack-uox6 sweep).
 	if !b.registriesTable().Has(input.RegistryName) {
-		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+		return nil, fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, input.RegistryName)
 	}
 
 	schemaTable := b.schemasTableFor(input.RegistryName)
@@ -60,7 +82,7 @@ func (b *InMemoryBackend) CreateSchema(
 	if schemaTable.Has(input.SchemaName) {
 		return nil, fmt.Errorf(
 			"%w: schema %s already exists in registry %s",
-			ErrAlreadyExists,
+			ErrInvalidParameter,
 			input.SchemaName,
 			input.RegistryName,
 		)
@@ -199,7 +221,7 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context, //nolint:revive //
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
 func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // existing issue.
-	registryName, namePrefix, nextToken string,
+	registryName, namePrefix, nextToken string, limit int,
 ) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -208,8 +230,10 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // ex
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
+	// ListSchemas' own deserializeOpError switch declares no
+	// NotFoundException (unlike most sibling ops) -- gopherstack-uox6 sweep.
 	if !b.registriesTable().Has(registryName) {
-		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, registryName)
 	}
 
 	schemaTable := b.schemas[registryName]
@@ -226,14 +250,14 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // ex
 
 	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
 func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // existing issue.
-	registryName, keywords, nextToken string,
+	registryName, keywords, nextToken string, limit int,
 ) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -242,8 +266,10 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // 
 	b.mu.RLock("SearchSchemas")
 	defer b.mu.RUnlock()
 
+	// SearchSchemas' own deserializeOpError switch declares no
+	// NotFoundException either -- gopherstack-uox6 sweep.
 	if !b.registriesTable().Has(registryName) {
-		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrInvalidParameter, registryName)
 	}
 
 	all := make([]Schema, 0)
@@ -263,7 +289,7 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // 
 
 	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -339,7 +365,7 @@ func (b *InMemoryBackend) UpdateSchema(
 
 // ListSchemaVersions returns all versions of a schema.
 func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:revive // existing issue.
-	registryName, schemaName, nextToken string,
+	registryName, schemaName, nextToken string, limit int,
 ) ([]SchemaVersion, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
@@ -373,7 +399,7 @@ func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:reviv
 	}
 
 	// Versions are stored in insertion order (ascending version number).
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -565,7 +591,7 @@ func (b *InMemoryBackend) PutCodeBinding(
 		Status:        "CREATE_COMPLETE",
 	}
 
-	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	b.codeBindings[key] = binding
 
 	cp := *binding
@@ -592,11 +618,16 @@ func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context, //nolint:revi
 	b.mu.RLock("DescribeCodeBinding")
 	defer b.mu.RUnlock()
 
-	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	schemaVer, err := b.effectiveSchemaVersion(input.RegistryName, input.SchemaName, input.SchemaVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	binding, exists := b.codeBindings[key]
 	if !exists {
-		return nil, fmt.Errorf("%w: code binding for %s/%s language=%s not found",
-			ErrNotFound, input.RegistryName, input.SchemaName, input.Language)
+		return nil, fmt.Errorf("%w: code binding for %s/%s language=%s version=%s not found",
+			ErrNotFound, input.RegistryName, input.SchemaName, input.Language, schemaVer)
 	}
 
 	cp := *binding
@@ -661,15 +692,20 @@ func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context, //nolint:rev
 	b.mu.RLock("GetCodeBindingSource")
 	defer b.mu.RUnlock()
 
-	key := b.codeBindingKey(registryName, schemaName, language)
+	effectiveVer, err := b.effectiveSchemaVersion(registryName, schemaName, schemaVersion)
+	if err != nil {
+		return "", err
+	}
+
+	key := b.codeBindingKey(registryName, schemaName, language, effectiveVer)
 	if _, exists := b.codeBindings[key]; !exists {
-		return "", fmt.Errorf("%w: code binding for %s/%s language=%s not found",
-			ErrNotFound, registryName, schemaName, language)
+		return "", fmt.Errorf("%w: code binding for %s/%s language=%s version=%s not found",
+			ErrNotFound, registryName, schemaName, language, effectiveVer)
 	}
 
 	// Return a minimal placeholder; real codegen is AWS-side only.
 	src := fmt.Sprintf("// Generated code binding for %s/%s (%s)\n// Schema version: %s\n",
-		registryName, schemaName, language, schemaVersion)
+		registryName, schemaName, language, effectiveVer)
 
 	return src, nil
 }

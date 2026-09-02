@@ -40,7 +40,7 @@ func TestInMemoryBackend_ListCertificateAuthorities_ResourceOwner(t *testing.T) 
 
 			p, err := b.ListCertificateAuthorities(context.Background(), "", 0, tt.resourceOwner)
 			if tt.wantErr {
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 
 				return
 			}

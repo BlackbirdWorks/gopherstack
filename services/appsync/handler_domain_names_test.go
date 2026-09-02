@@ -174,9 +174,10 @@ func TestHandler_GetApiAssociation(t *testing.T) {
 	createBody := map[string]any{"domainName": "api.example.com", "certificateArn": certARN}
 	doRequest(t, h, http.MethodPost, "/v1/domainnames", createBody)
 
-	// Get association (no API associated yet).
+	// Get association (no API associated yet) returns 404, matching real
+	// AWS: GetApiAssociation has no "not found" status value to return.
 	rec := doRequest(t, h, http.MethodGet, "/v1/domainnames/api.example.com/apiassociation", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestHandler_DisassociateAPI(t *testing.T) {

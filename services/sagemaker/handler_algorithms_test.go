@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -325,4 +326,33 @@ func TestHandler_CreateAlgorithm_Duplicate(t *testing.T) {
 
 	rec2 := doSageMakerRequest(t, h, "CreateAlgorithm", body)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestHandler_ListAlgorithms_CreationTimeAfterExclusive confirms
+// CreationTimeAfter stays a strict EXCLUSIVE bound for ListAlgorithms --
+// unlike ListModels/ListEndpointConfigs, ListAlgorithmsInput's own doc
+// reads plain "created after the specified time", not "or equal to" -- so
+// an algorithm filtered by a CreationTimeAfter EQUAL to its own
+// CreationTime must NOT be returned. CreationTime is seeded to an exact
+// whole second -- see TestHandler_ListModels_CreationTimeAfterInclusive for
+// why a wire-level round trip can't reliably hit this boundary.
+func TestHandler_ListAlgorithms_CreationTimeAfterExclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
+		"AlgorithmName":         "boundary-algo",
+		"TrainingSpecification": minimalTrainingSpecification(),
+	})
+
+	boundary := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	sagemaker.SeedAlgorithmCreationTime(h.Backend, "us-east-1", "boundary-algo", boundary)
+
+	rec := doSageMakerRequest(t, h, "ListAlgorithms", map[string]any{"CreationTimeAfter": float64(boundary.Unix())})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp["AlgorithmSummaryList"])
 }

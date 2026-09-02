@@ -51,6 +51,41 @@ func TestHandler_DescribeTableRestoreStatus(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeTableRestoreStatus_DefaultOmitsSucceeded verifies the
+// documented default when TableRestoreRequestId is omitted:
+// "DescribeTableRestoreStatus returns the status of all in-progress table
+// restore requests" (api_op_DescribeTableRestoreStatus.go). A request that
+// has already reached SUCCEEDED must drop out of the unfiltered listing,
+// while an explicit lookup by its own TableRestoreRequestId must still show it.
+func TestHandler_DescribeTableRestoreStatus_DefaultOmitsSucceeded(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	tr, err := b.CreateTableRestoreStatus("trs-narrow", "snap-1", "db1", "t1", "db1", "t1_new")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		statuses, descErr := b.DescribeTableRestoreStatus("trs-narrow")
+
+		return descErr == nil && len(statuses) == 1 && statuses[0].Status == "SUCCEEDED"
+	}, 2*time.Second, 10*time.Millisecond, "restore request must reach SUCCEEDED")
+
+	unfiltered := postRedshiftForm(t, h,
+		"Action=DescribeTableRestoreStatus&Version=2012-12-01&ClusterIdentifier=trs-narrow")
+	require.Equal(t, http.StatusOK, unfiltered.Code)
+	assert.NotContains(t, unfiltered.Body.String(), tr.TableRestoreRequestID,
+		"a succeeded request must not appear in the default (no TableRestoreRequestId) listing")
+
+	byID := postRedshiftForm(t, h,
+		"Action=DescribeTableRestoreStatus&Version=2012-12-01"+
+			"&TableRestoreRequestId="+tr.TableRestoreRequestID)
+	require.Equal(t, http.StatusOK, byID.Code)
+	assert.Contains(t, byID.Body.String(), tr.TableRestoreRequestID,
+		"an explicit TableRestoreRequestId lookup must still return a succeeded request")
+}
+
 // ---- RestoreTableFromClusterSnapshot ----
 
 func TestHandler_RestoreTableFromClusterSnapshot(t *testing.T) {

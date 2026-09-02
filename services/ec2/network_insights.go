@@ -105,7 +105,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAnalysis(id string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) DescribeNetworkInsightsAnalyses(ids []string) []*NetworkInsightsAnalysis {
+func (b *InMemoryBackend) DescribeNetworkInsightsAnalyses(ids []string, pathID string) []*NetworkInsightsAnalysis {
 	b.mu.RLock("DescribeNetworkInsightsAnalyses")
 	defer b.mu.RUnlock()
 
@@ -113,6 +113,10 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAnalyses(ids []string) []*Netwo
 
 	for _, a := range b.networkInsightsAnalyses.All() {
 		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAnalysisID) {
+			continue
+		}
+
+		if pathID != "" && a.NetworkInsightsPathID != pathID {
 			continue
 		}
 
@@ -217,6 +221,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAccessScopeAnalysis(id string) er
 
 func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopeAnalyses(
 	ids []string,
+	scopeID string,
 ) []*NetworkInsightsAccessScopeAnalysis {
 	b.mu.RLock("DescribeNetworkInsightsAccessScopeAnalyses")
 	defer b.mu.RUnlock()
@@ -225,6 +230,10 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopeAnalyses(
 
 	for _, a := range b.networkInsightsAccessScopeAnalyses.All() {
 		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAccessScopeAnalysisID) {
+			continue
+		}
+
+		if scopeID != "" && a.NetworkInsightsAccessScopeID != scopeID {
 			continue
 		}
 

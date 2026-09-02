@@ -158,7 +158,7 @@ func TestRouteServer_HTTP_AssociationAndPropagation(t *testing.T) { //nolint:par
 	})
 	require.NoError(t, err)
 	assert.Contains(t, enableResp, "<EnableRouteServerPropagationResponse")
-	assert.Contains(t, enableResp, "<state>enabled")
+	assert.Contains(t, enableResp, "<state>available")
 
 	getPropResp, err := dispatchHandler(h, url.Values{
 		"Action":        []string{"GetRouteServerPropagations"},

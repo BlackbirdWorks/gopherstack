@@ -139,11 +139,17 @@ func TestEKS_CreateFargateProfile(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			// CreateFargateProfile's own deserializer (eks@v1.90.4
+			// deserializers.go) has no ResourceNotFoundException case -- an
+			// unknown cluster is InvalidParameterException (400).
 			name:       "create_fargate_profile_cluster_not_found",
 			body:       map[string]any{"fargateProfileName": "p"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
+			// CreateFargateProfile's own deserializer also has no
+			// ResourceInUseException case -- a duplicate name is
+			// InvalidParameterException (400), same as above.
 			name: "create_fargate_profile_duplicate",
 			setup: func(t *testing.T, h *eks.Handler) {
 				t.Helper()
@@ -152,7 +158,7 @@ func TestEKS_CreateFargateProfile(t *testing.T) {
 					map[string]any{"fargateProfileName": "dup-profile"})
 			},
 			body:       map[string]any{"fargateProfileName": "dup-profile"},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // CreateCidrCollection creates a new CIDR collection.
@@ -167,14 +168,20 @@ func (b *InMemoryBackend) ChangeCidrCollection(
 	return &cp, nil
 }
 
-// ListCidrLocations returns all location names in a CIDR collection.
-func (b *InMemoryBackend) ListCidrLocations(collectionID string) ([]string, error) {
+// ListCidrLocations returns a page of location names in a CIDR collection,
+// paginated by NextToken (route53@v1.65.6 api_op_ListCidrLocations.go: no
+// IsTruncated member, like its ListCidrCollections/ListCidrBlocks siblings).
+// collections.SortedKeys is already deterministic across calls.
+func (b *InMemoryBackend) ListCidrLocations(
+	collectionID, nextToken string,
+	maxResults int,
+) (page.Page[string], error) {
 	b.mu.RLock("ListCidrLocations")
 	defer b.mu.RUnlock()
 
 	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
-		return nil, fmt.Errorf(
+		return page.Page[string]{}, fmt.Errorf(
 			"%w: CIDR collection %s not found",
 			ErrCidrCollectionNotFound,
 			collectionID,
@@ -183,17 +190,23 @@ func (b *InMemoryBackend) ListCidrLocations(collectionID string) ([]string, erro
 
 	locations := collections.SortedKeys(col.Locations)
 
-	return locations, nil
+	return page.New(locations, nextToken, maxResults, route53DefaultMaxItems), nil
 }
 
-// ListCidrBlocks returns all CIDR blocks for a given location in a collection.
-func (b *InMemoryBackend) ListCidrBlocks(collectionID, locationName string) ([]string, error) {
+// ListCidrBlocks returns a page of CIDR blocks for a given location in a
+// collection, paginated by NextToken (route53@v1.65.6
+// api_op_ListCidrBlocks.go). col.Locations[locationName] is an append-only
+// slice (never a map), so it is already deterministic across calls.
+func (b *InMemoryBackend) ListCidrBlocks(
+	collectionID, locationName, nextToken string,
+	maxResults int,
+) (page.Page[string], error) {
 	b.mu.RLock("ListCidrBlocks")
 	defer b.mu.RUnlock()
 
 	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
-		return nil, fmt.Errorf(
+		return page.Page[string]{}, fmt.Errorf(
 			"%w: CIDR collection %s not found",
 			ErrCidrCollectionNotFound,
 			collectionID,
@@ -204,7 +217,7 @@ func (b *InMemoryBackend) ListCidrBlocks(collectionID, locationName string) ([]s
 	result := make([]string, len(cidrs))
 	copy(result, cidrs)
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, route53DefaultMaxItems), nil
 }
 
 // DeleteCidrCollection deletes a CIDR collection.
@@ -233,8 +246,14 @@ func (b *InMemoryBackend) DeleteCidrCollection(id string) error {
 	return nil
 }
 
-// ListCidrCollections returns all CIDR collections.
-func (b *InMemoryBackend) ListCidrCollections() ([]*CidrCollection, error) {
+// ListCidrCollections returns a page of CIDR collections, paginated by
+// NextToken (route53@v1.65.6 api_op_ListCidrCollections.go: no IsTruncated
+// member). Sorted by ID, which is unique, so the sort admits no ties
+// despite b.cidrCollections.All() being an unordered map walk.
+func (b *InMemoryBackend) ListCidrCollections(
+	nextToken string,
+	maxResults int,
+) (page.Page[*CidrCollection], error) {
 	b.mu.RLock("ListCidrCollections")
 	defer b.mu.RUnlock()
 
@@ -247,5 +266,5 @@ func (b *InMemoryBackend) ListCidrCollections() ([]*CidrCollection, error) {
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, route53DefaultMaxItems), nil
 }

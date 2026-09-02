@@ -624,11 +624,17 @@ func (b *InMemoryBackend) DescribeExecution(executionArn string) (*Execution, er
 }
 
 // ListExecutions returns executions for a state machine with optional pagination.
+// AWS: ListExecutions models StateMachineDoesNotExist for an unknown
+// stateMachineArn.
 func (b *InMemoryBackend) ListExecutions(
 	stateMachineArn, statusFilter, nextToken string, maxResults int,
 ) ([]Execution, string, error) {
 	b.mu.RLock("ListExecutions")
 	defer b.mu.RUnlock()
+
+	if !b.stateMachines.Has(stateMachineArn) {
+		return nil, "", fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
+	}
 
 	// When a status filter is given, use the O(1) status bucket index instead
 	// of scanning the full executionsByStateMachine index.

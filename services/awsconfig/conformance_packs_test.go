@@ -63,8 +63,8 @@ func TestDescribeConformancePackStatus(t *testing.T) {
 		t.Fatalf("DescribeConformancePackStatus: %v", statuses)
 	}
 
-	if statuses[0].ConformancePackState != "COMPLETE" {
-		t.Fatalf("expected COMPLETE state, got %q", statuses[0].ConformancePackState)
+	if statuses[0].ConformancePackState != "CREATE_COMPLETE" {
+		t.Fatalf("expected CREATE_COMPLETE state, got %q", statuses[0].ConformancePackState)
 	}
 }
 

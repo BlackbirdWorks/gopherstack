@@ -77,12 +77,14 @@ func (b *InMemoryBackend) DescribePublishingDestination(detectorID, destID strin
 }
 
 // ListPublishingDestinations returns publishing destinations for a detector.
-func (b *InMemoryBackend) ListPublishingDestinations(detectorID string) ([]*PublishingDestination, error) {
+func (b *InMemoryBackend) ListPublishingDestinations(
+	detectorID string, maxResults int32, nextToken string,
+) ([]*PublishingDestination, string, error) {
 	b.mu.RLock("ListPublishingDestinations")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.publishingDestinationsByDetector.Get(detectorID)
@@ -95,7 +97,15 @@ func (b *InMemoryBackend) ListPublishingDestinations(detectorID string) ([]*Publ
 
 	sort.Slice(all, func(i, j int) bool { return all[i].DestinationID < all[j].DestinationID })
 
-	return all, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(all, offset, size)
+
+	return page, next, nil
 }
 
 // UpdatePublishingDestination updates a publishing destination.

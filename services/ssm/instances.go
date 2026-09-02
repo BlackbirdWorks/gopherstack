@@ -234,7 +234,14 @@ func (b *InMemoryBackend) ListNodesSummary(
 		summary = append(summary, aggregateNodes(filtered, agg)...)
 	}
 
-	return &ListNodesSummaryOutputFull{Summary: summary}, nil
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(summary, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &ListNodesSummaryOutputFull{Summary: page, NextToken: next}, nil
 }
 
 // DescribeEffectiveInstanceAssociations returns associations targeting an instance.
@@ -253,9 +260,9 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 		if assoc.InstanceID == input.InstanceID {
 			result = append(result, InstanceAssociationInfo{
 				AssociationID:      assoc.AssociationID,
-				Name:               assoc.Name,
-				DocumentVersion:    assoc.DocumentVersion,
 				AssociationVersion: "1",
+				Content:            b.associationDocumentContent(region, assoc.Name, assoc.DocumentVersion),
+				InstanceID:         assoc.InstanceID,
 			})
 		}
 	}
@@ -264,7 +271,22 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 		result = []InstanceAssociationInfo{}
 	}
 
-	return &DescribeEffectiveInstanceAssociationsOutputFull{Associations: result}, nil
+	sort.Slice(
+		result,
+		func(i, k int) bool { return result[i].AssociationID < result[k].AssociationID },
+	)
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(result, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeEffectiveInstanceAssociationsOutputFull{
+		Associations: page,
+		NextToken:    next,
+	}, nil
 }
 
 // DescribeInstanceAssociationsStatus returns status of associations on an instance.
@@ -287,10 +309,14 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 			}
 
 			result = append(result, InstanceAssociationStatusInfo{
-				AssociationID: assoc.AssociationID,
-				Name:          assoc.Name,
-				Status:        status,
-				ExecutionDate: assoc.LastUpdateAssociationDate,
+				AssociationID:      assoc.AssociationID,
+				AssociationName:    assoc.AssociationName,
+				AssociationVersion: assoc.AssociationVersion,
+				DocumentVersion:    assoc.DocumentVersion,
+				InstanceID:         assoc.InstanceID,
+				Name:               assoc.Name,
+				Status:             status,
+				ExecutionDate:      assoc.LastUpdateAssociationDate,
 			})
 		}
 	}
@@ -299,8 +325,21 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 		result = []InstanceAssociationStatusInfo{}
 	}
 
+	sort.Slice(
+		result,
+		func(i, k int) bool { return result[i].AssociationID < result[k].AssociationID },
+	)
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(result, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeInstanceAssociationsStatusOutputFull{
-		InstanceAssociationStatusInfos: result,
+		InstanceAssociationStatusInfos: page,
+		NextToken:                      next,
 	}, nil
 }
 
@@ -414,6 +453,11 @@ func (b *InMemoryBackend) DescribeInstancePatchStates(
 		for _, s := range patchStates.All() {
 			states = append(states, *s)
 		}
+
+		sort.Slice(
+			states,
+			func(i, j int) bool { return states[i].InstanceID < states[j].InstanceID },
+		)
 	} else {
 		for _, instanceID := range input.InstanceIDs {
 			if s, exists := patchStates.Get(instanceID); exists {
@@ -422,7 +466,14 @@ func (b *InMemoryBackend) DescribeInstancePatchStates(
 		}
 	}
 
-	return &DescribeInstancePatchStatesOutputFull{InstancePatchStates: states}, nil
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(states, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeInstancePatchStatesOutputFull{InstancePatchStates: page, NextToken: next}, nil
 }
 
 // DescribeInstancePatchStatesForPatchGroup returns patch states filtered by patch group.
@@ -442,7 +493,19 @@ func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
 		}
 	}
 
-	return &DescribeInstancePatchStatesForPatchGroupOutput{InstancePatchStates: states}, nil
+	sort.Slice(states, func(i, j int) bool { return states[i].InstanceID < states[j].InstanceID })
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(states, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeInstancePatchStatesForPatchGroupOutput{
+		InstancePatchStates: page,
+		NextToken:           next,
+	}, nil
 }
 
 // DescribeInstancePatches returns patch compliance data for an instance.
@@ -463,7 +526,14 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 	result := make([]PatchComplianceData, len(patches))
 	copy(result, patches)
 
-	return &DescribeInstancePatchesOutput{Patches: result}, nil
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(result, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeInstancePatchesOutput{Patches: page, NextToken: next}, nil
 }
 
 // DescribeInstanceProperties returns properties for managed instances.
@@ -475,7 +545,7 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 // map.
 func (b *InMemoryBackend) DescribeInstanceProperties(
 	ctx context.Context,
-	_ *DescribeInstancePropertiesInput,
+	input *DescribeInstancePropertiesInput,
 ) (*DescribeInstancePropertiesOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeInstanceProperties")
@@ -508,5 +578,14 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 		})
 	}
 
-	return &DescribeInstancePropertiesOutput{InstanceProperties: props}, nil
+	sort.Slice(props, func(i, k int) bool { return props[i].InstanceID < props[k].InstanceID })
+
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(props, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeInstancePropertiesOutput{InstanceProperties: page, NextToken: next}, nil
 }

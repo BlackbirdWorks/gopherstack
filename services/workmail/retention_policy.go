@@ -14,7 +14,7 @@ func (b *InMemoryBackend) PutRetentionPolicy(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if id == "" {
 		id = newID()
@@ -36,10 +36,13 @@ func (b *InMemoryBackend) DeleteRetentionPolicy(orgID, id string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	existing, ok := b.retentionPolicies.Get(orgID)
 	if !ok || existing.ID != id {
+		// DeleteRetentionPolicy's own error model declares no not-found type
+		// for the policy itself (only Organization*); no correct code
+		// exists to send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: retention policy %q not found", ErrNotFound, id)
 	}
 	b.retentionPolicies.Delete(orgID)

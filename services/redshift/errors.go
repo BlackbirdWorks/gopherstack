@@ -7,7 +7,8 @@ const (
 )
 
 // Error code strings below are verified verbatim against the ErrorCode() method of
-// each corresponding fault type in aws-sdk-go-v2/service/redshift@v1.62.3/types/errors.go.
+// each corresponding fault type in aws-sdk-go-v2/service/redshift@v1.65.4/types/errors.go
+// (re-checked at v1.65.4, the version currently pinned in go.mod; unchanged from v1.62.3).
 // Real AWS is NOT consistent about the "Fault" suffix -- some fault ErrorCode() values
 // include it (e.g. "HsmConfigurationNotFoundFault") and some strip it (e.g.
 // "ClusterNotFound" for ClusterNotFoundFault) -- so each entry here was checked

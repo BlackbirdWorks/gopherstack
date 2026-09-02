@@ -556,7 +556,7 @@ func paginateBlocks(blocks []Block, maxResults int, nextToken string) ([]Block, 
 	if nextToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(nextToken)
 		if err == nil {
-			if n, err2 := strconv.Atoi(string(decoded)); err2 == nil && n >= 0 && n < len(blocks) {
+			if n, err2 := strconv.Atoi(string(decoded)); err2 == nil && n >= 0 {
 				offset = n
 			}
 		}

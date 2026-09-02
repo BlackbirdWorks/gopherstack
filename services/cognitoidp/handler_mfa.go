@@ -141,13 +141,6 @@ func (h *Handler) handleAdminSetUserMFAPreferenceAccurate(
 	return &adminSetUserMFAPreferenceAccurateOutput{}, nil
 }
 
-func (h *Handler) handleAdminSetUserMFAPreference(
-	_ context.Context,
-	_ *adminSetUserMFAPreferenceInput,
-) (*adminSetUserMFAPreferenceOutput, error) {
-	return &adminSetUserMFAPreferenceOutput{}, nil
-}
-
 // toMFAOptionRecords converts wire-shaped MFAOptions into backend records.
 func toMFAOptionRecords(opts []mfaOptionType) []MFAOptionType {
 	out := make([]MFAOptionType, 0, len(opts))
@@ -170,23 +163,6 @@ func (h *Handler) handleAdminSetUserSettings(
 	return &adminSetUserSettingsOutput{}, nil
 }
 
-// handleAssociateSoftwareToken returns a stub TOTP secret code.
-// The secret is a test value only; it is not a real credential.
-func (h *Handler) handleAssociateSoftwareToken(
-	_ context.Context,
-	_ *associateSoftwareTokenInput,
-) (*associateSoftwareTokenOutput, error) {
-	//nolint:gosec // canonical TOTP example seed from RFC 6238 — not a real credential
-	return &associateSoftwareTokenOutput{SecretCode: "JBSWY3DPEHPK3PXP"}, nil
-}
-
-func (h *Handler) handleSetUserMFAPreference(
-	_ context.Context,
-	_ *setUserMFAPreferenceInput,
-) (*setUserMFAPreferenceOutput, error) {
-	return &setUserMFAPreferenceOutput{}, nil
-}
-
 func (h *Handler) handleSetUserSettings(_ context.Context, in *setUserSettingsInput) (*setUserSettingsOutput, error) {
 	if err := h.Backend.SetUserSettings(in.AccessToken, toMFAOptionRecords(in.MFAOptions)); err != nil {
 		return nil, err
@@ -195,21 +171,10 @@ func (h *Handler) handleSetUserSettings(_ context.Context, in *setUserSettingsIn
 	return &setUserSettingsOutput{}, nil
 }
 
-func (h *Handler) handleVerifySoftwareToken(
-	_ context.Context,
-	_ *verifySoftwareTokenInput,
-) (*verifySoftwareTokenOutput, error) {
-	return &verifySoftwareTokenOutput{Status: "SUCCESS"}, nil
-}
-
 func (h *Handler) mfaOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AdminSetUserMFAPreference": service.WrapOp(h.handleAdminSetUserMFAPreference),
-		"AdminSetUserSettings":      service.WrapOp(h.handleAdminSetUserSettings),
-		"AssociateSoftwareToken":    service.WrapOp(h.handleAssociateSoftwareToken),
-		"SetUserMFAPreference":      service.WrapOp(h.handleSetUserMFAPreference),
-		"SetUserSettings":           service.WrapOp(h.handleSetUserSettings),
-		"VerifySoftwareToken":       service.WrapOp(h.handleVerifySoftwareToken),
+		"AdminSetUserSettings": service.WrapOp(h.handleAdminSetUserSettings),
+		"SetUserSettings":      service.WrapOp(h.handleSetUserSettings),
 	}
 }
 

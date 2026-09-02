@@ -391,55 +391,52 @@ func epochMillis(t time.Time) float64 {
 }
 
 type createPipeRequest struct {
-	Tags                    map[string]string        `json:"Tags"`
-	SourceParameters        *SourceParameters        `json:"SourceParameters"`
-	TargetParameters        *TargetParameters        `json:"TargetParameters"`
-	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
-	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
-	RoleArn                 string                   `json:"RoleArn"`
-	Source                  string                   `json:"Source"`
-	Target                  string                   `json:"Target"`
-	Description             string                   `json:"Description"`
-	Enrichment              string                   `json:"Enrichment"`
-	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
-	DesiredState            string                   `json:"DesiredState"`
+	Tags                 map[string]string     `json:"Tags"`
+	SourceParameters     *SourceParameters     `json:"SourceParameters"`
+	TargetParameters     *TargetParameters     `json:"TargetParameters"`
+	LogConfiguration     *LogConfiguration     `json:"LogConfiguration"`
+	EnrichmentParameters *EnrichmentParameters `json:"EnrichmentParameters"`
+	RoleArn              string                `json:"RoleArn"`
+	Source               string                `json:"Source"`
+	Target               string                `json:"Target"`
+	Description          string                `json:"Description"`
+	Enrichment           string                `json:"Enrichment"`
+	KmsKeyIdentifier     string                `json:"KmsKeyIdentifier"`
+	DesiredState         string                `json:"DesiredState"`
 }
 
 type updatePipeRequest struct {
-	SourceParameters        *SourceParameters        `json:"SourceParameters"`
-	TargetParameters        *TargetParameters        `json:"TargetParameters"`
-	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
-	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
-	Description             *string                  `json:"Description"`
-	RoleArn                 string                   `json:"RoleArn"`
-	Target                  string                   `json:"Target"`
-	Enrichment              string                   `json:"Enrichment"`
-	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
-	DesiredState            string                   `json:"DesiredState"`
+	SourceParameters     *SourceParameters     `json:"SourceParameters"`
+	TargetParameters     *TargetParameters     `json:"TargetParameters"`
+	LogConfiguration     *LogConfiguration     `json:"LogConfiguration"`
+	EnrichmentParameters *EnrichmentParameters `json:"EnrichmentParameters"`
+	Description          *string               `json:"Description"`
+	KmsKeyIdentifier     *string               `json:"KmsKeyIdentifier"`
+	RoleArn              string                `json:"RoleArn"`
+	Target               string                `json:"Target"`
+	Enrichment           string                `json:"Enrichment"`
+	DesiredState         string                `json:"DesiredState"`
 }
 
 type pipeResponse struct {
-	SourceParameters        *SourceParameters        `json:"SourceParameters,omitempty"`
-	TargetParameters        *TargetParameters        `json:"TargetParameters,omitempty"`
-	LogConfiguration        *LogConfiguration        `json:"LogConfiguration,omitempty"`
-	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters,omitempty"`
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming,omitempty"`
-	Tags                    map[string]string        `json:"Tags,omitempty"`
-	Arn                     string                   `json:"Arn"`
-	Name                    string                   `json:"Name"`
-	RoleArn                 string                   `json:"RoleArn"`
-	Source                  string                   `json:"Source"`
-	Target                  string                   `json:"Target"`
-	Description             string                   `json:"Description,omitempty"`
-	Enrichment              string                   `json:"Enrichment,omitempty"`
-	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier,omitempty"`
-	DesiredState            string                   `json:"DesiredState"`
-	CurrentState            string                   `json:"CurrentState"`
-	StateReason             string                   `json:"StateReason,omitempty"`
-	CreationTime            float64                  `json:"CreationTime"`
-	LastModifiedTime        float64                  `json:"LastModifiedTime"`
+	SourceParameters     *SourceParameters     `json:"SourceParameters,omitempty"`
+	TargetParameters     *TargetParameters     `json:"TargetParameters,omitempty"`
+	LogConfiguration     *LogConfiguration     `json:"LogConfiguration,omitempty"`
+	EnrichmentParameters *EnrichmentParameters `json:"EnrichmentParameters,omitempty"`
+	Tags                 map[string]string     `json:"Tags,omitempty"`
+	Arn                  string                `json:"Arn"`
+	Name                 string                `json:"Name"`
+	RoleArn              string                `json:"RoleArn"`
+	Source               string                `json:"Source"`
+	Target               string                `json:"Target"`
+	Description          string                `json:"Description,omitempty"`
+	Enrichment           string                `json:"Enrichment,omitempty"`
+	KmsKeyIdentifier     string                `json:"KmsKeyIdentifier,omitempty"`
+	DesiredState         string                `json:"DesiredState"`
+	CurrentState         string                `json:"CurrentState"`
+	StateReason          string                `json:"StateReason,omitempty"`
+	CreationTime         float64               `json:"CreationTime"`
+	LastModifiedTime     float64               `json:"LastModifiedTime"`
 }
 
 // desiredStateDeleted is the DesiredState value the real Pipes API reports
@@ -456,25 +453,24 @@ func toPipeResponse(p *Pipe) pipeResponse {
 	}
 
 	return pipeResponse{
-		Arn:                     p.ARN,
-		Name:                    p.Name,
-		RoleArn:                 p.RoleARN,
-		Source:                  p.Source,
-		Target:                  p.Target,
-		Description:             p.Description,
-		Enrichment:              p.Enrichment,
-		KmsKeyIdentifier:        p.KmsKeyIdentifier,
-		DesiredState:            desiredState,
-		CurrentState:            p.CurrentState,
-		StateReason:             p.StateReason,
-		CreationTime:            epochMillis(p.CreationTime),
-		LastModifiedTime:        epochMillis(p.LastModifiedTime),
-		Tags:                    p.Tags,
-		SourceParameters:        p.SourceParameters,
-		TargetParameters:        p.TargetParameters,
-		LogConfiguration:        p.LogConfiguration,
-		EnrichmentParameters:    p.EnrichmentParameters,
-		RuntimeMetricsStreaming: p.RuntimeMetricsStreaming,
+		Arn:                  p.ARN,
+		Name:                 p.Name,
+		RoleArn:              p.RoleARN,
+		Source:               p.Source,
+		Target:               p.Target,
+		Description:          p.Description,
+		Enrichment:           p.Enrichment,
+		KmsKeyIdentifier:     p.KmsKeyIdentifier,
+		DesiredState:         desiredState,
+		CurrentState:         p.CurrentState,
+		StateReason:          p.StateReason,
+		CreationTime:         epochMillis(p.CreationTime),
+		LastModifiedTime:     epochMillis(p.LastModifiedTime),
+		Tags:                 p.Tags,
+		SourceParameters:     p.SourceParameters,
+		TargetParameters:     p.TargetParameters,
+		LogConfiguration:     p.LogConfiguration,
+		EnrichmentParameters: p.EnrichmentParameters,
 	}
 }
 
@@ -490,20 +486,19 @@ func (h *Handler) handleCreatePipe(ctx context.Context, path string, body []byte
 	}
 
 	p, err := h.Backend.CreatePipe(ctx, CreatePipeInput{
-		Name:                    name,
-		RoleARN:                 req.RoleArn,
-		Source:                  req.Source,
-		Target:                  req.Target,
-		Description:             req.Description,
-		Enrichment:              req.Enrichment,
-		KmsKeyIdentifier:        req.KmsKeyIdentifier,
-		DesiredState:            req.DesiredState,
-		Tags:                    req.Tags,
-		SourceParameters:        req.SourceParameters,
-		TargetParameters:        req.TargetParameters,
-		LogConfiguration:        req.LogConfiguration,
-		EnrichmentParameters:    req.EnrichmentParameters,
-		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
+		Name:                 name,
+		RoleARN:              req.RoleArn,
+		Source:               req.Source,
+		Target:               req.Target,
+		Description:          req.Description,
+		Enrichment:           req.Enrichment,
+		KmsKeyIdentifier:     req.KmsKeyIdentifier,
+		DesiredState:         req.DesiredState,
+		Tags:                 req.Tags,
+		SourceParameters:     req.SourceParameters,
+		TargetParameters:     req.TargetParameters,
+		LogConfiguration:     req.LogConfiguration,
+		EnrichmentParameters: req.EnrichmentParameters,
 	})
 	if err != nil {
 		return nil, err
@@ -616,17 +611,16 @@ func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte
 	}
 
 	p, err := h.Backend.UpdatePipe(ctx, name, UpdatePipeInput{
-		RoleARN:                 req.RoleArn,
-		Target:                  req.Target,
-		Description:             req.Description,
-		Enrichment:              req.Enrichment,
-		KmsKeyIdentifier:        req.KmsKeyIdentifier,
-		DesiredState:            req.DesiredState,
-		SourceParameters:        req.SourceParameters,
-		TargetParameters:        req.TargetParameters,
-		LogConfiguration:        req.LogConfiguration,
-		EnrichmentParameters:    req.EnrichmentParameters,
-		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
+		RoleARN:              req.RoleArn,
+		Target:               req.Target,
+		Description:          req.Description,
+		Enrichment:           req.Enrichment,
+		KmsKeyIdentifier:     req.KmsKeyIdentifier,
+		DesiredState:         req.DesiredState,
+		SourceParameters:     req.SourceParameters,
+		TargetParameters:     req.TargetParameters,
+		LogConfiguration:     req.LogConfiguration,
+		EnrichmentParameters: req.EnrichmentParameters,
 	})
 	if err != nil {
 		return nil, err

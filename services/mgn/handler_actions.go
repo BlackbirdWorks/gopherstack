@@ -41,7 +41,12 @@ func (h *Handler) handleListSourceServerActions(_ context.Context, _ *http.Reque
 		return nil, err
 	}
 
-	pg, err := h.Backend.ListSourceServerActions(req.SourceServerID, req.NextToken, int(req.MaxResults))
+	var actionIDs []string
+	if req.Filters != nil {
+		actionIDs = req.Filters.ActionIDs
+	}
+
+	pg, err := h.Backend.ListSourceServerActions(req.SourceServerID, actionIDs, req.NextToken, int(req.MaxResults))
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +109,14 @@ func (h *Handler) handleListTemplateActions(_ context.Context, _ *http.Request, 
 		return nil, err
 	}
 
-	pg, err := h.Backend.ListTemplateActions(req.LaunchConfigurationTemplateID, req.NextToken, int(req.MaxResults))
+	var actionIDs []string
+	if req.Filters != nil {
+		actionIDs = req.Filters.ActionIDs
+	}
+
+	pg, err := h.Backend.ListTemplateActions(
+		req.LaunchConfigurationTemplateID, actionIDs, req.NextToken, int(req.MaxResults),
+	)
 	if err != nil {
 		return nil, err
 	}

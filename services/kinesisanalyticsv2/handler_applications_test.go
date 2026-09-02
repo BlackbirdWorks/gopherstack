@@ -398,12 +398,12 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 		setup      func(*kinesisanalyticsv2.Handler)
 		body       map[string]any
 		name       string
-		wantDesc   string
+		wantRole   string
 		rawBody    []byte
 		wantStatus int
 	}{
 		{
-			name: "update_description",
+			name: "update_service_execution_role",
 			setup: func(h *kinesisanalyticsv2.Handler) {
 				doKAV2Request(t, h, "CreateApplication", map[string]any{
 					"ApplicationName":    "upd-app",
@@ -412,11 +412,11 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 			},
 			body: map[string]any{
 				"ApplicationName":             "upd-app",
-				"ApplicationDescription":      "new description",
+				"ServiceExecutionRoleUpdate":  "arn:aws:iam::000000000000:role/new-role",
 				"CurrentApplicationVersionId": 1,
 			},
 			wantStatus: http.StatusOK,
-			wantDesc:   "new description",
+			wantRole:   "arn:aws:iam::000000000000:role/new-role",
 		},
 		{
 			name:       "not_found",
@@ -438,7 +438,7 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 			},
 			body: map[string]any{
 				"ApplicationName":             "upd-app-conflict",
-				"ApplicationDescription":      "should not apply",
+				"ServiceExecutionRoleUpdate":  "arn:aws:iam::000000000000:role/should-not-apply",
 				"CurrentApplicationVersionId": 99,
 			},
 			wantStatus: http.StatusBadRequest,
@@ -464,11 +464,11 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantDesc != "" {
+			if tt.wantRole != "" {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				detail := out["ApplicationDetail"].(map[string]any)
-				assert.Equal(t, tt.wantDesc, detail["ApplicationDescription"])
+				assert.Equal(t, tt.wantRole, detail["ServiceExecutionRole"])
 			}
 		})
 	}

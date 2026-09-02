@@ -111,9 +111,63 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 	return bk.toBackup(fs), nil
 }
 
-// DescribeBackups returns backups, optionally filtered by IDs.
+// backupFilterValue resolves the value of a supported DescribeBackups filter
+// name (file-system-id, backup-type, file-system-type -- the names
+// DescribeBackupsInput's own doc comment documents as supported;
+// aws-sdk-go-v2/service/fsx@v1.68.4 api_op_DescribeBackups.go) for bk. Its own
+// Volume (real Backup.Volume, for ONTAP/OpenZFS volume backups) isn't tracked
+// by this backend's CreateBackup, so volume-id has no honest value to compare
+// against and isn't recognized here -- a request setting it matches every
+// backup rather than none, same as AWS treating an unset/unsupported filter.
+func backupFilterValue(bk *storedBackup, fallbackFS *storedFileSystem, name string) (string, bool) {
+	switch name {
+	case filterNameFileSystemID:
+		return bk.FileSystemID, true
+	case "backup-type":
+		return bk.BackupType, true
+	case "file-system-type":
+		switch {
+		case bk.FileSystem != nil:
+			return bk.FileSystem.FileSystemType, true
+		case fallbackFS != nil:
+			return fallbackFS.FileSystemType, true
+		default:
+			return "", true
+		}
+	default:
+		return "", false
+	}
+}
+
+// filteredBackupsLocked returns every backup matching filters, sorted by
+// BackupID. Caller must already hold b.mu (read or write).
+func (b *InMemoryBackend) filteredBackupsLocked(filters []wireFilter) []*storedBackup {
+	var all []*storedBackup
+
+	for _, bk := range b.backups.All() {
+		var fallbackFS *storedFileSystem
+		if bk.FileSystem == nil && bk.FileSystemID != "" {
+			fallbackFS, _ = b.fileSystems.Get(bk.FileSystemID)
+		}
+
+		if matchesFilters(filters, func(name string) (string, bool) {
+			return backupFilterValue(bk, fallbackFS, name)
+		}) {
+			all = append(all, bk)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].BackupID < all[j].BackupID })
+
+	return all
+}
+
+// DescribeBackups returns backups, optionally filtered by IDs or Filters.
+// Per DescribeBackupsInput's own doc comment, BackupIds overrides Filters
+// entirely when both are set.
 func (b *InMemoryBackend) DescribeBackups(
 	backupIDs []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*Backup, string, error) {
@@ -136,9 +190,7 @@ func (b *InMemoryBackend) DescribeBackups(
 			all = append(all, bk)
 		}
 	} else {
-		all = b.backups.All()
-
-		sort.Slice(all, func(i, j int) bool { return all[i].BackupID < all[j].BackupID })
+		all = b.filteredBackupsLocked(filters)
 	}
 
 	start := 0

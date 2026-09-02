@@ -38,10 +38,15 @@ type modifyVpcPeeringConnectionOptionsResponse struct {
 	AccepterPeeringConnectionOptions  peeringOptionsItem `xml:"accepterPeeringConnectionOptions"`
 }
 
+// addressAttributeItem matches types.AddressAttribute (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeDocumentAddressAttribute):
+// allocationId/publicIp/ptrRecord/ptrRecordUpdate. There is no "domainName"
+// member on the response -- that name is only the ModifyAddressAttribute
+// request parameter, echoed back here as the resulting ptrRecord value.
 type addressAttributeItem struct {
 	AllocationID string `xml:"allocationId"`
 	PublicIP     string `xml:"publicIp"`
-	DomainName   string `xml:"domainName,omitempty"`
+	PtrRecord    string `xml:"ptrRecord,omitempty"`
 }
 
 func (h *Handler) handleCreateDefaultVpc(_ url.Values, reqID string) (any, error) {
@@ -296,7 +301,7 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
-		items = append(items, toVPCItem(v, h.Backend.TagsForResource(v.ID)))
+		items = append(items, toVPCItem(v, h.Backend.TagsForResource(v.ID), h.Backend.VpcTenancy(v.ID)))
 	}
 
 	return &describeVpcsResponse{
@@ -366,7 +371,12 @@ func vpcAttributeValue(vpcs []*VPC, attr string) string {
 func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	cidr := vals.Get("CidrBlock")
 
-	v, err := h.Backend.CreateVpc(cidr)
+	tenancy := vals.Get("InstanceTenancy")
+	if tenancy == "" {
+		tenancy = vpcTenancyDefault
+	}
+
+	v, err := h.Backend.CreateVpc(cidr, tenancy)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +391,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Vpc:       toVPCItem(v, tags),
+		Vpc:       toVPCItem(v, tags, tenancy),
 	}, nil
 }
 
@@ -402,27 +412,29 @@ func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-func toVPCItem(v *VPC, tags map[string]string) vpcItem {
+func toVPCItem(v *VPC, tags map[string]string, tenancy string) vpcItem {
 	isDefault := ec2BooleanFalse
 	if v.IsDefault {
 		isDefault = ec2BooleanTrue
 	}
 
 	return vpcItem{
-		VpcID:     v.ID,
-		CIDRBlock: v.CIDRBlock,
-		IsDefault: isDefault,
-		State:     stateAvailable,
-		TagSet:    tagItemsFromMap(tags),
+		VpcID:           v.ID,
+		CIDRBlock:       v.CIDRBlock,
+		IsDefault:       isDefault,
+		State:           stateAvailable,
+		TagSet:          tagItemsFromMap(tags),
+		InstanceTenancy: tenancy,
 	}
 }
 
 type vpcItem struct {
-	VpcID     string          `xml:"vpcId"`
-	CIDRBlock string          `xml:"cidrBlock"`
-	IsDefault string          `xml:"isDefault"`
-	State     string          `xml:"state"`
-	TagSet    []simpleTagItem `xml:"tagSet>item"`
+	VpcID           string          `xml:"vpcId"`
+	CIDRBlock       string          `xml:"cidrBlock"`
+	IsDefault       string          `xml:"isDefault"`
+	State           string          `xml:"state"`
+	InstanceTenancy string          `xml:"instanceTenancy,omitempty"`
+	TagSet          []simpleTagItem `xml:"tagSet>item"`
 }
 
 type vpcItemSet struct {

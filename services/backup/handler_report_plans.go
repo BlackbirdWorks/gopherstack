@@ -3,10 +3,33 @@ package backup
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/labstack/echo/v5"
 )
+
+// ScanJobsFilterFromQuery builds a ListScanJobsFilter from ListScanJobs
+// query parameters. ListScanJobs is the one op in this service that does
+// NOT strip the "By" prefix on the wire (serializers.go ListScanJobs query
+// bindings, backup@v1.59.4): ByAccountId, ByBackupVaultName, ByMalwareScanner,
+// ByRecoveryPointArn, ByResourceArn, ByResourceType, ByState, ByCompleteAfter,
+// ByCompleteBefore all keep the full PascalCase Go field name.
+func ScanJobsFilterFromQuery(q url.Values) ListScanJobsFilter {
+	return ListScanJobsFilter{
+		AccountID:        q.Get("ByAccountId"),
+		BackupVaultName:  q.Get("ByBackupVaultName"),
+		MalwareScanner:   q.Get("ByMalwareScanner"),
+		RecoveryPointArn: q.Get("ByRecoveryPointArn"),
+		ResourceArn:      q.Get("ByResourceArn"),
+		ResourceType:     q.Get("ByResourceType"),
+		State:            q.Get("ByState"),
+		CompleteAfter:    ParseTimeFilter(q.Get("ByCompleteAfter")),
+		CompleteBefore:   ParseTimeFilter(q.Get("ByCompleteBefore")),
+		MaxResults:       parseInt(q.Get("MaxResults")),
+		NextToken:        q.Get("NextToken"),
+	}
+}
 
 type reportDeliveryChannelJSON struct {
 	S3BucketName string   `json:"S3BucketName"`
@@ -79,6 +102,29 @@ func reportSettingToJSON(in *ReportSetting) map[string]any {
 	}
 
 	return out
+}
+
+// reportJobToJSON builds the real ReportJob wire shape (backup@v1.59.4
+// deserializers.go: ReportJobId, Status, ReportPlanArn, CreationTime,
+// CompletionTime, ReportTemplate, ReportDestination, StatusMessage).
+// DescribeReportJob/ListReportJobs previously shared a helper that emitted
+// only ReportJobId/Status even though CreationTime/CompletionTime/
+// ReportPlanArn are all tracked and set at StartReportJob time.
+// ReportTemplate/ReportDestination/StatusMessage are not modeled -- this
+// backend never generates an actual report artifact -- so they are
+// disclosed gaps rather than fabricated.
+func reportJobToJSON(j *ReportJob) map[string]any {
+	item := map[string]any{
+		keyReportJobID:   j.ReportJobID,
+		keyStatus:        j.Status,
+		keyReportPlanArn: j.ReportPlanArn,
+		keyCreationTime:  epochSeconds(j.CreationTime),
+	}
+	if j.CompletionTime != nil {
+		item["CompletionTime"] = epochSeconds(*j.CompletionTime)
+	}
+
+	return item
 }
 
 type createReportPlanBody struct {
@@ -238,17 +284,12 @@ func (h *Handler) dispatchReportJobOps(
 			)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"ReportJob": map[string]any{keyReportJobID: job.ReportJobID, keyStatus: job.Status},
-		})
+		return true, c.JSON(http.StatusOK, map[string]any{"ReportJob": reportJobToJSON(job)})
 	case opListReportJobs:
 		jobs := h.Backend.ListReportJobs("")
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
-			items = append(
-				items,
-				map[string]any{keyReportJobID: j.ReportJobID, keyStatus: j.Status},
-			)
+			items = append(items, reportJobToJSON(j))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"ReportJobs": items})
@@ -267,19 +308,22 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, scanJobToJSON(job))
 	case opListScanJobs:
-		jobs := h.Backend.ListScanJobs()
+		jobs, nextToken := h.Backend.ListScanJobsFiltered(ScanJobsFilterFromQuery(c.Request().URL.Query()))
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, scanJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobs": items})
-	case opListScanJobSummaries:
-		jobs := h.Backend.ListScanJobs()
+		resp := map[string]any{"ScanJobs": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"ScanJobSummaries": []map[string]any{{"Count": len(jobs)}},
-		})
+		return true, c.JSON(http.StatusOK, resp)
+	case opListScanJobSummaries:
+		summaries := h.Backend.ListScanJobSummaries()
+
+		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobSummaries": summaries})
 	case opStartScanJob:
 		return true, h.handleStartScanJob(c, body)
 	case opGetPITRMalwareScanResults:

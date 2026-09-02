@@ -552,8 +552,13 @@ type AssociatedPackage struct {
 // the group identified by pattern. Packages are deduplicated by
 // (format, namespace, name) across every repository in the domain, mirroring
 // how ListPackages dedupes within a single repository.
+//
+// preview mirrors ListAssociatedPackagesInput.Preview: by default pattern
+// must name an existing package group (ResourceNotFoundException otherwise);
+// with preview=true a nonexistent pattern is matched as a hypothetical group
+// instead of erroring (aws-sdk-go-v2 api_op_ListAssociatedPackages.go).
 func (b *InMemoryBackend) ListAssociatedPackages(
-	ctx context.Context, domainName, pattern string,
+	ctx context.Context, domainName, pattern string, preview bool,
 ) ([]AssociatedPackage, error) {
 	region := getRegion(ctx, b.region)
 
@@ -569,6 +574,14 @@ func (b *InMemoryBackend) ListAssociatedPackages(
 	}
 
 	groups := b.packageGroupsByRegion.Get(region)
+	if !b.packageGroups.Has(regionKey(region, packageGroupKey(domainName, pattern))) {
+		if !preview {
+			return nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
+		}
+
+		groups = append(slices.Clone(groups), &PackageGroup{DomainName: domainName, Pattern: pattern})
+	}
+
 	seen := make(map[string]bool)
 	result := make([]AssociatedPackage, 0)
 

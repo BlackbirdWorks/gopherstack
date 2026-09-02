@@ -235,7 +235,7 @@ func (b *InMemoryBackend) BatchGetApplicationRevisions(
 
 	if len(revisions) > maxBatchRevisions {
 		return nil, fmt.Errorf("%w: at most %d revisions can be requested at once, got %d",
-			ErrValidation, maxBatchRevisions, len(revisions))
+			ErrBatchLimitExceeded, maxBatchRevisions, len(revisions))
 	}
 
 	found := make(map[string]*ApplicationRevision, len(revisions))

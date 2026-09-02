@@ -6,6 +6,20 @@ last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this h
 last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
                               # swept. 1 bug found and fixed (DeleteIndex response envelope --
                               # see the `indices` family and items_still_open notes).
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): audited every op's
+# deserializeOpError<Op> switch (opensearch@v1.75.4 deserializers.go, 96 ops
+# extracted N-of-N) against this Handler's writeError call sites. 7 bugs found
+# and fixed: ListMigrations, AddDataSource, AddDirectQueryDataSource, AddTags,
+# RemoveTags each emitted a code their own op does not model (fixed to the
+# ValidationException each op actually models); CreateApplication emitted
+# ResourceAlreadyExistsException (unmodeled) instead of ConflictException
+# (modeled); GetUpgradeHistory/GetUpgradeStatus silently swallowed a
+# ResourceNotFoundException-shaped backend error and returned a fabricated
+# 200 success instead (missing-error class) -- both now propagate the real
+# error. See error_sentinel_fixes_test.go (real-SDK errors.As assertions,
+# each confirmed failing pre-fix). handler_applications_test.go/
+# handler_data_sources_test.go/handler_tags_test.go had 4 pre-existing tests
+# asserting the old wrong codes as correct; corrected alongside the fix.
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
                       # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
                       # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the
@@ -34,9 +48,15 @@ overall: A            # RAISED from A- (parity-5, this pass). The two gaps that 
                       # too. ExportOptions/ConflictResolution are validated then intentionally discarded
                       # (never persisted), matching the same "parsed but not stored" precedent
                       # services/appconfig's StartExperimentRun DeploymentParameters already established,
-                      # since GetMigrationOutput/MigrationSummary never echo them back either. One
-                      # unrelated, pre-existing gap remains open and undisturbed by this pass (see gaps
-                      # below): ListDataSourceAttachments/ListMigrations still ignore maxResults/nextToken.
+                      # since GetMigrationOutput/MigrationSummary never echo them back either.
+                      # CORRECTION 2026-08-30: the "ListDataSourceAttachments/ListMigrations still
+                      # ignore maxResults/nextToken" gap this note used to point to is stale on both
+                      # halves -- ListMigrations was already fixed by the 2026-08-30
+                      # unstable-pagination-order sweep on this same branch (see the migrations family
+                      # note below), which never updated this earlier note; ListDataSourceAttachments
+                      # is now fixed too (gopherstack-6nr4-adjacent pass, see that family note below).
+                      # This is exactly the "PARITY manifests bury fix status" class (gopherstack-anjf):
+                      # a newer dated section sorted below this stale one. No open gap remains here.
 ops:
   CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes). FIXED gopherstack-5wj0: SoftwareUpdateOptions was read/written under the wrong wire key EnableSoftwareUpdateOptions (confirmed against serializers.go:1319-1321 and deserializers.go:21789-21790, aws-sdk-go-v2/service/opensearch@v1.75.4 -- both directions use object.Key(\"SoftwareUpdateOptions\")), so a real client's request value was silently discarded and any response value the backend did set was unparseable by a real SDK client's typed struct"}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -93,7 +113,18 @@ families:
       nil. This backend is single-page for all three, so the correct value is always an empty
       string rather than omitted; fixed by adding jsonKeyNextToken: "" to each response. Proven via
       TestVpcEndpointListOps_NextTokenPresent_RealClient (wire_output_required_r80d_test.go), which
-      fails against the unfixed decode for all three ops.
+      fails against the unfixed decode for all three ops. (7, gopherstack-rz6y, 2026-08-29) The (5)
+      fix above only covered the List paths (they route through toVpcEndpointSummary); the same
+      StatusUntil leak was still reachable through CreateVpcEndpoint/UpdateVpcEndpoint/
+      DescribeVpcEndpoints, which marshal the raw *VpcEndpoint struct directly and so still emitted
+      "statusUntil" whenever an endpoint carried a non-zero value (only possible via
+      DeleteVpcEndpoint with SetProcessingDelay > 0, still-visible during its DELETING window).
+      types.VpcEndpoint (opensearch@v1.75.4 types/types.go:3442) has no such member. Fixed by
+      changing StatusUntil's tag to json:"-" on VpcEndpoint (the same audit found
+      InboundConnection/OutboundConnection/Capability's StatusUntil fields never actually reach the
+      wire -- all three already go through dedicated converter functions that omit it, so no
+      change was needed there). Proven via TestVpcEndpoint_RawBody_NoLeakedStatusUntil
+      (wire_field_fixes_test.go), which fails against the unfixed tag.
   packages:
     status: ok
     note: >
@@ -293,10 +324,23 @@ families:
       validate-and-track rather than a full CRUD resource (the SDK defines no
       Get/List/DeleteWorkspace operation and no output ever echoes a WorkspaceId, so nothing more
       is derivable from the real API). Cascade-deleted on DeleteApplication.
-      Remaining gap, unrelated to workspaces and unchanged this pass: ListDataSourceAttachments
-      accepts but ignores maxResults/nextToken (returns the full list unpaginated) -- consistent
-      with how most other List ops in this backend already treat pagination params, but flagged as
-      a real, not-hidden gap.
+      FIXED 2026-08-30: ListDataSourceAttachments previously ignored maxResults/nextToken entirely
+      (not query-bound on this op -- confirmed against its own
+      awsRestjson1_serializeOpDocumentListDataSourceAttachmentsInput, opensearch@v1.75.4
+      serializers.go: both are real JSON body members, "maxResults"/"nextToken", unlike
+      ListMigrations' HTTP-query binding for the same concept -- each op's own serializer settles
+      it, not a shared family convention). Now paginated via pkgs/page (default page size 50, per
+      ListDataSourceAttachmentsInput.MaxResults' documented default); b.dataSourceAttachmentsByApp
+      is a pkgs/store.Index, whose Get() is insertion-ordered and stable across calls, so no
+      additional sort was needed before paginating it. Also found and fixed alongside it: the
+      backend never validated the application existed at all (silently returned an empty list for
+      an unknown application ID instead of the ResourceNotFoundException every sibling op in this
+      family already returns -- AttachDataSource/DetachDataSource/DescribeDataSourceAttachment all
+      check b.applications.Has first). Proven via
+      handler_data_source_attachments_pagination_test.go's TestListDataSourceAttachments_SDKPagination
+      (real aws-sdk-go-v2 client, 5 attachments, MaxResults=2, asserts the union of every page
+      equals the seeded set) and TestListDataSourceAttachments_UnknownApplication; both confirmed
+      failing against pre-fix code.
   capabilities:
     status: ok
     note: >
@@ -361,10 +405,13 @@ families:
       validated, not stored" precedent services/appconfig's StartExperimentRun
       DeploymentParameters already established. See the "overall" grade note above for why the
       Workspace side of this stops at validate-and-track rather than full CRUD.
-      Remaining gap, unrelated to workspaces and unchanged this pass: ListMigrations accepts but
-      ignores maxResults/nextToken (returns the full filtered list unpaginated).
-gaps:
-  - "data_source_attachments and migrations: List ops (ListDataSourceAttachments/ListMigrations) accept but ignore maxResults/nextToken, always returning the full (filtered) result set unpaginated."
+      CORRECTION 2026-08-30: this note previously said ListMigrations still ignored
+      maxResults/nextToken. That was already stale when read -- the 2026-08-30
+      unstable-pagination-order sweep on this same branch fixed it (paginated via pkgs/page,
+      reading b.migrationsByApp -- a pkgs/store.Index, insertion-ordered and stable -- so no sort
+      was needed) but never updated this earlier note. No open gap remains here; see that sweep's
+      dated section below for the fix detail.
+gaps: []
 deferred:
   - serverless
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
@@ -409,6 +456,19 @@ The remaining 15 required output fields across the other 13 ops (all
 populated by reading each handler's response-construction code.
 **opensearch is settled for this bug class**: every required output member
 across every op that has one has been read and checked.
+
+**Re-verified 2026-08-28** (gopherstack-r80d, independent re-check after the
+issue's closure reason was found undocumented): re-ran
+`go run ./cmd/requiredoutputfields` (still 21 fields/17 ops, unchanged since
+2026-08-14) and re-read all 17 handlers plus the nested `DomainStatus`
+struct's own 4 required members (`ARN`/`ClusterConfig`/`DomainId`/
+`DomainName`, opensearch@v1.75.4 types/types.go:1377-1401) against
+`toDomainStatusJSON` -- all still correctly populated from real backend
+state. `AuthorizedPrincipal`/`VpcEndpointSummary`/`VpcEndpointError`/
+`DomainConfig` (the other nested response types the 17 ops wrap) carry zero
+required members of their own in the pinned SDK, confirmed by direct read,
+not inferred. 0 new findings; go build/vet/test -race/golangci-lint all
+clean on this service. No regression since the 2026-08-14 pass.
 
 ### Reverse sdkcheck sweep (2026-07-31) -- 8 fabricated serverless policy op names found and renamed
 
@@ -603,7 +663,7 @@ beyond the capability's existence/name/status.
   DescribeDomainHealth, DescribeDomainNodes, DescribeDryRunProgress,
   DescribeInstanceTypeLimits, GetDomainMaintenanceStatus, GetUpgradeHistory,
   GetUpgradeStatus, ListDomainMaintenances, ListInstanceTypeDetails,
-  StartDomainMaintenance, UpgradeDomain, and the index/document data-plane ops
+  StartDomainMaintenance, and the index/document data-plane ops
   (CreateIndex/DeleteIndex/GetIndex/UpdateIndex) were not touched or
   field-diffed this pass (they were not in the original 1-gap/8-deferred list
   this pass was scoped to fix). Not reclassified either direction; still
@@ -633,6 +693,22 @@ beyond the capability's existence/name/status.
   correct" was itself wrong -- GetIndexOutput's only member is IndexSchema
   (api_op_GetIndex.go), not the metadata envelope either. See the `indices`
   family note above for the fix; GetIndex/DeleteIndex are now both settled.
+  UPDATE (cmd/enumcheck sweep, 1d6e40d1a): UpgradeDomain field-diffed and
+  FIXED -- UpgradeDomainOutput (api_op_UpgradeDomain.go:59-79) has
+  AdvancedOptions/ChangeProgressDetails/DomainName/PerformCheckOnly/
+  TargetVersion/UpgradeId, no StepStatus member at all (that name belongs to
+  types.UpgradeStepItem, a GetUpgradeHistory/GetUpgradeStatus type). The
+  handler emitted an invented `"StepStatus": "REQUESTED"` key -- "REQUESTED"
+  is also not a member of UpgradeStatus (IN_PROGRESS/SUCCEEDED/
+  SUCCEEDED_WITH_ISSUES/FAILED) -- which a real client silently discards on
+  decode (unknown JSON keys aren't errors), so the bug was invisible to any
+  test that only inspects the decoded typed struct. Now emits UpgradeId/
+  DomainName/TargetVersion/PerformCheckOnly (echoed from the real request);
+  AdvancedOptions/ChangeProgressDetails have no backing state in this
+  synchronous backend, so they're left absent rather than fabricated. Removed
+  from the not-field-diffed list above. See
+  TestUpgradeDomain_RealSDKClient/TestUpgradeDomain_RawBody_NoInventedStepStatus
+  (wire_field_fixes_test.go).
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no
@@ -843,3 +919,286 @@ correctly out of pass scope), and re-counted the un-advertised-op gap.
   Full field-level diff of the 19 already-advertised ops' Collection/
   AccessPolicy/SecurityConfig/SecurityPolicy shapes beyond `DeletionProtection`
   above is still not done and remains this family's main open item.
+
+## 2026-08-29 ordering-bug audit (paginate-before-filter, iam class) -- clean, no code change
+
+Audited for the recently-found iam-class bug (a filter applied to an already-paginated page instead
+of to the full set before pagination, with truncation sometimes computed to hide the loss). Grepped
+every handler for `NextToken`/`nextToken`/`MaxResults`/`maxResults`/`IsTruncated`: only 4 files
+reference pagination at all (`handler_insights.go`, `handler_vpc_endpoints.go`, `handler_advanced.go`,
+plus the `NextToken` JSON-key constant in `handler.go`).
+
+- `handleListInsights` (`handler_insights.go`): always returns an empty list -- this backend has no
+  analytics engine to generate insights from (documented in-code); no filter or pagination logic to
+  get wrong.
+- `handleVersionsRoutes` / ListVersions (`handler_advanced.go`): paginates a fixed, hardcoded version
+  catalog by `nextToken`/`maxResults`; no filter parameter exists on this op at all, so there is no
+  order to get wrong.
+- `handleVpcEndpointRootRoutes`/`handleVpcEndpointIDRoutes` (`handler_vpc_endpoints.go`): the
+  `ListVpcEndpoints*` ops return every stored item unpaginated (hardcoded empty `NextToken` in the
+  response, documented in-code as a required-but-inert response member) -- no truncation is ever
+  claimed, so no client can be misled into thinking there's more.
+
+No other List/Describe operation in this service implements `NextToken`/`MaxResults` pagination in
+either handler or backend (confirmed by the same grep across all of `services/opensearch`), so there
+is no cursor for a filter-ordering bug to hide behind anywhere else in this service. Zero findings;
+no files changed.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 6 operations fixed
+
+Measured collection-returning operations from each op's own Input struct in the pinned SDK
+(`opensearch@v1.75.4`), not from the verb: 22 ops carry `Filters`/a named filter field/`Statuses`/
+`MaxResults`/`NextToken`. The 08-29 ordering-bug audit above already established that *no* op in this
+service implemented `MaxResults`/`NextToken` pagination at all -- this pass turned that same absence
+into six concrete fixes, all previously "never read" (class 1) or "never bound" (class 3):
+
+- **`DescribeInboundConnections`/`DescribeOutboundConnections`**
+  (`inbound_connections.go`/`outbound_connections.go`/`handler_inbound_connections.go`/
+  `handler_outbound_connections.go`): the handler never read the POST body at all -- `Filters`,
+  `MaxResults`, `NextToken` were all silently discarded, every connection was always returned in one
+  unbounded page. Fixed: `Filters` entries named `"connection-id"` now restrict the result
+  (OR-within-values, matching `API_Filter.html`: "must match at least one of the specified values");
+  `MaxResults` (capped at the documented maximum of 100, `API_DescribeInboundConnections.html`) and
+  `NextToken` now paginate via `pkgs/page`. **Restraint**: neither `API_Filter.html` nor
+  `api_op_Describe*Connections.go` enumerates a closed set of valid `Filter.Name` values for this
+  operation (unlike most AWS filter APIs) -- I did not invent additional names (e.g.
+  `local-domain-info.domain-name`) from outside knowledge; only `connection-id` is applied, and any
+  other `Name` is a documented no-op. Shared filter+pagination logic factored into a generic
+  `filterAndPageConnections[T any]` helper (`inbound_connections.go`) used by both operations --
+  avoids the duplicate-bug-per-copy pattern the brief warns about, since both connection kinds now
+  share one implementation instead of two.
+- **`ListApplications`** (`applications.go`/`handler_applications.go`): the handler didn't read the
+  query string at all (GET, all three params query-bound per `serializers.go`'s
+  `awsRestjson1_serializeOpHttpBindingsListApplicationsInput`). Fixed: repeated `statuses` query
+  values, `maxResults`, `nextToken` are now honored. Every application this backend creates is
+  implicitly `ACTIVE` (`DeleteApplication` removes its record immediately, no `DELETING` window), so a
+  `Statuses` filter that excludes `ACTIVE` now correctly returns empty rather than every application.
+- **`ListDomainMaintenances`** (`domain_maintenance.go`/`handler.go`): `Action`/`Status`/
+  `MaxResults`/`NextToken` are all query-bound (`awsRestjson1_serializeOpHttpBindingsListDomainMaintenancesInput`);
+  the handler ignored all four and returned the domain's full history (capped at 200 records per
+  domain, `advanced.go:114`) in one page regardless. Fixed: both filters and pagination now applied.
+- **`ListMigrations`** (`migrations.go`/`handler_migrations.go`): `applicationId`/`status` were
+  already correctly read from the query string and applied -- confirmed correct, not touched.
+  `maxResults`/`nextToken` were not read at all; fixed to paginate via `pkgs/page`.
+- **`DescribePackages`** (`packages.go`/`handler_packages.go`): the handler already read `Filters`
+  entries but matched only `Name: "PackageID"`; `DescribePackagesFilterName`
+  (`types/enums.go`) has six values -- `PackageID`, `PackageName`, `PackageStatus`, `PackageType`,
+  `EngineVersion`, `PackageOwner`. Fixed `PackageName`/`PackageStatus`/`PackageType` (fields this
+  backend's `Package` actually tracks) plus `MaxResults`/`NextToken` pagination. **Gap left**:
+  `EngineVersion`/`PackageOwner` have no corresponding field on `Package` at all -- a structural gap,
+  documented in code and here rather than fabricated.
+
+**Confirmed already correct, not touched**: `DescribeReservedInstances`/`DescribeReservedInstanceOfferings`
+(`reserved_instances.go`) already filter correctly by `reservationId`/`offeringId`; pagination was not
+added -- `DescribeReservedInstanceOfferings` serves a small hardcoded static catalog
+(`staticReservedInstanceOfferings()`) and per-account reserved-instance counts are realistically small,
+so an unbounded page is not an observable bug here (restraint call, matching the brief's "catalogue of
+three entries" guidance). `ListInsights`'s `SortOrder`/`TimeRange`/`MaxResults`/`NextToken` are accepted
+but structurally inert -- this backend has no analytics engine to generate insights at all
+(`handler_insights.go`'s own doc comment, confirmed correct pre-existing reasoning, not re-litigated).
+
+Gates: `go build ./services/opensearch/...`, `go vet ./...` (repo-wide, since backend method
+signatures changed), `go test ./services/opensearch/... -race -count=1` (pass), `golangci-lint run
+./services/opensearch/...` (0 issues after fixing dupl via the shared generic helper above,
+fieldalignment, gosec G109 by using `int` instead of `int32` for internal maxResults plumbing, and
+golines). New tests in `list_filter_params_test.go` drive the real typed SDK client
+(`opensearchsdk.Client`) for every fix above except the `ListMigrations` seed step, which uses the
+backend directly to avoid re-deriving `StartMigration`'s unrelated `MigrationOptions.Workspace`/
+`resolveDataSourceRefLocked` validation chain -- the read path under test (`ListMigrations` pagination)
+still goes through the real client.
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `DescribePackages`
+(`packages.go`), when called with no `PackageID` filter, built its unfiltered result from
+`b.packages.All()` -- an unspecified-order map walk (`pkgs/store`'s `Table.All` doc) -- with no
+sort at all before `pkgs/page.New`'s offset-based pagination. `page.New`'s own doc says it "creates
+a Page from a fully sorted slice"; this call site did not honor that contract, so a client paging
+with `MaxResults` smaller than the package count could drop or duplicate a package at a page
+boundary even though `PackageID` (the table's own key) is unique -- offset pagination over an
+unstable order breaks the same way marker pagination does. Fixed by reading via
+`b.packages.Snapshot()` instead of `.All()` -- `Snapshot()` sorts by the table's own key
+(`PackageID`) ascending, deterministically. The `len(ids) > 0` branch (filtering to explicit
+`PackageID`s from the request) was already safe -- it iterates the caller-supplied `ids` slice, not
+a map.
+
+Every other paginated `List*`/`Describe*` site in this service was audited this pass and confirmed
+already safe: `DescribeInboundConnections`/`DescribeOutboundConnections` (`inbound_connections.go`'s
+shared `filterAndPageConnections`) sort by `ConnectionID`, the table's own key; `ListApplications`
+(`applications.go`) sorts by `ID`, the table's own key; `ListDomainMaintenances`
+(`domain_maintenance.go`) reads a direct per-key slice (`b.domainMaintenances[domainName]`), not a
+map range; `ListMigrations` (`migrations.go`) reads via `store.Index.Get`, which is
+insertion-ordered, not a map range.
+
+Proof: `TestDescribePackages_PaginationOrderIsReproducible` (`handler_packages_test.go`) creates 60
+packages, walks them with `MaxResults=7` across `NextToken`-resumed pages (real
+`opensearchsdk.Client`), and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed reliably against the unfixed code (drops and triplicate
+counts observed), passes after the `.Snapshot()` fix.
+
+Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...`,
+`go test -race -count=1 ./services/opensearch/...` (pass), `golangci-lint run
+./services/opensearch/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 value-semantics sweep (gopherstack-uox6) -- clean, three new gaps recorded
+
+Re-audited every List/Describe operation's optional request parameters against the pinned
+`opensearch@v1.75.4` doc comments for the class gopherstack-uox6 describes (a parameter that IS
+read and applied but with the wrong algorithm, invisible to a field-shape or enum scanner). 34
+List/Describe ops counted directly from `api_op_List*.go`/`api_op_Describe*.go` filenames (17 List
++ 17 Describe), matching the brief's count exactly.
+
+Most of this axis was already closed by the "2026-08-29 constraint-parameter sweep" entry above (6
+operations fixed: DescribeInboundConnections/DescribeOutboundConnections' `connection-id` filter +
+pagination, ListApplications' `Statuses`, ListDomainMaintenances' `Action`/`Status`, ListMigrations'
+pagination, DescribePackages' `PackageName`/`PackageStatus`/`PackageType`), which used this same
+discipline predating this bd issue. Independently re-verified rather than trusted:
+
+- `filterAndPageConnections` (inbound_connections.go): OR-within-`Values`, `connection-id`-only
+  restraint re-read against `API_Filter.html`'s wording ("must match at least one of the specified
+  values") -- correct as written.
+- `DescribePackages` (packages.go): `PackageName`/`PackageStatus`/`PackageType` combine via
+  independent AND-across-filter-names, OR-within-each-filter's-`Value` list (`slices.Contains`) --
+  matches the standard AWS Filter idiom this SDK's own sibling `types.Filter` documents explicitly;
+  `DescribePackagesFilter`'s own doc comment doesn't restate the combining rule but there's no
+  documented alternative to check it against.
+- `ListApplications` (applications.go): `!slices.Contains(statuses, "ACTIVE")` -- every application
+  this backend creates is implicitly ACTIVE (no DELETING window), so this is provably correct for
+  every legal `Statuses` value, not a shortcut that could go wrong.
+- `ListDataSourceAttachments` (data_source_attachments.go): `MaxResults`' documented default ("The
+  default is 50") matches `defaultListDataSourceAttachmentsLimit = 50`. Newly confirmed this pass.
+- `ListDomainMaintenances` (domain_maintenance.go): `Action`/`Status` are independent scalar
+  equality filters (AND-combined, not a multi-value list), correct as written.
+
+Three new structural gaps recorded (never read, backed by missing data this backend does not
+model -- fabricating a value would risk the invented-value bug class the brief warns about, so left
+absent rather than guessed):
+
+- `ListInstanceTypeDetails`' `RetrieveAZs` (`*bool`): `advanced.go`'s `ListInstanceTypeDetails` is a
+  hardcoded 5-entry catalog with no `AvailabilityZones` field on any entry at all -- the real
+  `types.InstanceTypeDetails.AvailabilityZones` member has no backing data in this backend,
+  regardless of `RetrieveAZs`'s value.
+- `DescribeDryRunProgress`' `LoadDryRunConfig` (`*bool`): `domain_status.go`'s `GetDryRunProgress`
+  never populates `DryRunConfig` (`*types.DomainStatus`) -- this backend tracks dry-run
+  status/validation failures but not a snapshot of the planned domain config to echo back.
+- `DescribeDomainChangeProgress`' `ChangeId`: `domain_status.go`'s `GetChangeProgress` only tracks
+  `Domain.LastChangeID`, a single value with no history of prior changes -- a `ChangeId` for an
+  older change than the most recent cannot be distinguished from the current one, since no history
+  exists to look it up in. Requesting a stale `ChangeId` returns the current change's progress
+  instead of that specific one's (or a not-found), same structural-gap shape as the AZ/DryRunConfig
+  gaps above.
+
+No new *bug* found (all three are missing-data gaps, not a wrong algorithm operating on data that
+exists); no source or test changes this pass.
+
+Gates: `go build ./services/opensearch/...`, `go vet ./services/opensearch/...` (no changes,
+nothing to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
+instructions.
+
+## 2026-08-31: parity-targeting method correction re-derivation (gopherstack-6flj/21my)
+
+Queue derivation: real `Describe*`/`List*` ops in opensearch@v1.75.4 (33 total) whose full
+name never appears (case-insensitive, glob-expanded) verbatim anywhere in this file.
+Mechanical grep gave 3: `ListDataSources`, `ListDirectQueryDataSources`,
+`ListScheduledActions`. All 3 field-diffed independently against
+`opensearch@v1.75.4`'s `types/types.go`/`api_op_*.go` (wrapper key + full per-item shape,
+not trusting this file's existing "field-diffed" claims) and came back genuinely clean --
+`ListDataSourcesOutput.DataSources`/`types.DataSourceDetails`,
+`ListDirectQueryDataSourcesOutput.DirectQueryDataSources`/`types.DirectQueryDataSource`,
+and `ListScheduledActionsOutput.ScheduledActions`/`types.ScheduledAction` (9 of 9 real
+members present on `models.go`'s `ScheduledAction`) all match. Recorded, not fixed: real
+`AddDirectQueryDataSourceInput.TagList` (and the response-side `DirectQueryDataSource.TagList`)
+has no backing state anywhere in this backend's `DirectQueryDataSource` model -- a genuine
+gap, not a naming bug, since implementing it needs a full tag-store wired through
+Add/List/Get/Delete.
+
+**Walked neighbours instead of forcing a finding on the flagged set** -- this file's own
+"Un-re-verified ops outside the assigned scope" list (still present above) names several
+ops this pass could legitimately continue into. Two real bugs found and fixed:
+
+1. **`DescribeDryRunProgress` was missing two of its three real top-level members.**
+   `DescribeDryRunProgressOutput` (opensearch@v1.75.4 `api_op_DescribeDryRunProgress.go`)
+   declares `DryRunConfig`/`DryRunProgressStatus`/`DryRunResults`; the handler
+   (`handler_domain_status.go`) only ever emitted `DryRunProgressStatus`. `DryRunResults`
+   (`types.DryRunResults`: `DeploymentType`/`Message`) is the identical shape
+   `UpdateDomainConfig`'s own dry-run path already synthesizes elsewhere in this service
+   (`handler_domain_config.go`'s `dryRunResultsJSON`), so fixed by reusing that same
+   synthesized value. `DryRunConfig` (a full `*types.DomainStatus` preview) is left as a
+   recorded gap -- no pending-change-diff mechanism exists to build a real preview from,
+   and fabricating one would be worse than omitting it.
+
+2. **`DescribeDomainNodes` never surfaced `StorageSize`/`StorageType`, and its
+   `StorageVolumeType` fallback used an invalid enum value.** Real `DomainNodesStatus`
+   (opensearch@v1.75.4 `types/types.go`) declares `StorageSize`/`StorageType` alongside
+   `StorageVolumeType`; `GetDomainNodes` (`domain_status.go`) only ever populated
+   `StorageVolumeType`, and did so unconditionally from a hardcoded `"EBS"` default when
+   `EBSOptions` was unset -- `"EBS"` is not a member of the real `VolumeType` enum
+   (`standard`/`gp2`/`io1`/`gp3`), so that default value was already wrong on its own axis.
+   `StorageSize` was real, tracked state (`EBSOptions.VolumeSize`) never read; `StorageType`
+   ("EBS" vs "Instance") was never computed at all. Fixed: `GetDomainNodes` now derives
+   `StorageType` from `EBSOptions.EBSEnabled` (assumed true when unset, matching most real
+   instance types), and only emits `StorageSize`/`StorageVolumeType` for EBS-backed nodes,
+   with `StorageVolumeType` defaulting to the valid enum value `"gp2"` instead of `"EBS"`.
+
+Recorded, not fixed (different axis, structural gaps -- no legal input could surface them
+without new state modeling): `DescribeDomainHealth` is missing `AvailabilityZoneCount`/
+`ClusterHealth`/`EnvironmentInformation`/`MasterEligibleNodeCount`/`MasterNode`/
+`StandByAvailabilityZoneCount` (real members with no cluster-health/master-election model
+in this backend); `DescribeDomainChangeProgress` is missing `ChangeProgressStages`/
+`ConfigChangeStatus`/`InitiatedBy` (no per-stage change-progress model exists).
+
+Tests: `TestDescribeDryRunProgress_DryRunResults_RealClient` and
+`TestDescribeDomainNodes_Storage_RealClient` (`wire_field_fixes_test.go`), both driving the
+real aws-sdk-go-v2 opensearch client. Both verified failing pre-fix (`DryRunResults` decoded
+nil; `StorageSize`/`StorageType` decoded empty). Existing
+`TestDescribeDomainNodes_StorageAndAZ`/`TestOpenSearchHandler_DescribeDomainNodes` re-run and
+still pass (no EBSOptions specified in those tests, exercising the "assume EBS" default
+path).
+
+Protocol: opensearch is REST-JSON (`awsRestjson1`, confirmed from `deserializers.go`'s
+function prefix) -- no case folding, so any naming mismatch here is a hard failure class,
+not a latent case-only one.
+
+No wrapper-key mismatches, no hard decode errors, no transpositions, no invented elements
+found. `models.go` not touched by either fix (`domain_status.go`/`handler_domain_status.go`
+only), so no `TestSnapshotVersionGuard` re-run was required for this service specifically
+(it was run once for the lambda `models.go` change in this same session and passed). Pages
+fetched: 0 (module cache used throughout).
+
+Gates: `go build ./...` clean; `go vet ./...` clean;
+`go test -race -count=1 ./services/opensearch/...` clean; `golangci-lint run
+./services/opensearch/...` 0 issues. No `nolint` directives in any file touched
+(`domain_status.go`, `handler_domain_status.go`, `wire_field_fixes_test.go`).
+
+### 2026-08-31 (error-target sweep re-verification, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir opensearch` flagged 3 findings (`AddTags`, `ListMigrations`,
+`RemoveTags`, all `code=ResourceNotFoundException`, mechanism "sentinel reference"
+into `tags.go`/`migrations.go` backend methods). All 3 are false positives, and the
+same false-positive shape for all 3: **consumed downstream**. The tool traced the
+sentinel (`ErrDomainNotFound`/`ErrApplicationNotFound`, both string
+`"ResourceNotFoundException"`) at the point the backend method constructs it, but
+each of the three handlers (`handler_tags.go`'s `handleAddTags`/`handleRemoveTags`,
+`handler_migrations.go`'s `handleListMigrations`) already intercepts *any* backend
+error and hardcodes `ValidationException` before it reaches a code-emission mapper --
+each site carries its own comment citing this exact deserializer fact. This is the
+2026-08-29 `72a539739` fix (see the `# ERROR path verified 2026-08-29` header above)
+holding correctly; re-derived from the pinned `opensearch@v1.75.4` deserializers.go
+independently rather than trusting that note (`AddTags`/`RemoveTags` declare
+`BaseException`/`InternalException`/`ValidationException`[+`LimitExceededException`
+for Add]; `ListMigrations` declares `AccessDeniedException`/
+`DisabledOperationException`/`InternalException`/`ValidationException` -- none
+declare `ResourceNotFoundException`), and confirmed live via
+`error_sentinel_fixes_test.go`'s existing `TestListMigrations_UnknownApplication_
+ValidationException`/`TestAddTags_UnknownARN_ValidationException`/
+`TestRemoveTags_UnknownARN_ValidationException` (all pass on the unmodified tree).
+
+Also cross-checked the shared `ResourceNotFoundException` sentinel's broader
+legitimacy: of 96 opensearch operations, 82 declare `ResourceNotFoundException`
+correctly (`AcceptInboundConnection`, `AddDataSource`, ... 80 more); the other 14
+don't declare it and are all either these 3 already-fixed tag/migration ops or
+create/list-all operations that structurally never emit it.
+
+Nothing changed in this service this pass -- confirms false-positive rate 3/3 (100%)
+for this queue, mechanism consumed-downstream in all 3 cases. Pages fetched: 0
+(module cache only). Gates: `go build ./services/opensearch/...`, `go vet
+./services/opensearch/...`, `go test -race -count=1 ./services/opensearch/...`
+(pass, unmodified).

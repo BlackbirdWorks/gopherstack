@@ -2,24 +2,49 @@
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
 last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
-last_audit_date: 2026-08-20
-overall: A            # wrapper-key/fabricated-field sweep this pass; 3 fabricated members removed, 1 real field added
+last_audit_date: 2026-08-30
+overall: A            # gopherstack-wks5 (2026-08-30): field-identity request-parameter sweep found and
+                      # fixed 1 real bug (DescribeMountTargets/DescribeAccessPoints missing a
+                      # FileSystemId existence check) and disclosed 1 (PutFileSystemPolicy's
+                      # BypassPolicyLockoutSafetyCheck) -- see the dated section at the end of this file.
+                      # gopherstack-21my (2026-08-29, same-day continuation): parameter-honoring sweep
+                      # (does a filter/pagination parameter, once correctly read, actually narrow the
+                      # result -- distinct from the wrapper-key sweep below, which checked key NAMES).
+                      # Came back genuinely clean, no changes -- see the dated section at the end of this
+                      # file for what was checked and the disclosed gaps re-confirmed as deliberate.
+                      # gopherstack-6flj follow-up (2026-08-29): write-only-state sweep. 2 real bugs
+                      # found and fixed -- CreateFileSystemInput.Backup was silently dropped (a
+                      # real SDK client's Backup:true never enabled DescribeBackupPolicy), and
+                      # Destination.StatusMessage was never modeled at all (dormant in this
+                      # backend, which never produces a non-ENABLED replication status, but wired
+                      # for wire-shape completeness). 2026-08-20 pass's 3 fabricated-member
+                      # removals stand, re-verified.
+                      # 2026-08-29 wrapper-key sweep (query/path/header key hunt, cross-service
+                      # with apigateway/transfer/appconfig): every REQUEST-direction Query/URI/
+                      # Header binding in efs@v1.44.4 serializers.go checked op-by-op against this
+                      # handler's actual parameter reads. Found efs CLEAN of the wrong-key class --
+                      # every filter/pagination query param (FileSystemId, AccessPointId,
+                      # MountTargetId, CreationToken, Marker/MaxItems, NextToken/MaxResults,
+                      # tagKeys) is read under its exact real key. Two pre-existing gaps recorded,
+                      # not fixed: DeleteReplicationConfiguration's deletionMode (no cross-account/
+                      # region concept to differ on) and ListTagsForResource/DescribeTags pagination
+                      # (already flagged deferred below; tag maps are small and bounded in practice).
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFileSystem:                  {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: the real Backup *bool request member (api_op_CreateFileSystem.go -- default false, but true when AvailabilityZoneName is set) had no field at all in createFileSystemBody/CreateFileSystemRequest -- a real SDK client's Backup:true was silently dropped, and DescribeBackupPolicy always reported DISABLED regardless. Added; also implements the documented One-Zone default-flip (Backup omitted + AvailabilityZoneName set -> ENABLED)."}
   DescribeFileSystems:               {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
   DeleteFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: ok, persist: ok}
   CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented. Also removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all."}
-  DescribeMountTargets:              {wire: ok, errors: ok, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes"}
+  DescribeMountTargets:              {wire: ok, errors: fixed, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes. FIXED (gopherstack-wks5, 2026-08-30) -- an unknown FileSystemId filter (not the MountTargetId identity path) silently returned an empty list instead of the real op's own declared FileSystemNotFound (efs@v1.44.4 deserializers.go, awsRestjson1_deserializeOpErrorDescribeMountTargets); see dated section below."}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyMountTargetSecurityGroups:   {wire: ok, errors: fixed, state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
   CreateAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAccessPoints:              {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
+  DescribeAccessPoints:              {wire: ok, errors: fixed, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes. FIXED (gopherstack-wks5, 2026-08-30) -- same unknown-FileSystemId-filter gap as DescribeMountTargets, see that entry and the dated section below."}
   DeleteAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below. Re-checked (wrapper-key sweep) against the sfn TagResource map/array bug class: efs's Tags is []types.Tag, array of {Key,Value} (api_op_TagResource.go:42, serializers.go:2883-2898), matching this emulator's []tagEntry{Key,Value} exactly -- genuinely clean, confirmed via a real-client round-trip test (tag_resource_sdk_test.go)."}
   UntagResource:                     {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   ListTagsForResource:               {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   DescribeTags:                      {wire: ok, errors: ok, state: ok, persist: ok, note: "legacy GET-only op, distinct path from TagResource family; pagination (Marker/MaxItems) not applied server-side -- deferred, see gaps"}
@@ -27,11 +52,11 @@ ops:
   DeleteTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLifecycleConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidTransitionToIA/isValidTransitionToArchive were hand-copied lists each missing AFTER_1_DAY and each wrongly accepting values from other fields (TransitionToIA took a nonexistent \"NONE\"; TransitionToArchive took AFTER_1_ACCESS, which belongs to TransitionToPrimaryStorageClassRules, plus a typo'd AFTER_90_DAYS_1). Both now derive from types.TransitionToIARules.Values()/types.TransitionToArchiveRules.Values()."}
-  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
-  DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse"}
+  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below; 2026-08-29: Destination.StatusMessage (a real, non-required types.Destination member) was never modeled in ReplicationDestination at all -- added, but dormant: this backend's replication Status is always synchronously ENABLED (never PAUSED/ERROR), so no code path yet writes a non-empty value. Wired for wire-shape completeness, no test (indistinguishable from the pre-fix behavior on an always-empty field, same reasoning as route53resolver's ResolverRuleAssociation.StatusMessage)."}
+  DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified against efs@v1.44.4 serializers.go. deletionMode query param (serializers.go:906) never read -- gap, not a bug: this backend models a single account/region, so ALL_CONFIGURATIONS vs LOCAL_CONFIGURATION_ONLY has no distinguishable backing state to differ on"}
+  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse; 2026-08-29: shares CreateReplicationConfiguration's StatusMessage fix, see its entry"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
+  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState). 'wire: ok' overstated (gopherstack-wks5 field-identity sweep, 2026-08-30): the real BypassPolicyLockoutSafetyCheck bool request member (api_op_PutFileSystemPolicy.go) is parsed into putFileSystemPolicyBody but never passed to Backend.PutFileSystemPolicy, which takes only (ctx, fileSystemID, policy). Not fixed: real BypassPolicyLockoutSafetyCheck gates a self-lockout evaluation (would the new policy deny the caller PutFileSystemPolicy/DeleteFileSystemPolicy in future) that requires an IAM policy-simulation engine this repo has no pkgs/ package for -- out of scope for a wire-identity fix. See ecr PARITY.md's SetRepositoryPolicy entry for the identical pattern (Force)."}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBackupPolicy:              {wire: ok, errors: ok, state: ok, persist: ok}
   PutBackupPolicy:                   {wire: ok, errors: ok, state: ok, persist: ok}
@@ -410,6 +435,56 @@ client, which decodes only fields it declares) rather than a required-field
 violation, so left as-is rather than removed as part of this cut -- out of scope for a
 required-*missing*-field audit.
 
+### 2026-08-29: write-only-state sweep (gopherstack-6flj follow-up)
+
+Method: for each domain struct in `models.go`, enumerated every field the backend
+persists, then checked which real operation can read it back, per family
+(FileSystem, MountTarget, AccessPoint, Replication, LifecycleConfiguration,
+FileSystemPolicy, BackupPolicy, AccountPreferences). Cross-checked every
+List/Describe-shaped SDK input struct's own field list against gopherstack's
+matching wire-input struct (not just the response side), since an accepted
+request field that's silently dropped is the same bug class in reverse.
+`enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` (repo-wide, grepped for
+`services/efs`) found nothing for this service.
+
+**`CreateFileSystemInput.Backup` silently dropped (critical, request-side):**
+`api_op_CreateFileSystem.go`'s `CreateFileSystemInput.Backup *bool` ("Specifies
+whether automatic backups are enabled... Default is false. However, if you
+specify an AvailabilityZoneName, the default is true") had no counterpart at
+all in `createFileSystemBody`/`CreateFileSystemRequest` -- a real SDK client's
+`Backup: aws.Bool(true)` was accepted by JSON unmarshal (unknown-field-tolerant)
+and then discarded, so a follow-up `DescribeBackupPolicy` always reported
+`DISABLED` regardless of what the client asked for at creation time. This is
+the "accepted from a request and never stored" write-only-state pattern.
+Fixed: added `Backup *bool` end to end (`createFileSystemBody` ->
+`CreateFileSystemRequest` -> `CreateFileSystem`'s new
+`enableBackup`/`backupStore` write, mirroring the documented One-Zone
+default-flip when `Backup` is omitted but `AvailabilityZoneName` is set).
+Proven by hand-revert: reverting the three call sites reproduced
+`TestCreateFileSystem_BackupRoundTrips`/`TestCreateFileSystem_OneZoneDefaultsBackupEnabled`
+failing (`DescribeBackupPolicy` returning `DISABLED` instead of `ENABLED`);
+restored, tests pass (`wire_sdk_roundtrip_test.go`).
+
+**`Destination.StatusMessage` never modeled (dormant):** see
+`CreateReplicationConfiguration`'s ops entry above. Real, non-required
+`types.Destination` member with no gopherstack field to source a value from at
+all; the backend's replication `Status` never transitions to `PAUSED`/`ERROR`
+(always synchronous `ENABLED`), so the fix is real but currently unreachable --
+flagged, not manufactured into a fake failure scenario.
+
+**Confirmed clean by this sweep (not re-litigating the 2026-08-20 pass, but
+independently re-derived against the same pinned SDK)**: `ResolverEndpoint`... n/a
+(that's route53resolver) -- for EFS: `FileSystemDescription` (18 fields, all
+present including nested `SizeInBytes`/`FileSystemProtection`),
+`MountTargetDescription` (11 fields, no ARN/SecurityGroups, matches the
+2026-08-20 fix), `AccessPointDescription` (10 fields, all present),
+`ReplicationConfigurationDescription`/`Destination` (6 + 7 fields), `LifecyclePolicy`
+(3 fields), `BackupPolicy` (1 field), `ResourceIdPreference` (`ResourceIdType`
++ `Resources`, the latter a fixed `[FILE_SYSTEM, MOUNT_TARGET]` value since
+this mock's ID-preference setting always applies to both -- not fabricated).
+`CreateMountTargetInput`/`UpdateFileSystemInput` request-side field sets also
+verified complete against `api_op_*.go`.
+
 Everything else in this service's required-output surface came back clean: `PosixUser`
 (`Uid`/`Gid`) and `CreationInfo` (`Permissions`/`OwnerUid`/`OwnerGid`) -- both nested,
 optional-parent domain structs reachable only through `AccessPoint.PosixUser`/
@@ -419,3 +494,114 @@ members in `models.go`, so they're never dropped once the optional parent is pre
 built unconditionally into their response maps (`fsToResponse`/`mtToResponse`).
 `DescribeMountTargetSecurityGroups`'s `SecurityGroups` and `DescribeTags`'s `Tags` are
 both always non-nil, always-present keys. `BackupPolicy.Status` is always present.
+
+### 2026-08-29: parameter-honoring sweep (gopherstack-21my) -- confirmed clean, no changes
+
+Distinct from the 2026-08-29 wrapper-key sweep above (which checked query/path/header
+KEY NAMES): this pass checked, for every List/Describe op with a filter or pagination
+parameter, whether the VALUE once correctly read is actually applied to narrow the
+result -- the class where a key-name audit finds nothing wrong but the parameter is
+silently ignored, discarded, or applied to the wrong baseline.
+
+Audited `describeByIDOrFilter` (`store.go`) and `describeListResponse` (`handler.go`),
+the two shared chokepoints `DescribeAccessPoints`/`DescribeMountTargets` route through,
+plus every op that bypasses them (`DescribeFileSystems`, `DescribeReplicationConfigurations`,
+`DescribeMountTargets`'s `AccessPointId` branch, which resolves the access point to its
+file system before delegating -- confirmed correct, not a chokepoint blind spot).
+Confirmed correctly applied: `DescribeAccessPoints` (`AccessPointId` identity lookup,
+`FileSystemId` filter), `DescribeFileSystems` (`FileSystemId` identity lookup,
+`CreationToken` filter -- both bypass the shared helper but are independently correct),
+`DescribeMountTargets` (`MountTargetId` identity, `FileSystemId` filter, `AccessPointId`
+resolved-then-delegated), `DescribeReplicationConfigurations` (`FileSystemId` filter).
+Pagination (`Marker`/`MaxItems` or `NextToken`/`MaxResults`) is applied via the shared
+`paginate()` helper for every op that calls it, with no bypass found among the
+collection-returning ops.
+
+Re-confirmed as deliberate, disclosed gaps rather than bugs (not fixed this pass):
+`ListTagsForResource`/`DescribeTags` still ignore `MaxResults`/`Marker` -- tag maps are
+bounded by AWS's own per-resource tagging limit (typically ~50), unlike e.g. mq's
+`ListConfigurationRevisions` (fixed this same pass, gopherstack-mq) where revision count
+is genuinely unbounded per-resource state; `DeleteReplicationConfiguration`'s
+`deletionMode` remains inert (this backend models a single account/region, so
+`ALL_CONFIGURATIONS` vs `LOCAL_CONFIGURATION_ONLY` has no distinguishable backing state
+to differ on). `DescribeAccountPreferences` returns a single per-account
+`ResourceIdPreference` object, not a paginated collection, so `MaxResults`/`NextToken`
+being unapplied is structurally correct (nothing to page over), not a gap.
+
+No code changes this pass -- every parameter-honoring check came back clean.
+
+### 2026-08-30: field-identity request-parameter sweep (gopherstack-wks5)
+
+Method: exhaustive type-aware scan (`go/types`) of every request-decode struct field
+across `efs` and `ecr`, matching field reads by object identity rather than name --
+built to catch a field shadowed by a name collision that a grep-based sweep would
+miss. Decode targets were found via two patterns: literal `json.Unmarshal(body, &x)`
+calls (this service's own dispatch style) and, for `ecr`, resolving the 2nd parameter
+type of every method registered through `pkgs/service.WrapOp` (that service's generic
+JSON-protocol dispatcher, whose reflection-based decode a literal-call scan cannot
+see -- see `ecr/PARITY.md`'s dated section for the coverage gap that exposed). No
+anonymous (unnamed) struct decode targets exist in either service -- every decode
+target is a named type, so the "13 handlers decoding into anonymous structs" blind
+spot this campaign warns about does not apply here.
+
+Combined scan: 127 decode-target types, 174 fields. 25 flagged zero-uses; 23 were
+hand-verified false positives -- both `efs`'s own findings among them
+(`createMountTargetBody`'s IPAddress/IPAddressType/Ipv6Address/SecurityGroups,
+`updateFileSystemBody`'s ThroughputMode/ProvisionedThroughputMib) are read via Go type
+conversion (`req := CreateMountTargetRequest(in)` / `UpdateFileSystemRequest(in)`),
+which the identity-based scanner correctly does not attribute back to the
+pre-conversion type since conversion requires structural (not identity) equivalence;
+confirmed by reading `CreateMountTarget`/`UpdateFileSystem` in `mount_targets.go`/
+`file_systems.go`, both of which read every one of these fields off the converted
+type. 2 fields were genuinely unread: `putFileSystemPolicyBody.BypassPolicyLockoutSafetyCheck`
+(this file, disclosed above, not fixed -- crosses into IAM policy-lockout simulation)
+and `ecr`'s `repositoryPolicyInput.Force` (see `ecr/PARITY.md`).
+
+**Bug found and fixed: `DescribeMountTargets`/`DescribeAccessPoints` missing a
+FileSystemId existence check.** Not caught by the field-identity scan (both ops
+correctly read every field on their input) -- found instead by hand-checking the
+task's "missing existence check" bug shape against the shared `describeByIDOrFilter`
+helper (`store.go`) both ops route through when filtering by `FileSystemId` (as
+opposed to the `MountTargetId`/`AccessPointId` identity-lookup path, which already
+raises not-found correctly). `efs@v1.44.4 deserializers.go`'s
+`awsRestjson1_deserializeOpErrorDescribeMountTargets` and
+`awsRestjson1_deserializeOpErrorDescribeAccessPoints` both declare `FileSystemNotFound`
+in their own error catalogs (confirmed by reading each op's generated error-switch
+directly, not inferred from a sibling), so a real client filtering by an unknown
+`FileSystemId` expects that error -- gopherstack's shared filter path instead silently
+returned an empty list, indistinguishable from "this file system exists and has zero
+mount targets/access points". Fixed by adding an existence check
+(`b.fileSystems.Get(regionKey(region, fileSystemID))`) in both `DescribeMountTargets`
+(`mount_targets.go`) and `DescribeAccessPoints` (`access_points.go`), guarded to the
+filter path only (`mountTargetID == "" && fileSystemID != ""` / the `AccessPointId`
+equivalent) so the identity-lookup path and the handler's `AccessPointId`-resolved-then-
+delegated path (which always passes an fsID already confirmed to exist) are untouched.
+
+Proven via `TestDescribeMountTargets_UnknownFileSystemID_ReturnsNotFound`
+(`mount_targets_test.go`) and `TestDescribeAccessPoints_UnknownFileSystemID_ReturnsNotFound`
+(`access_points_test.go`), both confirmed failing (`Expected error ... but got nil`)
+against unmodified code, passing after the fix. Full `services/efs` suite: 134 passing
+before this pass, 136 after (net +2, no drops) -- `go test ./services/efs/... -v |
+grep -c '^--- PASS'`.
+
+**Disclosed, not fixed: `PutFileSystemPolicy`'s `BypassPolicyLockoutSafetyCheck`.** See
+the ops entry above. Same pattern as `ecr`'s `SetRepositoryPolicy` `Force` -- both gate
+a self-lockout evaluation this repo has no IAM policy-simulation package for.
+
+Also checked and confirmed clean (task's other listed bug shapes, not caught by the
+field-identity scanner which only flags zero-use fields): every `.All()` map walk in
+this package either feeds a client-visible list through `paginate()`'s pre-sort (no
+unsorted output reaches a client) or is `Reset`/snapshot bookkeeping with no ordering
+contract, EXCEPT `TaggedResources()` (`tags.go`), which returns an unsorted `.All()`
+walk directly -- traced its only caller (`cli.go`'s ResourceGroupsTaggingAPI bridge) to
+`resourcegroupstaggingapi/get_resources.go:321`, which `sort.Slice`s the merged
+cross-service `all` list by `ResourceARN` before pagination; a tie-prone sort over a
+call-stable input is safe (per this campaign's own guidance), so not a bug. No whole-
+second-timestamp, wrong-key, or list-partially-consumed findings this pass -- those
+classes were already covered by the 2026-08-29 wrapper-key and parameter-honoring
+sweeps above.
+
+Gates: `go build ./services/efs/...`, `go vet ./services/efs/...`, `go vet ./...`
+(repo-wide, no signature changed outside this package), `go test -race -count=1
+./services/efs/...`, `golangci-lint run ./services/efs/...`. Work left uncommitted
+per this pass's instructions.

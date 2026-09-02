@@ -227,6 +227,34 @@ func TestListAliases_Pagination(t *testing.T) {
 	assert.NotEmpty(t, second.Aliases)
 }
 
+// TestListAliases_DefaultLimit_Is50 verifies the documented default page
+// size when Limit is omitted: aws-sdk-go-v2/service/kms's
+// ListAliasesInput.Limit doc comment says "If you do not include a value, it
+// defaults to 50" (max 100) -- distinct from ListKeys/ListKeyPolicies/
+// ListKeyRotations/DescribeCustomKeyStores, whose documented default is 100.
+func TestListAliases_DefaultLimit_Is50(t *testing.T) {
+	t.Parallel()
+	b := b2newBackend(t)
+
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := out.KeyMetadata.KeyID
+
+	for i := range 51 {
+		name := fmt.Sprintf("alias/deflimit-%d", i)
+		require.NoError(
+			t,
+			b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}),
+		)
+	}
+
+	page, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{})
+	require.NoError(t, err)
+	assert.Len(t, page.Aliases, 50)
+	assert.True(t, page.Truncated)
+	assert.Equal(t, "50", page.NextMarker)
+}
+
 func TestListAliases_ReturnsCreationAndUpdateDates(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)

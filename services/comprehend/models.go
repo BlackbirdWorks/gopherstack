@@ -3,15 +3,33 @@ package comprehend
 import "time"
 
 const (
-	statusSubmitted              = "SUBMITTED"
-	statusInProgress             = "IN_PROGRESS"
-	statusCompleted              = "COMPLETED"
-	statusFailed                 = "FAILED"
-	statusStopRequested          = "STOP_REQUESTED"
-	statusStopped                = "STOPPED"
-	statusTrained                = "TRAINED"
-	statusReady                  = "READY"
-	statusActive                 = "ACTIVE"
+	statusSubmitted  = "SUBMITTED"
+	statusInProgress = "IN_PROGRESS"
+	statusCompleted  = "COMPLETED"
+	statusFailed     = "FAILED"
+
+	statusStopRequested = "STOP_REQUESTED"
+	statusStopped       = "STOPPED"
+	statusTrained       = "TRAINED"
+
+	// statusActive is types.FlywheelStatusActive -- a freshly created
+	// Flywheel's steady-state value (types/enums.go:352-360). It is NOT a
+	// valid types.EndpointStatus value (see statusEndpointInService).
+	statusActive = "ACTIVE"
+
+	// statusEndpointInService is types.EndpointStatusInService, the real
+	// steady-state value for a freshly created Endpoint (types/enums.go:
+	// 248-256). EndpointProperties.Status's doc comment mentions "Ready" but
+	// the generated enum has no such value.
+	statusEndpointInService = "IN_SERVICE"
+
+	// statusFlywheelIterationTraining/Evaluating are
+	// types.FlywheelIterationStatusTraining/Evaluating (types/enums.go:
+	// 325-334) -- distinct from the generic SUBMITTED/IN_PROGRESS vocabulary
+	// above, which FlywheelIterationStatus does not share.
+	statusFlywheelIterationTraining   = "TRAINING"
+	statusFlywheelIterationEvaluating = "EVALUATING"
+
 	defaultLanguageCode          = "en"
 	defaultScore                 = 0.99
 	failedMarker                 = "[fail]"

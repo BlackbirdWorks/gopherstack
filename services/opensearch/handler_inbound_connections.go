@@ -1,10 +1,39 @@
 package opensearch
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+// describeConnectionsRequest is the shared request body shape for
+// DescribeInboundConnections and DescribeOutboundConnections
+// (api_op_DescribeInboundConnections.go / api_op_DescribeOutboundConnections.go).
+type describeConnectionsRequest struct {
+	NextToken string `json:"NextToken"`
+	Filters   []struct {
+		Name   string   `json:"Name"`
+		Values []string `json:"Values"`
+	} `json:"Filters"`
+	MaxResults int32 `json:"MaxResults"`
+}
+
+// connectionIDFilters extracts the Values of every Filter named
+// "connection-id" -- the only Filter Name documented for these operations.
+func (req describeConnectionsRequest) connectionIDFilters() []string {
+	var ids []string
+
+	for _, f := range req.Filters {
+		if f.Name == "connection-id" {
+			ids = append(ids, f.Values...)
+		}
+	}
+
+	return ids
+}
 
 // handleCCRoutes handles cross-cluster connection routes.
 func (h *Handler) handleCCRoutes(w http.ResponseWriter, r *http.Request) {
@@ -73,12 +102,7 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	// always POST here (api_op_DescribeInboundConnections.go, opensearch@v1.75.4
 	// serializers.go); a bare GET on /inboundConnection is never sent -- gopherstack-l5ir.
 	case rest == "/inboundConnection/search" && r.Method == http.MethodPost:
-		conns := h.Backend.DescribeInboundConnections()
-		items := make([]map[string]any, 0, len(conns))
-		for _, c := range conns {
-			items = append(items, inboundConnectionJSON(c))
-		}
-		h.writeJSON(r, w, map[string]any{"Connections": items})
+		h.handleDescribeInboundConnections(w, r)
 	// PUT /inboundConnection/{id}/accept → AcceptInboundConnection
 	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/accept") &&
 		r.Method == http.MethodPut:
@@ -96,6 +120,62 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// handleDescribeInboundConnections serves POST /inboundConnection/search.
+func (h *Handler) handleDescribeInboundConnections(w http.ResponseWriter, r *http.Request) {
+	req, ok := h.readDescribeConnectionsRequest(w, r)
+	if !ok {
+		return
+	}
+
+	p := h.Backend.DescribeInboundConnections(req.connectionIDFilters(), req.NextToken, int(req.MaxResults))
+	items := make([]map[string]any, 0, len(p.Data))
+
+	for _, c := range p.Data {
+		items = append(items, inboundConnectionJSON(c))
+	}
+
+	h.writeConnectionsResponse(r, w, items, p.Next)
+}
+
+// readDescribeConnectionsRequest parses the shared DescribeInboundConnections/
+// DescribeOutboundConnections request body, writing a ValidationException and
+// returning ok=false on a read or parse failure.
+func (h *Handler) readDescribeConnectionsRequest(
+	w http.ResponseWriter, r *http.Request,
+) (describeConnectionsRequest, bool) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return describeConnectionsRequest{}, false
+	}
+
+	var req describeConnectionsRequest
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to parse body")
+
+			return describeConnectionsRequest{}, false
+		}
+	}
+
+	return req, true
+}
+
+// writeConnectionsResponse writes the shared {Connections, NextToken} wire
+// shape both DescribeInboundConnections and DescribeOutboundConnections
+// return.
+func (h *Handler) writeConnectionsResponse(
+	r *http.Request, w http.ResponseWriter, items []map[string]any, next string,
+) {
+	out := map[string]any{"Connections": items}
+	if next != "" {
+		out["NextToken"] = next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // writeConnectionNotFoundOrValidation classifies a connection-lookup error

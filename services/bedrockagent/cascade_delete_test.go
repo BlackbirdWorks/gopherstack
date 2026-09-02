@@ -225,7 +225,7 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 		t.Errorf("data sources not cascade-deleted: %d remain", len(dssAfter))
 	}
 
-	jobsAfter, _, _ := b.ListIngestionJobs(ctx, kb.KnowledgeBaseID, ds.DataSourceID, 10, "")
+	jobsAfter, _, _ := b.ListIngestionJobs(ctx, kb.KnowledgeBaseID, ds.DataSourceID, nil, nil, 10, "")
 	if len(jobsAfter) != 0 {
 		t.Errorf("ingestion jobs not cascade-deleted: %d remain", len(jobsAfter))
 	}
@@ -292,7 +292,7 @@ func TestDeleteDataSourceCascades(t *testing.T) {
 		t.Fatalf("delete data source: %v", delErr)
 	}
 
-	jobsAfter, _, _ := b.ListIngestionJobs(ctx, kb.KnowledgeBaseID, ds.DataSourceID, 10, "")
+	jobsAfter, _, _ := b.ListIngestionJobs(ctx, kb.KnowledgeBaseID, ds.DataSourceID, nil, nil, 10, "")
 	if len(jobsAfter) != 0 {
 		t.Errorf("ingestion jobs not cascade-deleted: %d remain", len(jobsAfter))
 	}

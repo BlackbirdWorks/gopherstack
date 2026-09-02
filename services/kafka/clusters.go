@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-// CreateCluster creates a new MSK cluster.
+// CreateCluster creates a new MSK cluster. opts is variadic so existing
+// positional call sites (in-package tests, services/cloudformation's
+// composed call) keep their arity; only the wire-shape fix needs the extra
+// data.
 func (b *InMemoryBackend) CreateCluster(
 	ctx context.Context,
 	name, kafkaVersion string,
@@ -15,7 +18,13 @@ func (b *InMemoryBackend) CreateCluster(
 	brokerInfo BrokerNodeGroupInfo,
 	clientAuth *ClientAuthentication,
 	tags map[string]string,
+	opts ...ClusterCreateOptions,
 ) (*Cluster, error) {
+	var createOpts ClusterCreateOptions
+	if len(opts) > 0 {
+		createOpts = opts[0]
+	}
+
 	if name == "" {
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
 	}
@@ -66,6 +75,16 @@ func (b *InMemoryBackend) CreateCluster(
 		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
 		CreationTime:         time.Now().UTC().Format(time.RFC3339),
+		EncryptionInfo:       cloneEncryptionInfo(createOpts.EncryptionInfo),
+		OpenMonitoring:       cloneOpenMonitoring(createOpts.OpenMonitoring),
+		LoggingInfo:          cloneLoggingInfo(createOpts.LoggingInfo),
+		Rebalancing:          cloneRebalancing(createOpts.Rebalancing),
+		EnhancedMonitoring:   createOpts.EnhancedMonitoring,
+		StorageMode:          createOpts.StorageMode,
+	}
+	if createOpts.ConfigurationInfo != nil {
+		ci := *createOpts.ConfigurationInfo
+		cluster.ConfigurationInfo = &ci
 	}
 	b.clusters.Put(cluster)
 

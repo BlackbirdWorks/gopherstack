@@ -86,7 +86,8 @@ func TestHandler_DescribeConfigurationSet_WithOptions(t *testing.T) {
 					"Action=CreateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=cstrack&TrackingOptions.CustomRedirectDomain=track.example.com", //nolint:lll // existing issue.
 				)
 			},
-			body:         "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=cstrack",
+			body: "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=cstrack" +
+				"&ConfigurationSetAttributeNames.member.1=trackingOptions",
 			wantCode:     http.StatusOK,
 			wantContains: "track.example.com",
 		},
@@ -100,7 +101,8 @@ func TestHandler_DescribeConfigurationSet_WithOptions(t *testing.T) {
 					"Action=PutConfigurationSetDeliveryOptions&Version=2010-12-01&ConfigurationSetName=csdel&DeliveryOptions.TlsPolicy=Require", //nolint:lll // existing issue.
 				)
 			},
-			body:         "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=csdel",
+			body: "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=csdel" +
+				"&ConfigurationSetAttributeNames.member.1=deliveryOptions",
 			wantCode:     http.StatusOK,
 			wantContains: "Require",
 		},
@@ -326,6 +328,7 @@ func TestDescribeConfigurationSet_Handler(t *testing.T) {
 		"Action":               {"DescribeConfigurationSet"},
 		"Version":              {"2010-12-01"},
 		"ConfigurationSetName": {"cs-desc"},
+		"ConfigurationSetAttributeNames.member.1": {"deliveryOptions"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "cs-desc")
@@ -499,6 +502,7 @@ func TestDescribeConfigurationSet_ReturnsDeliveryAndReputation_Handler(t *testin
 		"Action":               {"DescribeConfigurationSet"},
 		"Version":              {"2010-12-01"},
 		"ConfigurationSetName": {"cs1"},
+		"ConfigurationSetAttributeNames.member.1": {"reputationOptions"},
 	}.Encode()
 
 	rec := postForm(t, h, body)
@@ -631,6 +635,7 @@ func TestDescribeConfigurationSet_ReputationOptionsPresent(t *testing.T) {
 				"Action":               {"DescribeConfigurationSet"},
 				"Version":              {"2010-12-01"},
 				"ConfigurationSetName": {"cs1"},
+				"ConfigurationSetAttributeNames.member.1": {"reputationOptions"},
 			}.Encode())
 			require.Equal(t, http.StatusOK, rec.Code)
 

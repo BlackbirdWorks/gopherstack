@@ -16,7 +16,7 @@ ops:
   UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same extended-fields fix as RegisterResource (ExpectedResourceOwnerAccount/WithFederation/HybridAccessEnabled)"}
   DeregisterResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades permission cleanup for the resource"}
   DescribeResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModified epoch seconds; now also emits ExpectedResourceOwnerAccount/VerificationStatus/HybridAccessEnabled/WithFederation/WithPrivilegedAccess"}
-  ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as DescribeResource"}
+  ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as DescribeResource; gopherstack-4ly2 wrapper-key sweep: FilterConditionList (RESOURCE_ARN/ROLE_ARN/LAST_MODIFIED, all 11 ComparisonOperator values) was never even parsed into the wire request struct, so every registered resource always came back regardless of the filter -- now honored (resources.go matchesFilterConditions)"}
   GrantPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Condition now accepted/persisted; entry.LastUpdated stamped on every grant/merge; Resource union extended (see families below)"}
   RevokePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "Condition now accepted; LastUpdated stamped on partial revoke"}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "WIRE-BREAKING BUG FIXED: request filtered by a flat ResourceArn string; the real ListPermissionsInput has no ResourceArn field at all -- it filters by a nested Resource object (same shape as Grant/RevokePermissions). A real aws-sdk-go-v2 client's ListPermissions call would never have matched anything against the old gopherstack shape. Response PrincipalResourcePermissions now wire-encodes LastUpdated as epoch seconds (permissionEntryWire) and includes Condition/LastUpdatedBy."}
@@ -26,7 +26,7 @@ ops:
   DeleteLFTag: {wire: ok, errors: ok, state: ok, persist: ok}
   GetLFTag: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateLFTag: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListLFTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListLFTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-4ly2 wrapper-key sweep: ResourceShareType was accepted nowhere -- FOREIGN now returns no tags (this backend models a single account with no RAM cross-account sharing, so no LF-tag is ever foreign); ALL/unset unchanged"}
   AddLFTagsToResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects non-Database/Table/TableWithColumns Resource kinds (was a permissive superset of what AWS accepts, see gopherstack-kbnu); resourceToKey also fixed to key TableWithColumns distinctly (previously had no case for it at all -- every TableWithColumns resource collided under the same empty-string key)"}
   RemoveLFTagsFromResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same resource-kind restriction fix as AddLFTagsToResource"}
   GetResourceLFTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same resource-kind restriction as AddLFTagsToResource/RemoveLFTagsFromResource; also fixed getResourceLFTagsOutput.LFTagsOnColumns, which was typed []LFTagPair -- the real GetResourceLFTagsOutput.LFTagsOnColumns is []types.ColumnLFTag (Name+LFTags) -- and was never populated by any code path (disguised stub)"}
@@ -53,7 +53,7 @@ ops:
   ExtendTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTransactions: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteObjectsOnCancel: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DeleteObjectsOnCancel: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): DatabaseName/TableName/Objects are all `required` on the real DeleteObjectsOnCancelInput (api_op_DeleteObjectsOnCancel.go, lakeformation@v1.50.4) but were accepted and silently dropped -- never validated, never forwarded to the backend (which only ever took TransactionId). Now validated required-non-empty; CatalogID remains unread, see gaps (same class as the other CatalogID-accepting ops)."}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
   UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTemporaryDataLocationCredentials: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members. gopherstack-4ly2 (2026-08-21): the fixed handler still over-validated -- it demanded DataLocations be non-empty, but GetTemporaryDataLocationCredentialsInput marks no member required, DataLocations included, and the backend never uses it as a lookup key (only echoes it back as AccessibleDataLocations). Now optional; TestGetTemporaryDataLocationCredentials_MissingDataLocations (which asserted the wrong 400) was corrected."}
@@ -83,9 +83,68 @@ gaps:
   - "FIXED (gopherstack-kbnu): PrincipalResourcePermissions.LastUpdatedBy is now populated by GrantPermissions/RevokePermissions/BatchGrantPermissions/BatchRevokePermissions with a synthetic caller ARN derived from awsmeta.Account(ctx) (callerPrincipalARN, credentials.go -- same identity GetDataLakePrincipal reports). Interface signatures gained a ctx context.Context first parameter; all callers updated."
   - "PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare, RAM resource-share info) is still never populated. Re-checked this pass: gopherstack DOES have a standalone services/ram package (resource shares, principals, permissions), but there is no cross-service wiring between it and lakeformation anywhere in the codebase (no service in this repo reaches into another service's InMemoryBackend directly -- checked s3<->kms as a second data point, same finding). Populating this would require introducing a new cross-service backend-injection pattern, which is out of scope for a single-service follow-up. Correctly omitted rather than fabricated."
   - "PARTIALLY FIXED (gopherstack-kbnu): LFTagPolicy-based permission grants are now expanded into effective per-resource permissions in GetEffectivePermissionsForPath (resolves the resourceArn to a Database/Table, looks up its actual LF-tags, and evaluates each LFTagPolicy grant's Expression/ExpressionName against them -- AND across tag keys, OR across one key's values, per https://docs.aws.amazon.com/lake-formation/latest/dg/managing-tag-expressions.html). ListPermissions filtered by a concrete resource intentionally still does NOT expand tag-policy grants: AWS's own documented behavior is that LF-Tag-based grants are queried via their own LFTagPolicy/LF_TAG_POLICY_* resource type, not by listing the concrete resource they happen to cover (a tag-based grant 'may not appear in ListPermissions results for specific resources'). SearchTablesByLFTags/SearchDatabasesByLFTags remain untouched (out of scope for this pass -- they answer 'which resources have these tags', not 'what permissions apply to this resource'). No LakeFormation operation in this backend enforces authorization at runtime (permissions are bookkeeping, not an enforcement engine); this pass only makes the LF-Tag-derived permission *record* visible where AWS documents it should be, it does not add access control."
+  - "NOT FIXED (gopherstack-4ly2, 2026-08-29): ListPermissionsInput.IncludeRelated (\"show the cell filters on a table resource\") is parsed into the wire request struct but never read. This backend's permissionsList only holds explicitly granted permissions (via Grant/RevokePermissions) -- there are no separately-derived cell-filter permission entries for IncludeRelated to toggle inclusion of, so honoring it would require inventing a synthetic permission-derivation feature. Structural gap, not an unread parameter with real data behind it."
+  - "NOT FIXED (gopherstack-4ly2, 2026-08-29): ListTableStorageOptimizersInput.MaxResults/NextToken are parsed but ListTableStorageOptimizers returns the full unpaginated list. Left as reported-but-unfixed: at most 3 StorageOptimizerType values exist per table (COMPACTION/GARBAGE_COLLECTION/RETENTION), so truncation can never actually be observed against any real MaxResults value -- same bug class as the FilterConditionList/ResourceShareType fixes above, but bounded low enough in impact that fix effort went to those instead."
   - "FIXED (gopherstack-kbnu): GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource now reject Resource kinds other than Database/Table/TableWithColumns with InvalidInputException, matching the documented restriction (\"The database, table, or column resource...\", api_op_GetResourceLFTags.go:30-33 / api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource states it explicitly: \"Only database, table, or tableWithColumns resource are allowed.\", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/lakeformation@v1.50.4). Was a permissive superset (accepted Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy too) -- the same bug class as a glacier-pass finding the same day (gopherstack accepting a clause AWS rejects)."
 deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). The prior claim that RedshiftScopeUnion/ServiceIntegrationUnion had no routed wire surface was WRONG (disproved gopherstack-6flj, 2026-08-15): ServiceIntegrations is a real member of CreateLakeFormationIdentityCenterConfigurationInput/UpdateLakeFormationIdentityCenterConfigurationInput/DescribeLakeFormationIdentityCenterConfigurationOutput, all three of them routed ops. Now implemented -- see the identity-center ops above and the ServiceIntegration/RedshiftScopeUnion/RedshiftConnect types in models.go.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
+---
+
+## 2026-08-30: reqfieldscan request-field-read sweep (gopherstack, cmd/reqfieldscan)
+
+First run of `cmd/reqfieldscan` against this service (previously audited only for filter
+value semantics, 2026-08-30 entry above -- that pass says nothing about whether request
+fields are read). 61 dispatch-table operations, 60/61 resolved (98%, GetDataLakePrincipal's
+`_ []byte` no-op decode is the one unresolved entry -- it has no request body to decode, not
+a scanner miss). 23 fields flagged unread. 3 were a real bug, fixed above
+(`DeleteObjectsOnCancel`'s DatabaseName/TableName/Objects). The remaining 20 are honest
+structural gaps, hand-verified against each op's own backend, not fabricated as bugs:
+
+- **CatalogID unread on 7 ops** (BatchGrantPermissions, BatchRevokePermissions,
+  DeleteObjectsOnCancel, GetDataLakeSettings, GrantPermissions, PutDataLakeSettings,
+  RevokePermissions): CatalogId is documented on every one of these ops as "By default, the
+  account ID" (api_op_*.go doc comments, lakeformation@v1.50.4) and this backend's
+  permissions subsystem (permissionsList backing Grant/Revoke/BatchGrant/BatchRevoke) and
+  DataLakeSettings (`b.dataLakeSettings`, a single global struct, data_lake_settings.go) are
+  both genuinely single-catalog: `ListPermissionsInput`/`GetEffectivePermissionsForPathInput`
+  don't even declare a CatalogID field in this codebase's own wire structs, so there is no
+  catalog-scoped read path these 7 ops' grants/settings could plug into without a
+  cross-cutting rework of the whole permissions/settings subsystem (adding catalog-keyed
+  storage to Grant/Revoke/List/GetEffectivePermissions and DataLakeSettings together, not a
+  single-field fix -- layer boundary, not touched). Contrast with LFTags/LFTagExpressions/
+  IdentityCenterConfiguration, which DO thread CatalogID through as a real per-catalog
+  storage key elsewhere in this same service -- the gap is scoped to the
+  permissions/settings families specifically, not this service as a whole.
+- **GetTemporaryDataLocationCredentials/GetTemporaryGluePartitionCredentials/
+  GetTemporaryGlueTableCredentials' AuditContext/Permissions/Partition/
+  SupportedPermissionTypes unread** (8 fields): these are all inputs to a Lake Formation
+  authorization decision. handler_credentials.go's own comment on
+  GetTemporaryDataLocationCredentials already discloses the reason: "No real authorization is
+  enforced (this backend never checks Lake Formation permissions)". The same reasoning
+  extends to its two Glue-credential siblings (structurally identical intent, same absence of
+  an authorization engine) and to QuerySessionContext, already disclosed above as its own gap
+  entry for the same op family. Wiring these would mean building a permission-evaluation
+  engine spanning TableArn/Partition-key matching and Permissions/SupportedPermissionTypes
+  negotiation against permissionsList -- a structural feature, not a one-field fix; flagged,
+  not fixed.
+- **getResourceLFTagsInput.ShowAssignedLFTags unread**: real semantic is "show LF-tags
+  directly assigned to the resource" as distinct from inherited ones, but
+  `GetResourceLFTags` (lf_tags.go) only ever returns tags stored at the exact resource key
+  (`b.resourceLFTags[resourceToKey(resource)]`) -- no database-to-table (or table-to-column)
+  inheritance is modeled anywhere in this service, so there is no "inherited" category for
+  the flag to toggle away from "assigned". No observable difference to build.
+- **getWorkUnitsInput.NextToken/PageSize unread**: `GetWorkUnits` (work_units.go) always
+  returns exactly one range (WorkUnitIDMin/Max both 0) -- already documented above under
+  GetWorkUnitResults' own fix note ("GetWorkUnits always returns exactly one range"). Same
+  reasoning as the already-disclosed `ListTableStorageOptimizersInput.MaxResults/NextToken`
+  gap: pagination over a fixed single-item result can never be observed against any real
+  NextToken/PageSize value.
+- **listPermissionsInput.IncludeRelated / listTableStorageOptimizersInput.NextToken**:
+  already disclosed above, re-confirmed unchanged.
+
+Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...`.
 ---
 
 ## Notes
@@ -402,3 +461,107 @@ request's HTTP method to PUT post-signing. Hand-reverted `handler.go` to
 `git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
 character 'M' looking for beginning of value"`, restored the fix,
 `md5sum`-confirmed byte-identical.
+
+**Per-item-failure sweep (this pass):** checked `AddLFTagsToResource`,
+`RemoveLFTagsFromResource` (`Failures []types.LFTagError`) and
+`BatchGrantPermissions`/`BatchRevokePermissions` (`Failures
+[]types.BatchPermissionsFailureEntry`). All four correctly populate their per-item
+`Failures` field: `lf_tags.go`'s `AddLFTagsToResource`/`RemoveLFTagsFromResource`
+report `EntityNotFoundException` for an unknown tag key or a tag value outside the
+tag's allowed values, while still applying every other pair in the same call;
+`permissions.go`'s `BatchGrantPermissions`/`BatchRevokePermissions` surface real
+validation failures from `grantPermissionsLocked`/`revokePermissionsLocked` (nil
+principal/resource, invalid permission enum, grant-option-not-a-subset-of-permissions)
+per entry, continuing to process the rest of the batch. No bugs found in this class.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found.
+
+The generic `paginate[T]` (`store.go`) is a thin, direct wrapper over
+`pkgs/page.New` — this package is the one of the eight audited this pass
+that actually reuses the shared helper rather than reimplementing it, at 9
+call sites (`data_cells_filter.go`, `lf_tag_expression.go`, `opt_ins.go`,
+`table_storage.go`, `resources.go`, `lf_tags.go`, `permissions.go` x2,
+`transactions.go`). `pkgs/page` carries its own exhaustive suite
+(`pkgs/page/page_test.go`), not re-derived here; a boundary walk and
+tampered-token round trip against `ListLFTags` through the real
+`aws-sdk-go-v2/service/lakeformation` client
+(`pagination_sdk_roundtrip_test.go`) ties that reuse to observable
+behaviour.
+
+The two helpers this package hand-rolls instead —
+`paginateTaggedTables`/`paginateTaggedDatabases` (`lf_tags.go`, backing
+`SearchTablesByLFTags`/`SearchDatabasesByLFTags`, 1 op each) — parse an
+offset token via a manual decimal-digit loop rather than `strconv`/
+`pkgs/page`, but land on the same offset-clamp algorithm (`startIdx >=
+len(list)` before slicing), correct and near-duplicative of `pkgs/page`
+rather than buggy. All seven checks pass directly against both
+(`pagination_arithmetic_internal_test.go`), including a stale/malformed
+token past the end (clamps to an empty page, doesn't panic or restart).
+
+Gates: `go build ./services/lakeformation/...`, `go vet
+./services/lakeformation/...` and `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...` (0 issues). No production code changed this
+pass — test-only additions confirming correctness.
+
+**2026-08-30 (negative-continuation-token sweep)**: `lf_tags.go`'s `paginateTaggedTables`/
+`paginateTaggedDatabases` decoded `nextToken` with a hand-rolled `n = n*10 + int(b-'0')`
+decimal-digit loop instead of `strconv.Atoi`. A leading `-` byte does *not* make this go
+negative (`byte` is unsigned in Go, so `'-'-'0'` wraps to 253, not -3) — but a sufficiently
+long all-digit token (19+ nines) overflows Go's signed `int` and wraps around to a negative
+value, the same way `strconv.Atoi` would reject it with `ErrRange` but this manual loop
+silently accepted. `startIdx >= len(list)` does not catch a negative `startIdx`, so
+`list[startIdx:end]` panicked. Fixed at the decode site: both functions now call a new shared
+`decodeLFPageToken` (`strconv.Atoi` plus a `< 0` guard) instead of the manual loop; the dead
+`lfDecimalBase` const was removed.
+
+Proof: `TestPaginateTaggedTables_NegativeOffsetToken` and
+`TestPaginateTaggedDatabases_NegativeOffsetToken` (`pagination_arithmetic_internal_test.go`),
+using a 19-digit all-nines token, confirmed panicking pre-fix, pass now. Gates: `go build
+./services/lakeformation/...`, `go vet ./services/lakeformation/...`, `go test -race -count=1
+./services/lakeformation/...`, `golangci-lint run ./services/lakeformation/...` (0 issues).
+Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (value-semantics audit, gopherstack-uox6)**: read every hand-rolled filter,
+matcher and comparison helper's own documented semantics and checked the implementation
+honours them -- a class distinct from wire-shape/field-presence checks (secretsmanager's
+`!`-negation-prefix bug, `gopherstack-uox6`), never previously run against this service. Own
+count: ~18 `match`/`Match`-prefixed functions (`resources.go`'s
+`matchesFilterCondition(s)`/`matchesOrderedFilterCondition`/`filterConditionFieldValue`,
+`permissions.go`'s `permissionMatches*`/`resourceMatches*` family,
+`lf_tags.go`'s `lfTagsMatchExpression`, `permissions.go`'s `lfTagPolicyExpressionMatches`) --
+`RouteMatcher`/`MatchPriority` (`handler.go`) are HTTP routing and excluded, leaving all ~18
+as genuine filter/comparison logic (no routing-inflation this pass, unlike the ~32-vs-19 miss
+recorded elsewhere in this campaign).
+
+Checked against the operation's own input type in every case (not a sibling type): `ListResources`'
+`FilterConditionList []types.FilterCondition` -- `matchesFilterCondition`'s switch covers all
+11 `types.ComparisonOperator` enum members (`EQ`/`NE`/`LE`/`LT`/`GE`/`GT`/`CONTAINS`/
+`NOT_CONTAINS`/`BEGINS_WITH`/`IN`/`BETWEEN`) and `filterConditionFieldValue` covers all 3
+`types.FieldNameString` members (`RESOURCE_ARN`/`ROLE_ARN`/`LAST_MODIFIED`) exactly, both
+closed SDK enums -- no unrecognised-value fallthrough is reachable. `ListPermissions`'
+`ResourceType types.DataLakeResourceType` -- `permissionMatchesResourceType`'s switch covers
+all 9 enum members exactly. `permissionMatchesResource`'s `Resource` union-type dispatch
+covers all 9 `types.Resource` variants matching `ListPermissionsInput.Resource`'s own type
+(not, e.g., a `GetResources`-shaped filter). `lfTagPolicyExpressionMatches`/
+`lfTagsMatchExpression` (`GetEffectivePermissionsForPath`'s `LFTagPolicy` grant expansion and
+`SearchTables/DatabasesByLFTags`) both correctly implement AND-across-tag-keys/
+OR-across-tag-values, matching the LF-Tag-expression doc's own wording ("the tag keys are
+combined using the AND operation, while the values are combined using the OR operation"),
+already cited correctly in this file's own pre-existing comments -- verified against the doc,
+not merely trusted.
+
+No bugs found. No gaps recorded -- every matcher's governing type was a closed SDK enum with
+no ambiguity to guess at, unlike the freeform-JSON DSLs audited the same pass in `sns`/
+`eventbridge`. Unrecognised filter values: not reachable (closed enums on every filter
+surface in this service), so this service has no unrecognised-key convention to document one
+way or the other. Clean verdict: a class never checked before came back clean here, unlike
+the confirmed bugs found the same pass in `sns` and `eventbridge`.
+
+Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...`, `golangci-lint run
+./services/lakeformation/...` (0 issues). No production or test code changed this pass --
+audit-only, no bug to write a regression test for.

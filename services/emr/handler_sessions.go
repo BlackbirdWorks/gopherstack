@@ -77,11 +77,7 @@ func (h *Handler) handleGetSession(ctx context.Context, in *getSessionInput) (*g
 
 // --- ListSessions ---
 
-// listSessionsInput mirrors ListSessionsInput. MaxResults is accepted but
-// not used to size the page -- no list op in this backend honors a
-// client-supplied page size (each uses a fixed listXPageSize constant), so
-// this is consistent with the rest of the package rather than a gap
-// specific to sessions.
+// listSessionsInput mirrors ListSessionsInput.
 type listSessionsInput struct {
 	ClusterID     string   `json:"ClusterId"`
 	NextToken     string   `json:"NextToken,omitempty"`
@@ -95,7 +91,7 @@ type listSessionsOutput struct {
 }
 
 func (h *Handler) handleListSessions(ctx context.Context, in *listSessionsInput) (*listSessionsOutput, error) {
-	sessions, next, err := h.Backend.ListSessions(ctx, in.ClusterID, in.SessionStates, in.NextToken)
+	sessions, next, err := h.Backend.ListSessions(ctx, in.ClusterID, in.SessionStates, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}

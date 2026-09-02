@@ -104,11 +104,11 @@ func (b *InMemoryBackend) IssueCertificate(
 }
 
 func validateIssueCertificateInput(caARN, csrPEM string) error {
-	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn", ErrInvalidArn); err != nil {
 		return err
 	}
 
-	return validateRequiredParameter(csrPEM, "Csr")
+	return validateRequiredParameter(csrPEM, "Csr", ErrMalformedCSR)
 }
 
 // resolveIssueCertOptions applies opts and enforces the real API's
@@ -169,7 +169,7 @@ func (b *InMemoryBackend) signAndStoreCertificateLocked(
 	if ca.UsageMode == usageModeShortLivedCertificate && validityDays > shortLivedCertMaxValidityDays {
 		return nil, fmt.Errorf(
 			"%w: CA %s has UsageMode SHORT_LIVED_CERTIFICATE, which limits certificate validity to %d days",
-			ErrInvalidParameter, caARN, shortLivedCertMaxValidityDays,
+			ErrInvalidArgs, caARN, shortLivedCertMaxValidityDays,
 		)
 	}
 
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) signAndStoreCertificateLocked(
 	// found while diffing this pass (see PARITY.md).
 	serialInt, ok := new(big.Int).SetString(serial, hexBase)
 	if !ok {
-		return nil, fmt.Errorf("%w: could not parse issued certificate serial %q", ErrInvalidParameter, serial)
+		return nil, fmt.Errorf("%w: could not parse issued certificate serial %q", ErrInvalidArgs, serial)
 	}
 
 	certARN := arn.Build("acm-pca", region, b.accountID,
@@ -243,7 +243,7 @@ func (b *InMemoryBackend) RevokeCertificate(ctx context.Context, caARN, serial, 
 			revocationReasonPrivWithdrawn, revocationReasonAACompromise:
 			// valid
 		default:
-			return fmt.Errorf("%w: invalid RevocationReason %q", ErrInvalidParameter, revocationReason)
+			return fmt.Errorf("%w: invalid RevocationReason %q", ErrInvalidRequest, revocationReason)
 		}
 	}
 

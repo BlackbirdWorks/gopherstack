@@ -30,7 +30,10 @@ func (b *InMemoryBackend) AttachTrafficSources(groupName string, trafficSources 
 }
 
 // DescribeTrafficSources returns the traffic sources attached to the group.
-func (b *InMemoryBackend) DescribeTrafficSources(groupName string) ([]TrafficSourceState, error) {
+// DescribeTrafficSources returns the group's traffic sources, optionally
+// restricted to trafficSourceType (api_op_DescribeTrafficSources.go's
+// TrafficSourceType: "elb", "elbv2", or "vpc-lattice").
+func (b *InMemoryBackend) DescribeTrafficSources(groupName, trafficSourceType string) ([]TrafficSourceState, error) {
 	b.mu.RLock("DescribeTrafficSources")
 	defer b.mu.RUnlock()
 
@@ -40,7 +43,12 @@ func (b *InMemoryBackend) DescribeTrafficSources(groupName string) ([]TrafficSou
 	}
 
 	result := make([]TrafficSourceState, 0, len(g.TrafficSources))
+
 	for _, ts := range g.TrafficSources {
+		if trafficSourceType != "" && ts.Type != trafficSourceType {
+			continue
+		}
+
 		result = append(result, TrafficSourceState{Identifier: ts.Identifier, Type: ts.Type, State: lbStateAdded})
 	}
 

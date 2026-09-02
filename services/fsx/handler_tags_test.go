@@ -203,7 +203,7 @@ func TestFSx_TagValidation_OnCreate(t *testing.T) {
 func TestFSx_TagLimit(t *testing.T) {
 	t.Parallel()
 
-	t.Run("51st tag returns ServiceLimitExceeded", func(t *testing.T) {
+	t.Run("51st tag returns BadRequest", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 
@@ -233,7 +233,11 @@ func TestFSx_TagLimit(t *testing.T) {
 
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "ServiceLimitExceeded", resp["__type"])
+		// TagResource's own switch (fsx@v1.68.4 deserializers.go
+		// deserializeOpErrorTagResource) does not declare
+		// ServiceLimitExceeded; BadRequest is the correct wire type
+		// (gopherstack-6flj/uox6 error-envelope sweep).
+		assert.Equal(t, "BadRequest", resp["__type"])
 	})
 
 	t.Run("updating existing key does not count toward limit", func(t *testing.T) {

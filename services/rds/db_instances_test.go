@@ -112,7 +112,7 @@ func Test_DeleteDBInstance_NotFoundBeforeParamValidation(t *testing.T) {
 }
 
 // Test_DescribeDBInstances_Filters verifies AWS's DescribeDBInstances
-// Filters.Filter.N.Name/Values.member.M contract: db-instance-id, engine,
+// Filters.Filter.N.Name/Values.Value.M contract: db-instance-id, engine,
 // db-cluster-id, and dbi-resource-id narrow the result set (OR within a
 // filter's Values, AND across filters), and an unrecognized filter name
 // returns InvalidParameterValue.
@@ -139,28 +139,52 @@ func Test_DescribeDBInstances_Filters(t *testing.T) {
 	}{
 		{
 			name:     "engine filter matches only mysql instances",
-			query:    "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.member.1=mysql",
+			query:    "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.Value.1=mysql",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-mysql-1"},
 		},
 		{
 			name: "db-instance-id filter with multiple values ORs together",
 			query: "Filters.Filter.1.Name=db-instance-id" +
-				"&Filters.Filter.1.Values.member.1=filt-mysql-1" +
-				"&Filters.Filter.1.Values.member.2=filt-postgres-1",
+				"&Filters.Filter.1.Values.Value.1=filt-mysql-1" +
+				"&Filters.Filter.1.Values.Value.2=filt-postgres-1",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-mysql-1", "filt-postgres-1"},
 		},
 		{
 			name: "two filters AND together",
-			query: "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.member.1=postgres" +
-				"&Filters.Filter.2.Name=db-instance-id&Filters.Filter.2.Values.member.1=filt-mysql-1",
+			query: "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.Value.1=postgres" +
+				"&Filters.Filter.2.Name=db-instance-id&Filters.Filter.2.Values.Value.1=filt-mysql-1",
 			wantCode: http.StatusOK,
 			wantIDs:  nil,
 		},
 		{
+			// db-instance-id's own doc comment: "Accepts DB instance
+			// identifiers and DB instance Amazon Resource Names (ARNs)."
+			name: "db-instance-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:db:filt-mysql-1",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
+			// db-cluster-id's own doc comment: "Accepts DB cluster
+			// identifiers and DB cluster Amazon Resource Names (ARNs)."
+			name:     "db-cluster-id filter with plain identifier matches",
+			query:    "Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1=filt-mysql-1-clu",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
+			name: "db-cluster-id filter accepts ARN form",
+			query: "Filters.Filter.1.Name=db-cluster-id&Filters.Filter.1.Values.Value.1=" +
+				"arn:aws:rds:us-east-1:000000000000:cluster:filt-mysql-1-clu",
+			wantCode: http.StatusOK,
+			wantIDs:  []string{"filt-mysql-1"},
+		},
+		{
 			name:        "unrecognized filter name is rejected",
-			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.member.1=x",
+			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x",
 			wantCode:    http.StatusBadRequest,
 			wantErrText: "InvalidParameterValue",
 		},
@@ -179,7 +203,8 @@ func Test_DescribeDBInstances_Filters(t *testing.T) {
 			h := newRDSHandler()
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
-					"&DBInstanceIdentifier=filt-mysql-1&Engine=mysql")
+					"&DBInstanceIdentifier=filt-mysql-1&Engine=mysql"+
+					"&DBClusterIdentifier=filt-mysql-1-clu")
 			postRDSForm(t, h,
 				"Action=CreateDBInstance&Version=2014-10-31"+
 					"&DBInstanceIdentifier=filt-postgres-1&Engine=postgres")

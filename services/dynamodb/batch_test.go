@@ -167,12 +167,39 @@ func TestBatchGetItem(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(t *testing.T, db *dynamodb.InMemoryDB)
-		input   models.BatchGetItemInput
-		want    map[string][]map[string]any
-		name    string
-		wantErr bool
+		setup      func(t *testing.T, db *dynamodb.InMemoryDB)
+		input      models.BatchGetItemInput
+		want       map[string][]map[string]any
+		name       string
+		errMessage string
+		wantErr    bool
 	}{
+		{
+			name: "MalformedProjectionExpression",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "Table1", "pk")
+				_, _ = db.PutItem(t.Context(), &sdk.PutItemInput{
+					TableName: aws.String("Table1"),
+					Item: map[string]types.AttributeValue{
+						"pk":  &types.AttributeValueMemberS{Value: "item1"},
+						"val": &types.AttributeValueMemberS{Value: "v1"},
+					},
+				})
+			},
+			input: models.BatchGetItemInput{
+				RequestItems: map[string]models.KeysAndAttributes{
+					"Table1": {
+						Keys: []map[string]any{
+							{"pk": map[string]any{"S": "item1"}},
+						},
+						ProjectionExpression: "val[",
+					},
+				},
+			},
+			wantErr:    true,
+			errMessage: "ValidationException",
+		},
 		{
 			name: "MultiItemGet",
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
@@ -225,6 +252,9 @@ func TestBatchGetItem(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.errMessage != "" {
+					assert.Contains(t, err.Error(), tt.errMessage)
+				}
 
 				return
 			}

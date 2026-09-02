@@ -29,9 +29,9 @@ func TestBackend_UpdateApplication_ConditionalToken(t *testing.T) {
 		tok := conditionalToken(app)
 
 		updated, opID, err := b.UpdateApplication(ctx, UpdateApplicationParams{
-			Name:                   "token-app",
-			ConditionalToken:       tok,
-			ApplicationDescription: "updated via token",
+			Name:                       "token-app",
+			ConditionalToken:           tok,
+			ServiceExecutionRoleUpdate: "arn:aws:iam::000000000000:role/updated-via-token",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, opID)
@@ -50,20 +50,21 @@ func TestBackend_UpdateApplication_ConditionalToken(t *testing.T) {
 
 		// Bump the version once via a normal update so staleTok no longer matches.
 		_, _, err = b.UpdateApplication(ctx, UpdateApplicationParams{
-			Name:                   "stale-token-app",
-			ApplicationDescription: "first update",
+			Name:                       "stale-token-app",
+			ServiceExecutionRoleUpdate: "arn:aws:iam::000000000000:role/first-update",
 		})
 		require.NoError(t, err)
 
 		_, _, err = b.UpdateApplication(ctx, UpdateApplicationParams{
-			Name:                   "stale-token-app",
-			ConditionalToken:       staleTok,
-			ApplicationDescription: "should not apply",
+			Name:                       "stale-token-app",
+			ConditionalToken:           staleTok,
+			ServiceExecutionRoleUpdate: "arn:aws:iam::000000000000:role/should-not-apply",
 		})
 		require.ErrorIs(t, err, ErrConcurrentModification)
 
 		current, err := b.DescribeApplication(ctx, "stale-token-app")
 		require.NoError(t, err)
-		assert.Equal(t, "first update", current.ApplicationDescription, "rejected update must not mutate state")
+		assert.Equal(t, "arn:aws:iam::000000000000:role/first-update", current.ServiceExecutionRole,
+			"rejected update must not mutate state")
 	})
 }

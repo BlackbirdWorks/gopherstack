@@ -87,7 +87,7 @@ type StorageBackend interface {
 	) (*RuleGroup, error)
 	DeleteRuleGroup(ctx context.Context, id, lockToken string) error
 	DeleteAPIKey(ctx context.Context, scope, apiKey string) error
-	DeleteFirewallManagerRuleGroups(ctx context.Context, webACLARN string) (*WebACL, error)
+	DeleteFirewallManagerRuleGroups(ctx context.Context, webACLARN, lockToken string) (*WebACL, error)
 	PutLoggingConfiguration(ctx context.Context, resourceARN string, configJSON json.RawMessage) error
 	DeleteLoggingConfiguration(ctx context.Context, resourceARN string) error
 	GetLoggingConfiguration(ctx context.Context, resourceARN string) (json.RawMessage, error)

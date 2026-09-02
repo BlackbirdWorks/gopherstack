@@ -39,6 +39,7 @@ type StorageBackend interface {
 		analyzerName string,
 		filter map[string]FilterCriterion,
 		status string,
+		sortCrit *FindingSortCriteria,
 		maxResults int,
 		nextToken string,
 	) ([]*Finding, string, error)
@@ -47,6 +48,7 @@ type StorageBackend interface {
 	ListFindingsV2(
 		analyzerArn, status string,
 		filter map[string]FilterCriterion,
+		sortCrit *FindingSortCriteria,
 		maxResults int,
 		nextToken string,
 	) ([]*Finding, string, error)

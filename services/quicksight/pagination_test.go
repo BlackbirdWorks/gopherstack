@@ -145,6 +145,111 @@ func TestPaginationTokensAreOpaque(t *testing.T) {
 	}
 }
 
+// TestPagination_NegativeOffsetToken verifies that a next-token decoding to a
+// negative offset does not reach all[start:end] and panic. Every listing here
+// shares the decodePageToken/`if start > len(all)` pattern, which clamps the
+// upper bound but not a negative offset. LTU= is base64 for "-5".
+func TestPagination_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	const accountID = "000000000000"
+	const negativeToken = "LTU="
+
+	tests := []struct {
+		setup     func(h *quicksight.Handler)
+		listKey   string
+		name      string
+		path      string
+		wantCount int
+	}{
+		{
+			name:    "ListNamespaces",
+			path:    accountPath("/namespaces"),
+			listKey: "Namespaces",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath(""),
+					map[string]any{"Namespace": "ns0", "IdentityStore": "QUICKSIGHT"})
+			},
+			// "default" is seeded plus ns0.
+			wantCount: 2,
+		},
+		{
+			name:    "ListFolders",
+			path:    accountPath("/folders"),
+			listKey: "FolderSummaryList",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/folders/f0"),
+					map[string]any{"Name": "Folder0"})
+			},
+			wantCount: 1,
+		},
+		{
+			name:    "ListTemplates",
+			path:    accountPath("/templates"),
+			listKey: "TemplateSummaryList",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/templates/tpl0"),
+					map[string]any{"Name": "Template0"})
+			},
+			wantCount: 1,
+		},
+		{
+			name:    "ListThemes",
+			path:    accountPath("/themes"),
+			listKey: "ThemeSummaryList",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/themes/th0"),
+					map[string]any{"Name": "Theme0"})
+			},
+			wantCount: 1,
+		},
+		{
+			name:    "ListVPCConnections",
+			path:    fmt.Sprintf("/accounts/%s/vpc-connections", accountID),
+			listKey: "VPCConnectionSummaries",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, fmt.Sprintf("/accounts/%s/vpc-connections", accountID),
+					map[string]any{"VPCConnectionId": "vpc0", "Name": "VPC0"})
+			},
+			wantCount: 1,
+		},
+		{
+			name:    "ListBrands",
+			path:    fmt.Sprintf("/accounts/%s/brands", accountID),
+			listKey: "Brands",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/accounts/%s/brands/br0", accountID),
+					map[string]any{"BrandName": "Brand0"})
+			},
+			wantCount: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			h := quicksight.NewHandler(b)
+			tc.setup(h)
+
+			require.NotPanics(t, func() {
+				rec := doRequest(t, h, http.MethodGet, tc.path+"?max-results=2&next-token="+negativeToken, nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				body := parseBody(t, rec)
+				items, ok := body[tc.listKey].([]any)
+				require.True(t, ok, "%s must be an array", tc.listKey)
+				assert.Len(
+					t, items, tc.wantCount,
+					"a negative-offset token must be treated like start=0, not shift the page",
+				)
+			})
+		})
+	}
+}
+
 // TestListDashboardVersionsPagination verifies maxResults/nextToken work on version list.
 func TestListDashboardVersionsPagination(t *testing.T) {
 	t.Parallel()

@@ -218,7 +218,7 @@ type describeTransitGatewayAttachmentsResponse struct {
 }
 
 func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID string) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayAttachmentId")
+	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 
 	atts := h.Backend.DescribeTransitGatewayAttachments(ids)
 

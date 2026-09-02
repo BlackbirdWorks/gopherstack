@@ -258,6 +258,65 @@ func TestKMSBackendListRetirableGrantsPagination(t *testing.T) {
 	}
 }
 
+// TestKMSBackendListGrants_DefaultLimit_Is50 verifies the documented default
+// page size when Limit is omitted: aws-sdk-go-v2/service/kms's
+// ListGrantsInput.Limit doc comment says "If you do not include a value, it
+// defaults to 50" (max 100) -- distinct from ListKeys/ListKeyPolicies/
+// ListKeyRotations, whose documented default is 100.
+func TestKMSBackendListGrants_DefaultLimit_Is50(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	for range 51 {
+		_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+			KeyID:            key.KeyMetadata.KeyID,
+			GranteePrincipal: "arn:aws:iam::000000000000:role/r",
+			Operations:       []string{"Decrypt"},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.Len(t, out.Grants, 50)
+	assert.True(t, out.Truncated)
+	assert.Equal(t, "50", out.NextMarker)
+}
+
+// TestKMSBackendListRetirableGrants_DefaultLimit_Is50 mirrors
+// TestKMSBackendListGrants_DefaultLimit_Is50 for ListRetirableGrants, which
+// documents the identical "defaults to 50" Limit semantics.
+func TestKMSBackendListRetirableGrants_DefaultLimit_Is50(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	const retiringPrincipal = "arn:aws:iam::000000000000:role/retiring"
+
+	for range 51 {
+		_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+			KeyID:             key.KeyMetadata.KeyID,
+			GranteePrincipal:  "arn:aws:iam::000000000000:role/grantee",
+			RetiringPrincipal: retiringPrincipal,
+			Operations:        []string{"Decrypt"},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := b.ListRetirableGrants(context.Background(), &kms.ListRetirableGrantsInput{
+		RetiringPrincipal: retiringPrincipal,
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Grants, 50)
+	assert.True(t, out.Truncated)
+	assert.Equal(t, "50", out.NextMarker)
+}
+
 func TestCreateGrant_PendingDeletion_Rejected(t *testing.T) {
 	t.Parallel()
 

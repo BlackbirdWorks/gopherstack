@@ -256,6 +256,8 @@ func (h *Handler) handleDeleteProtectionGroup(body []byte) error {
 // listResourcesInProtectionGroupRequest is the request body for ListResourcesInProtectionGroup.
 type listResourcesInProtectionGroupRequest struct {
 	ProtectionGroupID string `json:"ProtectionGroupId"`
+	NextToken         string `json:"NextToken,omitempty"`
+	MaxResults        int    `json:"MaxResults,omitempty"`
 }
 
 func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, error) {
@@ -273,11 +275,32 @@ func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, err
 		return nil, err
 	}
 
-	if arns == nil {
-		arns = []string{}
+	maxResults := clampMaxResults(req.MaxResults, maxProtectionGroupsPerPage)
+
+	start, err := decodeOffsetToken(req.NextToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid NextToken: %w", err)
 	}
 
-	return json.Marshal(map[string]any{
-		"ResourceArns": arns,
-	})
+	if start >= len(arns) {
+		return json.Marshal(map[string]any{"ResourceArns": []string{}})
+	}
+
+	end := start + maxResults
+
+	var nextToken string
+
+	if end < len(arns) {
+		nextToken = encodeOffsetToken(end)
+		arns = arns[start:end]
+	} else {
+		arns = arns[start:]
+	}
+
+	resp := map[string]any{"ResourceArns": arns}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }

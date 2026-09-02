@@ -21,7 +21,7 @@ ops:
   DeleteMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "batch-level QueueDoesNotExist, per-entry delegates to DeleteMessage"}
   ChangeMessageVisibilityBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   PurgeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "60s cooldown enforced (PurgeQueueInProgress); FIFO dedup state reset on purge"}
-  TagQueue/UntagQueue/ListQueueTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
+  TagQueue/UntagQueue/ListQueueTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed. VERIFIED CLEAN (wrapper-key sweep, 2026-08-29): checked for the stepfunctions-class bug (a Tags field typed as a Go map when the SDK sends an array, or vice versa). sqs@v1.46.4 TagQueueInput.Tags is genuinely map[string]string (a JSON object on the wire, unlike RDS/SNS/CloudWatch's array-of-{Key,Value}) and UntagQueueInput.TagKeys is []string — handler_tags.go's jsonTagQueueReq/jsonUntagQueueReq (JSON-RPC, the pinned SDK's only real wire path; X-Amz-Target: AmazonSQS.*) already decode exactly these shapes via pkgs/tags.Tags' map-backed (Un)MarshalJSON. Confirmed via TestTagQueueFamily_SDKRoundTrip (tag_queue_sdk_test.go) driving the real SDK client."}
   ListDeadLetterSourceQueues: {wire: ok, errors: ok, state: ok, persist: n/a}
   AddPermission/RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "rebuilds an IAM policy doc into Attributes[Policy], deterministic (sorted labels)"}
   StartMessageMoveTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "RUNNING tasks are correctly NOT persisted (goroutine can't resume); default-destination lookup via RedrivePolicy scan; rate-limited via ticker; TOCTOU-safe under b.mu"}
@@ -171,3 +171,53 @@ and confirms `pkgs/service.HandleTarget`'s pre-existing `ReadBody`-failure handl
 leak in the new test file by adding the package's established
 `t.Cleanup(backend.Close)` for the janitor goroutine), `golangci-lint run
 ./services/sqs/...` (0 issues).
+
+**Per-item-failure sweep (this pass):** checked `ChangeMessageVisibilityBatch`,
+`DeleteMessageBatch`, and `SendMessageBatch` -- the three ops whose SDK output models
+a per-item `Failed`/`Successful` pair (`types.BatchResultErrorEntry` alongside each
+op's own `*BatchResultEntry` type). All three correctly populate `Failed` per-entry
+(`message_visibility.go`'s `ChangeMessageVisibilityBatch` for invalid/not-inflight
+receipt handles, `messages.go`'s `processSendMessageBatchEntries` for per-entry send
+failures, `messages.go`'s `DeleteMessageBatch` for per-entry delete failures) while
+still processing every other entry in the batch. No bugs found in this class; this
+sweep targets a different response field than the earlier error-code-selection pass
+noted above.
+
+**`cmd/errcodeaudit` no-near-miss sweep (gopherstack-r3pr, this pass):** 2 findings,
+both confirmed false positives, both on the JSON-RPC path (the pinned SDK's real
+protocol; query.go's Query/XML path is unreachable by a real client and was checked
+for relevance -- neither sentinel is referenced there). `ErrQueueAlreadyExists`
+("QueueAlreadyExists", errors.go:12) is matched only by `errors.Is` identity in
+`handler.go`'s central `errorDetails`/`sqsCoreErrorDetails` mapper, which emits the
+correct wire type `com.amazonaws.sqs#QueueNameExists` -- confirmed against
+`CreateQueue`'s own `deserializeOpError` (`case strings.EqualFold("QueueNameExists",
+errorCode)`), and `QueueNameExists.ErrorCode()` returns `"QueueNameExists"`. The
+sentinel's own literal never reaches the wire. `ErrMessageTooLarge` ("MessageTooLarge",
+errors.go:20) is the same mapper shape for `SendMessage` -- mapped to
+`com.amazonaws.sqs#InvalidMessageContents`, confirmed against `SendMessage`'s own
+`deserializeOpError` and `InvalidMessageContents.ErrorCode() == "InvalidMessageContents"`.
+Its raw sentinel text ("MessageTooLarge") does surface unmapped in
+`processSendMessageBatchEntries`'s `BatchResultErrorEntry.Code` field
+(`Code: err.Error()`, messages.go:641) for the `SendMessageBatch` per-entry-failure
+case -- but that field lives inside a 200-response `Failed` array, not a wire error
+envelope, so it has no `errors.As` ground truth (the free-form-ErrorCode-on-a-success-
+response false-positive class); recorded here, not changed.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `QueueUrl`/`QueueURL`
+acronym casing gives it 1 op/handler pair needing the ambiguous fold, a
+genuine collision between an exported backend method and the real
+unexported handler: `GetQueueUrl`.
+
+Verified directly: ran the unpatched tool from `ef0eef041~1` five times and
+diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was byte-identical
+across all 5 runs and HEAD -- zero damage. `cmd/reqfielddiff` was not: old
+runs found 1 or 2 findings vs 1 at HEAD; `GetQueueUrl.QueueName` flickered,
+present only in some old (misresolved) runs, never at HEAD. Read the source
+(handler_queues.go:137-154): `jsonGetQueueURLReq` declares `QueueName`
+(`json.Unmarshal`'d) and forwards it into `GetQueueURLInput`. Confirmed
+genuine -- not a bug.
+
+Verdict: zero real bugs, safe direction only.

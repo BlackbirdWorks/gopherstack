@@ -176,7 +176,12 @@ func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateTy
 		case errors.Is(creationErr, errInvalidRequestBody):
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		case errors.Is(creationErr, ErrAlreadyExists):
-			return writeErrorResponse(c, http.StatusConflict, "ConflictException", creationErr.Error())
+			// None of the five CreateXTemplate ops declare ConflictException
+			// in their own deserializeOpError<Op> switch (pinpoint
+			// deserializers.go) -- only UpdateJourney legitimately does.
+			// BadRequestException is the closest declared type for a
+			// duplicate template name (gopherstack-uox6 sweep).
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", creationErr.Error())
 		default:
 			return writeErrorResponse(
 				c,

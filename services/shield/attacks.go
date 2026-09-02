@@ -48,7 +48,9 @@ func (b *InMemoryBackend) ListAttacks(resourceARNs []string, startTime, endTime 
 			continue
 		}
 
-		if endTime > 0 && ts > endTime {
+		// endTime is ToExclusive (types.TimeRange): the boundary itself is
+		// excluded, not included.
+		if endTime > 0 && ts >= endTime {
 			continue
 		}
 

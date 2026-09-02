@@ -80,7 +80,7 @@ func (h *Handler) handleCreateCommand(c *echo.Context) error {
 		id, req.DisplayName, req.Description, req.Namespace, req.Payload, tags.MapFromKV(req.Tags),
 	)
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

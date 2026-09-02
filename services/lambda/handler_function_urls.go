@@ -175,7 +175,7 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 		}
 	}
 
-	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType, input.Cors)
+	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType, input.Cors, input.InvokeMode)
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

@@ -1,6 +1,7 @@
 package codebuild
 
 import (
+	"fmt"
 	"maps"
 	"sort"
 	"time"
@@ -170,14 +171,34 @@ func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter
 // DeleteReportGroup removes a report group by ARN. Idempotent: real AWS's
 // DeleteReportGroup declares no ResourceNotFoundException (same botocore
 // evidence as DeleteReport above), so deleting an already-gone group is not
-// an error.
-func (b *InMemoryBackend) DeleteReportGroup(arnStr string) error {
+// an error. deleteReports mirrors the real DeleteReportGroupInput.DeleteReports
+// member (api_op_DeleteReportGroup.go): if false and the group still has
+// reports, real AWS throws rather than deleting; if true, the group's
+// reports are cascade-deleted along with it.
+func (b *InMemoryBackend) DeleteReportGroup(arnStr string, deleteReports bool) error {
 	b.mu.Lock("DeleteReportGroup")
 	defer b.mu.Unlock()
 
-	if matches := b.reportGroupsByARN.Get(arnStr); len(matches) > 0 {
-		b.reportGroups.Delete(matches[0].Name)
+	matches := b.reportGroupsByARN.Get(arnStr)
+	if len(matches) == 0 {
+		return nil
 	}
+
+	group := b.reportsByGroup.Get(arnStr)
+	if len(group) > 0 {
+		if !deleteReports {
+			return fmt.Errorf(
+				"%w: report group %s still has reports; delete them first or set deleteReports",
+				ErrValidation, arnStr,
+			)
+		}
+
+		for _, r := range group {
+			b.reports.Delete(r.Arn)
+		}
+	}
+
+	b.reportGroups.Delete(matches[0].Name)
 
 	return nil
 }

@@ -56,6 +56,7 @@ func TestHandler_CreateNetwork_FrameworkConfiguration(t *testing.T) {
 
 			body := map[string]any{
 				"Name":                "net-" + tt.name,
+				"ClientRequestToken":  "tok-" + tt.name,
 				"MemberConfiguration": testMemberConfiguration("m1"),
 			}
 			if tt.frameworkConfiguration != nil {
@@ -133,6 +134,7 @@ func TestHandler_CreateNetwork_UnsupportedFramework(t *testing.T) {
 
 			body := map[string]any{
 				"Name":                "net-" + tt.name,
+				"ClientRequestToken":  "tok-" + tt.name,
 				"MemberConfiguration": testMemberConfiguration("m1"),
 			}
 			if tt.framework != "" {
@@ -235,7 +237,10 @@ func TestHandler_CreateMember_FrameworkConfigurationValidation(t *testing.T) {
 			invitationID := createTestInvitation(t, b, networkID, "test-net")
 
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"InvitationId": invitationID, "MemberConfiguration": tt.memberConfiguration})
+				map[string]any{
+					"InvitationId": invitationID, "ClientRequestToken": "tok-mc",
+					"MemberConfiguration": tt.memberConfiguration,
+				})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -280,7 +285,10 @@ func TestHandler_CreateMember_FrameworkAttributesRoundTrip(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"InvitationId": invitationID, "MemberConfiguration": memberConfig})
+				map[string]any{
+					"InvitationId": invitationID, "ClientRequestToken": "tok-mc2",
+					"MemberConfiguration": memberConfig,
+				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp struct {
@@ -347,8 +355,9 @@ func TestHandler_CreateNode_FrameworkAttributesRoundTrip(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/nodes", map[string]any{
-				"MemberId":          memberID,
-				"NodeConfiguration": nodeConfig,
+				"MemberId":           memberID,
+				"ClientRequestToken": "tok-node",
+				"NodeConfiguration":  nodeConfig,
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 

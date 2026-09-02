@@ -89,10 +89,53 @@ type createSubnetCidrReservationResponse struct {
 	SubnetCidrReservation subnetCidrReservationItem `xml:"subnetCidrReservation"`
 }
 
+// imageMetadataItem matches types.ImageMetadata, nested under
+// InstanceImageMetadata's "imageMetadata" element (ec2@v1.319.1
+// deserializers.go:107294) -- imageId/imageState do NOT sit at the top
+// level of instanceImageMetadataItem.
+type imageMetadataItem struct {
+	ImageID      string `xml:"imageId,omitempty"`
+	Name         string `xml:"name,omitempty"`
+	ImageOwnerID string `xml:"imageOwnerId,omitempty"`
+	ImageState   string `xml:"imageState,omitempty"`
+}
+
+// instanceImageMetadataItem matches types.InstanceImageMetadata
+// (ec2@v1.319.1 deserializers.go:112881). Operator is a documented gap: this
+// backend tracks no org-managed-resource state for this report.
 type instanceImageMetadataItem struct {
-	InstanceID string `xml:"instanceId"`
-	ImageID    string `xml:"imageId"`
-	ImageState string `xml:"imageState"`
+	ImageMetadata    imageMetadataItem `xml:"imageMetadata"`
+	InstanceID       string            `xml:"instanceId,omitempty"`
+	AvailabilityZone string            `xml:"availabilityZone,omitempty"`
+	ZoneID           string            `xml:"zoneId,omitempty"`
+	InstanceType     string            `xml:"instanceType,omitempty"`
+	LaunchTime       string            `xml:"launchTime,omitempty"`
+	InstanceOwnerID  string            `xml:"instanceOwnerId,omitempty"`
+	InstanceState    stateItem         `xml:"instanceState"`
+	TagSet           []simpleTagItem   `xml:"tagSet>item"`
+}
+
+func toInstanceImageMetadataItem(item InstanceImageMetadataItem, tags map[string]string) instanceImageMetadataItem {
+	wire := instanceImageMetadataItem{
+		InstanceID:       item.InstanceID,
+		AvailabilityZone: item.AvailabilityZone,
+		ZoneID:           item.ZoneID,
+		InstanceType:     item.InstanceType,
+		TagSet:           tagItemsFromMap(tags),
+		InstanceOwnerID:  item.OwnerID,
+		InstanceState:    stateItem{Name: item.StateName, Code: item.StateCode},
+		ImageMetadata: imageMetadataItem{
+			ImageID:      item.ImageID,
+			Name:         item.ImageName,
+			ImageOwnerID: item.ImageOwnerID,
+			ImageState:   item.ImageState,
+		},
+	}
+	if !item.LaunchTime.IsZero() {
+		wire.LaunchTime = item.LaunchTime.UTC().Format(timeLayoutISO)
+	}
+
+	return wire
 }
 
 func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID string) (any, error) {

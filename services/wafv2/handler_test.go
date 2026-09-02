@@ -253,6 +253,8 @@ func TestLockTokenEnforcement(t *testing.T) {
 	// Update with wrong lock token should fail.
 	recBad := doWafv2Request(t, h, "UpdateWebACL", map[string]any{
 		"Id":          id,
+		"Name":        "acl-lock",
+		"Scope":       "REGIONAL",
 		"LockToken":   "wrong-token",
 		"Description": "should fail",
 	})
@@ -265,6 +267,8 @@ func TestLockTokenEnforcement(t *testing.T) {
 	// Update with correct lock token should succeed.
 	recGood := doWafv2Request(t, h, "UpdateWebACL", map[string]any{
 		"Id":          id,
+		"Name":        "acl-lock",
+		"Scope":       "REGIONAL",
 		"LockToken":   realToken,
 		"Description": "updated successfully",
 	})

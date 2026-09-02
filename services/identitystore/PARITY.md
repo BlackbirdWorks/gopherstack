@@ -4,6 +4,22 @@ sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited agai
 last_audit_commit: a872ba9b                       # HEAD when the previous manifest was written (git not run this pass)
 last_audit_date: 2026-07-25
 overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real bug fixed, 3 implemented with concrete evidence, 1 kept as documented (justified) superset; a 6th, previously-unflagged wire bug found and fixed (CreateUser accepted an invented ExternalIds field)
+                       # RE-AUDITED 2026-08-28 (gopherstack-6flj/21my wrapper-key + per-item sweep,
+                       # no code changes): re-verified every List/Describe op's wrapper key AND
+                       # per-item field names/types directly against
+                       # identitystore@v1.39.4/deserializers.go (case-sensitive AWSJSON1.1 PascalCase
+                       # keys -- ListUsers -> Users, ListGroups -> Groups, ListGroupMemberships /
+                       # ListGroupMembershipsForMember -> GroupMemberships, IsMemberInGroups ->
+                       # Results, all with NextToken where applicable). Per-item shapes (User, Group,
+                       # GroupMembership, GroupMembershipExistenceResult, MemberId union, and every
+                       # nested Name/Email/Address/PhoneNumber/Photo/Role/ExternalId sub-shape) were
+                       # field-diffed member-for-member against the deserializer's own case lists,
+                       # not against this file's prior claims. Genuinely clean: no wrapper-key, no
+                       # per-item wrong-key/wrong-nesting, and no NEW invented-member bugs found in
+                       # THIS sweep (CreateUser.ExternalIds, noted above, was found and fixed in the
+                       # prior 2026-07-25 pass, not this one). The one known divergence from the real
+                       # User shape is the already-disclosed Extensions field (see deferred below),
+                       # unchanged this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -69,3 +85,23 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; RWMutex-gu
 - `GetUserId`/`GetGroupId` `AlternateIdentifier.UniqueAttribute.AttributePath` matching uses `strings.EqualFold`, more permissive than the real client (which always sends exact-case `userName`/`emails.value`/`displayName`). Safe superset behavior, not a gap.
 
 - `MemberId` is a union with exactly one variant (`UserId`); `GroupMembershipExistenceResult`'s wire field names (`GroupId`, `MemberId`, `MembershipExists`) match the real `types.GroupMembershipExistenceResult` exactly.
+
+- **gopherstack-6flj constrained-parameter sweep (2026-08-29): confirmed already correct, no code changes.** Re-measured all 4 real collection ops (`ListGroupMemberships`, `ListGroupMembershipsForMember`, `ListGroups`, `ListUsers`) against their own Input structs in `identitystore@v1.39.4`. Every constraining parameter was already correctly plumbed and this pass found nothing new to fix: `Filters` on `ListUsers`/`ListGroups` (exact-match, unrecognized-path-matches-nothing already fixed in the 2026-07-25 pass above), `MemberId` on `ListGroupMembershipsForMember` (O(1) `membershipsByMember` index lookup, `group_memberships.go`), and `MaxResults`/`NextToken` on all four (`paginateSlice`, `store.go`, correctly defaults an unset/out-of-range `MaxResults` to `defaultMaxResults=100` — note none of these four ops' own `MaxResults` doc comments state an explicit numeric default the way ecr's/glacier's do, so 100 is an invented-but-reasonable choice, not a documented-default violation). `ListUsers`' `Extensions` field remains a deliberately deferred gap (already disclosed above) — it selects additional attributes to include per user, not a filter/sort/page-limit constraint, so it is out of this sweep's class regardless. No test changes needed.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Id`/`ID` acronym casing
+gives it 3 op/handler pairs needing the ambiguous fold, 3 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `GetGroupId`, `GetGroupMembershipId`, `GetUserId`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (19 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

@@ -159,11 +159,15 @@ func (b *InMemoryBackend) ListEvaluationJobs(in *ListEvaluationJobsInput) ([]*Ev
 
 	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(jobs, func(i, k int) bool {
-		if descending {
-			return jobs[i].CreationTime.After(jobs[k].CreationTime)
+		if !jobs[i].CreationTime.Equal(jobs[k].CreationTime) {
+			if descending {
+				return jobs[i].CreationTime.After(jobs[k].CreationTime)
+			}
+
+			return jobs[i].CreationTime.Before(jobs[k].CreationTime)
 		}
 
-		return jobs[i].CreationTime.Before(jobs[k].CreationTime)
+		return jobs[i].JobArn < jobs[k].JobArn
 	})
 
 	nextToken := ""

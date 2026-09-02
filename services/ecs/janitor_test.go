@@ -107,7 +107,10 @@ func TestJanitor_DoesNotSweepRecentlyStoppedTasks(t *testing.T) {
 
 	janitor.SweepOnce(context.Background())
 
-	listed, err := backend.ListTasks("test-cluster")
+	// ListTasks defaults to RUNNING (ListTasksInput.DesiredStatus's documented
+	// default), so a stopped-but-not-yet-swept task must be looked up
+	// explicitly by its STOPPED status to confirm it's still in the store.
+	listed, err := backend.ListTasksFiltered(ecs.ListTasksInput{Cluster: "test-cluster", DesiredStatus: "STOPPED"})
 	require.NoError(t, err)
 	assert.Len(t, listed, 1)
 }

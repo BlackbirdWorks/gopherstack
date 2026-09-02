@@ -2,12 +2,41 @@ package guardduty
 
 import (
 	"encoding/base64"
+	"errors"
+	"net/url"
 	"strconv"
 )
 
+var errNegativeToken = errors.New("guardduty: pagination token decodes to a negative offset")
+
+// paginationParamsFromQuery parses a raw HTTP query string's maxResults and
+// nextToken parameters, the real HTTP query bindings shared by every
+// GuardDuty REST-JSON List* op whose MaxResults/NextToken are query-bound
+// rather than body-bound (verified per-op against the pinned SDK's
+// awsRestjson1_serializeOpHttpBindings<Op>Input encoder.SetQuery calls, not
+// assumed from a sibling). An unparseable or absent maxResults yields 0
+// (caller applies its own default via resolvePageSize).
+func paginationParamsFromQuery(query string) (int32, string) {
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return 0, ""
+	}
+
+	var maxResults int32
+	if n, convErr := strconv.ParseInt(values.Get("maxResults"), 10, 32); convErr == nil {
+		maxResults = int32(n)
+	}
+
+	return maxResults, values.Get("nextToken")
+}
+
 // decodeToken decodes a base64 pagination token into an integer offset. An
-// empty token is treated as offset 0. Mirrors services/sns's decodeToken
-// (this package can't import that unexported helper directly).
+// empty token is treated as offset 0. A token decoding to a negative offset
+// is rejected like any other malformed token, since paginate's
+// `offset >= len(items)` guard does not catch a negative offset and would
+// otherwise slice items[offset:end] with a negative bound and panic. Mirrors
+// services/sns's decodeToken (this package can't import that unexported
+// helper directly).
 func decodeToken(token string) (int, error) {
 	if token == "" {
 		return 0, nil
@@ -21,6 +50,10 @@ func decodeToken(token string) (int, error) {
 	offset, err := strconv.Atoi(string(decoded))
 	if err != nil {
 		return 0, err
+	}
+
+	if offset < 0 {
+		return 0, errNegativeToken
 	}
 
 	return offset, nil
@@ -51,16 +84,26 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 	return items[offset:end], nextToken
 }
 
-// resolvePageSize returns the effective page size given a caller-requested
-// size, a default, and a maximum. If requested is <= 0, defaultSize is used.
-// If requested exceeds maxSize it is clamped.
-func resolvePageSize(requested, defaultSize, maxSize int) int {
-	if requested <= 0 {
-		return defaultSize
-	}
+// standardPageSize is the MaxResults cap every paginated List/Describe op in
+// this package currently documents (verified per-op against
+// aws-sdk-go-v2/service/guardduty@v1.85.4's api_op_*.go doc comments, not
+// assumed): ListFindings/ListFilters/ListIPSets/ListThreatIntelSets/
+// ListThreatEntitySets/ListTrustedEntitySets/ListMembers/ListInvitations/
+// DescribeMalwareScans/ListMalwareScans all state "default 50, max 50";
+// ListPublishingDestinations/ListOrganizationAdminAccounts state "max 50"
+// without restating a default (the AWS API reference confirms the same
+// ceiling for both); ListInvestigations states "default 50" with no
+// explicit max, so 50 is used as the cap here too for consistency.
+// ListMalwareProtectionPlans is the one exception (100-per-page, no
+// MaxResults on the wire at all) and bypasses this helper entirely.
+const standardPageSize = 50
 
-	if requested > maxSize {
-		return maxSize
+// resolvePageSize returns the effective page size given a caller-requested
+// size. If requested is <= 0 or exceeds standardPageSize, standardPageSize
+// is used.
+func resolvePageSize(requested int) int {
+	if requested <= 0 || requested > standardPageSize {
+		return standardPageSize
 	}
 
 	return requested

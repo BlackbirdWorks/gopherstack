@@ -44,9 +44,14 @@ type getWirelessDeviceResponse struct {
 	ThingName       string          `json:"ThingName,omitempty"`
 }
 
-// wirelessDeviceEntry is the ListWirelessDevices entry shape. LoRaWAN/
-// Sidewalk use the narrower LoRaWANListDevice/SidewalkListDevice, matching
-// types.WirelessDeviceStatistics (types.go:2412).
+// wirelessDeviceEntry is the ListWirelessDevices entry shape, matching
+// types.WirelessDeviceStatistics (iotwireless@v1.59.4 types/types.go).
+// Description/ThingArn/ThingName are not members of that type -- those
+// belong to GetWirelessDeviceOutput (getWirelessDeviceResponse) only.
+// FuotaDeviceStatus/LastUplinkReceivedAt/McGroupId/MulticastDeviceStatus are
+// also real members but have no backing state in this backend (no uplink or
+// multicast-membership simulation) and are left undeclared rather than
+// wired to a fabricated value.
 type wirelessDeviceEntry struct {
 	LoRaWAN         *LoRaWANListDevice  `json:"LoRaWAN,omitempty"`
 	Sidewalk        *SidewalkListDevice `json:"Sidewalk,omitempty"`
@@ -55,10 +60,7 @@ type wirelessDeviceEntry struct {
 	Name            string              `json:"Name"`
 	Type            string              `json:"Type"`
 	DestinationName string              `json:"DestinationName"`
-	Description     string              `json:"Description"`
 	Positioning     string              `json:"Positioning,omitempty"`
-	ThingArn        string              `json:"ThingArn,omitempty"`
-	ThingName       string              `json:"ThingName,omitempty"`
 }
 
 type listWirelessDevicesResponse struct {
@@ -173,7 +175,6 @@ func wirelessDeviceEntryFrom(d *WirelessDevice) wirelessDeviceEntry {
 		Name:            d.Name,
 		Type:            d.Type,
 		DestinationName: d.DestinationName,
-		Description:     d.Description,
 		LoRaWAN:         loRaWANListDeviceFrom(d.LoRaWAN),
 		Sidewalk:        sidewalkListDeviceFrom(d.Sidewalk),
 		Positioning:     d.Positioning,

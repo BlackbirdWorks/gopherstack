@@ -75,13 +75,14 @@ package lambda
 //     keyed externally by function name, exactly like ec2's
 //     instanceIMDSOptions/verifiedAccessGroupPolicies exclusions. NOT
 //     persisted before; remains raw and unpersisted.
-//   - runtimeManagementConfigs, functionScalingConfigs: both structs declare
-//     a FunctionArn field, but GetRuntimeManagementConfig/PutRuntimeManagementConfig
-//     and GetFunctionScalingConfig/PutFunctionScalingConfig only ever populate
-//     FunctionArn on the value RETURNED to the caller -- the copy actually
-//     stored in the map always has a zero-value FunctionArn. There is no
-//     reliable identity on the stored value, so a store.Table keyFn cannot be
-//     built from it. NOT persisted before; remain raw and unpersisted.
+//   - runtimeManagementConfigs, functionScalingConfigs: RuntimeManagementConfig
+//     declares a FunctionArn field that GetRuntimeManagementConfig/
+//     PutRuntimeManagementConfig only ever populate on the value RETURNED to
+//     the caller -- the copy actually stored in the map always has a
+//     zero-value FunctionArn. FunctionScalingConfig carries no identity field
+//     at all (FunctionArn lives only on GetFunctionScalingConfigOutput).
+//     Neither stored value has reliable identity, so a store.Table keyFn
+//     cannot be built from it. NOT persisted before; remain raw and unpersisted.
 //   - functionRecursionConfigs (map[string]*FunctionRecursionConfig): the
 //     value (RecursiveLoop only) carries no identity field at all. NOT
 //     persisted before; remains raw and unpersisted.

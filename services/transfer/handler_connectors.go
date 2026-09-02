@@ -275,10 +275,13 @@ func (h *Handler) handleListFileTransferResults(
 	}
 
 	results := []any{}
+	next := ""
 
 	if r := h.Backend.GetFileTransferResult(in.ConnectorID, in.TransferID); r != nil {
-		results = make([]any, len(r.Files))
-		for i, f := range r.Files {
+		var files []string
+		files, next = applyNextTokenItems(r.Files, in.NextToken, in.MaxResults)
+		results = make([]any, len(files))
+		for i, f := range files {
 			results[i] = map[string]any{
 				"FilePath":   f,
 				"StatusCode": r.Status,
@@ -286,7 +289,7 @@ func (h *Handler) handleListFileTransferResults(
 		}
 	}
 
-	return &map[string]any{"FileTransferResults": results}, nil
+	return &map[string]any{"FileTransferResults": results, "NextToken": next}, nil
 }
 
 type startDirectoryListingInput struct {

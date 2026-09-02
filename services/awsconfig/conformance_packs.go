@@ -5,7 +5,7 @@ import (
 	"slices"
 )
 
-const conformancePackStateComplete = "COMPLETE"
+const conformancePackStateComplete = "CREATE_COMPLETE"
 
 // PutConformancePack creates or updates a conformance pack. Real AWS Config
 // accepts only one of TemplateBody, TemplateS3Uri, or

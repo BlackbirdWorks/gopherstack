@@ -146,6 +146,8 @@ func (h *Handler) errorCodeStatus(err error) (string, int) {
 		return errFleetNotStopped, http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		return errResourceExists, http.StatusBadRequest
+	case errors.Is(err, ErrEntitlementAlreadyExists):
+		return errEntitlementExists, http.StatusBadRequest
 	case errors.Is(err, ErrSerialization):
 		return errSerialization, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrConflict):

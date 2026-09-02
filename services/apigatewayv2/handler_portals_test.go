@@ -1069,3 +1069,79 @@ func TestHandler_DeleteProductRestEndpointPage(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_ListPortals_MaxResultsHonoured proves ListPortals applies its
+// real maxResults/nextToken query parameters (confirmed body-vs-query
+// binding via aws-sdk-go-v2/service/apigatewayv2@v1.37.4's
+// awsRestjson1_serializeOpHttpBindingsListPortalsInput, which puts both in
+// the query string) instead of always returning every portal on one page.
+func TestHandler_ListPortals_MaxResultsHonoured(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	const portalCount = 3
+
+	for range portalCount {
+		rr := doRequest(t, h, http.MethodPost, "/v2/portals", validCreatePortalBody())
+		require.Equal(t, http.StatusCreated, rr.Code)
+	}
+
+	rr := doRequest(t, h, http.MethodGet, "/v2/portals?maxResults=1", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var page1 struct {
+		NextToken string                `json:"nextToken"`
+		Items     []apigatewayv2.Portal `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1))
+	require.Len(t, page1.Items, 1, "maxResults=1 must limit the page to 1 item")
+	require.NotEmpty(t, page1.NextToken, "a partial page must return a nextToken")
+
+	rr2 := doRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/v2/portals?maxResults=%d&nextToken=%s", portalCount, page1.NextToken), nil)
+	require.Equal(t, http.StatusOK, rr2.Code)
+
+	var page2 struct {
+		NextToken string                `json:"nextToken"`
+		Items     []apigatewayv2.Portal `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2))
+	require.Len(t, page2.Items, portalCount-1, "second page must return the remainder")
+}
+
+// TestHandler_ListPortalProducts_MaxResultsHonoured is the same proof for
+// ListPortalProducts.
+func TestHandler_ListPortalProducts_MaxResultsHonoured(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	const productCount = 3
+
+	for range productCount {
+		createPortalProduct(t, h)
+	}
+
+	rr := doRequest(t, h, http.MethodGet, "/v2/portalproducts?maxResults=1", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var page1 struct {
+		NextToken string                       `json:"nextToken"`
+		Items     []apigatewayv2.PortalProduct `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1))
+	require.Len(t, page1.Items, 1, "maxResults=1 must limit the page to 1 item")
+	require.NotEmpty(t, page1.NextToken, "a partial page must return a nextToken")
+
+	rr2 := doRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/v2/portalproducts?maxResults=%d&nextToken=%s", productCount, page1.NextToken), nil)
+	require.Equal(t, http.StatusOK, rr2.Code)
+
+	var page2 struct {
+		NextToken string                       `json:"nextToken"`
+		Items     []apigatewayv2.PortalProduct `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2))
+	require.Len(t, page2.Items, productCount-1, "second page must return the remainder")
+}

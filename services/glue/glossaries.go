@@ -103,13 +103,14 @@ func (b *InMemoryBackend) UpdateGlossary(id string, name, description *string) (
 // DeleteGlossary deletes a glossary. Per AWS's documented behavior (confirmed
 // in deserializers.go's error switch for DeleteGlossary, which lists
 // ConflictException), a glossary cannot be deleted while it still contains
-// glossary terms.
+// glossary terms. That switch has no EntityNotFoundException case (unlike
+// GetGlossary's), so an unknown Identifier surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteGlossary(id string) error {
 	b.mu.Lock("DeleteGlossary")
 	defer b.mu.Unlock()
 
 	if !b.glossaries.Has(id) {
-		return fmt.Errorf("glossary %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("glossary %q not found: %w", id, ErrValidation)
 	}
 
 	for _, t := range b.glossaryTerms.All() {
@@ -213,12 +214,15 @@ func (b *InMemoryBackend) UpdateGlossaryTerm(id string, name, shortDesc, longDes
 // cleanup is not separately documented by DeleteGlossaryTerm's own shape, but
 // is the same referential-integrity discipline this backend already applies
 // to every other cascade (e.g. BatchDeleteTable cascading to partitions).
+// DeleteGlossaryTerm's error switch has no EntityNotFoundException case
+// (unlike GetGlossaryTerm's), so an unknown Identifier surfaces as
+// InvalidInputException.
 func (b *InMemoryBackend) DeleteGlossaryTerm(id string) error {
 	b.mu.Lock("DeleteGlossaryTerm")
 	defer b.mu.Unlock()
 
 	if !b.glossaryTerms.Has(id) {
-		return fmt.Errorf("glossary term %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("glossary term %q not found: %w", id, ErrValidation)
 	}
 
 	b.glossaryTerms.Delete(id)
@@ -262,12 +266,14 @@ func removeString(s []string, v string) []string {
 }
 
 // ListGlossaryTerms returns every term belonging to a glossary, sorted by ID.
+// Its error switch has no EntityNotFoundException case (unlike GetGlossary's),
+// so an unknown GlossaryIdentifier surfaces as InvalidInputException.
 func (b *InMemoryBackend) ListGlossaryTerms(glossaryID string) ([]*GlossaryTerm, error) {
 	b.mu.RLock("ListGlossaryTerms")
 	defer b.mu.RUnlock()
 
 	if !b.glossaries.Has(glossaryID) {
-		return nil, fmt.Errorf("glossary %q not found: %w", glossaryID, ErrNotFound)
+		return nil, fmt.Errorf("glossary %q not found: %w", glossaryID, ErrValidation)
 	}
 
 	out := make([]*GlossaryTerm, 0)

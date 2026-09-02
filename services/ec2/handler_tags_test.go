@@ -219,7 +219,7 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 				t.Helper()
 
 				// Create a second VPC so we have two distinct tagable VPCs.
-				vpc2, err := bk.CreateVpc("10.0.0.0/16")
+				vpc2, err := bk.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 
 				err = bk.CreateTags(
@@ -235,21 +235,27 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 			},
 		},
 		{
-			name: "delete_empty_keys_is_noop",
+			// Omitting Tags deletes every user-defined tag on the resource
+			// (ec2@v1.319.1 api_op_DeleteTags.go), not a no-op.
+			name: "delete_omitted_keys_deletes_all_user_tags",
 			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
-				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "keep-me"})
+				err := bk.CreateTags(
+					[]string{"vpc-default"},
+					map[string]string{"Name": "gone", "Team": "also-gone"},
+				)
+				require.NoError(t, err)
+				err = bk.CreateTags([]string{"subnet-default"}, map[string]string{"Name": "untouched"})
 				require.NoError(t, err)
 
-				// Empty keys: should be a no-op, tag must remain.
 				err = bk.DeleteTags([]string{"vpc-default"}, []string{})
 				require.NoError(t, err)
 			},
 			resourceIDs: nil,
 			wantCount:   1,
 			wantContains: []ec2.TagEntry{
-				{ResourceID: "vpc-default", Key: "Name", Value: "keep-me", ResourceType: "vpc"},
+				{ResourceID: "subnet-default", Key: "Name", Value: "untouched", ResourceType: "subnet"},
 			},
 		},
 		{

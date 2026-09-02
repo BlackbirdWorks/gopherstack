@@ -93,14 +93,18 @@ type S3Location struct {
 
 // DataCatalogInput references a Glue Data Catalog table.
 type DataCatalogInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	TableName    string `json:"TableName"`
+	TempDirectory *S3Location `json:"TempDirectory,omitempty"`
+	DatabaseName  string      `json:"DatabaseName"`
+	TableName     string      `json:"TableName"`
+	CatalogID     string      `json:"CatalogId,omitempty"`
 }
 
 // DatabaseInput references a database table.
 type DatabaseInput struct {
-	GlueConnectionName string `json:"GlueConnectionName"`
-	DatabaseTableName  string `json:"DatabaseTableName"`
+	TempDirectory      *S3Location `json:"TempDirectory,omitempty"`
+	GlueConnectionName string      `json:"GlueConnectionName"`
+	DatabaseTableName  string      `json:"DatabaseTableName"`
+	QueryString        string      `json:"QueryString,omitempty"`
 }
 
 // Dataset represents a DataBrew dataset. AccountID mirrors
@@ -336,23 +340,24 @@ type JobExtras struct {
 // from, and, like CreatedBy/LastModifiedBy elsewhere in this package, there
 // is no caller-identity infrastructure to derive StartedBy from.
 type JobRun struct {
-	RecipeReference    *RecipeRef          `json:"RecipeReference,omitempty"`
-	JobSample          *JobSample          `json:"JobSample,omitempty"`
-	DatasetName        string              `json:"DatasetName,omitempty"`
-	JobName            string              `json:"JobName"`
-	RunID              string              `json:"RunId"`
-	State              string              `json:"State"`
-	LogGroupName       string              `json:"LogGroupName,omitempty"`
-	LogSubscription    string              `json:"LogSubscription,omitempty"`
-	ErrorMessage       string              `json:"ErrorMessage,omitempty"`
-	StartedBy          string              `json:"StartedBy,omitempty"`
-	DataCatalogOutputs []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
-	DatabaseOutputs    []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
-	Outputs            []Output            `json:"Outputs,omitempty"`
-	StartedOn          float64             `json:"StartedOn,omitempty"`
-	CompletedOn        float64             `json:"CompletedOn,omitempty"`
-	ExecutionTime      int                 `json:"ExecutionTime,omitempty"`
-	Attempt            int                 `json:"Attempt,omitempty"`
+	RecipeReference          *RecipeRef          `json:"RecipeReference,omitempty"`
+	JobSample                *JobSample          `json:"JobSample,omitempty"`
+	DatasetName              string              `json:"DatasetName,omitempty"`
+	JobName                  string              `json:"JobName"`
+	RunID                    string              `json:"RunId"`
+	State                    string              `json:"State"`
+	LogGroupName             string              `json:"LogGroupName,omitempty"`
+	LogSubscription          string              `json:"LogSubscription,omitempty"`
+	ErrorMessage             string              `json:"ErrorMessage,omitempty"`
+	StartedBy                string              `json:"StartedBy,omitempty"`
+	DataCatalogOutputs       []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs          []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
+	Outputs                  []Output            `json:"Outputs,omitempty"`
+	ValidationConfigurations []map[string]any    `json:"ValidationConfigurations,omitempty"`
+	StartedOn                float64             `json:"StartedOn,omitempty"`
+	CompletedOn              float64             `json:"CompletedOn,omitempty"`
+	ExecutionTime            int                 `json:"ExecutionTime,omitempty"`
+	Attempt                  int                 `json:"Attempt,omitempty"`
 }
 
 // Rule represents a data quality rule.

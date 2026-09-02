@@ -14,7 +14,7 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	integrationArn, dataSourceName, dataSourceType string,
 ) (string, error) {
 	if integrationArn == "" {
-		return "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+		return "", fmt.Errorf("%w: integrationArn is required", ErrValidationException)
 	}
 
 	id := uuid.New().String()
@@ -33,11 +33,31 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	return id, nil
 }
 
+// AddS3TableIntegrationSourceInternal seeds an S3 table integration source
+// association directly into the store for testing, with a caller-controlled
+// createdTimeStamp -- AssociateSourceToS3TableIntegration always stamps
+// time.Now(), so tests that need two entries with an identical timestamp
+// (to exercise ListSourcesForS3TableIntegration's sort) must go through here.
+func (b *InMemoryBackend) AddS3TableIntegrationSourceInternal(
+	id, integrationArn, dataSourceName, dataSourceType string, createdTimeStamp int64,
+) {
+	b.mu.Lock("AddS3TableIntegrationSourceInternal")
+	defer b.mu.Unlock()
+
+	b.s3TableIntegrations.Put(&s3TableIntegrationEntry{
+		ID:               id,
+		IntegrationArn:   integrationArn,
+		DataSourceName:   dataSourceName,
+		DataSourceType:   dataSourceType,
+		CreatedTimeStamp: createdTimeStamp,
+	})
+}
+
 // DisassociateSourceFromS3TableIntegration removes a source association by
 // its identifier (the ID AssociateSourceToS3TableIntegration returned).
 func (b *InMemoryBackend) DisassociateSourceFromS3TableIntegration(identifier string) error {
 	if identifier == "" {
-		return fmt.Errorf("%w: identifier is required", ErrValidation)
+		return fmt.Errorf("%w: identifier is required", ErrValidationException)
 	}
 
 	b.mu.Lock("DisassociateSourceFromS3TableIntegration")
@@ -61,7 +81,7 @@ func (b *InMemoryBackend) ListSourcesForS3TableIntegration(
 	integrationArn, nextToken string, maxResults int,
 ) ([]s3TableIntegrationEntry, string, error) {
 	if integrationArn == "" {
-		return nil, "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+		return nil, "", fmt.Errorf("%w: integrationArn is required", ErrValidationException)
 	}
 
 	b.mu.RLock("ListSourcesForS3TableIntegration")
@@ -75,7 +95,13 @@ func (b *InMemoryBackend) ListSourcesForS3TableIntegration(
 		}
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].CreatedTimeStamp < all[j].CreatedTimeStamp })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreatedTimeStamp != all[j].CreatedTimeStamp {
+			return all[i].CreatedTimeStamp < all[j].CreatedTimeStamp
+		}
+
+		return all[i].ID < all[j].ID
+	})
 
 	if maxResults <= 0 || maxResults > s3TableIntegrationSourceLimit {
 		maxResults = defaultDescribeLimit

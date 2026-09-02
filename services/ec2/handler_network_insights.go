@@ -216,7 +216,7 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(
 	reqID string,
 ) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAnalysisId")
-	analyses := h.Backend.DescribeNetworkInsightsAnalyses(ids)
+	analyses := h.Backend.DescribeNetworkInsightsAnalyses(ids, vals.Get("NetworkInsightsPathId"))
 
 	resp := &describeNetworkInsightsAnalysesResponse{RequestID: reqID}
 	for _, a := range analyses {
@@ -366,7 +366,7 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(
 	reqID string,
 ) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAccessScopeAnalysisId")
-	analyses := h.Backend.DescribeNetworkInsightsAccessScopeAnalyses(ids)
+	analyses := h.Backend.DescribeNetworkInsightsAccessScopeAnalyses(ids, vals.Get("NetworkInsightsAccessScopeId"))
 
 	resp := &describeNetworkInsightsAccessScopeAnalysesResponse{RequestID: reqID}
 	for _, a := range analyses {

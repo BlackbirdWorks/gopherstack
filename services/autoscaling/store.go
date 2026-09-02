@@ -37,6 +37,8 @@ const (
 	statusCodeSuccessful = "Successful"
 	// statusInProgress is the status for an in-progress instance refresh or scaling activity.
 	statusInProgress = "InProgress"
+	// statusPending is the status for an instance refresh that has not yet started.
+	statusPending = "Pending"
 	// granularity1Minute is the only supported CloudWatch metric granularity.
 	granularity1Minute = "1Minute"
 	// lbStateAdded is the state for a load balancer that has been attached to the ASG.

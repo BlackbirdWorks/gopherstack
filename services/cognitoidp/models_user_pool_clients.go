@@ -165,6 +165,7 @@ type describeUserPoolClientAccurateOutput struct {
 
 type listUserPoolClientsAccurateInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
@@ -181,6 +182,7 @@ type userPoolClientSummaryJSON struct {
 }
 
 type listUserPoolClientsAccurateOutput struct {
+	NextToken       string                      `json:"NextToken,omitempty"`
 	UserPoolClients []userPoolClientSummaryJSON `json:"UserPoolClients"`
 }
 

@@ -18,7 +18,7 @@ import (
 
 var (
 	// ErrTransformJobNotFound is returned when a transform job does not exist.
-	ErrTransformJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrTransformJobNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrTransformJobAlreadyExists is returned when a transform job already exists.
 	ErrTransformJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )

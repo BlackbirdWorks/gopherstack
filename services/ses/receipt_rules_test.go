@@ -1005,13 +1005,15 @@ func TestHandler_DeleteReceiptRule(t *testing.T) {
 			wantContains: "RuleSetDoesNotExist",
 		},
 		{
-			name: "rule_not_found",
+			// Idempotent: DeleteReceiptRule's own deserializer (ses@v1.37.4
+			// deserializers.go) declares only RuleSetDoesNotExist, not RuleDoesNotExist.
+			name: "rule_not_found_is_idempotent",
 			setup: func(b *ses.InMemoryBackend) {
 				b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "my-set", CreatedAt: time.Now()})
 			},
 			body:         "Action=DeleteReceiptRule&Version=2010-12-01&RuleSetName=my-set&RuleName=missing",
-			wantCode:     http.StatusBadRequest,
-			wantContains: "RuleDoesNotExist",
+			wantCode:     http.StatusOK,
+			wantContains: "DeleteReceiptRuleResponse",
 		},
 		{
 			name:         "empty_rule_set_name",

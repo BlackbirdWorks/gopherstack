@@ -181,3 +181,99 @@ func TestDescribeJob_SelectCsvSerialization_SDKRoundTrip(t *testing.T) {
 	assert.NotNil(t, out.SelectParameters.OutputSerialization.Csv,
 		"typed SDK client must decode a non-nil OutputSerialization.Csv")
 }
+
+// TestListJobs_SortedByInitiationTime_SDKRoundTrip proves ListJobs returns jobs
+// sorted ascending by CreationDate (job initiation time), matching the real API's
+// documented behavior ("The List Jobs operation ... returns a list of these jobs
+// sorted by job initiation time" -- api_op_ListJobs.go's doc comment; confirmed
+// against the real ListJobs API reference's own example responses, both of which
+// show JobList entries in ascending CreationDate order). Before the fix, gopherstack
+// sorted by the random, uncorrelated JobID string instead of CreationDate -- since
+// JobID is generated via crypto/rand (generateID), that produced an effectively
+// random order with no relationship to initiation time at all.
+func TestListJobs_SortedByInitiationTime_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	bk := glacier.NewInMemoryBackend()
+	glacier.SetRetrievalDelay(bk, 0)
+	h := glacier.NewHandler(bk)
+	h.AccountID = testAccountID
+	h.DefaultRegion = testRegion
+
+	e := echo.New()
+	e.Any("/*", h.Handler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(testRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	client := glaciersdk.NewFromConfig(cfg, func(o *glaciersdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+
+	const vaultName = "wire-listjobs-order-vault"
+
+	_, err = client.CreateVault(t.Context(), &glaciersdk.CreateVaultInput{
+		AccountId: aws.String("-"), VaultName: aws.String(vaultName),
+	})
+	require.NoError(t, err)
+
+	up, err := client.UploadArchive(t.Context(), &glaciersdk.UploadArchiveInput{
+		AccountId: aws.String("-"), VaultName: aws.String(vaultName),
+		Body: bytes.NewReader([]byte("wire-listjobs-order-archive")),
+	})
+	require.NoError(t, err)
+
+	// Initiate jobs in an order that, once backdated, deliberately DIFFERS from both
+	// their real initiation order and their JobID lexical order -- so a JobID-sorted
+	// (the pre-fix bug) or insertion-order result would both fail this assertion.
+	jobIDs := make([]string, 3)
+
+	for i := range jobIDs {
+		init, initErr := client.InitiateJob(t.Context(), &glaciersdk.InitiateJobInput{
+			AccountId: aws.String("-"), VaultName: aws.String(vaultName),
+			JobParameters: &glaciertypes.JobParameters{
+				Type:      aws.String("archive-retrieval"),
+				ArchiveId: up.ArchiveId,
+			},
+		})
+		require.NoError(t, initErr)
+		jobIDs[i] = aws.ToString(init.JobId)
+	}
+
+	// Backdate CreationDate so the oldest-initiated job (index 0) sorts last
+	// alphabetically among the three timestamps, and vice versa -- decouples
+	// expected order from both insertion order and JobID lexical order.
+	wantOrder := []string{jobIDs[2], jobIDs[0], jobIDs[1]}
+	dates := map[string]string{
+		jobIDs[2]: "2020-01-01T00:00:00.000Z",
+		jobIDs[0]: "2021-06-15T00:00:00.000Z",
+		jobIDs[1]: "2022-12-31T00:00:00.000Z",
+	}
+
+	for id, d := range dates {
+		glacier.SetJobCreationDate(bk, testAccountID, testRegion, vaultName, id, d)
+	}
+
+	out, err := client.ListJobs(t.Context(), &glaciersdk.ListJobsInput{
+		AccountId: aws.String("-"), VaultName: aws.String(vaultName),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.JobList, 3)
+
+	gotOrder := make([]string, len(out.JobList))
+	for i, j := range out.JobList {
+		gotOrder[i] = aws.ToString(j.JobId)
+	}
+
+	assert.Equal(t, wantOrder, gotOrder,
+		"ListJobs must return jobs sorted ascending by CreationDate (initiation time), not by JobID")
+}

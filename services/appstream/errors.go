@@ -8,8 +8,13 @@ const (
 	errResourceNotFound = "ResourceNotFoundException"
 	errInvalidParameter = "InvalidParameterCombinationException"
 	errResourceExists   = "ResourceAlreadyExistsException"
-	errFleetNotStopped  = "InvalidAccountStatusException"
-	errResourceInUse    = "ResourceInUseException"
+	// errEntitlementExists is CreateEntitlement's own conflict type
+	// (appstream@v1.64.5 deserializers.go rpc2_deserializeOpErrorCreateEntitlement
+	// declares EntitlementAlreadyExistsException, not the shared
+	// ResourceAlreadyExistsException every other Create* op here uses).
+	errEntitlementExists = "EntitlementAlreadyExistsException"
+	errFleetNotStopped   = "InvalidAccountStatusException"
+	errResourceInUse     = "ResourceInUseException"
 	// errSerialization is used for requests that don't satisfy an
 	// operation's input shape (e.g. a required member is absent). Some ops
 	// (e.g. CreateApplication) declare no validation-style business
@@ -28,6 +33,10 @@ var (
 	ErrNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrEntitlementAlreadyExists is returned by CreateEntitlement when an
+	// entitlement for the same name/stack already exists. See
+	// errEntitlementExists's doc comment.
+	ErrEntitlementAlreadyExists = awserr.New(errEntitlementExists, awserr.ErrAlreadyExists)
 	// ErrFleetNotStopped is returned when a fleet state transition is invalid
 	// (e.g. starting a running fleet, stopping a stopped fleet, deleting a running fleet).
 	ErrFleetNotStopped = awserr.New(errFleetNotStopped, awserr.ErrConflict)

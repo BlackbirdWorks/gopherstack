@@ -342,7 +342,7 @@ func TestInMemoryBackend_NonNilEmptySlices(t *testing.T) {
 	assert.NotNil(t, b.ListWirelessGateways(testAccountID, testRegion))
 	assert.NotNil(t, b.ListServiceProfiles(testAccountID, testRegion))
 	assert.NotNil(t, b.ListDestinations(testAccountID, testRegion))
-	assert.NotNil(t, b.ListDeviceProfiles(testAccountID, testRegion))
+	assert.NotNil(t, b.ListDeviceProfiles(testAccountID, testRegion, ""))
 	assert.NotNil(t, b.ListFuotaTasks(testAccountID, testRegion))
 }
 

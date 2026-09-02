@@ -41,11 +41,14 @@ type xmlCreateTrafficPolicyInstanceResponse struct {
 }
 
 type xmlListTrafficPolicyInstancesResponse struct {
-	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesResponse"`
-	Xmlns                  string                     `xml:"xmlns,attr"`
-	MaxItems               string                     `xml:"MaxItems"`
-	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
-	IsTruncated            bool                       `xml:"IsTruncated"`
+	XMLName                         xml.Name                   `xml:"ListTrafficPolicyInstancesResponse"`
+	Xmlns                           string                     `xml:"xmlns,attr"`
+	MaxItems                        string                     `xml:"MaxItems"`
+	HostedZoneIDMarker              string                     `xml:"HostedZoneIdMarker,omitempty"`
+	TrafficPolicyInstanceNameMarker string                     `xml:"TrafficPolicyInstanceNameMarker,omitempty"`
+	TrafficPolicyInstanceTypeMarker string                     `xml:"TrafficPolicyInstanceTypeMarker,omitempty"`
+	TrafficPolicyInstances          []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
+	IsTruncated                     bool                       `xml:"IsTruncated"`
 }
 
 type xmlGetTPInstanceCountResponse struct {
@@ -200,37 +203,51 @@ func (h *Handler) deleteTrafficPolicyInstance(c *echo.Context, id string) error 
 
 func (h *Handler) listTrafficPolicyInstances(c *echo.Context) error {
 	ctx := c.Request().Context()
+	q := c.Request().URL.Query()
+	// route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesInput binds
+	// HostedZoneIdMarker to "hostedzoneid"; carried here as the single
+	// opaque pagination token (see ListTrafficPolicyInstances's backend doc
+	// comment), TrafficPolicyInstanceName/TypeMarker are decorative only.
+	marker := q.Get("hostedzoneid")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
-	instances, err := h.Backend.ListTrafficPolicyInstances()
+	p, err := h.Backend.ListTrafficPolicyInstances(marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
 	logger.Load(ctx).
-		DebugContext(ctx, "Route53 ListTrafficPolicyInstances", "count", len(instances))
+		DebugContext(ctx, "Route53 ListTrafficPolicyInstances", "count", len(p.Data))
 
-	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
-	for _, inst := range instances {
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(p.Data))
+	for _, inst := range p.Data {
 		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
 	}
 
 	return writeXML(c, http.StatusOK, xmlListTrafficPolicyInstancesResponse{
 		Xmlns:                  route53Namespace,
 		TrafficPolicyInstances: xmlInstances,
-		IsTruncated:            false,
-		MaxItems:               "100",
+		IsTruncated:            p.Next != "",
+		MaxItems:               strconv.Itoa(maxItems),
+		HostedZoneIDMarker:     p.Next,
 	})
 }
 
 func (h *Handler) getTrafficPolicyInstanceCount(c *echo.Context) error {
 	ctx := c.Request().Context()
 
-	instances, err := h.Backend.ListTrafficPolicyInstances()
+	instances, err := h.Backend.ListTrafficPolicyInstances("", math.MaxInt32)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	count := int32(len(instances)) //nolint:gosec // instance count fits in int32
+	count := int32(len(instances.Data)) //nolint:gosec // instance count fits in int32
 
 	logger.Load(ctx).DebugContext(ctx, "Route53 GetTrafficPolicyInstanceCount", "count", count)
 
@@ -241,31 +258,50 @@ func (h *Handler) getTrafficPolicyInstanceCount(c *echo.Context) error {
 }
 
 type listTPInstancesByHZResponse struct {
-	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesByHostedZoneResponse"`
-	Xmlns                  string                     `xml:"xmlns,attr"`
-	MaxItems               string                     `xml:"MaxItems"`
-	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
-	IsTruncated            bool                       `xml:"IsTruncated"`
+	XMLName                         xml.Name                   `xml:"ListTrafficPolicyInstancesByHostedZoneResponse"`
+	Xmlns                           string                     `xml:"xmlns,attr"`
+	MaxItems                        string                     `xml:"MaxItems"`
+	TrafficPolicyInstanceNameMarker string                     `xml:"TrafficPolicyInstanceNameMarker,omitempty"`
+	TrafficPolicyInstanceTypeMarker string                     `xml:"TrafficPolicyInstanceTypeMarker,omitempty"`
+	TrafficPolicyInstances          []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
+	IsTruncated                     bool                       `xml:"IsTruncated"`
 }
 
 func (h *Handler) listTrafficPolicyInstancesByHostedZone(c *echo.Context) error {
-	hostedZoneID := c.Request().URL.Query().Get("hostedzoneid")
+	q := c.Request().URL.Query()
+	// route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesByHostedZoneInput
+	// binds HostedZoneId (the filter) to query key "id", not "hostedzoneid"
+	// -- the previous "hostedzoneid" read always came back empty for a real
+	// client, so this filter never matched any instance. No
+	// HostedZoneIdMarker exists on this op (redundant with the fixed
+	// HostedZoneId filter), so TrafficPolicyInstanceNameMarker carries the
+	// opaque pagination token instead.
+	hostedZoneID := q.Get("id")
+	marker := q.Get("trafficpolicyinstancename")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
-	instances, err := h.Backend.ListTrafficPolicyInstancesByHostedZone(hostedZoneID)
+	p, err := h.Backend.ListTrafficPolicyInstancesByHostedZone(hostedZoneID, marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
-	for _, inst := range instances {
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(p.Data))
+	for _, inst := range p.Data {
 		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
 	}
 
 	return writeXML(c, http.StatusOK, listTPInstancesByHZResponse{
-		Xmlns:                  route53Namespace,
-		TrafficPolicyInstances: xmlInstances,
-		IsTruncated:            false,
-		MaxItems:               "100",
+		Xmlns:                           route53Namespace,
+		TrafficPolicyInstances:          xmlInstances,
+		IsTruncated:                     p.Next != "",
+		MaxItems:                        strconv.Itoa(maxItems),
+		TrafficPolicyInstanceNameMarker: p.Next,
 	})
 }
 
@@ -273,43 +309,61 @@ type listTPInstancesByPolicyResponse struct {
 	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesByPolicyResponse"`
 	Xmlns                  string                     `xml:"xmlns,attr"`
 	MaxItems               string                     `xml:"MaxItems"`
+	HostedZoneIDMarker     string                     `xml:"HostedZoneIdMarker,omitempty"`
 	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
 	IsTruncated            bool                       `xml:"IsTruncated"`
 }
 
 func (h *Handler) listTrafficPolicyInstancesByPolicy(c *echo.Context) error {
-	tpID := c.Request().URL.Query().Get("trafficpolicyid")
-	tpVersionStr := c.Request().URL.Query().Get("trafficpolicyversion")
+	q := c.Request().URL.Query()
+	// route53@v1.65.6 serializers.go's
+	// awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesByPolicyInput
+	// binds TrafficPolicyId to query key "id" and TrafficPolicyVersion to
+	// "version" -- NOT "trafficpolicyid"/"trafficpolicyversion", which this
+	// handler previously read; a real client's filter was always silently
+	// ignored (both always empty/zero), so this op always returned nothing.
+	// "hostedzoneid" is genuinely HostedZoneIdMarker here (the op's own
+	// pagination cursor, distinct from the filter fixed above).
+	tpID := q.Get("id")
+	tpVersionStr := q.Get("version")
+	marker := q.Get("hostedzoneid")
+	maxItems := route53DefaultMaxItems
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
 	var tpVersion int32
 	if tpVersionStr != "" {
 		v, err := strconv.Atoi(tpVersionStr)
 		if err != nil {
-			return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid trafficpolicyversion")
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid version")
 		}
 
 		if v < math.MinInt32 || v > math.MaxInt32 {
-			return xmlError(c, http.StatusBadRequest, "InvalidInput", "trafficpolicyversion out of range")
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "version out of range")
 		}
 
 		tpVersion = int32(v) //nolint:gosec // bounds checked above
 	}
 
-	instances, err := h.Backend.ListTrafficPolicyInstancesByPolicy(tpID, tpVersion)
+	p, err := h.Backend.ListTrafficPolicyInstancesByPolicy(tpID, tpVersion, marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
-	for _, inst := range instances {
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(p.Data))
+	for _, inst := range p.Data {
 		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
 	}
 
 	return writeXML(c, http.StatusOK, listTPInstancesByPolicyResponse{
 		Xmlns:                  route53Namespace,
 		TrafficPolicyInstances: xmlInstances,
-		IsTruncated:            false,
-		MaxItems:               "100",
+		IsTruncated:            p.Next != "",
+		MaxItems:               strconv.Itoa(maxItems),
+		HostedZoneIDMarker:     p.Next,
 	})
 }
 

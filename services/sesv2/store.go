@@ -11,11 +11,12 @@ import (
 // deliverability/reputation entities) that build ad-hoc map[string]any
 // responses rather than typed structs.
 const (
-	keyStatus        = "Status"
-	keyStatusSuccess = "SUCCESS"
-	keyMessageID     = "MessageId"
-	keyEndpointID    = "EndpointId"
-	keySubject       = "Subject"
+	keyStatus                          = "Status"
+	keyStatusSuccess                   = "SUCCESS"
+	keyStatusMailFromDomainNotVerified = "MAIL_FROM_DOMAIN_NOT_VERIFIED"
+	keyMessageID                       = "MessageId"
+	keyEndpointID                      = "EndpointId"
+	keySubject                         = "Subject"
 )
 
 const sesv2DefaultMaxItems = 100
@@ -135,6 +136,11 @@ func paginateMaps(
 
 	start := 0
 	if nextToken != "" {
+		// Default to the end of the collection when the cursor doesn't
+		// resolve (e.g. the item it named was deleted) -- defaulting to 0
+		// would silently restart pagination from page one forever.
+		start = len(all)
+
 		for i, item := range all {
 			if item[keyName] == nextToken {
 				start = i

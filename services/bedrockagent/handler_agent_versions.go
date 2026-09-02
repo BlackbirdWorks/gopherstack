@@ -37,9 +37,9 @@ func (h *Handler) handleDeleteAgentVersion(
 }
 
 func (h *Handler) handleListAgentVersions(
-	ctx context.Context, c *echo.Context, agentID string,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	maxResults, nextToken := bodyPageParams(body)
 
 	summaries, outToken, err := h.Backend.ListAgentVersions(ctx, agentID, maxResults, nextToken)
 	if err != nil {

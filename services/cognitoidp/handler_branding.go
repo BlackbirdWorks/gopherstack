@@ -125,46 +125,12 @@ func (h *Handler) handleUpdateManagedLoginBranding(
 	return &updateManagedLoginBrandingOutput{ManagedLoginBranding: toManagedLoginBrandingType(mlb)}, nil
 }
 
-func (h *Handler) handleGetUICustomization(
-	_ context.Context,
-	in *getUICustomizationInput,
-) (*getUICustomizationOutput, error) {
-	ui, err := h.Backend.GetUICustomization(in.UserPoolID, in.ClientID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &getUICustomizationOutput{UICustomization: &uiCustomizationType{
-		UserPoolID: ui.UserPoolID,
-		ClientID:   ui.ClientID,
-		CSS:        ui.CSS,
-	}}, nil
-}
-
-func (h *Handler) handleSetUICustomization(
-	_ context.Context,
-	in *setUICustomizationInput,
-) (*setUICustomizationOutput, error) {
-	ui, err := h.Backend.SetUICustomization(in.UserPoolID, in.ClientID, in.CSS)
-	if err != nil {
-		return nil, err
-	}
-
-	return &setUICustomizationOutput{UICustomization: &uiCustomizationType{
-		UserPoolID: ui.UserPoolID,
-		ClientID:   ui.ClientID,
-		CSS:        ui.CSS,
-	}}, nil
-}
-
 func (h *Handler) brandingOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateManagedLoginBranding":           service.WrapOp(h.handleCreateManagedLoginBranding),
 		"DeleteManagedLoginBranding":           service.WrapOp(h.handleDeleteManagedLoginBranding),
 		"DescribeManagedLoginBranding":         service.WrapOp(h.handleDescribeManagedLoginBranding),
 		"DescribeManagedLoginBrandingByClient": service.WrapOp(h.handleDescribeManagedLoginBrandingByClient),
-		"GetUICustomization":                   service.WrapOp(h.handleGetUICustomization),
-		"SetUICustomization":                   service.WrapOp(h.handleSetUICustomization),
 		"UpdateManagedLoginBranding":           service.WrapOp(h.handleUpdateManagedLoginBranding),
 	}
 }

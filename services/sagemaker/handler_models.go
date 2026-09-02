@@ -136,7 +136,13 @@ func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	models, nextToken := h.Backend.ListModels(ctx, req.NextToken, req.toFilter())
+	filter := req.toFilter()
+	// ListModelsInput.CreationTimeAfter's own doc: "a creation time greater
+	// than or equal to the specified time" -- inclusive, unlike this
+	// family's shared default.
+	filter.AfterInclusive = true
+
+	models, nextToken := h.Backend.ListModels(ctx, req.NextToken, filter)
 	summaries := make([]modelSummary, 0, len(models))
 
 	for _, m := range models {

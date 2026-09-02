@@ -137,7 +137,12 @@ func (h *Handler) handleListPolicyStoreAliases(
 		policyStoreID = in.Filter.PolicyStoreID
 	}
 
-	aliases, nextToken := h.Backend.ListPolicyStoreAliases(policyStoreID, in.NextToken, in.MaxResults)
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultAliasListPageSize
+	}
+
+	aliases, nextToken := h.Backend.ListPolicyStoreAliases(policyStoreID, in.NextToken, maxResults)
 
 	items := make([]policyStoreAliasItemOut, 0, len(aliases))
 	for i := range aliases {

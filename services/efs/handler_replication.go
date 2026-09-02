@@ -107,6 +107,16 @@ func destinationToResponse(d ReplicationDestination) map[string]any {
 	if d.LastReplicatedTimestamp != 0 {
 		resp["LastReplicatedTimestamp"] = d.LastReplicatedTimestamp
 	}
+	// StatusMessage ("Message that provides details about the PAUSED or ERRROR
+	// state" -- types.Destination doc comment) is genuinely dormant here: this
+	// backend's replication Status is always synchronously ENABLED
+	// (replication.go's CreateReplicationConfiguration), never PAUSED/ERROR, so
+	// there is no code path that ever writes a non-empty value. Wired for
+	// completeness rather than left absent, per gopherstack-6flj precedent
+	// (route53resolver's ResolverRuleAssociation.StatusMessage).
+	if d.StatusMessage != "" {
+		resp["StatusMessage"] = d.StatusMessage
+	}
 
 	return resp
 }

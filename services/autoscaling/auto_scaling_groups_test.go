@@ -76,7 +76,7 @@ func TestInMemoryBackend_AutoScalingGroup(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, err := b.DescribeAutoScalingGroups(nil)
+				groups, err := b.DescribeAutoScalingGroups(nil, nil)
 				require.NoError(t, err)
 				require.Len(t, groups, 2)
 				// sorted alphabetically
@@ -96,7 +96,7 @@ func TestInMemoryBackend_AutoScalingGroup(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, err := b.DescribeAutoScalingGroups([]string{"specific-asg"})
+				groups, err := b.DescribeAutoScalingGroups([]string{"specific-asg"}, nil)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				assert.Equal(t, "specific-asg", groups[0].AutoScalingGroupName)
@@ -107,7 +107,7 @@ func TestInMemoryBackend_AutoScalingGroup(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.DescribeAutoScalingGroups([]string{"no-such-asg"})
+				_, err := b.DescribeAutoScalingGroups([]string{"no-such-asg"}, nil)
 				require.Error(t, err)
 			},
 		},
@@ -150,7 +150,7 @@ func TestInMemoryBackend_AutoScalingGroup(t *testing.T) {
 				err := b.DeleteAutoScalingGroup("del-asg", true)
 				require.NoError(t, err)
 
-				groups, err := b.DescribeAutoScalingGroups(nil)
+				groups, err := b.DescribeAutoScalingGroups(nil, nil)
 				require.NoError(t, err)
 				assert.Empty(t, groups)
 			},
@@ -274,7 +274,7 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.desired, groups[0].DesiredCapacity)
 
@@ -574,7 +574,7 @@ func TestInMemoryBackend_DeletionProtection(t *testing.T) {
 				require.Error(t, delErr)
 				require.ErrorIs(t, delErr, autoscaling.ErrDeletionProtected)
 
-				groups, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"})
+				groups, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"}, nil)
 				require.NoError(t, describeErr)
 				assert.Len(t, groups, 1, "group must still exist after a blocked delete")
 
@@ -583,7 +583,7 @@ func TestInMemoryBackend_DeletionProtection(t *testing.T) {
 
 			require.NoError(t, delErr)
 
-			_, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"})
+			_, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"}, nil)
 			require.Error(t, describeErr, "group must be gone after an allowed delete")
 		})
 	}

@@ -133,11 +133,12 @@ func advancedNetworkingSupportedOperations() []string {
 // ---- XML response types ----
 
 type vpnGatewayItem struct {
-	VpnGatewayID    string `xml:"vpnGatewayId"`
-	State           string `xml:"state"`
-	Type            string `xml:"type"`
-	AttachedVPCID   string `xml:"attachments>item>vpcId,omitempty"`
-	AttachmentState string `xml:"attachments>item>state,omitempty"`
+	VpnGatewayID    string          `xml:"vpnGatewayId"`
+	State           string          `xml:"state"`
+	Type            string          `xml:"type"`
+	AttachedVPCID   string          `xml:"attachments>item>vpcId,omitempty"`
+	AttachmentState string          `xml:"attachments>item>state,omitempty"`
+	TagSet          []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createVpnGatewayResponse struct {
@@ -176,11 +177,12 @@ type detachVpnGatewayResponse struct {
 }
 
 type customerGatewayItem struct {
-	CustomerGatewayID string `xml:"customerGatewayId"`
-	State             string `xml:"state"`
-	Type              string `xml:"type"`
-	BgpAsn            string `xml:"bgpAsn"`
-	IPAddress         string `xml:"ipAddress"`
+	CustomerGatewayID string          `xml:"customerGatewayId"`
+	State             string          `xml:"state"`
+	Type              string          `xml:"type"`
+	BgpAsn            string          `xml:"bgpAsn"`
+	IPAddress         string          `xml:"ipAddress"`
+	TagSet            []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createCustomerGatewayResponse struct {
@@ -268,6 +270,7 @@ type vpnConnectionItem struct {
 	VgwTelemetrySet struct {
 		Items []vgwTelemetryItem `xml:"item"`
 	} `xml:"vgwTelemetry"`
+	TagSet  []simpleTagItem          `xml:"tagSet>item"`
 	Options vpnConnectionOptionsItem `xml:"options"`
 }
 
@@ -283,6 +286,7 @@ func (h *Handler) toVpnConnectionItem(conn *VpnConnection) vpnConnectionItem {
 		VpnGatewayID:                 conn.VpnGatewayID,
 		TransitGatewayID:             conn.TransitGatewayID,
 		Category:                     conn.Category,
+		TagSet:                       tagItemsFromMap(h.Backend.TagsForResource(conn.VpnConnectionID)),
 	}
 
 	item.Options.StaticRoutesOnly = conn.Options.StaticRoutesOnly
@@ -393,6 +397,7 @@ type getVpnConnectionDeviceTypesResponse struct {
 	XMLName                    xml.Name `xml:"GetVpnConnectionDeviceTypesResponse"`
 	Xmlns                      string   `xml:"xmlns,attr"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	VpnConnectionDeviceTypeSet struct {
 		Items []vpnConnectionDeviceTypeItem `xml:"item"`
 	} `xml:"vpnConnectionDeviceTypeSet"`
@@ -495,26 +500,28 @@ type ipamOperatingRegionItem struct {
 }
 
 type ipamItem struct {
-	State                                 string `xml:"state"`
-	DefaultResourceDiscoveryID            string `xml:"defaultResourceDiscoveryId,omitempty"`
+	Tier                                  string `xml:"tier,omitempty"`
+	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
 	IpamARN                               string `xml:"ipamArn"`
 	IpamRegion                            string `xml:"ipamRegion,omitempty"`
 	PublicDefaultScopeID                  string `xml:"publicDefaultScopeId,omitempty"`
 	PrivateDefaultScopeID                 string `xml:"privateDefaultScopeId,omitempty"`
-	Tier                                  string `xml:"tier,omitempty"`
-	Description                           string `xml:"description,omitempty"`
+	DefaultResourceDiscoveryID            string `xml:"defaultResourceDiscoveryId,omitempty"`
 	OwnerID                               string `xml:"ownerId,omitempty"`
+	State                                 string `xml:"state"`
 	IpamID                                string `xml:"ipamId"`
-	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
+	Description                           string `xml:"description,omitempty"`
 	OperatingRegionSet                    struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
 	} `xml:"operatingRegionSet"`
-	ScopeCount                        int32 `xml:"scopeCount,omitempty"`
-	ResourceDiscoveryAssociationCount int32 `xml:"resourceDiscoveryAssociationCount,omitempty"`
+	TagSet                            []simpleTagItem `xml:"tagSet>item"`
+	ScopeCount                        int32           `xml:"scopeCount,omitempty"`
+	ResourceDiscoveryAssociationCount int32           `xml:"resourceDiscoveryAssociationCount,omitempty"`
 }
 
-func toIpamItem(ipam *Ipam) ipamItem {
+func (h *Handler) toIpamItem(ipam *Ipam) ipamItem {
 	item := ipamItem{
+		TagSet:                                tagItemsFromMap(h.Backend.TagsForResource(ipam.IpamID)),
 		IpamID:                                ipam.IpamID,
 		OwnerID:                               ipam.OwnerID,
 		IpamARN:                               ipam.IpamARN,
@@ -568,17 +575,18 @@ type deleteIpamResponse struct {
 }
 
 type ipamScopeItem struct {
-	IpamScopeID   string `xml:"ipamScopeId"`
-	IpamScopeARN  string `xml:"ipamScopeArn"`
-	IpamID        string `xml:"ipamId"`
-	IpamScopeType string `xml:"ipamScopeType"`
-	Description   string `xml:"description,omitempty"`
-	State         string `xml:"state"`
-	PoolCount     int32  `xml:"poolCount,omitempty"`
-	IsDefault     bool   `xml:"isDefault"`
+	IpamScopeID   string          `xml:"ipamScopeId"`
+	IpamScopeARN  string          `xml:"ipamScopeArn"`
+	IpamID        string          `xml:"ipamId"`
+	IpamScopeType string          `xml:"ipamScopeType"`
+	Description   string          `xml:"description,omitempty"`
+	State         string          `xml:"state"`
+	TagSet        []simpleTagItem `xml:"tagSet>item"`
+	PoolCount     int32           `xml:"poolCount,omitempty"`
+	IsDefault     bool            `xml:"isDefault"`
 }
 
-func toIpamScopeItem(scope *IpamScope) ipamScopeItem {
+func (h *Handler) toIpamScopeItem(scope *IpamScope) ipamScopeItem {
 	return ipamScopeItem{
 		IpamScopeID:   scope.IpamScopeID,
 		IpamScopeARN:  scope.IpamScopeARN,
@@ -588,6 +596,7 @@ func toIpamScopeItem(scope *IpamScope) ipamScopeItem {
 		Description:   scope.Description,
 		PoolCount:     scope.PoolCount,
 		State:         scope.State,
+		TagSet:        tagItemsFromMap(h.Backend.TagsForResource(scope.IpamScopeID)),
 	}
 }
 
@@ -622,22 +631,23 @@ type deleteIpamScopeResponse struct {
 }
 
 type ipamPoolItem struct {
-	IpamPoolID                     string `xml:"ipamPoolId"`
-	IpamPoolARN                    string `xml:"ipamPoolArn"`
-	IpamID                         string `xml:"ipamId"`
-	IpamScopeID                    string `xml:"ipamScopeId,omitempty"`
-	State                          string `xml:"state"`
-	Locale                         string `xml:"locale,omitempty"`
-	AddressFamily                  string `xml:"addressFamily"`
-	Description                    string `xml:"description,omitempty"`
-	AutoImport                     bool   `xml:"autoImport,omitempty"`
-	PubliclyAdvertisable           bool   `xml:"publiclyAdvertisable,omitempty"`
-	AllocationMinNetmaskLength     int32  `xml:"allocationMinNetmaskLength,omitempty"`
-	AllocationMaxNetmaskLength     int32  `xml:"allocationMaxNetmaskLength,omitempty"`
-	AllocationDefaultNetmaskLength int32  `xml:"allocationDefaultNetmaskLength,omitempty"`
+	AddressFamily                  string          `xml:"addressFamily"`
+	Description                    string          `xml:"description,omitempty"`
+	IpamID                         string          `xml:"ipamId"`
+	IpamScopeID                    string          `xml:"ipamScopeId,omitempty"`
+	State                          string          `xml:"state"`
+	Locale                         string          `xml:"locale,omitempty"`
+	IpamPoolID                     string          `xml:"ipamPoolId"`
+	IpamPoolARN                    string          `xml:"ipamPoolArn"`
+	TagSet                         []simpleTagItem `xml:"tagSet>item"`
+	AllocationDefaultNetmaskLength int32           `xml:"allocationDefaultNetmaskLength,omitempty"`
+	AllocationMinNetmaskLength     int32           `xml:"allocationMinNetmaskLength,omitempty"`
+	AllocationMaxNetmaskLength     int32           `xml:"allocationMaxNetmaskLength,omitempty"`
+	PubliclyAdvertisable           bool            `xml:"publiclyAdvertisable,omitempty"`
+	AutoImport                     bool            `xml:"autoImport,omitempty"`
 }
 
-func toIpamPoolItem(pool *IpamPool) ipamPoolItem {
+func (h *Handler) toIpamPoolItem(pool *IpamPool) ipamPoolItem {
 	return ipamPoolItem{
 		IpamPoolID:                     pool.IpamPoolID,
 		IpamPoolARN:                    pool.IpamPoolARN,
@@ -652,6 +662,7 @@ func toIpamPoolItem(pool *IpamPool) ipamPoolItem {
 		AllocationMinNetmaskLength:     pool.AllocationMinNetmaskLength,
 		AllocationMaxNetmaskLength:     pool.AllocationMaxNetmaskLength,
 		AllocationDefaultNetmaskLength: pool.AllocationDefaultNetmaskLength,
+		TagSet:                         tagItemsFromMap(h.Backend.TagsForResource(pool.IpamPoolID)),
 	}
 }
 

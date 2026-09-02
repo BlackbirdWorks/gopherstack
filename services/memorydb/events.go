@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -26,8 +27,9 @@ func (b *InMemoryBackend) appendEventLocked(region string, ev *Event) {
 	}
 }
 
-// DescribeEvents returns events, optionally filtered by source name and type.
-func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsRequest) ([]*Event, error) {
+// DescribeEvents returns events for the calling request's region, optionally
+// filtered by source name and type.
+func (b *InMemoryBackend) DescribeEvents(ctx context.Context, req *describeEventsRequest) ([]*Event, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -41,15 +43,30 @@ func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsR
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	var result []*Event
 
-	for _, evs := range b.events {
-		for _, ev := range evs {
-			if eventMatchesFilter(ev, req, startTime, endTime) {
-				result = append(result, cloneEvent(ev))
-			}
+	for _, ev := range b.events[region] {
+		if eventMatchesFilter(ev, req, startTime, endTime) {
+			result = append(result, cloneEvent(ev))
 		}
 	}
+
+	// b.events[region] is a slice, so iteration order is already deterministic;
+	// sort by Date anyway since events can be appended out of Date order (e.g.
+	// a backdated seed), and pagination requires a stable ordering across calls.
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].Date.Equal(result[j].Date) {
+			return result[i].Date.Before(result[j].Date)
+		}
+
+		if result[i].SourceName != result[j].SourceName {
+			return result[i].SourceName < result[j].SourceName
+		}
+
+		return result[i].Message < result[j].Message
+	})
 
 	return result, nil
 }

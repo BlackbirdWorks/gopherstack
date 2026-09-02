@@ -31,6 +31,11 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceType := vals.Get("SourceType")
 	enabled := vals.Get("Enabled") != "false"
 	sourceIDs := parseSourceIDMembers(vals)
+	// Real key is "EventCategories.EventCategory.N", not the generic
+	// ".member.N" (confirmed on this op's own serializer,
+	// awsAwsquery_serializeOpDocumentCreateEventSubscriptionInput,
+	// neptune@v1.48.4 serializers.go:5967-5972).
+	eventCategories := parseMemberList(vals, "EventCategories.EventCategory")
 	tags := parseTagEntries(vals)
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
@@ -41,6 +46,7 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 		snsTopicARN,
 		sourceType,
 		sourceIDs,
+		eventCategories,
 		enabled,
 	)
 	if err != nil {
@@ -100,7 +106,10 @@ func (h *Handler) handleModifyEventSubscription(ctx context.Context, vals url.Va
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
 	enabled := vals.Get("Enabled")
-	eventCategories := parseMemberList(vals, "EventCategories.member")
+	// Real key is "EventCategories.EventCategory.N", not the generic
+	// ".member.N" (awsAwsquery_serializeDocumentEventCategoriesList,
+	// neptune@v1.48.4 serializers.go:4971-4972).
+	eventCategories := parseMemberList(vals, "EventCategories.EventCategory")
 	sub, err := h.Backend.ModifyEventSubscription(
 		ctx, name, snsTopicARN, sourceType, enabled, eventCategories,
 	)
@@ -173,7 +182,10 @@ func (h *Handler) handleDescribeEvents(ctx context.Context, vals url.Values) (an
 		StartTime:        vals.Get("StartTime"),
 		EndTime:          vals.Get("EndTime"),
 		Duration:         duration,
-		EventCategories:  parseMemberList(vals, "EventCategories.member"),
+		// Real key is "EventCategories.EventCategory.N", not the generic
+		// ".member.N" (awsAwsquery_serializeDocumentEventCategoriesList,
+		// neptune@v1.48.4 serializers.go:4971-4972).
+		EventCategories: parseMemberList(vals, "EventCategories.EventCategory"),
 	}
 	events := h.Backend.DescribeEvents(ctx, filter)
 	members := make([]xmlEvent, 0, len(events))

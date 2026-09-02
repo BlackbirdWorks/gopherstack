@@ -544,21 +544,23 @@ type CreateModelInput struct {
 }
 
 // CreateStageInput is the input for the standalone CreateStage operation.
+//
+// Real CreateStageInput has no AccessLogSettings, MethodSettings, or
+// ClientCertificateId members (aws-sdk-go-v2 apigateway@v1.42.4
+// api_op_CreateStage.go) -- those are only settable afterward via
+// UpdateStage's PATCH operations, not at creation time.
 type CreateStageInput struct {
-	Tags                 map[string]string        `json:"tags,omitempty"`
-	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
-	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
-	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
-	Variables            map[string]string        `json:"variables,omitempty"`
-	RestAPIID            string                   `json:"restApiId"`
-	StageName            string                   `json:"stageName"`
-	DeploymentID         string                   `json:"deploymentId"`
-	Description          string                   `json:"description,omitempty"`
-	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
-	CacheClusterSize     string                   `json:"cacheClusterSize,omitempty"`
-	DocumentationVersion string                   `json:"documentationVersion,omitempty"`
-	TracingEnabled       bool                     `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled  bool                     `json:"cacheClusterEnabled,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	CanarySettings       *CanarySettings   `json:"canarySettings,omitempty"`
+	Variables            map[string]string `json:"variables,omitempty"`
+	RestAPIID            string            `json:"restApiId"`
+	StageName            string            `json:"stageName"`
+	DeploymentID         string            `json:"deploymentId"`
+	Description          string            `json:"description,omitempty"`
+	CacheClusterSize     string            `json:"cacheClusterSize,omitempty"`
+	DocumentationVersion string            `json:"documentationVersion,omitempty"`
+	TracingEnabled       bool              `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled  bool              `json:"cacheClusterEnabled,omitempty"`
 }
 
 // ThrottleSettings controls request rate limiting for a usage plan.
@@ -956,6 +958,7 @@ type GetUsageInput struct {
 	UsagePlanID string `json:"usagePlanId"`
 	StartDate   string `json:"startDate"`
 	EndDate     string `json:"endDate"`
+	KeyID       string `json:"keyId,omitempty"`
 	Position    string `json:"position,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 }

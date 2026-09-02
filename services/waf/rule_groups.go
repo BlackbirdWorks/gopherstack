@@ -69,11 +69,24 @@ func (b *InMemoryBackend) UpdateRuleGroup(id, changeToken string, updates []Acti
 	}
 
 	rules := b.ruleGroupRules[id]
+	active := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		active[r.RuleId] = true
+	}
+
 	for _, u := range updates {
 		switch u.Action {
 		case updateInsert:
+			if active[u.ActivatedRule.RuleId] {
+				return fmt.Errorf("%w: rule %q is already activated in this RuleGroup",
+					ErrInvalidParameter, u.ActivatedRule.RuleId)
+			}
+
+			active[u.ActivatedRule.RuleId] = true
 			rules = append(rules, u.ActivatedRule)
 		case updateDelete:
+			delete(active, u.ActivatedRule.RuleId)
+
 			filtered := rules[:0]
 			for _, r := range rules {
 				if r.RuleId != u.ActivatedRule.RuleId {

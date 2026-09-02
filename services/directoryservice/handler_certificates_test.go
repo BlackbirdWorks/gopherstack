@@ -29,7 +29,7 @@ func TestListCertificates_Pagination(t *testing.T) {
 			t,
 			h,
 			"ListCertificates",
-			map[string]any{"DirectoryId": dirID, "PageSize": 2},
+			map[string]any{"DirectoryId": dirID, "Limit": 2},
 		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
@@ -39,7 +39,7 @@ func TestListCertificates_Pagination(t *testing.T) {
 		assert.NotEmpty(t, nextToken)
 
 		rec2 := doRequest(t, h, "ListCertificates", map[string]any{
-			"DirectoryId": dirID, "PageSize": 2, "NextToken": nextToken,
+			"DirectoryId": dirID, "Limit": 2, "NextToken": nextToken,
 		})
 		assert.Equal(t, http.StatusOK, rec2.Code)
 		body2 := respBody(t, rec2)

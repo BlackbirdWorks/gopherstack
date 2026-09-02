@@ -3,6 +3,7 @@ package quicksight
 import (
 	"maps"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -12,7 +13,21 @@ const (
 	// filterKnowledgeBaseName is the SearchKnowledgeBases filter attribute
 	// name for matching on a knowledge base's display name (the real API's
 	// KNOWLEDGE_BASE_NAME filter).
-	filterKnowledgeBaseName = "KNOWLEDGE_BASE_NAME"
+	filterKnowledgeBaseName          = "KNOWLEDGE_BASE_NAME"
+	filterKnowledgeBaseID            = "KNOWLEDGE_BASE_ID"
+	filterKnowledgeBaseSizeBytes     = "KNOWLEDGE_BASE_SIZE_BYTES"
+	filterKnowledgeBasePrimaryOwner  = "PRIMARY_OWNER"
+	filterKnowledgeBaseDataSourceArn = "DATASOURCE_ARN"
+
+	// kbOperatorStringLike, kbOperatorGreaterThanOrEquals and
+	// kbOperatorLessThanOrEquals are KnowledgeBaseSearchOperator's own wire
+	// values ("STRING_LIKE", "GREATER_THAN_OR_EQUALS", "LESS_THAN_OR_EQUALS"
+	// -- quicksight@v1.123.1 types/enums.go). This differs from
+	// FilterOperator's "StringLike" used by most other Search ops in this
+	// service: read per this operation's own type, not a sibling's.
+	kbOperatorStringLike          = "STRING_LIKE"
+	kbOperatorGreaterThanOrEquals = "GREATER_THAN_OR_EQUALS"
+	kbOperatorLessThanOrEquals    = "LESS_THAN_OR_EQUALS"
 )
 
 func knowledgeBaseKey(accountID, knowledgeBaseID string) string {
@@ -222,6 +237,64 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 	return result, next, nil
 }
 
+// matchesKBSizeFilter compares actual against filter.Value parsed as an
+// int64. GREATER_THAN_OR_EQUALS/LESS_THAN_OR_EQUALS are the two operators
+// KnowledgeBaseSearchOperator adds beyond STRING_EQUALS/STRING_LIKE;
+// anything else (including STRING_EQUALS) defaults to numeric equality,
+// mirroring matchesStringOp's own default-to-equality convention. A Value
+// that doesn't parse as an integer never matches.
+func matchesKBSizeFilter(actual int64, filter SearchFilter) bool {
+	target, err := strconv.ParseInt(filter.Value, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	switch filter.Operator {
+	case kbOperatorGreaterThanOrEquals:
+		return actual >= target
+	case kbOperatorLessThanOrEquals:
+		return actual <= target
+	default:
+		return actual == target
+	}
+}
+
+// knowledgeBaseMatchesFilters reports whether k satisfies every filter (AND
+// semantics, matching matchesAllNameFilters). KnowledgeBaseSearchFilterName
+// documents KNOWLEDGE_BASE_ID, KNOWLEDGE_BASE_SIZE_BYTES, PRIMARY_OWNER and
+// DATASOURCE_ARN alongside KNOWLEDGE_BASE_NAME and three ownership names;
+// the first four are plain tracked fields (unlike ownership, which this
+// backend doesn't model principals for), so they're checked here rather
+// than passed through.
+func knowledgeBaseMatchesFilters(k *storedKnowledgeBase, filters []SearchFilter) bool {
+	for _, f := range filters {
+		switch f.Name {
+		case filterKnowledgeBaseName:
+			if !matchesStringOp(k.Name, f.Operator, f.Value, kbOperatorStringLike) {
+				return false
+			}
+		case filterKnowledgeBaseID:
+			if !matchesStringOp(k.KnowledgeBaseID, f.Operator, f.Value, kbOperatorStringLike) {
+				return false
+			}
+		case filterKnowledgeBasePrimaryOwner:
+			if !matchesStringOp(k.PrimaryOwnerArn, f.Operator, f.Value, kbOperatorStringLike) {
+				return false
+			}
+		case filterKnowledgeBaseDataSourceArn:
+			if !matchesStringOp(k.DataSourceArn, f.Operator, f.Value, kbOperatorStringLike) {
+				return false
+			}
+		case filterKnowledgeBaseSizeBytes:
+			if !matchesKBSizeFilter(k.SizeBytes, f) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) SearchKnowledgeBases(
 	_ string,
 	filters []SearchFilter,
@@ -233,7 +306,7 @@ func (b *InMemoryBackend) SearchKnowledgeBases(
 
 	var filtered []*storedKnowledgeBase
 	for _, k := range b.knowledgeBases.All() {
-		if matchesAllNameFilters(k.Name, filters, filterKnowledgeBaseName) {
+		if knowledgeBaseMatchesFilters(k, filters) {
 			filtered = append(filtered, k)
 		}
 	}
@@ -255,6 +328,7 @@ func paginateKnowledgeBases(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, k := range all {
 			if k.KnowledgeBaseID == nextToken {
 				start = i

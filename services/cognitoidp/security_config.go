@@ -3,9 +3,13 @@ package cognitoidp
 import (
 	"fmt"
 	"maps"
+	"time"
 )
 
-// SetTypedRiskConfiguration stores a fully typed risk configuration for a pool or client.
+// SetTypedRiskConfiguration stores a fully typed risk configuration for a
+// pool or client. LastModifiedAt is stamped here (not by the caller) so
+// every real SetRiskConfiguration call updates it, matching real
+// RiskConfigurationType.LastModifiedDate semantics.
 func (b *InMemoryBackend) SetTypedRiskConfiguration(cfg *TypedRiskConfiguration) error {
 	b.mu.Lock("SetTypedRiskConfiguration")
 	defer b.mu.Unlock()
@@ -14,6 +18,7 @@ func (b *InMemoryBackend) SetTypedRiskConfiguration(cfg *TypedRiskConfiguration)
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, cfg.UserPoolID)
 	}
 
+	cfg.LastModifiedAt = time.Now()
 	b.typedRiskConfigurations.Put(cfg)
 
 	return nil

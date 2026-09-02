@@ -7,7 +7,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
+
+// TestDetectLabels_MinConfidenceDefault locks in the real SDK's documented
+// default: "you can specify MinConfidence to control the confidence
+// threshold for the labels returned. The default is 55%."
+// (api_op_DetectLabels.go). An omitted MinConfidence must resolve to 55, not
+// some other value.
+func TestDetectLabels_MinConfidenceDefault(t *testing.T) {
+	t.Parallel()
+
+	assert.InDelta(t, 55.0, rekognition.ResolveDetectLabelsMinConfidence(0), 0.001)
+	// An explicit value passes through unchanged.
+	assert.InDelta(t, 42.0, rekognition.ResolveDetectLabelsMinConfidence(42.0), 0.001)
+}
 
 func TestDetectLabels_ReturnsEmptyList(t *testing.T) {
 	t.Parallel()

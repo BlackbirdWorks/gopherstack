@@ -83,6 +83,18 @@ func (b *InMemoryBackend) ListTagsForResource(_ context.Context, resourceArn str
 }
 
 // TagResource adds or updates tags on a resource.
+//
+// validateTags's per-key/value checks (empty key, oversized key or value)
+// return ErrValidation (InvalidInputException), a code TagResource's own
+// switch does not declare ([LimitExceededException, ResourceNotFoundException],
+// codestarconnections@v1.38.4 deserializers.go
+// deserializeOpErrorTagResource) -- unlike the count-limit check just above
+// it in validateTags, which correctly uses ErrTagLimitExceeded
+// (LimitExceededException, declared here). No ValidationException
+// equivalent exists anywhere in this SDK module, so there is no correct
+// code to substitute; recorded, not fixed (gopherstack-6flj/uox6
+// error-envelope sweep, found by manual trace beyond errtargetaudit's own
+// findings for this op).
 func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tags map[string]string) error {
 	if err := validateTags(tags); err != nil {
 		return err

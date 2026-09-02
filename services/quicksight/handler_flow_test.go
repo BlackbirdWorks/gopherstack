@@ -38,9 +38,12 @@ func TestQuickSight_GetFlowMetadata(t *testing.T) {
 	assert.Equal(t, "PUBLISHED", body["PublishState"])
 	assert.Contains(t, body["Arn"], "arn:aws:quicksight:us-east-1:000000000000:flow/flow1")
 
+	// GetFlowMetadata's own deserializer models InvalidParameterValueException,
+	// not ResourceNotFoundException, for an unresolvable FlowId (unlike
+	// DescribeFlow/UpdateFlow/DeleteFlow, which do model it).
 	missingRec := doRequest(t, h, http.MethodGet, accountPath("/flows/notexist/metadata"), nil)
-	assert.Equal(t, http.StatusNotFound, missingRec.Code)
-	assert.Equal(t, "ResourceNotFoundException", parseBody(t, missingRec)["Code"])
+	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
+	assert.Equal(t, "InvalidParameterValueException", parseBody(t, missingRec)["Code"])
 }
 
 // ---- ListFlows pagination ----
@@ -138,8 +141,10 @@ func TestQuickSight_FlowPermissions(t *testing.T) {
 	require.Equal(t, http.StatusOK, revokeRec.Code)
 	assert.Empty(t, parseBody(t, revokeRec)["Permissions"])
 
+	// GetFlowPermissions's own deserializer models InvalidParameterValueException,
+	// not ResourceNotFoundException, for an unresolvable FlowId.
 	missingRec := doRequest(t, h, http.MethodGet, accountPath("/flows/notexist/permissions"), nil)
-	assert.Equal(t, http.StatusNotFound, missingRec.Code)
+	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
 }
 
 // ---- CreateFlow/DescribeFlow/UpdateFlow/DeleteFlow: added to the SDK after
@@ -738,7 +743,7 @@ func TestQuickSight_KnowledgeBases(t *testing.T) {
 
 				searchRec := doRequest(t, h, http.MethodPost, v1AccountPath("/search/knowledge-bases"), map[string]any{
 					"Filters": []any{
-						map[string]any{"Name": "KNOWLEDGE_BASE_NAME", "Operator": "StringLike", "Value": "Support"},
+						map[string]any{"name": "KNOWLEDGE_BASE_NAME", "operator": "STRING_LIKE", "value": "Support"},
 					},
 				})
 				require.Equal(t, http.StatusOK, searchRec.Code)
@@ -890,7 +895,7 @@ func TestQuickSight_Spaces(t *testing.T) {
 
 				searchRec := doRequest(t, h, http.MethodPost, v1AccountPath("/search/spaces"), map[string]any{
 					"Filters": []any{
-						map[string]any{"Name": "SPACE_NAME", "Operator": "StringLike", "Value": "Support"},
+						map[string]any{"name": "SPACE_NAME", "operator": "STRING_LIKE", "value": "Support"},
 					},
 				})
 				require.Equal(t, http.StatusOK, searchRec.Code)

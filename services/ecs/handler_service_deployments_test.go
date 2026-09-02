@@ -49,6 +49,56 @@ func TestServiceDeployment_DescribeList_Roundtrip(t *testing.T) {
 	assert.NotEmpty(t, dep["serviceDeploymentArn"])
 }
 
+// TestECS_ListServiceDeployments_StableOrder guards against Go map iteration
+// leaking into the wire response: ListServiceDeployments reads from
+// b.serviceDeployments (a *store.Table), whose All() method documents
+// "Iteration order is UNSPECIFIED (Go map order)" (pkgs/store/table.go). AWS
+// documents no order for ListServiceDeployments, so any deterministic order
+// is correct; this pins ServiceDeploymentArn-ascending, matching the sibling
+// ListDaemonDeployments convention (handler_daemon.go).
+func TestECS_ListServiceDeployments_StableOrder(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+	h := ecs.NewHandler(backend)
+
+	for _, name := range []string{"dep-zeta", "dep-alpha", "dep-mid"} {
+		backend.AddServiceDeploymentInternal(&ecs.ServiceDeployment{
+			ServiceDeploymentArn: "arn:aws:ecs:us-east-1:000000000000:service-deployment/order-cluster/order-svc/" + name,
+			ClusterArn:           "arn:aws:ecs:us-east-1:000000000000:cluster/order-cluster",
+			ServiceArn:           "arn:aws:ecs:us-east-1:000000000000:service/order-cluster/order-svc",
+			Status:               "IN_PROGRESS",
+		})
+	}
+
+	want := []string{
+		"arn:aws:ecs:us-east-1:000000000000:service-deployment/order-cluster/order-svc/dep-alpha",
+		"arn:aws:ecs:us-east-1:000000000000:service-deployment/order-cluster/order-svc/dep-mid",
+		"arn:aws:ecs:us-east-1:000000000000:service-deployment/order-cluster/order-svc/dep-zeta",
+	}
+
+	for range 5 {
+		rec := doECSRequest(t, h, "ListServiceDeployments", map[string]any{
+			"cluster": "order-cluster",
+			"service": "order-svc",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		briefs := resp["serviceDeployments"].([]any)
+		require.Len(t, briefs, 3)
+
+		got := make([]string, len(briefs))
+		for i, b := range briefs {
+			got[i] = b.(map[string]any)["serviceDeploymentArn"].(string)
+		}
+
+		assert.Equal(t, want, got)
+	}
+}
+
 func TestStopServiceDeployment(t *testing.T) {
 	t.Parallel()
 

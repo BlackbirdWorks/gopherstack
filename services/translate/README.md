@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,6 +21,7 @@
 - VALUE-CORRECTNESS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): DeleteParallelData returns pd.Status as it stood immediately before deletion (e.g. ACTIVE), never the DELETING value real AWS documents for 'the status of the parallel data deletion' (DeleteParallelDataResponse.Status, botocore service-2.json). This is a right-key/right-type/questionable-VALUE issue, not a shape break -- ACTIVE is still a valid ParallelDataStatus enum member, so no client-side deserialization failure results -- and fixing it properly would need a transient DELETING state in the lifecycle model (delete marks DELETING, a later poll/janitor actually removes the row), which is lifecycle-state-machine work out of scope for a wrapper-key/nesting sweep. Left as-is; flagging for a future targeted pass.
 - MISSING NON-REQUIRED MEMBERS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TerminologyProperties.SkippedTermCount and .Message, and ParallelDataProperties.FailedRecordCount/ImportedDataSize/ImportedRecordCount/SkippedRecordCount/.Message are real optional response members this emulator never populates (terminologyToMap/parallelDataToMap omit them entirely rather than emitting a zero value). None are marked required in types.TerminologyProperties/types.ParallelDataProperties, and populating them honestly would require modeling per-record import/skip counters the backend doesn't track today -- Layer-3-scope, left as a disclosed gap rather than fabricated.
 - SEMANTIC, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TextTranslationJobProperties.JobDetails is always {TranslatedDocumentsCount:0, DocumentsWithErrorsCount:0, InputDocumentsCount:0} regardless of job size (jobToMap, handler_text_translation_jobs.go) -- the wrapper key and nested field names are correct (verified against types.JobDetails), but the values are a hardcoded stub since this emulator never actually reads/counts documents in the InputDataConfig S3 location. Semantic gap, not a wire-shape bug; left as-is.
+- SEMANTIC, DISCLOSED NOT FIXED (gopherstack-wksw, 2026-08-29 constraint-not-honoured sweep): ListLanguages' DisplayLanguageCode is validated against the real 10-value enum (fixed by a prior pass, see ops entry) but never actually applied -- knownLanguages() (handler_languages.go) returns every LanguageName in English regardless of the requested DisplayLanguageCode, since this emulator has no localized name table for the ~75 x 10 language/display-language combinations real AWS serves. The response's own DisplayLanguageCode field correctly echoes what was requested, so a client can tell what it asked for; only the LanguageName strings themselves don't follow it. Structural gap (no i18n data modeled anywhere in this service), not a filter/pagination bug -- left as-is rather than fabricating partial translations for a handful of languages.
 
 ## More
 

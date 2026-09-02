@@ -114,7 +114,7 @@ func TestCreateWorkspace_RequiresRegisteredDirectory(t *testing.T) {
 			b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 
 			if tc.register {
-				require.NoError(t, b.RegisterWorkspaceDirectory(tc.dirID, nil))
+				require.NoError(t, b.RegisterWorkspaceDirectory(tc.dirID, nil, nil))
 			}
 
 			_, err := b.CreateWorkspace(context.Background(), &workspaces.WorkspaceCreationSpec{
@@ -162,7 +162,7 @@ func TestDescribeWorkspaces_FiltersByRegion(t *testing.T) {
 			t.Parallel()
 
 			b := workspaces.NewInMemoryBackend("000000000000", tc.createRegion)
-			require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil))
+			require.NoError(t, b.RegisterWorkspaceDirectory("d-test", nil, nil))
 
 			createCtx := ctxWithRegion(tc.createRegion)
 			_, err := b.CreateWorkspace(createCtx, &workspaces.WorkspaceCreationSpec{

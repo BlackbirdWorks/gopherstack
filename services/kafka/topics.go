@@ -46,7 +46,7 @@ func (b *InMemoryBackend) CreateTopic(
 
 	key := topicKey(clusterArn, topicName)
 	if b.topics.Has(key) {
-		return nil, ErrAlreadyExists
+		return nil, ErrTopicExists
 	}
 
 	topic := &Topic{
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) DeleteTopic(_ context.Context, clusterArn, topicName s
 	}
 
 	if !b.topics.Delete(topicKey(clusterArn, topicName)) {
-		return ErrNotFound
+		return ErrTopicNotFound
 	}
 
 	return nil
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) UpdateTopic(
 
 	t, ok := b.topics.Get(topicKey(clusterArn, topicName))
 	if !ok {
-		return nil, ErrNotFound
+		return nil, ErrTopicNotFound
 	}
 
 	if partitionCount > 0 {

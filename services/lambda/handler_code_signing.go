@@ -84,7 +84,12 @@ func (h *Handler) handlePutFunctionCodeSigningConfig(c *echo.Context, bk *InMemo
 	if putErr := bk.PutFunctionCodeSigningConfig(name, input.CodeSigningConfigArn); putErr != nil {
 		if errors.Is(putErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function or code signing config not found: "+name)
+				"Function not found: "+name)
+		}
+
+		if errors.Is(putErr, ErrCodeSigningConfigNotFound) {
+			return h.writeError(c, http.StatusNotFound, "CodeSigningConfigNotFoundException",
+				"Code signing config not found: "+input.CodeSigningConfigArn)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())

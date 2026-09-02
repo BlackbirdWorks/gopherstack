@@ -84,7 +84,7 @@ func (h *Handler) getDeviceProfile(c *echo.Context, id string) error {
 }
 
 func (h *Handler) listDeviceProfiles(c *echo.Context) error {
-	profiles := h.Backend.ListDeviceProfiles(h.AccountID, h.DefaultRegion)
+	profiles := h.Backend.ListDeviceProfiles(h.AccountID, h.DefaultRegion, c.QueryParam("deviceProfileType"))
 	pg, next := paginateQuery(c, profiles)
 
 	entries := make([]deviceProfileListEntry, 0, len(pg))

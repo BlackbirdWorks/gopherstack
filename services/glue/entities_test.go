@@ -1,8 +1,11 @@
 package glue_test
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -297,4 +300,42 @@ func TestBackend_ConnectionTypeRegistry(t *testing.T) {
 		_, err := b.DescribeConnectionType("does-not-exist")
 		require.Error(t, err)
 	})
+}
+
+// TestListEntities_Pagination drives ListEntities' native-catalog path (no
+// ConnectionName) through the real SDK client. glue@v1.152.0
+// api_op_ListEntities.go declares NextToken on both input and output but no
+// MaxResults, so the page size is server-fixed rather than caller-supplied.
+func TestListEntities_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := glue.NewInMemoryBackend(testAccountID, testRegion)
+
+	const dbCount = 101
+	for i := range dbCount {
+		_, err := b.CreateDatabase(glue.DatabaseInput{Name: fmt.Sprintf("edb%03d", i)}, nil)
+		require.NoError(t, err)
+	}
+
+	c := newTestGlueClient(t, glue.NewHandler(b))
+	ctx := t.Context()
+
+	first, err := c.ListEntities(ctx, &gluesdk.ListEntitiesInput{})
+	require.NoError(t, err)
+	assert.Len(t, first.Entities, 100, "first page must truncate to the default page size")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, *first.NextToken)
+
+	second, err := c.ListEntities(ctx, &gluesdk.ListEntitiesInput{NextToken: first.NextToken})
+	require.NoError(t, err)
+	assert.Len(t, second.Entities, dbCount-100, "second page must return the remainder")
+	assert.True(t, second.NextToken == nil || *second.NextToken == "", "NextToken must be empty once exhausted")
+
+	seen := make(map[string]bool, dbCount)
+	for _, e := range append(first.Entities, second.Entities...) {
+		name := aws.ToString(e.EntityName)
+		assert.False(t, seen[name], "entity %s must not appear twice across pages", name)
+		seen[name] = true
+	}
+	assert.Len(t, seen, dbCount)
 }

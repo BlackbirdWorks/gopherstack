@@ -389,7 +389,6 @@ func toJourneyResponse(j *Journey) journeyResponse {
 		ID:                     j.ID,
 		Name:                   j.Name,
 		State:                  j.State,
-		Tags:                   j.Tags,
 		Activities:             j.Activities,
 		StartCondition:         j.StartCondition,
 		Schedule:               j.Schedule,

@@ -328,7 +328,7 @@ func TestDescribeVpcEndpointAssociations_VpcIDPresent(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Interface", nil)
@@ -478,7 +478,7 @@ func TestModifyVpcEndpoint_AddSubnet(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
@@ -604,7 +604,7 @@ func TestVpcEndpoint_SubnetIDsInResponse(t *testing.T) {
 		"VpcEndpointId.1": {ep.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>",
+	assert.Contains(t, resp, "<subnetIdSet><item>subnet-default</item></subnetIdSet>",
 		"SubnetId must appear in DescribeVpcEndpoints response")
 }
 
@@ -639,7 +639,7 @@ func TestVpcEndpoint_RouteTableIDsInResponse(t *testing.T) {
 		"VpcEndpointId.1": {ep.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<routeTableId>"+rt.ID+"</routeTableId>",
+	assert.Contains(t, resp, "<routeTableIdSet><item>"+rt.ID+"</item></routeTableIdSet>",
 		"RouteTableId must appear in DescribeVpcEndpoints response")
 }
 
@@ -667,7 +667,7 @@ func TestVpcEndpoint_CreateWithRouteTableID(t *testing.T) {
 		"RouteTableId.1":  {rt.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<routeTableId>"+rt.ID+"</routeTableId>",
+	assert.Contains(t, resp, "<routeTableIdSet><item>"+rt.ID+"</item></routeTableIdSet>",
 		"RouteTableId must be returned in CreateVpcEndpoint response")
 }
 
@@ -697,8 +697,7 @@ func TestVpcEndpoint_MultipleSubnets(t *testing.T) {
 		"SubnetId.2":      {subnet2.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>")
-	assert.Contains(t, resp, "<subnetId>"+subnet2.ID+"</subnetId>")
+	assert.Contains(t, resp, "<subnetIdSet><item>subnet-default</item><item>"+subnet2.ID+"</item></subnetIdSet>")
 }
 
 // TestVpcEndpoint_DeleteReturnsDeleted verifies DeleteVpcEndpoints
@@ -797,7 +796,7 @@ func TestCreateVpcEndpoint_ResponseShape(t *testing.T) {
 			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 			h := newTestHandlerWithBackend(b)
 
-			vpc, err := b.CreateVpc("10.0.0.0/16")
+			vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 			require.NoError(t, err)
 
 			resp, err := ec2.ExportDispatch(h, url.Values{
@@ -834,7 +833,7 @@ func TestVpcEndpoint_TagDualWritePathVisibility(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	createResp, err := ec2.ExportDispatch(h, url.Values{
@@ -902,7 +901,7 @@ func TestDescribeVpcEndpoints_FilterByID(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	ep1, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Interface", nil)
@@ -1001,7 +1000,7 @@ func TestModifyVpcEndpointPayerResponsibility(t *testing.T) {
 			setup: func(t *testing.T, b *ec2.InMemoryBackend) url.Values {
 				t.Helper()
 
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 				ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
 				require.NoError(t, err)
@@ -1054,7 +1053,7 @@ func TestModifyVpcEndpointPayerResponsibility_UpsertsSameScope(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 	ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
 	require.NoError(t, err)

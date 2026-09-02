@@ -175,6 +175,10 @@ func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
 
 		if cfg.CognitoUserPool.GroupConfiguration != nil {
 			out.CognitoGroupEntityType = cfg.CognitoUserPool.GroupConfiguration.GroupEntityType
+			if out.CognitoGroupEntityType == "" {
+				// CognitoGroupConfiguration.GroupEntityType: "Defaults to AWS::CognitoGroup."
+				out.CognitoGroupEntityType = "AWS::CognitoGroup"
+			}
 		}
 	} else if cfg.OpenIDConnect != nil {
 		out.Issuer = cfg.OpenIDConnect.Issuer
@@ -329,8 +333,13 @@ func (h *Handler) handleListIdentitySources(
 		}
 	}
 
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultListPageSize
+	}
+
 	sources, nextToken, err := h.Backend.ListIdentitySources(
-		resolvedID, in.NextToken, in.MaxResults, principalEntityTypes,
+		resolvedID, in.NextToken, maxResults, principalEntityTypes,
 	)
 	if err != nil {
 		return nil, err

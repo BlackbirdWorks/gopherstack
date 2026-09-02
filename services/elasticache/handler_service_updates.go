@@ -161,8 +161,13 @@ func (h *Handler) describeUpdateActions(ctx context.Context, c *echo.Context, fo
 	if err != nil {
 		return err
 	}
+	cacheClusterIDs := parseRepeatedField(form, "CacheClusterIds.member")
+	replicationGroupIDs := parseRepeatedField(form, "ReplicationGroupIds.member")
+	updateActionStatus := parseRepeatedField(form, "UpdateActionStatus.member")
 
-	p, err := h.Backend.DescribeUpdateActions(ctx, serviceUpdateName, marker, maxRecords)
+	p, err := h.Backend.DescribeUpdateActions(
+		ctx, serviceUpdateName, marker, maxRecords, cacheClusterIDs, replicationGroupIDs, updateActionStatus,
+	)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

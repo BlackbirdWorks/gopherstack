@@ -28,3 +28,9 @@ func StreamProcessorCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// ResolveDetectLabelsMinConfidence exposes resolveMinConfidence for testing
+// the DetectLabels default-MinConfidence value.
+func ResolveDetectLabelsMinConfidence(v float64) float64 {
+	return resolveMinConfidence(v)
+}

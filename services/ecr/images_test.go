@@ -202,7 +202,7 @@ func TestListImages_Filter_Backend_TAGGED(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ids, err := b.ListImages(context.Background(), "be-tagged", "TAGGED")
+	ids, err := b.ListImages(context.Background(), "be-tagged", "TAGGED", "")
 	require.NoError(t, err)
 	assert.Len(t, ids, 1)
 	assert.Equal(t, "v1", ids[0].ImageTag)
@@ -226,7 +226,7 @@ func TestListImages_Filter_Backend_UNTAGGED(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ids, err := b.ListImages(context.Background(), "be-untagged", "UNTAGGED")
+	ids, err := b.ListImages(context.Background(), "be-untagged", "UNTAGGED", "")
 	require.NoError(t, err)
 	assert.Len(t, ids, 1)
 	assert.Empty(t, ids[0].ImageTag)
@@ -623,7 +623,7 @@ func TestListImages_Filter_Backend(t *testing.T) {
 				ImageID:       ecr.ImageIdentifier{ImageDigest: "sha256:untagged"},
 			})
 
-			ids, err := b.ListImages(context.Background(), "list-repo", tt.tagStatus)
+			ids, err := b.ListImages(context.Background(), "list-repo", tt.tagStatus, "")
 			require.NoError(t, err)
 			assert.Len(t, ids, tt.wantLen)
 		})

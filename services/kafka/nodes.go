@@ -5,8 +5,12 @@ import (
 	"strings"
 )
 
-// ListNodes returns broker node stubs for a cluster.
-func (b *InMemoryBackend) ListNodes(_ context.Context, clusterArn string) ([]*BrokerNode, error) {
+// ListNodes returns the broker nodes for a cluster. AddedToClusterTime uses
+// the cluster's own CreationTime: this backend doesn't track a per-broker
+// added-to-cluster history distinct from the original create (e.g. after an
+// UpdateBrokerCount scale-out), so every broker reports the cluster's
+// creation time rather than fabricating an individual one.
+func (b *InMemoryBackend) ListNodes(_ context.Context, clusterArn string) ([]*NodeInfo, error) {
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
@@ -15,12 +19,28 @@ func (b *InMemoryBackend) ListNodes(_ context.Context, clusterArn string) ([]*Br
 		return nil, ErrNotFound
 	}
 
-	out := make([]*BrokerNode, 0, int(c.NumberOfBrokerNodes))
+	region := regionFromARN(clusterArn, b.region)
+	subnets := c.BrokerNodeGroupInfo.ClientSubnets
+	out := make([]*NodeInfo, 0, int(c.NumberOfBrokerNodes))
 
 	for i := range c.NumberOfBrokerNodes {
-		out = append(out, &BrokerNode{
-			BrokerID:     i + 1,
-			InstanceType: c.BrokerNodeGroupInfo.InstanceType,
+		brokerID := i + 1
+
+		var clientSubnet string
+		if len(subnets) > 0 {
+			clientSubnet = subnets[int(i)%len(subnets)]
+		}
+
+		out = append(out, &NodeInfo{
+			InstanceType:       c.BrokerNodeGroupInfo.InstanceType,
+			NodeARN:            b.nodeARN(region, clusterArn, brokerID),
+			NodeType:           NodeTypeBroker,
+			AddedToClusterTime: c.CreationTime,
+			BrokerNodeInfo: &NodeBrokerInfo{
+				BrokerID:                  float64(brokerID),
+				ClientSubnet:              clientSubnet,
+				CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(c.KafkaVersion, c.ConfigurationInfo),
+			},
 		})
 	}
 

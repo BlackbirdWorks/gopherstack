@@ -32,13 +32,18 @@ func TestCreateApprovalRuleTemplate_NoArnKey_RealClient(t *testing.T) {
 // covers gopherstack-y1zn. handleTestRepositoryTriggers wrapped each
 // successful trigger name in a {"triggerName": ...} object;
 // TestRepositoryTriggersOutput.SuccessfulExecutions (codecommit@v1.36.4
-// api_op_TestRepositoryTriggers.go) is []string.
+// api_op_TestRepositoryTriggers.go) is []string. The trigger under test is
+// carried on THIS call's own "triggers" body (a real, required
+// TestRepositoryTriggersInput member, tested independently of whatever is
+// saved via PutRepositoryTriggers -- see TestHandler_TestRepositoryTriggers
+// in handler_triggers_test.go), not on a prior PutRepositoryTriggers call.
 func TestTestRepositoryTriggers_SuccessfulExecutionsIsStringArray_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "y1zn-trigger-repo"})
-	doRequest(t, h, "PutRepositoryTriggers", map[string]any{
+
+	rec := doRequest(t, h, "TestRepositoryTriggers", map[string]any{
 		"repositoryName": "y1zn-trigger-repo",
 		"triggers": []map[string]any{
 			{
@@ -47,11 +52,6 @@ func TestTestRepositoryTriggers_SuccessfulExecutionsIsStringArray_RealClient(t *
 				"events":         []string{"all"},
 			},
 		},
-	})
-
-	rec := doRequest(t, h, "TestRepositoryTriggers", map[string]any{
-		"repositoryName": "y1zn-trigger-repo",
-		"triggers":       []map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 

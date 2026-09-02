@@ -138,6 +138,16 @@ func TestListBackupJobsFiltered(t *testing.T) {
 			filter:    backup.ListBackupJobsFilter{AccountID: "999999999999"},
 			wantCount: 0,
 		},
+		{
+			// api_op_ListBackupJobs.go's ByAccountId doc: "If used from an
+			// Organizations management account, passing * returns all jobs
+			// across the organization." No seeded job's AccountID is ever the
+			// literal string "*", so this only passes if "*" is honored as a
+			// wildcard rather than compared for equality.
+			name:      "accountID wildcard matches all",
+			filter:    backup.ListBackupJobsFilter{AccountID: "*"},
+			wantCount: 3,
+		},
 	}
 
 	for _, tc := range cases {

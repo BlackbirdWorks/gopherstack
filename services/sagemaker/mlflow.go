@@ -550,12 +550,15 @@ func (b *InMemoryBackend) CreatePresignedMlflowAppURL(ctx context.Context, arnSt
 // behaves as leave-unchanged-if-omitted, and no other Update op in this
 // service resets a value to a constant on omission — so nil (not sent) means
 // leave-unchanged here too, disclosed rather than silently reset.
+//
+// MlflowVersion is deliberately absent: it's a real CreateMlflowTrackingServerInput/
+// DescribeMlflowTrackingServerOutput field but has no UpdateMlflowTrackingServerInput
+// counterpart at all — no real client can ever change it after creation.
 type UpdateMlflowTrackingServerOptions struct {
 	AutomaticModelRegistration   *bool
 	S3BucketOwnerVerification    *bool
 	TrackingServerName           string
 	ArtifactStoreURI             string
-	MlflowVersion                string
 	S3BucketOwnerAccountID       string
 	TrackingServerSize           string
 	WeeklyMaintenanceWindowStart string
@@ -576,10 +579,6 @@ func (b *InMemoryBackend) UpdateMlflowTrackingServer(
 		return nil, fmt.Errorf(
 			"%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, opts.TrackingServerName,
 		)
-	}
-
-	if opts.MlflowVersion != "" {
-		s.MlflowVersion = opts.MlflowVersion
 	}
 
 	if opts.ArtifactStoreURI != "" {

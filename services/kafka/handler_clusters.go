@@ -11,13 +11,38 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// createClusterInput is CreateClusterInput (api_op_CreateCluster.go,
+// kafka@v1.57.2). ConfigurationInfo/EncryptionInfo/EnhancedMonitoring/
+// LoggingInfo/OpenMonitoring/Rebalancing/StorageMode are real, wire-confirmed
+// members (awsRestjson1_serializeOpDocumentCreateClusterInput) that were
+// previously not even parsed here, so any caller-supplied value was silently
+// dropped at creation time.
 type createClusterInput struct {
 	Tags                 map[string]string     `json:"tags,omitempty"`
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	ConfigurationInfo    *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	LoggingInfo          *LoggingInfo          `json:"loggingInfo,omitempty"`
+	OpenMonitoring       *OpenMonitoring       `json:"openMonitoring,omitempty"`
+	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
 	ClusterName          string                `json:"clusterName"`
 	KafkaVersion         string                `json:"kafkaVersion"`
+	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
+	StorageMode          string                `json:"storageMode,omitempty"`
 	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
+}
+
+func (in *createClusterInput) options() ClusterCreateOptions {
+	return ClusterCreateOptions{
+		ConfigurationInfo:  in.ConfigurationInfo,
+		EncryptionInfo:     in.EncryptionInfo,
+		LoggingInfo:        in.LoggingInfo,
+		OpenMonitoring:     in.OpenMonitoring,
+		Rebalancing:        in.Rebalancing,
+		EnhancedMonitoring: in.EnhancedMonitoring,
+		StorageMode:        in.StorageMode,
+	}
 }
 
 type createClusterOutput struct {
@@ -27,8 +52,15 @@ type createClusterOutput struct {
 }
 
 // brokerSoftwareInfo represents the current broker software information.
+// Field-diffed against deserializers.go's
+// awsRestjson1_deserializeDocumentBrokerSoftwareInfo: types.BrokerSoftwareInfo
+// has 3 real members, not 1 -- ConfigurationArn/ConfigurationRevision were
+// previously dropped even though the cluster's ConfigurationInfo (the same
+// data) is already tracked.
 type brokerSoftwareInfo struct {
-	KafkaVersion string `json:"kafkaVersion"`
+	ConfigurationArn      string `json:"configurationArn,omitempty"`
+	KafkaVersion          string `json:"kafkaVersion"`
+	ConfigurationRevision int64  `json:"configurationRevision,omitempty"`
 }
 
 // clusterInfoV1 is the V1 cluster response shape (DescribeCluster / ListClusters).
@@ -165,11 +197,32 @@ type createClusterV2Input struct {
 	ClusterName string            `json:"clusterName"`
 }
 
+// provisionedInput is types.ProvisionedRequest (types.go:1362). Same
+// previously-dropped-members bug as createClusterInput above.
 type provisionedInput struct {
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	ConfigurationInfo    *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	LoggingInfo          *LoggingInfo          `json:"loggingInfo,omitempty"`
+	OpenMonitoring       *OpenMonitoring       `json:"openMonitoring,omitempty"`
+	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
 	KafkaVersion         string                `json:"kafkaVersion"`
+	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
+	StorageMode          string                `json:"storageMode,omitempty"`
 	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
+}
+
+func (in *provisionedInput) options() ClusterCreateOptions {
+	return ClusterCreateOptions{
+		ConfigurationInfo:  in.ConfigurationInfo,
+		EncryptionInfo:     in.EncryptionInfo,
+		LoggingInfo:        in.LoggingInfo,
+		OpenMonitoring:     in.OpenMonitoring,
+		Rebalancing:        in.Rebalancing,
+		EnhancedMonitoring: in.EnhancedMonitoring,
+		StorageMode:        in.StorageMode,
+	}
 }
 
 type createClusterV2Output struct {
@@ -196,6 +249,7 @@ func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body
 		in.BrokerNodeGroupInfo,
 		in.ClientAuthentication,
 		in.Tags,
+		in.options(),
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -265,11 +319,14 @@ func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, bo
 
 	var clientAuth *ClientAuthentication
 
+	var createOpts ClusterCreateOptions
+
 	if in.Provisioned != nil {
 		brokerInfo = in.Provisioned.BrokerNodeGroupInfo
 		kafkaVersion = in.Provisioned.KafkaVersion
 		numBrokers = in.Provisioned.NumberOfBrokerNodes
 		clientAuth = in.Provisioned.ClientAuthentication
+		createOpts = in.Provisioned.options()
 	}
 
 	cluster, err := h.Backend.CreateCluster(ctx,
@@ -279,6 +336,7 @@ func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, bo
 		brokerInfo,
 		clientAuth,
 		in.Tags,
+		createOpts,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -484,14 +542,22 @@ func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutp
 	}
 }
 
-// brokerSoftwareInfoFor returns a brokerSoftwareInfo for the given Kafka version,
-// or nil if the version is empty.
-func brokerSoftwareInfoFor(kafkaVersion string) *brokerSoftwareInfo {
+// brokerSoftwareInfoFor returns a brokerSoftwareInfo for the given Kafka
+// version and the cluster's currently-applied configuration, or nil if the
+// version is empty. configInfo mirrors ConfigurationArn/ConfigurationRevision
+// -- previously dropped even though the cluster already tracks it.
+func brokerSoftwareInfoFor(kafkaVersion string, configInfo *ConfigurationInfo) *brokerSoftwareInfo {
 	if kafkaVersion == "" {
 		return nil
 	}
 
-	return &brokerSoftwareInfo{KafkaVersion: kafkaVersion}
+	info := &brokerSoftwareInfo{KafkaVersion: kafkaVersion}
+	if configInfo != nil {
+		info.ConfigurationArn = configInfo.Arn
+		info.ConfigurationRevision = configInfo.Revision
+	}
+
+	return info
 }
 
 // toClusterInfoV1 converts a Cluster to the V1 cluster info shape.
@@ -515,7 +581,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn, zkPortPlaintext),
 		ZookeeperConnectStringTLS: zookeeperConnectStringFor(cl.ClusterArn, zkPortTLS),
 		Tags:                      maps.Clone(cl.Tags),
-		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion, cl.ConfigurationInfo),
 		Rebalancing:               cl.Rebalancing,
 	}
 }
@@ -605,7 +671,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			LoggingInfo:               cl.LoggingInfo,
 			EnhancedMonitoring:        cl.EnhancedMonitoring,
 			StorageMode:               cl.StorageMode,
-			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion, cl.ConfigurationInfo),
 			ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn, zkPortPlaintext),
 			ZookeeperConnectStringTLS: zookeeperConnectStringFor(cl.ClusterArn, zkPortTLS),
 			Rebalancing:               cl.Rebalancing,

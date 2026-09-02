@@ -192,7 +192,7 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 		UsagePrice:             offering.UsagePrice,
 		CurrencyCode:           offering.CurrencyCode,
 		NodeCount:              nodeCount,
-		State:                  "payment-pending",
+		State:                  "pending-payment",
 		OfferingType:           offering.OfferingType,
 	}
 	b.reservedNodes.Put(node)
@@ -202,8 +202,16 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 	return &cp, nil
 }
 
+// reservedNodeExchangeStatusSucceeded is this backend's placeholder exchange
+// status: ReservedNodeExchangeStatus.Status is types.ReservedNodeExchangeStatusType
+// (REQUESTED/PENDING/IN_PROGRESS/RETRYING/SUCCEEDED/FAILED -- redshift@v1.65.4
+// types/enums.go:468), and since this backend has no async exchange pipeline
+// to simulate, SUCCEEDED is the honest terminal value rather than a
+// fabricated in-progress state.
+const reservedNodeExchangeStatusSucceeded = "SUCCEEDED"
+
 // DescribeReservedNodeExchangeStatus returns the exchange status for a reserved node.
-// In this in-memory implementation it returns a placeholder active status.
+// In this in-memory implementation it returns a placeholder completed status.
 func (b *InMemoryBackend) DescribeReservedNodeExchangeStatus(reservedNodeID string) (string, error) {
 	if reservedNodeID == "" {
 		return "", fmt.Errorf("%w: ReservedNodeId is required", ErrInvalidParameter)
@@ -216,7 +224,7 @@ func (b *InMemoryBackend) DescribeReservedNodeExchangeStatus(reservedNodeID stri
 		return "", fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 	}
 
-	return partnerStatusActive, nil
+	return reservedNodeExchangeStatusSucceeded, nil
 }
 
 // GetReservedNodeExchangeOfferings returns offerings available for exchange of a reserved node.

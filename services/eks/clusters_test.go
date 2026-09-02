@@ -436,7 +436,7 @@ func TestListClusters_Sorted(t *testing.T) {
 		mustCreateClusterNoVpc(t, b, name)
 	}
 
-	names := b.ListClusters()
+	names := b.ListClusters(false)
 	require.Len(t, names, 3)
 	assert.Equal(t, "cluster-a", names[0])
 	assert.Equal(t, "cluster-m", names[1])

@@ -61,7 +61,7 @@ func TestInternetGatewayOperations(t *testing.T) {
 			case "attach_detach":
 				igw, err := b.CreateInternetGateway()
 				require.NoError(t, err)
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 				err = b.AttachInternetGateway(igw.ID, vpc.ID)
 				require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestInternetGatewayOperations(t *testing.T) {
 				assert.Empty(t, igws[0].Attachments)
 
 			case "attach_bad_igw":
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 				err = b.AttachInternetGateway("igw-nonexistent", vpc.ID)
 				require.Error(t, err)
@@ -110,9 +110,9 @@ func TestAttachInternetGateway_AlreadyAssociated(t *testing.T) {
 
 		igw, err := b.CreateInternetGateway()
 		require.NoError(t, err)
-		vpc1, err := b.CreateVpc("10.1.0.0/16")
+		vpc1, err := b.CreateVpc("10.1.0.0/16", "default")
 		require.NoError(t, err)
-		vpc2, err := b.CreateVpc("10.2.0.0/16")
+		vpc2, err := b.CreateVpc("10.2.0.0/16", "default")
 		require.NoError(t, err)
 
 		require.NoError(t, b.AttachInternetGateway(igw.ID, vpc1.ID))
@@ -131,7 +131,7 @@ func TestAttachInternetGateway_AlreadyAssociated(t *testing.T) {
 		require.NoError(t, err)
 		igw2, err := b.CreateInternetGateway()
 		require.NoError(t, err)
-		vpc, err := b.CreateVpc("10.3.0.0/16")
+		vpc, err := b.CreateVpc("10.3.0.0/16", "default")
 		require.NoError(t, err)
 
 		require.NoError(t, b.AttachInternetGateway(igw1.ID, vpc.ID))
@@ -152,7 +152,7 @@ func TestDeleteInternetGateway_DependencyViolation(t *testing.T) {
 
 	igw, err := b.CreateInternetGateway()
 	require.NoError(t, err)
-	vpc, err := b.CreateVpc("10.4.0.0/16")
+	vpc, err := b.CreateVpc("10.4.0.0/16", "default")
 	require.NoError(t, err)
 
 	require.NoError(t, b.AttachInternetGateway(igw.ID, vpc.ID))

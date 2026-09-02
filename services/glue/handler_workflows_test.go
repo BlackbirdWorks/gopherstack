@@ -346,6 +346,43 @@ func TestResumeWorkflowRun_Stateful(t *testing.T) {
 	}
 }
 
+// TestResumeWorkflowRun_EchoesRequestedNodes verifies NodeIds ("This member
+// is required" per api_op_ResumeWorkflowRun.go) is actually threaded through
+// to the backend and echoed back in ResumeWorkflowRunOutput.NodeIds ("The
+// new nodes that were actually restarted"), rather than the request always
+// getting silently dropped and the response always reporting an empty list.
+func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	require.Equal(t, http.StatusOK, doGlueRequest(t, h, "CreateWorkflow", map[string]any{
+		"Name": "my-workflow",
+	}).Code)
+
+	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "my-workflow"})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut struct {
+		RunID string `json:"RunId"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+
+	rec := doGlueRequest(t, h, "ResumeWorkflowRun", map[string]any{
+		"Name":    "my-workflow",
+		"RunId":   startOut.RunID,
+		"NodeIds": []string{"node-a", "node-b"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var out struct {
+		RunID   string   `json:"RunId"`
+		NodeIDs []string `json:"NodeIds"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, []string{"node-a", "node-b"}, out.NodeIDs)
+}
+
 func TestGlue_Workflows(t *testing.T) {
 	t.Parallel()
 

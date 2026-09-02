@@ -92,9 +92,15 @@ func (h *Handler) listRecipes(input map[string]any) (map[string]any, error) {
 		maxResults = len(recipes)
 	}
 
-	// Find start index from nextToken (which is the recipeArn of the next page).
+	// Find start index from nextToken (which is the recipeArn of the next
+	// page). recipes is a fixed built-in list in curated (not ARN-sorted)
+	// order, so a forged/unresolvable token defaults to the end of the
+	// collection rather than index 0 -- restarting at page one would
+	// otherwise be indistinguishable from a genuinely unresolvable cursor.
 	start := 0
 	if nextToken != "" {
+		start = len(recipes)
+
 		for i, r := range recipes {
 			if r[keyRecipeArn] == nextToken {
 				start = i

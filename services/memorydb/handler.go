@@ -396,12 +396,14 @@ func paginateItems[T any](items []T, token string, maxResults *int32, getName fu
 	return items, nextToken
 }
 
-// findStartIndex returns the index after the item whose name equals token,
-// or 0 if not found.
+// findStartIndex returns the index of the item whose name equals token, or 0
+// if not found. token is emitted by paginateItems as the name of the first
+// item of the next page (items[limit], inclusive) -- resuming at i+1 instead
+// of i silently dropped that item from every page boundary.
 func findStartIndex[T any](items []T, token string, getName func(T) string) int {
 	for i, item := range items {
 		if getName(item) == token {
-			return i + 1
+			return i
 		}
 	}
 

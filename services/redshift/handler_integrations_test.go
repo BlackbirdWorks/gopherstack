@@ -232,6 +232,31 @@ func TestHandler_DescribeIntegrations(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeIntegrations_StatusFilter verifies the "status" filter
+// name (DescribeIntegrationsFilterName, redshift@v1.65.4 types/enums.go:194-202)
+// actually narrows results. Every integration this backend creates gets
+// Status=active (integrations.go CreateIntegration) and nothing ever changes
+// it, so a filter for any other status must exclude every integration.
+func TestHandler_DescribeIntegrations_StatusFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h,
+		"Action=CreateIntegration&Version=2012-12-01&IntegrationName=ig-status-a&SourceArn=arn:src&TargetArn=arn:tgt")
+	postRedshiftForm(t, h,
+		"Action=CreateIntegration&Version=2012-12-01&IntegrationName=ig-status-b&SourceArn=arn:src&TargetArn=arn:tgt")
+
+	rec := postRedshiftForm(t, h,
+		"Action=DescribeIntegrations&Version=2012-12-01"+
+			"&Filters.DescribeIntegrationsFilter.1.Name=status"+
+			"&Filters.DescribeIntegrationsFilter.1.Values.Value.1=creating")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, "ig-status-a", "status=creating must exclude every active integration")
+	assert.NotContains(t, body, "ig-status-b", "status=creating must exclude every active integration")
+}
+
 // ---- ModifyIntegration ----
 
 func TestHandler_ModifyIntegration(t *testing.T) {

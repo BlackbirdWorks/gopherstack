@@ -46,6 +46,7 @@ func (h *Handler) handleDeleteApplication(_ context.Context, _ *http.Request, bo
 	return marshalResponse(struct{}{})
 }
 
+//nolint:dupl // structurally parallel to handleDescribeJobs; both decode Filters, list, paginate
 func (h *Handler) handleListApplications(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
 	var req listApplicationsRequest
 	if err := decodeJSONBody(body, &req); err != nil {

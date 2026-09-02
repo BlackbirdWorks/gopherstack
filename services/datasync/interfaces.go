@@ -23,7 +23,7 @@ type StorageBackend interface {
 	) (*Location, error)
 	DescribeLocationS3(locationArn string) (*LocationS3, error)
 	DeleteLocation(locationArn string) error
-	ListLocations(maxResults int32, nextToken string) ([]*LocationListEntry, string, error)
+	ListLocations(filters []LocationFilter, maxResults int32, nextToken string) ([]*LocationListEntry, string, error)
 
 	// Task operations
 	CreateTask(
@@ -34,7 +34,7 @@ type StorageBackend interface {
 	DescribeTask(taskArn string) (*Task, error)
 	UpdateTask(taskArn, name, cloudWatchLogGroupArn string, settings TaskSettings) error
 	DeleteTask(taskArn string) error
-	ListTasks(maxResults int32, nextToken string) ([]*TaskListEntry, string, error)
+	ListTasks(filters []TaskFilter, maxResults int32, nextToken string) ([]*TaskListEntry, string, error)
 
 	// Task execution operations
 	StartTaskExecution(taskArn string) (*TaskExecution, error)
@@ -253,6 +253,14 @@ type LocationListEntry struct {
 	LocationURI  string
 }
 
+// LocationFilter narrows ListLocations by LocationUri, LocationType, or
+// CreationTime (types.LocationFilter, datasync@v1.61.4 types/types.go).
+type LocationFilter struct {
+	Name     string
+	Operator string
+	Values   []string
+}
+
 // FilterRule is a DataSync include/exclude filter (SIMPLE_PATTERN rules only).
 type FilterRule struct {
 	FilterType string
@@ -309,6 +317,15 @@ type TaskListEntry struct {
 	Name     string
 	Status   string
 	TaskMode string
+}
+
+// TaskFilter narrows ListTasks by LocationId (matches either the task's
+// source or destination location ARN) or CreationTime (types.TaskFilter,
+// datasync@v1.61.4 types/types.go).
+type TaskFilter struct {
+	Name     string
+	Operator string
+	Values   []string
 }
 
 // TaskExecution represents a DataSync task execution.

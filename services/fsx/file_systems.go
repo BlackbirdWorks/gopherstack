@@ -874,15 +874,26 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 	return fs.toFileSystem(), nil
 }
 
-// createFileSystemFromBackupInput holds parameters for CreateFileSystemFromBackup.
+// createFileSystemFromBackupInput holds parameters for
+// CreateFileSystemFromBackup. SubnetIds is a required real
+// CreateFileSystemFromBackupInput member (api_op_CreateFileSystemFromBackup.go)
+// that was previously entirely absent here, silently discarding every real
+// client's subnet placement; now accepted, format-validated (same pattern as
+// CreateFileSystem), and echoed back on FileSystem.SubnetIds/NetworkInterfaceIds.
+// FileSystemType/VpcID have no counterpart on the real input at all (the
+// restored file system's type is always inherited from the source file
+// system, never overridable) -- pre-existing, harmless since no real client's
+// generated request type can ever populate them.
 type createFileSystemFromBackupInput struct {
-	BackupID              string `json:"BackupId"`
-	FileSystemType        string `json:"FileSystemType,omitempty"`
-	FileSystemTypeVersion string `json:"FileSystemTypeVersion,omitempty"`
-	StorageType           string `json:"StorageType,omitempty"`
-	VpcID                 string `json:"VpcId,omitempty"`
-	Tags                  []Tag  `json:"Tags,omitempty"`
-	StorageCapacityGiB    int32  `json:"StorageCapacity,omitempty"`
+	FileSystemType        string   `json:"FileSystemType,omitempty"`
+	BackupID              string   `json:"BackupId"`
+	FileSystemTypeVersion string   `json:"FileSystemTypeVersion,omitempty"`
+	StorageType           string   `json:"StorageType,omitempty"`
+	VpcID                 string   `json:"VpcId,omitempty"`
+	Tags                  []Tag    `json:"Tags,omitempty"`
+	SubnetIDs             []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs      []string `json:"SecurityGroupIds,omitempty"`
+	StorageCapacityGiB    int32    `json:"StorageCapacity,omitempty"`
 }
 
 // copyFileSystemTypeConfig copies every type-specific config field from src
@@ -906,9 +917,65 @@ func copyFileSystemTypeConfig(dst, src *storedFileSystem) {
 	dst.CopyTagsToVolumes = src.CopyTagsToVolumes
 }
 
+// fileSystemFromBackupFields is the set of scalar fields
+// CreateFileSystemFromBackup either takes from the request or, when absent,
+// falls back to the source file system's own value.
+type fileSystemFromBackupFields struct {
+	fsType        string
+	fsTypeVersion string
+	storageType   string
+	capacity      int32
+}
+
+// resolveFileSystemFromBackupFields applies input's explicit overrides,
+// falling back to srcFS's values (real AWS's "defaults to the parameters of
+// the file system that was backed up, unless overridden" contract). srcFS may
+// be nil if the source file system has since been deleted.
+func resolveFileSystemFromBackupFields(
+	input *createFileSystemFromBackupInput,
+	srcFS *storedFileSystem,
+) fileSystemFromBackupFields {
+	f := fileSystemFromBackupFields{
+		fsType:        input.FileSystemType,
+		fsTypeVersion: input.FileSystemTypeVersion,
+		storageType:   input.StorageType,
+		capacity:      input.StorageCapacityGiB,
+	}
+
+	if srcFS == nil {
+		return f
+	}
+
+	if f.fsType == "" {
+		f.fsType = srcFS.FileSystemType
+	}
+
+	if f.fsTypeVersion == "" {
+		f.fsTypeVersion = srcFS.FileSystemTypeVersion
+	}
+
+	if f.storageType == "" {
+		f.storageType = srcFS.StorageType
+	}
+
+	if f.capacity == 0 {
+		f.capacity = srcFS.StorageCapacityGiB
+	}
+
+	return f
+}
+
 // CreateFileSystemFromBackup creates a new file system from an existing backup.
 func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFromBackupInput) (*FileSystem, error) {
 	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
+	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
+		return nil, err
+	}
+
+	if err := validateSecurityGroupIDs(input.SecurityGroupIDs); err != nil {
 		return nil, err
 	}
 
@@ -921,31 +988,12 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 	}
 
 	srcFS, _ := b.fileSystems.Get(src.FileSystemID)
-
-	fsType := input.FileSystemType
-	if fsType == "" && srcFS != nil {
-		fsType = srcFS.FileSystemType
-	}
+	fields := resolveFileSystemFromBackupFields(input, srcFS)
+	fsType := fields.fsType
 
 	id := newFileSystemID()
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
-
-	capacity := input.StorageCapacityGiB
-	if capacity == 0 && srcFS != nil {
-		capacity = srcFS.StorageCapacityGiB
-	}
-
-	storageType := input.StorageType
-	if storageType == "" && srcFS != nil {
-		storageType = srcFS.StorageType
-	}
-
-	fsTypeVersion := input.FileSystemTypeVersion
-	if fsTypeVersion == "" && srcFS != nil {
-		fsTypeVersion = srcFS.FileSystemTypeVersion
-	}
-
 	tags := tagsSliceToMap(input.Tags)
 
 	fs := &storedFileSystem{
@@ -953,14 +1001,16 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		Tags:                  tags,
 		FileSystemID:          id,
 		FileSystemType:        fsType,
-		FileSystemTypeVersion: fsTypeVersion,
+		FileSystemTypeVersion: fields.fsTypeVersion,
 		Lifecycle:             lifecycleAvailable,
 		ResourceARN:           arn,
 		DNSName:               fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
-		StorageCapacityGiB:    capacity,
-		StorageType:           storageType,
+		StorageCapacityGiB:    fields.capacity,
+		StorageType:           fields.storageType,
 		VpcID:                 input.VpcID,
 		OwnerID:               b.accountID,
+		SubnetIDs:             input.SubnetIDs,
+		NetworkInterfaceIDs:   networkInterfaceIDsForSubnets(input.SubnetIDs),
 	}
 
 	if srcFS != nil {

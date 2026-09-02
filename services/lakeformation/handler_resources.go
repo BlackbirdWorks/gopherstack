@@ -79,7 +79,12 @@ func (h *Handler) handleListResources(_ context.Context, c *echo.Context, body [
 		}
 	}
 
-	resources, nextToken := h.Backend.ListResources(in.MaxResults, in.NextToken)
+	conditions := make([]FilterCondition, 0, len(in.FilterConditionList))
+	for _, c := range in.FilterConditionList {
+		conditions = append(conditions, FilterCondition(c))
+	}
+
+	resources, nextToken := h.Backend.ListResources(conditions, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listResourcesOutput{
 		ResourceInfoList: toResourceInfoWireList(resources),

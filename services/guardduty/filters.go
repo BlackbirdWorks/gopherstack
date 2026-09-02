@@ -123,12 +123,12 @@ func (b *InMemoryBackend) DeleteFilter(detectorID, filterName string) error {
 }
 
 // ListFilters returns filter names for a detector.
-func (b *InMemoryBackend) ListFilters(detectorID string) ([]string, error) {
+func (b *InMemoryBackend) ListFilters(detectorID string, maxResults int32, nextToken string) ([]string, string, error) {
 	b.mu.RLock("ListFilters")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.filtersByDetector.Get(detectorID)
@@ -140,5 +140,13 @@ func (b *InMemoryBackend) ListFilters(detectorID string) ([]string, error) {
 
 	slices.Sort(names)
 
-	return names, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(names, offset, size)
+
+	return page, next, nil
 }

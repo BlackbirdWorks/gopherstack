@@ -102,6 +102,9 @@ type describeEndpointAccessResponse struct {
 }
 
 func (h *Handler) handleDescribeEndpointAccess(vals url.Values) (any, error) {
+	resourceOwner := vals.Get("ResourceOwner")
+	vpcID := vals.Get("VpcId")
+
 	eps, err := h.Backend.DescribeEndpointAccess(
 		vals.Get("ClusterIdentifier"),
 		vals.Get("EndpointName"),
@@ -113,6 +116,14 @@ func (h *Handler) handleDescribeEndpointAccess(vals url.Values) (any, error) {
 	members := make([]endpointAccessXML, 0, len(eps))
 
 	for i := range eps {
+		if resourceOwner != "" && eps[i].ResourceOwner != resourceOwner {
+			continue
+		}
+
+		if vpcID != "" && eps[i].VpcID != vpcID {
+			continue
+		}
+
 		members = append(members, endpointAccessToXML(&eps[i]))
 	}
 

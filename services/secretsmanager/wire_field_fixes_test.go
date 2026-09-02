@@ -79,3 +79,45 @@ func TestListSecrets_PrimaryRegion_RealClient(t *testing.T) {
 		"SecretListEntry.PrimaryRegion must round-trip from the secret's creation region; pre-fix it was always nil")
 	assert.Equal(t, wireFixesRegion, aws.ToString(entry.PrimaryRegion))
 }
+
+// TestUpdateSecret_KmsKeyIDCanBeCleared drives
+// CreateSecret/UpdateSecret/DescribeSecret through the real SDK client.
+// UpdateSecretInput.KmsKeyID was a plain string guarded by != "" (not
+// *string like the real SDK's UpdateSecretInput, api_op_UpdateSecret.go),
+// whose doc comment says "If you set this to an empty string, Secrets
+// Manager uses the Amazon Web Services managed key aws/secretsmanager" -- so
+// a real client's documented way to revert to the default managed key was
+// silently dropped, leaving the old customer-managed key in place.
+func TestUpdateSecret_KmsKeyIDCanBeCleared(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	client := newTestSMClientWithRegion(t, secretsmanager.NewHandler(backend), wireFixesRegion)
+	ctx := t.Context()
+
+	_, err := client.CreateSecret(ctx, &secretsmanagersdk.CreateSecretInput{
+		Name:         aws.String("kms-clear-secret"),
+		SecretString: aws.String("shh"),
+		KmsKeyId:     aws.String("arn:aws:kms:us-west-2:123456789012:key/custom-key"),
+	})
+	require.NoError(t, err)
+
+	before, err := client.DescribeSecret(ctx, &secretsmanagersdk.DescribeSecretInput{
+		SecretId: aws.String("kms-clear-secret"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "arn:aws:kms:us-west-2:123456789012:key/custom-key", aws.ToString(before.KmsKeyId))
+
+	_, err = client.UpdateSecret(ctx, &secretsmanagersdk.UpdateSecretInput{
+		SecretId: aws.String("kms-clear-secret"),
+		KmsKeyId: aws.String(""),
+	})
+	require.NoError(t, err)
+
+	after, err := client.DescribeSecret(ctx, &secretsmanagersdk.DescribeSecretInput{
+		SecretId: aws.String("kms-clear-secret"),
+	})
+	require.NoError(t, err)
+	require.Empty(t, aws.ToString(after.KmsKeyId),
+		"explicit empty KmsKeyId on UpdateSecret must revert to the default managed key, not be silently ignored")
+}

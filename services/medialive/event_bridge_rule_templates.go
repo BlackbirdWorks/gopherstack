@@ -62,27 +62,38 @@ func (b *InMemoryBackend) GetEventBridgeRuleTemplateGroup(
 	return g.toGroup(), nil
 }
 
-// ListEventBridgeRuleTemplateGroups returns all EB rule template groups,
-// each annotated with its live templateCount (see
-// EventBridgeRuleTemplateGroupSummary's doc comment).
+// ListEventBridgeRuleTemplateGroups returns EB rule template groups
+// referenced by signalMapIdentifier (when set; api_op_
+// ListEventBridgeRuleTemplateGroups.go's SignalMapIdentifier, matched
+// against the signal map's eventBridgeRuleTemplateGroupIds), each annotated
+// with its live templateCount (see EventBridgeRuleTemplateGroupSummary's
+// doc comment). Shares listTemplateGroups (cloudwatch_alarm_templates.go)
+// with its CloudWatch counterpart.
+//
+//nolint:dupl // mirrors the CloudWatch equivalent; logic is shared via listTemplateGroups
 func (b *InMemoryBackend) ListEventBridgeRuleTemplateGroups(
 	maxResults int,
 	nextToken string,
+	signalMapIdentifier string,
 ) ([]*EventBridgeRuleTemplateGroupSummary, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplateGroups")
 	defer b.mu.RUnlock()
-	all := b.ebRuleTemplateGroups.All()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
-	result := make([]*EventBridgeRuleTemplateGroupSummary, 0, len(pg.Data))
-	for _, g := range pg.Data {
-		result = append(result, &EventBridgeRuleTemplateGroupSummary{
-			EventBridgeRuleTemplateGroup: *g.toGroup(),
-			TemplateCount:                b.countEBRuleTemplatesForGroup(g.ID),
-		})
-	}
 
-	return result, pg.Next, nil
+	result, next := listTemplateGroups(
+		b, b.ebRuleTemplateGroups.All(), maxResults, nextToken, signalMapIdentifier,
+		func(sm *storedSignalMap) []string { return sm.EventBridgeRuleTemplateGroupIDs },
+		func(g *storedEventBridgeRuleTemplateGroup) string { return g.ID },
+		func(g *storedEventBridgeRuleTemplateGroup) string { return g.Arn },
+		func(g *storedEventBridgeRuleTemplateGroup) string { return g.Name },
+		func(g *storedEventBridgeRuleTemplateGroup) *EventBridgeRuleTemplateGroupSummary {
+			return &EventBridgeRuleTemplateGroupSummary{
+				EventBridgeRuleTemplateGroup: *g.toGroup(),
+				TemplateCount:                b.countEBRuleTemplatesForGroup(g.ID),
+			}
+		},
+	)
+
+	return result, next, nil
 }
 
 // countEBRuleTemplatesForGroup returns the number of EventBridge rule
@@ -209,13 +220,51 @@ func (b *InMemoryBackend) GetEventBridgeRuleTemplate(
 // ListEventBridgeRuleTemplates returns all EB rule templates using the real
 // List Summary shape (eventTargetCount, not the full eventTargets array --
 // see EventBridgeRuleTemplateSummary's doc comment).
+// ListEventBridgeRuleTemplates returns EB rule templates constrained by
+// groupIdentifier and/or signalMapIdentifier when set, same semantics as
+// ListCloudWatchAlarmTemplates' equivalent filters.
 func (b *InMemoryBackend) ListEventBridgeRuleTemplates(
 	maxResults int,
 	nextToken string,
+	groupIdentifier, signalMapIdentifier string,
 ) ([]*EventBridgeRuleTemplateSummary, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplates")
 	defer b.mu.RUnlock()
 	all := b.ebRuleTemplates.All()
+
+	if groupIdentifier != "" {
+		groupID := groupIdentifier
+		if g, ok := b.findEBRuleTemplateGroup(groupIdentifier); ok {
+			groupID = g.ID
+		}
+
+		filtered := make([]*storedEventBridgeRuleTemplate, 0, len(all))
+
+		for _, t := range all {
+			if t.GroupID == groupID {
+				filtered = append(filtered, t)
+			}
+		}
+
+		all = filtered
+	}
+
+	if signalMapIdentifier != "" {
+		sm, ok := b.findSignalMap(signalMapIdentifier)
+		filtered := make([]*storedEventBridgeRuleTemplate, 0, len(all))
+
+		if ok {
+			for _, t := range all {
+				g, gok := b.findEBRuleTemplateGroup(t.GroupID)
+				if gok && groupMatchesIdentifierList(g.ID, g.Arn, g.Name, sm.EventBridgeRuleTemplateGroupIDs) {
+					filtered = append(filtered, t)
+				}
+			}
+		}
+
+		all = filtered
+	}
+
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*EventBridgeRuleTemplateSummary, 0, len(pg.Data))

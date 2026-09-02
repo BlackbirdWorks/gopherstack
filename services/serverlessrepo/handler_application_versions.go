@@ -98,16 +98,23 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		versions = filtered
 	}
 
-	// Apply pagination: nextToken is treated as the last-seen semantic version (exclusive cursor).
+	// Apply pagination: nextToken is treated as the last-seen semantic
+	// version. versions is sorted by SemanticVersion, and a given app's
+	// semantic versions are unique, so this is a threshold search -- resuming
+	// at the first version strictly greater than the token. An unresolvable
+	// token (e.g. stale/forged) then resumes past everything already served
+	// instead of restarting at page one.
 	nextToken := req.URL.Query().Get("nextToken")
 	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
 
 	start := 0
 
 	if nextToken != "" {
+		start = len(versions)
+
 		for i, v := range versions {
-			if v.SemanticVersion == nextToken {
-				start = i + 1
+			if v.SemanticVersion > nextToken {
+				start = i
 
 				break
 			}

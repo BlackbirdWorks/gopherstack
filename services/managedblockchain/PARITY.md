@@ -48,6 +48,57 @@ deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule. The new paginate() helper (pagination.go) and buildNetworkFrameworkAttributes/buildMemberFrameworkAttributes/CreateNode's FrameworkAttributes synthesis are all pure functions operating on already-locked state or post-lock snapshots -- no new lock paths introduced."}
 ---
 
+## 2026-08-30 (request-field axis sweep, gopherstack-4shm's class)
+
+`cmd/reqfieldscan` flagged `ClientRequestToken` on all 5 create ops
+(`CreateNetwork`/`CreateMember`/`CreateNode`/`CreateProposal`/`CreateAccessor`)
+as declared-but-never-read. This service does not use `service.JSONOpFunc`/
+`service.WrapOp` at all (it's REST-routed through `dispatch`/
+`dispatchNetworkOps`/etc., all literal `json.Unmarshal` decodes), so the
+scan's coverage guard is silent here by construction (see the tool's own
+`packageMentionsJSONOpFunc` gate) -- not a blind spot, confirmed by reading
+that condition rather than inferring from the guard's silence.
+
+**Real bug, fixed:** all 5 ops' Go SDK struct doc comments mark
+`ClientRequestToken` "This member is required", and `validators.go` (v1.34.4)
+enforces it client-side for every one (`validateOpCreateNetworkInput`,
+`...CreateMemberInput`, `...CreateNodeInput`, `...CreateProposalInput`,
+`...CreateAccessorInput`, all calling `smithy.NewErrParamRequired`). A real
+`aws-sdk-go-v2` client never omits it -- the SDK's idempotency-token
+middleware (`idempotencyToken_initializeOp<Op>`) auto-fills it when unset --
+but gopherstack accepted a raw HTTP request missing it outright, certifying a
+call the real service rejects. Fixed: each of the 5 handlers now returns
+`InvalidRequestException` (`ErrMissingClientRequestToken`, `errors.go`) when
+the field is empty, checked immediately after JSON decode. `~50` pre-existing
+tests across `accessors_test.go`, `framework_attributes_test.go`,
+`members_test.go`, `networks_test.go`, `nodes_test.go`, `pagination_test.go`,
+`proposals_test.go`, `proposals_voting_test.go`, `store_test.go`,
+`tags_test.go` built request bodies with no `ClientRequestToken` at all (the
+field being silently ignored meant nothing ever caught it) and were updated
+to include one; none had an assertion weakened -- one,
+`TestHandler_CreateAccessor`'s "empty body still creates accessor" case, was
+corrected from asserting 200/`AccessorId` (matching the bug) to asserting 400
+(matching real AWS), since an empty body genuinely has no
+`ClientRequestToken`. New test: `client_request_token_test.go`
+(`TestHandler_CreateOps_MissingClientRequestToken`), confirmed failing
+(200/200/200/200/404 instead of 400) against unmodified code before the fix
+landed.
+
+**Not implemented (layer-boundary, reported not fixed):** real AWS's
+documented purpose for this token is retry-safety -- "allows failed
+Create<X> requests to be retried without the risk of running the operation
+twice" -- implying idempotency-token *deduplication* (a retried call with the
+same token should return the original result, not create a second resource).
+gopherstack does not implement that: only presence is now validated, not the
+value. This repo has an established pattern for exactly this
+(`services/acm`'s `idempotencyMap`/`certIdempotencyEntry`,
+`services/acmpca`'s `lookupIdempotentCert`/`idempotentResourceARN`), but
+replicating it here means a new per-resource-type dedup store (network/
+member/node/proposal/accessor, 5 call sites) plus persistence wiring -- a
+real, boundable feature, but its own pass, not a one-line field-read fix.
+Left undone; not fabricated, not silently dropped -- recorded here per
+gopherstack-4shm's restraint principle.
+
 ## Notes
 
 **Framework/protocol**: restjson1. Base path family is `/networks`, plus `/tags/{ResourceArn}`,

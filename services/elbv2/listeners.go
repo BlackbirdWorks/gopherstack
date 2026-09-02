@@ -115,6 +115,10 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		return nil, err
 	}
 
+	if err := b.validateForwardTargetGroupsExist(input.DefaultActions); err != nil {
+		return nil, err
+	}
+
 	// Default SSL policy for HTTPS/TLS listeners.
 	if (proto == protoHTTPS || proto == protoTLS) && input.SSLPolicy == "" {
 		input.SSLPolicy = "ELBSecurityPolicy-2016-08"
@@ -243,8 +247,21 @@ func (b *InMemoryBackend) DescribeListeners(
 		result = append(result, *l)
 	}
 
+	// Port is only unique per-load-balancer (CreateListener checks
+	// checkDuplicateListenerPort against b.listenersByLB), so an unfiltered
+	// DescribeListeners call routinely sees ties across load balancers.
+	// ListenerArn breaks them so the sort order is a stable total order
+	// across calls -- required because DescribeListeners pagination resumes
+	// by matching a ListenerArn marker against this sorted slice, and that
+	// scan silently drops listeners if tied entries can reorder between the
+	// call that issued the marker and the call that consumes it (source
+	// rows come from a randomized map walk).
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Port < result[j].Port
+		if result[i].Port != result[j].Port {
+			return result[i].Port < result[j].Port
+		}
+
+		return result[i].ListenerArn < result[j].ListenerArn
 	})
 
 	if len(listenerArns) > 0 {
@@ -324,6 +341,10 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 	}
 
 	if len(input.DefaultActions) > 0 {
+		if err := b.validateForwardTargetGroupsExist(input.DefaultActions); err != nil {
+			return nil, err
+		}
+
 		l.DefaultActions = input.DefaultActions
 		b.syncDefaultRuleActions(input.ListenerArn, input.DefaultActions)
 	}

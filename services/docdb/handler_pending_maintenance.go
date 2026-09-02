@@ -26,6 +26,10 @@ func (h *Handler) handleApplyPendingMaintenanceAction(ctx context.Context, vals 
 func (h *Handler) handleDescribePendingMaintenanceActions(ctx context.Context, vals url.Values) (any, error) {
 	resourceARN := vals.Get("ResourceIdentifier")
 	actions := h.Backend.DescribePendingMaintenanceActions(ctx, resourceARN)
+	actions, err := filterPendingMaintenanceActions(vals, actions)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlResourcePendingMaintenanceActions, 0, len(actions))
 	for _, a := range actions {
 		cp := a

@@ -5,6 +5,16 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultPoliciesMaxRecords and maxPoliciesMaxRecords are DescribePolicies's documented
+// default/max page size (api_op_DescribePolicies.go: "The default value is 50 and the maximum
+// value is 100").
+const (
+	defaultPoliciesMaxRecords = 50
+	maxPoliciesMaxRecords     = 100
 )
 
 func (h *Handler) handleDescribeAdjustmentTypes(_ url.Values) (any, error) {
@@ -598,14 +608,24 @@ func (h *Handler) handleDeletePolicy(vals url.Values) (any, error) {
 func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 	policyNames := parseMembers(vals, "PolicyNames.member")
+	policyTypes := parseMembers(vals, "PolicyTypes.member")
 
-	policies, err := h.Backend.DescribePolicies(groupName, policyNames)
+	policies, err := h.Backend.DescribePolicies(groupName, policyNames, policyTypes)
 	if err != nil {
 		return nil, err
 	}
 
-	members := make([]xmlScalingPolicy, 0, len(policies))
-	for _, p := range policies {
+	maxRecords := defaultPoliciesMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxPoliciesMaxRecords)
+		}
+	}
+
+	pg := page.New(policies, vals.Get("NextToken"), maxRecords, defaultPoliciesMaxRecords)
+
+	members := make([]xmlScalingPolicy, 0, len(pg.Data))
+	for _, p := range pg.Data {
 		xmlPolicy := xmlScalingPolicy{
 			PolicyName:             p.PolicyName,
 			PolicyARN:              p.PolicyARN,
@@ -659,6 +679,7 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 	return &describePoliciesResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describePoliciesResult{
+			NextToken:       pg.Next,
 			ScalingPolicies: xmlScalingPolicyList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-policies"},
@@ -994,6 +1015,7 @@ type xmlScalingPolicyList struct {
 }
 
 type describePoliciesResult struct {
+	NextToken       string               `xml:"NextToken,omitempty"`
 	ScalingPolicies xmlScalingPolicyList `xml:"ScalingPolicies"`
 }
 

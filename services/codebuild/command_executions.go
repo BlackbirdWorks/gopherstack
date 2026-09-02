@@ -54,6 +54,7 @@ func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType str
 		Command:   command,
 		Type:      execType,
 		Status:    buildStatusSucceeded,
+		ExitCode:  "0",
 		StartTime: now,
 		EndTime:   now,
 	}

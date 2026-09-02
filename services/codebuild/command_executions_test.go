@@ -3,6 +3,7 @@ package codebuild_test
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,5 +201,87 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 			"sandboxId": "ghost-sandbox",
 		})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	// maxResults/sortOrder/nextToken are real ListCommandExecutionsForSandboxInput
+	// fields (aws-sdk-go-v2 api_op_ListCommandExecutionsForSandbox.go) that
+	// this op previously ignored entirely -- every call returned every
+	// execution, unpaginated, in ascending-ID order regardless of what the
+	// client requested.
+	t.Run("pagination_and_sort_order", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createTestProject(t, h, "ce-page-proj")
+
+		startRec := doRequest(t, h, "StartSandbox", map[string]any{"projectName": "ce-page-proj"})
+		require.Equal(t, http.StatusOK, startRec.Code)
+
+		var startOut struct {
+			Sandbox struct {
+				ID string `json:"id"`
+			} `json:"sandbox"`
+		}
+		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		sandboxID := startOut.Sandbox.ID
+
+		ids := make([]string, 0, 3)
+
+		for range 3 {
+			rec := doRequest(t, h, "StartCommandExecution", map[string]any{
+				"sandboxId": sandboxID,
+				"command":   "echo hello",
+				"type":      "COMMAND",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				CommandExecution struct {
+					ID string `json:"id"`
+				} `json:"commandExecution"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			ids = append(ids, out.CommandExecution.ID)
+		}
+
+		sortedAsc := append([]string(nil), ids...)
+		sort.Strings(sortedAsc)
+
+		firstPage := doRequest(t, h, "ListCommandExecutionsForSandbox", map[string]any{
+			"sandboxId":  sandboxID,
+			"maxResults": 2,
+			"sortOrder":  "DESCENDING",
+		})
+		require.Equal(t, http.StatusOK, firstPage.Code)
+
+		var firstOut struct {
+			NextToken         string           `json:"nextToken"`
+			CommandExecutions []map[string]any `json:"commandExecutions"`
+		}
+		require.NoError(t, json.NewDecoder(firstPage.Body).Decode(&firstOut))
+		require.Len(t, firstOut.CommandExecutions, 2)
+		assert.Equal(
+			t,
+			sortedAsc[2],
+			firstOut.CommandExecutions[0]["id"],
+			"DESCENDING must put the lexicographically largest ID first",
+		)
+		assert.Equal(t, sortedAsc[1], firstOut.CommandExecutions[1]["id"])
+		require.NotEmpty(t, firstOut.NextToken, "a third execution remains, so a nextToken must be returned")
+
+		secondPage := doRequest(t, h, "ListCommandExecutionsForSandbox", map[string]any{
+			"sandboxId":  sandboxID,
+			"maxResults": 2,
+			"sortOrder":  "DESCENDING",
+			"nextToken":  firstOut.NextToken,
+		})
+		require.Equal(t, http.StatusOK, secondPage.Code)
+
+		var secondOut struct {
+			CommandExecutions []map[string]any `json:"commandExecutions"`
+		}
+		require.NoError(t, json.NewDecoder(secondPage.Body).Decode(&secondOut))
+		require.Len(t, secondOut.CommandExecutions, 1)
+		assert.Equal(t, sortedAsc[0], secondOut.CommandExecutions[0]["id"], "the remainder must be the smallest ID")
 	})
 }

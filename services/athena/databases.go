@@ -3,8 +3,8 @@ package athena
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
-	"strings"
 )
 
 // GetDatabase returns a database by catalog and name.
@@ -76,10 +76,23 @@ func (b *InMemoryBackend) GetTableMetadata(catalog, database, table string) (*Ta
 	return &cp, nil
 }
 
-// ListTableMetadata returns all tables for a database, optionally filtered by name prefix.
+// ListTableMetadata returns all tables for a database, optionally filtered by
+// a regex matched against table names (real Expression semantics — not a
+// substring/prefix match).
 func (b *InMemoryBackend) ListTableMetadata(catalog, database, expr string) ([]TableMetadata, error) {
 	if catalog == "" || database == "" {
 		return nil, fmt.Errorf("%w: CatalogName and DatabaseName are required", ErrValidation)
+	}
+
+	var re *regexp.Regexp
+
+	if expr != "" {
+		var err error
+
+		re, err = regexp.Compile(expr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: Expression %q is not a valid regex", ErrValidation, expr)
+		}
 	}
 
 	b.mu.RLock("ListTableMetadata")
@@ -89,7 +102,7 @@ func (b *InMemoryBackend) ListTableMetadata(catalog, database, expr string) ([]T
 	out := make([]TableMetadata, 0, len(tables))
 
 	for _, t := range tables {
-		if expr != "" && !strings.Contains(t.Name, expr) {
+		if re != nil && !re.MatchString(t.Name) {
 			continue
 		}
 

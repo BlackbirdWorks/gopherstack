@@ -1147,6 +1147,9 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 			},
 		},
 		{
+			// CreateNodegroup's own deserializer (eks@v1.90.4
+			// deserializers.go) has no ResourceNotFoundException case -- an
+			// unknown cluster is InvalidParameterException (400).
 			name: "nodegroup_cluster_not_found",
 			ops: func(t *testing.T, h *eks.Handler) {
 				t.Helper()
@@ -1156,7 +1159,7 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

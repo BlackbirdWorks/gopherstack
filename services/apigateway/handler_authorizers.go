@@ -25,6 +25,8 @@ type getAuthorizerInput struct {
 
 type getAuthorizersInput struct {
 	RestAPIID string `json:"restApiId"`
+	Position  string `json:"position"`
+	Limit     int    `json:"limit"`
 }
 
 // updateAuthorizerInput is the PATCH-flattened wire shape for UpdateAuthorizer.
@@ -108,8 +110,15 @@ func (h *Handler) getAuthorizersAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	if input.Limit == 0 && input.Position == "" {
+		return http.StatusOK, map[string]any{keyItem: auths}, nil
+	}
+	page, position := paginatePageByKey(auths, input.Limit, input.Position, func(a Authorizer) string { return a.ID })
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
 
-	return http.StatusOK, map[string]any{keyItem: auths}, nil
+	return http.StatusOK, map[string]any{keyItem: page}, nil
 }
 
 func (h *Handler) updateAuthorizerAction(b []byte) (int, any, error) {

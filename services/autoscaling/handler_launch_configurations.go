@@ -5,6 +5,16 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultLCMaxRecords and maxLCMaxRecords are DescribeLaunchConfigurations's documented
+// default/max page size (api_op_DescribeLaunchConfigurations.go: "The default value is 50 and
+// the maximum value is 100").
+const (
+	defaultLCMaxRecords = 50
+	maxLCMaxRecords     = 100
 )
 
 func (h *Handler) handleCreateLaunchConfiguration(vals url.Values) (any, error) {
@@ -59,14 +69,24 @@ func (h *Handler) handleDescribeLaunchConfigurations(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	members := make([]xmlLaunchConfiguration, 0, len(lcs))
-	for i := range lcs {
-		members = append(members, toXMLLaunchConfiguration(&lcs[i]))
+	maxRecords := defaultLCMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxLCMaxRecords)
+		}
+	}
+
+	p := page.New(lcs, vals.Get("NextToken"), maxRecords, defaultLCMaxRecords)
+
+	members := make([]xmlLaunchConfiguration, 0, len(p.Data))
+	for i := range p.Data {
+		members = append(members, toXMLLaunchConfiguration(&p.Data[i]))
 	}
 
 	return &describeLaunchConfigurationsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeLaunchConfigurationsResult{
+			NextToken:            p.Next,
 			LaunchConfigurations: xmlLaunchConfigurationList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-lcs"},

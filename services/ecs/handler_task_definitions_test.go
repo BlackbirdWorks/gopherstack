@@ -2,6 +2,7 @@ package ecs_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -219,6 +220,64 @@ func TestECS_ListTaskDefinitions(t *testing.T) {
 
 	arns2 := resp2["taskDefinitionArns"].([]any)
 	assert.Len(t, arns2, 2)
+}
+
+// TestECS_ListTaskDefinitions_Order pins gopherstack's default order against
+// the SDK doc: "By default (ASC) task definitions are listed lexicographically
+// by family name and in ascending numerical order by revision" (ecs@v1.90.0
+// api_op_ListTaskDefinitions.go). A plain string sort of the ARN
+// ("task-definition/a-app:10" < "task-definition/a-app:2") gets this wrong
+// once a family passes revision 9, so revisions must reach double digits to
+// catch it.
+func TestECS_ListTaskDefinitions_Order(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	register := func(family string) {
+		_, err := client.RegisterTaskDefinition(t.Context(), &ecssdk.RegisterTaskDefinitionInput{
+			Family: aws.String(family),
+			ContainerDefinitions: []ecstypes.ContainerDefinition{
+				{Name: aws.String("c"), Image: aws.String("busybox"), Essential: aws.Bool(true)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	register("b-app")
+
+	for range 10 {
+		register("a-app")
+	}
+
+	arn := func(family string, revision int) string {
+		return fmt.Sprintf(
+			"arn:aws:ecs:%s:%s:task-definition/%s:%d", testRegion, testAccountID, family, revision,
+		)
+	}
+
+	wantAsc := make([]string, 0, 11)
+	for r := 1; r <= 10; r++ {
+		wantAsc = append(wantAsc, arn("a-app", r))
+	}
+
+	wantAsc = append(wantAsc, arn("b-app", 1))
+
+	out, err := client.ListTaskDefinitions(t.Context(), &ecssdk.ListTaskDefinitionsInput{})
+	require.NoError(t, err)
+	assert.Equal(t, wantAsc, out.TaskDefinitionArns)
+
+	wantDesc := make([]string, len(wantAsc))
+	for i, a := range wantAsc {
+		wantDesc[len(wantAsc)-1-i] = a
+	}
+
+	outDesc, err := client.ListTaskDefinitions(t.Context(), &ecssdk.ListTaskDefinitionsInput{
+		Sort: ecstypes.SortOrderDesc,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantDesc, outDesc.TaskDefinitionArns)
 }
 
 func TestECS_Backend_TaskDefinitionByRevision(t *testing.T) {

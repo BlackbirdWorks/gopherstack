@@ -530,6 +530,8 @@ func (h *Handler) handleOpError(c *echo.Context, op string, opErr error) error {
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", opErr.Error())
 	case errors.Is(opErr, ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", opErr.Error())
+	case errors.Is(opErr, ErrMailFromDomainNotVerified):
+		return h.writeError(c, http.StatusBadRequest, "MailFromDomainNotVerifiedException", opErr.Error())
 	case errors.Is(opErr, ErrInvalidInput):
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", opErr.Error())
 	default:

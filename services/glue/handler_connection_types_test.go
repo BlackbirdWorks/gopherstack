@@ -88,7 +88,7 @@ func TestDeleteConnectionType_CustomRoundTrip(t *testing.T) {
 }
 
 // TestDescribeConnectionType verifies required-field validation and that unknown
-// types return EntityNotFoundException while built-in types resolve.
+// types return InvalidInputException while built-in types resolve.
 func TestDescribeConnectionType(t *testing.T) {
 	t.Parallel()
 

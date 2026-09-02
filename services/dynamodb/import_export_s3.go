@@ -725,14 +725,15 @@ func importSummaryFromRecord(rec storedImport) types.ImportSummary {
 // importDescriptionFromRecord builds the SDK description from a stored import.
 func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription {
 	desc := &types.ImportTableDescription{
-		ImportArn:          aws.String(rec.ImportArn),
-		ImportStatus:       types.ImportStatus(rec.ImportStatus),
-		TableArn:           aws.String(rec.TableArn),
-		InputFormat:        types.InputFormat(rec.InputFormat),
-		ImportedItemCount:  rec.ImportedItemCount,
-		ProcessedItemCount: rec.ProcessedItemCount,
-		ProcessedSizeBytes: aws.Int64(rec.ProcessedSizeBytes),
-		ErrorCount:         rec.ErrorCount,
+		ImportArn:            aws.String(rec.ImportArn),
+		ImportStatus:         types.ImportStatus(rec.ImportStatus),
+		TableArn:             aws.String(rec.TableArn),
+		InputFormat:          types.InputFormat(rec.InputFormat),
+		InputCompressionType: types.InputCompressionType(rec.InputCompression),
+		ImportedItemCount:    rec.ImportedItemCount,
+		ProcessedItemCount:   rec.ProcessedItemCount,
+		ProcessedSizeBytes:   aws.Int64(rec.ProcessedSizeBytes),
+		ErrorCount:           rec.ErrorCount,
 		S3BucketSource: &types.S3BucketSource{
 			S3Bucket:      aws.String(rec.S3Bucket),
 			S3KeyPrefix:   aws.String(rec.S3Prefix),

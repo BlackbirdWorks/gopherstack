@@ -204,7 +204,7 @@ func accessPreviewToJSON(ap *AccessPreview, includeConfigurations bool) map[stri
 // Finding/FindingSummary despite gopherstack modeling both from the same
 // underlying *Finding record: AccessPreviewFinding uses "id"/"changeType"
 // instead of a bare finding id and has no analyzerArn member. Every finding
-// InMemoryBackend can produce for a preview is reported as changeType "New"
+// InMemoryBackend can produce for a preview is reported as changeType "NEW"
 // (a newly-introduced finding), since access previews here are not diffed
 // against a prior finding set -- existingFindingId/existingFindingStatus are
 // therefore never populated, matching an access preview with no prior
@@ -212,7 +212,7 @@ func accessPreviewToJSON(ap *AccessPreview, includeConfigurations bool) map[stri
 func accessPreviewFindingToJSON(f *Finding, accountID string) map[string]any {
 	m := map[string]any{
 		"id":                 f.ID,
-		"changeType":         "New",
+		"changeType":         "NEW",
 		keyStatus:            string(f.Status),
 		keyResourceType:      f.ResourceType,
 		keyResource:          f.ResourceArn,

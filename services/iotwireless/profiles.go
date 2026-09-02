@@ -81,9 +81,13 @@ func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*Devic
 	return copyDeviceProfile(dp), nil
 }
 
-// ListDeviceProfiles returns all device profiles for the given account and region,
-// sorted by name for deterministic output.
-func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*DeviceProfile {
+// ListDeviceProfiles returns all device profiles for the given account and
+// region, sorted by name for deterministic output. deviceProfileType, if
+// non-empty, filters to "LoRaWAN" or "Sidewalk" profiles (types.go's
+// ListDeviceProfilesInput.DeviceProfileType), determined by which of the
+// profile's LoRaWAN/Sidewalk sub-objects is set -- a profile always has
+// exactly one, never both, since CreateDeviceProfile accepts only one.
+func (b *InMemoryBackend) ListDeviceProfiles(accountID, region, deviceProfileType string) []*DeviceProfile {
 	b.mu.RLock("ListDeviceProfiles")
 	defer b.mu.RUnlock()
 
@@ -91,9 +95,15 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*Device
 	result := make([]*DeviceProfile, 0, len(all))
 
 	for _, dp := range all {
-		if dp.AccountID == accountID && dp.Region == region {
-			result = append(result, copyDeviceProfile(dp))
+		if dp.AccountID != accountID || dp.Region != region {
+			continue
 		}
+
+		if deviceProfileType != "" && !deviceProfileMatchesType(dp, deviceProfileType) {
+			continue
+		}
+
+		result = append(result, copyDeviceProfile(dp))
 	}
 
 	slices.SortFunc(result, func(a, b *DeviceProfile) int {
@@ -101,6 +111,19 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*Device
 	})
 
 	return result
+}
+
+// deviceProfileMatchesType reports whether dp is of the given
+// types.DeviceProfileType ("LoRaWAN" or "Sidewalk").
+func deviceProfileMatchesType(dp *DeviceProfile, deviceProfileType string) bool {
+	switch deviceProfileType {
+	case "LoRaWAN":
+		return dp.LoRaWAN != nil
+	case "Sidewalk":
+		return dp.Sidewalk != nil
+	default:
+		return false
+	}
 }
 
 // DeleteDeviceProfile deletes a device profile by ID.

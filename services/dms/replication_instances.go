@@ -23,14 +23,17 @@ func (b *InMemoryBackend) mustDescribeReplicationInstances(ctx context.Context) 
 // ModifyReplicationInstance accept beyond the original identifier/class/
 // engineVersion/availabilityZone/allocatedStorage/multiAZ/... set -- see
 // api_op_CreateReplicationInstance.go / api_op_ModifyReplicationInstance.go,
-// databasemigrationservice@v1.66.4. KmsKeyID is create-only (real
-// ModifyReplicationInstanceInput has no KmsKeyId member) and is ignored by
-// ModifyReplicationInstance.
+// databasemigrationservice@v1.66.4. KmsKeyID and ReplicationSubnetGroupID are
+// create-only (neither is a ModifyReplicationInstanceInput member) and are
+// ignored by ModifyReplicationInstance. VpcSecurityGroupIDs is accepted by
+// both.
 type ReplicationInstanceSettings struct {
 	KmsKeyID                   string
 	DNSNameServers             string
 	NetworkType                string
 	PreferredMaintenanceWindow string
+	ReplicationSubnetGroupID   string
+	VpcSecurityGroupIDs        []string
 }
 
 // CreateReplicationInstance creates a new DMS replication instance.
@@ -52,6 +55,15 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 			"%w: replication instance %s already exists",
 			ErrAlreadyExists,
 			identifier,
+		)
+	}
+
+	sgKey := regionKey(region, settings.ReplicationSubnetGroupID)
+	if settings.ReplicationSubnetGroupID != "" && !b.replicationSubnetGroups.Has(sgKey) {
+		return nil, fmt.Errorf(
+			"%w: replication subnet group %s not found",
+			ErrNotFound,
+			settings.ReplicationSubnetGroupID,
 		)
 	}
 
@@ -89,6 +101,8 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		DNSNameServers:                settings.DNSNameServers,
 		NetworkType:                   settings.NetworkType,
 		PreferredMaintenanceWindow:    settings.PreferredMaintenanceWindow,
+		ReplicationSubnetGroupID:      settings.ReplicationSubnetGroupID,
+		VpcSecurityGroupIDs:           settings.VpcSecurityGroupIDs,
 	}
 	b.replicationInstances.Put(ri)
 	cp := *ri
@@ -210,6 +224,10 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 
 	if settings.PreferredMaintenanceWindow != "" {
 		ri.PreferredMaintenanceWindow = settings.PreferredMaintenanceWindow
+	}
+
+	if settings.VpcSecurityGroupIDs != nil {
+		ri.VpcSecurityGroupIDs = settings.VpcSecurityGroupIDs
 	}
 
 	cp := *ri

@@ -172,13 +172,14 @@ type updateContainerInstancesStateInput struct {
 
 type updateContainerInstancesStateOutput struct {
 	ContainerInstances []containerInstanceView `json:"containerInstances"`
+	Failures           []failureView           `json:"failures"`
 }
 
 func (h *Handler) handleUpdateContainerInstancesState(
 	_ context.Context,
 	in *updateContainerInstancesStateInput,
 ) (*updateContainerInstancesStateOutput, error) {
-	cis, err := h.Backend.UpdateContainerInstancesState(
+	cis, failures, err := h.Backend.UpdateContainerInstancesState(
 		in.Cluster,
 		in.ContainerInstances,
 		in.Status,
@@ -192,7 +193,12 @@ func (h *Handler) handleUpdateContainerInstancesState(
 		views = append(views, toContainerInstanceView(ci))
 	}
 
-	return &updateContainerInstancesStateOutput{ContainerInstances: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &updateContainerInstancesStateOutput{ContainerInstances: views, Failures: failViews}, nil
 }
 
 // ----- View types -----

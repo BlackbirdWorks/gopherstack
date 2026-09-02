@@ -355,6 +355,8 @@ func notFoundErrorCode(err error) (string, bool) {
 		return "DataRepositoryTaskNotFound", true
 	case errors.Is(err, ErrS3AccessPointNotFound):
 		return "InvalidRequest", true
+	case errors.Is(err, ErrS3AccessPointAttachmentNotFound):
+		return "S3AccessPointAttachmentNotFound", true
 	case errors.Is(err, ErrResourceNotFound):
 		return "ResourceNotFound", true
 	case errors.Is(err, awserr.ErrNotFound):

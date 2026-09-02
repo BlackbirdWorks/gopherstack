@@ -129,6 +129,8 @@ type App struct {
 	CustomHeaders              string                    `json:"customHeaders,omitzero"`
 	ARN                        string                    `json:"appArn"`
 	RepositoryCloneMethod      string                    `json:"repositoryCloneMethod,omitzero"`
+	ComputeRoleARN             string                    `json:"computeRoleArn,omitzero"`
+	JobConfigBuildComputeType  string                    `json:"jobConfigBuildComputeType,omitzero"`
 	Platform                   Platform                  `json:"platform"`
 	CustomRules                []CustomRule              `json:"customRules,omitempty"`
 	AutoBranchCreationPatterns []string                  `json:"autoBranchCreationPatterns,omitempty"`
@@ -160,6 +162,8 @@ type AppOptions struct {
 	BasicAuthCredentials       *string
 	BuildSpec                  *string
 	CustomHeaders              *string
+	ComputeRoleARN             *string
+	JobConfigBuildComputeType  *string
 	EnvironmentVariables       map[string]string
 	EnableBranchAutoBuild      *bool
 	EnableBasicAuth            *bool
@@ -184,8 +188,8 @@ type Branch struct {
 	UpdateTime                 time.Time         `json:"updateTime"`
 	EnvironmentVariables       map[string]string `json:"environmentVariables,omitempty"`
 	Tags                       *tags.Tags        `json:"tags,omitzero"`
-	Framework                  string            `json:"framework,omitzero"`
-	BasicAuthCredentials       string            `json:"basicAuthCredentials,omitzero"`
+	ActiveJobID                string            `json:"activeJobId,omitzero"`
+	BackendEnvironmentARN      string            `json:"backendEnvironmentArn,omitzero"`
 	Stage                      Stage             `json:"stage,omitzero"`
 	AppID                      string            `json:"appId"`
 	BranchARN                  string            `json:"branchArn"`
@@ -194,18 +198,21 @@ type Branch struct {
 	DisplayName                string            `json:"displayName,omitzero"`
 	SourceBranch               string            `json:"sourceBranch,omitzero"`
 	TTL                        string            `json:"ttl,omitzero"`
-	ActiveJobID                string            `json:"activeJobId,omitzero"`
+	Framework                  string            `json:"framework,omitzero"`
 	TotalNumberOfJobs          string            `json:"totalNumberOfJobs,omitzero"`
 	BuildSpec                  string            `json:"buildSpec,omitzero"`
-	BackendEnvironmentARN      string            `json:"backendEnvironmentArn,omitzero"`
+	BasicAuthCredentials       string            `json:"basicAuthCredentials,omitzero"`
 	PullRequestEnvironmentName string            `json:"pullRequestEnvironmentName,omitzero"`
-	CustomDomains              []string          `json:"customDomains,omitempty"`
+	BackendStackARN            string            `json:"backendStackArn,omitzero"`
+	ComputeRoleARN             string            `json:"computeRoleArn,omitzero"`
 	AssociatedResources        []string          `json:"associatedResources,omitempty"`
+	CustomDomains              []string          `json:"customDomains,omitempty"`
 	EnableAutoBuild            bool              `json:"enableAutoBuild"`
 	EnableBasicAuth            bool              `json:"enableBasicAuth"`
 	EnableNotification         bool              `json:"enableNotification"`
 	EnablePullRequestPreview   bool              `json:"enablePullRequestPreview"`
 	EnablePerformanceMode      bool              `json:"enablePerformanceMode,omitzero"`
+	EnableSkewProtection       bool              `json:"enableSkewProtection,omitzero"`
 }
 
 // BranchOptions carries the optional Branch fields beyond the
@@ -222,8 +229,11 @@ type BranchOptions struct {
 	BackendEnvironmentARN      *string
 	PullRequestEnvironmentName *string
 	SourceBranch               *string
+	ComputeRoleARN             *string
+	BackendStackARN            *string
 	EnableBasicAuth            *bool
 	EnableNotification         *bool
+	EnableSkewProtection       *bool
 	EnablePullRequestPreview   *bool
 	EnablePerformanceMode      *bool
 }
@@ -323,7 +333,11 @@ type DomainAssociation struct {
 	DomainStatus                     DomainStatus `json:"domainStatus"`
 	StatusReason                     string       `json:"statusReason,omitzero"`
 	CertificateVerificationDNSRecord string       `json:"certificateVerificationDNSRecord,omitzero"`
+	AutoSubDomainIAMRole             string       `json:"autoSubDomainIamRole,omitzero"`
+	CertificateType                  string       `json:"certificateType,omitzero"`
+	CertificateCustomArn             string       `json:"certificateCustomArn,omitzero"`
 	SubDomains                       []SubDomain  `json:"subDomains"`
+	AutoSubDomainCreationPatterns    []string     `json:"autoSubDomainCreationPatterns,omitempty"`
 	EnableAutoSubDomain              bool         `json:"enableAutoSubDomain"`
 }
 

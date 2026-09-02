@@ -129,49 +129,78 @@ func TestFSx_VolumeLifecycle(t *testing.T) {
 func TestFSx_CreateVolumeFromBackup(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		wantCode int
-		wantErr  bool
-	}{
-		{
-			name:     "creates volume from backup",
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "unknown backup returns 400",
-			wantCode: http.StatusBadRequest,
-			wantErr:  true,
-		},
-	}
+	t.Run("creates volume from backup", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
+		fsID := createFS(t, h, "ONTAP")
+		backupID := createFSandBackup(t, h, "ONTAP")
 
-			var backupID string
-			if !tc.wantErr {
-				backupID = createFSandBackup(t, h, "ONTAP")
-			} else {
-				backupID = "backup-does-not-exist"
-			}
-
-			rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
-				"BackupId": backupID,
-				"Name":     "restored-vol",
-			})
-			require.Equal(t, tc.wantCode, rec.Code)
-
-			if !tc.wantErr {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				v := out["Volume"].(map[string]any)
-				assert.Contains(t, v["VolumeId"].(string), "fsvol-")
-				assert.Equal(t, "restored-vol", v["Name"])
-			}
+		svmRec := doFSxRequest(t, h, "CreateStorageVirtualMachine", map[string]any{
+			"FileSystemId": fsID,
+			"Name":         "svm-for-restore",
 		})
-	}
+		require.Equal(t, http.StatusOK, svmRec.Code)
+		var svmOut map[string]any
+		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut))
+		svmID := svmOut["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
+
+		rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
+			"BackupId": backupID,
+			"Name":     "restored-vol",
+			"OntapConfiguration": map[string]any{
+				"StorageVirtualMachineId": svmID,
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		v := out["Volume"].(map[string]any)
+		assert.Contains(t, v["VolumeId"].(string), "fsvol-")
+		assert.Equal(t, "restored-vol", v["Name"])
+		gotOntap := v["OntapConfiguration"].(map[string]any)
+		assert.Equal(t, svmID, gotOntap["StorageVirtualMachineId"],
+			"real types.Volume carries the SVM nested under OntapConfiguration, not a top-level field")
+		assert.Equal(t, fsID, v["FileSystemId"], "FileSystemId must be derived from the resolved SVM")
+	})
+
+	t.Run("unknown backup returns 400", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		fsID := createFS(t, h, "ONTAP")
+		svmRec := doFSxRequest(t, h, "CreateStorageVirtualMachine", map[string]any{
+			"FileSystemId": fsID,
+			"Name":         "svm-for-restore",
+		})
+		require.Equal(t, http.StatusOK, svmRec.Code)
+		var svmOut map[string]any
+		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut))
+		svmID := svmOut["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
+
+		rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
+			"BackupId": "backup-does-not-exist",
+			"Name":     "restored-vol",
+			"OntapConfiguration": map[string]any{
+				"StorageVirtualMachineId": svmID,
+			},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("missing OntapConfiguration returns 400", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		backupID := createFSandBackup(t, h, "ONTAP")
+
+		rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
+			"BackupId": backupID,
+			"Name":     "restored-vol",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
@@ -261,15 +290,21 @@ func TestCreateVolume_RealRequestShape(t *testing.T) {
 			require.NoError(t, err)
 			// FileSystemId resolving correctly proves the SVM reference was
 			// looked up for real (an unknown/dropped SVM would have failed
-			// lookup or left this empty). Real types.Volume has no top-level
-			// StorageVirtualMachineId member at all -- only nested under the
-			// not-yet-modeled response OntapConfiguration, a separate, disclosed
-			// Layer-3 gap (see PARITY.md) -- so it can't be asserted through the
-			// typed SDK client here.
+			// lookup or left this empty). Real types.Volume nests
+			// StorageVirtualMachineId under OntapConfiguration (see
+			// TestVolume_StorageVirtualMachineIdWireShape in
+			// wire_field_fixes_test.go for the dedicated wire-shape proof);
+			// asserted here too since this test already has the SVM ID in hand.
 			assert.Equal(
 				t,
 				aws.ToString(fsOut.FileSystem.FileSystemId),
 				aws.ToString(volOut.Volume.FileSystemId),
+			)
+			require.NotNil(t, volOut.Volume.OntapConfiguration)
+			assert.Equal(
+				t,
+				aws.ToString(svmOut.StorageVirtualMachine.StorageVirtualMachineId),
+				aws.ToString(volOut.Volume.OntapConfiguration.StorageVirtualMachineId),
 			)
 		},
 	)

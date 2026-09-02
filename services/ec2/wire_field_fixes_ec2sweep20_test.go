@@ -95,7 +95,7 @@ func TestDisassociateVpcCidrBlock_WireShape_RealClient(t *testing.T) {
 	h := ec2.NewHandler(b)
 	client := newTestEC2Client(t, h)
 
-	vpc, err := b.CreateVpc("10.61.0.0/16")
+	vpc, err := b.CreateVpc("10.61.0.0/16", "default")
 	require.NoError(t, err)
 
 	// Set up the association directly on the backend rather than through

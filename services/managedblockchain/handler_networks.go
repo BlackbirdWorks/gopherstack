@@ -14,6 +14,10 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.ClientRequestToken == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
+	}
+
 	if req.Name == "" {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkName.Error())
 	}

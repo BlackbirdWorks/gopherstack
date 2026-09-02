@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -236,6 +237,8 @@ func matchesOpsMetadataFilter(m OpsMetadata, f OpsMetadataFilterEntry) bool {
 // and paginated by input.MaxResults/NextToken -- real, optional
 // ListOpsMetadataInput members (api_op_ListOpsMetadata.go) a literal
 // struct{} input previously discarded from every request.
+//
+//nolint:dupl // mirrors ListAssociations' filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListOpsMetadata(
 	ctx context.Context,
 	input *ListOpsMetadataInput,
@@ -277,7 +280,15 @@ func (b *InMemoryBackend) ListOpsMetadata(
 	return &ListOpsMetadataOutputFull{OpsMetadataList: page, NextToken: next}, nil
 }
 
-// opsItemMatchesFilters returns true when the item satisfies all provided filters.
+// opsItemMatchesFilters returns true when the item satisfies all provided
+// filters. Supported keys are the ones backed by fields this emulator's
+// OpsItem models: Status, Title, Source (real keys per
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_DescribeOpsItems.go doc
+// comment; the other ~25 documented keys, mostly AccessRequest/ChangeRequest
+// sub-filters, have no backing field). That same doc comment documents each
+// key's supported Operator(s): Status is Equals-only, but Title and Source
+// both also support Contains (substring), honored below rather than always
+// compared for exact equality.
 func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 	for _, f := range filters {
 		var fieldValue string
@@ -290,6 +301,14 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 		case "Source":
 			fieldValue = item.Source
 		default:
+			continue
+		}
+
+		if f.Operator == "Contains" {
+			if !slices.ContainsFunc(f.Values, func(v string) bool { return strings.Contains(fieldValue, v) }) {
+				return false
+			}
+
 			continue
 		}
 
@@ -336,6 +355,8 @@ func (b *InMemoryBackend) DescribeOpsItems(
 			Priority:         item.Priority,
 		})
 	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].OpsItemID < all[j].OpsItemID })
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -559,10 +580,6 @@ func (b *InMemoryBackend) DeleteOpsItem(
 	defer b.mu.Unlock()
 
 	opsItems := b.opsItemsStore(region)
-	if !opsItems.Has(input.OpsItemID) {
-		return nil, ErrOpsItemNotFound
-	}
-
 	opsItems.Delete(input.OpsItemID)
 	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
@@ -627,6 +644,11 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 	if all == nil {
 		all = []OpsItemRelatedItem{}
 	}
+
+	// AssociationID is assigned via uuid.NewString() (AssociateOpsItemRelatedItem)
+	// and never reused, so sorting on it alone is sufficient even though the
+	// OpsItemId=="" branch above walks opsItemRelatedItems in unspecified map order.
+	sort.Slice(all, func(i, j int) bool { return all[i].AssociationID < all[j].AssociationID })
 
 	const maxOpsItemRelatedItems = 50
 

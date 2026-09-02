@@ -278,7 +278,7 @@ func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
 	}
 
 	if entry.ClientID != clientID {
-		return fmt.Errorf("%w: token was issued for a different client", ErrNotAuthorized)
+		return fmt.Errorf("%w: token was issued for a different client", ErrTokenUnauthorized)
 	}
 
 	b.deleteRefreshTokenLocked(token)

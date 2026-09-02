@@ -289,15 +289,30 @@ func (b *InMemoryBackend) Reset() {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// requireFileSystem returns ErrNotFound if fileSystemID doesn't exist in region.
+// Callers use it to guard the FileSystemId-filter path of a Describe* op: real
+// AWS raises FileSystemNotFound for an unknown filter, distinct from "this file
+// system exists but has no matching items".
+func (b *InMemoryBackend) requireFileSystem(region, fileSystemID string) error {
+	if _, ok := b.fileSystems.Get(regionKey(region, fileSystemID)); !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	return nil
+}
+
 // describeByIDOrFilter is a generic helper for Describe* methods that look up
 // a single item by ID via getByID, or filter allInRegion by file-system ID,
-// then paginate.
+// then paginate. checkFileSystem, if non-nil, validates a non-empty
+// fileSystemID filter exists before falling through to an (indistinguishable)
+// empty result -- real AWS raises FileSystemNotFound for an unknown filter.
 func describeByIDOrFilter[T any](
 	getByID func(id string) (*T, bool),
 	allInRegion []*T,
 	singleID string,
 	notFoundErr error,
 	fileSystemID string,
+	checkFileSystem func(string) error,
 	fsIDOf func(*T) string,
 	copyFn func(*T) *T,
 	idOf func(*T) string,
@@ -311,6 +326,12 @@ func describeByIDOrFilter[T any](
 		}
 
 		return []*T{copyFn(item)}, "", nil
+	}
+
+	if fileSystemID != "" && checkFileSystem != nil {
+		if err := checkFileSystem(fileSystemID); err != nil {
+			return nil, "", err
+		}
 	}
 
 	all := make([]*T, 0, len(allInRegion))

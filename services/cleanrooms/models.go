@@ -257,17 +257,18 @@ type ConfiguredTableAssociation struct {
 }
 
 type ConfiguredTableAssociationSummary struct {
-	ConfiguredTableAssociationIdentifier string  `json:"-"`
-	Arn                                  string  `json:"arn"`
-	MembershipIdentifier                 string  `json:"-"`
-	MembershipArn                        string  `json:"membershipArn"`
-	ConfiguredTableIdentifier            string  `json:"-"`
-	Name                                 string  `json:"name"`
-	ID                                   string  `json:"id"`
-	MembershipID                         string  `json:"membershipId"`
-	ConfiguredTableID                    string  `json:"configuredTableId"`
-	CreateTime                           float64 `json:"createTime,omitempty"`
-	UpdateTime                           float64 `json:"updateTime,omitempty"`
+	ConfiguredTableAssociationIdentifier string   `json:"-"`
+	Arn                                  string   `json:"arn"`
+	MembershipIdentifier                 string   `json:"-"`
+	MembershipArn                        string   `json:"membershipArn"`
+	ConfiguredTableIdentifier            string   `json:"-"`
+	Name                                 string   `json:"name"`
+	ID                                   string   `json:"id"`
+	MembershipID                         string   `json:"membershipId"`
+	ConfiguredTableID                    string   `json:"configuredTableId"`
+	AnalysisRuleTypes                    []string `json:"analysisRuleTypes"`
+	CreateTime                           float64  `json:"createTime,omitempty"`
+	UpdateTime                           float64  `json:"updateTime,omitempty"`
 }
 
 // ConfiguredTableAssociationAnalysisRule verified against
@@ -325,6 +326,7 @@ type AnalysisTemplateSummary struct {
 	MembershipIdentifier       string  `json:"-"`
 	MembershipArn              string  `json:"membershipArn"`
 	Name                       string  `json:"name"`
+	Description                string  `json:"description,omitempty"`
 	ID                         string  `json:"id"`
 	MembershipID               string  `json:"membershipId"`
 	CollaborationID            string  `json:"collaborationId"`
@@ -614,6 +616,7 @@ type IDMappingTableSummary struct {
 	MembershipArn            string         `json:"membershipArn"`
 	MembershipIdentifier     string         `json:"-"`
 	Name                     string         `json:"name"`
+	Description              string         `json:"description,omitempty"`
 	ID                       string         `json:"id"`
 	MembershipID             string         `json:"membershipId"`
 	CollaborationID          string         `json:"collaborationId"`
@@ -657,6 +660,7 @@ type IDNamespaceAssociationSummary struct {
 	MembershipArn                    string         `json:"membershipArn"`
 	MembershipIdentifier             string         `json:"-"`
 	Name                             string         `json:"name"`
+	Description                      string         `json:"description,omitempty"`
 	ID                               string         `json:"id"`
 	MembershipID                     string         `json:"membershipId"`
 	CollaborationID                  string         `json:"collaborationId"`

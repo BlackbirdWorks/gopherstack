@@ -249,25 +249,30 @@ type stackSetManagedExecutionXML struct {
 	Active bool `xml:"Active"`
 }
 
-// ssXML is the full DescribeStackSetResult.StackSet wire shape, field-diffed
-// against aws-sdk-go-v2/service/cloudformation@v1.76.1's
-// awsAwsquery_deserializeDocumentStackSet.
+// ssXML is DescribeStackSetResult.StackSet's wire shape, field-diffed against
+// aws-sdk-go-v2/service/cloudformation@v1.76.1's
+// awsAwsquery_deserializeDocumentStackSet (gopherstack-21my: a prior version
+// of this comment claimed "full" coverage while omitting TemplateBody, which
+// this backend tracks and now emits). StackSetDriftDetectionDetails remains
+// unemitted: the backend has no set-level drift-status model to populate it
+// from.
 type ssXML struct {
 	AutoDeployment        *stackSetAutoDeploymentXML   `xml:"AutoDeployment,omitempty"`
 	ManagedExecution      *stackSetManagedExecutionXML `xml:"ManagedExecution,omitempty"`
-	Status                string                       `xml:"Status"`
-	StackSetID            string                       `xml:"StackSetId"`
+	ExecutionRoleName     string                       `xml:"ExecutionRoleName,omitempty"`
+	PermissionModel       string                       `xml:"PermissionModel,omitempty"`
 	StackSetName          string                       `xml:"StackSetName"`
 	Description           string                       `xml:"Description,omitempty"`
 	StackSetARN           string                       `xml:"StackSetARN,omitempty"`
 	AdministrationRoleARN string                       `xml:"AdministrationRoleARN,omitempty"`
-	ExecutionRoleName     string                       `xml:"ExecutionRoleName,omitempty"`
-	PermissionModel       string                       `xml:"PermissionModel,omitempty"`
-	OrganizationalUnitIDs []string                     `xml:"OrganizationalUnitIds>member,omitempty"`
+	Status                string                       `xml:"Status"`
+	StackSetID            string                       `xml:"StackSetId"`
+	TemplateBody          string                       `xml:"TemplateBody,omitempty"`
 	Regions               []string                     `xml:"Regions>member,omitempty"`
 	Tags                  []stackSetTagXML             `xml:"Tags>member,omitempty"`
 	Parameters            []stackSetParamXML           `xml:"Parameters>member,omitempty"`
 	Capabilities          []string                     `xml:"Capabilities>member,omitempty"`
+	OrganizationalUnitIDs []string                     `xml:"OrganizationalUnitIds>member,omitempty"`
 }
 
 func stackSetToXML(ss *StackSet, regions []string) ssXML {
@@ -294,6 +299,7 @@ func stackSetToXML(ss *StackSet, regions []string) ssXML {
 		Tags:                  tags,
 		OrganizationalUnitIDs: ss.OrganizationalUnitIDs,
 		Regions:               regions,
+		TemplateBody:          ss.TemplateBody,
 	}
 	if ss.AutoDeployment != nil {
 		x.AutoDeployment = &stackSetAutoDeploymentXML{
@@ -342,7 +348,7 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListStackSets(form.Get("NextToken"))
+	p, err := h.Backend.ListStackSets(form.Get("NextToken"), form.Get("Status"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -350,13 +356,11 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 		StackSetID   string `xml:"StackSetId"`
 		StackSetName string `xml:"StackSetName"`
 		Status       string `xml:"Status"`
+		Description  string `xml:"Description,omitempty"`
 	}
 	members := make([]summXML, 0, len(p.Data))
 	for _, s := range p.Data {
-		members = append(
-			members,
-			summXML{StackSetID: s.StackSetID, StackSetName: s.StackSetName, Status: s.Status},
-		)
+		members = append(members, summXML(s))
 	}
 	type result struct {
 		NextToken string    `xml:"NextToken,omitempty"`
@@ -485,17 +489,48 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	)
 }
 
+// parseStackInstanceFilters parses Filters.member.N.{Name,Values} into a
+// ListStackInstancesFilter. DETAILED_STATUS entries are ignored (see
+// ListStackInstancesFilter's doc comment for why); unrecognized Name values
+// are ignored too rather than rejected, matching this handler's existing
+// leniency elsewhere.
+func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
+	filter := ListStackInstancesFilter{
+		StackInstanceAccount: form.Get("StackInstanceAccount"),
+		StackInstanceRegion:  form.Get("StackInstanceRegion"),
+	}
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		if name == "" {
+			break
+		}
+		value := form.Get(fmt.Sprintf("Filters.member.%d.Values", i))
+		switch name {
+		case "DRIFT_STATUS":
+			filter.DriftStatus = value
+		case "LAST_OPERATION_ID":
+			filter.LastOperationID = value
+		}
+	}
+
+	return filter
+}
+
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"))
+	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"), parseStackInstanceFilters(form))
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName         string `xml:"StackSetName,omitempty"`
+		StackSetID           string `xml:"StackSetId,omitempty"`
+		StackID              string `xml:"StackId,omitempty"`
 		Account              string `xml:"Account,omitempty"`
 		Region               string `xml:"Region,omitempty"`
 		Status               string `xml:"Status,omitempty"`
+		StatusReason         string `xml:"StatusReason,omitempty"`
+		DriftStatus          string `xml:"DriftStatus,omitempty"`
+		LastOperationID      string `xml:"LastOperationId,omitempty"`
 		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
@@ -503,10 +538,14 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		members = append(
 			members,
 			instXML{
-				StackSetName:         i.StackSetName,
+				StackSetID:           i.StackSetID,
+				StackID:              i.StackID,
 				Account:              i.Account,
 				Region:               i.Region,
 				Status:               i.Status,
+				StatusReason:         i.StatusReason,
+				DriftStatus:          i.DriftStatus,
+				LastOperationID:      i.LastOperationID,
 				OrganizationalUnitID: i.OrganizationalUnitID,
 			},
 		)
@@ -538,13 +577,21 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 	region := form.Get("StackInstanceRegion")
 	inst, err := h.Backend.DescribeStackInstance(name, account, region)
 	if err != nil {
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName         string `xml:"StackSetName,omitempty"`
+		StackSetID           string `xml:"StackSetId,omitempty"`
+		StackID              string `xml:"StackId,omitempty"`
 		Account              string `xml:"Account,omitempty"`
 		Region               string `xml:"Region,omitempty"`
 		Status               string `xml:"Status,omitempty"`
+		StatusReason         string `xml:"StatusReason,omitempty"`
+		DriftStatus          string `xml:"DriftStatus,omitempty"`
+		LastOperationID      string `xml:"LastOperationId,omitempty"`
 		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
@@ -561,10 +608,14 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		Xmlns: cfnNS,
 		Result: result{
 			StackInstance: instXML{
-				StackSetName:         inst.StackSetName,
+				StackSetID:           inst.StackSetID,
+				StackID:              inst.StackID,
 				Account:              inst.Account,
 				Region:               inst.Region,
 				Status:               inst.Status,
+				StatusReason:         inst.StatusReason,
+				DriftStatus:          inst.DriftStatus,
+				LastOperationID:      inst.LastOperationID,
 				OrganizationalUnitID: inst.OrganizationalUnitID,
 			},
 		},
@@ -598,16 +649,18 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 	name := form.Get("StackSetName")
 	p, _ := h.Backend.ListStackSetOperations(name, form.Get("NextToken"))
 	type opXML struct {
-		OperationID string `xml:"OperationId"`
-		Action      string `xml:"Action"`
-		Status      string `xml:"Status"`
+		OperationID       string `xml:"OperationId"`
+		Action            string `xml:"Action"`
+		Status            string `xml:"Status"`
+		CreationTimestamp string `xml:"CreationTimestamp"`
 	}
 	members := make([]opXML, 0, len(p.Data))
 	for _, op := range p.Data {
 		members = append(members, opXML{
-			OperationID: op.OperationID,
-			Action:      op.Action,
-			Status:      op.Status,
+			OperationID:       op.OperationID,
+			Action:            op.Action,
+			Status:            op.Status,
+			CreationTimestamp: op.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 	type result struct {
@@ -644,9 +697,11 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	}
 	type result struct {
 		StackSetOperation struct {
-			OperationID string `xml:"OperationId"`
-			Action      string `xml:"Action"`
-			Status      string `xml:"Status"`
+			OperationID       string `xml:"OperationId"`
+			Action            string `xml:"Action"`
+			Status            string `xml:"Status"`
+			CreationTimestamp string `xml:"CreationTimestamp"`
+			StackSetID        string `xml:"StackSetId,omitempty"`
 		} `xml:"StackSetOperation"`
 	}
 	type response struct {
@@ -659,6 +714,10 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	r.StackSetOperation.OperationID = op.OperationID
 	r.StackSetOperation.Action = op.Action
 	r.StackSetOperation.Status = op.Status
+	r.StackSetOperation.CreationTimestamp = op.CreatedAt.UTC().Format("2006-01-02T15:04:05Z")
+	if ss, ssErr := h.Backend.DescribeStackSet(name); ssErr == nil {
+		r.StackSetOperation.StackSetID = ss.StackSetID
+	}
 
 	return writeXML(c, response{Xmlns: cfnNS, Result: r, RequestID: uuid.New().String()})
 }
@@ -806,6 +865,10 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 
 	results, err := h.Backend.ListStackSetOperationResults(stackSetName, operationID, "")
 	if err != nil {
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "OperationNotFoundException", err.Error())
 	}
 

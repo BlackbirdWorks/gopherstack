@@ -314,7 +314,7 @@ func (h *Handler) restRouter() service.RESTRouter {
 			return errBody(errResourceNotFound, "not found")
 		},
 		BadRequestBody: func() any {
-			return errBody("BadRequestException", "failed to read body")
+			return errBody(errValidation, "failed to read body")
 		},
 		InternalErrorBody: func() any {
 			return errBody("InternalFailure", "serialization failed")

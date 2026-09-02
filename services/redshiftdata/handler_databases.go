@@ -91,9 +91,17 @@ func paginateStrings(all []string, token string, maxResults, defaultMax int) ([]
 	start := 0
 
 	if token != "" {
+		// The token names the first item of the page being resumed (that's
+		// what's emitted below: all[limit], the first item past the prior
+		// page's boundary) -- resume AT it, inclusive, not after it, or
+		// every page boundary silently drops one item. A miss (unmatched
+		// or tampered token) defaults to len(all), not 0: defaulting to 0
+		// would restart at page one forever instead of terminating.
+		start = len(all)
+
 		for i, s := range all {
 			if s == token {
-				start = i + 1
+				start = i
 
 				break
 			}

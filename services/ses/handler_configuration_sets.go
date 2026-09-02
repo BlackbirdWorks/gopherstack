@@ -3,6 +3,7 @@ package ses
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -149,41 +150,58 @@ type deleteConfigurationSetTrackingOptionsResponse struct {
 	RequestID string                                      `xml:"ResponseMetadata>RequestId"`
 }
 
+// configSetAttr* mirror types.ConfigurationSetAttribute
+// (aws-sdk-go-v2/service/ses/types/enums.go).
+const (
+	configSetAttrEventDestinations = "eventDestinations"
+	configSetAttrTrackingOptions   = "trackingOptions"
+	configSetAttrDeliveryOptions   = "deliveryOptions"
+	configSetAttrReputationOptions = "reputationOptions"
+)
+
 func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) (any, error) {
 	desc, err := h.Backend.DescribeConfigurationSet(vals.Get("ConfigurationSetName"))
 	if err != nil {
 		return nil, err
 	}
 
-	dests := make([]xmlEventDestination, 0, len(desc.EventDestinations))
-	for _, d := range desc.EventDestinations {
-		evTypes := make([]xmlMember, 0, len(d.MatchingEventTypes))
-		for _, t := range d.MatchingEventTypes {
-			evTypes = append(evTypes, xmlMember{Value: t})
-		}
-
-		dests = append(dests, xmlEventDestination{
-			Name:               d.Name,
-			Enabled:            d.Enabled,
-			MatchingEventTypes: xmlMemberList{Members: evTypes},
-			SNSTopicARN:        d.SNSTopicARN,
-		})
+	attrs := parseSESMemberList(vals, "ConfigurationSetAttributeNames")
+	wants := func(name string) bool {
+		return slices.Contains(attrs, name)
 	}
 
-	result := describeConfigurationSetResult{
-		ConfigurationSet:  xmlConfigurationSet{Name: desc.Name},
-		EventDestinations: xmlEventDestinationList{Members: dests},
-		ReputationOptions: &xmlReputationOptions{
+	result := describeConfigurationSetResult{ConfigurationSet: xmlConfigurationSet{Name: desc.Name}}
+
+	if wants(configSetAttrEventDestinations) {
+		dests := make([]xmlEventDestination, 0, len(desc.EventDestinations))
+		for _, d := range desc.EventDestinations {
+			evTypes := make([]xmlMember, 0, len(d.MatchingEventTypes))
+			for _, t := range d.MatchingEventTypes {
+				evTypes = append(evTypes, xmlMember{Value: t})
+			}
+
+			dests = append(dests, xmlEventDestination{
+				Name:               d.Name,
+				Enabled:            d.Enabled,
+				MatchingEventTypes: xmlMemberList{Members: evTypes},
+				SNSTopicARN:        d.SNSTopicARN,
+			})
+		}
+		result.EventDestinations = xmlEventDestinationList{Members: dests}
+	}
+
+	if wants(configSetAttrReputationOptions) {
+		result.ReputationOptions = &xmlReputationOptions{
 			SendingEnabled:           desc.SendingEnabled,
 			ReputationMetricsEnabled: desc.ReputationMetricsEnabled,
-		},
+		}
 	}
 
-	if desc.TrackingOptions != nil {
+	if wants(configSetAttrTrackingOptions) && desc.TrackingOptions != nil {
 		result.TrackingOptions = &xmlTrackingOptions{CustomRedirectDomain: desc.TrackingOptions.CustomRedirectDomain}
 	}
 
-	if desc.DeliveryOptions != nil {
+	if wants(configSetAttrDeliveryOptions) && desc.DeliveryOptions != nil {
 		result.DeliveryOptions = &xmlDeliveryOptions{TLSPolicy: desc.DeliveryOptions.TLSPolicy}
 	}
 

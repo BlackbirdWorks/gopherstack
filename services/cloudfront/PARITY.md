@@ -7,6 +7,89 @@ last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delet
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
+# XML DECLARATION doubling fixed 2026-08-29 (wrapper-key-sweep pass): xmlResp
+# handed bodies that already began with `<?xml version="1.0" encoding="UTF-8"?>`
+# (every body builder in this package embeds one) to echo's c.XMLBlob, which
+# prepends its own copy of the same declaration -- every single XML response
+# this service ever emitted, success AND error path alike, carried two
+# back-to-back declarations. A declaration is legal only as the very first
+# construct in a document, so strict parsers reject the whole body; confirmed
+# with botocore ("Unable to parse response") against ListDistributions. The
+# aws-sdk-go-v2 client's own smithy-go XML decoder is lenient about it and
+# does NOT fail, which is why no existing test (including ones driving the
+# real Go SDK client) ever caught this -- only a raw-response-bytes assertion
+# does. Fixed by making xmlResp write bytes directly instead of through
+# XMLBlob, so the body's own declaration is the one and only source; the sole
+# body that never carried its own declaration (GetDistributionConfig's
+# RawConfig passthrough -- RawConfig is stored from either the raw client
+# request body or xml.Marshal output, neither of which ever emits one) now
+# gets one prepended explicitly at that call site, matching the convention
+# GetStreamingDistributionConfig's RawConfig passthrough already used. See
+# handler_xml_declaration_test.go.
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (cloudfront@v1.67.4 deserializers.go,
+# 167 ops N-of-N) against errCodeMapping/notFoundCode (handler_dispatch.go)
+# and every backend call site. Systemic finding: ErrConnectionFunctionNotFound,
+# ErrConnectionGroupNotFound, ErrDistributionTenantNotFound, ErrTrustStoreNotFound,
+# ErrVpcOriginNotFound each carried a fabricated per-resource "NoSuchXxx" code
+# that does not exist anywhere in the pinned SDK -- every op in each of those
+# 5 families (connection function/group, distribution tenant, trust store,
+# VPC origin -- ~20 ops) actually models the shared EntityNotFound code
+# instead (already the convention this file used for KVS/resource-policy).
+# All 5 sentinels + the errCodeMapping/notFoundCode literals fixed. Also
+# fixed 8 more per-op mismatches where a shared sentinel's code didn't match
+# the specific op's own modeled set: AssociateDistributionWebACL/
+# DisassociateDistributionWebACL and TagResource/UntagResource/
+# ListTagsForResource each reused ErrNotFound's NoSuchDistribution instead of
+# their own EntityNotFound/NoSuchResource; CreateDistributionTenant/
+# UpdateDistributionTenant's domain-conflict case used a fabricated
+# "DomainConflictException" (renamed sentinel to ErrCNAMEAlreadyExists, the
+# code both ops actually model, shared with CreateDistribution's alias-
+# collision case); UpdateDomainAssociation's own domain-conflict and unknown-
+# target-distribution paths used the same wrong codes; CreateKeyGroup/
+# UpdateKeyGroup's unknown-item-public-key case and UpdateTrustStore's
+# rename-collision case each used a code their op doesn't model, corrected
+# to the modeled ValidationException-equivalent. See error_sentinel_fixes_test.go
+# (real-SDK errors.As assertions, each confirmed failing pre-fix). 10
+# pre-existing tests across 6 test files asserted the old wrong codes/status
+# as correct; corrected alongside the fix.
+# FILTER/PAGINATION PARAMETER audit 2026-08-29 (continuation of the eks/cleanrooms pass,
+# commit 9f7b9d67e): read every List op's Input shape against api_op_List*.go/types.go
+# (cloudfront@v1.67.4) and checked whether the handler reads AND applies each declared
+# filter/sort/status/pagination member. 5 real "declared, never read" bugs fixed:
+# ListFunctions.Stage (query-bound), ListConnectionFunctions.Stage (XML-body-bound --
+# the sibling op families disagree on binding location, confirmed per-op from
+# serializers.go rather than assumed from ListFunctions), ListConnectionGroups
+# .AssociationFilter.AnycastIpListId (body-bound nested filter), ListKeyValueStores
+# .Status (query-bound; KVS.Status is always "READY" here since provisioning is
+# synchronous, so the filter is still correctly implemented as an equality check --
+# not a structural gap, just never exercised by any seeded non-READY value),
+# ListDistributionTenants.AssociationFilter (body-bound nested filter on
+# ConnectionGroupId/DistributionId) -- this last handler didn't read its request body
+# AT ALL before the fix, so Marker/MaxItems were silently unhonoured alongside the
+# filter. All 5 verified against the real aws-sdk-go-v2 client, confirmed failing
+# pre-fix, fixed, and re-verified; see list_filter_params_test.go and the pagination
+# cases appended to list_pagination_ignored_test.go.
+#   Pagination does NOT go through one shared helper here, unlike eks/cleanrooms:
+# paginateByMarkerID (query-string Marker/MaxItems) and the new paginateByMarkerValue
+# (XML-body Marker/MaxItems, for ListConnectionGroups/ListConnectionFunctions/
+# ListDistributionTenants) are both used, but ~20 further List ops (ListCachePolicies,
+# ListOriginRequestPolicies, ListResponseHeadersPolicies, ListOriginAccessControls,
+# ListCloudFrontOriginAccessIdentities, ListFieldLevelEncryptionConfigs,
+# ListFieldLevelEncryptionProfiles, ListPublicKeys, ListKeyGroups,
+# ListRealtimeLogConfigs, ListVpcOrigins, ListContinuousDeploymentPolicies,
+# ListStreamingDistributions, ListTrustStores, ListConflictingAliases,
+# ListDomainConflicts, and the whole ListDistributionsBy* family of 11) hardcode
+# MaxItems in the response and never truncate or emit a marker/NextMarker at all --
+# confirmed by reading each handler, NOT fixed this pass (see gaps below). The
+# ListDistributionsBy* family additionally has heterogeneous real output shapes
+# (DistributionIdList vs DistributionList vs DistributionIdOwnerList depending on
+# the specific op) that the current shared marshalDistributionList collapses to one
+# shape -- a wire-shape question distinct from parameter-honouring, flagged but not
+# investigated further; needs its own dedicated pass reading each op's own Output
+# struct and deserializer, not a mechanical pagination patch.
+# BOTH GAPS ABOVE CLOSED 2026-08-30 (gopherstack-lkng) -- see "List pagination +
+# ListDistributionsBy* shape fix" section near the end of this file.
 overall: A            # gopherstack-o31x: first FULL route diff of all 167 real cloudfront
                        # control-plane ops (method+path) against cloudfront@v1.67.4
                        # serializers.go, not just the ops other work happened to touch.
@@ -82,7 +165,7 @@ ops:
   DeleteFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW: FunctionInUse guard (keyed by FunctionARN, not name)"}
   GetFunction / DescribeFunction / ListFunctions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "share the same FunctionMetadata fix"}
   TestFunction: {wire: fixed, errors: fixed, state: n/a, persist: n/a, note: "CORRECTED 2026-08-13 (gopherstack-3izo): the handler never read the request body at all -- it confirmed the function existed via GetFunction, then returned a hardcoded TestResult with empty FunctionExecutionLogs/FunctionErrorMessage/FunctionOutput regardless of the supplied EventObject (required, base64 body-XML, api_op_TestFunction.go:50, serializers.go:11847) or the function's own code, and never checked If-Match at all despite it being a second required member (api_op_TestFunction.go:56) -- every real client's test call got a successful-looking empty result no matter what it sent. Real execution is out of reach: gopherstack vendors no JavaScript engine (no goja/otto/v8 in go.mod), and the one existing precedent for this exact problem -- appsync's EvaluateCode (services/appsync/jseval.go) -- only covers a narrow return-expression DSL used by AppSync resolver mapping templates (~5 fixed patterns: object literals, context member paths, a handful of util.* helpers), not general-purpose ES5.1 code with loops/variables/string methods/regex that real CloudFront Functions (URL rewrites, header/cookie manipulation, redirects) actually use; a 'faithful subset' evaluator broad enough to be useful would silently misexecute on anything outside its subset and produce a FunctionOutput that looks real but isn't -- worse than an empty one. Lambda's approach (services/lambda/containers.go: real Docker containers running actual AWS runtime images) is genuine execution but is Lambda's own zip/bootstrap/runtime-API protocol, not applicable to CloudFront Functions' edge JS model. Chose the honest option: read and validate the request for real (If-Match checked against the function's current ETag -> InvalidIfMatchVersion if missing/mismatched, matching this op's own declared error, not the PreconditionFailed siblings use; EventObject required, base64-decoded, and validated as well-formed JSON -> InvalidArgument otherwise), then report the real declared TestFunctionFailed error (HTTP 500, 'the CloudFront function failed' per the API reference) for a well-formed request gopherstack cannot execute, instead of fabricating FunctionOutput/logs. One pre-existing test (TestCloudFrontFunctionCRUD/test_function) asserted the canned empty-success TestResult as correct with no If-Match header and no EventObject at all; corrected to expect TestFunctionFailed for a well-formed request. New TestTestFunction covers the full validation matrix (missing/wrong If-Match, missing/non-base64/non-JSON EventObject, unknown function, and the TestFunctionFailed structural-gap response) and fails against the pre-fix handler by reverting by hand."}
-  TagResource / UntagResource / ListTagsForResource: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-o31x): routing bug. Real TagResource and UntagResource are BOTH POST /2020-05-31/tagging, disambiguated only by an \"Operation=Tag\"/\"Operation=Untag\" query value (serializers.go: awsRestxml_serializeOp{Tag,Untag}Resource's SplitURI) -- UntagResource is never DELETE. gopherstack routed POST unconditionally to TagResource and DELETE to UntagResource, so every real UntagResource call (POST) landed on the TagResource handler instead, which then 400'd MalformedXML trying to unmarshal an UntagResource body (root TagKeys) as Tags. Fixed by threading the \"Operation\" query value through parseCFPath (new opParam parameter) and switching on it for POST /tagging; a bare POST with no recognized Operation value still defaults to TagResource for backward compatibility with hand-built requests. ListTagsForResource (GET) was unaffected. Verified against the real aws-sdk-go-v2 client (TestTagUntagResource_RealClient) and confirmed to fail against the pre-fix shape by reverting by hand. gopherstack-r80d (required-OUTPUT-member sweep): ListTagsForResourceOutput.Tags is the ONLY required output member in this service's entire 167-op SDK surface (every other op's Output has zero 'This member is required.' fields at struct depth 0) -- not a protocol-wide trait (route53, also REST-XML, has 108 required output fields across 58 ops), just how this particular Smithy model was authored. handleListTagsForResource always builds a non-nil Tags element (even when the tag set is empty), so the sole required member is correctly populated. Service is fully settled for this bug class."}
+  TagResource / UntagResource / ListTagsForResource: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-o31x): routing bug. Real TagResource and UntagResource are BOTH POST /2020-05-31/tagging, disambiguated only by an \"Operation=Tag\"/\"Operation=Untag\" query value (serializers.go: awsRestxml_serializeOp{Tag,Untag}Resource's SplitURI) -- UntagResource is never DELETE. gopherstack routed POST unconditionally to TagResource and DELETE to UntagResource, so every real UntagResource call (POST) landed on the TagResource handler instead, which then 400'd MalformedXML trying to unmarshal an UntagResource body (root TagKeys) as Tags. Fixed by threading the \"Operation\" query value through parseCFPath (new opParam parameter) and switching on it for POST /tagging; a bare POST with no recognized Operation value still defaults to TagResource for backward compatibility with hand-built requests. ListTagsForResource (GET) was unaffected. Verified against the real aws-sdk-go-v2 client (TestTagUntagResource_RealClient) and confirmed to fail against the pre-fix shape by reverting by hand. gopherstack-r80d (required-OUTPUT-member sweep): ListTagsForResourceOutput.Tags is the ONLY required output member in this service's entire 167-op SDK surface (every other op's Output has zero 'This member is required.' fields at struct depth 0) -- not a protocol-wide trait (Route 53, also REST-XML, has 108 required output fields across 58 ops), just how this particular Smithy model was authored. handleListTagsForResource always builds a non-nil Tags element (even when the tag set is empty), so the sole required member is correctly populated. Service is fully settled for this bug class. Re-verified 2026-08-28 (independent re-check after the issue's closure reason was found undocumented): re-ran `go run ./cmd/requiredoutputfields`, still exactly 1 field/1 op (ListTagsForResourceOutput.Tags) across all 167 ops; handler unchanged since, still correctly populated; go build/vet/test -race/golangci-lint all clean. 0 new findings, no regression."}
   AssociateAlias: {wire: ok, errors: ok, state: ok, persist: ok, families: cross-service}
   AssociateDistributionTenantWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 (gopherstack-jf8z): response was a bare c.NoContent(200) -- no ETag header, no body at all -- so AssociateDistributionTenantWebACLOutput's ETag/Id/WebACLArn (all *string, api_op_AssociateDistributionTenantWebACL.go) decoded nil for every real client call regardless of backend state. Same bug class as the non-tenant sibling's 2026-08-23 fix (AssociateDistributionWebACL row above), fixed the same way: ETag on the response header, <Id>/<WebACLArn> in the body (root name irrelevant to decode -- awsRestxml_deserializeOpDocumentAssociateDistributionTenantWebACLOutput matches these as direct children of whatever root is sent). This was missed by the 2026-08-13 pass below, whose own commit message asserted this op was \"checked and correct\" -- it was not; only the request-side shape had been fixed, the response side was never driven through a real client that inspected the returned fields (the existing TestAssociateDistributionTenantWebACL_RealClient only asserted err==nil and checked state via a raw HTTP GET, never the SDK response object). Verified against the real aws-sdk-go-v2 client (TestAssociateDistributionTenantWebACL_RealClient_ETag, handler_sdk_route_fixes_test.go) and confirmed to fail against the pre-fix shape by reverting by hand (ETag=<nil> Id=<nil> WebACLArn=<nil> before, all populated after). 2026-08-13 (gopherstack-4ara): request struct root was WebACLAssociation with a WebACLId field; the real root is AssociateDistributionTenantWebACLRequest with a WebACLArn field (an ARN, not an ID; serializers.go: awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput, cloudfront@v1.67.4). Unlike the PutResourcePolicy class of this bug, the handler's xml.Unmarshal error WAS checked (not discarded), so the actual failure mode was every real client's request 400ing MalformedXML outright, not a silent zero-value wipe that returns 200 -- confirmed against the real client both before and after the fix (TestAssociateDistributionTenantWebACL_RealClient, fails against the pre-fix shape by reverting by hand). Also fixed TestAssociateDistributionTenantWebACL, a pre-existing test whose hand-typed request body encoded the exact same invented WebACLAssociation/WebACLId shape the pre-fix handler expected, so it had been passing against broken code indefinitely."}
   AssociateDistributionWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: response never set the ETag header and returned an empty 200 body, so AssociateDistributionWebACLOutput's ETag/Id/WebACLArn (all *string, api_op_AssociateDistributionWebACL.go) decoded nil for every real client call regardless of backend state -- distinct from the 2026-08-13 request-shape fix below, which never checked the response side. Fixed by returning ETag on the response header and an <Id>/<WebACLArn> body (root name irrelevant to decode -- confirmed via awsRestxml_deserializeOpDocumentAssociateDistributionWebACLOutput, which matches these as direct children of whatever root is sent, not a nested wrapper). Verified against the real aws-sdk-go-v2 client (TestAssociateDisassociateDistributionWebACL_RealClient_ETag, handler_sdk_route_fixes_test.go) and confirmed to fail against the pre-fix shape by reverting by hand (ETag=<nil> Id=<nil> WebACLArn=<nil> before, all populated after). 2026-08-13 (gopherstack-bhhx): request struct root was WebACLAssociation with a WebACLId field (the same webACLAssociationXML shared type AssociateDistributionTenantWebACL used before its own gopherstack-4ara fix); the real root is AssociateDistributionWebACLRequest with a WebACLArn field (an ARN, not an ID; serializers.go:255, awsRestxml_serializeOpDocumentAssociateDistributionWebACLInput, cloudfront@v1.67.4) -- a DIFFERENT real root from the tenant sibling's AssociateDistributionTenantWebACLRequest despite an identical field shape, so this needed its own dedicated request type (associateDistributionWebACLRequestXML) rather than reusing either the old shared type or the tenant's dedicated one. Same failure-mode class as the tenant fix: the handler's xml.Unmarshal error WAS checked (not discarded), so real clients got a clean 400 MalformedXML rather than a silent zero-value wipe. Surveyed every other shared XML request/response type in this service for the same shared-type-different-real-root risk (invalidationBatchXML used by CreateInvalidation and CreateInvalidationForDistributionTenant, tagXML/tagsXML used by 7+ ops) -- all confirmed safe: the real SDK's own types.InvalidationBatch/types.Tags/types.Tag are themselves canonical shared types reused identically across those ops (types/types.go:6492,6521), unlike the WebACLAssociation/WebACLId shape which never existed on any real op's wire at all. Verified against the real aws-sdk-go-v2 client (TestAssociateDistributionWebACL in handler_distributions_lifecycle_test.go, driven with the real AssociateDistributionWebACLRequest/WebACLArn body, plus a negative case asserting the old WebACLAssociation/WebACLId body now 400s MalformedXML) and confirmed to fail against the pre-fix shape by reverting by hand. Also fixed TestAssociateDistributionWebACL and TestDisassociateWebACL, two pre-existing tests whose hand-typed request bodies encoded the exact same invented WebACLAssociation/WebACLId shape the pre-fix handler expected, so they had been passing against broken code indefinitely."}
@@ -157,6 +240,7 @@ deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."
   - "ResponseHeadersPolicySecurityHeadersConfig is a flattened simplification of the real 5-sub-struct shape: XSSProtection is stored/emitted as a single string (matches only the real ReportUri sub-field) instead of the real ResponseHeadersPolicyXSSProtection{Override, Protection, ModeBlock, ReportUri} struct, and only ContentTypeOptions has a per-header Override flag modeled (STS/FrameOptions/ReferrerPolicy/ContentSecurityPolicy hardcode Override=false in every response, which happens to match every seeded managed policy's real Override:No default but is not read from request input for those four). Restructuring RHPSecurityHeaders to the full real shape is a breaking model change (cascades to persistence JSON tags and every existing test that constructs one) out of proportion to fix alongside this pass's other work; the CORS list fields and ContentTypeOptions/ContentSecurityPolicy value (the parts client code actually round-trips today) were fixed."
+  - "2026-08-29 filter/pagination audit: ~20 List ops (see the header note above for the full list) hardcode MaxItems/Quantity and never apply Marker/MaxItems truncation or emit a NextMarker, unlike the ops fixed this pass and the handful already using paginateByMarkerID (ListDistributions, ListFunctions, ListInvalidations*, ListAnycastIPLists, ListDistributionTenantsByCustomization). Left unfixed: the fix is mechanical (route each through paginateByMarkerID/paginateByMarkerValue) but the volume (~20 handlers, each needing its own before/after real-SDK pagination test) was out of this pass's budget after the higher-value never-honoured-filter bugs. The ListDistributionsBy* family (11 ops) additionally has per-op output shape questions (DistributionIdList vs DistributionList vs DistributionIdOwnerList -- confirmed heterogeneous by reading 3 of the 11 Output structs) that a mechanical pagination patch alone would not resolve; that family needs a dedicated wire-shape read of each op's own Output/deserializer before touching its pagination, not a copy of the fix used elsewhere in this pass."
 leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper stopCh + Close() lifecycle; no unbounded maps found. This pass added b.work (*pkgs/worker.Group), the mgn/outposts-style scheduled-timer idiom used by scheduleDistributionDeployed -- Close() now also calls b.work.Stop(), which cancels every pending timer and joins its goroutines, so nothing outlives the backend. seedManagedPoliciesLocked (prior pass) does no allocation beyond the fixed ~20-entry seed tables and is called only at construction/Reset/Restore, never per-request."}
 ---
 
@@ -657,3 +741,495 @@ accurate. All three left as recorded.
 Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...` clean;
 `golangci-lint run services/cloudfront/...` -- `0 issues.`; `go test ./services/cloudfront/... -count=1`
 -- `ok github.com/blackbirdworks/gopherstack/services/cloudfront 0.170s`.
+
+## 2026-08-30: paginated-listing reproducibility sweep (unstable page-boundary drop)
+
+Targeted class: a Marker/MaxItems (or offset) cursor over a listing whose sort order isn't
+reproducible between calls -- a record dropped or duplicated at a page boundary with
+nothing changed in between. Read every `sort.Slice` (24 sites) feeding a `paginateByMarkerID`/
+`paginateByMarkerValue` call plus every direct caller of those two helpers.
+
+**Found and fixed**: `ListConnectionFunctions` (`connection.go`, `handler_connection.go`).
+`CreateConnectionFunctionWithCode`'s own comment says "AWS allows multiple connection
+functions to share the same Name -- they are keyed and uniqued by ID, not by name," yet
+`ListConnectionFunctions` sorted solely by `Name` and `handleListConnectionFunctions`'
+cursor used `getID(item) = fn.Name` -- once a group of same-named functions straddled a
+`MaxItems` boundary, page 2's `getID(item) <= marker` cutoff silently discarded the rest
+of the tied group forever (deterministic once a tie spans a boundary, not merely a
+map-iteration flake). Proven with `TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages`
+(`list_pagination_ignored_test.go`, looped 30x for extra confidence though the drop
+reproduces on the first iteration too) -- confirmed failing against unmodified code (2 of
+5 same-named functions survived pagination), passing after. Fixed by (1) sorting on
+`(Name, ID)` in `ListConnectionFunctions`, and (2) changing the cursor's `getID` and the
+emitted `NextMarker` to `Name + "\t" + ID` (tab, not NUL -- Marker round-trips through the
+XML request/response body and NUL is not a valid XML 1.0 character) so the cutoff can no
+longer land mid-tie-group. `Marker`/`NextMarker` are documented opaque tokens
+(`api_op_ListConnectionFunctions.go`), so exposing the composite key on the wire is safe;
+no existing test asserted the literal Marker content.
+
+**Confirmed safe, every other `sort.Slice` site checked**: all 23 remaining sort keys are
+either the sorted table's own `store.Table` key (`distributions`, `oais`,
+`anycastIPLists`, `cachePolicies`, `connectionGroups`, `continuousDeploymentPolicies`,
+`originAccessControls`, `responseHeadersPolicies`, `functions` (keyed by Name),
+`originRequestPolicies`, `fieldLevelEncryptions` x2, `publicKeys`, `keyGroups`,
+`realtimeLogConfigs` (keyed by ARN, sorted by Name -- see next), `vpcOrigins`,
+`trustStores`, `streamingDistributions`, `distributionTenants` x2, `invalidations`
+(composite `distID#ID`, filtered to one distribution so `ID` alone is unique in that
+subset)) or a field independently enforced unique at creation (`KeyValueStore.Name` --
+`CreateKeyValueStore` checks `keyValueStoreByName` and returns `AlreadyExists`;
+`RealtimeLogConfig.Name` -- same pattern via `realtimeLogConfigByName`). `ListKVSValues`
+sorts by `Key`, which is literally the underlying Go map's own key -- immune by
+construction. No "no sort at all" sites found (every truncating listing sorts first).
+
+**Confirmed ignoring MaxItems/Marker entirely** (re-verified, not re-trusted from the
+existing note -- see the sweep-methodology warning already on this file about a prior
+false "already correct" claim): the ~20 `List*` ops the 2026-08-29 filter/pagination audit
+already disclosed as hardcoding `MaxItems`/`Quantity` and never truncating are confirmed
+accurate on inspection -- since they never truncate, they can't drop or duplicate a record
+at a page boundary (a different, already-tracked completeness gap, not this pass's
+target); left as previously disclosed rather than re-fixed here.
+
+Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...`
+clean; `go vet ./services/cloudfront/...` clean; `go test ./services/cloudfront/... -race
+-count=1` -- `ok`; `golangci-lint run ./services/cloudfront/...` -- `0 issues.`
+
+## 2026-08-30 (part 2): List pagination + ListDistributionsBy* shape fix (gopherstack-lkng)
+
+Closes both gaps the 2026-08-29 filter/pagination audit disclosed and explicitly left unfixed
+(see the header note above, now marked closed).
+
+**16 single-shape listings wired to real Marker/MaxItems pagination**, each verified with its
+own `TestList*_SDKRoundTrip_Pagination` test in `list_pagination_ignored_more_test.go` (25
+records seeded, MaxItems=10, asserts page 1 is full + carries a cursor, the remainder comes
+back exactly once with no duplicates, confirmed failing against the pre-fix handler via a
+scoped `git stash` of only the source files, tests reapplied after):
+`ListCachePolicies`, `ListOriginRequestPolicies`, `ListResponseHeadersPolicies` (query-bound,
+`paginateByMarkerID`, `Type` filter applied before pagination -- already correct, not moved);
+`ListOAIs` (`ListCloudFrontOriginAccessIdentities`), `ListOriginAccessControls`,
+`ListFieldLevelEncryptionConfigs`, `ListFieldLevelEncryptionProfiles`, `ListPublicKeys`,
+`ListKeyGroups`, `ListVpcOrigins`, `ListContinuousDeploymentPolicies`,
+`ListStreamingDistributions` (all query-bound, `paginateByMarkerID`, sort key = the backend's
+own unique ID); `ListRealtimeLogConfigs` (query-bound, sort/cursor key = `Name`, unique per
+`CreateRealtimeLogConfig`'s own uniqueness check -- left un-retouched, matches the "one such
+sort was correctly left alone" pattern); `ListTrustStores` (body-bound --
+`awsRestxml_serializeOpDocumentListTrustStoresInput`, `paginateByMarkerValue`; real
+`ListTrustStoresOutput.NextMarker` is a sibling of `TrustStoreList`, not a field on it, and
+`TrustStoreList` itself has no `MaxItems` -- both preserved); `ListConflictingAliases`
+(query-bound, `paginateByMarkerID`; `ListConflictingAliasesByDomain` ranged
+`b.distributionAliases` -- a map -- with no sort, now sorted by distribution ID, its own
+unique key); `ListDomainConflicts` (body-bound alongside `Domain`/
+`DomainControlValidationResource`, `paginateByMarkerValue` keyed on `ResourceID`;
+`findDomainConflicts` builds its result as one tenant match followed by a separately-sorted
+list of distribution IDs -- two orderings concatenated, not one total order -- so a final
+`sort.Slice` by `ResourceID` was added to give the pagination cursor a single stable order
+across both halves).
+
+Real wire-shape check for each (`go doc`/pinned SDK `types/types.go`): 8 of the 16
+(`CachePolicyList`, `OriginRequestPolicyList`, `ResponseHeadersPolicyList`,
+`FieldLevelEncryptionList`, `FieldLevelEncryptionProfileList`, `PublicKeyList`,
+`KeyGroupList`, `ContinuousDeploymentPolicyList`) have **no `IsTruncated` field at all** --
+`NextMarker`'s presence alone signals truncation -- so the handlers were rewritten to that
+shape rather than keeping the previous always-`false` `IsTruncated` element every one of them
+carried (harmless to a real client, which ignores unknown elements, but not wire-accurate);
+`ConflictingAliasesList` is the same no-`IsTruncated` shape. The other 5
+(`OriginAccessControlList`, `CloudFrontOriginAccessIdentityList`, `RealtimeLogConfigs`,
+`VpcOriginList`, `StreamingDistributionList`) do carry `IsTruncated`, now populated for real.
+`RealtimeLogConfigs` additionally has no `Quantity` field in the real type (`Items`/
+`IsTruncated`/`MaxItems`/`NextMarker` only) -- the handler's phantom `Quantity` element was
+dropped to match. None of the 16 echo the request's `Marker` value back on the response
+(a `Marker` field the real Group-B types also carry) -- deliberately, to match this file's own
+two pre-existing reference implementations (`handleListDistributions`,
+`handleListAnycastIPLists`), which already omit it.
+
+**`ListDistributionsBy*` family (12 ops, not 11 -- `ls` on the pinned SDK's
+`api_op_ListDistributionsBy*.go` files gives 12: Anycast­IpListId, CachePolicyId,
+ConnectionFunction, ConnectionMode, KeyGroup, OriginRequestPolicyId, OwnedResource,
+RealtimeLogConfig, ResponseHeadersPolicyId, TrustStore, VpcOriginId, WebACLId) now marshal
+through the correct one of three real output shapes instead of the one shared
+`marshalDistributionList` every op previously used regardless of its actual `Output` struct:
+- **`DistributionIdList`** (bare `Items []string` of distribution IDs) --
+  `ByCachePolicyId`, `ByKeyGroup`, `ByOriginRequestPolicyId`, `ByResponseHeadersPolicyId`,
+  `ByVpcOriginId`. New `marshalDistributionIDList`.
+- **`DistributionList`** (full `DistributionSummary` objects, the shape every op previously
+  used) -- `ByAnycastIpListId`, `ByConnectionFunction`, `ByConnectionMode`, `ByTrustStore`,
+  `ByWebACLId`, `ByRealtimeLogConfig`. Existing `marshalDistributionList`, now paginated
+  (previously hardcoded `MaxItems`/never truncated here too).
+- **`DistributionIdOwnerList`** (`Items []DistributionIdOwner`, pairing a distribution ID with
+  an owning account ID) -- `ByOwnedResource` only. New `marshalDistributionIDOwnerList`;
+  `OwnerAccountId` is always this backend's own account (single-account emulator), read via a
+  new `(*InMemoryBackend).AccountID()` accessor (`store.go`, mirrors the existing `Region()`).
+
+Confirmed each op's real binding and Output type by reading its own
+`awsRestxml_serializeOpHttpBindings*Input`/`serializeOpDocument*Input` and `*Output` struct in
+the pinned SDK rather than assuming the family is uniform: 11 of the 12 bind Marker/MaxItems to
+the query string (`paginateByMarkerID`); `ByRealtimeLogConfig` alone binds them in the XML
+request body alongside `RealtimeLogConfigArn` (`paginateByMarkerValue`) -- the existing
+`extractRealtimeLogConfigArn` body-reader was replaced with
+`decodeListDistributionsByRealtimeLogConfigBody`, since the old one only read the ARN and the
+body can be read exactly once; the `handler_dispatch.go` call site updated accordingly (its
+signature change is internal to this package, no repo-root call-site fix needed).
+`distributionsByConfigSearch` (`search_index.go`, backs 9 of these 12 plus
+`ListDistributionsByCachePolicyID`/`OriginRequestPolicyID`/`ResponseHeadersPolicyID` used
+elsewhere) and `ListDistributionsByWebACLID` (`distributions.go`) both range a map with no
+sort -- added `sort.Slice` by distribution ID (the map's own key, already unique) to both.
+
+Two pre-existing tests (`TestListDistributionsByPolicyID_RoundTrip`,
+`TestListDistributionsByKeyGroup`) asserted `strings.Contains(resp, "DistributionList")` for
+ops that actually return `DistributionIdList` -- passed only because the DistributionList-shape
+handler these ops previously shared happened to satisfy that substring check by coincidence,
+not because the shape was right (a real client decoding these fields against `DistributionIdList`
+would read `Items` as bare ID strings vs `DistributionSummary` structs -- silently wrong data,
+not a decode error). Both updated to assert `DistributionIdList` instead, matching the corrected
+shape; this is exactly the "existing tests that could not have caught these" class the task
+description warned about.
+
+All 12 family ops covered by their own `TestListDistributionsBy*_SDKRoundTrip_Pagination` test
+(same 25-record/MaxItems=10 pattern as above), including a positive assertion on the correct
+shape's `Items` field (`DistributionIdList.Items []string` vs `DistributionList.Items
+[]types.DistributionSummary` vs `DistributionIdOwnerList.Items []types.DistributionIdOwner`) so
+a future shape regression fails a type-check, not just a substring check.
+
+No AWS documentation was fetched for this pass (all wire-shape facts came from the pinned
+`aws-sdk-go-v2` module in the local Go module cache, not the web), so the security note about
+an injected `aws agent-toolkit search-skills` footer in fetched docs (flagged elsewhere in this
+campaign) does not apply here.
+
+Gate output (this pass, `services/cloudfront/` only): `go build ./services/cloudfront/...`
+clean; `go vet ./services/cloudfront/...` clean (repo-wide `go vet ./...` also clean -- no
+call-site fix needed in any root `cli_*_test.go`); `go test ./services/cloudfront/... -race
+-count=1 -shuffle=on` -- `ok`; `golangci-lint run ./services/cloudfront/...` -- `0 issues`
+(after restoring `//nolint:dupl` on four handlers whose doc-comment rewrite had dropped the
+existing directive, and adding it to two newly-`dupl`-flagged pairs --
+`ListOriginRequestPolicies`/`ListResponseHeadersPolicies` and, in `services/autoscaling`,
+`DescribeLoadBalancers`/`DescribeLoadBalancerTargetGroups` -- confirmed these are pre-existing
+"different resource types sharing the same list-XML shape" duplication, not new debt, before
+adding the suppression).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in `ef0eef041`
+(`cmd/reqfieldscan`/`cmd/reqfielddiff` used to break ties among
+case-insensitive handler-name candidates by Go's randomized map iteration
+order, so they could read the wrong function body). Built the unpatched
+tools from `ef0eef041~1` in a worktree, ran both five times against this
+package, and diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical JSON across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 155 findings in every one of the 5 old runs and at
+HEAD, and the op.field key sets are identical, not merely equal in count.
+ZERO DAMAGE -- confirmed by the actual diff, not inferred from collision
+count (not separately re-measured this pass; the prior campaign already
+established collisions don't predict damage).
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against cloudfront@v1.67.4 deserializers.go for
+List ops not yet covered by the 2026-08-14 two-layer batch (970162d1c):
+ListCachePolicies (incl. nested ParametersInCacheKeyAndForwardedToOrigin ->
+HeadersConfig/CookiesConfig/QueryStringsConfig>Items>Name), ListOriginRequestPolicies
+(same nested shape), ListResponseHeadersPolicies (CorsConfig incl. all four
+Items>Header/Method/Origin lists, SecurityHeadersConfig incl.
+StrictTransportSecurity/FrameOptions/ReferrerPolicy/ContentTypeOptions,
+CustomHeadersConfig>Items>ResponseHeadersPolicyCustomHeader, RemoveHeadersConfig>
+Items>ResponseHeadersPolicyRemoveHeader), ListRealtimeLogConfigs, ListVpcOrigins.
+Confirmed all wrapper keys and every checked field name are exact-case matches to
+the deserializer's `strings.EqualFold` literal, and every list is `Items`-wrapped
+with the item type name (or `member` for ListRealtimeLogConfigs) as the direct
+child -- no unwrapped-list-deserializer call site exists for any of these ops in
+the pinned SDK (grepped `*ListUnwrapped`/`*SummaryListUnwrapped` by name; zero call
+sites outside their own func definitions).
+
+**BUG (fixed): `ListRealtimeLogConfigs`' item struct (`handler_realtime_log_configs.go`,
+`rlcItemXML`) emitted only ARN/Name/SamplingRate, dropping Fields and EndPoints
+entirely from every item** -- absent, not wrong-named. The real per-item
+deserializer (`awsRestxml_deserializeDocumentRealtimeLogConfig`) reads both, and
+the sibling `GetRealtimeLogConfig` (`realtimeLogConfigResponseXML`) already emits
+them correctly from the same backend `RealtimeLogConfig.Fields`/`.EndPoints`
+fields -- the exact "Get right, List wrong" trap this issue tracks. Right item
+count, permanently blank Fields/EndPoints for every config returned by List
+regardless of backend state. Fixed by adding both fields to `rlcItemXML`,
+converting `RealtimeLogConfig.EndPoints` to the existing `endPointXML` request
+type for reuse on the response side. Test: `TestListRealtimeLogConfigs_ItemShape_RealClient`
+(`handler_realtime_log_configs_test.go`), seeds two configs with distinguishable
+Fields/EndPoints via the real SDK client and asserts both round-trip correctly
+matched by ARN. Verified failing pre-fix by hand-revert (Fields/EndPoints decode
+empty).
+
+**BUG (fixed): `ListVpcOrigins`' item struct (`handler_vpc_origins.go`,
+`vpcSummaryXML`) tagged its ARN field `xml:"ARN"`, but the real `VpcOriginSummary`
+deserializer matches on `"Arn"`** -- a case-only mismatch (decodes today only
+because the XML decoder folds case) and inconsistent with this same service's
+`vpcOriginResponseXML` (Get), which already used the correct `"Arn"` casing.
+**Also missing entirely: OriginEndpointArn and AccountId**, both real
+`VpcOriginSummary` members, both backed by real state (`origin.EndpointArn`,
+already used correctly in the Get response's nested
+`VpcOriginEndpointConfig.Arn`; and `(*InMemoryBackend).AccountID()`, the same
+accessor added for `ListDistributionsByOwnedResource`'s `DistributionIdOwner.
+OwnerAccountId`). Fixed all three. Status/CreatedTime/LastModifiedTime remain
+genuine gaps -- `VpcOrigin` tracks no timestamp or deployment-state field to back
+them. Test: `TestListVpcOrigins_ItemShape_RealClient`
+(`handler_vpc_origins_test.go`), seeds two origins with distinguishable endpoint
+ARNs; verified failing pre-fix by hand-revert (the absent-field assertions fail
+outright -- the case-only Arn mismatch alone would NOT have failed this test,
+since the real decoder tolerates it; this is recorded to illustrate why the
+case-only class needs the byte-for-byte deserializer read, not just a green
+round-trip test).
+
+NOT REACHED at item level this pass: ListPublicKeys, ListKeyGroups (re-verify
+post-2026-08-14 fix), ListFieldLevelEncryptionConfigs/Profiles,
+ListContinuousDeploymentPolicies (re-verify post-2026-08-14 fix),
+ListDistributionTenants (re-verify post-2026-08-14 fix), ListTrustStores,
+ListAnycastIPLists, ListConnectionGroups/Functions (already deep-audited
+2026-08-13, see connection_group_function_swaps row), the ListDistributionsBy*
+family (12 ops), ListInvalidations*, ListStreamingDistributions,
+ListCloudFrontOriginAccessIdentities, ListDistributions itself (Distribution is
+the densest single item shape in this service and was not re-walked field-by-field
+this pass).
+
+Gates: `go build ./services/cloudfront/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/cloudfront/...` (pass), `golangci-lint run
+./services/cloudfront/...` (0 issues after `fieldalignment -fix
+./services/cloudfront/...` reordered the new `rlcItemXML` fields).
+
+## 2026-08-31 per-item exact-case sweep, batch 2 (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against cloudfront@v1.67.4 deserializers.go for the
+remainder of this issue's cloudfront "not reached" list: `ListDistributions` itself
+and the full twelve-operation `ListDistributionsBy*` family, `ListPublicKeys`,
+`ListKeyGroups` (re-verified, no changes needed -- the 2026-08-14 fix holds),
+`ListFieldLevelEncryptionConfigs`, `ListFieldLevelEncryptionProfiles`,
+`ListDistributionTenants`, `ListTrustStores`, `ListAnycastIpLists`. That completes
+every op named in this issue's cloudfront queue.
+
+**BUG (fixed): `ListDistributions`' `distributionSummaryXML`
+(`handler_distributions.go`) omitted `ETag` and `Aliases.Items` entirely** --
+`ETag` is a real, required `DistributionSummary` member and is backed by
+`Distribution.ETag`; `Aliases.Items` (`Items>CNAME`) is backed by
+`h.Backend.ListAliases(d.ID)`, which the handler already called to compute
+`Aliases.Quantity` but never emitted the underlying strings. Both absent, not
+wrong-named.
+
+**BUG (fixed), the sibling-disagreement class in its purest form this pass:
+six `ListDistributionsBy*` operations (`ByAnycastIpListId`,
+`ByConnectionFunction`, `ByConnectionMode`, `ByTrustStore`, `ByWebACLId`,
+`ByRealtimeLogConfig`) share `marshalDistributionList`/`writeDistributionList`,
+which built its own separate, far more minimal `DistributionSummary` item
+(`ID`/`ARN`/`Status`/`DomainName` only) than the identical wire type
+`ListDistributions` builds via `distributionSummaryXML`** -- both real ops
+return the exact same `DistributionSummary` shape (confirmed against
+`awsRestxml_deserializeDocumentDistributionSummary`), so these six were
+missing `Comment`, `Enabled`, `PriceClass`, `HttpVersion`, `LastModifiedTime`,
+`IsIPV6Enabled`, `Restrictions`, `ViewerCertificate`, `ETag`, and `Aliases`
+entirely -- right item count, drastically impoverished contents, and
+inconsistent with this service's own `ListDistributions`. Fixed by factoring
+`toDistributionSummaryXML` out of the `ListDistributions` handler and reusing
+it in `writeDistributionList`, so both paths build the identical rich shape.
+The other six `ListDistributionsBy*` ops (`ByCachePolicyId`, `ByKeyGroup`,
+`ByOriginRequestPolicyId`, `ByResponseHeadersPolicyId`, `ByVpcOriginId`,
+`ByOwnedResource`) return `DistributionIdList`/`DistributionIdOwnerList`
+(bare IDs, not `DistributionSummary`) per their own real deserializers --
+re-verified clean, no change needed.
+
+Test: `TestListDistributionsByWebACLId_ItemShape_RealClient`
+(`handler_distributions_test.go`), seeds two distributions with distinguishable
+Comment/PriceClass/HttpVersion/Aliases, associates both with a web ACL, and
+asserts every field round-trips through `ListDistributionsByWebACLId` (the fix
+is shared code, so this one op's test covers all six). Verified failing
+pre-fix by hand-revert (Comment/PriceClass/HttpVersion/ETag/Aliases all decode
+empty). Two pre-existing raw-body substring tests
+(`TestListDistributionsByTrustStore`, `TestListDistributionsByConnectionFunction`)
+asserted `!strings.Contains(resp, "<Quantity>0</Quantity>")` as their
+non-empty-list check; the richer item shape now legitimately contains several
+nested zero `Quantity` fields (Origins, Restrictions, Aliases), so both were
+narrowed to `<Quantity>0</Quantity><IsTruncated>` (the outer list Quantity is
+the only one immediately followed by `IsTruncated` in field order) -- fixed,
+not disabled, since the underlying non-empty-list property they check is still
+real and still worth checking.
+
+**DIFFERENT AXIS, found but not fixed here (routing bug, not a wire-shape naming
+bug): `extractResourceID` (`handler.go`) cuts a URI-label identifier at its
+first `/` via `strings.Cut(trimmed, "/")`.** A WAFV2-style `WebACLId` (an ARN,
+which contains slashes) passed to `ListDistributionsByWebACLId` gets truncated
+to everything before the first slash, so the list silently returns zero
+results for a real ARN-shaped ID. Classic (non-ARN) `WebACLId` values are
+unaffected, and `ListDistributionsByOwnedResource`'s resource ARN is presumably
+exposed to the same bug via the same helper. Verified by reproduction (see
+session notes); not fixed here since it is a request-path parsing defect, not
+a response-shape naming mismatch -- worth a dedicated issue.
+
+**BUG (fixed): `ListPublicKeys`' `pkSummaryXML` (`handler_key_groups.go`)
+omitted `EncodedKey` entirely** -- absent, not wrong-named. The real
+`PublicKeySummary` deserializer reads it, and the sibling `GetPublicKey`
+(`publicKeyResponseXML`) already emits it correctly from the same backing
+`PublicKey.EncodedKey` field. `CreatedTime` remains a genuine gap -- `PublicKey`
+tracks no timestamp. Test: `TestListPublicKeys_ItemShape_RealClient`, seeds two
+keys with distinguishable Name/Comment, asserts `EncodedKey` round-trips for
+both. Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListFieldLevelEncryptionConfigs`' `fleSummaryXML`
+(`handler_field_level_encryption.go`) omitted `QueryArgProfileConfig`
+entirely** -- absent, not wrong-named. The real `FieldLevelEncryptionSummary`
+deserializer reads it (nested `ForwardWhenQueryArgProfileIsUnknown` +
+`QueryArgProfiles>Items>QueryArgProfile{QueryArg,ProfileId}` +
+`QueryArgProfiles>Quantity`), and the sibling `GetFieldLevelEncryptionConfig`
+(`fleConfigInnerXML`) already emits it correctly from the same backing
+`FieldLevelEncryption.QueryArgProfiles`/`.ForwardWhenQueryArgProfileIsUnknown`
+fields. `ContentTypeProfileConfig` and `LastModifiedTime` remain genuine gaps
+-- no backing state. Test:
+`TestListFieldLevelEncryptionConfigs_ItemShape_RealClient`, seeds two configs
+each referencing a real FLE profile with a distinguishable query-arg, asserts
+both round-trip. Verified failing pre-fix by hand-revert (nil-pointer on the
+now-absent field).
+
+**BUG (fixed): `ListFieldLevelEncryptionProfiles`' `flePSummaryXML`
+(`handler_field_level_encryption.go`) omitted `EncryptionEntities`
+entirely** -- same shape as the config-list bug above, against
+`FieldLevelEncryptionProfileSummary`'s deserializer, sibling
+`GetFieldLevelEncryptionProfile` (`fleProfileConfigInnerXML`) already correct.
+`LastModifiedTime` remains a genuine gap. Test:
+`TestListFieldLevelEncryptionProfiles_ItemShape_RealClient`, seeds two
+profiles with distinguishable encryption entities, asserts both round-trip.
+Verified failing pre-fix by hand-revert -- this one failed as a nil-pointer
+panic (`item1.EncryptionEntities` decoded as a nil struct pointer on the real
+SDK type, not merely an empty slice), a harder failure signature than the
+usual empty-slice case, worth noting since it is closer to the "hard decode
+error" class than the usual "silent blank" one even though the client itself
+did not error.
+
+**BUG (fixed): `ListTrustStores`' `tsSummary` (`handler_trust_stores.go`)
+omitted `ETag`, `Status`, and `LastModifiedTime` entirely, and tagged the ARN
+field `xml:"ARN"` where the real deserializer matches `"Arn"`** -- a case-only
+mismatch (decodes today only because the XML decoder folds case) on top of
+three absent-entirely fields, all backed by real state
+(`TrustStore.ETag`/`.Status`/`.LastModifiedTime`) and all emitted correctly by
+the sibling `GetTrustStore` (`trustStoreXML`). Fixed the case and added all
+three fields. Test: `TestListTrustStores_ItemShape_RealClient`, seeds two
+trust stores, asserts ARN/ETag/Status/LastModifiedTime all round-trip.
+Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListAnycastIpLists`' `ailSummary`
+(`handler_anycast_ip_lists.go`) omitted `ETag` and `IpamConfig` entirely** --
+both real `AnycastIpListSummary` members; `ETag` is backed by
+`AnycastIPList.ETag`, `IpamConfig` by `.IpamCidrConfigs`, and the sibling
+`GetAnycastIpList` (`anycastIPListXML`) already emits `IpamConfig` correctly
+via the shared `anycastIPListIpamConfigXML` string builder. `IpAddressType`
+remains a genuine gap -- `CreateAnycastIpList`'s backend method never accepts
+or sets it, so it is always empty regardless of the wire tag now being
+present (added anyway, `omitempty`, for when that gap closes). Test:
+`TestListAnycastIPLists_ItemShape_RealClient`, seeds two lists with
+distinguishable IPAM CIDR configs, asserts ETag and IpamConfig round-trip for
+both. Verified failing pre-fix by hand-revert.
+
+**BUG (fixed): `ListDistributionTenants`' `tenantSummaryXML`
+(`handler_distribution_tenants.go`) omitted `ETag`, `CreatedTime`, and
+`LastModifiedTime` entirely** -- all three real `DistributionTenantSummary`
+members, all backed by `DistributionTenant.ETag`/`.CreationTime`/`.LastModifiedTime`,
+set at `CreateDistributionTenant`. Unlike every other bug this pass, this one
+is **not** a Get-vs-List disagreement -- the singular `distributionTenantXML`
+(used by Create/Get/Update/AssociateWebACL) omits all three too, so this is a
+pre-existing, service-wide gap on this field set rather than the sibling trap.
+Fixing the singular response as well was judged out of this pass's
+list-item-shape scope and is recorded here as a related, still-open finding
+for the next pass; `Customizations` also remains unaddressed on both sides --
+a complex nested union type, deliberately not attempted without deeper
+verification of its real shape. Test:
+`TestListDistributionTenants_ItemShape_RealClient`, seeds two tenants, asserts
+ETag/CreatedTime/LastModifiedTime all round-trip. Verified failing pre-fix by
+hand-revert.
+
+**RE-VERIFIED CLEAN, no changes needed:** `ListKeyGroups` (already fixed
+2026-08-14, `KeyGroupSummary`/`KeyGroup`/`KeyGroupConfig` field names and
+`Items>PublicKey` wrapping all still exact-case correct; `LastModifiedTime` is
+a genuine gap -- `KeyGroup` tracks no timestamp).
+
+Wrapping shape checked for every op above, as well as the six
+`DistributionIdList`/`DistributionIdOwnerList`-shaped `ListDistributionsBy*`
+ops: no call site of any unwrapped-list-deserializer variant exists for any of
+them in the pinned SDK.
+
+Gates: `go build ./services/cloudfront/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cloudfront/...` (pass, including
+all seven new real-client tests above), `golangci-lint run
+./services/cloudfront/...` (0 issues after `fieldalignment -fix` reordered
+`ailSummary` and `queryArgProfileConfigXML`, and two now-stale
+`//nolint:dupl` directives on `handleListPublicKeys` and
+`handleListFieldLevelEncryptionProfiles` were removed as unused by
+`nolintlint` once those two functions' item shapes grew enough to no longer
+duplicate their neighbors).
+
+## 2026-08-31: PARITY-gap targeting, batch 5 (gopherstack-6flj/21my)
+
+Queue derivation for this pass: real `List*`/`Describe*` ops in cloudfront@v1.67.4 (42
+total) whose full name never appears verbatim anywhere in this file. Mechanical grep gave
+5 (the entire `ListDistributionsBy{AnycastIpListId,CachePolicyId,OriginRequestPolicyId,
+ResponseHeadersPolicyId,VpcOriginId}` set) — all 5 turned out to be false positives: the
+"2026-08-31 per-item exact-case sweep, batch 2" section above already re-verified all 12
+`ListDistributionsBy*` ops (just under abbreviated `By*` names, never the full contiguous
+op name), and explicitly states it completes this issue's cloudfront queue. Re-derived by
+hand instead: read every op still marked "not reached at item level" or only
+pagination/spot-checked, cross-referenced against later passes. Genuinely-unswept-at-item-
+level ops covered this batch: `ListStreamingDistributions`, `ListCloudFrontOriginAccessIdentities`,
+`ListOriginAccessControls`, `ListConflictingAliases`, `ListInvalidations`,
+`ListInvalidationsForDistributionTenant`, `DescribeConnectionFunction`. All checked
+byte-for-byte against cloudfront@v1.67.4 deserializers.go (`awsRestxml_deserializeDocument*`
+switch cases). `ListStreamingDistributions`, `ListCloudFrontOriginAccessIdentities`,
+`ListOriginAccessControls`, `ListInvalidations`, `ListInvalidationsForDistributionTenant`,
+`DescribeConnectionFunction` came back clean — every emitted field name, nesting, and
+LastModifiedTime/CreatedTime timestamp format matched.
+
+Two real bugs found and fixed, both layer-2 (correct wrapper key, wrong/missing per-item
+shape), found while diffing `ListConnectionFunctions`/`ListConnectionGroups` against their
+already-fixed wrapper-level history from 2026-08-13 (gopherstack-4ara) -- those fixes only
+addressed the wrapper, never the per-item field set, and neither had a "not reached"
+marker anywhere in this file, so the naive queue-derivation step above would have skipped
+them entirely:
+
+1. **`ListConnectionFunctions`' `cfnSummary` (`handler_connection.go`) omitted `CreatedTime`
+   and `LastModifiedTime` entirely** -- both real, required `ConnectionFunctionSummary`
+   members (cloudfront@v1.67.4 deserializers.go, 8-of-8 case match otherwise), both backed
+   by real state (`ConnectionFunction.CreatedTime`/`.LastModifiedTime`), and both already
+   emitted correctly by the sibling `DescribeConnectionFunction`
+   (`connectionFunctionSummaryXML`) from the same fields -- the "Get right, List wrong"
+   trap. Test: `TestListConnectionFunctions_ItemShape_RealClient`
+   (`handler_sdk_route_fixes_test.go`), verified failing pre-fix by hand-revert
+   (`CreatedTime`/`LastModifiedTime` decode nil).
+
+2. **`ListConnectionGroups`' `cgSummary` (`handler_connection.go`) omitted `AnycastIpListId`,
+   `CreatedTime`, `Enabled`, `IsDefault`, and `LastModifiedTime` entirely** -- 5 of the real
+   11-member `ConnectionGroupSummary`'s fields, all backed by real state
+   (`ConnectionGroup.AnycastIPListID`/`.CreatedTime`/`.LastModifiedTime`/`.Enabled`/
+   `.IsDefault`), all already emitted correctly by `GetConnectionGroup`
+   (`connectionGroupXML`) from the same fields. Same trap as above, worse: right item
+   count, 5 of 11 fields permanently blank/false/zero for every group regardless of
+   backend state. Test: `TestListConnectionGroups_ItemShape_RealClient`
+   (`handler_sdk_route_fixes_test.go`), verified failing pre-fix by hand-revert.
+   **Case-only mismatch fixed alongside** (not independently observable, folded into the
+   same struct edit): `cgSummary.ARN` was tagged `xml:"ARN"`; the real
+   `ConnectionGroupSummary` deserializer matches on `"Arn"` -- decoded fine either way
+   (smithyxml folds case), retagged to match the real casing for consistency with
+   `connectionGroupXML`'s own `"ARN"` tag being independently harmless (Get's tag was never
+   checked against the real deserializer this pass; not re-verified).
+
+One more real bug found, also layer-2 but a "state tracked, never surfaced" absence rather
+than a Get/List sibling gap (`ListConflictingAliases` has no singular `Get` sibling to
+compare against):
+
+3. **`ListConflictingAliases`' `conflictingSummary.AccountID` (`handler_distributions.go`)
+   was hardcoded to `""`**, despite `h.Backend.AccountID()` already existing and already
+   used correctly for the identical real `AccountId` field on `ListVpcOrigins` and
+   `ListDistributionsByOwnedResource`'s `DistributionIdOwner.OwnerAccountId`. Real
+   `ConflictingAlias.AccountId` (cloudfront@v1.67.4 deserializers.go, 3-of-3 case match
+   otherwise: `AccountId`/`Alias`/`DistributionId`) permanently blank regardless of backend
+   state. Test: `TestListConflictingAliases_AccountID_RealClient`
+   (`handler_distributions_test.go`), verified failing pre-fix by hand-revert.
+
+No hard-decode-error or panic findings this batch. No wrapper-key mismatches this batch
+(all 3 fixes are per-item, layer 2). No transpositions, no elements absent from the real
+type, no fields existing both nested and top-level. Pages fetched this batch: 0 (module
+cache used throughout; no live AWS docs fetched, so no footer-injection risk to report).
+
+Gates (`services/cloudfront/` only, plus repo-wide `go vet`): `go build ./...` clean;
+`go vet ./...` clean; `go test -race -count=1 ./services/cloudfront/...` clean;
+`golangci-lint run ./services/cloudfront/...` 0 issues. No `nolint` directives in any file
+touched this batch (`handler_connection.go`, `handler_distributions.go`,
+`handler_distributions_test.go`, `handler_sdk_route_fixes_test.go`).

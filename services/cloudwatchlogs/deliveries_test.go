@@ -77,7 +77,7 @@ func TestCloudWatchLogsBackend_GetAndDeleteDelivery(t *testing.T) {
 		{
 			name:    "get_empty_id",
 			id:      "",
-			wantErr: cloudwatchlogs.ErrValidation,
+			wantErr: cloudwatchlogs.ErrValidationException,
 		},
 	}
 
@@ -184,7 +184,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "arn:aws:s3:::my-bucket", got.TargetArn)
 
-				dests := b.DescribeDeliveryDestinations()
+				dests, _ := b.DescribeDeliveryDestinations("", 0)
 				require.Len(t, dests, 1)
 
 				err = b.DeleteDeliveryDestination("my-dest")
@@ -263,7 +263,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliveryDestination("", "arn:aws:s3:::b", "JSON", "S3", nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{
@@ -277,7 +277,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dests := b.DescribeDeliveryDestinations()
+				dests, _ := b.DescribeDeliveryDestinations("", 0)
 				require.Len(t, dests, 2)
 				assert.Equal(t, "a-dest", dests[0].Name)
 				assert.Equal(t, "z-dest", dests[1].Name)
@@ -290,7 +290,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliveryDestination("bad-type-dest", "arn:aws:s3:::b", "JSON", "GCS", nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{
@@ -362,7 +362,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 				assert.Len(t, got.ResourceArns, 1)
 				assert.Equal(t, "ec2", got.Service, "service must be derived from the resource ARN")
 
-				srcs := b.DescribeDeliverySources()
+				srcs, _ := b.DescribeDeliverySources("", 0)
 				require.Len(t, srcs, 1)
 
 				err = b.DeleteDeliverySource("my-src")
@@ -411,7 +411,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.PutDeliverySource("", "FLOW_LOGS", nil, nil)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidationException)
 			},
 		},
 		{
@@ -425,7 +425,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				srcs := b.DescribeDeliverySources()
+				srcs, _ := b.DescribeDeliverySources("", 0)
 				require.Len(t, srcs, 2)
 				assert.Equal(t, "a-src", srcs[0].Name)
 				assert.Equal(t, "z-src", srcs[1].Name)

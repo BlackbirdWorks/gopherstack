@@ -520,8 +520,10 @@ func (h *Handler) handleModifyLocalGatewayRoute(vals url.Values, reqID string) (
 	}, nil
 }
 
-// searchLocalGatewayRouteStates extracts the route state filter values, if any,
-// from a SearchLocalGatewayRoutes request's Filter.N.Name/Value.M form fields.
+// searchLocalGatewayRouteStates extracts the "state" filter's values from a
+// SearchLocalGatewayRoutes request's Filter.N.Name/Value.M form fields.
+// "route-search.exact-match" is a distinct, separately-documented filter
+// name (api_op_SearchLocalGatewayRoutes.go) and must not be folded in here.
 func searchLocalGatewayRouteStates(vals url.Values) []string {
 	var states []string
 
@@ -531,8 +533,17 @@ func searchLocalGatewayRouteStates(vals url.Values) []string {
 			break
 		}
 
-		if name == "route-search.exact-match" || name == "state" {
-			states = append(states, vals.Get(fmt.Sprintf("Filter.%d.Value.1", i)))
+		if name != "state" {
+			continue
+		}
+
+		for j := 1; ; j++ {
+			v := vals.Get(fmt.Sprintf("Filter.%d.Value.%d", i, j))
+			if v == "" {
+				break
+			}
+
+			states = append(states, v)
 		}
 	}
 

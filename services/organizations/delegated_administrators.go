@@ -89,10 +89,18 @@ func (b *InMemoryBackend) ListDelegatedAdministrators(
 		out = b.delegatedAdmins.All()
 	}
 
-	slices.SortFunc(
-		out,
-		func(a, b *DelegatedAdmin) int { return cmp.Compare(a.AccountID, b.AccountID) },
-	)
+	// AccountID alone is not a total order here: the unfiltered branch above
+	// sources from delegatedAdmins, keyed by ServicePrincipal+AccountID (see
+	// delegatedAdminKeyFn), so one account registered for two different
+	// service principals produces two rows tied on AccountID. Break the tie
+	// on ServicePrincipal so the order is total regardless of map-walk order.
+	slices.SortFunc(out, func(a, b *DelegatedAdmin) int {
+		if c := cmp.Compare(a.AccountID, b.AccountID); c != 0 {
+			return c
+		}
+
+		return cmp.Compare(a.ServicePrincipal, b.ServicePrincipal)
+	})
 
 	return out, nil
 }

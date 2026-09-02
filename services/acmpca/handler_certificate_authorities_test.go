@@ -438,13 +438,13 @@ func TestACMPCA_PermanentDeletionTimeInDays(t *testing.T) {
 			name:     "5 days (below min) rejected",
 			days:     5,
 			wantCode: http.StatusBadRequest,
-			wantType: "InvalidParameterException",
+			wantType: "InvalidArgsException",
 		},
 		{
 			name:     "31 days (above max) rejected",
 			days:     31,
 			wantCode: http.StatusBadRequest,
-			wantType: "InvalidParameterException",
+			wantType: "InvalidArgsException",
 		},
 	}
 

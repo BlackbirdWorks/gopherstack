@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -144,10 +145,112 @@ func (b *InMemoryBackend) DescribeServiceJob(ctx context.Context, jobID string) 
 	return &cp, nil
 }
 
+// serviceJobMatchesFilterValue implements the ListServiceJobs Filters
+// vocabulary (api_op_ListServiceJobs.go): JOB_NAME (case-insensitive,
+// trailing '*' prefix), SHARE_IDENTIFIER, QUOTA_SHARE_NAME (both exact),
+// BEFORE_CREATED_AT/AFTER_CREATED_AT (epoch-ms comparisons).
+func serviceJobMatchesFilterValue(sj *ServiceJob, name, v string) bool {
+	switch name {
+	case filterJobName:
+		return filterValueMatches(sj.JobName, v, true)
+	case filterShareIdentifier:
+		return sj.ShareIdentifier == v
+	case filterQuotaShareName:
+		return sj.QuotaShareName == v
+	case filterBeforeCreatedAt:
+		ms, err := strconv.ParseInt(v, 10, 64)
+
+		return err == nil && sj.CreatedAt < ms
+	case filterAfterCreatedAt:
+		ms, err := strconv.ParseInt(v, 10, 64)
+
+		return err == nil && sj.CreatedAt > ms
+	default:
+		return false
+	}
+}
+
+// serviceJobMatchesFilter reports whether sj satisfies a single
+// KeyValueFilter entry; Values within one entry are OR'd.
+func serviceJobMatchesFilter(sj *ServiceJob, f KeyValueFilter) bool {
+	for _, v := range f.Values {
+		if serviceJobMatchesFilterValue(sj, f.Name, v) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// serviceJobFiltersStatusExempt reports whether filters, if non-empty,
+// consists solely of SHARE_IDENTIFIER/QUOTA_SHARE_NAME entries -- the two
+// documented exceptions where jobStatus still applies alongside filters
+// (api_op_ListServiceJobs.go).
+func serviceJobFiltersStatusExempt(filters []KeyValueFilter) bool {
+	exempt := len(filters) > 0
+
+	for _, f := range filters {
+		if f.Name != filterShareIdentifier && f.Name != filterQuotaShareName {
+			return false
+		}
+	}
+
+	return exempt
+}
+
+// selectServiceJobs applies the queue/status/filters selection rules shared
+// by ListServiceJobs, returning matches sorted newest-first.
+func selectServiceJobs(
+	group []*ServiceJob,
+	queueARN, wantStatus string,
+	applyStatus bool,
+	filters []KeyValueFilter,
+) []*ServiceJob {
+	all := make([]*ServiceJob, 0, len(group))
+
+	for _, sj := range group {
+		if queueARN != "" && sj.JobQueue != queueARN {
+			continue
+		}
+
+		if applyStatus && sj.Status != wantStatus {
+			continue
+		}
+
+		matched := true
+
+		for _, f := range filters {
+			if !serviceJobMatchesFilter(sj, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			all = append(all, sj)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt > all[j].CreatedAt })
+
+	return all
+}
+
 // ListServiceJobs returns service jobs for a job queue, optionally filtered
-// by status. Matching real AWS Batch's documented ListServiceJobs behavior,
-// an unspecified jobStatus defaults to returning only RUNNING jobs.
-func (b *InMemoryBackend) ListServiceJobs(ctx context.Context, jobQueue, jobStatus string) ([]*ServiceJob, error) {
+// by status and/or filters. Matching real AWS Batch's documented
+// ListServiceJobs behavior (api_op_ListServiceJobs.go): an unspecified
+// jobStatus defaults to RUNNING; when filters is non-empty, status is
+// ignored (jobs of any status are returned) unless every filter entry is
+// SHARE_IDENTIFIER or QUOTA_SHARE_NAME, the two documented exceptions where
+// status and filters combine. Pagination is controlled via maxResults and
+// nextToken (token encodes an integer offset).
+func (b *InMemoryBackend) ListServiceJobs(
+	ctx context.Context,
+	jobQueue, jobStatus, nextToken string,
+	maxResults int32,
+	filters []KeyValueFilter,
+) ([]*ServiceJob, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListServiceJobs")
@@ -158,37 +261,40 @@ func (b *InMemoryBackend) ListServiceJobs(ctx context.Context, jobQueue, jobStat
 	if jobQueue != "" {
 		jq, ok := b.lookupJQByNameOrARN(region, jobQueue)
 		if !ok {
-			return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, jobQueue)
+			return nil, "", fmt.Errorf("%w: job queue %s not found", ErrNotFound, jobQueue)
 		}
 
 		queueARN = jq.JobQueueArn
 	}
+
+	applyStatus := len(filters) == 0 || serviceJobFiltersStatusExempt(filters)
 
 	wantStatus := jobStatus
 	if wantStatus == "" {
 		wantStatus = jobStatusRunning
 	}
 
-	group := b.serviceJobsByRegion.Get(region)
-	list := make([]*ServiceJob, 0, len(group))
+	all := selectServiceJobs(b.serviceJobsByRegion.Get(region), queueARN, wantStatus, applyStatus, filters)
 
-	for _, sj := range group {
-		if queueARN != "" && sj.JobQueue != queueARN {
-			continue
-		}
+	byID := make(map[string]*ServiceJob, len(all))
+	keys := make([]string, 0, len(all))
 
-		if sj.Status != wantStatus {
-			continue
-		}
-
-		cp := *sj
-		cp.Tags = tagsCloneOrEmpty(sj.Tags)
-		list = append(list, &cp)
+	for _, sj := range all {
+		byID[sj.JobID] = sj
+		keys = append(keys, sj.JobID)
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt > list[j].CreatedAt })
+	pageKeys, next := paginateMapKeys(keys, nextToken, maxResults)
 
-	return list, nil
+	out := make([]*ServiceJob, 0, len(pageKeys))
+	for _, k := range pageKeys {
+		sj := byID[k]
+		cp := *sj
+		cp.Tags = tagsCloneOrEmpty(sj.Tags)
+		out = append(out, &cp)
+	}
+
+	return out, next, nil
 }
 
 // UpdateServiceJob updates the scheduling priority of an existing service

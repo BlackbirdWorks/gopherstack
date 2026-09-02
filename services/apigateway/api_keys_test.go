@@ -126,8 +126,15 @@ func TestGetApiKeys_ValueHiddenByDefault(t *testing.T) {
 			wantValue:   false,
 		},
 		{
-			name:        "include_value_true_returns_values",
-			queryString: "?includeValue=true",
+			name: "include_value_true_returns_values",
+			// Real wire key for the list op is "includeValues" (plural,
+			// apigateway@v1.42.4 serializers.go:4106) -- distinct from the
+			// singular "includeValue" GetApiKey (single-key op) uses
+			// (serializers.go:4036). This test used to assert the singular
+			// key against a handler that itself only read the singular key,
+			// so it passed even though a real client sending "includeValues"
+			// got nothing back.
+			queryString: "?includeValues=true",
 			wantValue:   true,
 		},
 	}

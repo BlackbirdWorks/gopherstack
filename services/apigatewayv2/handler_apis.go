@@ -505,6 +505,63 @@ func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) e
 	return c.NoContent(http.StatusNoContent)
 }
 
+// apigwExtensionPrefix is the key prefix for AWS API Gateway extensions in an
+// exported OpenAPI document (e.g. x-amazon-apigateway-authtype).
+const apigwExtensionPrefix = "x-amazon-apigateway-"
+
+// includeExtensions reads ExportApiInput's includeExtensions query param
+// (api_op_ExportApi.go:52, "*bool ... included by default"), defaulting to
+// true (AWS's documented default) when absent or unparseable.
+func includeExtensions(c *echo.Context) bool {
+	raw := c.QueryParam("includeExtensions")
+	if raw == "" {
+		return true
+	}
+
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return true
+	}
+
+	return v
+}
+
+// stripAPIGatewayExtensions recursively removes x-amazon-apigateway-* keys
+// from an exported OpenAPI document, for includeExtensions=false.
+func stripAPIGatewayExtensions(v any) map[string]any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	stripMapExtensions(m)
+
+	return m
+}
+
+func stripMapExtensions(m map[string]any) {
+	for k, v := range m {
+		if strings.HasPrefix(k, apigwExtensionPrefix) {
+			delete(m, k)
+
+			continue
+		}
+
+		stripExtensionsIn(v)
+	}
+}
+
+func stripExtensionsIn(v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		stripMapExtensions(t)
+	case []any:
+		for _, item := range t {
+			stripExtensionsIn(item)
+		}
+	}
+}
+
 func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) error {
 	// API Gateway v2 only supports the OAS30 specification for exports.
 	if specification != "" && specification != "OAS30" {
@@ -532,6 +589,10 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if !includeExtensions(c) {
+		spec = stripAPIGatewayExtensions(spec)
 	}
 
 	// AWS returns the raw OpenAPI document as the HTTP response body (the SDK's

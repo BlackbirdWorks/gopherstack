@@ -107,7 +107,7 @@ func (db *InMemoryDB) QueryWithContext(
 
 	return db.processQueryResults(
 		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable,
-	), nil
+	)
 }
 
 // snapshotTableForQuery snapshots table metadata and items under lock, releasing
@@ -532,13 +532,13 @@ func (db *InMemoryDB) processQueryResults(
 	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
 	table *Table,
-) *dynamodb.QueryOutput {
+) (*dynamodb.QueryOutput, error) {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema)
 
-	items, lastEvaluatedKey, scannedCount := db.collectQueryPage(
+	items, lastEvaluatedKey, scannedCount, err := db.collectQueryPage(
 		ctx,
 		candidates,
 		input,
@@ -548,6 +548,9 @@ func (db *InMemoryDB) processQueryResults(
 		startIndex,
 		eav,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// AWS omits Items entirely when Select=COUNT: "Returns the number of matching
 	// items, rather than the matching items themselves." Count/ScannedCount still
@@ -575,7 +578,7 @@ func (db *InMemoryDB) processQueryResults(
 		out.LastEvaluatedKey, _ = models.ToSDKItem(lastEvaluatedKey)
 	}
 
-	return out
+	return out, nil
 }
 
 // collectQueryPage iterates candidates from startIndex, collecting items up to
@@ -593,16 +596,22 @@ func (db *InMemoryDB) collectQueryPage(
 	ttlAttr string,
 	startIndex int,
 	eav map[string]any,
-) ([]map[string]any, map[string]any, int) {
+) ([]map[string]any, map[string]any, int, error) {
 	limit := int(aws.ToInt32(input.Limit))
 
-	projector, _ := ParseProjector(
+	projector, err := ParseProjector(
 		resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet),
 		input.ExpressionAttributeNames,
 	)
+	if err != nil {
+		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
+	}
 
 	// Pre-parse the filter expression once to avoid per-item re-lexing overhead.
-	parsedFilter, _ := ParseConditionStr(aws.ToString(input.FilterExpression))
+	parsedFilter, err := ParseConditionStr(aws.ToString(input.FilterExpression))
+	if err != nil {
+		return nil, nil, 0, NewValidationException("Invalid FilterExpression: " + err.Error())
+	}
 
 	const maxResponseSize = 1024 * 1024 // 1MB
 	items := make([]map[string]any, 0)
@@ -617,7 +626,7 @@ func (db *InMemoryDB) collectQueryPage(
 		if totalScannedSize+itemSize > maxResponseSize && len(items) > 0 {
 			prevItem := candidates[i-1]
 
-			return items, extractKeyWithBase(prevItem, keySchema, tableKeySchema), scannedCount - 1
+			return items, extractKeyWithBase(prevItem, keySchema, tableKeySchema), scannedCount - 1, nil
 		}
 		totalScannedSize += itemSize
 
@@ -627,15 +636,15 @@ func (db *InMemoryDB) collectQueryPage(
 		}
 
 		if limit > 0 && scannedCount >= limit {
-			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount
+			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount, nil
 		}
 
 		if totalScannedSize >= maxResponseSize {
-			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount
+			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount, nil
 		}
 	}
 
-	return items, nil, scannedCount
+	return items, nil, scannedCount, nil
 }
 
 // allExprPartsMatch reports whether all expression parts evaluate to true for the given item.

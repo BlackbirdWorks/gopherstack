@@ -110,6 +110,11 @@ func recommenderToMap(r *Recommender) map[string]any {
 	if r.LatestRecommenderUpdate != nil {
 		m["latestRecommenderUpdate"] = r.LatestRecommenderUpdate
 	}
+	// modelMetrics reflects training-time evaluation, independent of the
+	// StartRecommender/StopRecommender ACTIVE/INACTIVE serving toggle, so
+	// it is populated unconditionally here (this backend creates every
+	// recommender already "trained", synchronously).
+	m["modelMetrics"] = recommenderModelMetrics(r.RecommenderArn)
 
 	return m
 }

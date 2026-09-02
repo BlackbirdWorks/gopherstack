@@ -3,6 +3,7 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -417,8 +418,16 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 	out := make([]AssociationExecution, len(execs))
 	copy(out, execs)
 
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeAssociationExecutionsOutputFull{
-		AssociationExecutions: out,
+		AssociationExecutions: page,
+		NextToken:             next,
 	}, nil
 }
 
@@ -470,8 +479,16 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 	out := make([]AssociationExecutionTarget, len(targets))
 	copy(out, targets)
 
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+
 	return &DescribeAssociationExecutionTargetsOutputFull{
-		AssociationExecutionTargets: out,
+		AssociationExecutionTargets: page,
+		NextToken:                   next,
 	}, nil
 }
 
@@ -570,6 +587,8 @@ func matchesAssociationFilter(a Association, f AssociationFilterEntry) bool {
 // input.AssociationFilterList and paginated by input.MaxResults/NextToken --
 // real, optional ListAssociationsInput members (api_op_ListAssociations.go)
 // a literal struct{} input previously discarded from every request.
+//
+//nolint:dupl // mirrors ListOpsMetadata's filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListAssociations(
 	ctx context.Context,
 	input *ListAssociationsInput,
@@ -596,6 +615,8 @@ func (b *InMemoryBackend) ListAssociations(
 			list = append(list, *a)
 		}
 	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].AssociationID < list[j].AssociationID })
 
 	var maxResults int
 	if input.MaxResults != nil {

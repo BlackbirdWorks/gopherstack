@@ -294,7 +294,7 @@ func assertCollaborationNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryB
 	gotChangeReq, err := fresh.GetCollaborationChangeRequest(collaborationID, seed.changeReq.ChangeRequestIdentifier)
 	require.NoError(t, err)
 	assert.Equal(t, seed.changeReq.Changes, gotChangeReq.Changes)
-	changeReqItems, _, err := fresh.ListCollaborationChangeRequests(collaborationID, "", "")
+	changeReqItems, _, err := fresh.ListCollaborationChangeRequests(collaborationID, "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, changeReqItems, 1)
 

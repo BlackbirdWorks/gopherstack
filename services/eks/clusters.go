@@ -216,16 +216,24 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 	return c.clone(), nil
 }
 
-// ListClusters returns all cluster names sorted alphabetically.
-func (b *InMemoryBackend) ListClusters() []string {
+// ListClusters returns cluster names sorted alphabetically. Connected
+// (external, registered via RegisterCluster) clusters are included only when
+// includeExternal is true -- matches ListClustersInput.Include: blank
+// returns only Amazon EKS clusters, "all" also returns connected clusters
+// (api_op_ListClusters.go).
+func (b *InMemoryBackend) ListClusters(includeExternal bool) []string {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
 	items := b.clusters.Snapshot()
-	names := make([]string, len(items))
+	names := make([]string, 0, len(items))
 
-	for i, c := range items {
-		names[i] = c.Name
+	for _, c := range items {
+		if !includeExternal && c.ConnectorConfig != nil {
+			continue
+		}
+
+		names = append(names, c.Name)
 	}
 
 	return names

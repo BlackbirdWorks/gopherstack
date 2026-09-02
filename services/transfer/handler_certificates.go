@@ -205,6 +205,7 @@ func (h *Handler) handleListCertificates(
 		item := map[string]any{
 			"CertificateId": c.CertificateID,
 			"Type":          certificateType(c),
+			"Usage":         c.Usage,
 			keyDescription:  c.Description,
 			keyStatus:       c.Status,
 			keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),

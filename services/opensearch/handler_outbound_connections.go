@@ -17,12 +17,7 @@ func (h *Handler) handleCCOutboundRoutes(w http.ResponseWriter, r *http.Request,
 	// always POST here (api_op_DescribeOutboundConnections.go, opensearch@v1.75.4
 	// serializers.go); a bare GET on /outboundConnection is never sent -- gopherstack-l5ir.
 	case rest == "/outboundConnection/search" && r.Method == http.MethodPost:
-		conns := h.Backend.DescribeOutboundConnections()
-		items := make([]map[string]any, 0, len(conns))
-		for _, c := range conns {
-			items = append(items, outboundConnectionJSON(c))
-		}
-		h.writeJSON(r, w, map[string]any{"Connections": items})
+		h.handleDescribeOutboundConnections(w, r)
 	// POST /outboundConnection → CreateOutboundConnection
 	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
 		r.Method == http.MethodPost:
@@ -105,6 +100,23 @@ func connectionPropertiesJSON(skipUnavailable, endpoint string) map[string]any {
 	}
 
 	return props
+}
+
+// handleDescribeOutboundConnections serves POST /outboundConnection/search.
+func (h *Handler) handleDescribeOutboundConnections(w http.ResponseWriter, r *http.Request) {
+	req, ok := h.readDescribeConnectionsRequest(w, r)
+	if !ok {
+		return
+	}
+
+	p := h.Backend.DescribeOutboundConnections(req.connectionIDFilters(), req.NextToken, int(req.MaxResults))
+	items := make([]map[string]any, 0, len(p.Data))
+
+	for _, c := range p.Data {
+		items = append(items, outboundConnectionJSON(c))
+	}
+
+	h.writeConnectionsResponse(r, w, items, p.Next)
 }
 
 func (h *Handler) handleCreateOutboundConnection(w http.ResponseWriter, r *http.Request) {

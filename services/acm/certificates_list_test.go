@@ -100,6 +100,55 @@ func TestACMBackend_ListCertificates_KeyUsageFilter(t *testing.T) {
 	}
 }
 
+// TestACMBackend_ListCertificates_KeyPairOriginFilter verifies
+// CertificateKeyPairOrigins filtering -- a top-level ListCertificatesInput
+// field distinct from Includes (aws-sdk-go-v2 api_op_ListCertificates.go),
+// mapping AMAZON_ISSUED certs to AWS_MANAGED and IMPORTED certs to
+// CUSTOMER_PROVIDED. ACME is a real enum value but gopherstack never creates
+// Certificate records through the ACME workflow, so no cert can ever match
+// it -- an explicit ACME-only filter must return empty, not fabricate a
+// match.
+func TestACMBackend_ListCertificates_KeyPairOriginFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		origins   []string
+		wantCount int
+	}{
+		{name: "no_filter_returns_both", origins: nil, wantCount: 2},
+		{name: "aws_managed_only", origins: []string{"AWS_MANAGED"}, wantCount: 1},
+		{name: "customer_provided_only", origins: []string{"CUSTOMER_PROVIDED"}, wantCount: 1},
+		{name: "acme_never_matches", origins: []string{"ACME"}, wantCount: 0},
+		{
+			name:      "aws_managed_and_customer_provided",
+			origins:   []string{"AWS_MANAGED", "CUSTOMER_PROVIDED"},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.RequestCertificate(context.Background(), "kpo.example.com", "", "", "", "", "", "", nil)
+			require.NoError(t, err)
+
+			certPEM, keyPEM := generateTestCert(t)
+			_, err = b.ImportCertificate(context.Background(), certPEM, keyPEM, "", "")
+			require.NoError(t, err)
+
+			result, err := b.ListCertificates(
+				context.Background(),
+				acm.ListCertificatesParams{CertificateKeyPairOrigins: tt.origins},
+			)
+			require.NoError(t, err)
+			assert.Len(t, result.Data, tt.wantCount)
+		})
+	}
+}
+
 // TestACMBackend_ListCertificates_ExtendedKeyUsageFilter verifies Includes.ExtendedKeyUsage filtering.
 func TestACMBackend_ListCertificates_ExtendedKeyUsageFilter(t *testing.T) {
 	t.Parallel()

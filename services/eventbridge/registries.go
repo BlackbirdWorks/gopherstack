@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DescribeRegistry(
 
 // ListRegistries returns schema registries optionally filtered by name prefix.
 func (b *InMemoryBackend) ListRegistries(ctx context.Context, //nolint:revive // existing issue.
-	namePrefix, nextToken string,
+	namePrefix, nextToken string, limit int,
 ) ([]SchemaRegistry, string, error) {
 	b.mu.RLock("ListRegistries")
 	defer b.mu.RUnlock()
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) ListRegistries(ctx context.Context, //nolint:revive //
 
 	sort.Slice(all, func(i, j int) bool { return all[i].RegistryName < all[j].RegistryName })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

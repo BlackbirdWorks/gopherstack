@@ -1364,6 +1364,30 @@ func TestHandler_AddAssociation_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
+// TestHandler_AddAssociation_TagsNotOnWire proves Tags cannot be set via
+// AddAssociation: AddAssociationInput has no Tags member at all
+// (api_op_AddAssociation.go), so no real client can ever send it. A prior
+// version of this handler accepted and applied it anyway (a fabricated
+// field, not a real wire member).
+func TestHandler_AddAssociation_TagsNotOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	sourceArn := "arn:aws:sagemaker:us-east-1:000000000000:trial/t1"
+	destinationArn := "arn:aws:sagemaker:us-east-1:000000000000:artifact/a1"
+
+	rec := doSageMakerRequest(t, h, "AddAssociation", map[string]any{
+		"SourceArn":      sourceArn,
+		"DestinationArn": destinationArn,
+		"Tags":           []map[string]string{{"Key": "env", "Value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	count := sagemaker.AssociationTagCount(h.Backend, "us-east-1", sourceArn, destinationArn)
+	assert.Zero(t, count, "Tags is not a real AddAssociationInput field and must not be applied")
+}
+
 func TestHandler_AssociateTrialComponent(t *testing.T) {
 	t.Parallel()
 

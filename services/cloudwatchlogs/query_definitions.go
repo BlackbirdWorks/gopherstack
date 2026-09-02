@@ -74,7 +74,13 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 		cp.Parameters = slices.Clone(qd.Parameters)
 		all = append(all, cp)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Name != all[j].Name {
+			return all[i].Name < all[j].Name
+		}
+
+		return all[i].QueryDefinitionID < all[j].QueryDefinitionID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {

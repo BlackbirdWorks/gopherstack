@@ -255,6 +255,7 @@ func (b *InMemoryBackend) ListTopics(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, t := range all {
 			if t.TopicID == nextToken {
 				start = i

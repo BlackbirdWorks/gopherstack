@@ -205,14 +205,14 @@ func TestOnPremisesInstances_IamValidation(t *testing.T) {
 			instanceName: "server 05",
 			iamUserArn:   "arn:aws:iam::123:user/user1",
 			wantStatus:   http.StatusBadRequest,
-			wantErrType:  "InvalidParameterValueException",
+			wantErrType:  "InvalidInstanceNameException",
 		},
 		{
 			name:         "name_too_long",
 			instanceName: strings.Repeat("x", 101),
 			iamUserArn:   "arn:aws:iam::123:user/user1",
 			wantStatus:   http.StatusBadRequest,
-			wantErrType:  "InvalidParameterValueException",
+			wantErrType:  "InvalidInstanceNameException",
 		},
 	}
 

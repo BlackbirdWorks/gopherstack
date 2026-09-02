@@ -21,6 +21,10 @@ func (h *Handler) handleCreateNode(c *echo.Context, networkID string, body []byt
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.ClientRequestToken == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
+	}
+
 	if req.MemberID == "" {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}

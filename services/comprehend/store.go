@@ -31,28 +31,32 @@ import (
 // maps: their values are not *T (map[string]string / string), so they do not
 // fit store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	jobs            *store.Table[Job]
-	resources       *store.Table[Resource]
-	iterations      *store.Table[FlywheelIteration]
-	registry        *store.Registry
-	tags            map[string]map[string]string
-	policies        map[string]string
-	policyRevisions map[string]string
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	jobs             *store.Table[Job]
+	resources        *store.Table[Resource]
+	iterations       *store.Table[FlywheelIteration]
+	registry         *store.Registry
+	tags             map[string]map[string]string
+	policies         map[string]string
+	policyRevisions  map[string]string
+	policyCreatedAt  map[string]time.Time
+	policyModifiedAt map[string]time.Time
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a configured Comprehend backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:        store.NewRegistry(),
-		tags:            make(map[string]map[string]string),
-		policies:        make(map[string]string),
-		policyRevisions: make(map[string]string),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("comprehend"),
+		registry:         store.NewRegistry(),
+		tags:             make(map[string]map[string]string),
+		policies:         make(map[string]string),
+		policyRevisions:  make(map[string]string),
+		policyCreatedAt:  make(map[string]time.Time),
+		policyModifiedAt: make(map[string]time.Time),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("comprehend"),
 	}
 
 	registerAllTables(b)
@@ -376,14 +380,18 @@ func (b *InMemoryBackend) StartFlywheelIteration(flywheelArn string) (*FlywheelI
 		CreationTime:            time.Now().UTC(),
 		FlywheelArn:             flywheelArn,
 		FlywheelIterationID:     id,
-		FlywheelIterationStatus: statusSubmitted,
+		FlywheelIterationStatus: statusFlywheelIterationTraining,
 	}
 	b.iterations.Put(iteration)
 
 	return cloneIteration(iteration), nil
 }
 
-// GetFlywheelIteration returns and advances an iteration.
+// GetFlywheelIteration returns and advances an iteration. Real
+// FlywheelIterationStatus values are TRAINING -> EVALUATING -> COMPLETED
+// (types/enums.go:325-334) -- not the JobStatus-style SUBMITTED/IN_PROGRESS
+// vocabulary used elsewhere in this file, which FlywheelIterationStatus does
+// not share.
 func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, error) {
 	b.mu.Lock("GetFlywheelIteration")
 	defer b.mu.Unlock()
@@ -393,9 +401,9 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 		return nil, fmt.Errorf("%w: iteration %q", ErrNotFound, id)
 	}
 	switch iteration.FlywheelIterationStatus {
-	case statusSubmitted:
-		iteration.FlywheelIterationStatus = statusInProgress
-	case statusInProgress:
+	case statusFlywheelIterationTraining:
+		iteration.FlywheelIterationStatus = statusFlywheelIterationEvaluating
+	case statusFlywheelIterationEvaluating:
 		iteration.FlywheelIterationStatus = statusCompleted
 		iteration.EndTime = time.Now().UTC()
 	}
@@ -515,23 +523,34 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevisio
 	}
 
 	revision := uuid.NewString()
+	now := time.Now().UTC()
+	if _, exists := b.policies[resourceArn]; !exists {
+		b.policyCreatedAt[resourceArn] = now
+	}
 	b.policies[resourceArn] = policy
 	b.policyRevisions[resourceArn] = revision
+	b.policyModifiedAt[resourceArn] = now
 
 	return revision, nil
 }
 
-// GetResourcePolicy retrieves a resource policy.
-func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, string, error) {
+// GetResourcePolicy retrieves a resource policy along with its creation and
+// last-modified times, which real DescribeResourcePolicy tracks per policy
+// rather than stamping at read time.
+func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, string, time.Time, time.Time, error) {
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
 	policy, ok := b.policies[resourceArn]
 	if !ok {
-		return "", "", fmt.Errorf("%w: resource policy not found for %q", ErrNotFound, resourceArn)
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf(
+			"%w: resource policy not found for %q",
+			ErrNotFound,
+			resourceArn,
+		)
 	}
 
-	return policy, b.policyRevisions[resourceArn], nil
+	return policy, b.policyRevisions[resourceArn], b.policyCreatedAt[resourceArn], b.policyModifiedAt[resourceArn], nil
 }
 
 // DeleteResourcePolicy removes a resource policy.
@@ -550,6 +569,8 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn, expectedRevision str
 
 	delete(b.policies, resourceArn)
 	delete(b.policyRevisions, resourceArn)
+	delete(b.policyCreatedAt, resourceArn)
+	delete(b.policyModifiedAt, resourceArn)
 
 	return nil
 }
@@ -584,9 +605,11 @@ func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string
 func initialResourceStatus(resourceType string) string {
 	switch resourceType {
 	case resourceTypeEndpoint:
+		return statusEndpointInService
+	case resourceTypeFlywheel:
 		return statusActive
-	case resourceTypeFlywheel, resourceTypeDataset:
-		return statusReady
+	case resourceTypeDataset:
+		return statusCompleted
 	case resourceTypeDocClassifier, resourceTypeEntityRecognizer:
 		// Emulator skips async training; classifiers/recognizers are immediately TRAINED.
 		// The real AWS provider waits minutes before polling, causing CI timeouts if we

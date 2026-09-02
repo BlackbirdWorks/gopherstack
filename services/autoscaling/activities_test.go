@@ -29,7 +29,7 @@ func TestInMemoryBackend_ScalingActivities(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				acts, err := b.DescribeScalingActivities("act-asg")
+				acts, err := b.DescribeScalingActivities("act-asg", nil)
 				require.NoError(t, err)
 				require.NotEmpty(t, acts)
 				assert.Equal(t, "act-asg", acts[0].AutoScalingGroupName)
@@ -41,7 +41,7 @@ func TestInMemoryBackend_ScalingActivities(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.DescribeScalingActivities("no-such")
+				_, err := b.DescribeScalingActivities("no-such", nil)
 				require.Error(t, err)
 			},
 		},

@@ -394,6 +394,7 @@ func autoscalingErrorCode(opErr error) string {
 		{ErrWarmPoolNotFound, errValidationError},
 		{ErrPolicyNotFound, errValidationError},
 		{ErrDeletionProtected, "ResourceInUse"},
+		{ErrInstanceRefreshInProgress, "InstanceRefreshInProgress"},
 	}
 
 	for _, m := range mappings {

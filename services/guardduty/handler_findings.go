@@ -166,7 +166,7 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string, body []byte) (a
 		}
 	}
 
-	q := FindingStatisticsQuery{GroupBy: req.GroupBy, OrderBy: req.OrderBy}
+	q := FindingStatisticsQuery{GroupBy: req.GroupBy, OrderBy: req.OrderBy, MaxResults: req.MaxResults}
 	if req.FindingCriteria != nil {
 		q.Criteria = req.FindingCriteria.Criterion
 	}

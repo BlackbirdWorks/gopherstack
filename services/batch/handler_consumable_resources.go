@@ -161,8 +161,9 @@ type consumableResourceSummary struct {
 }
 
 type listConsumableResourcesInput struct {
-	MaxResults *int32  `json:"maxResults,omitempty"`
-	NextToken  *string `json:"nextToken,omitempty"`
+	MaxResults *int32               `json:"maxResults,omitempty"`
+	NextToken  *string              `json:"nextToken,omitempty"`
+	Filters    []keyValuesPairInput `json:"filters,omitempty"`
 }
 
 // listConsumableResourcesOutput mirrors aws-sdk-go-v2/service/batch's
@@ -178,7 +179,12 @@ func (h *Handler) handleListConsumableResources(
 	ctx context.Context,
 	in *listConsumableResourcesInput,
 ) (*listConsumableResourcesOutput, error) {
-	all := h.Backend.ListConsumableResources(ctx)
+	filters := make([]KeyValueFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, KeyValueFilter(f))
+	}
+
+	all := h.Backend.ListConsumableResources(ctx, filters)
 
 	names := make([]string, len(all))
 	byName := make(map[string]*ConsumableResource, len(all))

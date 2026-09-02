@@ -110,7 +110,9 @@ func encodePageToken(offset int) string {
 }
 
 // decodePageToken decodes an opaque base64 pagination token back to an offset.
-// Returns 0 and no error when the token is empty.
+// Returns 0 and no error when the token is empty. A token decoding to a
+// negative offset is rejected like any other malformed token, since callers
+// slice their result set at [offset:end] and a negative offset would panic.
 func decodePageToken(tok string) (int, error) {
 	if tok == "" {
 		return 0, nil
@@ -123,6 +125,10 @@ func decodePageToken(tok string) (int, error) {
 
 	n, err := strconv.Atoi(string(b))
 	if err != nil {
+		return 0, fmt.Errorf("%w: invalid pagination token", ErrValidation)
+	}
+
+	if n < 0 {
 		return 0, fmt.Errorf("%w: invalid pagination token", ErrValidation)
 	}
 

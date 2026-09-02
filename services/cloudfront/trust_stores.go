@@ -109,7 +109,11 @@ func (b *InMemoryBackend) UpdateTrustStore(
 
 	if name != "" && name != ts.Name {
 		if _, exists := b.trustStoreByName[name]; exists {
-			return nil, fmt.Errorf("%w: trust store with name %q already exists", ErrAlreadyExists, name)
+			// UpdateTrustStore's own deserializer (cloudfront@v1.67.4
+			// deserializers.go) has no EntityAlreadyExists case -- unlike
+			// CreateTrustStore, which does. InvalidArgument is the only
+			// client-fault code it models for this.
+			return nil, fmt.Errorf("%w: trust store with name %q already exists", ErrValidation, name)
 		}
 		delete(b.trustStoreByName, ts.Name)
 		b.trustStoreByName[name] = id

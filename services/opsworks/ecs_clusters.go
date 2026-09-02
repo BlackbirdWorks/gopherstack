@@ -1,6 +1,8 @@
 package opsworks
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -73,6 +75,16 @@ func (b *InMemoryBackend) DescribeEcsClusters(stackID string, ecsClusterArns []s
 	for _, e := range source {
 		result = append(result, e.toEcsCluster())
 	}
+
+	// pkgs/page.New requires a fully sorted slice (its cursor is a raw
+	// positional index); both b.ecsClusters.All() and b.ecsClustersByStack
+	// return values in an order not guaranteed stable across calls (the
+	// former is Go map order, unspecified from one range to the next), which
+	// would silently drop or duplicate clusters across a paginated walk.
+	// EcsClusterArn is this table's primary key, so it's a tie-free sort key.
+	slices.SortFunc(result, func(a, b *EcsCluster) int {
+		return cmp.Compare(a.EcsClusterArn, b.EcsClusterArn)
+	})
 
 	return result, nil
 }

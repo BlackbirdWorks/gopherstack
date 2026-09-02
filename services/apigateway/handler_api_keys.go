@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type getAPIKeyInput struct {
@@ -13,7 +14,9 @@ type getAPIKeyInput struct {
 
 type getAPIKeysPageInput struct {
 	Position     string `json:"position"`
-	IncludeValue string `json:"includeValue"`
+	CustomerID   string `json:"customerId"`
+	NameQuery    string `json:"name"`
+	IncludeValue string `json:"includeValues"`
 	Limit        int    `json:"limit"`
 }
 
@@ -89,13 +92,45 @@ func (h *Handler) getAPIKeysAction(b []byte) (int, any, error) {
 }
 
 func (h *Handler) fetchAPIKeys(input getAPIKeysPageInput) ([]APIKey, string, error) {
-	if input.Limit == 0 && input.Position == "" {
-		keys, err := h.Backend.GetAPIKeys()
+	if input.CustomerID == "" && input.NameQuery == "" {
+		if input.Limit == 0 && input.Position == "" {
+			keys, err := h.Backend.GetAPIKeys()
 
-		return keys, "", err
+			return keys, "", err
+		}
+
+		return h.Backend.GetAPIKeysPage(input.Limit, input.Position)
 	}
 
-	return h.Backend.GetAPIKeysPage(input.Limit, input.Position)
+	keys, err := h.Backend.GetAPIKeys()
+	if err != nil {
+		return nil, "", err
+	}
+	keys = filterAPIKeys(keys, input.CustomerID, input.NameQuery)
+	if input.Limit == 0 && input.Position == "" {
+		return keys, "", nil
+	}
+	page, position := paginatePageByKey(keys, input.Limit, input.Position, func(k APIKey) string { return k.ID })
+
+	return page, position, nil
+}
+
+// filterAPIKeys applies GetApiKeys' customerId (exact match) and nameQuery
+// (substring match) filters. Real key: customerId, name.Query in
+// apigateway@v1.42.4/serializers.go:4102,4114.
+func filterAPIKeys(keys []APIKey, customerID, nameQuery string) []APIKey {
+	out := make([]APIKey, 0, len(keys))
+	for _, k := range keys {
+		if customerID != "" && k.CustomerID != customerID {
+			continue
+		}
+		if nameQuery != "" && !strings.Contains(k.Name, nameQuery) {
+			continue
+		}
+		out = append(out, k)
+	}
+
+	return out
 }
 
 func (h *Handler) deleteAPIKeyAction(b []byte) (int, any, error) {

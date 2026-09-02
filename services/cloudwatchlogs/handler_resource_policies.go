@@ -44,9 +44,12 @@ func (h *Handler) handlePutResourcePolicy(
 type describeResourcePoliciesInput struct {
 	PolicyScope string `json:"policyScope,omitempty"`
 	ResourceArn string `json:"resourceArn,omitempty"`
+	NextToken   string `json:"nextToken,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
 }
 
 type describeResourcePoliciesOutput struct {
+	NextToken        string           `json:"nextToken,omitempty"`
 	ResourcePolicies []ResourcePolicy `json:"resourcePolicies"`
 }
 
@@ -60,9 +63,9 @@ func (h *Handler) handleDescribeResourcePolicies(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		policies := b.DescribeResourcePolicies(in.PolicyScope, in.ResourceArn)
+		policies, next := b.DescribeResourcePolicies(in.PolicyScope, in.ResourceArn, in.NextToken, in.Limit)
 
-		return &describeResourcePoliciesOutput{ResourcePolicies: policies}, nil
+		return &describeResourcePoliciesOutput{ResourcePolicies: policies, NextToken: next}, nil
 	}
 
 	return &describeResourcePoliciesOutput{ResourcePolicies: []ResourcePolicy{}}, nil

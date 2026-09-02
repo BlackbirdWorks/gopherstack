@@ -100,9 +100,8 @@ func (h *Handler) handleTestTransformer(
 	body []byte,
 ) (any, error) {
 	var input struct {
-		LogGroupIdentifier string           `json:"logGroupIdentifier"`
-		TransformerConfig  []map[string]any `json:"transformerConfig"`
-		LogEventMessages   []string         `json:"logEventMessages"`
+		TransformerConfig []map[string]any `json:"transformerConfig"`
+		LogEventMessages  []string         `json:"logEventMessages"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {

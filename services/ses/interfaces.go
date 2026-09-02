@@ -49,12 +49,12 @@ type StorageBackend interface {
 	DeleteCustomVerificationEmailTemplate(templateName string) error
 	UpdateCustomVerificationEmailTemplate(tmpl CustomVerificationEmailTemplate) error
 	ListReceiptFilters() []ReceiptFilter
-	ListReceiptRuleSets() []ReceiptRuleSet
+	ListReceiptRuleSets(nextToken string) page.Page[ReceiptRuleSet]
 	DeleteReceiptFilter(name string) error
 	DeleteReceiptRule(ruleSetName, ruleName string) error
 	DeleteReceiptRuleSet(name string) error
 	GetCustomVerificationEmailTemplate(templateName string) (CustomVerificationEmailTemplate, error)
-	ListCustomVerificationEmailTemplates() []CustomVerificationEmailTemplate
+	ListCustomVerificationEmailTemplates(nextToken string, maxResults int) page.Page[CustomVerificationEmailTemplate]
 	DescribeReceiptRuleSet(name string) (ReceiptRuleSet, error)
 	SetActiveReceiptRuleSet(name string) error
 	DescribeActiveReceiptRuleSet() (ReceiptRuleSet, bool, error)

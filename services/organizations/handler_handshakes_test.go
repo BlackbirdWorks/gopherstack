@@ -159,6 +159,21 @@ func TestHandshakeFilter_Handler(t *testing.T) {
 			},
 			wantCount: 1,
 		},
+		{
+			// ParentHandshakeId ("only used for handshake types that are a
+			// child of another type", HandshakeFilter.ParentHandshakeId,
+			// organizations@v1.53.5 types/types.go:390) always excludes
+			// everything: this backend never spawns a handshake with a
+			// parent (EnableAllFeatures returns a single synthetic
+			// already-ACCEPTED handshake rather than the real multi-step
+			// ENABLE_ALL_FEATURES/APPROVE_ALL_FEATURES parent/child flow).
+			name: "list_for_account_parent_handshake_filter",
+			op:   "ListHandshakesForAccount",
+			body: map[string]any{
+				"Filter": map[string]any{"ParentHandshakeId": "h-fakeparent12"},
+			},
+			wantCount: 0,
+		},
 	}
 
 	for _, tt := range tests {
