@@ -72,8 +72,8 @@ func TestContainerLifecycle_CreateListDelete(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer?restype=container", nil, nil)
 			require.Equal(t, http.StatusCreated, rec.Code, tt.name)
-			assert.NotEmpty(t, rec.Header().Get("x-ms-version"))
-			assert.NotEmpty(t, rec.Header().Get("x-ms-request-id"))
+			assert.NotEmpty(t, rec.Header().Get("X-Ms-Version"))
+			assert.NotEmpty(t, rec.Header().Get("X-Ms-Request-Id"))
 			assert.NotEmpty(t, rec.Header().Get("Date"))
 
 			rec = doRequest(t, h, http.MethodGet, "/"+testAccount+"?comp=list", nil, nil)
@@ -133,7 +133,7 @@ func TestBlobLifecycle_PutGetHeadDelete(t *testing.T) {
 			createContainer(t, h, "mycontainer")
 
 			putHeaders := map[string]string{
-				"x-ms-blob-type": "BlockBlob",
+				"X-Ms-Blob-Type": "BlockBlob",
 				"Content-Type":   "text/plain",
 			}
 			rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/myblob.txt",
@@ -145,7 +145,7 @@ func TestBlobLifecycle_PutGetHeadDelete(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, tt.name)
 			assert.Equal(t, tt.body, rec.Body.String(), tt.name)
 			assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"), tt.name)
-			assert.Equal(t, "BlockBlob", rec.Header().Get("x-ms-blob-type"), tt.name)
+			assert.Equal(t, "BlockBlob", rec.Header().Get("X-Ms-Blob-Type"), tt.name)
 
 			rec = doRequest(t, h, http.MethodHead, "/"+testAccount+"/mycontainer/myblob.txt", nil, nil)
 			require.Equal(t, http.StatusOK, rec.Code, tt.name)
@@ -182,7 +182,7 @@ func TestPutBlob_RequiresBlockBlobType(t *testing.T) {
 
 			headers := map[string]string{}
 			if tt.blobType != "" {
-				headers["x-ms-blob-type"] = tt.blobType
+				headers["X-Ms-Blob-Type"] = tt.blobType
 			}
 
 			rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/myblob.txt", []byte("x"), headers)
@@ -209,7 +209,7 @@ func TestPutBlob_MissingContainerReturns404(t *testing.T) {
 			h := newTestHandler(t)
 
 			rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/does-not-exist/myblob.txt",
-				[]byte("x"), map[string]string{"x-ms-blob-type": "BlockBlob"})
+				[]byte("x"), map[string]string{"X-Ms-Blob-Type": "BlockBlob"})
 
 			require.Equal(t, http.StatusNotFound, rec.Code, tt.name)
 			assert.Contains(t, rec.Body.String(), "ContainerNotFound", tt.name)
@@ -265,7 +265,7 @@ func TestGetBlob_RangeHeaderPartialRead(t *testing.T) {
 			h := newTestHandler(t)
 			createContainer(t, h, "mycontainer")
 			doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/data.bin",
-				[]byte(body), map[string]string{"x-ms-blob-type": "BlockBlob"})
+				[]byte(body), map[string]string{"X-Ms-Blob-Type": "BlockBlob"})
 
 			rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mycontainer/data.bin", nil,
 				map[string]string{"Range": tt.rangeValue})
@@ -321,7 +321,7 @@ func TestListBlobs_ReturnsAllBlobs(t *testing.T) {
 
 			for _, name := range tt.blobs {
 				doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/"+name,
-					[]byte("data"), map[string]string{"x-ms-blob-type": "BlockBlob"})
+					[]byte("data"), map[string]string{"X-Ms-Blob-Type": "BlockBlob"})
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mycontainer?restype=container&comp=list", nil, nil)
