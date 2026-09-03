@@ -1,8 +1,8 @@
 ---
 service: azureblob
-sdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.7.0
-last_audit_commit: (initial seed, no audit history yet)
-last_audit_date: 2026-09-02
+sdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.8.0
+last_audit_commit: f1427114b
+last_audit_date: 2026-09-03
 overall: C
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -16,9 +16,10 @@ ops:
   GetBlobProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "HEAD /<account>/<container>/<blob>. Returns ETag/Last-Modified/Content-Length/Content-Type/x-ms-blob-type; no x-ms-meta-* or lease-state headers."}
   DeleteBlob: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<container>/<blob>. No snapshot/version-scoped delete, no soft-delete."}
 families:
-  auth: {status: deferred, note: "Authorization header is accepted structurally (SharedKey prefix or absent) but never cryptographically verified -- matches services/s3's PresignSecret-opt-in philosophy. Real SharedKey canonicalization/HMAC verification is deferred to pkgs/azureauth, landing on a separate branch (azure/auth-pkg); this package has a TODO(azure-integration) marker at the handler's auth entry point."}
+  auth: {status: partial, note: "pkgs/azureauth (SharedKey/SharedKeyLite header parsing + canonicalization + HMAC signing/verification) has landed and is wired in: checkAuth parses a present Authorization header via azureauth.ParseAuthorizationHeader. Verification (azureauth.VerifySharedKey) is implemented in pkgs/azureauth but not yet called from checkAuth -- enforcement is deliberately deferred past M0, matching services/s3's PresignSecret-opt-in philosophy. An absent or invalid header is still accepted."}
   blob_body_headers: {status: ok, note: "x-ms-version, x-ms-request-id, and Date are set on every response (success and error paths) via setCommonHeaders, so azure-sdk-for-go's response parsing does not error on missing headers."}
-  routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server (default port 10000, AZURE_BLOB_PORT override), never registered into the shared AWS single-port Router -- see provider.go's Provider doc comment and AZURE.md section 4 for the full rationale."}
+  routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 10000 via --azure-blob-port/AZURE_BLOB_PORT, no fallback pool -- fails fast if unavailable, mirroring services/iot's MQTT broker), never registered into the shared AWS single-port Router -- see provider.go's Provider doc comment and AZURE.md section 4 for the full rationale."}
+  observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics, and derives its listener logger via logger.WithWorker(ctx, \"azureblob\", \"listener\"). InMemoryBackend and the server-lifecycle mutex both use *lockmetrics.RWMutex instead of raw sync.RWMutex/Mutex, matching repo convention."}
 gaps:
   - "Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; tracked for a later milestone (M1 in AZURE.md's plan)."
   - "No ACL / container public-access-level support (x-ms-blob-public-access, Set/Get Container ACL are unimplemented)."
@@ -27,13 +28,12 @@ gaps:
   - "No Copy Blob (server-side or cross-account) support."
   - "No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support."
   - "List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination."
-  - "Auth is structurally permissive only -- see families.auth. Real SharedKey verification (pkgs/azureauth) is a separate, not-yet-landed dependency."
+  - "Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet."
   All gaps above are intentional MVP scope per AZURE.md's M0/M1 split, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
 deferred:
-  - "Initial implementation pass (2026-09-02): seeded this service from scratch per AZURE.md M0. No prior audit history to reconcile. sdk_module pinned to the latest azure-sdk-for-go blob module version documented in AZURE.md at authoring time; not yet cross-checked against a live SDK import in this repo (azure-sdk-for-go is not currently a go.mod dependency -- this package speaks the wire protocol directly rather than through the SDK's server-side types)."
-  - "cli.go registration is deliberately NOT wired up in this pass -- a human integrates this provider once pkgs/azureauth (a separate branch, azure/auth-pkg) also lands, per the task's explicit deferral."
-  - "No Go integration test (test/integration/azureblob_test.go) yet -- that requires the cli.go wiring above, which is out of scope for this pass. Unit tests exercise the handler/backend directly via httptest instead."
-leaks: {status: clean, note: "No background goroutines, tickers, or janitor: InMemoryBackend is pure in-memory maps guarded by one sync.RWMutex, with no TTL/expiry sweep in this MVP scope. The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx), mirroring cli.go's own top-level server lifecycle."}
+  - "Initial implementation pass (2026-09-02): seeded this service from scratch per AZURE.md M0. No prior audit history to reconcile."
+  - "M0 review pass (2026-09-03): pkgs/azureauth, cli.go registration, and test/integration/azureblob_test.go all landed in the same PR as this service (see AZURE.md's M0 entry) -- the file was previously drafted assuming a multi-PR sequence that did not happen. sdk_module bumped to the azblob v1.8.0 actually pinned in go.mod (used by the integration test)."
+leaks: {status: clean, note: "No background goroutines, tickers, or janitor: InMemoryBackend is pure in-memory maps guarded by one *lockmetrics.RWMutex, with no TTL/expiry sweep in this MVP scope. The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx) (falling back to srv.Close() on a graceful-shutdown error, both logged), mirroring cli.go's own top-level server lifecycle."}
 ---
 
 ## Notes
@@ -45,22 +45,30 @@ services by header (`X-Amz-Target`) or distinctive path/form shape. Azure
 Blob's REST path shape (`/<account>/<container>/<blob>`) has no such
 service-identifying header, and colliding with Azure Queue/Table's identical
 `/<account>/<resource>` shape (once those land) would be exactly the
-ambiguity the AWS router avoids by construction. Instead, `Provider.Init`
-resolves a dedicated port (default 10000, mirroring Azurite's own
-Blob-service default) and the returned `*Handler` implements
-`service.BackgroundWorker`, standing up its own `*echo.Echo` + `*http.Server`
-in `StartWorker`. See `provider.go`'s `Provider` doc comment and AZURE.md
-section 4 for the full rationale, including why `pkgs/portalloc.Allocator`
-(which only hands out the next free port in a range, with no way to reserve
-a *specific* preferred port) couldn't be used as-is.
+ambiguity the AWS router avoids by construction. Instead, the returned
+`*Handler` implements `service.BackgroundWorker`, and `StartWorker`
+synchronously binds a fixed port (default 10000, Azurite's own Blob-service
+default, overridable via `--azure-blob-port`/`AZURE_BLOB_PORT`) before
+standing up its own `*echo.Echo` + `*http.Server` to serve on that same
+listener -- there is no probe-then-close window for another process to steal
+the port between "we checked it was free" and "we're listening on it", and
+no fallback into a different port if the bind fails (StartWorker returns the
+bind error directly instead). This mirrors `services/iot`'s MQTT broker
+(`services/iot/broker.go`), gopherstack's existing precedent for a
+fixed-port service, rather than drawing from the shared `--port-range-start`/
+`--port-range-end` `PortAlloc` pool used for on-demand ephemeral resources.
+See `provider.go`'s `Provider` doc comment and AZURE.md section 4 for the
+full rationale.
 
 ### Auth
-The `Authorization` header is accepted on structure alone -- a `SharedKey
-...` prefix, or no header at all, both pass -- matching this repo's
+The `Authorization` header is parsed via `pkgs/azureauth.ParseAuthorizationHeader`
+(proving a real Azure SDK's header round-trips through this package), but a
+malformed or absent header is still accepted -- matching this repo's
 permissive-by-default philosophy (`services/s3/sigv4.go`'s
-`PresignSecret`-opt-in pattern). Real SharedKey HMAC verification is planned
-for `pkgs/azureauth`, landing separately; `handler.go`'s `checkAuth` carries
-the wiring TODO.
+`PresignSecret`-opt-in pattern). `pkgs/azureauth.VerifySharedKey` implements
+real SharedKey HMAC verification and is unit-tested, but `handler.go`'s
+`checkAuth` does not call it yet; enforcing it is deliberately deferred past
+this milestone.
 
 ### Blob names with slashes
 Azure blob names may contain `/` as a virtual-directory separator (e.g.
@@ -75,6 +83,17 @@ additional path segments.
 with `Content-Range` set. Multi-range requests (`bytes=0-1,3-4`) are rejected
 with `416 Requested Range Not Satisfiable` rather than served -- Azure's own
 Get Blob does not support multi-range either.
+
+### ETags
+Blob ETags are derived from the body *and* a per-backend monotonically
+increasing counter incremented on every `Put Blob` (see `store.go`'s
+`computeBlobETag`/`etagSeq`), not from the body alone -- overwriting a blob
+with byte-identical content still produces a new ETag, matching real Azure
+Blob semantics and keeping `If-Match`/`If-None-Match` concurrency checks
+meaningful (those headers are not yet enforced -- see gaps -- but the ETags
+themselves are now correct). Container listing ETags (`List Containers`) use
+a separate, simpler hash with no mutation-sequence component, since
+containers have no mutable properties in this MVP.
 
 ## More
 
