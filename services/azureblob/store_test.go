@@ -212,9 +212,31 @@ func TestInMemoryBackend_PutBlobOverwrites(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name         string
+		firstBody    string
+		secondBody   string
+		wantData     string
+		wantSameETag bool
 	}{
-		{name: "overwrite_replaces_data"},
+		{
+			name:         "overwrite_replaces_data",
+			firstBody:    "first",
+			secondBody:   "second-longer",
+			wantData:     "second-longer",
+			wantSameETag: false,
+		},
+		{
+			// Regression test: real Azure Blob ETags change on every
+			// mutation, not just on content changes -- an ETag derived
+			// purely from the body would produce the same ETag here,
+			// silently breaking If-Match/If-None-Match concurrency
+			// semantics (see store.go's computeBlobETag/etagSeq).
+			name:         "identical_content_still_changes_etag",
+			firstBody:    "same-bytes",
+			secondBody:   "same-bytes",
+			wantData:     "same-bytes",
+			wantSameETag: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -224,16 +246,25 @@ func TestInMemoryBackend_PutBlobOverwrites(t *testing.T) {
 			b := azureblob.NewInMemoryBackend()
 			require.NoError(t, b.CreateContainer("c1"))
 
-			_, err := b.PutBlob("c1", "blob1", []byte("first"), "")
+			firstInfo, err := b.PutBlob("c1", "blob1", []byte(tt.firstBody), "")
 			require.NoError(t, err)
 
-			info, err := b.PutBlob("c1", "blob1", []byte("second-longer"), "")
+			secondInfo, err := b.PutBlob("c1", "blob1", []byte(tt.secondBody), "")
 			require.NoError(t, err)
 
 			_, data, err := b.GetBlob("c1", "blob1")
 			require.NoError(t, err)
-			assert.Equal(t, "second-longer", string(data), tt.name)
-			assert.Equal(t, int64(len("second-longer")), info.ContentLength, tt.name)
+			assert.Equal(t, tt.wantData, string(data), tt.name)
+			assert.Equal(t, int64(len(tt.wantData)), secondInfo.ContentLength, tt.name)
+
+			assert.NotEmpty(t, firstInfo.ETag, tt.name)
+			assert.NotEmpty(t, secondInfo.ETag, tt.name)
+
+			if tt.wantSameETag {
+				assert.Equal(t, firstInfo.ETag, secondInfo.ETag, tt.name)
+			} else {
+				assert.NotEqual(t, firstInfo.ETag, secondInfo.ETag, tt.name)
+			}
 		})
 	}
 }
