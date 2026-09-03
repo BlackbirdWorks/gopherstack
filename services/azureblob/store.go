@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DeleteBlob(container, blob string) error {
 		return ErrContainerNotFound
 	}
 
-	if _, ok := c.Blobs[blob]; !ok {
+	if _, blobExists := c.Blobs[blob]; !blobExists {
 		return ErrBlobNotFound
 	}
 

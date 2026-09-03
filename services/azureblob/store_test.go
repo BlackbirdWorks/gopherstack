@@ -1,7 +1,6 @@
 package azureblob_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,7 +119,7 @@ func TestInMemoryBackend_MissingContainerErrors(t *testing.T) {
 			err := tt.op(b)
 
 			require.Error(t, err)
-			assert.True(t, errors.Is(err, azureblob.ErrContainerNotFound), tt.name)
+			assert.ErrorIs(t, err, azureblob.ErrContainerNotFound, tt.name)
 		})
 	}
 }

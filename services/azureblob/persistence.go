@@ -75,7 +75,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		// storedBlob.info() for a null blob entry). Reject the whole
 		// snapshot rather than silently dropping or fabricating an entry.
 		if c == nil {
-			return fmt.Errorf("azureblob: restore snapshot: container %q is null", name)
+			return fmt.Errorf("%w: %q", ErrSnapshotContainerNull, name)
 		}
 
 		if c.Blobs == nil {
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		for blobName, blob := range c.Blobs {
 			if blob == nil {
-				return fmt.Errorf("azureblob: restore snapshot: blob %q in container %q is null", blobName, name)
+				return fmt.Errorf("%w: %q in container %q", ErrSnapshotBlobNull, blobName, name)
 			}
 		}
 	}

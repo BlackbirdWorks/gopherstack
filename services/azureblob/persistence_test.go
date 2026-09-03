@@ -82,16 +82,19 @@ func TestRestore_RejectsNullEntries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		data []byte
+		name    string
+		data    []byte
+		wantErr error
 	}{
 		{
-			name: "null_container",
-			data: []byte(`{"version":1,"containers":{"c1":null}}`),
+			name:    "null_container",
+			data:    []byte(`{"version":1,"containers":{"c1":null}}`),
+			wantErr: azureblob.ErrSnapshotContainerNull,
 		},
 		{
-			name: "null_blob",
-			data: []byte(`{"version":1,"containers":{"c1":{"Name":"c1","Blobs":{"b1":null}}}}`),
+			name:    "null_blob",
+			data:    []byte(`{"version":1,"containers":{"c1":{"Name":"c1","Blobs":{"b1":null}}}}`),
+			wantErr: azureblob.ErrSnapshotBlobNull,
 		},
 	}
 
@@ -105,7 +108,7 @@ func TestRestore_RejectsNullEntries(t *testing.T) {
 			require.NoError(t, b.CreateContainer("preexisting"))
 
 			err := b.Restore(ctx, tt.data)
-			require.Error(t, err, tt.name)
+			require.ErrorIs(t, err, tt.wantErr, tt.name)
 
 			// A rejected snapshot must not have partially mutated state.
 			containers := b.ListContainers()
