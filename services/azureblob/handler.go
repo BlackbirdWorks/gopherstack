@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -151,8 +152,24 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // permissive-by-default auth philosophy (see services/s3/sigv4.go). Any
 // structurally-present "SharedKey ..." header, or its absence, is accepted.
 //
-// TODO(azure-integration): wire real SharedKey verification via pkgs/azureauth once that package lands (see AZURE.md).
-func (h *Handler) checkAuth(_ *http.Request) {}
+// pkgs/azureauth.ParseAuthorizationHeader is used to prove a real Azure SDK's
+// Authorization header round-trips through this package (account name /
+// scheme extraction), but a malformed or absent header is still accepted --
+// matching services/s3's own opt-in verification stance. Rejecting invalid
+// signatures via azureauth.VerifySharedKey is deliberately deferred past M0
+// (see AZURE.md section 5): it needs to be exercised against real SDK
+// request shapes first, the same way S3's WithPresignValidation is opt-in
+// rather than on-by-default.
+func (h *Handler) checkAuth(r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return // anonymous; accepted by design at this milestone
+	}
+
+	if _, ok := azureauth.ParseAuthorizationHeader(authHeader); !ok {
+		return // structurally malformed; still accepted at this milestone
+	}
+}
 
 // setCommonHeaders sets the headers real Azure SDKs expect on every
 // response, success or error.
