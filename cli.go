@@ -442,6 +442,7 @@ type CLI struct {
 	InitScripts                   []string                  `                                  name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                  `                                  name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
+	AzureBlob                     azureblobbackend.Settings `embed:"" prefix:"azure-blob-"`
 	Lambda                        lambdabackend.Settings    `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings       `embed:"" prefix:"dynamodb-"`
 	EC2                           ec2backend.Settings       `embed:"" prefix:"ec2-"`
@@ -520,6 +521,11 @@ func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
 // GetS3Settings returns S3 settings (s3.ConfigProvider).
 func (c *CLI) GetS3Settings() s3backend.Settings {
 	return c.S3
+}
+
+// GetAzureBlobSettings returns Azure Blob settings (azureblob.ConfigProvider).
+func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
+	return c.AzureBlob
 }
 
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
