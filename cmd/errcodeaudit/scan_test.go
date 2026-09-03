@@ -46,12 +46,12 @@ func materializeServiceDir(t *testing.T, repoRoot, rev string) string {
 // must flag NONE of them at the fix commit itself.
 //
 // errors.go's ServiceDeploymentAlreadyStoppedException is deliberately
-// excluded from elevenCodes: c7817795 never touched it, and it is NOT a
-// real ecs SDK code either (ecs@v1.90.0 models
+// excluded from elevenCodes: it was never part of the originally-scoped
+// eleven, and it is NOT a real ecs SDK code either (ecs@v1.90.0 models
 // ServiceDeploymentNotFoundException, never an "AlreadyStopped" variant) --
-// a twelfth invented code the original hand sweep missed, which this tool
-// still confidently flags at the fix commit. See
-// TestScanServiceDir_ECSStillFlagsTwelfthCode below.
+// a twelfth invented code the original hand sweep missed. c7817795's much
+// broader sweep fixed this one too, as an incidental side effect. See
+// TestScanServiceDir_ECSTwelfthCodeAlsoFixed below.
 func TestScanServiceDir_ECSValidationBar(t *testing.T) {
 	t.Parallel()
 
@@ -143,17 +143,28 @@ func TestScanServiceDir_ECSValidationBar(t *testing.T) {
 	})
 }
 
-// TestScanServiceDir_ECSStillFlagsTwelfthCode documents a real finding this
+// TestScanServiceDir_ECSTwelfthCodeAlsoFixed documents a real finding this
 // tool made during calibration: services/ecs/errors.go's
-// ServiceDeploymentAlreadyStoppedException is a code c7817795 never
-// touched (it wasn't part of that commit's diff) and that names no real
-// ecs@v1.90.0 SDK type either -- confirmed by hand against
-// types/errors.go, which declares ServiceDeploymentNotFoundException, never
-// an "AlreadyStopped" variant. Fixing it is out of scope for this tool
-// (Part 3 of its brief is report-only), but the finding must keep
-// surfacing at the pinned fix commit so this regresses loudly if a future
-// ground-truth change ever silently swallows it.
-func TestScanServiceDir_ECSStillFlagsTwelfthCode(t *testing.T) {
+// ServiceDeploymentAlreadyStoppedException named no real ecs@v1.90.0 SDK
+// type (confirmed by hand against types/errors.go, which declares
+// ServiceDeploymentNotFoundException, never an "AlreadyStopped" variant) --
+// a twelfth invented code the original eleven-code hand sweep missed,
+// outside this tool's originally-scoped validation bar (see
+// TestScanServiceDir_ECSValidationBar).
+//
+// This test originally pinned that finding as still-confidently-flagged at
+// the fix commit, specifically so it would regress loudly if a future
+// ground-truth change ever silently swallowed the gap. That's exactly what
+// happened, just not silently: c7817795's much broader 222-bug sweep fixed
+// this code too as an incidental side effect (renamed to ConflictException,
+// the code ecs@v1.90.0's actual deserializer switch models for this
+// condition -- confirmed via git show), even though it was never part of
+// that commit's originally-scoped eleven. This test firing was the guard
+// rail working as designed, not a bug -- it's rewritten here to confirm the
+// fix stuck (mirroring TestScanServiceDir_ECSValidationBar's "post-fix
+// flags none of the eleven" pattern) rather than to keep asserting a gap
+// that no longer exists.
+func TestScanServiceDir_ECSTwelfthCodeAlsoFixed(t *testing.T) {
 	t.Parallel()
 
 	repoRoot, err := repoRootDir()
@@ -171,15 +182,14 @@ func TestScanServiceDir_ECSStillFlagsTwelfthCode(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, f := range findings {
-		if f.Code == "ServiceDeploymentAlreadyStoppedException" && f.Confident {
-			return
-		}
+		require.Falsef(
+			t,
+			f.Code == "ServiceDeploymentAlreadyStoppedException" && f.Confident,
+			"post-fix ecs must no longer confidently flag ServiceDeploymentAlreadyStoppedException"+
+				" (renamed to ConflictException by c7817795), but got: %+v",
+			f,
+		)
 	}
-
-	t.Fatalf(
-		"expected a confident finding for ServiceDeploymentAlreadyStoppedException, got: %+v",
-		findings,
-	)
 }
 
 // TestScanServiceDir_SkipsNoGroundTruth confirms ec2 -- whose OWN pinned
