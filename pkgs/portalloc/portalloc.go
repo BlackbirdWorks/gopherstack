@@ -84,6 +84,37 @@ func (a *Allocator) Release(port int) error {
 	return nil
 }
 
+// ErrPortAlreadyReserved is returned by Reserve when port is already marked
+// used (by a prior Reserve or Acquire call).
+var ErrPortAlreadyReserved = errors.New("port already reserved or allocated")
+
+// Reserve permanently marks port as unavailable in the pool, associating it
+// with label, without actually binding anything -- for services that bind a
+// fixed port of their own outside this allocator entirely (e.g. a
+// protocol-conventional default port), so Acquire never hands that same
+// port to a different caller and causes a surprise address-in-use failure
+// later. Intended to be called once at startup, before any Acquire calls.
+//
+// A port outside [start, end) is a no-op (nil, nil): Acquire never
+// considers it anyway, so there is nothing to protect. Returns
+// ErrPortAlreadyReserved if port is already marked used.
+func (a *Allocator) Reserve(port int, label string) error {
+	a.mu.Lock("Reserve")
+	defer a.mu.Unlock()
+
+	if port < a.start || port >= a.end {
+		return nil
+	}
+
+	if _, taken := a.used[port]; taken {
+		return fmt.Errorf("%w: %d", ErrPortAlreadyReserved, port)
+	}
+
+	a.used[port] = label
+
+	return nil
+}
+
 func (a *Allocator) advanceNext(port int) {
 	a.next = port + 1
 	if a.next >= a.end {

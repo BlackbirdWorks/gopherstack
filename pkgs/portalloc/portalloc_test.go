@@ -162,3 +162,82 @@ func TestConcurrentAcquire(t *testing.T) {
 		}
 	}
 }
+
+// TestReserve_InRangeBlocksAcquire is a regression test for the cross-service
+// port collision this method exists to prevent: a service that binds a fixed
+// port directly (outside this allocator) must be able to keep Acquire from
+// ever handing that same port number to something else.
+func TestReserve_InRangeBlocksAcquire(t *testing.T) {
+	t.Parallel()
+
+	a, err := portalloc.New(10000, 10003)
+	require.NoError(t, err)
+
+	require.NoError(t, a.Reserve(10000, "azureblob"))
+	assert.True(t, a.IsAllocated(10000))
+	assert.Equal(t, 2, a.Available())
+
+	p1, err := a.Acquire("svc-a")
+	require.NoError(t, err)
+	assert.Equal(t, 10001, p1, "Acquire must skip the reserved port")
+
+	p2, err := a.Acquire("svc-b")
+	require.NoError(t, err)
+	assert.Equal(t, 10002, p2)
+
+	_, err = a.Acquire("svc-c")
+	assert.ErrorIs(t, err, portalloc.ErrNoPortsAvailable, "reserved port must never be handed out")
+}
+
+func TestReserve_OutOfRangeIsNoop(t *testing.T) {
+	t.Parallel()
+
+	a, err := portalloc.New(10000, 10003)
+	require.NoError(t, err)
+
+	require.NoError(t, a.Reserve(1883, "iot-mqtt"))
+	assert.False(t, a.IsAllocated(1883), "a port outside the range is never tracked")
+	assert.Equal(t, 3, a.Available())
+}
+
+func TestReserve_AlreadyUsedErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, a *portalloc.Allocator)
+		wantErr error
+	}{
+		{
+			name: "already reserved",
+			setup: func(t *testing.T, a *portalloc.Allocator) {
+				t.Helper()
+				require.NoError(t, a.Reserve(10000, "first"))
+			},
+			wantErr: portalloc.ErrPortAlreadyReserved,
+		},
+		{
+			name: "already acquired",
+			setup: func(t *testing.T, a *portalloc.Allocator) {
+				t.Helper()
+				_, err := a.Acquire("svc-a")
+				require.NoError(t, err)
+			},
+			wantErr: portalloc.ErrPortAlreadyReserved,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := portalloc.New(10000, 10003)
+			require.NoError(t, err)
+
+			tt.setup(t, a)
+
+			err = a.Reserve(10000, "second")
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}

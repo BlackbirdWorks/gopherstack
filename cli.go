@@ -1852,6 +1852,35 @@ func setupPortAllocator(
 	return alloc
 }
 
+// reserveFixedServicePorts marks ports bound directly by services outside
+// the shared PortAlloc pool as unavailable within that pool, so Acquire
+// never hands the same port number to a different caller.
+//
+// AzureBlob's dedicated listener (services/azureblob) binds a fixed,
+// protocol-conventional default port (10000, matching Azurite's own Blob
+// service port) via a raw net.Listen call, not through PortAlloc -- and that
+// default sits squarely inside PortRangeStart/PortRangeEnd's own default
+// range (10000-10100). Without this reservation, PortAlloc has no way to
+// know AzureBlob already holds 10000 and could hand it to an unrelated
+// caller (e.g. an ElastiCache instance), which would only surface later as
+// a confusing address-in-use failure when that caller tries to actually
+// bind it. See AZURE.md section 4 for the full rationale.
+//
+// A failed reservation is logged, not fatal: AzureBlob's own StartWorker
+// bind is still synchronous and fails fast on a genuine conflict (see
+// handler.go), so the worst outcome here is losing this early-warning
+// cross-service protection, not an unrecoverable startup failure.
+func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *portalloc.Allocator, cli CLI) {
+	if alloc == nil {
+		return
+	}
+
+	if err := alloc.Reserve(cli.AzureBlob.Port, "azureblob"); err != nil {
+		log.WarnContext(ctx, "failed to reserve AzureBlob's fixed port in the shared pool",
+			"port", cli.AzureBlob.Port, "error", err)
+	}
+}
+
 // run starts the server with the given CLI configuration.
 // It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(ctx context.Context, cli CLI) error {
@@ -1876,6 +1905,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	// --- Port allocator ---
 	cli.portAlloc = setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
+	reserveFixedServicePorts(ctx, log, cli.portAlloc, cli)
 
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
