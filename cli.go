@@ -89,6 +89,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -3565,6 +3566,7 @@ func getNewestServiceProviders() []service.Provider {
 
 func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
+		&azureblobbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
