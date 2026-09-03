@@ -205,8 +205,8 @@ func TestReserve_AlreadyUsedErrors(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(t *testing.T, a *portalloc.Allocator)
 		wantErr error
+		setup   func(t *testing.T, a *portalloc.Allocator)
 	}{
 		{
 			name: "already reserved",

@@ -9,18 +9,18 @@ import (
 // by StorageBackend.ListContainers. It intentionally excludes the container's
 // blob map so callers cannot mutate backend state through it.
 type ContainerInfo struct {
-	Name      string
 	CreatedAt time.Time
+	Name      string
 }
 
 // BlobInfo is a read-only snapshot of a blob's metadata, returned by the
 // StorageBackend blob accessors. Like ContainerInfo, it carries no reference
 // to the backend's internal storage.
 type BlobInfo struct {
+	LastModified  time.Time
 	Name          string
 	ContentType   string
 	ETag          string
-	LastModified  time.Time
 	ContentLength int64
 }
 
@@ -29,11 +29,11 @@ type BlobInfo struct {
 // full object body written by a single Put Blob call, there is no
 // block-list/multipart state.
 type storedBlob struct {
+	LastModified time.Time
+	Data         []byte
 	Name         string
 	ContentType  string
 	ETag         string
-	Data         []byte
-	LastModified time.Time
 }
 
 func (b *storedBlob) info() BlobInfo {
@@ -48,8 +48,8 @@ func (b *storedBlob) info() BlobInfo {
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Name      string
 	CreatedAt time.Time
+	Name      string
 	Blobs     map[string]*storedBlob
 }
 
@@ -57,8 +57,14 @@ type storedContainer struct {
 //
 // These mirror the wire shape of Azure Storage's "EnumerationResults" and
 // "Error" bodies closely enough for azure-sdk-for-go (and Azurite-targeting
-// SDKs generally) to parse successfully. Field ordering matches the real
-// service's documented schema.
+// SDKs generally) to parse successfully. Field ordering generally matches
+// the real service's documented schema, except where govet's fieldalignment
+// check required reordering a smaller field (e.g. blobProperties'
+// ContentLength moved after ContentType/BlobType) after larger ones --
+// encoding/xml.Marshal does emit elements in struct field order, so this
+// does change the response's element order, but XML unmarshaling (by every
+// conformant client, including azure-sdk-for-go) matches by tag name, not
+// position, so this has no effect on parsing.
 
 // azureError is the standard Azure Storage REST error body.
 type azureError struct {
@@ -105,7 +111,7 @@ type blobEntry struct {
 type blobProperties struct {
 	LastModified  string `xml:"Last-Modified"`
 	Etag          string `xml:"Etag"`
-	ContentLength int64  `xml:"Content-Length"`
 	ContentType   string `xml:"Content-Type"`
 	BlobType      string `xml:"BlobType"`
+	ContentLength int64  `xml:"Content-Length"`
 }
