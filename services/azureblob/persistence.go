@@ -26,7 +26,7 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	if snap.Version != azureBlobSnapshotVersion {
@@ -68,9 +68,26 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Containers = make(map[string]*storedContainer)
 	}
 
-	for _, c := range snap.Containers {
+	for name, c := range snap.Containers {
+		// A JSON `null` value at "containers"[name] decodes to a nil
+		// *storedContainer without error; leaving it in place would panic
+		// the first time anything dereferences it (e.g. c.Blobs below, or
+		// storedBlob.info() for a null blob entry). Reject the whole
+		// snapshot rather than silently dropping or fabricating an entry.
+		if c == nil {
+			return fmt.Errorf("azureblob: restore snapshot: container %q is null", name)
+		}
+
 		if c.Blobs == nil {
 			c.Blobs = make(map[string]*storedBlob)
+
+			continue
+		}
+
+		for blobName, blob := range c.Blobs {
+			if blob == nil {
+				return fmt.Errorf("azureblob: restore snapshot: blob %q in container %q is null", blobName, name)
+			}
 		}
 	}
 

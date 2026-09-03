@@ -72,6 +72,49 @@ func TestRestore_IncompatibleVersionStartsEmpty(t *testing.T) {
 	}
 }
 
+// TestRestore_RejectsNullEntries is a regression test: a JSON `null` value
+// inside "containers" or a container's "Blobs" decodes to a nil pointer
+// without a JSON-unmarshal error, and previously nothing checked for that
+// before storing it -- the first thing to dereference it later
+// (storedContainer.Blobs, or storedBlob.info() for a null blob) would panic.
+// Restore must reject the whole snapshot instead.
+func TestRestore_RejectsNullEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "null_container",
+			data: []byte(`{"version":1,"containers":{"c1":null}}`),
+		},
+		{
+			name: "null_blob",
+			data: []byte(`{"version":1,"containers":{"c1":{"Name":"c1","Blobs":{"b1":null}}}}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+
+			b := azureblob.NewInMemoryBackend()
+			require.NoError(t, b.CreateContainer("preexisting"))
+
+			err := b.Restore(ctx, tt.data)
+			require.Error(t, err, tt.name)
+
+			// A rejected snapshot must not have partially mutated state.
+			containers := b.ListContainers()
+			require.Len(t, containers, 1, tt.name)
+			assert.Equal(t, "preexisting", containers[0].Name, tt.name)
+		})
+	}
+}
+
 func TestHandlerSnapshotRestore_Delegates(t *testing.T) {
 	t.Parallel()
 
