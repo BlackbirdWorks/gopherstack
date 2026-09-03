@@ -3,6 +3,7 @@ package quicksight
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -150,6 +151,7 @@ func (b *InMemoryBackend) ListUsers(
 			all = append(all, u)
 		}
 	}
+	sort.Slice(all, func(i, j int) bool { return all[i].UserName < all[j].UserName })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -157,6 +159,7 @@ func (b *InMemoryBackend) ListUsers(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, u := range all {
 			if u.UserName == nextToken {
 				start = i

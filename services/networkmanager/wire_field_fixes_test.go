@@ -169,3 +169,126 @@ func TestRouteAnalysis_OwnerAccountIDStartTimestampUseMiddleboxes(t *testing.T) 
 	assert.Equal(t, *started.RouteAnalysis.StartTimestamp, *final.RouteAnalysis.StartTimestamp)
 	assert.True(t, final.RouteAnalysis.UseMiddleboxes)
 }
+
+// TestEdgeLocation_DerivedFromReferencedArn proves VPC/Site-to-Site-VPN
+// attachments and Transit Gateway peerings populate the real, always-set
+// Attachment.EdgeLocation/Peering.EdgeLocation member by deriving it from
+// the region segment of the resource ARN the caller supplied (VpcArn/
+// VpnConnectionArn/TransitGatewayArn) -- none of the three real Create*Input
+// shapes accepts EdgeLocation as a caller parameter (confirmed against
+// api_op_CreateVpcAttachment.go/api_op_CreateSiteToSiteVpnAttachment.go/
+// api_op_CreateTransitGatewayPeering.go), so AWS itself derives it the same
+// way. Previously every one of these attachments/peerings carried a
+// permanently blank EdgeLocation, and ListAttachments/ListPeerings'
+// EdgeLocation filter could never match anything as a result -- this test
+// also proves that filter now works, with a non-matching record that must
+// stay excluded (gopherstack-6flj follow-up).
+func TestEdgeLocation_DerivedFromReferencedArn(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	cn := createTestCoreNetwork(t, client)
+
+	vpcAtt, err := client.CreateVpcAttachment(ctx, &networkmanagersdk.CreateVpcAttachmentInput{
+		CoreNetworkId: cn.CoreNetwork.CoreNetworkId,
+		VpcArn:        aws.String("arn:aws:ec2:us-east-1:000000000000:vpc/vpc-0123456789abcdef0"),
+		SubnetArns:    []string{"arn:aws:ec2:us-east-1:000000000000:subnet/subnet-aaa"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", aws.ToString(vpcAtt.VpcAttachment.Attachment.EdgeLocation))
+
+	otherRegionAtt, err := client.CreateSiteToSiteVpnAttachment(
+		ctx,
+		&networkmanagersdk.CreateSiteToSiteVpnAttachmentInput{
+			CoreNetworkId:    cn.CoreNetwork.CoreNetworkId,
+			VpnConnectionArn: aws.String("arn:aws:ec2:us-west-2:000000000000:vpn-connection/vpn-0123456789abcdef0"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "us-west-2", aws.ToString(otherRegionAtt.SiteToSiteVpnAttachment.Attachment.EdgeLocation))
+
+	fetched, err := client.GetVpcAttachment(ctx, &networkmanagersdk.GetVpcAttachmentInput{
+		AttachmentId: vpcAtt.VpcAttachment.Attachment.AttachmentId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", aws.ToString(fetched.VpcAttachment.Attachment.EdgeLocation))
+
+	listed, err := client.ListAttachments(ctx, &networkmanagersdk.ListAttachmentsInput{
+		CoreNetworkId: cn.CoreNetwork.CoreNetworkId,
+		EdgeLocation:  aws.String("us-east-1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Attachments, 1, "the us-west-2 attachment must be excluded by the EdgeLocation filter")
+	assert.Equal(
+		t,
+		aws.ToString(vpcAtt.VpcAttachment.Attachment.AttachmentId),
+		aws.ToString(listed.Attachments[0].AttachmentId),
+	)
+
+	peering, err := client.CreateTransitGatewayPeering(ctx, &networkmanagersdk.CreateTransitGatewayPeeringInput{
+		CoreNetworkId:     cn.CoreNetwork.CoreNetworkId,
+		TransitGatewayArn: aws.String("arn:aws:ec2:eu-west-1:000000000000:transit-gateway/tgw-0123456789abcdef0"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "eu-west-1", aws.ToString(peering.TransitGatewayPeering.Peering.EdgeLocation))
+
+	listedPeerings, err := client.ListPeerings(ctx, &networkmanagersdk.ListPeeringsInput{
+		CoreNetworkId: cn.CoreNetwork.CoreNetworkId,
+		EdgeLocation:  aws.String("eu-west-1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listedPeerings.Peerings, 1)
+	assert.Equal(t, "eu-west-1", aws.ToString(listedPeerings.Peerings[0].EdgeLocation))
+}
+
+// TestUpdateNetworkResourceMetadata_ReadableViaGetNetworkResources proves
+// UpdateNetworkResourceMetadata's stored metadata comes back through
+// GetNetworkResources's real NetworkResource.Metadata member (types.go's
+// NetworkResource struct declares it) -- previously
+// UpdateNetworkResourceMetadata wrote into its own resourceMetadata table
+// but GetNetworkResources's gatherers never read it back, so the wire field
+// that already existed on networkResourceWire was permanently empty
+// (gopherstack-6flj follow-up). A second device with no metadata set proves
+// the fix does not leak metadata across resources.
+func TestUpdateNetworkResourceMetadata_ReadableViaGetNetworkResources(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	gn, err := client.CreateGlobalNetwork(ctx, &networkmanagersdk.CreateGlobalNetworkInput{})
+	require.NoError(t, err)
+
+	deviceWithMetadata, err := client.CreateDevice(ctx, &networkmanagersdk.CreateDeviceInput{
+		GlobalNetworkId: gn.GlobalNetwork.GlobalNetworkId,
+	})
+	require.NoError(t, err)
+
+	deviceWithoutMetadata, err := client.CreateDevice(ctx, &networkmanagersdk.CreateDeviceInput{
+		GlobalNetworkId: gn.GlobalNetwork.GlobalNetworkId,
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateNetworkResourceMetadata(ctx, &networkmanagersdk.UpdateNetworkResourceMetadataInput{
+		GlobalNetworkId: gn.GlobalNetwork.GlobalNetworkId,
+		ResourceArn:     deviceWithMetadata.Device.DeviceArn,
+		Metadata:        map[string]string{"owner": "team-a"},
+	})
+	require.NoError(t, err)
+
+	resources, err := client.GetNetworkResources(ctx, &networkmanagersdk.GetNetworkResourcesInput{
+		GlobalNetworkId: gn.GlobalNetwork.GlobalNetworkId,
+	})
+	require.NoError(t, err)
+	require.Len(t, resources.NetworkResources, 2)
+
+	byArn := make(map[string]map[string]string, len(resources.NetworkResources))
+	for _, r := range resources.NetworkResources {
+		byArn[aws.ToString(r.ResourceArn)] = r.Metadata
+	}
+
+	assert.Equal(t, map[string]string{"owner": "team-a"}, byArn[aws.ToString(deviceWithMetadata.Device.DeviceArn)])
+	assert.Empty(t, byArn[aws.ToString(deviceWithoutMetadata.Device.DeviceArn)])
+}

@@ -338,6 +338,7 @@ type handleListOpenWorkflowExecutionsInput struct {
 	TagFilter       *tagFilterInput       `json:"tagFilter,omitempty"`
 	NextPageToken   string                `json:"nextPageToken,omitempty"`
 	MaximumPageSize int                   `json:"maximumPageSize,omitempty"`
+	ReverseOrder    bool                  `json:"reverseOrder,omitempty"`
 }
 
 // execStatusToAPIStatus converts an internal execution status to the AWS API status.
@@ -375,6 +376,7 @@ func (h *Handler) handleListOpenWorkflowExecutions(
 	in *handleListOpenWorkflowExecutionsInput,
 ) (*listWorkflowExecutionsOutput, error) {
 	f := buildExecutionFilter(in.ExecutionFilter, in.TypeFilter, in.TagFilter, nil, in.StartTimeFilter, nil)
+	f.ReverseOrder = in.ReverseOrder
 	execs := h.Backend.ListOpenWorkflowExecutions(in.Domain, f)
 	infos := make([]executionInfoOutput, len(execs))
 	for i, e := range execs {
@@ -397,6 +399,7 @@ type handleListClosedWorkflowExecutionsInput struct {
 	CloseStatusFilter *closeStatusFilterInput `json:"closeStatusFilter,omitempty"`
 	NextPageToken     string                  `json:"nextPageToken,omitempty"`
 	MaximumPageSize   int                     `json:"maximumPageSize,omitempty"`
+	ReverseOrder      bool                    `json:"reverseOrder,omitempty"`
 }
 
 func (h *Handler) handleListClosedWorkflowExecutions(
@@ -411,6 +414,7 @@ func (h *Handler) handleListClosedWorkflowExecutions(
 		in.StartTimeFilter,
 		in.CloseTimeFilter,
 	)
+	f.ReverseOrder = in.ReverseOrder
 	execs := h.Backend.ListClosedWorkflowExecutions(in.Domain, f)
 	infos := make([]executionInfoOutput, len(execs))
 	for i, e := range execs {

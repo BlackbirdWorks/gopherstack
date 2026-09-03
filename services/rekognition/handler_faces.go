@@ -98,9 +98,11 @@ func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*de
 }
 
 type listFacesReq struct {
-	CollectionID string `json:"CollectionId"`
-	NextToken    string `json:"NextToken"`
-	MaxResults   int32  `json:"MaxResults"`
+	CollectionID string   `json:"CollectionId"`
+	NextToken    string   `json:"NextToken"`
+	UserID       string   `json:"UserId"`
+	FaceIDs      []string `json:"FaceIds"`
+	MaxResults   int32    `json:"MaxResults"`
 }
 
 type faceEntry struct {
@@ -121,7 +123,9 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	faces, nextToken, err := h.Backend.ListFaces(req.CollectionID, req.MaxResults, req.NextToken)
+	faces, nextToken, err := h.Backend.ListFaces(
+		req.CollectionID, req.FaceIDs, req.UserID, req.MaxResults, req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -276,13 +280,45 @@ type compareFacesResp struct {
 	} `json:"SourceImageFace"`
 }
 
-func (h *Handler) handleCompareFaces(_ context.Context, _ *compareFacesReq) (*compareFacesResp, error) {
+// compareFacesDefaultThreshold mirrors CompareFacesInput.SimilarityThreshold's
+// documented default (api_op_CompareFaces.go: "By default, only faces with a
+// similarity score of greater than or equal to 80% are returned").
+const compareFacesDefaultThreshold = 80.0
+
+// compareFacesIdenticalSimilarity/compareFacesDistinctSimilarity are this
+// stateless mock's synthetic similarity scores: identical image references
+// score a perfect match, distinct ones a plausible but lower score, so
+// SimilarityThreshold has an observable effect instead of being ignored.
+const (
+	compareFacesIdenticalSimilarity = 100.0
+	compareFacesDistinctSimilarity  = 92.0
+)
+
+func (h *Handler) handleCompareFaces(_ context.Context, req *compareFacesReq) (*compareFacesResp, error) {
 	resp := &compareFacesResp{}
 	resp.SourceImageFace.Confidence = 99.9
 	resp.SourceImageFace.BoundingBox.Height = 0.5
 	resp.SourceImageFace.BoundingBox.Width = 0.3
 	resp.FaceMatches = []faceMatchResult{}
 	resp.UnmatchedFaces = []struct{}{}
+
+	threshold := req.SimilarityThreshold
+	if threshold <= 0 {
+		threshold = compareFacesDefaultThreshold
+	}
+
+	similarity := compareFacesDistinctSimilarity
+	if imageRefKey(req.SourceImage) == imageRefKey(req.TargetImage) {
+		similarity = compareFacesIdenticalSimilarity
+	}
+
+	if similarity >= threshold {
+		match := faceMatchResult{Similarity: similarity}
+		match.Face.Confidence = 99.9
+		match.Face.BoundingBox.Height = 0.5
+		match.Face.BoundingBox.Width = 0.3
+		resp.FaceMatches = append(resp.FaceMatches, match)
+	}
 
 	return resp, nil
 }

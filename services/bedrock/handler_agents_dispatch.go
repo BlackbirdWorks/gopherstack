@@ -1176,7 +1176,6 @@ const (
 	// responses; a resource's own id is always the flat "id" key (keyID).
 	keyFlowID         = "flowId"
 	keyID             = "id"
-	keyPromptID       = "promptId"
 	keyCollaboratorID = "collaboratorId"
 	keyVersion        = "version"
 	keyDefinitionHash = "definitionHash"

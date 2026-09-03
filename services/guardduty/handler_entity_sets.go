@@ -7,7 +7,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
-func (h *Handler) dispatchEntitySetOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchEntitySetOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateThreatEntitySet:
 		detectorID := extractID(path, pathDetector)
@@ -23,7 +23,7 @@ func (h *Handler) dispatchEntitySetOps(op, path string, body []byte) (any, int, 
 
 	case opListThreatEntitySets:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListThreatEntitySets(detectorID)
+		result, code, err := h.handleListThreatEntitySets(detectorID, query)
 
 		return result, code, true, err
 
@@ -53,7 +53,7 @@ func (h *Handler) dispatchEntitySetOps(op, path string, body []byte) (any, int, 
 
 	case opListTrustedEntitySets:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListTrustedEntitySets(detectorID)
+		result, code, err := h.handleListTrustedEntitySets(detectorID, query)
 
 		return result, code, true, err
 
@@ -137,13 +137,20 @@ func (h *Handler) handleGetThreatEntitySet(detectorID, setID string) (any, int, 
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleListThreatEntitySets(detectorID string) (any, int, error) {
-	ids, err := h.Backend.ListThreatEntitySets(detectorID)
+func (h *Handler) handleListThreatEntitySets(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	ids, next, err := h.Backend.ListThreatEntitySets(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"threatEntitySetIds": ids}, http.StatusOK, nil
+	resp := map[string]any{"threatEntitySetIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateThreatEntitySet(detectorID, setID string, body []byte) (int, error) {
@@ -237,13 +244,20 @@ func (h *Handler) handleGetTrustedEntitySet(detectorID, setID string) (any, int,
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleListTrustedEntitySets(detectorID string) (any, int, error) {
-	ids, err := h.Backend.ListTrustedEntitySets(detectorID)
+func (h *Handler) handleListTrustedEntitySets(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	ids, next, err := h.Backend.ListTrustedEntitySets(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"trustedEntitySetIds": ids}, http.StatusOK, nil
+	resp := map[string]any{"trustedEntitySetIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateTrustedEntitySet(detectorID, setID string, body []byte) (int, error) {

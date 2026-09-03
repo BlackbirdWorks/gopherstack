@@ -51,6 +51,64 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
 last_audit_commit: ee8d5788f
 last_audit_date: 2026-08-21
+# 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
+# NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
+# whose Input/Output declare NextToken. 22 already correct via the shared pkgs/page.New chokepoint
+# (page.go + listNMJobs helper). 6 correctly left unpopulated: ListExportErrors,
+# ListNetworkMigrationAnalysisResults, ListNetworkMigrationCodeGenerationSegments,
+# ListNetworkMigrationDeployedStacks, ListNetworkMigrationMapperSegmentConstructs,
+# ListNetworkMigrationMapperSegments -- each documented in-code as provably always-empty (no op in
+# this SDK's surface can ever populate them; see networkmigrationjobs.go/networkmigration.go doc
+# comments). 1 genuine bug found and fixed: ListManagedAccounts (see its ops: entry) -- the one op
+# in the family that bypassed the shared pagination pattern.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). This service has
+# NO explicit sort.Slice/slices.Sort* call in any listing -- every paginated op
+# builds its page via the shared pkgs/page.New chokepoint over
+# store.Table.Snapshot() (or a filtered clone of it), never store.Table.All().
+# Table.Snapshot() (pkgs/store/table.go) returns items ordered by the table's
+# own keyFn, ascending -- and every mgn table is keyed by that resource's real
+# unique ID (SourceServerID/ApplicationID/WaveID/ConnectorID/JobID/...), so the
+# base order is already total by construction; page.New itself only offset-
+# slices a slice its own doc comment requires to already be "fully sorted", it
+# does not sort. Confirmed no listing response in this service carries two-or-
+# more collections the API defines as one ordered sequence (each op returns
+# exactly one paginated array). No bugs found or fixed this pass; 0 code
+# changes for Class F/G.
+# 2026-08-31 value-semantics sweep (gopherstack-uox6): audited every filter-typed
+# field across all 30 List*/Describe* input structs (~40 filter fields by this
+# pass's own count, including AccountID/ID-list scoping members). covledger
+# reported no filter_default_semantics row for this service; git log/PARITY.md
+# confirmed no prior audit on this specific axis (the 08-29 "unhonoured list
+# constraints" pass, 43eab7be5, is the sibling request_field_never_read class --
+# it fixed ActionIDs/JobIDs filters that were parsed but never wired to the
+# backend at all; this pass checked the ones that WERE wired for correctness).
+# ONE BUG FOUND AND FIXED: DescribeJobs' Filters.FromDate/ToDate were decoded
+# off the wire (describeJobsFiltersWire has both fields) but the handler only
+# ever read Filters.JobIDs -- FromDate/ToDate were silently dropped. The
+# pre-fix doc comment on DescribeJobsFilters claimed this was deliberate
+# ("not implemented... not exercised by round-trip tests"), which was untrue:
+# Job.CreationDateTime is real, comparable backing data (nowRFC3339, a single
+# fixed-width UTC RFC3339 format every Job write uses). Fixed: both bounds
+# now applied as inclusive lexicographic comparisons against CreationDateTime
+# (jobs.go's matchesJobFilter); no field-name qualifier like "Exclusive"
+# exists to suggest otherwise. Every other filter surface checked clean: all
+# ID-list filters (ApplicationIDs/WaveIDs/ConnectorIDs/ExportIDs/ImportIDs/
+# JobIDs/SegmentIDs/ActionIDs/etc.) match their own op's serializer key and
+# empty-means-unfiltered; every enum-typed filter (ReplicationTypes,
+# LifeCycleStates, NetworkMigrationExecutionStatuses) compares against the
+# same enum its own doc comment names, verified constant-by-constant against
+# the pinned SDK; every MaxResults doc comment across all 30 ops states no
+# specific number, so the uniform defaultPageLimit=100 violates nothing; no
+# switch-over-filter-name shape exists anywhere in this service's filter
+# surface (all matching is containsStr/pointer-equality, not a switch). No
+# second bug found downstream of the DescribeJobs fix (JobIDs filtering was
+# already correct, so nothing was previously unreachable). Proven via
+# list_filter_params_test.go's new TestDescribeJobs_DateRangeFilterHonoured
+# (5 subtests: unfiltered, exact-boundary-both-inclusive, fromDate-excludes,
+# toDate-excludes, in-range-includes), confirmed to fail against unmodified
+# code on the two exclusion subtests before the fix landed. Assertion count
+# in that file: 15 -> 20 require/assert calls, all additions, 0 drops.
 overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration suite this A-/B distinction
 # hinges on now exists and passes under Docker, and every buildable gap this pass found (5 items,
 # enumerated in the comment block above) is closed. What remains in gaps:/structural_gaps: below is
@@ -78,16 +136,16 @@ ops:
   RetryDataReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   TerminateTargetInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover"}
   # jobs (3)
-  DescribeJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (value-semantics sweep, gopherstack-uox6): Filters.FromDate/ToDate were decoded off the wire but never applied -- a source comment claimed this was deliberate ('not exercised by round-trip tests'), but Job.CreationDateTime (nowRFC3339, fixed-width UTC) is real, comparable, backing data. Now both-inclusive lexicographic bounds against CreationDateTime; JobIDs filtering was already correct."}
   DescribeJobLogItems: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok}
   # launch_configuration (6)
   GetLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape backed by an internal LaunchConfiguration type this package invented -- no named SDK struct exists for it (models.go)"}
   UpdateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateLaunchConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): Ec2LaunchTemplateID was accepted from the request body, but it is Output-only on the real Input (api_op_CreateLaunchConfigurationTemplate.go:104) -- no real client can ever send it. Removed from the wire request and the backend Input struct rather than derived: this backend has no imageID to hand a companion EC2 launch template at template-creation time (unlike LaunchConfiguration.Ec2LaunchTemplateID, which real UpdateLaunchConfigurationInput does accept -- a distinct, per-source-server field), so deriving one would mean fabricating it. Stays permanently empty on Output, same honesty bar as ImportErrorData's Ec2LaunchTemplateID."}
   DeleteLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLaunchConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): same Ec2LaunchTemplateID removal as CreateLaunchConfigurationTemplate (api_op_UpdateLaunchConfigurationTemplate.go:106 is Output-only too)."}
   # replication_configuration (6)
   GetReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape, same invented-internal-type pattern as GetLaunchConfiguration"}
   UpdateReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -136,14 +194,14 @@ ops:
   # repo has no SSM execution engine, and real AWS's own public API for this family is likewise
   # metadata-only (execution happens as part of a launch, outside this API surface).
   PutSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListSourceServerActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSourceServerActions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): Filters.ActionIDs was decoded from the wire but never passed to the backend -- every source server's full action list came back regardless of the filter."}
   RemoveSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTemplateActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTemplateActions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.ActionIDs-dropped bug as ListSourceServerActions."}
   RemoveTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
   # service_init (2)
   InitializeService: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListManagedAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: now resolves real AWS Organizations member accounts (resolveManagedAccountsLocked, cross_service.go) when this account is the org's management account or a registered delegated administrator for mgnServicePrincipal (\"mgn.amazonaws.com\" -- an unconfirmed but conventionally-derived value, same evidentiary standard this file already applies to ARN resource-path segments), falling back to just the caller's own account otherwise. Verified against a real Organizations backend in test/integration/mgn_test.go's TestIntegration_MGN_ListManagedAccounts."}
+  ListManagedAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: now resolves real AWS Organizations member accounts (resolveManagedAccountsLocked, cross_service.go) when this account is the org's management account or a registered delegated administrator for mgnServicePrincipal (\"mgn.amazonaws.com\" -- an unconfirmed but conventionally-derived value, same evidentiary standard this file already applies to ARN resource-path segments), falling back to just the caller's own account otherwise. Verified against a real Organizations backend in test/integration/mgn_test.go's TestIntegration_MGN_ListManagedAccounts. FIXED (2026-08-30, cursor sweep) -- ListManagedAccountsOutput.NextToken (api_op_ListManagedAccounts.go) was never populated: handleListManagedAccounts ignored req.NextToken/MaxResults entirely and returned the full member-account list unpaginated every call, silently truncating nothing only because no caller-controllable path could exceed one page before this fix, but a real org with many delegated/managed accounts could. Backend now returns page.Page[ManagedAccount] via pkgs/page, same chokepoint every other List/Describe op in this service already used. Proven via TestListManagedAccounts_Pagination (services/mgn/cross_service_test.go), a real Organizations backend wired through SetAppConfig with 3 accounts, MaxResults=2 + hand-revert (confirmed 3-of-3 returned on one page, no NextToken, pre-fix)."}
   # tagging (3)
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -158,19 +216,19 @@ ops:
   ListNetworkMigrationMapperSegmentConstructs: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list after validating the (definition, execution) scope exists (networkmigration.go:254-277)"}
   ListNetworkMigrationMapperSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list, same reason as ListNetworkMigrationMapperSegmentConstructs (networkmigration.go:278-287)"}
   UpdateNetworkMigrationMapperSegment: {wire: ok, errors: ok, state: partial, persist: ok, note: "always 404s -- no segment ever exists to update (networkmigration.go:288-297)"}
-  ListNetworkMigrationMappings: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationMappingUpdates: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationMappings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): Filters.JobIDs -- the shared listNMScopedRequest wire struct did not even carry a filters field, so it was silently dropped regardless of what a real client sent."}
+  ListNetworkMigrationMappingUpdates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   StartNetworkMigrationMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "auto-vivifies a NetworkMigrationExecution on first reference to an unseen (DefinitionID, ExecutionID) pair, since no op in this SDK surface creates one explicitly (resolveOrCreateExecutionLocked, networkmigrationjobs.go:74-118) -- a documented, deliberate convention, not independently confirmed against real AWS behavior"}
   StartNetworkMigrationMappingUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same auto-vivification convention as StartNetworkMigrationMapping"}
   # network_migration_analysis_deploy (10)
   StartNetworkMigrationAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real PENDING->STARTED->SUCCEEDED job bookkeeping (networkmigrationjobs.go); same auto-vivification convention"}
-  ListNetworkMigrationAnalyses: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationAnalyses: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationAnalysisResults: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty Items list even after the parent job SUCCEEDS (networkmigrationjobs.go:207-211) -- no real network-analysis engine exists to produce findings"}
   StartNetworkMigrationCodeGeneration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationCodeGenerations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationCodeGenerations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationCodeGenerationSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items, same reason as ListNetworkMigrationAnalysisResults (networkmigrationjobs.go:230-234) -- no code-generation engine exists"}
   StartNetworkMigrationDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationDeployments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationDeployedStacks: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items -- no real CloudFormation-equivalent deployment engine exists (networkmigrationjobs.go:250-257)"}
   ListNetworkMigrationExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
@@ -1381,3 +1439,152 @@ the directconnect/outposts pattern, but that claim is about AWS's product, not t
    indirect corroboration (botocore's endpoint metadata); every specific resource-path segment is
    this audit's best-effort guess from convention, not a confirmed value, and should be verified
    independently before an implementer hardcodes it.
+
+## gopherstack-21my per-item typed round-trip pass (2026-08-31)
+
+mgn was one of the eighteen services in gopherstack-21my marked "clean at
+wrapper level, never swept per-item." Per that issue's own finding (rds's
+DescribeDBInstances read clean by hand the session before a real bug was
+found underneath it), this pass writes typed round-trip tests instead of
+reading `deserializers.go` by eye, on top of this service's already
+extensive `sdk_roundtrip_test.go` suite (16 top-level tests).
+
+**Covered, new this pass** (`sdk_roundtrip_nested_test.go`):
+- `DescribeSourceServers` -- `DataReplicationInfo.ReplicatedDisks[]` and
+  `DataReplicationInfo.DataReplicationInitiation.Steps[]`, two nested lists
+  inside each item that no prior test asserted on (the existing suite only
+  checked `SourceProperties.IdentificationHints.Hostname`). Seeded two
+  source servers via a real two-row `StartImport` CSV, waited for both to
+  reach `DataReplicationState` `CONTINUOUS` via this backend's own
+  deterministic replication timer, and asserted every field of the
+  replicated disk and all 12 initiation steps via the real SDK client.
+  `TestSDKRoundTrip_ReplicationNestedLists`. **Result: clean** -- matches
+  `backloggedStorageBytes`/`deviceName`/`replicatedStorageBytes`/
+  `rescannedStorageBytes`/`totalStorageBytes`/`name`/`status` confirmed
+  against `awsRestjson1_deserializeDocumentDataReplicationInfoReplicatedDisk`/
+  `...DataReplicationInitiationStep` (`mgn@v1.48.4` deserializers.go) before
+  writing the test.
+- `DescribeJobs` -- `Job.ParticipatingServers[]`, asserted with two
+  distinguishable participants (real `StartTest` against two seeded source
+  servers) rather than the existing suite's single-participant checks.
+  `TestSDKRoundTrip_JobParticipatingServers`. **Result: clean.**
+
+**Not covered this pass**: `Cpus`/`Disks`/`NetworkInterfaces`/`RAMBytes`/
+`RecommendedInstanceType`/`Os` on `SourceProperties` -- confirmed a genuine
+gap, not a bug: `parseSourceServerRow` (s3import.go) is the only public path
+that ever creates a `SourceServer`, and it only ever populates
+`IdentificationHints` from the CSV row; there is no public op (real AWS's
+own agent-registration API is not exposed by this SDK either) that could set
+these fields, so no legal input can exercise their decode path. Recorded
+per this issue's "no legal input could change the outcome" restraint rule --
+not fabricated.
+
+`DescribeVcenterClients`/`DescribeReplicationConfigurationTemplates`/
+`DescribeLaunchConfigurationTemplates`/`ListConnectors`/network-migration
+list ops already have real-client coverage from the pre-existing
+`sdk_roundtrip_test.go` suite (`TestRoundTrip_Connectors`,
+`TestRoundTrip_VcenterClients`, `TestRoundTrip_ConfigTemplates`,
+`TestRoundTrip_NetworkMigrationDefinitions`,
+`TestRoundTrip_NetworkMigrationAnalysisAndDeployment`) but were not
+re-verified against the pinned SDK source in this pass; scalar/flat fields
+only in those shapes (no un-asserted nested lists identified).
+
+**Test-file exposure**: of 11 `*_test.go` files in this service, 8 drive a
+real typed `aws-sdk-go-v2` client (`newRoundTripClient`/`NewFromConfig`) --
+this service is already unusually well-instrumented compared to the
+~15-20% typical elsewhere in this campaign.
+
+Gates: `go build ./services/mgn/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/mgn/...` (pass), `golangci-lint run
+./services/mgn/...` (0 issues).
+
+## 2026-08-31 correction: round-trip tests proven failable (gopherstack-21my)
+
+The commit that added `sdk_roundtrip_nested_test.go` (`9c4a92608`) carried a
+caveat saying the tests had never been observed to fail, and that a perturbation
+of `DataReplicationInfoReplicatedDisk.DeviceName` in `models.go` had not broken
+one. Both halves of that caveat were wrong in ways worth recording.
+
+The perturbation was inert because `models.go` types are never marshalled to the
+wire. Every response converts them to a tagged type in `wire.go` first, and only
+those tags reach a client. The json tags that do appear on `models.go` types in
+other services belong to on-disk snapshot persistence, not the AWS protocol.
+
+All four round-trip tests are now proven failable against the struct that
+actually reaches the wire, each by breaking one wire tag, observing the decoded
+value come back empty, and restoring.
+
+The caveat also claimed the SDK decoder matches keys case-insensitively, which
+would have hidden naming mistakes. That is false for this service. smithy-go's
+JSON decoder does no case folding at all, so a casing mismatch here is a hard
+bug rather than something tolerated. It is true only of the XML decoder, which
+does fold - so REST-XML services would silently tolerate a case-only element
+mismatch, and a test passing there is weaker evidence than the same test passing
+on a JSON protocol.
+
+## 2026-09-01 wrapper-key sweep (gopherstack-6flj)
+
+Full sweep of all 30 `Describe*`/`List*` collection ops (mgn@v1.48.4 pinned
+SDK; count derived from `$GOMODCACHE`, not grepped from this repo's own
+source). Protocol is `awsRestjson1` throughout, confirmed by
+`addOperationXMiddlewares` on every op -- no `restxml` single-payload
+shortcut applies here; every top-level key is checked strictly by
+`deserializeOpDocument<Op>Output`, case-sensitive, no fold.
+
+**Layer 1 (top-level wrapper key): clean, 30/30.** mgn follows one uniform
+convention -- generic `items`/`nextToken` on every list op except
+`ListTagsForResource` (`tags`, a map). Handler struct tags in `wire.go`
+match byte-exact on all 30.
+
+**Layer 2 (per-item field completeness): 21 item/nested types checked
+field-by-field against their real SDK struct
+(`SourceServer`, `Job`, `Wave`, `Application`,
+`LaunchConfigurationTemplate`, `ReplicationConfigurationTemplate`, `JobLog`,
+`ImportTaskError`, `ManagedAccount`, `SourceServerActionDocument`,
+`TemplateActionDocument`, `VcenterClient`, `Connector`, `ExportTask`,
+`ImportTask`, `ImportFileEnrichment`,
+`NetworkMigrationDefinitionSummary`, `NetworkMigrationMappingJobDetails`,
+`NetworkMigrationMappingUpdateJobDetails`, `ParticipatingServer`, and the
+shared `NetworkMigrationAnalysisJobDetails`/`NetworkMigrationDeployerJobDetails`
+pair backing `networkMigrationJobDetailsWire`).
+
+**One bug found and fixed.** `NetworkMigrationCodeGenerationJobDetails` is
+the one exception to the "all five NM job-details types are identical"
+claim this file's own doc comment made (`networkmigrationjobs.go`, now
+corrected) -- it alone also carries
+`CodeGenerationOutputFormatStatusDetailsMap`, keyed by the format types the
+caller requested on `StartNetworkMigrationCodeGeneration`
+(`CodeGenerationOutputFormatTypes`, `serializers.go:6983`). gopherstack
+never read that request field and the shared
+`networkMigrationJobDetailsWire`/`NetworkMigrationJob` never carried it, so
+`ListNetworkMigrationCodeGenerations` could never populate the map --
+silently missing, not wrong-keyed. Fixed: `NetworkMigrationJob` now tracks
+`CodeGenerationOutputFormatTypes`; `ListNetworkMigrationCodeGenerations`
+surfaces one map entry per requested format once the job reaches
+SUCCEEDED/FAILED, its `Status` mirroring the job's own (this backend never
+partially fails one format). `StatusDetailList` stays empty -- no per-format
+detail text exists to report, matching this service's existing restraint on
+not fabricating codegen content. Proven via
+`TestRoundTrip_NetworkMigrationCodeGenerationOutputFormatStatus`
+(`sdk_roundtrip_test.go`), confirmed failing (empty map) against the
+unmodified handler/backend/wire before the fix.
+
+**Also checked and confirmed NOT a bug (restraint, not a gap):**
+`ParticipatingServer.PostLaunchActionsStatus` (nullable, per-instance
+post-launch-action execution status) is genuinely unmodeled -- this backend
+tracks configured `PostLaunchActions` (what to run) but never simulates
+running them, so it has no real status to report; omitting the optional
+field is honest, not a silent-empty-list bug. `ListNetworkMigrationAnalysisResults`/
+`CodeGenerationSegments`/`DeployedStacks`/`MapperSegmentConstructs`/
+`MapperSegments` staying permanently empty is the same documented,
+deliberate limitation this file already records (no topology/codegen/deploy
+engine exists) -- re-verified rather than trusted on the existing comment,
+and it held.
+
+Gates: `go build ./...`, `go vet ./services/mgn/...`, `go test -race
+-count=1 ./services/mgn/...` (pass, includes the new test),
+`golangci-lint run ./services/mgn/...` (0 issues after adding one `//nolint:lll`
+on the new map field's struct tag -- long field/type name, not a suppressed
+bug), `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard`
+(additive-only field on `NetworkMigrationJob`, no version bump required;
+golden refreshed with `-update` and re-run clean).

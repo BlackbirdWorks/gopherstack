@@ -212,6 +212,9 @@ func TestTrigger_UpdateTrigger(t *testing.T) {
 	}
 }
 
+// DeleteTrigger on an unknown Name is documented as a no-op, not an error
+// (api_op_DeleteTrigger.go: "If the trigger is not found, no exception is
+// thrown").
 func TestTrigger_DeleteTrigger(t *testing.T) {
 	t.Parallel()
 
@@ -221,7 +224,7 @@ func TestTrigger_DeleteTrigger(t *testing.T) {
 		wantCode int
 	}{
 		{name: "success", trigName: "del-trigger", wantCode: http.StatusOK},
-		{name: "not-found", trigName: "no-trigger", wantCode: http.StatusBadRequest},
+		{name: "not-found", trigName: "no-trigger", wantCode: http.StatusOK},
 	}
 
 	for _, tt := range tests {

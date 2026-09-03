@@ -88,6 +88,24 @@ func TestServerlessNamespaceIndex_Pagination(t *testing.T) {
 	assert.True(t, sort.StringsAreSorted(all), "paged results not globally sorted")
 }
 
+// TestServerlessNamespaceIndex_NegativeToken reproduces a nextToken decoding
+// to a negative offset. ListNamespaces parses nextToken with a bare
+// strconv.Atoi and no `< 0` guard, and its `startIdx >= len(list)` check does
+// not catch a negative offset, so list[startIdx:end] previously panicked
+// with a negative slice bound.
+func TestServerlessNamespaceIndex_NegativeToken(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	createTestNamespace(t, b, "ns-0")
+
+	require.NotPanics(t, func() {
+		page, next := b.ListNamespaces(10, "-5")
+		assert.Len(t, page, 1, "a negative-offset token must be treated like offset=0")
+		assert.Empty(t, next)
+	})
+}
+
 // TestServerlessIndex_ResetAndReset verifies Reset clears every serverless index.
 func TestServerlessIndex_Reset(t *testing.T) {
 	t.Parallel()

@@ -1142,6 +1142,8 @@ func TestWebACL_Update_ClearsOldRules(t *testing.T) {
 	// Update with empty rules — should clear all rules.
 	updateRec := doWafv2Request(t, h, "UpdateWebACL", map[string]any{
 		"Id":            id,
+		"Name":          "acl-rule-clear",
+		"Scope":         "REGIONAL",
 		"LockToken":     lock,
 		"DefaultAction": map[string]any{"Block": map[string]any{}},
 		"Rules":         []map[string]any{},
@@ -1233,7 +1235,7 @@ func TestHandler_DeleteWebACL_CascadeLogging(t *testing.T) {
 	webACL := webACLs[0].(map[string]any)
 	webACLID := webACL["Id"].(string)
 
-	rec = doWafv2Request(t, h, "DeleteWebACL", map[string]any{"Id": webACLID})
+	rec = doWafv2Request(t, h, "DeleteWebACL", map[string]any{"Id": webACLID, "Name": "test-acl", "Scope": "REGIONAL"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// The logging config should be gone.
@@ -1258,6 +1260,7 @@ func TestDeleteWebACL_FailsWhenAssociated(t *testing.T) {
 	// Attempt delete while associated — should fail with WAFAssociatedItemException.
 	rec = doWafv2Request(t, h, "DeleteWebACL", map[string]any{
 		"Id":    id,
+		"Name":  "protected-acl",
 		"Scope": "REGIONAL",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1272,6 +1275,7 @@ func TestDeleteWebACL_FailsWhenAssociated(t *testing.T) {
 
 	rec = doWafv2Request(t, h, "DeleteWebACL", map[string]any{
 		"Id":    id,
+		"Name":  "protected-acl",
 		"Scope": "REGIONAL",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code, "delete after disassociation should succeed: %s", rec.Body.String())
@@ -1327,6 +1331,8 @@ func TestLockToken_RotatesOnUpdate(t *testing.T) {
 
 	rec := doWafv2Request(t, h, "UpdateWebACL", map[string]any{
 		"Id":          id,
+		"Name":        "lock-rotation",
+		"Scope":       "REGIONAL",
 		"LockToken":   token1,
 		"Description": "updated",
 	})

@@ -339,19 +339,22 @@ func TestDeploymentConfigs_DefaultsCannotDelete(t *testing.T) {
 	rec := doRequest(t, h, "DeleteDeploymentConfig", map[string]any{
 		"deploymentConfigName": "CodeDeployDefault.AllAtOnce",
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "DeploymentConfigInUseException", resp["__type"])
+	// DeleteDeploymentConfig's own deserializer models InvalidOperationException
+	// for this case, not DeploymentConfigInUseException (verified against
+	// aws-sdk-go-v2/service/codedeploy deserializers.go).
+	assert.Equal(t, "InvalidOperationException", resp["__type"])
 }
 
-func TestDeploymentConfigs_ErrValidationMapping(t *testing.T) {
+func TestDeploymentConfigs_ErrInvalidComputePlatformMapping(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Invalid compute platform triggers ErrValidation → 400
+	// Invalid compute platform triggers ErrInvalidComputePlatform → 400
 	rec := doRequest(t, h, "CreateDeploymentConfig", map[string]any{
 		"deploymentConfigName": "bad-cfg",
 		"computePlatform":      "InvalidPlatform",
@@ -361,7 +364,7 @@ func TestDeploymentConfigs_ErrValidationMapping(t *testing.T) {
 
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "InvalidParameterValueException", resp["__type"])
+	assert.Equal(t, "InvalidComputePlatformException", resp["__type"])
 }
 
 func TestDeploymentConfigs_ARN(t *testing.T) {

@@ -228,6 +228,73 @@ func TestGetAnomalies_DateIntervalFilters(t *testing.T) {
 	assert.Equal(t, "recent-anomaly", out.Anomalies[0].AnomalyID)
 }
 
+// TestGetAnomalies_DateIntervalMatchesOnAnomalyEndDateOnly verifies GetAnomaliesInput's
+// own doc comment: "The returned anomaly object will have an AnomalyEndDate in the
+// specified time range" -- the filter is defined purely against AnomalyEndDate, not
+// against AnomalyStartDate at all. An anomaly that started inside the window but whose
+// AnomalyEndDate falls outside it must be excluded, and the inclusive upper boundary
+// (AnomalyEndDate == EndDate) must still match.
+func TestGetAnomalies_DateIntervalMatchesOnAnomalyEndDateOnly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		anomaly ce.Anomaly
+		want    bool
+	}{
+		{
+			name: "started in window but end date past window is excluded",
+			anomaly: ce.Anomaly{
+				AnomalyID:        "straddling-anomaly",
+				AnomalyStartDate: "2024-04-01",
+				AnomalyEndDate:   "2024-08-01",
+			},
+			want: false,
+		},
+		{
+			name: "end date exactly on the upper boundary is included",
+			anomaly: ce.Anomaly{
+				AnomalyID:        "boundary-anomaly",
+				AnomalyStartDate: "2024-04-01",
+				AnomalyEndDate:   "2024-07-01",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.anomaly.MonitorARN = "arn:aws:ce::000:anomalymonitor/test"
+			h.Backend.AddAnomaly(tt.anomaly)
+
+			rec := doRequest(t, h, "GetAnomalies", map[string]any{
+				"DateInterval": map[string]string{
+					"StartDate": "2024-05-01",
+					"EndDate":   "2024-07-01",
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Anomalies []struct {
+					AnomalyID string `json:"AnomalyId"`
+				} `json:"Anomalies"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if tt.want {
+				require.Len(t, out.Anomalies, 1)
+				assert.Equal(t, tt.anomaly.AnomalyID, out.Anomalies[0].AnomalyID)
+			} else {
+				require.Empty(t, out.Anomalies)
+			}
+		})
+	}
+}
+
 // TestGetAnomalies_Pagination verifies MaxResults/NextPageToken pagination.
 func TestGetAnomalies_Pagination(t *testing.T) {
 	t.Parallel()

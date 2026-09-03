@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -142,9 +143,19 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 }
 
 // ListLFTags returns a paginated list of LF tags for the given catalog.
-func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string) {
+// ListLFTags returns the account's LF-tags. resourceShareType FOREIGN always
+// returns none: this backend models a single account with no RAM
+// cross-account sharing, so no LF-tag is ever foreign
+// (api_op_ListLFTags.go, lakeformation@v1.50.4) -- gopherstack-4ly2.
+func (b *InMemoryBackend) ListLFTags(
+	catalogID, resourceShareType string, maxResults int, nextToken string,
+) ([]*LFTag, string) {
 	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
+
+	if resourceShareType == "FOREIGN" {
+		return nil, ""
+	}
 
 	all := make([]*LFTag, 0, b.lfTags.Len())
 
@@ -338,7 +349,6 @@ func (b *InMemoryBackend) GetResourceLFTags(_ string, resource *Resource) ([]LFT
 
 const (
 	lfSplitInTwo  = 2  // SplitN limit for two-part key parsing
-	lfDecimalBase = 10 // decimal base for token parsing
 	lfItoaInitCap = 10 // initial capacity for itoa byte slice
 )
 
@@ -493,15 +503,7 @@ func paginateTaggedTables(list []TaggedTable, maxResults int, nextToken string) 
 		maxResults = defaultMax
 	}
 
-	startIdx := 0
-
-	if nextToken != "" {
-		n := 0
-		for _, b := range []byte(nextToken) {
-			n = n*lfDecimalBase + int(b-'0')
-		}
-		startIdx = n
-	}
+	startIdx := decodeLFPageToken(nextToken)
 
 	if startIdx >= len(list) {
 		return []TaggedTable{}, ""
@@ -526,15 +528,7 @@ func paginateTaggedDatabases(list []TaggedDatabase, maxResults int, nextToken st
 		maxResults = defaultMax
 	}
 
-	startIdx := 0
-
-	if nextToken != "" {
-		n := 0
-		for _, b := range []byte(nextToken) {
-			n = n*lfDecimalBase + int(b-'0')
-		}
-		startIdx = n
-	}
+	startIdx := decodeLFPageToken(nextToken)
 
 	if startIdx >= len(list) {
 		return []TaggedDatabase{}, ""
@@ -550,6 +544,25 @@ func paginateTaggedDatabases(list []TaggedDatabase, maxResults int, nextToken st
 	}
 
 	return list[startIdx:end], outToken
+}
+
+// decodeLFPageToken parses a paginateTaggedTables/paginateTaggedDatabases
+// nextToken (a plain decimal offset, produced by itoa) into a non-negative
+// slice start index. Uses strconv.Atoi rather than a hand-rolled digit loop
+// so a too-long or non-numeric token is rejected outright (ErrSyntax /
+// ErrRange) instead of silently overflowing into a negative offset that
+// would slip past the `startIdx >= len(list)` guard and panic.
+func decodeLFPageToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	n, err := strconv.Atoi(token)
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
 }
 
 func itoa(n int) string {

@@ -49,17 +49,24 @@ type listCostAllocationTagBackfillHistoryOutput struct {
 
 func (h *Handler) handleListCostAllocationTagBackfillHistory(
 	_ context.Context,
-	_ *listCostAllocationTagBackfillHistoryInput,
+	in *listCostAllocationTagBackfillHistoryInput,
 ) (*listCostAllocationTagBackfillHistoryOutput, error) {
 	jobs := h.Backend.ListBackfillHistory()
 
-	items := make([]backfillRequest, 0, len(jobs))
-	for _, j := range jobs {
+	// paginateOrdered, not paginateList: jobs is already in
+	// most-recently-requested-first order, which re-sorting ascending by
+	// BackfillID would discard.
+	page, nextToken := paginateOrdered(jobs, in.MaxResults, in.NextToken,
+		func(j *BackfillJob) string { return j.BackfillID })
+
+	items := make([]backfillRequest, 0, len(page))
+	for _, j := range page {
 		items = append(items, toBackfillRequest(j))
 	}
 
 	return &listCostAllocationTagBackfillHistoryOutput{
 		BackfillRequests: items,
+		NextToken:        nextToken,
 	}, nil
 }
 
@@ -89,8 +96,15 @@ func (h *Handler) handleListCostAllocationTags(
 ) (*listCostAllocationTagsOutput, error) {
 	tags := h.Backend.ListCostAllocationTags(in.Status, in.Type, in.TagKeys)
 
-	entries := make([]costAllocationTagEntry, 0, len(tags))
-	for _, t := range tags {
+	// ListCostAllocationTags already sorts ascending by the unique TagKey, so
+	// paginateList's own re-sort by the same key is a no-op -- the established
+	// paginateList pattern applies directly here, unlike ops with an
+	// independent SortBy.
+	page, nextToken := paginateList(tags, in.MaxResults, in.NextToken,
+		func(t *CostAllocationTag) string { return t.TagKey })
+
+	entries := make([]costAllocationTagEntry, 0, len(page))
+	for _, t := range page {
 		entries = append(entries, costAllocationTagEntry{
 			TagKey:          t.TagKey,
 			Status:          t.Status,
@@ -105,6 +119,7 @@ func (h *Handler) handleListCostAllocationTags(
 
 	return &listCostAllocationTagsOutput{
 		CostAllocationTags: entries,
+		NextToken:          nextToken,
 	}, nil
 }
 

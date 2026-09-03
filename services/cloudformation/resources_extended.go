@@ -587,7 +587,12 @@ func (rc *ResourceCreator) createEC2VPC(
 		cidr = "10.0.0.0/16"
 	}
 
-	vpc, err := rc.backends.EC2.Backend.CreateVpc(cidr)
+	tenancy := strProp(props, "InstanceTenancy", params, physicalIDs)
+	if tenancy == "" {
+		tenancy = "default"
+	}
+
+	vpc, err := rc.backends.EC2.Backend.CreateVpc(cidr, tenancy)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 VPC: %w", err)
 	}

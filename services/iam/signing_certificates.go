@@ -35,7 +35,7 @@ func (b *InMemoryBackend) UploadSigningCertificate(userName, body string) (*Sign
 	}
 
 	if body == "" {
-		return nil, fmt.Errorf("%w: certificate body must not be empty", ErrMalformedPolicyDocument)
+		return nil, fmt.Errorf("%w: certificate body must not be empty", ErrMalformedCertificate)
 	}
 
 	cert := SigningCertificate{

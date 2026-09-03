@@ -168,17 +168,11 @@ func (h *Handler) handleSearchGroups(c *echo.Context) error {
 	namespace := seg(segs, segResID)
 
 	body, _ := readBody(c)
-	query := strField(body, "Query")
-	maxResults := int32(0)
-	if body != nil {
-		maxResults = intField(body, "MaxResults")
-	}
-	nextToken := ""
-	if body != nil {
-		nextToken = strField(body, "NextToken")
-	}
+	filters := folderFiltersFromBody(body)
 
-	groups, next, err := h.Backend.SearchGroups(accountID, namespace, query, maxResults, nextToken)
+	groups, next, err := h.Backend.SearchGroups(
+		accountID, namespace, filters, maxResultsParam(c), nextTokenParam(c),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}

@@ -61,6 +61,59 @@ func TestCheckPolicyOps(t *testing.T) {
 	}
 }
 
+// TestCheckPolicyOps_RequiredFieldMissing verifies policyType/resourceType
+// are enforced as required, matching each op's real Input struct doc
+// comment (accessanalyzer@v1.51.4: CheckAccessNotGrantedInput.PolicyType,
+// CheckNoNewAccessInput.PolicyType, CheckNoPublicAccessInput.ResourceType
+// are all "This member is required" -- also enforced client-side by the
+// real SDK's own validateOp*Input, so a real typed client can never send
+// one of these requests without it; this exercises the raw wire path a
+// non-SDK client could still reach). All three were previously decoded off
+// the wire and never validated or forwarded to the underlying check at all.
+func TestCheckPolicyOps_RequiredFieldMissing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		path string
+	}{
+		{
+			name: "check_access_not_granted_missing_policy_type",
+			path: "/policy/check-access-not-granted",
+			body: map[string]any{
+				"access":         []any{},
+				"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+			},
+		},
+		{
+			name: "check_no_new_access_missing_policy_type",
+			path: "/policy/check-no-new-access",
+			body: map[string]any{
+				"existingPolicyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				"newPolicyDocument":      `{"Version":"2012-10-17","Statement":[]}`,
+			},
+		},
+		{
+			name: "check_no_public_access_missing_resource_type",
+			path: "/policy/check-no-public-access",
+			body: map[string]any{
+				"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
 // TestValidatePolicy verifies POST /policy/validation returns empty findings.
 func TestValidatePolicy(t *testing.T) {
 	t.Parallel()

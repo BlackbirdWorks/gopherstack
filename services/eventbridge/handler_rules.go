@@ -38,9 +38,40 @@ type putRuleOutput struct {
 
 type deleteRuleOutput struct{}
 
+// ruleListEntry is the wire shape of a single ListRules result entry, matching
+// real AWS's types.Rule field-for-field. It deliberately excludes CreatedBy:
+// that field exists only on DescribeRuleOutput, not on types.Rule (confirmed
+// against aws-sdk-go-v2/service/eventbridge@v1.48.4's types/types.go), so
+// ListRules must not echo it even though the backend's Rule struct carries it.
+type ruleListEntry struct {
+	Name               string `json:"Name"`
+	Arn                string `json:"Arn"`
+	EventBusName       string `json:"EventBusName"`
+	EventPattern       string `json:"EventPattern,omitempty"`
+	State              string `json:"State"`
+	Description        string `json:"Description,omitempty"`
+	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
+	RoleArn            string `json:"RoleArn,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
+}
+
+func toRuleListEntry(r Rule) ruleListEntry {
+	return ruleListEntry{
+		Name:               r.Name,
+		Arn:                r.Arn,
+		EventBusName:       r.EventBusName,
+		EventPattern:       r.EventPattern,
+		State:              r.State,
+		Description:        r.Description,
+		ScheduleExpression: r.ScheduleExpression,
+		RoleArn:            r.RoleArn,
+		ManagedBy:          r.ManagedBy,
+	}
+}
+
 type listRulesOutput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Rules     []Rule `json:"Rules"`
+	NextToken string          `json:"NextToken,omitempty"`
+	Rules     []ruleListEntry `json:"Rules"`
 }
 
 type enableRuleOutput struct{}
@@ -96,7 +127,12 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &listRulesOutput{Rules: rules, NextToken: next}, nil
+			entries := make([]ruleListEntry, len(rules))
+			for i, r := range rules {
+				entries[i] = toRuleListEntry(r)
+			}
+
+			return &listRulesOutput{Rules: entries, NextToken: next}, nil
 		},
 		"DescribeRule": func(ctx context.Context, b []byte) (any, error) {
 			var input describeRuleInput
@@ -117,6 +153,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				EventBusName string `json:"EventBusName"`
 				NextToken    string `json:"NextToken"`
 				TargetArn    string `json:"TargetArn"`
+				Limit        int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -126,6 +163,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				input.TargetArn,
 				input.EventBusName,
 				input.NextToken,
+				int(input.Limit),
 			)
 			if err != nil {
 				return nil, err

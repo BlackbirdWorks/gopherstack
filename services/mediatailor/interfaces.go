@@ -129,7 +129,7 @@ type StorageBackend interface {
 	) (*Program, error)
 	DeleteProgram(channelName, programName string) error
 	GetChannelSchedule(
-		channelName string,
+		channelName, audience string,
 		maxResults int,
 		nextToken string,
 	) ([]*ProgramScheduleEntry, string, error)

@@ -54,8 +54,9 @@ type Backend interface {
 	// CreateImage creates an AMI from an instance.
 	CreateImage(instanceID, name, description string) (*AMIStub, error)
 
-	// DescribeImageUsageReports returns synthetic image usage reports.
-	DescribeImageUsageReports() []*ImageUsageReport
+	// DescribeImageUsageReports returns the usage reports created via
+	// CreateImageUsageReport.
+	DescribeImageUsageReports() []*UsageReport
 
 	// ---- regions / AZs ----
 
@@ -105,7 +106,8 @@ type Backend interface {
 	DescribeVpcs(ids []string) []*VPC
 
 	// CreateVpc creates a new VPC with the given CIDR block.
-	CreateVpc(cidr string) (*VPC, error)
+	CreateVpc(cidr, tenancy string) (*VPC, error)
+	VpcTenancy(vpcID string) string
 
 	// DeleteVpc removes a VPC by ID.
 	DeleteVpc(id string) error
@@ -1183,8 +1185,10 @@ type Backend interface {
 	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
 	DescribeVolumeStatus(ids []string) []VolumeStatusItem
 	DescribeVolumesModifications(ids []string) []*VolumeModification
-	CopySnapshot(sourceSnapshotID, description string) (*Snapshot, error)
-	CreateSnapshots(volumeIDs []string, description string) ([]*Snapshot, error)
+	CopySnapshot(sourceSnapshotID, description string, encryptOverride bool, kmsKeyID string) (*Snapshot, error)
+	CreateSnapshots(
+		instanceID string, excludeBootVolume bool, excludeDataVolumeIDs []string, description string,
+	) ([]*Snapshot, error)
 
 	// ---- batch1: snapshot block public access ----
 
@@ -1255,7 +1259,7 @@ type Backend interface {
 	DescribeIdentityIDFormat(_ string, resources []string) []IDFormatItem
 	ModifyIdentityIDFormat(_ string, resource string, useLongIDs bool) error
 	DescribeAggregateIDFormat() []IDFormatItem
-	DescribePrincipalIDFormat(_ string) []IDFormatItem
+	DescribePrincipalIDFormat(resources []string) []IDFormatItem
 	DescribeInstanceEventNotificationAttributes() *InstanceEventNotificationAttributes
 	DeregisterInstanceEventNotificationAttributes()
 
@@ -1354,7 +1358,7 @@ type Backend interface {
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
-	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
+	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
 	DescribeExportImageTasks(ids []string) []*ExportImageTaskRec
@@ -1363,10 +1367,10 @@ type Backend interface {
 	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
 	RestoreSnapshotFromRecycleBin(snapshotID string) error
 	RestoreSnapshotTier(snapshotID string) error
-	ImportSnapshot(description string) (*SnapshotImportTask, error)
+	ImportSnapshot(description string, encrypted bool, kmsKeyID string) (*SnapshotImportTask, error)
 	DescribeImportSnapshotTasks(taskIDs []string) []*SnapshotImportTask
-	EnableFastLaunch(imageID string) error
-	DisableFastLaunch(imageID string) error
+	EnableFastLaunch(imageID string, cfg FastLaunchConfig) error
+	DisableFastLaunch(imageID string) (*FastLaunchImageItem, error)
 	DescribeFastLaunchImages(imageIDs []string) []FastLaunchImageItem
 	EnableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
 	DisableFastSnapshotRestores(snapshotIDs, availabilityZones []string) error
@@ -1556,10 +1560,12 @@ type Backend interface {
 	DescribeTrafficMirrorTargets(ids []string) []*TrafficMirrorTarget
 
 	// ---- batch5: EC2 Fleet ----
-	CreateFleet(fleetType string, totalTargetCapacity int) (*Fleet, error)
-	DeleteFleets(ids []string) []FleetDeletionResult
+	CreateFleet(input FleetCreateInput) (*Fleet, []CreateFleetInstanceResult, error)
+	DeleteFleets(ids []string, terminateInstances bool) []FleetDeletionResult
 	DescribeFleets(ids []string) []*Fleet
 	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
+	DescribeFleetInstances(fleetID string, filters map[string][]string) ([]ActiveFleetInstance, error)
+	DescribeFleetHistory(fleetID string, startTime time.Time, eventType string) ([]FleetHistoryRecord, error)
 
 	// ---- batch5: NetworkInsights ----
 	CreateNetworkInsightsPath(
@@ -1570,13 +1576,13 @@ type Backend interface {
 	DescribeNetworkInsightsPaths(ids []string) []*NetworkInsightsPath
 	StartNetworkInsightsAnalysis(pathID string) (*NetworkInsightsAnalysis, error)
 	DeleteNetworkInsightsAnalysis(id string) error
-	DescribeNetworkInsightsAnalyses(ids []string) []*NetworkInsightsAnalysis
+	DescribeNetworkInsightsAnalyses(ids []string, pathID string) []*NetworkInsightsAnalysis
 	CreateNetworkInsightsAccessScope() (*NetworkInsightsAccessScope, error)
 	DeleteNetworkInsightsAccessScope(id string) error
 	DescribeNetworkInsightsAccessScopes(ids []string) []*NetworkInsightsAccessScope
 	StartNetworkInsightsAccessScopeAnalysis(scopeID string) (*NetworkInsightsAccessScopeAnalysis, error)
 	DeleteNetworkInsightsAccessScopeAnalysis(id string) error
-	DescribeNetworkInsightsAccessScopeAnalyses(ids []string) []*NetworkInsightsAccessScopeAnalysis
+	DescribeNetworkInsightsAccessScopeAnalyses(ids []string, scopeID string) []*NetworkInsightsAccessScopeAnalysis
 
 	// ---- batch5: BYOIP ----
 	ProvisionByoipCidr(cidr, description string) (*ByoipCidr, error)

@@ -90,17 +90,7 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 		ids[i] = e.ID
 	}
 
-	maxResults, start := paginateWithToken(ids, q)
-
-	end := min(start+maxResults, len(experiments))
-
-	var nextTok string
-
-	if end < len(experiments) {
-		nextTok = encodePageToken(end)
-	}
-
-	page := experiments[start:end]
+	page, nextTok := paginatePage(experiments, ids, q)
 	dtos := make([]experimentSummaryDTO, len(page))
 
 	for i, e := range page {
@@ -128,18 +118,7 @@ func (h *Handler) handleListExperimentResolvedTargets(c *echo.Context, id string
 		names[i] = rt.TargetName
 	}
 
-	q := c.Request().URL.Query()
-	maxResults, start := paginateWithToken(names, q)
-
-	end := min(start+maxResults, len(resolved))
-
-	var nextTok string
-
-	if end < len(resolved) {
-		nextTok = encodePageToken(end)
-	}
-
-	page := resolved[start:end]
+	page, nextTok := paginatePage(resolved, names, c.Request().URL.Query())
 	dtos := make([]resolvedTargetDTO, len(page))
 
 	for i, rt := range page {

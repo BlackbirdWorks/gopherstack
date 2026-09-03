@@ -51,10 +51,10 @@ type cloneReceiptRuleSetResponse struct {
 	RequestID string                    `xml:"ResponseMetadata>RequestId"`
 }
 
-func (h *Handler) handleListReceiptRuleSets(reqID string) any {
-	ruleSets := h.Backend.ListReceiptRuleSets()
-	members := make([]xmlRuleSetMetadata, 0, len(ruleSets))
-	for _, rs := range ruleSets {
+func (h *Handler) handleListReceiptRuleSets(vals url.Values, reqID string) any {
+	p := h.Backend.ListReceiptRuleSets(vals.Get("NextToken"))
+	members := make([]xmlRuleSetMetadata, 0, len(p.Data))
+	for _, rs := range p.Data {
 		members = append(members, xmlRuleSetMetadata{
 			Name:      rs.Name,
 			CreatedAt: rs.CreatedAt.UTC().Format(time.RFC3339),
@@ -65,7 +65,8 @@ func (h *Handler) handleListReceiptRuleSets(reqID string) any {
 		Xmlns:     sesXMLNS,
 		RequestID: reqID,
 		Result: listReceiptRuleSetsResult{
-			RuleSets: xmlRuleSetMetadataList{Members: members},
+			RuleSets:  xmlRuleSetMetadataList{Members: members},
+			NextToken: p.Next,
 		},
 	}
 }
@@ -147,7 +148,8 @@ type xmlRuleSetMetadataList struct {
 }
 
 type listReceiptRuleSetsResult struct {
-	RuleSets xmlRuleSetMetadataList `xml:"RuleSets"`
+	NextToken string                 `xml:"NextToken,omitempty"`
+	RuleSets  xmlRuleSetMetadataList `xml:"RuleSets"`
 }
 
 type listReceiptRuleSetsResponse struct {

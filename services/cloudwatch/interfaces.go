@@ -80,7 +80,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[MetricAlarm], error)
 	DescribeAlarmHistory(
-		alarmName, alarmType, historyItemType, nextToken string,
+		alarmName string, alarmTypes []string, historyItemType, nextToken string,
 		startDate, endDate time.Time,
 		maxRecords int,
 	) (page.Page[AlarmHistoryItem], error)

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -254,8 +255,11 @@ var allPlatformBranches = []platformBranchSummary{
 
 // handleListPlatformBranches lists platform branches with optional filtering (improvement #3).
 func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values) (any, error) {
-	// Collect filters: Filters.member.N.Attribute / Value
-	type filterEntry struct{ attribute, value string }
+	// Collect filters: Filters.member.N.Attribute / Values.member.M
+	type filterEntry struct {
+		attribute string
+		values    []string
+	}
 
 	filters := make([]filterEntry, 0)
 
@@ -265,8 +269,8 @@ func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values)
 			break
 		}
 
-		value := vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
-		filters = append(filters, filterEntry{attribute: attr, value: value})
+		values := parseMembers(vals, fmt.Sprintf("Filters.member.%d.Values.member", i))
+		filters = append(filters, filterEntry{attribute: attr, values: values})
 	}
 
 	branches := make([]platformBranchSummary, 0, len(allPlatformBranches))
@@ -277,11 +281,14 @@ func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values)
 		for _, f := range filters {
 			switch f.attribute {
 			case "PlatformName":
-				if !strings.EqualFold(b.PlatformName, f.value) {
+				if !slices.ContainsFunc(f.values, func(v string) bool { return strings.EqualFold(b.PlatformName, v) }) {
 					match = false
 				}
 			case "LifecycleState":
-				if !strings.EqualFold(b.LifecycleState, f.value) {
+				if !slices.ContainsFunc(
+					f.values,
+					func(v string) bool { return strings.EqualFold(b.LifecycleState, v) },
+				) {
 					match = false
 				}
 			}
@@ -329,12 +336,13 @@ type listPlatformVersionsResponse struct {
 }
 
 // listPlatformVersionsFilterValue applies a single PlatformFilter's Type
-// against a *PlatformVersion, matching by equality only (this backend has no
-// other filterable attribute -- OperatingSystemName/SupportedTier/
-// SupportedAddon/ProgrammingLanguageName/PlatformBranchName/
-// PlatformLifecycleState are all unmodeled, see platformSummaryDescType --
-// and, matching handleListPlatformBranches's existing precedent, Operator is
-// not honored beyond implicit equality).
+// against a *PlatformVersion, matching by equality against any of the
+// filter's Values (the standard AWS SearchFilter/PlatformFilter OR-list
+// idiom) -- this backend has no other filterable attribute
+// (OperatingSystemName/SupportedTier/SupportedAddon/ProgrammingLanguageName/
+// PlatformBranchName/PlatformLifecycleState are all unmodeled, see
+// platformSummaryDescType -- and, matching handleListPlatformBranches's
+// existing precedent, Operator is not honored beyond implicit equality).
 func listPlatformVersionsFilterValue(pv *PlatformVersion, filterType string) (string, bool) {
 	switch filterType {
 	case "PlatformName":
@@ -359,12 +367,13 @@ func (h *Handler) handleListPlatformVersions(ctx context.Context, vals url.Value
 			break
 		}
 
-		want := vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
+		want := parseMembers(vals, fmt.Sprintf("Filters.member.%d.Values.member", i))
 
 		filtered := make([]*PlatformVersion, 0, len(pvs))
 
 		for _, pv := range pvs {
-			if got, known := listPlatformVersionsFilterValue(pv, filterType); !known || strings.EqualFold(got, want) {
+			got, known := listPlatformVersionsFilterValue(pv, filterType)
+			if !known || slices.ContainsFunc(want, func(v string) bool { return strings.EqualFold(got, v) }) {
 				filtered = append(filtered, pv)
 			}
 		}

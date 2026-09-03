@@ -46,6 +46,7 @@ func (h *Handler) handleGetFirewallConfig(
 ) (*getFirewallConfigOutput, error) {
 	return getSimpleConfig(
 		in.ResourceID,
+		ErrBatchValidation,
 		func() *FirewallConfig { return h.Backend.GetFirewallConfig(ctx, in.ResourceID) },
 		func(c *FirewallConfig) *getFirewallConfigOutput {
 			return &getFirewallConfigOutput{FirewallConfig: firewallConfigToOutput(c)}
@@ -68,6 +69,7 @@ func (h *Handler) handleUpdateFirewallConfig(
 ) (*updateFirewallConfigOutput, error) {
 	return updateSimpleConfig(
 		in.ResourceID,
+		ErrBatchValidation,
 		func() (*FirewallConfig, error) {
 			return h.Backend.UpdateFirewallConfig(ctx, in.ResourceID, in.FirewallFailOpen)
 		},
@@ -143,6 +145,7 @@ func (h *Handler) handleGetResolverConfig(
 ) (*getResolverConfigOutput, error) {
 	return getSimpleConfig(
 		in.ResourceID,
+		ErrBatchValidation,
 		func() *ResolverConfig { return h.Backend.GetResolverConfig(ctx, in.ResourceID) },
 		func(c *ResolverConfig) *getResolverConfigOutput {
 			return &getResolverConfigOutput{ResolverConfig: resolverConfigToOutput(c)}
@@ -169,6 +172,7 @@ func (h *Handler) handleUpdateResolverConfig(
 ) (*updateResolverConfigOutput, error) {
 	return updateSimpleConfig(
 		in.ResourceID,
+		ErrValidation,
 		func() (*ResolverConfig, error) {
 			return h.Backend.UpdateResolverConfig(ctx, in.ResourceID, in.AutodefinedReverseFlag)
 		},
@@ -240,6 +244,7 @@ func (h *Handler) handleGetResolverDnssecConfig(
 ) (*getResolverDnssecConfigOutput, error) {
 	return getSimpleConfig(
 		in.ResourceID,
+		ErrValidation,
 		func() *ResolverDnssecConfig { return h.Backend.GetResolverDnssecConfig(ctx, in.ResourceID) },
 		func(c *ResolverDnssecConfig) *getResolverDnssecConfigOutput {
 			return &getResolverDnssecConfigOutput{ResolverDNSSECConfig: resolverDnssecConfigToOutput(c)}
@@ -262,6 +267,7 @@ func (h *Handler) handleUpdateResolverDnssecConfig(
 ) (*updateResolverDnssecConfigOutput, error) {
 	return updateSimpleConfig(
 		in.ResourceID,
+		ErrValidation,
 		func() (*ResolverDnssecConfig, error) {
 			return h.Backend.UpdateResolverDnssecConfig(ctx, in.ResourceID, in.Validation)
 		},

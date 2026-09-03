@@ -50,7 +50,7 @@ func TestBackend_DeployedConfig_CascadeDeleteOnEnvironment(t *testing.T) {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, []byte(`{}`))
 
-	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, deployedConfigCount(b))
 
@@ -66,7 +66,7 @@ func TestBackend_DeployedConfig_CascadeDeleteOnApplication(t *testing.T) {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, []byte(`{}`))
 
-	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, deployedConfigCount(b))
 
@@ -82,7 +82,7 @@ func TestBackend_DeployedConfig_CascadeDeleteOnProfile(t *testing.T) {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, []byte(`{}`))
 
-	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	_, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, deployedConfigCount(b))
 
@@ -165,7 +165,7 @@ func TestDeploymentTimers_DrainToZero(t *testing.T) {
 	const deployments = 5
 
 	for range deployments {
-		_, startErr := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
+		_, startErr := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
 		require.NoError(t, startErr)
 	}
 

@@ -4,7 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// defaultEcsClustersPageSize is used when DescribeEcsClustersInput.MaxResults
+// is unset -- the real API's doc comment (api_op_DescribeEcsClusters.go)
+// doesn't specify a default for this deprecated operation, so this mirrors
+// the "100" default other AWS list/describe operations commonly use.
+const defaultEcsClustersPageSize = 100
 
 // handleRegisterEcsCluster handles RegisterEcsCluster requests.
 func (h *Handler) handleRegisterEcsCluster(_ context.Context, body []byte) (any, error) {
@@ -46,7 +54,9 @@ func (h *Handler) handleDeregisterEcsCluster(_ context.Context, body []byte) (an
 func (h *Handler) handleDescribeEcsClusters(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID        string   `json:"StackId"`
+		NextToken      string   `json:"NextToken"`
 		EcsClusterArns []string `json:"EcsClusterArns"`
+		MaxResults     int      `json:"MaxResults"`
 	}
 
 	if len(body) > 0 {
@@ -60,7 +70,13 @@ func (h *Handler) handleDescribeEcsClusters(_ context.Context, body []byte) (any
 		return nil, err
 	}
 
-	return map[string]any{"EcsClusters": ecsClustersToJSON(clusters)}, nil
+	pg := page.New(clusters, req.NextToken, req.MaxResults, defaultEcsClustersPageSize)
+	resp := map[string]any{"EcsClusters": ecsClustersToJSON(pg.Data)}
+	if pg.Next != "" {
+		resp["NextToken"] = pg.Next
+	}
+
+	return resp, nil
 }
 
 // ecsClustersToJSON omits Status: the real types.EcsCluster has no such

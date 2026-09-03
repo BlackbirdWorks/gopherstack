@@ -283,7 +283,7 @@ func (b *InMemoryBackend) DisassociateFirewallRuleGroup(
 	if assoc.MutationProtection == mutationProtectionEnabled {
 		return nil, fmt.Errorf(
 			"%w: cannot disassociate: MutationProtection is ENABLED",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -312,7 +312,7 @@ func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
 		mutationProtection != mutationProtectionDisabled {
 		return nil, fmt.Errorf(
 			"%w: MutationProtection must be ENABLED or DISABLED",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 	if name != "" {

@@ -232,13 +232,14 @@ type batchStopJobRunInput struct {
 }
 
 type batchStopJobRunOutput struct {
-	Errors []BatchStopJobRunError `json:"Errors"`
+	Errors                []BatchStopJobRunError                `json:"Errors"`
+	SuccessfulSubmissions []BatchStopJobRunSuccessfulSubmission `json:"SuccessfulSubmissions"`
 }
 
 func (h *Handler) handleBatchStopJobRun(_ context.Context, in *batchStopJobRunInput) (*batchStopJobRunOutput, error) {
-	errs := h.Backend.BatchStopJobRun(in.JobName, in.JobRunIDs)
+	successes, errs := h.Backend.BatchStopJobRun(in.JobName, in.JobRunIDs)
 
-	return &batchStopJobRunOutput{Errors: errs}, nil
+	return &batchStopJobRunOutput{SuccessfulSubmissions: successes, Errors: errs}, nil
 }
 
 type getJobBookmarkInput struct {

@@ -3,8 +3,10 @@ package opensearch
 import (
 	"fmt"
 	"slices"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -88,22 +90,42 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 	return &cp, nil
 }
 
-// ListApplications returns all applications.
-func (b *InMemoryBackend) ListApplications() []*Application {
+// ListApplications returns applications matching statuses, paginated per
+// nextToken/maxResults. Every application returned by GetApplication/
+// ListApplications is implicitly ACTIVE -- DeleteApplication removes its
+// record immediately with no DELETING window (see DeleteApplication above),
+// so CREATING/UPDATING/DELETING/FAILED/DELETED (api_op_ListApplications.go:
+// types.ApplicationStatus) never occur here; a statuses filter that excludes
+// ACTIVE therefore correctly yields an empty page rather than fabricating a
+// status this backend cannot produce.
+func (b *InMemoryBackend) ListApplications(
+	statuses []string, nextToken string, maxResults int,
+) page.Page[*Application] {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	out := make([]*Application, 0, b.applications.Len())
+	if len(statuses) > 0 && !slices.Contains(statuses, "ACTIVE") {
+		return page.Page[*Application]{Data: []*Application{}}
+	}
+
+	all := make([]*Application, 0, b.applications.Len())
 	for _, app := range b.applications.All() {
 		cp := *app
 		cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))
 		copy(cp.AppConfigs, app.AppConfigs)
 		cp.DataSources = make([]AppDataSource, len(app.DataSources))
 		copy(cp.DataSources, app.DataSources)
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = len(all)
+	}
+
+	return page.New(all, nextToken, limit, limit)
 }
 
 // UpdateApplication updates an application's configs and data sources.

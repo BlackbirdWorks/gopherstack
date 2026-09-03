@@ -142,6 +142,7 @@ func (b *InMemoryBackend) DescribeTemplate(accountID, templateID string, version
 	return result, nil
 }
 
+//nolint:dupl // update/delete functions share structure but operate on different stored types
 func (b *InMemoryBackend) UpdateTemplate(
 	accountID, templateID, name, sourceEntityArn, versionDescription string,
 	definition map[string]any,
@@ -256,6 +257,11 @@ func (b *InMemoryBackend) ListTemplates(
 			start = off
 		}
 	}
+	// A token issued before items were deleted can name an offset past the
+	// current end -- clamp instead of letting all[start:end] panic.
+	if start > len(all) {
+		start = len(all)
+	}
 
 	end := start + int(maxResults)
 	var next string
@@ -299,6 +305,7 @@ func (b *InMemoryBackend) ListTemplateVersions(
 
 	start := 0
 	if nextToken != "" {
+		start = len(versions)
 		if parsed, err := strconv.ParseInt(nextToken, 10, 64); err == nil {
 			for i, v := range versions {
 				if v == parsed {
@@ -493,6 +500,7 @@ func (b *InMemoryBackend) ListTemplateAliases(
 
 	start := 0
 	if nextToken != "" {
+		start = len(names)
 		for i, name := range names {
 			if name == nextToken {
 				start = i

@@ -102,7 +102,8 @@ func TestACMPCAHandler_AuditReportAndRestore(t *testing.T) {
 
 // TestACMPCAHandler_DescribeAuditReport_RequiresReportID verifies that
 // DescribeCertificateAuthorityAuditReport without an AuditReportId returns
-// InvalidParameterException.
+// InvalidArgsException, matching DescribeCertificateAuthorityAuditReport's
+// own deserializeOpError.
 func TestACMPCAHandler_DescribeAuditReport_RequiresReportID(t *testing.T) {
 	t.Parallel()
 
@@ -111,5 +112,5 @@ func TestACMPCAHandler_DescribeAuditReport_RequiresReportID(t *testing.T) {
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	resp := parseACMPCAResponse(t, rec)
-	assert.Equal(t, "InvalidParameterException", resp["__type"])
+	assert.Equal(t, "InvalidArgsException", resp["__type"])
 }

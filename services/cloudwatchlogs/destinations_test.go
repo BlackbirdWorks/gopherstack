@@ -98,7 +98,11 @@ func TestDestination_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				err := b.PutDestinationPolicy("ghost", `{}`)
-				require.ErrorIs(t, err, cloudwatchlogs.ErrDestinationNotFound)
+				// PutDestinationPolicy's own deserializer declares
+				// InvalidParameterException/OperationAbortedException/
+				// ServiceUnavailableException, not ResourceNotFoundException --
+				// unlike DeleteDestination below, which does declare it.
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
 		{

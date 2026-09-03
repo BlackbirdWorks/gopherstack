@@ -116,7 +116,7 @@ func (b *InMemoryBackend) BatchGetSecurityControls(securityControlIDs []string) 
 		if def == nil {
 			unprocessed = append(unprocessed, map[string]any{
 				keySecurityControlID: id,
-				keyErrorCode:         errCodeInvalidInput,
+				keyErrorCode:         errCodeUnprocessedInvalidInput,
 				keyErrorMessage:      "Security control not found",
 			})
 

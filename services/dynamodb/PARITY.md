@@ -23,6 +23,7 @@ families:
   autoscaling:  {status: fixed, note: "2026-08-21 (gopherstack-1vv2, InMemoryDB receiver-scope sweep): UpdateTableReplicaAutoScaling built a brand-new autoScalingSettings from only the current call's fields and assigned it wholesale over table.AutoScaling. GlobalSecondaryIndexUpdates and ProvisionedWriteCapacityAutoScalingUpdate are independently optional on the real input (api_op_UpdateTableReplicaAutoScaling.go) -- a call updating only one GSI's auto scaling settings silently wiped a previously-set table-level write-capacity autoscaling config, and vice versa. Fixed: autoScalingSettingsFromInput -> mergeAutoScalingSettingsFromInput, which merges into the existing table.AutoScaling (creating one only if nil) instead of replacing it. TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther (autoscaling_status_agreement_internal_test.go), hand-verified to fail against unfixed code. Other InMemoryDB Update* methods checked in the same sweep (UpdateContinuousBackups/UpdateContributorInsights/UpdateGlobalTable/UpdateGlobalTableSettings/UpdateItem/UpdateKinesisStreamingDestination/UpdateTable/UpdateTimeToLive) already merge field-by-field or are single-scalar toggles -- no further bugs of this shape found. See gaps: GlobalSecondaryIndexes autoscaling settings are stored but never echoed back on ReplicaAutoScalingDescription (a separate, pre-existing accept-and-drop gap, not touched by this fix)."}
   global_table_settings_autoscaling: {status: fixed, note: "2026-08-23 (manifest-harvest pass): UpdateGlobalTableSettingsInput's GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate, GlobalTableGlobalSecondaryIndexSettingsUpdate (global, not per-replica, per-GSI write autoscaling), ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and ReplicaGlobalSecondaryIndexSettingsUpdate[].ProvisionedReadCapacityAutoScalingSettingsUpdate (api_op_UpdateGlobalTableSettings.go, types.go:2891/2962/1881) were all accepted on the wire (handler_global_tables.go's updateGlobalTableSettingsInput had no struct fields for any of them) then silently dropped -- an accept-and-drop wire gap, same class as UpdateTableReplicaAutoScaling's pre-1vv2-fix clobber bug but never wired at all rather than clobbered. Fixed: StoredGlobalTable gained WriteCapacityAutoScaling/GSIWriteCapacityAutoScaling, StoredReplicaSettings/StoredReplicaGSISettings gained ReadCapacityAutoScaling, all reusing the existing autoScalingThroughput persisted shape and throughputFromUpdate/sdkAutoScalingSettingsDescription converters UpdateTableReplicaAutoScaling already has (autoscaling.go) -- no new evaluator. Both UpdateGlobalTableSettings and DescribeGlobalTableSettings now echo the same stored settings (global write-capacity autoscaling applies uniformly across replicas, matching how WriteCapacityUnits already does, since it is a global-table-level setting in the v1 API, not per-replica). Verified via TestGlobalTableSettings_AutoScaling, driven through the real aws-sdk-go-v2 client, hand-reverted (services/dynamodb/{global_tables,handler_global_tables,store}.go) to confirm it fails against unfixed code (nil ReplicaProvisionedWriteCapacityAutoScalingSettings), restored, md5sum identical. Additive-only struct fields; pkgs/persistence snapshot-version guard confirmed no bump needed."}
   kinesis_streaming_disable_echo: {status: fixed, note: "2026-08-23 (manifest-harvest pass): DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration (deserializers.go:18931 -- a real modeled response member on Disable despite its SDK doc comment reading 'the destination for the Kinesis streaming information that is being enabled', a codegen doc-comment artifact shared with Enable/Update, not evidence the field is request-only) was never populated; DisableKinesisStreamingDestination always returned it as nil/absent even though the backend already tracked the destination's precision (KinesisDestinationEntry.Precision) right up until deleting it. Fixed: removeKinesisDestinationLocked now returns the removed entry's precision, echoed back as EnableKinesisStreamingConfiguration (defaulting to MILLISECOND, matching Enable/Describe's existing default). Verified via TestDisableKinesisStreamingDestination_EchoesConfig, hand-reverted (kinesis_streaming.go, handler_kinesis_streaming.go) to confirm nil response before the fix, restored, md5sum identical."}
+  pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited every List/Describe/Query/Scan op with a page-size + continuation member against the pinned SDK. ListGlobalTables' applyGlobalTableLimit only capped the page when the caller supplied an explicit Limit; an omitted Limit (ListGlobalTablesInput.Limit doc, api_op_ListGlobalTables.go:35, 'if the parameter is not specified, DynamoDB defaults to 100') returned every global table uncapped with no LastEvaluatedGlobalTableName. Fixed: applyGlobalTableLimit now falls back to defaultListGlobalTablesLimit=100. TestListGlobalTables_DefaultLimitPagination (wire_field_fixes_test.go) creates 105 global tables, drives the real SDK client through the full pagination loop with no Limit set, and asserts each page is <=100 and the union is exactly the 105 names with no duplicates; hand-reverted to confirm it fails against unfixed code (page of 105), restored. Everything else audited CORRECT: Query/Scan's Limit-as-items-examined + post-limit-filter + ExclusiveStartKey/LastEvaluatedKey semantics (item_ops_query.go/item_ops_scan.go) match AWS's own documented 'LastEvaluatedKey may be non-nil with nothing left to return' behavior -- collectQueryPage emits LastEvaluatedKey whenever the Limit boundary is hit, including on the true last item (no i<len-1 guard, unlike scanPage's), which is correct-but-surprising, not a bug: a client resuming from that key gets an empty page with a nil LastEvaluatedKey next call, one harmless extra round trip, exactly the documented AWS gotcha. ListBackups/ListContributorInsights/ListExports/ListImports/ListTables all correctly consume+truncate+emit. ListTagsOfResource ignores NextToken/returns everything in one call by design: the real op has no MaxResults input member at all and no documented default page size to impose (DO-NOT-INVENT-A-PAGE-SIZE), so returning the full <=50-tag set in one page is the only non-fabricated implementation."}
 gaps:
   - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
     never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
@@ -294,3 +295,370 @@ The other two branches (response marshal/CBOR-encode failure) are fixed
 defensively for consistency with the same helper but not independently
 proven by a client -- `response` is backend-constructed and `json.Marshal`
 essentially cannot fail on it.
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- one live bug fixed, rest confirmed clean
+
+Campaign-wide hunt for the class distinct from wrapper-key/nesting sweeps:
+what a client sees when a request *fails* -- HTTP status, AWS error code, and
+whether the operation actually models that code, checked against each op's
+own `awsAwsjson10_deserializeOpError<Op>` switch in `deserializers.go`
+(dynamodb@v1.63.1), not the shared `types/errors.go` list.
+
+**Error path**: every backend method returns a Go error, either a typed
+`*Error{Type, Message}` (errors.go's `New*Exception` constructors, `Type`
+holding the full `com.amazonaws.dynamodb.v20120810#<Name>` shape) or a plain
+`errors.New`. `Handler.classifyError` (handler.go) maps a typed `*Error` to
+HTTP 500 only for `InternalServerError`, HTTP 400 for every other type --
+confirmed correct against the SDK: DynamoDB's JSON-RPC (awsjson10) protocol
+never varies HTTP status per exception type on the real service either; the
+client determines the concrete exception type purely from the body's
+`__type`/`X-Amzn-ErrorType`, so a uniform 400 for all client-fault codes is
+not a bug.
+
+**58 ops' declared code sets extracted and spot-checked** against the
+sentinels each backend method actually raises (BatchGetItem/BatchWriteItem/
+Get/Put/Update/DeleteItem/Query/Scan/Transact*/Execute*/Create*/Delete*/
+Describe*/List*/Update* families). No wrong-code or wrong-status findings
+this pass; `NewDuplicateItemException` (`ExecuteStatement`'s own switch
+models `DuplicateItemException`) and the Backup/Export/Import/GlobalTable
+`Not*Found` constructors all match their respective op's own declared set.
+
+**One real bug found and fixed**: `TransactWriteItems`' `ClientRequestToken`
+idempotency tracking (`transact_ops.go`'s `txnTokens`) recorded only an
+expiry, no record of what request actually committed under a token. AWS
+raises `IdempotentParameterMismatchException` (confirmed modeled on this
+op's own `awsAwsjson10_deserializeOpErrorTransactWriteItems` switch,
+`deserializers.go`) when a caller reuses a `ClientRequestToken` with a
+*different* request; gopherstack instead treated any second call with a
+matching token as a matching replay and returned a bare empty success --
+even when `TransactItems` was entirely different. This is the "AWS models
+an error, gopherstack returns a bare success" direction of the class.
+
+Fixed: `txnTokens` now stores a `txnTokenRecord{expiry, hash}` (`store.go`),
+where `hash` is a SHA-256 of the JSON-encoded `TransactItems`
+(`hashTransactWriteItems`, `transact_ops.go`) -- JSON's built-in map-key
+sorting makes this deterministic regardless of item ordering. A token reused
+with a mismatched hash now returns the new
+`NewIdempotentParameterMismatchException` (`errors.go`). `janitor.go`'s
+sweep/eviction logic (`evictOldestTokens`, `scanExpiredTxnTokensRLocked`)
+updated for the new value type; `txnTokens` is not part of `persistence.go`'s
+snapshot (idempotency tokens are process-local and short-TTL by design), so
+no snapshot/restore format changed.
+
+`ExecuteTransaction` (PartiQL) also models `IdempotentParameterMismatchException`
+but its `ClientRequestToken` wire field is parsed
+(`handler_execute_transaction.go`) and then never passed to the backend at
+all -- **disclosed, not fixed**: this op has zero idempotency-token
+plumbing to extend (unlike `TransactWriteItems`, which already had a
+commit/pending token store this pass could add a hash to), and building
+that from scratch is a larger, separate change than this pass's scope.
+
+Proof: `TestTransactWriteItems_ReusedTokenDifferentPayload_IdempotentParameterMismatch`
+(`transact_ops_wire_test.go`) drives the real `aws-sdk-go-v2` client through
+two `TransactWriteItems` calls sharing one `ClientRequestToken` but different
+items, asserts `errors.As` against `*types.IdempotentParameterMismatchException`,
+and asserts the mismatched item was never written. Confirmed failing
+(bare success, no error) against the pre-fix code by reverting `store.go`/
+`janitor.go`/`transact_ops.go`/`errors.go` and re-running.
+
+Gates: `go build`, `go vet ./...` (repo-wide, per this session's
+signature-change caveat -- clean except an unrelated concurrently-edited
+`services/apigateway` package), `go test -race -count=1 ./services/dynamodb/...`
+(pass), `golangci-lint run --fix ./services/dynamodb/...` (0 issues).
+
+## 2026-08-29: discarded-error sweep -- malformed ProjectionExpression/FilterExpression silently ignored, not rejected
+
+Campaign-wide hunt for the class where a client-visible failure is
+discarded (`_`) instead of reaching its designated place in the response --
+distinct from the wrong-error-code sweep above.
+
+**Confirmed bug, 5 call sites, one root cause**: `ParseProjector`
+(`expressions.go`, wraps `expr.Parser.ParseProjection`) and `ParseConditionStr`
+(wraps `expr.Parser.ParseCondition`) both return a real parse error for a
+syntactically malformed `ProjectionExpression`/`FilterExpression` (e.g. an
+unclosed `[` or a dangling operator) -- proven with `TestParser_Projection`-style
+direct calls returning `err != nil`. Every caller discarded that error with
+`_`, so `ParseProjector` fell back to a `Projector{}` and `ParseConditionStr`'s
+nil `*ParsedCondition` (both explicitly treat nil as "no-op": `Project`
+returns the item unchanged, `Evaluate` returns `true`, i.e. "matches
+everything"). Net effect: a malformed `ProjectionExpression` silently returns
+the **full unprojected item** (over-exposing attributes the caller asked to
+exclude) and a malformed `FilterExpression` silently returns **every item
+unfiltered**, instead of the `ValidationException` real DynamoDB raises. This
+is reachable through the real typed SDK client -- confirmed against
+`validateOpGetItemInput`/`validateOpQueryInput`/`validateOpScanInput`/
+`validateOpBatchGetItemInput` in the pinned SDK's `validators.go`, none of
+which parse expression syntax client-side.
+
+`services/dynamodb/expressions.go:95`'s `projectItem` comment --
+`// Return full item if projection fails? Or error? Standard seems to be
+quiet.` -- was the source of the bug, not a description of correct
+behaviour: the operation already has a designated place for this failure
+(`ValidationException`, used by this same op's own `validateProjectionParams`
+for the sibling ProjectionExpression/AttributesToGet-both-set case).
+
+Fixed call sites, all now returning `NewValidationException("Invalid
+ProjectionExpression: "+err)` / `"Invalid FilterExpression: "+err)`:
+- `GetItem` via `projectItem` (`item_ops_crud.go`)
+- `Query` via `collectQueryPage` (`item_ops_query.go`) -- both Projection and
+  Filter
+- `Scan` via `doScan` (`item_ops_scan.go`) -- both Projection and Filter
+- `BatchGetItem` via `batchGetTable` (`item_ops_batch.go`) -- Projection only
+  (BatchGetItem has no FilterExpression)
+- `TransactGetItems` via `transactGetResponseItem` (`transact_ops.go`) --
+  Projection only
+
+`KeyConditionExpression` (Query) was already correct -- checked separately
+(`item_ops_query.go:221`) and already returns `ValidationException` on parse
+failure; only the *Filter*/*Projection* expressions on these five call sites
+discarded their errors.
+
+**Reviewed, not a bug**: `CalculateItemSize`'s error return is dead code
+(`validation.go:140-152` -- every path returns `nil`), so its ~15 discarded
+call sites across dynamodb are legitimate. `models.ToSDKItem`'s error
+(malformed internally-stored attribute value) is discarded at several
+Query/Scan/BatchGetItem/TransactGetItem read paths (`item_ops_query.go:562`,
+`item_ops_scan.go:167,187`, `item_ops_batch.go:292`, `transact_ops.go:551`)
+but is unreachable in practice: every write path (`FromSDKItem`,
+`ValidateItemSize`) guarantees the wire-format invariant `ToSDKItem` assumes,
+so this can only fail on an internal invariant violation elsewhere, not on
+attacker-controlled input -- inconsistent with `GetItem`'s own `ToSDKItem`
+call (which does check the error) but not a confirmed reachable bug. All
+other `_`-discards found in `services/dynamodb` (~50 in total, grep count)
+are comma-ok type assertions, non-error second/third return values
+(`getPKAndSK`, `applyAutoScalingSettingsLocked`,
+`contributorInsightsStateRLocked`), or best-effort logging/cleanup
+(`json.Marshal` for debug logs, `gz.Close()`).
+
+Proof: new table cases in `query_test.go` (`Malformed FilterExpression`,
+`Malformed ProjectionExpression`), `scan_test.go` (same two), `batch_test.go`
+(`MalformedProjectionExpression`), `transact_ops_test.go`
+(`MalformedProjectionExpression`), and `projection_test.go`
+(`TestProjection_MalformedExpression_ReturnsError`) -- each drives
+`db.<Op>` with a real `aws-sdk-go-v2` input struct containing a syntactically
+invalid expression and asserts the decoded error's message contains
+`ValidationException`. Confirmed failing (silent full/unfiltered result, no
+error) against the pre-fix code before the fix landed.
+
+Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run --fix ./services/dynamodb/...` then plain
+`golangci-lint run ./services/dynamodb/...` (0 issues both times).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited every pagination helper for pure arithmetic (boundary correctness, exact division,
+single-page, empty, cursor stability, stale-cursor behaviour): `findStartIndex` (`table_ops.go`
+— `ListTables`) is correct and deletion-tolerant by construction (first-name-strictly-greater
+search, so a since-deleted `ExclusiveStartTableName` still resumes correctly). `encode`/
+`decodePartiQLNextToken` (`partiql.go`) are a plain encode/decode of the real
+`LastEvaluatedKey`, not offset arithmetic — nothing to verify there beyond round-trip, which
+holds. No bug found or fixed in either; both newly boundary-tested directly
+(`pagination_arithmetic_internal_test.go`).
+
+**Recorded, not fixed:** `paginateBackupSummaries` (`backup_ops.go` — `ListBackups`) resolves
+`ExclusiveStartBackupArn` by exact ARN match and falls back to `start = 0` when the named
+backup has since been deleted, restarting pagination from the beginning rather than resuming
+past it — diverges from `findStartIndex`'s deletion-tolerant `>`-search pattern elsewhere in
+this same package. Not changed: unlike the equivalent bug fixed in `services/dax`/`services/omics`
+this pass, this list is sorted by a composite `(CreationDateTime, BackupArn)` key and the
+cursor carries only the ARN half, so reconstructing the correct resume position for a deleted
+ARN isn't a like-for-like `==` → `>=` swap — it would need the cursor to also encode the
+creation time, which AWS's own `LastEvaluatedBackupArn` (a bare ARN string) leaves no room
+for. AWS does not document `ListBackups`' behaviour for a stale `ExclusiveStartBackupArn`, so
+the current behaviour is pinned by a test (`TestPaginateBackupSummaries_StaleCursorRestartsFromZero`)
+rather than asserted correct, per this pass's instruction to record undefined behaviour instead
+of inventing a rule for it. Worth a follow-up if the cursor's shape is ever revisited.
+
+Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run ./services/dynamodb/...` (0 issues).
+
+## 2026-08-30 cross-call pagination-reproducibility audit (wrapper-key-sweep campaign)
+
+Re-audited every `List`/`Query`/`Scan` op for the class this campaign's brief distinguishes
+from the arithmetic sweep above: is the *complete sorted order* reproducible between two
+calls with nothing changed in between (a `store.Table.All()`/map walk feeding a sort whose
+key can tie drops or duplicates a record at a page boundary), not just whether the pagination
+arithmetic/limit handling is correct. `ListTables` (`sort.Strings` on table names, globally
+unique), `ListStreams` (sorted by stream ARN, unique per table), `ListImports`/`ListExports`
+(sorted by ImportArn/ExportArn, unique), `ListGlobalTables`/`ListContributorInsights` (sorted
+by table/global-table name, unique), and `ListBackups` (sorted by `(CreationDateTime,
+BackupArn)`, ARN tiebreak already present — see the "Recorded, not fixed" entry above, which
+is about a *different* class: cursor resumption after a deleted backup, not cross-call
+ordering) all sort by a field that is the same table's own unique key, so no walk-order tie
+is reachable regardless of `store.Table.All()`'s unspecified iteration order. `Query`/`Scan`
+draw their candidate items from `table.Items` — a plain Go slice under `table.mu`, not a map
+— so their traversal order is already stable across calls with no writes in between,
+independent of any tie in the requested sort/index key (confirmed for the GSI/LSI case too,
+where duplicate `(index PK, index SK)` pairs are legitimately possible in real DynamoDB: the
+existing "base-PK fusion" `LastEvaluatedKey` handling, already proven correct per the
+`query_scan` row above, sits on top of that same stable slice source). `ListTagsOfResource`
+is correctly non-paginated by design (real op has no `MaxResults`/page-size member) and sorts
+by the tag map's own key via `collections.SortedKeys`. No pagination-reproducibility bug
+found in `services/dynamodb`; nothing changed. This confirms the brief's own note that this
+service's one known-bad cursor (`ListBackups`' ARN-only `ExclusiveStartBackupArn`, unable to
+reconstruct a deleted backup's `CreationDateTime` half) is a distinct, already-recorded,
+deliberately-unfixed gap — not an instance of the cross-call reproducibility class audited
+here.
+
+## 2026-08-30 enumcheck typed-response-struct extension: one confirmed bug, five false positives
+
+`cmd/enumcheck` was extended to see an enum value carried on a named response
+struct's own composite literal (`SomeType{Field: value}` / `&SomeType{...}`),
+not only a `map[string]any` entry — its previously documented blind spot.
+Run against `services/dynamodb`, it surfaced 6 findings (all needs-review,
+none confident); hand-checked against the pinned dynamodb@v1.63.1 SDK:
+
+- **Confirmed bug, fixed**: `partiql.go`'s `partiqlValidationExceptionCode`
+  (`handleBatchExecuteStatement`'s parameter-conversion-failure branch) emitted
+  `BatchStatementError.Code = "ValidationException"`. The real
+  `BatchStatementErrorCodeEnum` (types/enums.go) has no such member — the
+  correct value is `"ValidationError"`. Fixed; covered by
+  `TestBatchExecuteStatement_ParameterConversionFailure_ErrorCode`, which
+  asserts against `types.BatchStatementErrorCodeEnumValidationError`, not a
+  hardcoded string.
+- **False positive** (`transact_ops.go:131`, `transact_validation.go:227`):
+  `CancellationReason{Code: "None"}` — the real SDK types `CancellationReason.Code`
+  as a plain `*string`, not an enum at all (confirmed in types/types.go).
+- **False positive** (`global_tables.go:170`, `global_tables.go:541`,
+  `replication.go:40`): `Table{Status: statusActive, ...}` — this repo's
+  internal `Table` struct's `json:"Status"` tag exists for
+  `persistence.go`'s snapshot serialization (save/restore to disk), not the
+  AWS wire response; the real `TableDescription` response is built
+  separately via `models.FromSDKTableDescription`, whose `TableStatus` field
+  carries the correct wire key and value. The checker cannot distinguish a
+  same-package tagged struct built for persistence from one built for the
+  wire — a real, structural false-positive class this extension can produce,
+  disclosed in `cmd/enumcheck`'s package doc.
+
+## 2026-08-30 value-semantics pass (gopherstack-uox6): ListBackups TimeRangeLowerBound inclusivity bug
+
+Targeted pass for gopherstack-uox6 ("a parameter that is read, applied, and
+WRONG" -- shape checks are blind to this class). Read every `ComparisonOperator`
+member (types/enums.go: EQ/NE/LE/LT/GE/GT/BETWEEN/NOT_NULL/NULL/CONTAINS/
+NOT_CONTAINS/BEGINS_WITH/IN, 13 total) against `legacy_conditions.go`'s
+`renderComparison` -- all 13 handled correctly (6 via `legacyBinarySymbols`,
+3 via `legacyUnaryFuncs`, 4 via the switch), default case rejects an
+unrecognized operator with `ValidationException` rather than silently
+matching everything or nothing. `ConditionalOperator`'s default (unset) is
+AND per `legacyConditionalJoiner`, matching AWS's documented default.
+Confirmed Query's `FilterExpression` is applied strictly after
+`KeyConditionExpression` resolves candidates (item_ops_query.go:634, inside
+`collectQueryPage`, downstream of `filterCandidatesForKeyCondition`) and that
+`ConsumedCapacity`/`ScannedCount` are computed from the key-condition-matched
+candidate count (item_ops_query.go:93, before the filter runs), not reduced
+by the filter -- matches AWS's documented "filter does not reduce consumed
+read capacity". `Select`'s four documented values (ALL_ATTRIBUTES/
+ALL_PROJECTED_ATTRIBUTES/SPECIFIC_ATTRIBUTES/COUNT) and their interaction
+with index projection type and ProjectionExpression/AttributesToGet are all
+enforced correctly in `validateSelectConstraints` (validation.go).
+
+**Bug found and fixed**: `ListBackups`' `TimeRangeLowerBound` is documented
+inclusive ("Only backups created after this time are listed. TimeRangeLowerBound
+is inclusive.", api_op_ListBackups.go) but `collectBackupSummaries`
+(backup_ops.go) excluded a backup created at *exactly* that boundary --
+`!createdAt.After(lower)` continues (excludes) whenever `createdAt <= lower`,
+which wrongly drops the equal-to-bound case. `TimeRangeUpperBound` (documented
+exclusive) was already correct. Fixed to `createdAt.Before(lower)` (excludes
+only strictly-earlier backups). `TestCollectBackupSummaries_TimeRangeBoundsInclusivity`
+(backup_timerange_internal_test.go, whitebox package `dynamodb`) constructs a
+backup with a zero-fractional-second `CreationDateTime` so an exact-boundary
+comparison is meaningful, and drives `collectBackupSummaries` directly;
+hand-verified to fail against unfixed code (0 backups returned for the
+inclusive-boundary case, expected 1). No prior test exercised
+TimeRangeLowerBound/TimeRangeUpperBound at all.
+
+Also examined and confirmed correct, no bug: `ScanIndexForward` default
+(true/ascending) at item_ops_query.go:102; `contains`/`begins_with` string
+comparison is case-sensitive (Go's `strings.Contains`/`HasPrefix`, matching
+real DynamoDB expression-function semantics -- no case-insensitive mode is
+documented for these); parallel-Scan `applySegmentFilter`'s FNV-hash-mod-
+TotalSegments partitioning (item_ops_scan.go) gives every item exactly one
+owning segment, matching AWS's documented total-coverage guarantee;
+`filterGlobalTables`'s RegionName membership filter (global_tables.go)
+matches ListGlobalTablesInput's documented "results only include global
+tables which have replicas in the selected region."
+
+Coverage is a slice, stated as one: the legacy Query/Scan/PutItem/UpdateItem/
+DeleteItem parameter-translation layer (already extensively fixed in prior
+lze5/yvs8 passes) and the modern `expr` evaluator's comparison/function
+semantics, checked deeply; GSI/LSI-specific filter interactions beyond
+projection-type handling, PartiQL's `WHERE`-clause evaluator
+(`filterEAVByExpression`, partiql.go), and streams' `appendMatchingRecords`
+were not re-examined this pass.
+
+## 2026-08-31 unnamed-in-PARITY sweep (gopherstack-6flj/21my continuation)
+
+Targeted the six `List*`/`Describe*` operations whose names appeared
+nowhere in this file before today: `DescribeContinuousBackups`,
+`DescribeEndpoints`, `DescribeImport`, `DescribeKinesisStreamingDestination`,
+`DescribeLimits`, `DescribeTimeToLive`. Confirmed protocol from the
+deserializer directly: `dynamodb@v1.63.1` is `awsAwsjson10_` (JSON RPC 1.0),
+not XML -- no case-folding, so a casing mismatch here is a hard decode
+failure rather than a latent one. All six read against their own
+deserializer/type in `deserializers.go`/`types/types.go`, per op and per
+nested item type.
+
+**Bug found and fixed**: `DescribeImport`/`ImportTable`'s
+`ImportTableDescription.InputCompressionType` (real member, confirmed at
+`types/types.go:2005` and deserializer case `"InputCompressionType"` in
+`awsAwsjson10_deserializeDocumentImportTableDescription`) was tracked on the
+backend the whole time -- `ImportTable` stores the caller's
+`InputCompressionType` on `storedImport.InputCompression` (`store.go:114`)
+-- but neither wire converter (`importDescriptionFromRecord`,
+`import_export_s3.go`; `importDescriptionWireFromSDK`,
+`handler_import.go`) ever read it back out. Every `DescribeImport`/
+`ImportTable` response reported an empty compression type regardless of
+what GZIP/NONE the import was created with. `ImportSummary` (the
+`ListImports` item type) genuinely has no such member, so this was
+Describe/ImportTable-only, not a sibling disagreement.
+Test: `TestDescribeImport_InputCompressionType`
+(`import_input_compression_test.go`), drives the real
+`aws-sdk-go-v2/service/dynamodb` client through `ImportTable` then
+`DescribeImport` and asserts `InputCompressionType == GZIP` on both
+responses. Verified failing pre-fix (`actual: ""`).
+
+**Recorded, not fixed** -- real per-SDK gaps with no ready backing state:
+- `DescribeImport`/`ImportTable`'s `ImportTableDescription` is also missing
+  `TableCreationParameters` (`*types.TableCreationParameters`,
+  `types/types.go:3323`, optional -- not `This member is required`). The
+  backend only stores the request's `TableCreationParameters` transiently
+  to drive `CreateTable`; `storedImport` never retains the struct itself,
+  so echoing it back would need either a new stored field or a
+  reconstruction from the resulting `TableDescription`. Left unfixed this
+  pass; a straightforward correct fix is to store `input.TableCreationParameters`
+  directly on `storedImport` at `ImportTable` time (it is the caller's own
+  request value, not synthesized) and thread it through both wire
+  converters and the corresponding wire struct.
+- `DescribeKinesisStreamingDestination`'s `KinesisDataStreamDestination` is
+  missing `DestinationStatusDescription` (`*string`, confirmed real member
+  and deserializer case at `deserializers.go` around
+  `awsAwsjson10_deserializeDocumentKinesisDataStreamDestination`). Real but
+  currently unobservable: this backend's `DestinationStatus` is hardcoded
+  to `ACTIVE` (`kinesisDestinationsRLocked`, `kinesis_streaming.go`) and
+  never models a FAILED/DISABLING transition, and AWS only populates this
+  description field for non-nominal states -- so no legal input through
+  this backend would ever produce a non-empty value.
+
+**Clean at both layers, no bug**: `DescribeContinuousBackups` (uses the
+real SDK types directly as the backend's return type --
+`ContinuousBackupsDescription`/`PointInTimeRecoveryDescription` -- and a
+dedicated wire converter, `continuousBackupsOutputFromSDK`, correctly
+re-encodes the two `*time.Time` fields as Unix-epoch-seconds floats
+matching the JSON protocol's wire format rather than encoding/json's
+default RFC3339 string); `DescribeEndpoints` (`Endpoint.Address`/
+`CachePeriodInMinutes`, both required members, both present);
+`DescribeLimits` (four flat int64 quota fields, all present under their
+real names); `DescribeTimeToLive` (`TimeToLiveDescription.AttributeName`/
+`TimeToLiveStatus`, both present, wrapper key correct).
+
+Every list in this batch's scope was already correctly member-wrapped
+(`DescribeEndpoints`' `Endpoints` list; no other list-shaped ops in this
+batch's six).
+
+Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run ./services/dynamodb/...` (0 issues). No `nolint`
+directives in either file touched (`handler_import.go`,
+`import_export_s3.go`).

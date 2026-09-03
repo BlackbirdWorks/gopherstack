@@ -250,16 +250,23 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 	apps := h.Backend.ListApplications()
 
-	// Apply pagination: nextToken is treated as the last-seen application name (exclusive cursor).
+	// Apply pagination: nextToken is treated as the last-seen application
+	// name. apps is sorted by Name (Table.Snapshot, keyed by
+	// Application.Name -- see ListApplications), and names are unique, so
+	// this is a threshold search -- resuming at the first app strictly
+	// greater than the token. A deleted or forged token then resumes past
+	// everything already served instead of restarting at page one.
 	nextToken := req.URL.Query().Get("nextToken")
 	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
 
 	start := 0
 
 	if nextToken != "" {
+		start = len(apps)
+
 		for i, a := range apps {
-			if a.Name == nextToken {
-				start = i + 1
+			if a.Name > nextToken {
+				start = i
 
 				break
 			}

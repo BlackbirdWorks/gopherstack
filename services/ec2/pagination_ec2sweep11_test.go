@@ -235,7 +235,7 @@ func TestDescribeImportImageTasks_Pagination(t *testing.T) {
 	b, client := newTestBackendAndClient(t)
 
 	for range ec2sweep11SeedCount {
-		_, err := b.ImportImage("", "x86_64", "")
+		_, err := b.ImportImage("", "x86_64", "", false, "")
 		require.NoError(t, err)
 	}
 
@@ -304,7 +304,7 @@ func TestDescribeFastLaunchImages_Pagination(t *testing.T) {
 
 	for i := range ec2sweep11SeedCount {
 		imageID := "ami-fastlaunch-" + string(rune('a'+i))
-		require.NoError(t, b.EnableFastLaunch(imageID))
+		require.NoError(t, b.EnableFastLaunch(imageID, ec2.FastLaunchConfig{}))
 	}
 
 	paginator := ec2sdk.NewDescribeFastLaunchImagesPaginator(

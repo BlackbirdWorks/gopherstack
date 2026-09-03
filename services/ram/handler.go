@@ -666,95 +666,53 @@ func writeInternalServerError(c *echo.Context) error {
 	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
+// codeInvalidParameter is RAM's real InvalidParameterException code, shared
+// by ErrPermissionVersionNotFound/ErrInvalidParameter/ErrValidation below --
+// each op's own error model was checked individually (deserializers.go);
+// all three happen to land on the same real type.
+const codeInvalidParameter = "InvalidParameterException"
+
+// errCodeLookup maps every ram sentinel error to the exact wire code its
+// raising op's own deserializeOpError switch models (deserializers.go@
+// ram v1.39.4). All entries are HTTP 400. ErrAlreadyExists is the one
+// documented exception: CreateResourceShare's own model defines no
+// AlreadyExists-shaped exception at all (see its doc in errors.go), so the
+// code here is left as the pre-existing fabricated string -- no replacement
+// invented, per audit policy.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at startup
+var errCodeLookup = []struct {
+	err  error
+	code string
+}{
+	{ErrNotFound, "UnknownResourceException"},
+	{ErrPermissionNotFound, "UnknownResourceException"},
+	{ErrPermissionVersionNotFound, codeInvalidParameter},
+	{ErrInvitationNotFound, "ResourceShareInvitationArnNotFoundException"},
+	{ErrAlreadyExists, "ResourceShareAlreadyExistsException"},
+	{ErrPermissionAlreadyExists, "PermissionAlreadyExistsException"},
+	{ErrInvitationAlreadyAccepted, "ResourceShareInvitationAlreadyAcceptedException"},
+	{ErrInvitationAlreadyRejected, "ResourceShareInvitationAlreadyRejectedException"},
+	{ErrInvitationExpired, "ResourceShareInvitationExpiredException"},
+	{ErrPermissionInUse, "OperationNotPermittedException"},
+	{ErrOperationNotPermitted, "OperationNotPermittedException"},
+	{ErrInvalidParameter, codeInvalidParameter},
+	{ErrValidation, codeInvalidParameter},
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	for _, e := range errCodeLookup {
+		if errors.Is(err, e.err) {
+			payload, _ := json.Marshal(map[string]string{keyTypeField: e.code, keyMessageField: err.Error()})
+
+			return c.JSONBlob(http.StatusBadRequest, payload)
+		}
+	}
+
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "UnknownResourceException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrPermissionNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "UnknownResourceException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrPermissionVersionNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "InvalidParameterException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrInvitationNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceShareInvitationArnNotFoundException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceShareAlreadyExistsException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrInvitationAlreadyAccepted):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceShareInvitationAlreadyAcceptedException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrInvitationAlreadyRejected):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceShareInvitationAlreadyRejectedException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrInvitationExpired):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceShareInvitationExpiredException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrPermissionInUse):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "PermissionInUseException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrOperationNotPermitted):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "OperationNotPermittedException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrInvalidParameter):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "InvalidParameterException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "MalformedQueryStringException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})

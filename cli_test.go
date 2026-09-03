@@ -848,7 +848,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				batchBk := batchbackend.NewInMemoryBackend(accountID, region)
 				ce, err := batchBk.CreateComputeEnvironment(
-					context.Background(), "wiring-test-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil,
+					context.Background(), "wiring-test-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 				require.NoError(t, batchBk.TagResource(
@@ -1373,7 +1373,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				ceBk := cebackend.NewInMemoryBackend(accountID, region)
 				cat, err := ceBk.CreateCostCategoryDefinition(
-					"wiring-test-cat", "CostCategoryExpression.v1", "", nil, nil,
+					"wiring-test-cat", "CostCategoryExpression.v1", "", nil, nil, nil, "",
 				)
 				require.NoError(t, err)
 				require.NoError(t, ceBk.TagResource(cat.ARN, map[string]string{wantTagKey: wantTagValue}))
@@ -2298,7 +2298,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 
 				batchBk := batchbackend.NewInMemoryBackend(accountID, region)
 				ce, err := batchBk.CreateComputeEnvironment(
-					context.Background(), "roundtrip-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil,
+					context.Background(), "roundtrip-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 

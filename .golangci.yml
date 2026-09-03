@@ -502,6 +502,12 @@ linters:
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'
         linters: [ testpackage ]
+      # handler_error_xml_test.go white-box tests the unexported cfErrorXML
+      # directly, since driving the escaping bug through a real HTTP round
+      # trip would require reverse-engineering a reachable injection point
+      # into the dispatcher's `operation` string.
+      - path: 'cloudfront/handler_error_xml_test.go'
+        linters: [ testpackage ]
       # ordering_requirements_test.go white-box tests buildOrderingRequirements
       # and its unexported per-check helpers directly with hand-built Site/
       # Outpost structs -- several of the real OrderingRequirementType checks
@@ -535,6 +541,9 @@ linters:
       - path: 'opsworks/sdk_roundtrip_test.go'
         linters: [ staticcheck ]
       - path: 'opsworks/sdk_roundtrip_helper_test.go'
+        linters: [ staticcheck ]
+      # Same reasoning as opsworks/sdk_roundtrip_test.go above.
+      - path: 'opsworks/list_filter_params_test.go'
         linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]

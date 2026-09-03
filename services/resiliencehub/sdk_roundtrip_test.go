@@ -2,10 +2,12 @@ package resiliencehub_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	resiliencehubsdk "github.com/aws/aws-sdk-go-v2/service/resiliencehub"
 	"github.com/aws/aws-sdk-go-v2/service/resiliencehub/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -500,4 +502,234 @@ func TestRoundTrip_DeleteRecommendationTemplate_NoConflictException(t *testing.T
 
 	var conflict *types.ConflictException
 	require.NotErrorAs(t, err, &conflict, "DeleteRecommendationTemplate must never surface ConflictException")
+}
+
+// TestRoundTrip_ListAppAssessments_ReverseOrder proves ListAppAssessments
+// sorts by StartTime, not by the assessment ARN's key order.
+// ListAppAssessmentsInput.ReverseOrder: "The default is to sort by ascending
+// startTime. To sort by descending startTime, set reverseOrder to true"
+// (api_op_ListAppAssessments.go, resiliencehub@v1.38.3). Assessment ARNs are
+// random hex IDs, so a key-order sort would only coincidentally match
+// StartTime order.
+func TestRoundTrip_ListAppAssessments_ReverseOrder(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	appOut, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("sort-app")})
+	require.NoError(t, err)
+
+	const assessmentCount = 4
+
+	arns := make([]string, 0, assessmentCount)
+
+	for i := range assessmentCount {
+		started, startErr := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
+			AppArn:         appOut.App.AppArn,
+			AppVersion:     aws.String("draft"),
+			AssessmentName: aws.String("assessment-" + string(rune('a'+i))),
+		})
+		require.NoError(t, startErr)
+		arns = append(arns, aws.ToString(started.Assessment.AssessmentArn))
+	}
+
+	ascending, err := client.ListAppAssessments(ctx, &resiliencehubsdk.ListAppAssessmentsInput{
+		AppArn: appOut.App.AppArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, ascending.AssessmentSummaries, assessmentCount)
+
+	gotAscending := make([]string, len(ascending.AssessmentSummaries))
+	for i, s := range ascending.AssessmentSummaries {
+		gotAscending[i] = aws.ToString(s.AssessmentArn)
+	}
+
+	assert.Equal(t, arns, gotAscending, "default order must be ascending StartTime (creation order)")
+
+	descending, err := client.ListAppAssessments(ctx, &resiliencehubsdk.ListAppAssessmentsInput{
+		AppArn:       appOut.App.AppArn,
+		ReverseOrder: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	gotDescending := make([]string, len(descending.AssessmentSummaries))
+	for i, s := range descending.AssessmentSummaries {
+		gotDescending[i] = aws.ToString(s.AssessmentArn)
+	}
+
+	wantDescending := make([]string, len(arns))
+	for i, a := range arns {
+		wantDescending[len(arns)-1-i] = a
+	}
+
+	assert.Equal(t, wantDescending, gotDescending, "reverseOrder=true must be descending StartTime")
+}
+
+// TestRoundTrip_ListRecommendationTemplates_ReverseOrder proves
+// ListRecommendationTemplates sorts by StartTime, not by the template ARN's
+// key order (same documented default as ListAppAssessments, see
+// api_op_ListRecommendationTemplates.go, resiliencehub@v1.38.3).
+func TestRoundTrip_ListRecommendationTemplates_ReverseOrder(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	appOut, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("template-sort-app")})
+	require.NoError(t, err)
+
+	started, err := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
+		AppArn: appOut.App.AppArn, AppVersion: aws.String("draft"), AssessmentName: aws.String("a1"),
+	})
+	require.NoError(t, err)
+
+	const templateCount = 4
+
+	arns := make([]string, 0, templateCount)
+
+	for i := range templateCount {
+		created, createErr := client.CreateRecommendationTemplate(
+			ctx, &resiliencehubsdk.CreateRecommendationTemplateInput{
+				AssessmentArn: started.Assessment.AssessmentArn,
+				Name:          aws.String("template-" + string(rune('a'+i))),
+			},
+		)
+		require.NoError(t, createErr)
+		arns = append(arns, aws.ToString(created.RecommendationTemplate.RecommendationTemplateArn))
+	}
+
+	ascending, err := client.ListRecommendationTemplates(
+		ctx, &resiliencehubsdk.ListRecommendationTemplatesInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, ascending.RecommendationTemplates, templateCount)
+
+	gotAscending := make([]string, len(ascending.RecommendationTemplates))
+	for i, tmpl := range ascending.RecommendationTemplates {
+		gotAscending[i] = aws.ToString(tmpl.RecommendationTemplateArn)
+	}
+
+	assert.Equal(t, arns, gotAscending, "default order must be ascending StartTime (creation order)")
+
+	descending, err := client.ListRecommendationTemplates(
+		ctx, &resiliencehubsdk.ListRecommendationTemplatesInput{ReverseOrder: aws.Bool(true)},
+	)
+	require.NoError(t, err)
+
+	gotDescending := make([]string, len(descending.RecommendationTemplates))
+	for i, tmpl := range descending.RecommendationTemplates {
+		gotDescending[i] = aws.ToString(tmpl.RecommendationTemplateArn)
+	}
+
+	wantDescending := make([]string, len(arns))
+	for i, a := range arns {
+		wantDescending[len(arns)-1-i] = a
+	}
+
+	assert.Equal(t, wantDescending, gotDescending, "reverseOrder=true must be descending StartTime")
+}
+
+// TestRoundTrip_ListApps_LastAssessmentTimeWindowAndReverseOrder proves
+// ListApps honours FromLastAssessmentTime/ToLastAssessmentTime and
+// ReverseOrder. ListAppsInput's documented default: "the application list
+// is sorted based on the values of lastAppComplianceEvaluationTime field...
+// in ascending order" (api_op_ListApps.go, resiliencehub@v1.38.3).
+func TestRoundTrip_ListApps_LastAssessmentTimeWindowAndReverseOrder(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	appA, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("assessed-app-a")})
+	require.NoError(t, err)
+
+	assessedA, err := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
+		AppArn: appA.App.AppArn, AppVersion: aws.String("draft"), AssessmentName: aws.String("a1"),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		desc, descErr := client.DescribeAppAssessment(
+			ctx, &resiliencehubsdk.DescribeAppAssessmentInput{AssessmentArn: assessedA.Assessment.AssessmentArn},
+		)
+		require.NoError(t, descErr)
+
+		return desc.Assessment.AssessmentStatus == types.AssessmentStatusSuccess
+	}, defaultAsyncWait, defaultAsyncPoll)
+
+	between, err := client.DescribeApp(ctx, &resiliencehubsdk.DescribeAppInput{AppArn: appA.App.AppArn})
+	require.NoError(t, err)
+	cutoff := *between.App.LastAppComplianceEvaluationTime
+
+	appB, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("assessed-app-b")})
+	require.NoError(t, err)
+
+	assessedB, err := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
+		AppArn: appB.App.AppArn, AppVersion: aws.String("draft"), AssessmentName: aws.String("b1"),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		desc, descErr := client.DescribeAppAssessment(
+			ctx, &resiliencehubsdk.DescribeAppAssessmentInput{AssessmentArn: assessedB.Assessment.AssessmentArn},
+		)
+		require.NoError(t, descErr)
+
+		return desc.Assessment.AssessmentStatus == types.AssessmentStatusSuccess
+	}, defaultAsyncWait, defaultAsyncPoll)
+
+	ascending, err := client.ListApps(ctx, &resiliencehubsdk.ListAppsInput{})
+	require.NoError(t, err)
+
+	idxA, idxB := -1, -1
+
+	for i, s := range ascending.AppSummaries {
+		switch aws.ToString(s.AppArn) {
+		case aws.ToString(appA.App.AppArn):
+			idxA = i
+		case aws.ToString(appB.App.AppArn):
+			idxB = i
+		}
+	}
+
+	require.GreaterOrEqual(t, idxA, 0)
+	require.GreaterOrEqual(t, idxB, 0)
+	assert.Less(t, idxA, idxB, "default order must be ascending lastAppComplianceEvaluationTime")
+
+	descending, err := client.ListApps(ctx, &resiliencehubsdk.ListAppsInput{ReverseOrder: aws.Bool(true)})
+	require.NoError(t, err)
+
+	idxA, idxB = -1, -1
+
+	for i, s := range descending.AppSummaries {
+		switch aws.ToString(s.AppArn) {
+		case aws.ToString(appA.App.AppArn):
+			idxA = i
+		case aws.ToString(appB.App.AppArn):
+			idxB = i
+		}
+	}
+
+	assert.Greater(t, idxA, idxB, "reverseOrder=true must be descending lastAppComplianceEvaluationTime")
+
+	windowed, err := client.ListApps(ctx, &resiliencehubsdk.ListAppsInput{
+		FromLastAssessmentTime: aws.Time(cutoff.Add(time.Millisecond)),
+	})
+	require.NoError(t, err)
+
+	for _, s := range windowed.AppSummaries {
+		assert.NotEqual(t, aws.ToString(appA.App.AppArn), aws.ToString(s.AppArn),
+			"FromLastAssessmentTime after app A's evaluation time must exclude it")
+	}
+
+	found := false
+
+	for _, s := range windowed.AppSummaries {
+		if aws.ToString(s.AppArn) == aws.ToString(appB.App.AppArn) {
+			found = true
+		}
+	}
+
+	assert.True(t, found, "FromLastAssessmentTime must still include app B")
 }

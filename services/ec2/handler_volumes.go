@@ -188,12 +188,15 @@ type modifyEbsDefaultKmsKeyResponse struct {
 	KmsKeyID  string   `xml:"kmsKeyId"`
 }
 
+// snapshotLockItem matches types.LockedSnapshotsInfo (ec2@v1.319.1
+// deserializers.go:132176): the duration field is "lockDuration", not
+// "lockDurationDays".
 type snapshotLockItem struct {
 	SnapshotID       string `xml:"snapshotId"`
 	LockState        string `xml:"lockState"`
 	LockCreatedOn    string `xml:"lockCreatedOn"`
 	LockExpiresOn    string `xml:"lockExpiresOn,omitempty"`
-	LockDurationDays int    `xml:"lockDurationDays,omitempty"`
+	LockDurationDays int    `xml:"lockDuration,omitempty"`
 }
 
 type copyVolumesResponse struct {

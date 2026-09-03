@@ -3,6 +3,8 @@ package route53
 import (
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // AssociateVPCWithHostedZone associates a VPC with a private hosted zone.
@@ -178,25 +180,42 @@ func (b *InMemoryBackend) DeleteVPCAssociationAuthorization(zoneID, vpcID string
 	return nil
 }
 
-// ListVPCAssociationAuthorizations returns all VPC association authorizations for a hosted zone.
+// ListVPCAssociationAuthorizations returns a page of VPC association
+// authorizations for a hosted zone, paginated by NextToken (route53@v1.65.6
+// api_op_ListVPCAssociationAuthorizations.go: the continuation field is
+// NextToken on both input and output, with no IsTruncated member, unlike
+// the Marker-based ListHostedZones family). b.vpcAssocAuthorizations[zoneID]
+// is a plain append-only slice (not a map), so it iterates in a stable,
+// call-reproducible order already and needs no sort/tiebreak.
 func (b *InMemoryBackend) ListVPCAssociationAuthorizations(
-	zoneID string,
-) ([]VPCAssociationAuthorization, error) {
+	zoneID, nextToken string,
+	maxResults int,
+) (page.Page[VPCAssociationAuthorization], error) {
 	b.mu.RLock("ListVPCAssociationAuthorizations")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.zones.Get(zoneID); !ok {
-		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+		return page.Page[VPCAssociationAuthorization]{}, fmt.Errorf(
+			"%w: hosted zone %s not found",
+			ErrHostedZoneNotFound,
+			zoneID,
+		)
 	}
 
 	result := make([]VPCAssociationAuthorization, len(b.vpcAssocAuthorizations[zoneID]))
 	copy(result, b.vpcAssocAuthorizations[zoneID])
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, route53DefaultMaxItems), nil
 }
 
-// ListHostedZonesByVPC returns all private hosted zones that have a VPC association with the given VPC.
-func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string) ([]HostedZone, error) {
+// ListHostedZonesByVPC returns all private hosted zones that have a VPC
+// association with the given VPC, paginated by token (route53@v1.65.6
+// api_op_ListHostedZonesByVPC.go: the continuation field on both input and
+// output is NextToken, not NextMarker as on sibling ListHostedZones* ops).
+func (b *InMemoryBackend) ListHostedZonesByVPC(
+	vpcID, vpcRegion, token string,
+	maxItems int,
+) (page.Page[HostedZone], error) {
 	b.mu.RLock("ListHostedZonesByVPC")
 	defer b.mu.RUnlock()
 
@@ -216,9 +235,15 @@ func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string) ([]Hoste
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].ID < result[j].ID
+		}
 
-	return result, nil
+		return result[i].Name < result[j].Name
+	})
+
+	return page.New(result, token, maxItems, route53DefaultMaxItems), nil
 }
 
 // CountAssociatedVPCs returns the number of VPCs associated with the given

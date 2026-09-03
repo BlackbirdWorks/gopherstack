@@ -150,7 +150,7 @@ func (h *Handler) handleCreatePackage(c *echo.Context) error {
 	}
 	p, err := h.Backend.CreateIoTPackage(name, req.Description, req.Tags)
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -249,7 +249,7 @@ func (h *Handler) handleCreatePackageVersion(c *echo.Context) error {
 			Recipe:     req.Recipe,
 		})
 	if err != nil {
-		return respondErr(c, err)
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
 
 	return c.JSON(http.StatusOK, v)

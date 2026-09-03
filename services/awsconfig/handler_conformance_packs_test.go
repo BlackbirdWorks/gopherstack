@@ -5,11 +5,43 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	configservicesdk "github.com/aws/aws-sdk-go-v2/service/configservice"
+	"github.com/aws/aws-sdk-go-v2/service/configservice/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
+
+// TestDescribeConformancePackStatus_State_RealClient proves
+// ConformancePackStatus.ConformancePackState decodes as a real
+// types.ConformancePackState member. Real ConformancePackState only defines
+// CREATE_IN_PROGRESS/CREATE_COMPLETE/CREATE_FAILED/DELETE_IN_PROGRESS/
+// DELETE_FAILED (configservice@v1.68.4 types/enums.go:232); pre-fix,
+// gopherstack emitted the bare "COMPLETE", not a member of that enum, so a
+// typed client's ConformancePackState never matched
+// types.ConformancePackStateCreateComplete.
+func TestDescribeConformancePackStatus_State_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutConformancePack(t.Context(), &configservicesdk.PutConformancePackInput{
+		ConformancePackName: aws.String("state-check-pack"),
+		DeliveryS3Bucket:    aws.String("my-delivery-bucket"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeConformancePackStatus(
+		t.Context(), &configservicesdk.DescribeConformancePackStatusInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.ConformancePackStatusDetails, 1)
+	assert.Equal(t, types.ConformancePackStateCreateComplete,
+		out.ConformancePackStatusDetails[0].ConformancePackState)
+}
 
 // TestConformancePackARN verifies PutConformancePack generates an ARN and ID.
 func TestConformancePackARN(t *testing.T) {

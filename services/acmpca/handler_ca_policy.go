@@ -29,7 +29,7 @@ type deletePolicyOutput struct{}
 func (h *Handler) jsonGetPolicy(ctx context.Context, body []byte) (any, error) {
 	var input getPolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	policy, err := h.Backend.GetPolicy(ctx, input.ResourceArn)
@@ -43,7 +43,7 @@ func (h *Handler) jsonGetPolicy(ctx context.Context, body []byte) (any, error) {
 func (h *Handler) jsonPutPolicy(ctx context.Context, body []byte) (any, error) {
 	var input putPolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.PutPolicy(ctx, input.ResourceArn, input.Policy); err != nil {
@@ -56,7 +56,7 @@ func (h *Handler) jsonPutPolicy(ctx context.Context, body []byte) (any, error) {
 func (h *Handler) jsonDeletePolicy(ctx context.Context, body []byte) (any, error) {
 	var input deletePolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
+		return nil, ErrInvalidArn
 	}
 
 	if err := h.Backend.DeletePolicy(ctx, input.ResourceArn); err != nil {

@@ -247,7 +247,7 @@ func assertCapacityProviderRestored(t *testing.T, b *InMemoryBackend) {
 func assertAccountSettingsRestored(t *testing.T, b *InMemoryBackend) {
 	t.Helper()
 
-	settings, err := b.ListAccountSettings("containerInsights", "")
+	settings, err := b.ListAccountSettings("containerInsights", "", false)
 	if err != nil || len(settings) != 1 {
 		t.Fatalf("ListAccountSettings: got %d settings, err=%v, want 1 setting", len(settings), err)
 	}

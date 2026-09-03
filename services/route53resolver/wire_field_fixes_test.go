@@ -149,3 +149,112 @@ func TestListResolverQueryLogConfigAssociations_TotalCounts(t *testing.T) {
 // confirmed to pass against the pre-fix code too, and deliberately dropped
 // rather than kept as false assurance. The shape fix stands undemonstrated
 // by a test; flagged here rather than silently omitted.
+
+// TestResolverRule_TargetIps_ServerNameIndicationRoundTrip covers a
+// write-only-state bug found in the gopherstack-6flj follow-up sweep:
+// types.TargetAddress (route53resolver@v1.48.4 types/types.go:1682, both
+// serializers.go:4838 request-side and deserializers.go:13705 response-side)
+// has a real ServerNameIndication member (the DoH server's SNI, meaningful
+// when Protocol is DoH/DoH-FIPS) that gopherstack's targetIP wire struct and
+// TargetIP domain model had no field for at all -- a real SDK client setting
+// it on CreateResolverRule/UpdateResolverRule had it silently accepted and
+// discarded, never stored, never echoed back on Get/List.
+func TestResolverRule_TargetIps_ServerNameIndicationRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+	h := route53resolver.NewHandler(backend)
+	client := newTestRoute53ResolverClient(t, h)
+	ctx := t.Context()
+
+	created, err := client.CreateResolverRule(ctx, &route53resolversdk.CreateResolverRuleInput{
+		Name:             aws.String("doh-rule"),
+		CreatorRequestId: aws.String("req-doh-rule"),
+		DomainName:       aws.String("example.com"),
+		RuleType:         types.RuleTypeOptionForward,
+		TargetIps: []types.TargetAddress{
+			{
+				Ip:                   aws.String("10.0.0.1"),
+				Port:                 aws.Int32(853),
+				Protocol:             types.ProtocolDoh,
+				ServerNameIndication: aws.String("resolver.example.com"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, created.ResolverRule.TargetIps, 1)
+	require.Equal(
+		t,
+		"resolver.example.com",
+		aws.ToString(created.ResolverRule.TargetIps[0].ServerNameIndication),
+	)
+
+	got, err := client.GetResolverRule(
+		ctx,
+		&route53resolversdk.GetResolverRuleInput{ResolverRuleId: created.ResolverRule.Id},
+	)
+	require.NoError(t, err)
+	require.Len(t, got.ResolverRule.TargetIps, 1)
+	require.Equal(
+		t,
+		"resolver.example.com",
+		aws.ToString(got.ResolverRule.TargetIps[0].ServerNameIndication),
+	)
+}
+
+// TestOutpostResolver_TimestampsRoundTrip covers a real bug found in the
+// gopherstack-6flj follow-up sweep: types.OutpostResolver
+// (route53resolver@v1.48.4 types/types.go:1078, deserializer at
+// deserializers.go:12034) has real CreationTime/ModificationTime members
+// that gopherstack's OutpostResolver domain model and wire struct never
+// tracked at all -- every Create/Get/List/Update/Delete response left them
+// permanently empty regardless of backend state, the same "field literally
+// never existed" bug class already fixed for FirewallDomainList in an
+// earlier pass.
+func TestOutpostResolver_TimestampsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+	h := route53resolver.NewHandler(backend)
+	client := newTestRoute53ResolverClient(t, h)
+	ctx := t.Context()
+
+	created, err := client.CreateOutpostResolver(ctx, &route53resolversdk.CreateOutpostResolverInput{
+		Name:                  aws.String("op-resolver"),
+		CreatorRequestId:      aws.String("req-op-resolver"),
+		OutpostArn:            aws.String("arn:aws:outposts:us-east-1:000000000000:outpost/op-1"),
+		PreferredInstanceType: aws.String("m5.large"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(created.OutpostResolver.CreationTime))
+	require.NotEmpty(t, aws.ToString(created.OutpostResolver.ModificationTime))
+
+	got, err := client.GetOutpostResolver(
+		ctx,
+		&route53resolversdk.GetOutpostResolverInput{Id: created.OutpostResolver.Id},
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		aws.ToString(created.OutpostResolver.CreationTime),
+		aws.ToString(got.OutpostResolver.CreationTime),
+	)
+	require.Equal(
+		t,
+		aws.ToString(created.OutpostResolver.ModificationTime),
+		aws.ToString(got.OutpostResolver.ModificationTime),
+	)
+
+	updated, err := client.UpdateOutpostResolver(ctx, &route53resolversdk.UpdateOutpostResolverInput{
+		Id:   created.OutpostResolver.Id,
+		Name: aws.String("op-resolver-renamed"),
+	})
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		aws.ToString(created.OutpostResolver.CreationTime),
+		aws.ToString(updated.OutpostResolver.CreationTime),
+		"CreationTime must not change on update",
+	)
+	require.NotEmpty(t, aws.ToString(updated.OutpostResolver.ModificationTime))
+}

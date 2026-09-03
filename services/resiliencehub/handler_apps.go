@@ -79,7 +79,12 @@ func (h *Handler) handleDeleteApp(_ context.Context, _ *http.Request, body []byt
 
 func (h *Handler) handleListApps(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
-	f := listAppsFilter{appArn: q.Get("appArn"), awsApplicationArn: q.Get("awsApplicationArn"), name: q.Get("name")}
+	f := listAppsFilter{
+		appArn: q.Get("appArn"), awsApplicationArn: q.Get("awsApplicationArn"), name: q.Get("name"),
+		fromLastAssessmentTime: queryTime(q, "fromLastAssessmentTime"),
+		toLastAssessmentTime:   queryTime(q, "toLastAssessmentTime"),
+		reverseOrder:           q.Get("reverseOrder") == queryValueTrue,
+	}
 
 	p := h.Backend.ListApps(f, q.Get("nextToken"), queryMaxResults(q))
 

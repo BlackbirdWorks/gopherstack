@@ -34,8 +34,11 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 
 func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	clusterID := vals.Get("DBClusterIdentifier")
-	instances, err := h.Backend.DescribeDBInstances(ctx, id, clusterID)
+	instances, err := h.Backend.DescribeDBInstances(ctx, id, "")
+	if err != nil {
+		return nil, err
+	}
+	instances, err = filterDBInstances(vals, instances)
 	if err != nil {
 		return nil, err
 	}

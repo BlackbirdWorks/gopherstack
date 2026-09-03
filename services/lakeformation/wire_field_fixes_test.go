@@ -342,3 +342,66 @@ func TestGetEffectivePermissionsForPath_RealSDKClient_PermissionsKey(t *testing.
 	assert.Equal(t, "arn:aws:iam::123456789012:user/alice",
 		aws.ToString(out.Permissions[0].Principal.DataLakePrincipalIdentifier))
 }
+
+// TestListLFTags_ResourceShareType_Foreign proves ListLFTags honours
+// ResourceShareType. ListLFTagsInput.ResourceShareType (api_op_ListLFTags.go,
+// lakeformation@v1.50.4) is FOREIGN|ALL: "If resource share type is FOREIGN,
+// returns all share LF-tags that the requester can view." This backend
+// models a single account with no RAM cross-account sharing, so no LF-tag is
+// ever foreign -- FOREIGN must return none of the account's own tags.
+func TestListLFTags_ResourceShareType_Foreign(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	_, err := client.CreateLFTag(t.Context(), &lakeformationsdk.CreateLFTagInput{
+		TagKey:    aws.String("env"),
+		TagValues: []string{"dev"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListLFTags(t.Context(), &lakeformationsdk.ListLFTagsInput{
+		ResourceShareType: types.ResourceShareTypeForeign,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.LFTags)
+}
+
+// TestListResources_FilterConditionList proves ListResources honours
+// FilterConditionList. ListResourcesInput.FilterConditionList
+// (api_op_ListResources.go, lakeformation@v1.50.4) filters on RESOURCE_ARN,
+// ROLE_ARN or LAST_MODIFIED via a ComparisonOperator -- previously not even
+// parsed into the wire request struct, so every registered resource always
+// came back regardless of the filter.
+func TestListResources_FilterConditionList(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	_, err := client.RegisterResource(t.Context(), &lakeformationsdk.RegisterResourceInput{
+		ResourceArn: aws.String("arn:aws:s3:::bucket-a"),
+		RoleArn:     aws.String("arn:aws:iam::123456789012:role/role-a"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterResource(t.Context(), &lakeformationsdk.RegisterResourceInput{
+		ResourceArn: aws.String("arn:aws:s3:::bucket-b"),
+		RoleArn:     aws.String("arn:aws:iam::123456789012:role/role-b"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListResources(t.Context(), &lakeformationsdk.ListResourcesInput{
+		FilterConditionList: []types.FilterCondition{
+			{
+				Field:              types.FieldNameStringResourceArn,
+				ComparisonOperator: types.ComparisonOperatorEq,
+				StringValueList:    []string{"arn:aws:s3:::bucket-a"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ResourceInfoList, 1)
+	assert.Equal(t, "arn:aws:s3:::bucket-a", aws.ToString(out.ResourceInfoList[0].ResourceArn))
+}

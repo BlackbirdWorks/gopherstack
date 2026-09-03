@@ -153,7 +153,7 @@ func TestEBListRuleNamesByTargetUsesIndex(t *testing.T) {
 		}
 	}
 
-	names, _, err := b.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "")
+	names, _, err := b.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "", 0)
 	require.NoError(t, err)
 	assert.Len(t, names, numRules/2, "expected exactly half of rules to match")
 }
@@ -188,7 +188,7 @@ func BenchmarkEBListRuleNamesByTarget(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for range b.N {
-		names, _, err := backend.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "")
+		names, _, err := backend.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "", 0)
 		if err != nil {
 			b.Fatal(err)
 		}

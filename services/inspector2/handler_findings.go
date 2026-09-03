@@ -43,7 +43,14 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 		return nil
 	}
 
-	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken, req.FilterCriteria)
+	var sortField, sortOrder string
+	if req.SortCriteria != nil {
+		sortField, sortOrder = req.SortCriteria.Field, req.SortCriteria.SortOrder
+	}
+
+	findings, nextToken, findErr := h.Backend.ListFindings(
+		req.MaxResults, req.NextToken, req.FilterCriteria, sortField, sortOrder,
+	)
 	if findErr != nil {
 		return h.mapError(c, findErr)
 	}

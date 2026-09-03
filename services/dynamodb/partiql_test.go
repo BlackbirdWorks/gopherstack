@@ -1037,3 +1037,44 @@ func TestBatchExecuteStatement_ErrorTableName_SurvivesWireConversion(t *testing.
 	require.NotNil(t, resp.Error, "statement against a missing table must fail")
 	assert.Equal(t, "does-not-exist", aws.ToString(resp.TableName))
 }
+
+// TestBatchExecuteStatement_ParameterConversionFailure_ErrorCode covers the
+// convFailed branch in handleBatchExecuteStatement, whose Error.Code was
+// "ValidationException" -- not a member of the real
+// BatchStatementErrorCodeEnum, whose actual value for this case is
+// "ValidationError" (dynamodb@v1.63.1 types/enums.go). Reached with a raw
+// HTTP request rather than the typed client: a well-formed
+// types.AttributeValue can never fail models.ToSDKAttributeValue, so this
+// branch only exists to handle malformed non-SDK JSON in the first place.
+func TestBatchExecuteStatement_ParameterConversionFailure_ErrorCode(t *testing.T) {
+	t.Parallel()
+
+	handler := setupPartiQLTable(t, partiqlRows())
+
+	batchBody := mustMarshal(t, map[string]any{
+		"Statements": []map[string]any{
+			{
+				"Statement":  `SELECT * FROM "TT1" WHERE pk = ?`,
+				"Parameters": []map[string]any{{"NOT_A_REAL_TYPE_KEY": "x"}},
+			},
+		},
+	})
+	rec := doRequest(t, handler, "DynamoDB_20120810.BatchExecuteStatement", batchBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	responses, ok := resp["Responses"].([]any)
+	require.True(t, ok)
+	require.Len(t, responses, 1)
+
+	r0, ok := responses[0].(map[string]any)
+	require.True(t, ok)
+
+	errEntry, ok := r0["Error"].(map[string]any)
+	require.True(t, ok, "expected Error in response for an unconvertible parameter")
+
+	code, _ := errEntry["Code"].(string)
+	assert.Equal(t, string(types.BatchStatementErrorCodeEnumValidationError), code,
+		"BatchStatementError.Code must be a real BatchStatementErrorCodeEnum member, not an invented string")
+}

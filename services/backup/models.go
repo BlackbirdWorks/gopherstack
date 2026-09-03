@@ -360,6 +360,7 @@ type CopyJob struct {
 	CompletionDate              *time.Time `json:"completionDate,omitempty"`
 	CopyJobID                   string     `json:"copyJobId"`
 	SourceBackupVaultArn        string     `json:"sourceBackupVaultArn,omitempty"`
+	SourceRecoveryPointArn      string     `json:"sourceRecoveryPointArn,omitempty"`
 	DestinationBackupVaultArn   string     `json:"destinationBackupVaultArn,omitempty"`
 	DestinationRecoveryPointArn string     `json:"destinationRecoveryPointArn,omitempty"`
 	ResourceArn                 string     `json:"resourceArn,omitempty"`

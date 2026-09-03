@@ -5,16 +5,13 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 var (
 	// ErrClusterNotFound is returned when a cluster does not exist.
 	ErrClusterNotFound = awserr.New("ClusterNotFoundException", awserr.ErrNotFound)
-	// ErrClusterAlreadyExists is returned when a cluster already exists.
-	ErrClusterAlreadyExists = awserr.New("ClusterAlreadyExistsException", awserr.ErrAlreadyExists)
-	// ErrTaskDefinitionNotFound is returned when a task definition does not exist.
-	ErrTaskDefinitionNotFound = awserr.New("TaskDefinitionNotFoundException", awserr.ErrNotFound)
 	// ErrServiceNotFound is returned when a service does not exist.
 	ErrServiceNotFound = awserr.New("ServiceNotFoundException", awserr.ErrNotFound)
-	// ErrServiceAlreadyExists is returned when a service already exists.
-	ErrServiceAlreadyExists = awserr.New("ServiceAlreadyExistsException", awserr.ErrAlreadyExists)
-	// ErrTaskNotFound is returned when a task does not exist.
-	ErrTaskNotFound = awserr.New("TaskNotFoundException", awserr.ErrNotFound)
+	// ErrResourceNotFound is returned when a generic resource does not exist
+	// (e.g. DescribeExpressGatewayService's not-found case: unlike its
+	// Delete/Update siblings, which model plain ServiceNotFoundException,
+	// this op's own deserializer models ResourceNotFoundException instead).
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrInvalidParameter is returned when a required parameter is missing or invalid.
 	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 	// ErrClient is returned when a request is structurally invalid in a way that
@@ -23,8 +20,14 @@ var (
 	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
 )
 
+// errServiceDeploymentAlreadyStopped is returned by StopServiceDeployment when
+// the deployment is already STOPPED. ecs models no "AlreadyStopped" exception
+// (absent from ecs@v1.90.0/types/errors.go and from
+// awsAwsjson11_deserializeOpErrorStopServiceDeployment's switch) --
+// ConflictException ("conflict in the current state of the resource") is the
+// code that switch actually models for this condition (gopherstack-101r).
 var errServiceDeploymentAlreadyStopped = awserr.New(
-	"ServiceDeploymentAlreadyStoppedException", awserr.ErrInvalidParameter,
+	"ConflictException", awserr.ErrInvalidParameter,
 )
 
 // errNoLifecycleHook is returned by ContinueServiceDeployment: this backend

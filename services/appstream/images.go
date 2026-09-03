@@ -287,7 +287,12 @@ func (b *InMemoryBackend) findImage(id string) (*storedImage, bool) {
 }
 
 // DescribeImages returns images, optionally filtered by name or ARN.
-func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
+// DescribeImages returns images, optionally filtered by name/ARN and by
+// visibility type. Every image this backend creates has Visibility
+// "PRIVATE" -- it never models AWS-provided base images or images shared
+// from another account -- so visibilityType "PUBLIC" or "SHARED" always
+// yields an empty result.
+func (b *InMemoryBackend) DescribeImages(names []string, visibilityType string) ([]*Image, error) {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
@@ -300,6 +305,10 @@ func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 				return nil, ErrNotFound
 			}
 
+			if visibilityType != "" && img.Visibility != visibilityType {
+				continue
+			}
+
 			result = append(result, img.toImage())
 		}
 
@@ -308,6 +317,10 @@ func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 
 	result := make([]*Image, 0, b.images.Len())
 	for _, img := range b.images.All() {
+		if visibilityType != "" && img.Visibility != visibilityType {
+			continue
+		}
+
 		result = append(result, img.toImage())
 	}
 
@@ -360,7 +373,9 @@ func (b *InMemoryBackend) DeleteImagePermissions(imageName, accountID string) er
 }
 
 // DescribeImagePermissions returns sharing permissions for an image.
-func (b *InMemoryBackend) DescribeImagePermissions(imageName string) ([]*SharedImagePermissions, error) {
+func (b *InMemoryBackend) DescribeImagePermissions(
+	imageName string, sharedAwsAccountIDs []string,
+) ([]*SharedImagePermissions, error) {
 	b.mu.RLock("DescribeImagePermissions")
 	defer b.mu.RUnlock()
 
@@ -373,8 +388,17 @@ func (b *InMemoryBackend) DescribeImagePermissions(imageName string) ([]*SharedI
 		return []*SharedImagePermissions{}, nil
 	}
 
+	allowed := make(map[string]bool, len(sharedAwsAccountIDs))
+	for _, id := range sharedAwsAccountIDs {
+		allowed[id] = true
+	}
+
 	result := make([]*SharedImagePermissions, 0, len(perms.SharedAccounts))
 	for accID, p := range perms.SharedAccounts {
+		if len(allowed) > 0 && !allowed[accID] {
+			continue
+		}
+
 		pCopy := *p
 		result = append(result, &SharedImagePermissions{
 			SharedAccountID:  accID,

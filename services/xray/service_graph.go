@@ -191,8 +191,20 @@ func buildServiceGraph(traceSegs map[string][]*Segment) []map[string]any {
 	return nodes
 }
 
-// GetServiceGraph returns a service graph derived from stored traces in the time window.
-func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time) []map[string]any {
+// noMatchFilterExpr is a filter expression evaluateFilter never matches for any
+// trace (it isn't the empty string, and matches none of evaluateFilter's
+// recognized token prefixes) -- used to force an empty result for a
+// GroupName/GroupARN that doesn't resolve to a real group, per real AWS's
+// behavior of returning an empty (not error) result for an unknown group on
+// ops that don't declare ResourceNotFoundException (see GetInsightSummaries'
+// analogous unresolved-ARN handling in handleGetInsightSummaries).
+const noMatchFilterExpr = "\x00unresolved-group\x00"
+
+// GetServiceGraph returns a service graph derived from stored traces in the
+// time window. filterExpr, when non-empty, is a group's FilterExpression
+// (evaluateFilter syntax): a trace is only included in the graph if its
+// derived TraceSummaryData matches the expression.
+func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time, filterExpr string) []map[string]any {
 	b.mu.RLock("GetServiceGraph")
 	defer b.mu.RUnlock()
 
@@ -217,9 +229,15 @@ func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time) []map[st
 			}
 		}
 
-		if len(inWindow) > 0 {
-			filtered[t.TraceID] = inWindow
+		if len(inWindow) == 0 {
+			continue
 		}
+
+		if filterExpr != "" && !evaluateFilter(filterExpr, BuildTraceSummary(t.TraceID, inWindow)) {
+			continue
+		}
+
+		filtered[t.TraceID] = inWindow
 	}
 
 	if len(filtered) == 0 {
@@ -297,8 +315,12 @@ func tsBucketToView(k int64, bkt *tsBucket) map[string]any {
 	}
 }
 
-// GetTimeSeriesServiceStatistics returns per-period bucketed statistics for segments in the time window.
-func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(startTime, endTime time.Time, period int) []map[string]any {
+// GetTimeSeriesServiceStatistics returns per-period bucketed statistics for
+// segments in the time window. filterExpr behaves as in GetServiceGraph: a
+// group's FilterExpression scoping which traces' segments are aggregated.
+func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(
+	startTime, endTime time.Time, period int, filterExpr string,
+) []map[string]any {
 	b.mu.RLock("GetTimeSeriesServiceStatistics")
 	defer b.mu.RUnlock()
 
@@ -311,6 +333,8 @@ func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(startTime, endTime time
 	for _, t := range b.traces.All() {
 		segs := b.traceSegments.Get(t.TraceID)
 
+		var inWindow []*Segment
+
 		for _, seg := range segs {
 			if seg.StartTime == 0 {
 				continue
@@ -321,6 +345,18 @@ func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(startTime, endTime time
 				continue
 			}
 
+			inWindow = append(inWindow, seg)
+		}
+
+		if len(inWindow) == 0 {
+			continue
+		}
+
+		if filterExpr != "" && !evaluateFilter(filterExpr, BuildTraceSummary(t.TraceID, inWindow)) {
+			continue
+		}
+
+		for _, seg := range inWindow {
 			accumulateToBucket(buckets, seg, period)
 		}
 	}

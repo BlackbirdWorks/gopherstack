@@ -118,9 +118,12 @@ func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (
 	return &cp, nil
 }
 
-// ListConnections returns connections optionally filtered by name prefix, with pagination.
+// ListConnections returns connections optionally filtered by name prefix and
+// connection state, with pagination.
+//
+//nolint:dupl // filter/sort/paginate shape is structurally identical to ListAPIDestinations, different element types
 func (b *InMemoryBackend) ListConnections(ctx context.Context,
-	namePrefix, nextToken string,
+	namePrefix, connectionState, nextToken string, limit int,
 ) ([]Connection, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -130,14 +133,18 @@ func (b *InMemoryBackend) ListConnections(ctx context.Context,
 	store := b.connectionsTable(region)
 	all := make([]Connection, 0, store.Len())
 	for _, c := range store.All() {
-		if namePrefix == "" || strings.HasPrefix(c.Name, namePrefix) {
-			all = append(all, *c)
+		if namePrefix != "" && !strings.HasPrefix(c.Name, namePrefix) {
+			continue
 		}
+		if connectionState != "" && c.ConnectionState != connectionState {
+			continue
+		}
+		all = append(all, *c)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

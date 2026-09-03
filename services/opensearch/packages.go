@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // AssociatePackage associates a package with a domain.
@@ -177,32 +179,71 @@ func (b *InMemoryBackend) DeletePackage(packageID string) (*Package, error) {
 	return &cp, nil
 }
 
-// DescribePackages returns packages matching the given IDs, or all packages if ids is empty.
-func (b *InMemoryBackend) DescribePackages(ids []string) ([]*Package, error) {
+// DescribePackages returns packages matching filters, paginated per
+// nextToken/maxResults. filters is keyed by DescribePackagesFilterName
+// (opensearch@v1.75.4 types/enums.go): PackageID, PackageName, PackageStatus
+// and PackageType are all fields this backend's Package tracks and applies
+// here; EngineVersion and PackageOwner are also valid enum members but this
+// backend has no such fields on Package to filter against (structural gap,
+// documented in PARITY.md) -- those two filter names are accepted but have
+// no effect, same as an absent filter. With no PackageID filter, the
+// unfiltered set is read via Snapshot() (ordered by PackageID ascending) so
+// pkgs/page.New's offset-based pagination sees a reproducible order across
+// calls, rather than All()'s unspecified map order.
+func (b *InMemoryBackend) DescribePackages(
+	filters map[string][]string, nextToken string, maxResults int,
+) (page.Page[*Package], error) {
 	b.mu.RLock("DescribePackages")
 	defer b.mu.RUnlock()
 
+	ids := filters["PackageID"]
+
+	var base []*Package
+
 	if len(ids) == 0 {
-		out := make([]*Package, 0, b.packages.Len())
-		for _, pkg := range b.packages.All() {
+		base = make([]*Package, 0, b.packages.Len())
+		for _, pkg := range b.packages.Snapshot() {
 			cp := *pkg
-			out = append(out, &cp)
+			base = append(base, &cp)
 		}
+	} else {
+		base = make([]*Package, 0, len(ids))
 
-		return out, nil
+		for _, id := range ids {
+			pkg, exists := b.packages.Get(id)
+			if !exists {
+				return page.Page[*Package]{}, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, id)
+			}
+
+			cp := *pkg
+			base = append(base, &cp)
+		}
 	}
 
-	out := make([]*Package, 0, len(ids))
+	all := make([]*Package, 0, len(base))
 
-	for _, id := range ids {
-		pkg, exists := b.packages.Get(id)
-		if !exists {
-			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, id)
+	for _, pkg := range base {
+		if names := filters["PackageName"]; len(names) > 0 && !slices.Contains(names, pkg.PackageName) {
+			continue
 		}
 
-		cp := *pkg
-		out = append(out, &cp)
+		if statuses := filters["PackageStatus"]; len(statuses) > 0 && !slices.Contains(statuses, pkg.PackageStatus) {
+			continue
+		}
+
+		if types := filters["PackageType"]; len(types) > 0 && !slices.Contains(types, pkg.PackageType) {
+			continue
+		}
+
+		all = append(all, pkg)
 	}
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = len(all)
+	}
+
+	out := page.New(all, nextToken, limit, limit)
 
 	return out, nil
 }

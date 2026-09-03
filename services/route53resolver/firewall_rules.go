@@ -46,13 +46,13 @@ func validateFirewallRuleBlockOverride(p CreateFirewallRuleParams) error {
 	if p.BlockOverrideDomain == "" {
 		return fmt.Errorf(
 			"%w: BlockOverrideDomain is required when BlockResponse is OVERRIDE",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 	if p.BlockOverrideDNSType == "" {
 		return fmt.Errorf(
 			"%w: BlockOverrideDNSType is required when BlockResponse is OVERRIDE",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -70,7 +70,7 @@ func validateDNSThreatProtectionValue(value string) error {
 	default:
 		return fmt.Errorf(
 			"%w: DnsThreatProtection must be %s, %s, or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			dnsThreatProtectionDGA,
 			dnsThreatProtectionDNSTunneling,
 			dnsThreatProtectionDictionaryDGA,
@@ -86,7 +86,7 @@ func validateFirewallRuleMatchSource(p CreateFirewallRuleParams) error {
 	if p.FirewallDomainListID != "" && p.DNSThreatProtection != "" {
 		return fmt.Errorf(
 			"%w: FirewallDomainListId and DnsThreatProtection are mutually exclusive",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -107,7 +107,7 @@ func validateFirewallRuleUpdateMatchSourceUnchanged(existing, supplied string) e
 	if supplied != "" && supplied != existing {
 		return fmt.Errorf(
 			"%w: DnsThreatProtection match source cannot be changed after creation",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -125,7 +125,7 @@ func validateFirewallDomainRedirectionAction(value string) error {
 	default:
 		return fmt.Errorf(
 			"%w: FirewallDomainRedirectionAction must be %s or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			firewallDomainRedirectionInspect,
 			firewallDomainRedirectionTrust,
 		)
@@ -145,7 +145,7 @@ func validateConfidenceThreshold(value string) error {
 	default:
 		return fmt.Errorf(
 			"%w: ConfidenceThreshold must be %s, %s, or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			confidenceThresholdLow,
 			confidenceThresholdMedium,
 			confidenceThresholdHigh,
@@ -164,7 +164,7 @@ func validateFirewallRuleConfidenceThreshold(p CreateFirewallRuleParams) error {
 	if p.DNSThreatProtection != "" && p.ConfidenceThreshold == "" {
 		return fmt.Errorf(
 			"%w: ConfidenceThreshold is required when DnsThreatProtection is set",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 
@@ -190,7 +190,7 @@ func resolveFirewallRulePriority(regionRules []*FirewallRule, p CreateFirewallRu
 		if existing.FirewallRuleGroupID == p.FirewallRuleGroupID && existing.Priority == priority {
 			return 0, fmt.Errorf(
 				"%w: a firewall rule with priority %d already exists in group %s",
-				ErrValidation,
+				ErrBatchValidation,
 				priority,
 				p.FirewallRuleGroupID,
 			)
@@ -215,7 +215,7 @@ func validateFirewallRuleDomainListUnique(regionRules []*FirewallRule, p CreateF
 			existing.FirewallDomainListID == p.FirewallDomainListID {
 			return fmt.Errorf(
 				"%w: a firewall rule for domain list %s already exists in group %s",
-				ErrAlreadyExists,
+				ErrBatchValidation,
 				p.FirewallDomainListID,
 				p.FirewallRuleGroupID,
 			)
@@ -415,7 +415,7 @@ func (b *InMemoryBackend) resolveFirewallRuleIdentity(
 	default:
 		return nil, false, fmt.Errorf(
 			"%w: one of FirewallDomainListId or FirewallThreatProtectionId is required",
-			ErrValidation,
+			ErrBatchValidation,
 		)
 	}
 }

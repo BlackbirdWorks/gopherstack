@@ -117,9 +117,14 @@ func paginateMaps(all []map[string]any, token string, maxResults, defaultMax int
 	start := 0
 
 	if token != "" {
+		// Same contract as paginateStrings (handler_databases.go): resume
+		// AT the named item, inclusive, and default a miss to len(all) so
+		// it terminates instead of restarting at page one.
+		start = len(all)
+
 		for i, m := range all {
 			if nv, ok := m[keyName].(string); ok && nv == token {
-				start = i + 1
+				start = i
 
 				break
 			}

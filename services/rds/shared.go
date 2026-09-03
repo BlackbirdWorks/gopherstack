@@ -78,6 +78,23 @@ func containsFold(values []string, target string) bool {
 	return strs.ContainsFold(values, target)
 }
 
+// containsFoldIDOrARN reports whether values contains target (a bare
+// identifier) under a case-insensitive comparison, accepting each candidate
+// value in either bare-identifier or ARN form. Used for the db-cluster-id
+// and db-instance-id Describe* Filters, whose own doc comments say "Accepts
+// ... identifiers and ... Amazon Resource Names (ARNs)" — unlike
+// containsFold's other callers (db-snapshot-id, db-cluster-snapshot-id,
+// dbi-resource-id, ...), whose doc comments accept identifiers only.
+func containsFoldIDOrARN(values []string, target string) bool {
+	for _, v := range values {
+		if strs.Equal(rdsIDFromARN(v), target) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // idEqual reports whether a and b are the same case-insensitive AWS
 // identifier (via pkgs/strs). Used wherever a plain map (rather than a
 // store.Table[V] with a normalizeID-folded keyFn) holds identifier-shaped

@@ -360,10 +360,11 @@ func (h *Handler) handleCreateScript(
 	return &createScriptOutput{PythonScript: py, ScalaCode: sc}, nil
 }
 
-// getDataflowGraphInput holds input for GetDataflowGraph.
+// getDataflowGraphInput holds input for GetDataflowGraph. The real
+// GetDataflowGraphInput has no Language member at all (api_op_GetDataflowGraph.go)
+// -- a prior pass fabricated one; removed rather than left unread.
 type getDataflowGraphInput struct {
 	PythonScript string `json:"PythonScript,omitempty"`
-	Language     string `json:"Language,omitempty"`
 }
 
 // getDataflowGraphOutput holds the result for GetDataflowGraph.

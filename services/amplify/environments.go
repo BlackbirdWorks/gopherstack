@@ -89,7 +89,7 @@ func (b *InMemoryBackend) DeleteBackendEnvironment(
 
 // ListBackendEnvironments lists backend environments for an app.
 func (b *InMemoryBackend) ListBackendEnvironments(
-	appID, nextToken string,
+	appID, environmentName, nextToken string,
 	maxResults int,
 ) ([]*BackendEnvironment, string, error) {
 	b.mu.RLock("ListBackendEnvironments")
@@ -102,6 +102,10 @@ func (b *InMemoryBackend) ListBackendEnvironments(
 	var all []*BackendEnvironment
 
 	for _, env := range b.backendEnvironmentsByApp.Get(appID) {
+		if environmentName != "" && env.EnvironmentName != environmentName {
+			continue
+		}
+
 		cp := *env
 		all = append(all, &cp)
 	}

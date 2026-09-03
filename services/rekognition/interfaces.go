@@ -14,7 +14,9 @@ type StorageBackend interface {
 
 	IndexFaces(collectionID, externalImageID string) ([]*Face, error)
 	DeleteFaces(collectionID string, faceIDs []string) ([]string, error)
-	ListFaces(collectionID string, maxResults int32, nextToken string) ([]*Face, string, error)
+	ListFaces(
+		collectionID string, faceIDs []string, userID string, maxResults int32, nextToken string,
+	) ([]*Face, string, error)
 	SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error)
 	SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error)
 
@@ -37,7 +39,7 @@ type StorageBackend interface {
 	// Projects and Project Versions
 	CreateProject(name string, params CreateProjectParams) (*Project, error)
 	DeleteProject(projectARN string) error
-	DescribeProjects(projectARNs []string, maxResults int32, nextToken string) ([]*Project, string, error)
+	DescribeProjects(projectARNs, features []string, maxResults int32, nextToken string) ([]*Project, string, error)
 	CreateProjectVersion(
 		projectARN, versionName string,
 		params CreateProjectVersionParams,
@@ -60,7 +62,9 @@ type StorageBackend interface {
 	CreateDataset(projectARN, datasetType string) (*Dataset, error)
 	DeleteDataset(datasetARN string) error
 	DescribeDataset(datasetARN string) (*Dataset, error)
-	ListDatasetEntries(datasetARN string, maxResults int32, nextToken string) ([]string, string, error)
+	ListDatasetEntries(
+		datasetARN string, filter ListDatasetEntriesFilter, maxResults int32, nextToken string,
+	) ([]string, string, error)
 	ListDatasetLabels(datasetARN string, maxResults int32, nextToken string) ([]*DatasetLabel, string, error)
 	UpdateDatasetEntries(datasetARN string, changes []byte) error
 	DistributeDatasetEntries(datasets []DatasetDistribution) error

@@ -35,9 +35,14 @@ func (b *InMemoryBackend) paginateAuthEventsLocked(key string, limit int, nextTo
 		return all[i].CreatedAt.After(all[j].CreatedAt)
 	})
 
+	// A miss (the event the token named no longer exists) defaults startIdx
+	// to the end of the collection: leaving it at 0 would resume a stale
+	// cursor at page one, forever.
 	startIdx := 0
 
 	if nextToken != "" {
+		startIdx = len(all)
+
 		for i, e := range all {
 			if e.EventID == nextToken {
 				startIdx = i

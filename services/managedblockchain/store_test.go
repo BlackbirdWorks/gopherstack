@@ -197,6 +197,7 @@ func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, stri
 
 	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "test-net",
+		"ClientRequestToken":  "test-token-network",
 		"MemberConfiguration": testMemberConfiguration("member-1"),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

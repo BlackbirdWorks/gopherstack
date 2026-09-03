@@ -124,15 +124,24 @@ func (h *Handler) handleGetOriginRequestPolicyConfig(c *echo.Context, id string)
 	return xmlResp(c, http.StatusOK, resp)
 }
 
+// handleListOriginRequestPolicies paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real OriginRequestPolicyList has no IsTruncated
+// field -- NextMarker's presence alone signals truncation (types/types.go:4746-4766).
+//
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListOriginRequestPolicies(c *echo.Context) error {
 	policies := h.Backend.ListOriginRequestPolicies()
 	policies = filterByManagedType(
 		c.QueryParam("Type"), func(p *OriginRequestPolicy) bool { return p.Managed }, policies,
 	)
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c, policies, func(p *OriginRequestPolicy) string { return p.ID },
+	)
+
 	var sb strings.Builder
 
-	for _, p := range policies {
+	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<OriginRequestPolicySummary><Type>%s</Type><OriginRequestPolicy><Id>%s</Id>`+
 				`<OriginRequestPolicyConfig>%s</OriginRequestPolicyConfig>`+
@@ -140,13 +149,18 @@ func (h *Handler) handleListOriginRequestPolicies(c *echo.Context) error {
 			policyTypeString(p.Managed), p.ID, orpConfigXMLBlock(p))
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<OriginRequestPolicyList xmlns="%s">`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
-		`<Items>%s</Items>`+
+		`<Items>%s</Items>%s`+
 		`</OriginRequestPolicyList>`,
-		cfNS, maxItems, len(policies), sb.String())
+		cfNS, pageSize, len(page), sb.String(), nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

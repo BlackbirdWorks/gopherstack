@@ -100,14 +100,21 @@ func (b *InMemoryBackend) UnassignVolume(volumeID string) error {
 }
 
 // DescribeVolumes returns volumes filtered by stack, instance, RAID array,
-// or IDs. RaidArrayId is accepted (matching the real DescribeVolumesInput
-// shape) but never filters anything: this backend does not model RAID
-// arrays at all (DescribeRaidArrays always returns empty, by design -- see
-// PARITY.md's Misc family note), so no volume ever carries a RAID array
-// association to filter on.
-func (b *InMemoryBackend) DescribeVolumes(stackID, instanceID, _ string, volumeIDs []string) ([]*Volume, error) {
+// or IDs. This backend does not model RAID arrays at all (DescribeRaidArrays
+// always returns empty, by design -- see PARITY.md's Misc family note), so
+// no volume ever carries a RAID array association: a non-empty raidArrayID
+// therefore excludes every volume rather than being silently ignored, which
+// previously returned every volume in the stack/instance regardless of the
+// caller's RaidArrayId constraint.
+func (b *InMemoryBackend) DescribeVolumes(
+	stackID, instanceID, raidArrayID string, volumeIDs []string,
+) ([]*Volume, error) {
 	b.mu.RLock("DescribeVolumes")
 	defer b.mu.RUnlock()
+
+	if raidArrayID != "" {
+		return []*Volume{}, nil
+	}
 
 	if len(volumeIDs) > 0 {
 		result := make([]*Volume, 0, len(volumeIDs))

@@ -102,7 +102,8 @@ func (h *Handler) handleBatchGetImage(
 }
 
 type describeImagesFilter struct {
-	TagStatus string `json:"tagStatus,omitempty"`
+	TagStatus   string `json:"tagStatus,omitempty"`
+	ImageStatus string `json:"imageStatus,omitempty"`
 }
 
 type describeImagesInput struct {
@@ -250,14 +251,20 @@ func (h *Handler) handleDescribeImages(
 		return nil, err
 	}
 
+	maxResults := in.MaxResults
+
 	if len(in.ImageIDs) == 0 {
-		imgs = filterAndPaginateImages(imgs, in.Filter, in.NextToken, in.MaxResults)
+		if maxResults <= 0 {
+			maxResults = 100 // AWS default when maxResults is not used.
+		}
+
+		imgs = filterAndPaginateImages(imgs, in.Filter, in.NextToken)
 	}
 
 	var nextToken string
-	if len(in.ImageIDs) == 0 && in.MaxResults > 0 && len(imgs) > in.MaxResults {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(imgs[in.MaxResults].ImageDigest))
-		imgs = imgs[:in.MaxResults]
+	if len(in.ImageIDs) == 0 && len(imgs) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(imgs[maxResults].ImageDigest))
+		imgs = imgs[:maxResults]
 	}
 
 	details := make([]imageDetailView, 0, len(imgs))
@@ -268,39 +275,57 @@ func (h *Handler) handleDescribeImages(
 	return &describeImagesOutput{ImageDetails: details, NextToken: nextToken}, nil
 }
 
-func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextToken string, _ int) []Image {
-	if filter != nil && filter.TagStatus != "" {
-		filtered := imgs[:0]
-		for _, img := range imgs {
-			isTagged := len(img.Tags) > 0
-			if passesTagFilter(isTagged, filter.TagStatus) {
-				filtered = append(filtered, img)
-			}
-		}
-		imgs = filtered
+func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextToken string) []Image {
+	tagStatusFilter := ""
+	imageStatusFilter := ""
+
+	if filter != nil {
+		tagStatusFilter = filter.TagStatus
+		imageStatusFilter = filter.ImageStatus
 	}
 
+	filtered := imgs[:0]
+
+	for _, img := range imgs {
+		isTagged := len(img.Tags) > 0
+		if passesTagFilter(isTagged, tagStatusFilter) && passesImageStatusFilter(img.ImageStatus, imageStatusFilter) {
+			filtered = append(filtered, img)
+		}
+	}
+
+	imgs = filtered
+
 	if nextToken != "" {
+		start := len(imgs)
+
 		decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
 		if decErr == nil {
 			cursorKey := string(decoded)
-			start := 0
+
+			// imgs is sorted ascending by ImageDigest (DescribeImages); a
+			// digest deleted since the token was issued still sorts between
+			// two survivors, so resume at the first one >= it. A miss
+			// defaults to len(imgs), not 0 -- defaulting to 0 on an
+			// equality miss would restart at page one on every stale or
+			// tampered token.
 			for i, img := range imgs {
-				if img.ImageDigest == cursorKey {
+				if img.ImageDigest >= cursorKey {
 					start = i
 
 					break
 				}
 			}
-			imgs = imgs[start:]
 		}
+
+		imgs = imgs[start:]
 	}
 
 	return imgs
 }
 
 type listImagesFilter struct {
-	TagStatus string `json:"tagStatus,omitempty"`
+	TagStatus   string `json:"tagStatus,omitempty"`
+	ImageStatus string `json:"imageStatus,omitempty"`
 }
 
 type listImagesInput struct {
@@ -321,41 +346,57 @@ func (h *Handler) handleListImages(
 	in *listImagesInput,
 ) (*listImagesOutput, error) {
 	tagStatusFilter := ""
+	imageStatusFilter := ""
+
 	if in.Filter != nil {
 		tagStatusFilter = in.Filter.TagStatus
+		imageStatusFilter = in.Filter.ImageStatus
 	}
 
-	imageIDs, err := h.Backend.ListImages(ctx, in.RepositoryName, tagStatusFilter)
+	imageIDs, err := h.Backend.ListImages(ctx, in.RepositoryName, tagStatusFilter, imageStatusFilter)
 	if err != nil {
 		return nil, err
 	}
 
 	// Apply nextToken cursor: token is base64(digest:tag) of the first image on this page.
 	if in.NextToken != "" {
+		start := len(imageIDs)
+
 		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
 		if decErr == nil {
 			cursorKey := string(decoded)
-			start := 0
+
+			// imageIDs is sorted ascending by (digest, tag); an entry
+			// deleted since the token was issued still sorts between two
+			// survivors, so resume at the first one >= it. A miss defaults
+			// to len(imageIDs), not 0 -- defaulting to 0 on an equality
+			// miss would restart at page one on every stale or tampered
+			// token.
 			for i, id := range imageIDs {
-				if id.ImageDigest+":"+id.ImageTag == cursorKey {
+				if id.ImageDigest+":"+id.ImageTag >= cursorKey {
 					start = i
 
 					break
 				}
 			}
-
-			imageIDs = imageIDs[start:]
 		}
+
+		imageIDs = imageIDs[start:]
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(digest:tag).
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default when maxResults is not used.
+	}
+
 	var nextToken string
-	if in.MaxResults > 0 && len(imageIDs) > in.MaxResults {
-		next := imageIDs[in.MaxResults]
+	if len(imageIDs) > maxResults {
+		next := imageIDs[maxResults]
 		nextToken = base64.StdEncoding.EncodeToString(
 			[]byte(next.ImageDigest + ":" + next.ImageTag),
 		)
-		imageIDs = imageIDs[:in.MaxResults]
+		imageIDs = imageIDs[:maxResults]
 	}
 
 	return &listImagesOutput{ImageIDs: imageIDs, NextToken: nextToken}, nil

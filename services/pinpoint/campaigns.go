@@ -137,7 +137,11 @@ func (b *InMemoryBackend) GetCampaigns(appID string) ([]*Campaign, error) {
 	}
 
 	sort.Slice(campaigns, func(i, j int) bool {
-		return campaigns[i].Name < campaigns[j].Name
+		if campaigns[i].Name != campaigns[j].Name {
+			return campaigns[i].Name < campaigns[j].Name
+		}
+
+		return campaigns[i].ID < campaigns[j].ID
 	})
 
 	return campaigns, nil

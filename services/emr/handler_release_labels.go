@@ -8,7 +8,7 @@ import (
 
 type listReleaseLabelsInput struct {
 	Filters    listReleaseLabelFilters `json:"Filters"`
-	Marker     string                  `json:"Marker"`
+	NextToken  string                  `json:"NextToken"`
 	MaxResults int                     `json:"MaxResults"`
 }
 
@@ -26,7 +26,9 @@ func (h *Handler) handleListReleaseLabels(
 	ctx context.Context,
 	in *listReleaseLabelsInput,
 ) (*listReleaseLabelsOutput, error) {
-	labels, next := h.Backend.ListReleaseLabels(ctx, in.Filters.Prefix, in.Filters.Application, in.Marker)
+	labels, next := h.Backend.ListReleaseLabels(
+		ctx, in.Filters.Prefix, in.Filters.Application, in.NextToken, in.MaxResults,
+	)
 
 	return &listReleaseLabelsOutput{ReleaseLabels: labels, NextToken: next}, nil
 }

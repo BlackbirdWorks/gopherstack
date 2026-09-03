@@ -91,6 +91,34 @@ func TestStartImageScan_ThenDescribeFindings(t *testing.T) {
 	assert.Equal(t, digest, findings.ImageID.ImageDigest)
 }
 
+// TestDescribeImageScanFindings_NegativeOffsetToken reproduces a nextToken
+// decoding to a negative offset. DescribeImageScanFindings parses nextToken
+// with a bare strconv.Atoi and no `< 0` guard, and its `startIdx >= total`
+// check does not catch a negative offset, so
+// cp.Findings[startIdx:endIdx]/cp.EnhancedFindings[startIdx:endIdx]
+// previously panicked with a negative slice bound.
+func TestDescribeImageScanFindings_NegativeOffsetToken(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.CreateRepoInternal("scan-repo")
+
+	digest := "sha256:deadbeef"
+	b.AddImageInternal("scan-repo", makeImage(digest, "latest"))
+
+	_, err := b.StartImageScan(context.Background(), "scan-repo",
+		ecr.ImageIdentifier{ImageDigest: digest})
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		findings, next, findErr := b.DescribeImageScanFindings(context.Background(), "scan-repo",
+			ecr.ImageIdentifier{ImageDigest: digest}, 10, "-5")
+		require.NoError(t, findErr)
+		assert.Equal(t, "COMPLETE", findings.Status, "a negative-offset token must be treated like start=0")
+		_ = next
+	})
+}
+
 func TestScanNotFoundException_HTTPHandler(t *testing.T) {
 	t.Parallel()
 
@@ -622,28 +650,33 @@ func TestBatchGetRepositoryScanningConfiguration_ScanFrequency(t *testing.T) {
 			wantFrequency: "CONTINUOUS_SCAN",
 		},
 		{
-			name:       "enhanced_prefix_rule_matches_repo",
+			// ScanningRepositoryFilterType's only real AWS value is "WILDCARD"
+			// (aws-sdk-go-v2/service/ecr types/enums.go:441) -- there is no
+			// "PREFIX"/"PREFIX_MATCH" variant for scanning rules (that value
+			// belongs to the distinct replication RepositoryFilterType). A
+			// wildcard-free literal is just an exact match.
+			name:       "enhanced_wildcard_literal_rule_matches_repo",
 			scanOnPush: false,
 			scanType:   "ENHANCED",
 			rules: []map[string]any{
 				{
 					"scanFrequency": "CONTINUOUS_SCAN",
 					"repositoryFilters": []map[string]any{
-						{"filter": "myrepo", "filterType": "PREFIX"},
+						{"filter": "myrepo", "filterType": "WILDCARD"},
 					},
 				},
 			},
 			wantFrequency: "CONTINUOUS_SCAN",
 		},
 		{
-			name:       "enhanced_prefix_rule_no_match_falls_back",
+			name:       "enhanced_wildcard_literal_rule_no_match_falls_back",
 			scanOnPush: false,
 			scanType:   "ENHANCED",
 			rules: []map[string]any{
 				{
 					"scanFrequency": "CONTINUOUS_SCAN",
 					"repositoryFilters": []map[string]any{
-						{"filter": "other", "filterType": "PREFIX"},
+						{"filter": "other", "filterType": "WILDCARD"},
 					},
 				},
 			},

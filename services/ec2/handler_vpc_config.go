@@ -142,7 +142,9 @@ type describeClassicLinkInstancesResponse struct {
 
 func (h *Handler) handleDescribeClassicLinkInstances(vals url.Values, reqID string) (any, error) {
 	instanceIDs := parseMemberList(vals, "InstanceId")
-	links := h.Backend.DescribeClassicLinkInstances(instanceIDs)
+	links := applyClassicLinkInstanceFilters(
+		h.Backend.DescribeClassicLinkInstances(instanceIDs), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeClassicLinkInstancesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

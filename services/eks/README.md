@@ -8,12 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 65 (65 ok) |
-| Known gaps | 5 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return the mutated resource directly), so there is no addon/capability-scoped Update to filter over yet
+- ListInsights.Filter.kubernetesVersions is unimplemented: Insight has no version field on this backend's synthetic model
 - Capability Configuration remains an untyped passthrough map — no per-CapabilityType (ArgoCd/Ack/Kro) schema validation of Configuration/UpdateCapabilityConfiguration, unlike the real API's discriminated CapabilityConfigurationResponse/UpdateCapabilityConfiguration union types
 - Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation -- there is no real cluster to analyze)
 - types.InsightSummary/types.Insight's kubernetesVersion and name members have no honest source in this backend's Insight model and are left absent from both DescribeInsight and ListInsights rather than fabricated

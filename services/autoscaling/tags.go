@@ -3,6 +3,7 @@ package autoscaling
 import (
 	"fmt"
 	"sort"
+	"strconv"
 )
 
 // CreateOrUpdateTags creates or updates tags on Auto Scaling resources.
@@ -87,8 +88,15 @@ func buildTagFilterMap(filters []TagFilter) map[string]map[string]bool {
 	return m
 }
 
-// tagMatchesFilters reports whether the tag identified by (resourceID, key, value) passes all filters.
-func tagMatchesFilters(filterMap map[string]map[string]bool, resourceID, key, value string) bool {
+// tagMatchesFilters reports whether the tag identified by (resourceID, key,
+// value, propagateAtLaunch) passes all filters. Name values per
+// types.Filter's DescribeTags doc (types/types.go:820-857): auto-scaling-group,
+// key, value, propagate-at-launch (a Boolean).
+func tagMatchesFilters(
+	filterMap map[string]map[string]bool,
+	resourceID, key, value string,
+	propagateAtLaunch bool,
+) bool {
 	if len(filterMap) == 0 {
 		return true
 	}
@@ -102,6 +110,10 @@ func tagMatchesFilters(filterMap map[string]map[string]bool, resourceID, key, va
 	}
 
 	if vals, ok := filterMap["value"]; ok && !vals[value] {
+		return false
+	}
+
+	if pal, ok := filterMap["propagate-at-launch"]; ok && !pal[strconv.FormatBool(propagateAtLaunch)] {
 		return false
 	}
 
@@ -119,12 +131,13 @@ func (b *InMemoryBackend) DescribeTags(filters []TagFilter) ([]ResourceTag, erro
 
 	for _, g := range b.groups.All() {
 		for _, t := range g.Tags {
-			if tagMatchesFilters(filterMap, g.AutoScalingGroupName, t.Key, t.Value) {
+			if tagMatchesFilters(filterMap, g.AutoScalingGroupName, t.Key, t.Value, t.PropagateAtLaunch) {
 				result = append(result, ResourceTag{
-					ResourceID:   g.AutoScalingGroupName,
-					ResourceType: resourceTypeAutoScalingGroup,
-					Key:          t.Key,
-					Value:        t.Value,
+					ResourceID:        g.AutoScalingGroupName,
+					ResourceType:      resourceTypeAutoScalingGroup,
+					Key:               t.Key,
+					Value:             t.Value,
+					PropagateAtLaunch: t.PropagateAtLaunch,
 				})
 			}
 		}

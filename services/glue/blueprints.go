@@ -90,13 +90,15 @@ func (b *InMemoryBackend) CreateBlueprint(
 	return cloneBlueprint(bp), nil
 }
 
-// DeleteBlueprint removes a blueprint.
+// DeleteBlueprint removes a blueprint. Its error switch has no
+// EntityNotFoundException case, unlike GetBlueprint's, so an unknown Name
+// surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteBlueprint(name string) error {
 	b.mu.Lock("DeleteBlueprint")
 	defer b.mu.Unlock()
 
 	if !b.blueprints.Has(name) {
-		return fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
+		return fmt.Errorf("blueprint %q not found: %w", name, ErrValidation)
 	}
 
 	b.blueprints.Delete(name)
@@ -195,7 +197,11 @@ func (b *InMemoryBackend) GetBlueprintRuns(blueprintName string) []*BlueprintRun
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].RunID < runs[k].RunID
 	})
 
 	return runs

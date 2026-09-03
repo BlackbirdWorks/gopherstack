@@ -2,8 +2,14 @@
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
 last_audit_commit: b451ad0d
-last_audit_date: 2026-08-19
-overall: A            # 2026-08-19: LastShareDetails type-confusion bug (object vs *string) found and fixed this pass -- see Notes
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListQueues/
+                      # ListJobTemplates/ListPresets never read ListBy (NAME/CREATION_DATE) at
+                      # all -- always returned name-sorted regardless of the caller's choice;
+                      # SearchJobs never read InputFile at all -- status/queue/order worked but
+                      # a client scoping to one input file got every job. Both fixed; see the
+                      # four ops: entries and wire_list_by_test.go/search_test.go.
+                      # 2026-08-19: LastShareDetails type-confusion bug (object vs *string) found and fixed this pass -- see Notes
                       # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
                       # 2026-07-31: pkgs/sdkcheck reverse check re-flagged UpdateJob, which the 2026-07-24 pass had already correctly identified as not-a-real-op (see Notes) but left ADVERTISED in GetSupportedOperations()/ChaosOperations() -- i.e. the finding was documented but not actually corrected. Now removed from the advertised list; route stays wired as internal test scaffolding, unreachable by real clients either way. See its Notes entry and handler.go's opUpdateJob comment.
 ops:
@@ -19,16 +25,16 @@ ops:
   CancelJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval, which the real CreateJobTemplateInput wire shape accepts but JobTemplate previously had no fields for (silently dropped) -- see CreateJobTemplateFull"}
   GetJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListJobTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListJobTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): ListBy (NAME/CREATION_DATE, documented default NAME) was never read at all -- handler always returned name-sorted order regardless of the caller's choice. Now honored; SYSTEM is a valid enum value but this backend never creates SYSTEM-type templates (CreateJobTemplate always sets Type=CUSTOM), so there is nothing for it to filter to -- documented gap, not silently mishandled."}
   UpdateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval support via UpdateJobTemplateFull -- previously silently dropped despite the real UpdateJobTemplateInput accepting them (was the last remaining gap for this family)"}
   DeleteJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPreset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPresets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListPresets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): same ListBy gap as ListJobTemplates -- never read, now honored (NAME/CREATION_DATE); SYSTEM undocumented gap for the same reason (no SYSTEM-type presets ever created)."}
   UpdatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetQueue: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListQueues: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListQueues: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): ListBy (NAME/CREATION_DATE, documented default NAME) was never read -- now honored."}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "this pass: real op is POST-only with maxResults/nextToken/mode in a JSON body -- gopherstack previously answered any HTTP method and ignored the body. Fixed: route now requires POST (GET/other methods 404 as unknown operation, matching real-client behavior against a real endpoint), and the body is parsed (mode/maxResults honored; nextToken accepted but there is never a next page since exactly one synthetic endpoint ever exists)"}
@@ -39,7 +45,7 @@ ops:
   DisassociateCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   Probe: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SearchJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly"}
+  SearchJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly. 2026-08-29 (wrapper-key-sweep): InputFile query param (\"provide your input file URL or your partial input file name\") was never read at all -- status/queue/order were applied but inputFile was silently ignored, so a client scoping a search to one input file got every job instead. Now matched via substring against settings.inputs[].fileInput (jobMatchesInputFile, jobs.go) -- the one field path this op documents, read from the otherwise-opaque Settings map this service already round-trips verbatim."}
   CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void). 2026-08-19: this op's side effect (Job.LastShareDetails) was a critical type-confusion bug -- see gaps->fixed below"}
 families:
   queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update. FIXED 2026-08-23 (gopherstack batch8): ListQueues now paginates via pkgs/page.New (real NextToken) -- see Notes"}
@@ -452,3 +458,56 @@ Gates: `go build ./...`, `go vet ./services/mediaconvert/...`, `gofmt -l`
 `golangci-lint run ./services/mediaconvert/...` (0 issues). No persisted
 struct changed -- this is response-shape-only, no backend/model field
 touched, no snapshot version bump needed.
+
+## 2026-08-28 — wrapper-key-sweep: CreateQueue accepted and echoed a phantom ServiceOverrides field (acceptguard)
+
+acceptguard flagged `createQueueInput.ServiceOverrides` (`handler_queues.go:76`, read in
+`handleCreateQueue`) as matching no member of any real Input in the module. Confirmed against
+mediaconvert@v1.97.1's `CreateQueueInput` (`api_op_CreateQueue.go`): `Name`/`ConcurrentJobs`/
+`Description`/`MaximumConcurrentFeeds`/`PricingPlan`/`ReservationPlanSettings`/`Status`/`Tags`
+only — no such member. The real `Queue` output type has no `ServiceOverrides` either
+(`types/types.go`), so this was fabricated on **both** the request and response sides: a prior
+version accepted it at creation and echoed it back under `"serviceOverrides"` on every `Queue`
+response.
+
+Fixed by removing `ServiceOverrides` from `createQueueInput` (`handler_queues.go`), the `Queue`
+struct (`models.go`), the `CreateQueueFull` backend signature/interface
+(`queues.go`/`interfaces.go`), and its clone logic (`cloneQueue`); `deepCloneMap` itself stays
+(still used by job templates/jobs/presets settings maps).
+
+A typed-client fail-before test isn't constructible — the real `CreateQueueInput`/`Queue` Go
+structs never had this field, so a real client's request/response are identical before and
+after. Proof is a raw-body test instead (`TestCreateQueue_RawServiceOverridesFieldIgnored`,
+`wire_field_fixes_test.go`, new file): posting `{"serviceOverrides": {...}}` to `CreateQueue`
+must not appear in the create response or a follow-up `GetQueue`. Hand-reverted
+`handler_queues.go`/`interfaces.go`/`models.go`/`queues.go` (and the callers in
+`persistence_test.go`/`queues_test.go` that passed the now-removed parameter), confirmed the
+raw-body test fails (the field round-tripped on both create and get), restored. A companion
+real-SDK test (`TestCreateQueue_RealSDKHasNoServiceOverrides`) proves `CreateQueue`/`GetQueue`
+still work end to end through a typed client.
+
+**Test judgement**: `queues_test.go`'s `TestCreateQueue_ServiceOverrides` and
+`TestCreateQueue_ServiceOverridesDeepCopy` — a well-tested fabrication, matching this sweep's
+appstream/pipes precedent — asserted the phantom field stored and deep-copied correctly. Both
+removed (the feature doesn't exist). `TestInMemoryBackend_SnapshotRestore_FullState`
+(`persistence_test.go`) asserted `gotQueue.ServiceOverrides` was non-nil after a restore round
+trip — that assertion removed, the rest of the test (queue/job-template/job/preset snapshot
+coverage) is unaffected.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/mediaconvert/...`).
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+`cmd/enumcheck` gained struct-field-hop resolution (see xray/codepipeline/
+comprehend PARITY.md same-dated notes for the mechanics). Re-run across the
+whole repo produced the same findings as before the fix -- nothing new
+surfaced here or anywhere.
+
+mediaconvert's single hit, `handler_probe.go:33`'s
+`"container": {"format": "mp4"}` inside `handleProbe`, was manually
+verified against `mediaconvert@v1.97.1/types/types.go:2460`: `Container.Format`
+is typed `types.Format`, and `FormatMp4 Format = "mp4"`
+(`types/enums.go:4060`) -- an exact match. The finding only fired because
+the wire key "format" is ambiguous with the unrelated `WaveSettings.Format`
+(`types.WavFormat`: RIFF/RF64/EXTENSIBLE). FALSE POSITIVE, not fixed: the
+emitted value is correct for the struct actually being built here.

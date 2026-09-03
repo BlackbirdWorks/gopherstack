@@ -238,6 +238,31 @@ func (b *InMemoryBackend) DeregisterStreamConsumer(ctx context.Context, input *D
 	return nil
 }
 
+// subscribeToShardStartPos resolves a StartingPosition to a record index within shard.
+func subscribeToShardStartPos(shard *Shard, pos StartingPosition) (int, error) {
+	switch pos.Type {
+	case iteratorTypeTrimHorizon:
+		return 0, nil
+	case iteratorTypeLatest:
+		return shard.Records.len(), nil
+	case iteratorTypeAtSequenceNumber:
+		return findSequencePosition(&shard.Records, pos.SequenceNumber, false), nil
+	case iteratorTypeAfterSequenceNumber:
+		return findSequencePosition(&shard.Records, pos.SequenceNumber, true), nil
+	case iteratorTypeAtTimestamp:
+		// Timestamp is required for AT_TIMESTAMP; a genuinely omitted value
+		// (nil) is rejected rather than silently treated as position 0,
+		// mirroring GetShardIterator (see shard_iterators.go).
+		if pos.Timestamp == nil {
+			return 0, ErrInvalidArgument
+		}
+
+		return findTimestampPosition(&shard.Records, *pos.Timestamp), nil
+	default:
+		return 0, ErrInvalidArgument
+	}
+}
+
 // SubscribeToShard delivers records from a shard to an enhanced fan-out consumer.
 // For mock purposes this is a single-shot delivery of all available records.
 func (b *InMemoryBackend) SubscribeToShard(
@@ -268,28 +293,14 @@ func (b *InMemoryBackend) SubscribeToShard(
 		return nil, ErrInvalidArgument
 	}
 
-	var startPos int
+	startPos, err := subscribeToShardStartPos(shard, input.StartingPosition)
+	if err != nil {
+		return nil, err
+	}
 
-	switch input.StartingPosition.Type {
-	case iteratorTypeTrimHorizon:
-		startPos = 0
-	case iteratorTypeLatest:
-		startPos = shard.Records.len()
-	case iteratorTypeAtSequenceNumber:
-		startPos = findSequencePosition(&shard.Records, input.StartingPosition.SequenceNumber, false)
-	case iteratorTypeAfterSequenceNumber:
-		startPos = findSequencePosition(&shard.Records, input.StartingPosition.SequenceNumber, true)
-	case iteratorTypeAtTimestamp:
-		// Timestamp is required for AT_TIMESTAMP; a genuinely omitted value
-		// (nil) is rejected rather than silently treated as position 0,
-		// mirroring GetShardIterator (see shard_iterators.go).
-		if input.StartingPosition.Timestamp == nil {
-			return nil, ErrInvalidArgument
-		}
-
-		startPos = findTimestampPosition(&shard.Records, *input.StartingPosition.Timestamp)
-	default:
-		return nil, ErrInvalidArgument
+	enc := stream.EncryptionType
+	if enc == "" {
+		enc = encryptionTypeNone
 	}
 
 	n := shard.Records.len()
@@ -302,6 +313,7 @@ func (b *InMemoryBackend) SubscribeToShard(
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
 			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
+			EncryptionType:              enc,
 		})
 	}
 

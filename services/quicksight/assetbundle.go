@@ -149,6 +149,7 @@ func (b *InMemoryBackend) ListAssetBundleExportJobs(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, job := range all {
 			if job.JobID == nextToken {
 				start = i
@@ -236,6 +237,7 @@ func (b *InMemoryBackend) ListAssetBundleImportJobs(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, job := range all {
 			if job.JobID == nextToken {
 				start = i

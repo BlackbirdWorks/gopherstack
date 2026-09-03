@@ -44,13 +44,13 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	fnName := "scaling-fn"
 	createFunctionForTest(t, h, fnName)
 
-	maxConc := 10
+	maxEnv := 10
 
 	// Put scaling config
 	rec := callInMemoryHandler(
 		t, h, http.MethodPut,
 		"/2025-11-30/functions/"+fnName+"/function-scaling-config",
-		`{"MaximumConcurrency":10}`,
+		`{"FunctionScalingConfig":{"MaxExecutionEnvironments":10}}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -59,9 +59,11 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 		"/2025-11-30/functions/"+fnName+"/function-scaling-config", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]any
+	var out lambda.GetFunctionScalingConfigOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.InDelta(t, float64(maxConc), out["MaximumConcurrency"], 0.001)
+	require.NotNil(t, out.AppliedFunctionScalingConfig)
+	require.NotNil(t, out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
+	assert.Equal(t, int32(maxEnv), *out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
 }
 
 func TestRuntimeManagementConfig_PutGet(t *testing.T) {
@@ -284,11 +286,13 @@ func TestScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 	rec := auditCreateFunction(t, h, baseImageFn("scaling-fn"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	// Set MaximumConcurrency = 1
-	maxConc := 1
+	// Set MaxExecutionEnvironments = 1
+	maxEnv := int32(1)
 	_, err := bk.PutFunctionScalingConfig(
 		"scaling-fn",
-		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &maxConc},
+		&lambda.PutFunctionScalingConfigInput{
+			FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &maxEnv},
+		},
 	)
 	require.NoError(t, err)
 
@@ -316,17 +320,19 @@ func TestScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
 	rec := auditCreateFunction(t, h, baseImageFn("scaling-zero-fn"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	// MaximumConcurrency = 0 → no invocations permitted
-	zero := 0
+	// MaxExecutionEnvironments = 0 → no invocations permitted
+	zero := int32(0)
 	_, err := bk.PutFunctionScalingConfig(
 		"scaling-zero-fn",
-		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &zero},
+		&lambda.PutFunctionScalingConfigInput{
+			FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &zero},
+		},
 	)
 	require.NoError(t, err)
 
 	// No slots should be acquirable (returns false, nil because hasLimit=false and no reserved)
-	// But MaximumConcurrency=0 with scaling config enforcement should block:
+	// But MaxExecutionEnvironments=0 with scaling config enforcement should block:
 	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-zero-fn")
-	// With MaximumConcurrency=0, active(0) >= 0 is true so it blocks
+	// With MaxExecutionEnvironments=0, active(0) >= 0 is true so it blocks
 	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
 }

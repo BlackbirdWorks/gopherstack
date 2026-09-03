@@ -87,7 +87,7 @@ func (b *InMemoryBackend) DeleteVpcIngressConnection(vicArn string) (*VpcIngress
 
 // ListVpcIngressConnections returns VPC ingress connections with optional filters.
 func (b *InMemoryBackend) ListVpcIngressConnections(
-	serviceArnFilter, connectionArnFilter string,
+	serviceArnFilter, vpcEndpointIDFilter string,
 	maxResults int32,
 	nextToken string,
 ) ([]*VpcIngressConnectionSummary, string, error) {
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) ListVpcIngressConnections(
 		if serviceArnFilter != "" && vic.ServiceArn != serviceArnFilter {
 			continue
 		}
-		if connectionArnFilter != "" && vic.VpcIngressConnectionArn != connectionArnFilter {
+		if vpcEndpointIDFilter != "" && vic.VpcEndpointID != vpcEndpointIDFilter {
 			continue
 		}
 		s := vic.toSummary()

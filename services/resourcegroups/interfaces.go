@@ -55,11 +55,13 @@ type StorageBackend interface {
 		nextToken string,
 		maxResults int,
 	) ([]ResourceIdentifier, string, error)
-	// ListGroupingStatuses returns grouping/ungrouping status history with optional pagination.
+	// ListGroupingStatuses returns grouping/ungrouping status history, filtered by
+	// filters (Name: "status" or "resource-arn") and paginated.
 	// Returns statuses, a continuation token (empty when exhausted), and any error.
 	ListGroupingStatuses(
 		ctx context.Context,
 		nameOrARN string,
+		filters []ListGroupingStatusesFilter,
 		nextToken string,
 		maxResults int,
 	) ([]GroupingStatusItem, string, error)

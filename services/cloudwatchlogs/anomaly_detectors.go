@@ -126,10 +126,13 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 		cp.LogGroupArnList = slices.Clone(d.LogGroupArnList)
 		all = append(all, cp)
 	}
-	sort.Slice(
-		all,
-		func(i, j int) bool { return all[i].CreationTimeStamp < all[j].CreationTimeStamp },
-	)
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTimeStamp != all[j].CreationTimeStamp {
+			return all[i].CreationTimeStamp < all[j].CreationTimeStamp
+		}
+
+		return all[i].AnomalyDetectorArn < all[j].AnomalyDetectorArn
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -288,7 +291,13 @@ func (b *InMemoryBackend) ListAnomalies(
 		}
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].FirstSeen < all[j].FirstSeen })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].FirstSeen != all[j].FirstSeen {
+			return all[i].FirstSeen < all[j].FirstSeen
+		}
+
+		return all[i].AnomalyID < all[j].AnomalyID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {

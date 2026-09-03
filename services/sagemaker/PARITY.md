@@ -125,7 +125,7 @@ families:
   tags: {status: ok, note: "AddTags/ListTags/DeleteTags verified against findTagMapLocked, which indexes ~20 resource kinds by ARN. Not-found path returns ValidationException (400), matching real AWS TagKeys validation error class. CORRECTION parity-25 (gopherstack-oc9v): the 'ok' verdict above covered not-found error mapping only. FIXED parity-25 — AddTagsOutput.Tags ([]types.Tag, 'A list of tags associated with the SageMaker resource') was never emitted; the handler returned a bare `{}` on every AddTags call. Now returns the resource's full current tag set (via a ListTags call after the write), proven by a new assertion in TestHandler_Tags — a pre-existing gap in that same test's coverage (it round-tripped AddTags without ever reading its response body, so nothing caught the missing field). FIXED parity-25 — AddTagsInput.Tags and DeleteTagsInput.TagKeys (both 'This member is required') were accepted with no presence check at all; both now enforced (TestHandler_AddTags_RequiresTags/TestHandler_DeleteTags_RequiresTagKeys). FIXED parity-25 — ListTagsInput.MaxResults (api_op_ListTags.go, default 100) was decoded nowhere; ListTags paginated at a fixed sagemakerDefaultPageSize regardless of what a client requested. Now honored via paginateSlice (TestHandler_ListTags_MaxResults). All 3 anonymous request structs in handler_tags.go converted to named types this pass."}
   algorithm: {status: partial, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — CreateAlgorithm/DescribeAlgorithm/DeleteAlgorithm/ListAlgorithm, field-diffed against api_op_{Create,Describe,Delete,List}Algorithm.go. FIXED — CreateAlgorithmInput.TrainingSpecification is 'This member is required' (alongside AlgorithmName), but only AlgorithmName was ever validated present; a request missing it silently succeeded with an empty spec, and DescribeAlgorithmOutput.TrainingSpecification (itself required on that output) would then be emitted as an empty/absent value. Now enforced, and describeAlgorithmResponse's TrainingSpecification json tag had its incorrect omitempty removed to match. FIXED — ListAlgorithmsInput was NextToken-only, dropping CreationTimeAfter/CreationTimeBefore/NameContains/SortBy/SortOrder entirely (SortBy default CreationTime, SortOrder default Ascending per api_op_ListAlgorithms.go — the one op in this pass's List trio whose real SortOrder default is Ascending, not Descending); all now real, proven by TestHandler_ListAlgorithms_FilterSort. AlgorithmStatusDetails/CreationTime/AlgorithmStatus (all required DescribeAlgorithmOutput fields) were already correctly emitted with no omitempty. TrainingSpecification/InferenceSpecification/ValidationSpecification remain opaque json.RawMessage passthrough (same convention as ai_benchmark_job etc., see gaps:) rather than fully-typed TrainingSpecification/InferenceSpecification/AlgorithmValidationSpecification structs — each is a deep, low-traffic nested type (ChannelSpecification/MetricDefinition/HyperParameterSpecification/...). All 3 anonymous request structs in handler_algorithms.go converted to named types this pass."}
   monitoring_alert: {status: partial, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — UpdateMonitoringAlert/ListMonitoringAlerts/ListMonitoringAlertHistory, field-diffed against api_op_{Update,List}MonitoringAlert*.go. FIXED — UpdateMonitoringAlertInput.DatapointsToAlert/EvaluationPeriod are both 'This member is required', but neither was validated present (a zero/absent value looks identical for a non-pointer int32, so this follows the same == 0 convention as this campaign's other required-int-field fixes, e.g. TransformResources.InstanceCount). FIXED — ListMonitoringAlertsInput.MaxResults (api_op_ListMonitoringAlerts.go, default 100) was decoded nowhere; the backend's sagemakerListKeyPagedMap helper had no maxResults parameter at all, always paging at the fixed sagemakerDefaultPageSize. Both the handler and the helper now thread it through, proven by TestHandler_ListMonitoringAlerts_MaxResults. ListMonitoringAlertHistoryInput's CreationTimeAfter/CreationTimeBefore/MonitoringScheduleName/MonitoringAlertName/StatusEquals/SortOrder/NextToken/MaxResults were already all real — no gap found there. All 3 anonymous request structs in handler_monitoring.go converted to named types this pass (a fourth, ListMonitoringExecutions, was already a named type from an earlier pass)."}
-  presigned_session: {status: ok, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — CreatePresignedDomainUrl/RenderUiTemplate/StartSession, field-diffed against api_op_{CreatePresignedDomainUrl,RenderUiTemplate,StartSession}.go. FIXED — RenderUiTemplateInput.Task ('This member is required') and its own required Input field (types.RenderableTask, types/types.go:19548) were accepted with no presence check; an absent Task.Input silently rendered the template unchanged (via the existing empty-string early-return in renderUITemplateContent) rather than being rejected. Now enforced, proven by TestHandler_RenderUiTemplate_MissingTaskInput. StartSessionInput/Output already matched exactly (ResourceIdentifier in; SessionId/StreamUrl/TokenValue out). CreatePresignedDomainUrlInput's ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds (real, optional fields) are now decoded (for tooling visibility) but are disclosed no-ops — CreatePresignedDomainUrlOutput is a bare {AuthorizedUrl}, and this backend's synthetic URL (a token appended to the domain's stored URL) carries no verified real query-parameter format to encode an expiry or landing path into, the same disclosed-no-op stance as PartnerApps' identical fields. All 3 anonymous request structs in handler_presigned_session.go converted to named types this pass."}
+  presigned_session: {status: ok, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — CreatePresignedDomainUrl/RenderUiTemplate/StartSession, field-diffed against api_op_{CreatePresignedDomainUrl,RenderUiTemplate,StartSession}.go. FIXED — RenderUiTemplateInput.Task ('This member is required') and its own required Input field (types.RenderableTask, types/types.go:19548) were accepted with no presence check; an absent Task.Input silently rendered the template unchanged (via the existing empty-string early-return in renderUITemplateContent) rather than being rejected. Now enforced, proven by TestHandler_RenderUiTemplate_MissingTaskInput. StartSessionInput/Output already matched exactly (ResourceIdentifier in; SessionId/StreamUrl/TokenValue out). CreatePresignedDomainUrlInput's ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds (real, optional fields) are now decoded (for tooling visibility) but are disclosed no-ops — CreatePresignedDomainUrlOutput is a bare {AuthorizedUrl}, and this backend's synthetic URL (a token appended to the domain's stored URL) carries no verified real query-parameter format to encode an expiry or landing path into, the same disclosed-no-op stance as PartnerApps' identical fields. All 3 anonymous request structs in handler_presigned_session.go converted to named types this pass. CORRECTION parity-29 — the 'now decoded... disclosed no-ops' claim above described this as commented at the code level like PartnerApps' siblings, but createPresignedDomainURLRequest's doc comment carried no such disclosure; added, no behavior change (the fields' inertness was already real, just undocumented in-code — a PARITY.md-vs-code drift, not a functional bug). Also noted for the first time: CreatePresignedDomainUrlInput additionally carries a real SpaceName field (an alternative identity to UserProfileName) not decoded at all; left unmodeled rather than guessed at, since this backend has no Studio Space + shared-space presigned-URL precedent to model it faithfully against (no bd issue filed yet)."}
   processing_transform_job: {status: partial, note: "Wire-audited this pass: DescribeProcessingJob/DescribeTransformJob field-by-field against SDK output structs — field names, optional-field gating, and epoch-seconds timestamps all correct. No bugs found. CORRECTION parity-24 (gopherstack-oc9v): the 'No bugs found' claim above covered only the Describe response shape, not the full request surface, and did not hold there. FIXED parity-24 — CreateProcessingJobInput's VPC settings nest under NetworkConfig.VpcConfig (api_op_CreateProcessingJob.go); this handler instead decoded a top-level \"VpcConfig\" key that does not exist anywhere on the real request, so every real client's VPC-isolated processing job silently lost its network settings (and the accepted top-level key was dead code no real client would ever populate). Now ProcessingNetworkConfig nests VpcConfig/EnableInterContainerTrafficEncryption/EnableNetworkIsolation under NetworkConfig, proven via a real-SDK-client test. CreateProcessingJobInput's RoleArn/AppSpecification/ProcessingResources (all 'This member is required') were also never validated present — fixed. ExperimentConfig (ExperimentName/RunName/TrialComponentDisplayName/TrialName) and StoppingCondition (MaxRuntimeInSeconds) were both accept-and-drop, now fully modeled and round-tripped (both small flat types, no passthrough needed). ListProcessingJobs accepted only NextToken/StatusEquals/MaxResults, dropping CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/NameContains/SortBy/SortOrder entirely (SortBy default CreationTime, SortOrder default Ascending per api_op_ListProcessingJobs.go) — all now real. FIXED parity-24 — CreateTransformJobInput has no RoleArn field at all (api_op_CreateTransformJob.go:55-166); this handler accepted, stored, and echoed one anyway on every Create/Describe, a fabricated field no real client ever sends. Removed entirely (TransformJob/TransformJobOptions/decode/emit), proven by a test asserting RoleArn is absent from Describe's response even when supplied on Create. ListTransformJobs gained the same CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/SortBy/SortOrder surface (SortOrder default Descending per that op's doc) it was missing. CreateTransformJobInput's other four required members (ModelName already checked; TransformInput.DataSource.S3DataSource.S3Uri/TransformOutput.S3OutputPath/TransformResources.InstanceType+InstanceCount) were also never validated present — fixed. ProcessingJob's ProcessingInput.DatasetDefinition sub-fields beyond DataDistributionType/InputMode, ProcessingOutput.FeatureStoreOutput, and TransformJob's DataCaptureConfig/DataProcessing/ExperimentConfig/ModelClientConfig/LabelingJobArn/AutoMLJobArn remain accept-and-drop or unmodeled — see gaps:. All 8 anonymous request structs across handler_processing_jobs.go/handler_transform_jobs.go converted to named types this pass."}
   notebook_instance: {status: ok, note: "Wire-audited this pass: DescribeNotebookInstanceFull field-by-field against SDK — all optional fields correctly gated, epoch-seconds timestamps correct. No bugs found."}
   hyperparameter_tuning_job: {status: partial, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits). FIXED parity-20 (gopherstack-oc9v) — all 5 inline structs converted to named types; StopHyperParameterTuningJob's Stopping-forever status bug fixed via a real FSM; CreateHyperParameterTuningJob/DescribeHyperParameterTuningJob now capture and echo the full HyperParameterTuningJobConfig (ParameterRanges/HyperParameterTuningJobObjective/RandomSeed/StrategyConfig/TrainingJobEarlyStoppingType/TuningJobCompletionCriteria) plus Autotune/WarmStartConfig/TrainingJobDefinition/TrainingJobDefinitions, all previously entirely absent; ListHyperParameterTuningJobs/ListTrainingJobsForHyperParameterTuningJob gained real filter/sort/pagination (previously NextToken-only / unpaginated). PARTIAL because BestTrainingJob/OverallBestTrainingJob/ConsumedResources/TuningJobCompletionDetails/HyperParameterTuningEndTime and the full semantic content of TrainingJobDefinition(s)/ParameterRanges/StrategyConfig remain json.RawMessage passthrough rather than modeled (this backend never launches or searches child training jobs) — every field a client sends round-trips exactly, but no real hyperparameter search ever runs."}
@@ -136,17 +136,19 @@ families:
   feature_metadata: {status: partial, note: "parity-26 (gopherstack-oc9v), first wire audit of this family — DescribeFeatureMetadata/UpdateFeatureMetadata field-diffed against api_op_{Describe,Update}FeatureMetadata.go. FIXED — UpdateFeatureMetadataInput.ParameterRemovals ([]string, real, optional) was absent from decode entirely; a real client removing a parameter key had the removal silently dropped (accept-and-drop). Now threaded through UpdateFeatureMetadata (feature_store.go) and deleted from the stored map, proven by TestHandler_UpdateFeatureMetadata_ParameterRemovals. FIXED — DescribeFeatureMetadataOutput.LastModifiedTime ('This member is required') was hardcoded to the owning feature group's CreationTime on every call, never advancing — handleDescribeFeatureMetadata emitted epochSeconds(fg.CreationTime) unconditionally rather than the metadata's own last-modified time. FeatureMetadata gained a LastModifiedTime field, set by UpdateFeatureMetadata on every successful call; Describe now falls back to the group's CreationTime only for a feature never updated (matches real AWS: a feature's metadata timestamp starts at group creation). Proven by TestBackend_FeatureMetadata_LastModifiedTimeAdvances (asserted on the backend's time.Time field directly, not through the wire's epochSeconds truncation, since two calls in one test can land in the same whole second) and TestHandler_DescribeFeatureMetadata_LastModifiedTimeDefaultsToGroupCreation. Both anonymous request structs in handler_feature_metadata.go converted to named types this pass."}
   model_package_model_package_group: {status: partial, note: "FIXED this pass — ModelPackage was missing the required ModelPackageStatusDetails field entirely (see Notes); ModelPackage/ModelPackageGroup Describe+List timestamp encoding also fixed. Other model-package fields (InferenceSpecification, SourceAlgorithmSpecification validation, etc.) not otherwise wire-audited this pass."}
   automl_job: {status: partial, note: "FIXED this pass (parity-4) — AutoMLJob was missing the required LastModifiedTime/AutoMLJobSecondaryStatus fields entirely, plus the timestamp encoding bug (see Notes). FIXED this pass (parity-5) — the required DescribeAutoMLJobOutput/CreateAutoMLJobInput field InputDataConfig ([]types.AutoMLChannel) is now modeled (AutoMLChannel/AutoMLDataSource/AutoMLS3DataSource types added), accepted at Create, and always emitted (as [] when absent, matching the required-field contract). CORRECTED+FIXED this pass (parity-6) — parity-5's note that 'AutoMLJobInputDataConfig does not exist in the SDK' was itself wrong: it is the required field on CreateAutoMLJobV2Input ([]types.AutoMLJobChannel, CreateAutoMLJobV2Input:91), a real, distinct-from-V1 field. CreateAutoMLJobV2/DescribeAutoMLJobV2 were routed to the V1 handlers and so silently dropped it (plus the required AutoMLProblemTypeConfig union) on every V2 request — the actual bug gopherstack-e39w asked for. Both ops now have their own handlers (handler_automl_v2.go) with the correct V2 wire shape: AutoMLJobInputDataConfig ([]AutoMLJobChannel, a narrower type than V1's AutoMLChannel — no TargetAttributeName/SampleWeightAttributeName), AutoMLProblemTypeConfig (5-member tagged union, carried opaque per gaps: below), AutoMLProblemTypeConfigName (derived from which union member is present), AutoMLComputeConfig/DataSplitConfig/SecurityConfig/ModelDeployConfig (all small flat types, fully modeled). handleDescribeAutoMLJob (V1) was also changed from json.Marshal(struct) to an explicit response map, since the shared AutoMLJob struct now carries V2-only fields that would otherwise leak into a V1 Describe of a V2-created job. FIXED parity-24 (gopherstack-oc9v) — CreateAutoMLJobInput's RoleArn/InputDataConfig/OutputDataConfig are each 'This member is required' (api_op_CreateAutoMLJob.go), but only AutoMLJobName was ever validated present; a request missing any of the other three silently succeeded with an empty role and no data config. Now all four are enforced (InputDataConfig checked non-empty, not just non-nil). ModelDeployConfig (a real, optional CreateAutoMLJobInput field, and a type this backend already modeled for CreateAutoMLJobV2) was decoded nowhere on V1 Create at all — SetAutoMLJobExtras now accepts and DescribeAutoMLJob now returns it. ListAutoMLJobsInput was NextToken-only, dropping CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/NameContains/StatusEquals/SortBy/SortOrder entirely (SortBy default Name, SortOrder default Descending per api_op_ListAutoMLJobs.go) — all now real. AutoMLJobConfig (CandidateGenerationConfig/CompletionCriteria/Mode) remains accept-and-drop on V1 Create; DataSplitConfig/SecurityConfig are already modeled for V2 but not wired to the V1 Create path, since V1's own AutoMLJobConfig is a distinct, still-unmodeled field. All 4 anonymous request structs in handler_automl.go converted to named types this pass. FIXED parity-26 (gopherstack-oc9v) — CreateAutoMLJobV2Input's RoleArn/AutoMLJobInputDataConfig/AutoMLProblemTypeConfig/OutputDataConfig (all 'This member is required' alongside AutoMLJobName, api_op_CreateAutoMLJobV2.go:72-166) were decoded but never validated present; a request missing any of the three non-name/non-role fields silently succeeded, and a pre-existing test (TestHandler_CreateAutoMLJobV2_RoundTrip's 'minimal' case) exercised exactly that gap, asserting a 200 for a request missing all three. Now all four enforced, the test rewritten to supply a structurally-valid fixture, and a new TestHandler_CreateAutoMLJobV2_RequiresAllRequiredMembers added. The remaining 2 anonymous request structs in handler_automl_v2.go converted to named types this pass."}
-  lineage_action_artifact_context_association: {status: ok, note: "parity-5, wire-audited CreateAction/CreateArtifact/CreateContext + Describe/Update/Delete/List against api_op_{Create,Describe,Update}{Action,Artifact,Context}.go. No accept-and-drop bugs found — Source/Properties/Description/Status/Tags all round-trip correctly. QueryLineage/DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy also verified (the single auto-provisioned lineage group with no policy is an honest, correctly-typed 404, not a stub). FIXED (gopherstack-cgq3) — ListAssociations was missing CreatedAfter/CreatedBefore/DestinationType/MaxResults/SortBy/SortOrder (six of eleven real ListAssociationsInput members; the audit that found this counted six, but SourceType was also absent and is fixed alongside them) — the request had been an anonymous inline struct with only SourceArn/DestinationArn/AssociationType/NextToken, invisible to field-audit tooling (gopherstack-oc9v); now a named listAssociationsInput. All six (seven) fields are real filters/sorts, not accept-and-drop: SourceType/DestinationType resolve the entity's type via the existing lineageEntityLookup; CreatedAfter/CreatedBefore filter on Association.CreationTime; SortBy/SortOrder reorder by SourceArn/DestinationArn/SourceType/DestinationType/CreationTime (default); MaxResults truncates via the existing paginateSlice helper. Proven with TestHandler_ListAssociations_Filters/_Sort/_MaxResults, which assert on the actual narrowed/reordered/paginated result set, not just on the parsed request. FIXED this pass (parity-8, gopherstack-oc9v) — the remaining 19 inline `struct{...}` request declarations in this family (CreateArtifact/DescribeArtifact/UpdateArtifact/DeleteArtifact/ListArtifacts, CreateContext/DescribeContext/UpdateContext/DeleteContext/ListContexts, DescribeAction/UpdateAction/DeleteAction/ListActions, DeleteAssociation, DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy, QueryLineage) converted to named types and wire-audited; MetadataProperties (the gap this note flagged since parity-5) is now real on both CreateArtifact and CreateAction; DeleteArtifact's Source alternative identity, five real filter/sort/pagination fields each on ListArtifacts/ListContexts/ListActions, ListLineageGroups' CreatedAfter/CreatedBefore/SortBy/SortOrder/MaxResults, and QueryLineage's Filters/MaxResults/NextToken are all now real. See Notes: parity-8 for the full list and for what remains disclosed rather than modeled (QueryFilters.Types)."}
+  lineage_action_artifact_context_association: {status: ok, note: "parity-5, wire-audited CreateAction/CreateArtifact/CreateContext + Describe/Update/Delete/List against api_op_{Create,Describe,Update}{Action,Artifact,Context}.go. No accept-and-drop bugs found — Source/Properties/Description/Status/Tags all round-trip correctly. QueryLineage/DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy also verified (the single auto-provisioned lineage group with no policy is an honest, correctly-typed 404, not a stub). FIXED (gopherstack-cgq3) — ListAssociations was missing CreatedAfter/CreatedBefore/DestinationType/MaxResults/SortBy/SortOrder (six of eleven real ListAssociationsInput members; the audit that found this counted six, but SourceType was also absent and is fixed alongside them) — the request had been an anonymous inline struct with only SourceArn/DestinationArn/AssociationType/NextToken, invisible to field-audit tooling (gopherstack-oc9v); now a named listAssociationsInput. All six (seven) fields are real filters/sorts, not accept-and-drop: SourceType/DestinationType resolve the entity's type via the existing lineageEntityLookup; CreatedAfter/CreatedBefore filter on Association.CreationTime; SortBy/SortOrder reorder by SourceArn/DestinationArn/SourceType/DestinationType/CreationTime (default); MaxResults truncates via the existing paginateSlice helper. Proven with TestHandler_ListAssociations_Filters/_Sort/_MaxResults, which assert on the actual narrowed/reordered/paginated result set, not just on the parsed request. FIXED this pass (parity-8, gopherstack-oc9v) — the remaining 19 inline `struct{...}` request declarations in this family (CreateArtifact/DescribeArtifact/UpdateArtifact/DeleteArtifact/ListArtifacts, CreateContext/DescribeContext/UpdateContext/DeleteContext/ListContexts, DescribeAction/UpdateAction/DeleteAction/ListActions, DeleteAssociation, DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy, QueryLineage) converted to named types and wire-audited; MetadataProperties (the gap this note flagged since parity-5) is now real on both CreateArtifact and CreateAction; DeleteArtifact's Source alternative identity, five real filter/sort/pagination fields each on ListArtifacts/ListContexts/ListActions, ListLineageGroups' CreatedAfter/CreatedBefore/SortBy/SortOrder/MaxResults, and QueryLineage's Filters/MaxResults/NextToken are all now real. See Notes: parity-8 for the full list and for what remains disclosed rather than modeled (QueryFilters.Types). FIXED parity-29 — AddAssociationInput has no Tags member at all (api_op_AddAssociation.go); addAssociationRequest decoded one anyway and applied it to the new association, a fabricated field no real client can ever populate (AddAssociationOutput echoes only Source/DestinationArn, matching the real op). Removed; an association can still be tagged afterward via AddTags against its resulting ARN. Proven by TestHandler_AddAssociation_TagsNotOnWire (no bd issue filed yet)."}
   edge_deployment_device_fleet: {status: partial, note: "FIXED this pass — DeviceFleet/Device family: OutputConfig (required in Create+Update) was silently optional and UpdateDeviceFleet silently dropped it; DeviceFleet/Device Describe+List timestamp encoding also fixed (see Notes). EdgeDeploymentPlan/EdgePackagingJob not otherwise wire-audited this pass. gopherstack-muzq (2026-08-21): EdgePackagingJobStatus was stamped STARTING at Create and STOPPING at Stop, and nothing else in this backend ever advanced either -- no ticker, no later call. Fixed via scheduleEdgePackagingJobCompletion (STARTING -> COMPLETED) and a runDelayed continuation in StopEdgePackagingJob (STOPPING -> STOPPED), mirroring the existing lifecycle.go runDelayed pattern already used by TrainingJob/Endpoint/InferenceComponent/the generic Job family. FailureReason/other field-level EdgePackagingJob wire audit remains open, unchanged from this note's prior scope. FIXED parity-24 (gopherstack-oc9v) — CreateEdgePackagingJobInput.OutputConfig ('This member is required', api_op_CreateEdgePackagingJob.go:13-52, types.EdgeOutputConfig{S3OutputLocation required, KmsKeyId/PresetDeploymentConfig/PresetDeploymentType optional}) was entirely absent from decode, storage, and Describe — the most severe finding of this pass, the same required-member-never-read class as this campaign's other headline bugs. Now required, stored, and echoed. ModelName/ModelVersion/RoleArn/CompilationJobName are also each 'This member is required' but only EdgePackagingJobName was ever validated present — all four now enforced. ListEdgePackagingJobsInput accepted only StatusEquals/NameContains/NextToken, dropping CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/ModelNameContains/SortBy/SortOrder/MaxResults entirely; neither SortBy nor SortOrder documents a default on this op, so an unset value keeps this backend's pre-existing ascending-by-name order rather than inventing one (same conservative stance as parity-23's ListFlowDefinitions/ListHumanTaskUis). ResourceKey (a real, optional CreateEdgePackagingJobInput field) is now also stored and returned. DescribeEdgePackagingJobOutput's ModelArtifact/ModelSignature/PresetDeploymentOutput/EdgePackagingJobStatusMessage remain unmodeled — server-derived fields with no synchronous backend process to honestly derive them from, left absent rather than fabricated. All 4 anonymous request structs in handler_edge_packaging_jobs.go converted to named types this pass."}
   labeling_job: {status: partial, note: "parity-5, wire-audited CreateLabelingJob/DescribeLabelingJob against api_op_CreateLabelingJob.go/api_op_DescribeLabelingJob.go — this family was already the most fully-typed in the service (real InputConfig/OutputConfig/HumanTaskConfig/StoppingConditions/LabelingJobAlgorithmsConfig structs, real Initializing->InProgress->Completed FSM). FIXED this pass — Tags (a real, optional DescribeLabelingJobOutput field) were accepted and stored on Create but never serialized back out by DescribeLabelingJob; also fixed the LabelingJob.Tags struct field's json:\"-\" tag (was silently dropping Tags across a persistence snapshot/restore round-trip too, a second manifestation of the same bug). No other gaps found."}
   hub_hub_content: {status: ok, note: "parity-5, wire-audited CreateHub/DescribeHub/ImportHubContent/DescribeHubContent against api_op_{Create,Describe}Hub.go/api_op_{Import,Describe}HubContent.go. No accept-and-drop bugs found — this was already a thorough implementation: S3StorageConfig is correctly nested (not flattened) on both request and response, HubContentDependencies/presigned URLs/ModelReference content-references (CreateHubContentReference/UpdateHubContentReference) all real. No changes made."}
   cluster: {status: partial, note: "parity-5, wire-audited CreateCluster/DescribeCluster/UpdateCluster against api_op_{Create,Describe,Update}Cluster.go. FIXED parity-5 — ClusterRole and VpcConfig (both real optional CreateClusterInput/DescribeClusterOutput fields; VpcConfig reuses the existing shared VpcConfig type from training_jobs.go) were accepted-and-dropped entirely — CreateCluster's signature didn't have parameters for them at all. FIXED this pass (gopherstack-i359) — AutoScaling (types.ClusterAutoScalingConfig, Mode/AutoScalerType; DescribeCluster reports the required Status as InService, mirroring instanceGroupStatusInService's existing no-async-provisioning convention), NodeProvisioningMode (plain string), and TieredStorageConfig (types.ClusterTieredStorageConfig, Mode/InstanceMemoryAllocationPercentage) are now accepted on Create+Update and returned by Describe. Orchestrator (types.ClusterOrchestrator) is also now modeled — confirmed via botocore sagemaker/2017-07-24@1.43.56 service-2.json (`shapes.ClusterOrchestrator.type == \"structure\"`, not `\"union\"`) and serializers.go:27593-27612 that despite AWS's docs saying 'exactly one of Eks or Slurm', this is a plain struct with two independent optional members, not a discriminated wire union — so both fields decode independently and the exactly-one rule is enforced as a runtime ValidationException (api_op_CreateCluster.go:76-78) instead of a union tag. ALSO FIXED this pass (gopherstack-i359) — a persistence bug found while wiring the above: ClusterRole and VpcConfig (parity-5's fix) were never added to persistedCluster (persistence.go's hand-maintained Cluster DTO), so both were silently dropped across Snapshot/Restore even though CreateCluster/DescribeCluster round-tripped them correctly in memory; fixed alongside the four new fields. NOT fixed (see gaps:): RestrictedInstanceGroups/RestrictedInstanceGroupsConfig — judged too large to model faithfully within this pass's budget (ClusterRestrictedInstanceGroupSpecification alone nests EnvironmentConfig->FSxLustreConfig, a real 3-member InstanceStorageConfig union, and ScheduledUpdateConfig->DeploymentConfiguration->RollingDeploymentPolicy/AlarmDetails — six more nested types beyond the top-level spec); left entirely untouched rather than partially modeled. Re-examined a third time (gopherstack-i359, session 3): same conclusion, with the scope confirmed even larger than previously written up — see gaps: for the session-3 detail, including a wholly separate RestrictedInstanceGroupsConfig field this campaign hadn't previously named. StartClusterHealthCheck (parity-4) unaffected."}
   inference_recommendations_edge_packaging: {status: partial, note: "parity-5, wire-audited CreateInferenceRecommendationsJob/DescribeInferenceRecommendationsJob against api_op_{Create,Describe}InferenceRecommendationsJob.go. This is a DIFFERENT family from AIRecommendationJob (ai_recommendation_jobs.go, parity-4) — distinct SDK ops, distinct store, no shared state. FIXED this pass — InputConfig ([]types.RecommendationJobInputConfig-shaped) is 'This member is required' on both CreateInferenceRecommendationsJobInput and DescribeInferenceRecommendationsJobOutput but was not modeled, accepted, or returned at all (the struct had no field for it whatsoever) — now stored+echoed as opaque json.RawMessage passthrough (same established convention as ai_benchmark_job/ai_recommendation_job/ai_workload_config's own deeply-nested union fields, see gaps: below). Real client-populated content round-trips exactly. EdgePackagingJob portion not otherwise wire-audited this pass. gopherstack-muzq (2026-08-21): InferenceRecommendationsJob.Status was stamped IN_PROGRESS at Create and STOPPING at Stop, and nothing else in this backend ever advanced either -- confirmed via DescribeInferenceRecommendationsJob, which echoed the stored value verbatim forever. Fixed via scheduleInferenceRecommendationsJobCompletion (IN_PROGRESS -> COMPLETED) and a runDelayed continuation in StopInferenceRecommendationsJob (STOPPING -> STOPPED), same lifecycle.go runDelayed pattern as EdgePackagingJob's fix above."}
   training_plan: {status: partial, note: "FIXED this pass — TrainingPlan/ReservedCapacity/ReservedCapacitySummary timestamp encoding (see Notes). Not otherwise wire-audited this pass. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- TrainingPlanExtension.ExtendedAt/StartDate/EndDate and TrainingPlanExtensionOffering.StartDate/EndDate were plain time.Time fields marshaled directly by ExtendTrainingPlan and SearchTrainingPlanOfferings (handler_training_plan.go's json.Marshal(map[string]any{...})), unlike the sibling TrainingPlan/ReservedCapacity types this same file already fixed with a MarshalJSON override -- these two types were missed by that pass. Real ExtendTrainingPlanOutput/SearchTrainingPlanOfferingsOutput deserialize these members via ParseEpochSeconds(json.Number), so every real SDK client's call failed outright once a training plan had any extension offering (SearchTrainingPlanOfferings always generates one when TrainingPlanArn is set) or purchased extension. Fixed via the same alias-embedding MarshalJSON/UnmarshalJSON pattern as TrainingPlan/ReservedCapacity. Proven via a real aws-sdk-go-v2/service/sagemaker client round trip through both ops (wire_training_plan_extension_test.go), hand-reverted/confirmed-failing (expected Timestamp to be a JSON Number, got string instead)/restored, md5sum-verified byte-identical. FIXED parity-26 (gopherstack-oc9v), first field audit of CreateTrainingPlan/DescribeTrainingPlan themselves — CreateTrainingPlanInput.TrainingPlanOfferingId is 'This member is required' alongside TrainingPlanName (api_op_CreateTrainingPlan.go), but only TrainingPlanName was validated; a request naming no offering silently created a minimal Active plan with no backing reserved capacity instead of being rejected. A pre-existing test, TestHandler_CreateTrainingPlan_WithoutOffering_StaysMinimal, asserted this directly (200 for a request with no TrainingPlanOfferingId) — rewritten as TestHandler_CreateTrainingPlan_RequiresTrainingPlanOfferingId, asserting the corrected 400. Separately, TrainingPlan.TargetResources/TotalInstanceCount/UpfrontFee (all real, optional DescribeTrainingPlanOutput members) were tagged json:\"-\" on the backend struct, so handleDescribeTrainingPlan's direct json.Marshal(result) silently omitted all three from every Describe response even though ListTrainingPlans' summary builder (trainingPlanSummaryJSON, handler_training_plan.go) had already been projecting the same three fields into List responses the whole time — a Describe/List same-key/same-field asymmetry. Fixed by correcting the three tags to their real wire names with omitempty; proven by TestHandler_DescribeTrainingPlan's new assertions. The 2 anonymous request structs in handler_training_plans.go converted to named types this pass."}
-  monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam field audit done separately (parity-20). CompilationJob's own deep field audit done parity-21 (gopherstack-oc9v): required-field validation, ModelArtifacts/FailureReason, Stopping FSM, List filter/sort — see ops: entries above and Notes: parity-21. MonitoringSchedule field audit still not done."}
+  monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam field audit done separately (parity-20). CompilationJob's own deep field audit done parity-21 (gopherstack-oc9v): required-field validation, ModelArtifacts/FailureReason, Stopping FSM, List filter/sort — see ops: entries above and Notes: parity-21. MonitoringSchedule field audit still not done. FIXED 2026-08-29 (constrain-not-honoured sweep, gopherstack-oc9v continuation, uncommitted at write time): ListMonitoringAlertHistoryInput.SortBy (types.MonitoringAlertHistorySortKey -- real values CreationTime (default) and Status, api_op_ListMonitoringAlertHistory.go) was never decoded by listMonitoringAlertHistoryRequest at all -- a client's SortBy=Status was silently dropped, and MonitoringAlertHistoryFilter's own doc comment asserted 'sort key is always CreationTime', an incorrect absence-comment of exactly the kind this campaign warns about. Fixed: SortBy now decoded and threaded through; ListMonitoringAlertHistory sorts by AlertStatus when SortBy=Status (case-insensitive per this service's established SortBy-matching convention), CreationTime otherwise. ListMonitoringExecutions/ListMonitoringAlerts/ListWorkteams/ListEdgeDeploymentPlans/ListModelPackages/ListTrainingPlans/SearchTrainingPlanOfferings/ListClusters*/ListApps/ListUserProfiles/ListSpaces/ListDevices/ListTrialComponents/ListInferenceRecommendationsJobSteps were all independently re-checked field-by-field against their pinned SDK input structs this pass (decoded-but-dropped and never-plumbed-at-all patterns specifically) and found already correct or already honestly disclosed as no-ops with a cited reason -- no other bug found in this slice. Proven via TestHandler_ListMonitoringAlertHistory_SortByStatus (handler_modelmonitor_test.go), confirmed failing pre-fix (returned CreationTime-descending order regardless of SortBy)."}
   studio_lifecycle_config: {status: ok, note: "FIXED this pass (gopherstack-5wj0) — CreateStudioLifecycleConfig accepted a request body with no field for StudioLifecycleConfigContent at all, even though it is 'This member is required' on CreateStudioLifecycleConfigRequest (botocore sagemaker service-2.json) and is also part of DescribeStudioLifecycleConfigResponse. Every real client's script content was silently discarded and Create succeeded without it, where real AWS would reject the request. Now required, stored, and returned by Describe. FIXED 2026-08-21 (parity-23, gopherstack-oc9v) — StudioLifecycleConfigAppType (also 'This member is required' on CreateStudioLifecycleConfigInput) was accepted-and-dropped the same way Content once was, and ListStudioLifecycleConfigsInput's AppTypeEquals/CreationTimeAfter/CreationTimeBefore/ModifiedTimeAfter/ModifiedTimeBefore/NameContains/SortBy/SortOrder/MaxResults were all silently ignored (NextToken-only). Both fixed — see Notes: parity-23."}
   modelcard_export: {status: ok, note: "parity-26 (gopherstack-oc9v), first wire audit of this family — CreateModelCardExportJob/DescribeModelCardExportJob field-diffed against api_op_{Create,Describe}ModelCardExportJob.go. No gaps found: ModelCardExportJobName/ModelCardName/OutputConfig.S3OutputPath (all 'This member is required' on CreateModelCardExportJobInput) are validated in the backend (CreateModelCardExportJob, modelcard_export.go), and every DescribeModelCardExportJobOutput required/optional member (CreatedAt/LastModifiedAt/ModelCardExportJobArn/ModelCardExportJobName/ModelCardName/ModelCardVersion/OutputConfig/Status/ExportArtifacts/FailureReason) was already correctly emitted. Both anonymous request structs in handler_modelcard_export.go converted to named types this pass; no behavioral change."}
   monitoring_job_definitions: {status: partial, note: "parity-26 (gopherstack-oc9v), first wire audit of the four Model Monitor job definition types' shared Create path (parseJobDefRequest, handler_monitoring_job_definitions.go) against api_op_Create{DataQuality,ModelBias,ModelQuality,ModelExplainability}JobDefinition.go. FIXED — RoleArn ('This member is required' on all four Create*JobDefinitionInput types) was decoded but never validated present. FIXED — JobResources and the type's own AppSpecification/JobOutputConfig (all 'This member is required') were accept-and-drop with no presence check at all, kept only inside the opaque Config passthrough map; a request omitting any of them silently succeeded with an incomplete job definition. All five now validated by a new validateJobDefRequest helper, keyed off the type's name prefix derived from jobInputKey (e.g. 'DataQualityJobInput' -> 'DataQuality'). Multiple pre-existing tests across handler_monitoring_job_definitions_test.go and handler_modelmonitor_test.go supplied only JobDefinitionName for ModelBias/ModelQuality/ModelExplainability Create calls and asserted 200 — the missing-assertion/fixture-gap test-trap shape this campaign keeps finding, at its widest scope yet (three of four sibling types plus several List-family setup helpers) — all rewritten via a new shared minimalJobDefinitionFixture helper, and a new TestHandler_CreateDataQualityJobDefinition_RequiresAllRequiredMembers added. PARTIAL: JobResources/AppSpecification/JobOutputConfig/BaselineConfig/NetworkConfig/StoppingCondition remain opaque json.RawMessage passthrough rather than fully-typed structs (same established convention as algorithm's TrainingSpecification) — every field a client sends round-trips exactly. Both anonymous request structs (parseJobDefinitionName/parseJobDefinitionListRequest, shared by Describe/Delete/List across all four types) converted to named types this pass."}
+  mlflow: {status: partial, note: "parity-29 (fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns exhaustive request-field sweep): first full field-diff of MlflowTrackingServer/MlflowApp against api_op_{Create,Describe,Update,Delete,Start,Stop,List}Mlflow{TrackingServer,App}.go and the presigned-URL ops. FIXED — UpdateMlflowTrackingServerInput has no MlflowVersion member at all (only Create/Describe do); updateMlflowTrackingServerInput decoded one anyway and UpdateMlflowTrackingServerOptions applied it to the stored server on every Update, a fabricated field no real client can ever send. Removed from both the wire struct and UpdateMlflowTrackingServerOptions. Proven by TestHandler_UpdateMlflowTrackingServer_MlflowVersionNotOnWire (fails against the pre-fix code: DescribeMlflowTrackingServer's MlflowVersion changed from a Create-time value to an Update-time one that no real client could have sent). Everything else in this family (presigned-URL no-ops, MlflowApp's Name no-op, List filter/sort/page surfaces) was already correctly disclosed prior to this pass — see handler_mlflow.go/handler_mlflow_test.go doc comments. (no bd issue filed yet)"}
+  pagination_sweep: {status: ok, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited all ~90 List ops plus Search/QueryLineage/DescribeEdgeDeploymentPlan/DescribeTrainingPlanExtensionHistory/CreateHubContentPresignedURLs (every op with a MaxResults+NextToken pair) against the pinned SDK. All correctly truncate at MaxResults (falling back to sagemakerDefaultPageSize=100, store_setup.go:43, when unspecified), consume NextToken as a resume offset, and emit NextToken only when more results remain — confirms and extends the existing gaps: entry describing this service's integer-offset-token convention as 'functionally correct'. Nearly every op routes through the shared list_helpers.go family (paginateSlice/sagemakerListPaged/sagemakerListKeyPagedN/filterSortPaginateByName*), which already handles the offset-parse/cap/emit logic once, correctly, for every caller. The few ops with no shared-helper call were individually verified: ListClusterEvents/ListResourceCatalogs are disclosed structural void-results (no event/catalog data this backend ever populates, so nothing to paginate); ListTags (sagemaker's own resource tags, not S3) applies paginateSlice directly in its handler over a deterministically name-sorted slice; ListDataQualityJobDefinitions/ListModelBiasJobDefinitions/ListModelQualityJobDefinitions/ListModelExplainabilityJobDefinitions all delegate to the shared listJobDefinitions helper, which itself calls paginateSlice. One pre-existing, unrelated (not this pass's bug class) divergence spot-checked but not fixed: ListEndpoints documents a real default MaxResults of 10 (api_op_ListEndpoints.go:49) but this service's uniform sagemakerDefaultPageSize=100 applies there too, same as every other List op — truncation/resumption/token-emission are all still correct at 100 rather than 10, so no client-visible pagination-loop failure, just a larger-than-AWS default page. Spot-verified with a real aws-sdk-go-v2/service/sagemaker client (existing coverage; no new pagination bugs found, so no new fix/test needed for this service)."}
 
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Pagination across the service is a hand-rolled integer-offset NextToken (parseNextToken/strconv.Atoi) rather than pkgs/page's opaque-token helper. Functionally correct (AWS clients treat NextToken as opaque) and internally consistent, but is a pkgs-catalog convention deviation across ~15 call sites. Not fixed this pass — refactor is cross-cutting and out of budget for a single-family sweep. (no bd issue filed yet)"
@@ -5413,3 +5415,373 @@ services/sagemaker/` (clean), `go test -race ./services/sagemaker/...`, `go test
 
 **Ops not reached:** none — all 16 from the parity-27 queue were read. No further never-named
 ops from the original 87 remain outside this file: 71 (parity-27) + 16 (this pass) = 87.
+
+## 2026-08-29 error-path sweep (wrong-code bug hunt, ERROR path only)
+
+Audited sagemaker's not-found error-sentinel choices against each op's own
+`awsAwsjson11_deserializeOpError<Op>` switch (sagemaker@v1.263.2 deserializers.go) — not the
+service's general error-type list. This service's `handleError` maps two "families" of not-found:
+the generic `awserr.ErrNotFound` -> `ValidationException` (the majority of "older" CRUD ops,
+whose relevant Describe/Delete ops model no not-found-shaped exception at all — for these,
+`ValidationException` matches real, documented SageMaker behavior and is correct as-is, e.g.
+Algorithm/Endpoint/EndpointConfig/Model/NotebookInstance/CodeRepository/InferenceComponent/
+ModelPackage/ModelPackageGroup/Project all confirmed empty-switch on their Describe/Delete ops),
+and the special-cased `ErrResourceNotFound` -> `ResourceNotFound` (checked ahead of the generic
+branch), previously documented as covering only the AIBenchmarkJob/AIRecommendationJob/
+AIWorkloadConfig/generic-Job families.
+
+**That "only" claim was wrong.** Extracting the modeled-code set for all 403 ops showed 218 of
+them (54%) model `ResourceNotFound` — including nearly every classic `Describe*`/`Delete*`/
+`Stop*`/`Update*` op for many long-standing resource families this service already had CRUD
+support for well before the Job families existed. Cross-referencing against actual call sites
+found 8 more resource families whose "not found" sentinel was still wired to the generic
+`ValidationException` branch despite their own Describe/Stop/Delete/Update ops modeling
+`ResourceNotFound` exclusively (an unmodeled `ValidationException` for these ops falls through to
+a generic `smithy.GenericAPIError` for a real client — `errors.As` against neither
+`*types.ValidationException` nor `*types.ResourceNotFound` succeeds):
+
+- `TrainingJob` (`DescribeTrainingJob`/`StopTrainingJob`/`DeleteTrainingJob`/`UpdateTrainingJob`)
+- `TransformJob` (`DescribeTransformJob`/`StopTransformJob`)
+- `HyperParameterTuningJob` (`DescribeHyperParameterTuningJob`/`StopHyperParameterTuningJob`)
+- `DeviceFleet` (`DescribeDeviceFleet`/`UpdateDeviceFleet`)
+- `Device` (`DescribeDevice`)
+- `EdgeDeploymentPlan` (`DescribeEdgeDeploymentPlan`)
+- `InferenceRecommendationsJob` (`DescribeInferenceRecommendationsJob`/
+  `StopInferenceRecommendationsJob`)
+- `EdgePackagingJob` (`DescribeEdgePackagingJob`)
+
+Fixed by redefining each family's `Err<X>NotFound` sentinel from
+`awserr.New("ValidationException", awserr.ErrNotFound)` to
+`awserr.New("ResourceNotFound", ErrResourceNotFound)` — the same shared special-case sentinel the
+Job families already used, now with an updated doc comment listing all covered families instead
+of the narrower (inaccurate) original claim. No call-site regression risk: sibling ops on the same
+resource that don't model `ResourceNotFound` (e.g. `DeleteHyperParameterTuningJob`, an empty
+switch) get an equally-unmodeled code either way.
+
+**Deliberately not chased further this pass**: a parallel `ConflictException`-vs-`ResourceInUse`
+mismatch exists for a comparable-sized set of `Update*`/`Delete*` ops (e.g. `DeleteAlgorithm`,
+`DeleteCluster`, `UpdateCodeRepository`, `UpdateTrial`, ~25 more model `ConflictException` per
+their own deserializer switch), but a spot-check (`DeleteAlgorithm`) found no "in use" guard
+implemented in the backend at all for that op — a missing check, not a wrong sentinel at an
+existing call site, and therefore a different (parity-gap, not wire-shape) class of work outside
+this pass's scope. Left for a follow-up.
+
+New tests, real typed `aws-sdk-go-v2` client, `errors.As` against `*types.ResourceNotFound`, all
+9 hand-verified to fail against the pre-fix code first (asserted a
+`*smithy.GenericAPIError`/`ValidationException`, not the typed exception):
+`services/sagemaker/wire_error_code_not_modeled_test.go`. No pre-existing tests asserted the wrong
+code for these 8 families (none checked the specific `__type`/error text, only HTTP status), so
+none needed correcting.
+
+Gates: `go build ./services/sagemaker/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes), `go test -race -count=1 ./services/sagemaker/...` (pass), `golangci-lint run
+--fix ./services/sagemaker/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-29 pagination arithmetic sweep
+
+Audited every List* pagination path in sagemaker for the five known
+gopherstack pagination-arithmetic bug classes (panic on stale offset,
+infinite loop on stale equality-matched cursor, guarded-but-unused index,
+encoder/decoder disagreement, unsorted collection). Census: every pagination
+site in this service (~90+ List ops) funnels through one of six shared
+helpers in `list_helpers.go` (`paginateSlice`, `sagemakerListPagedSlice`/
+`sagemakerListPaged`, `sagemakerListKeyPagedMap`, `sagemakerListKeyPagedN`,
+`filterSortPaginateByName`, `filterSortPaginateByNameWindow`,
+`filterSortPaginateByNameOrTime`) plus one hand-rolled implementation
+(`hub.go`'s `ListHubs`/`ListHubContents`/`ListHubContentVersions`, which
+already breaks sort ties on `HubName` correctly). No inline
+`for i, x := range all { if x.ID == token { start = i } }` site exists
+outside `list_helpers.go` itself. Found and fixed two real bugs:
+
+- **Class B (infinite loop).** `sagemakerListKeyPagedMap` (used by
+  `ListMonitoringAlerts`) and `sagemakerListKeyPagedN` (used by
+  `ListPartnerApps`) matched the token against keys by equality and left
+  `start` at its zero value on a miss — a client whose cursor names an
+  alert/app deleted since it was issued gets served page one forever
+  instead of an empty final page. Fixed by defaulting the miss to
+  `len(keys)`/`len(items)` (glacier's "default to end of collection"
+  pattern), matching the shape already used correctly elsewhere in this
+  repo. `paginateSlice`/`sagemakerListPagedSlice` (offset tokens, ~90+
+  call sites) were already safe — clamped, no equality search.
+- **Sixth class, not A-E: tied sort key re-sorted from an unspecified input
+  order across two separate calls.** `filterSortPaginateByName` (6 call
+  sites: ListEndpointConfigs/ListAlgorithms/ListModels) and
+  `filterSortPaginateByNameOrTime` (ListContexts/ListActions) build `all`
+  fresh from `store.Table.All()` (iteration order explicitly unspecified)
+  and re-sort with `sort.Slice` (not stable) on every call. When two items
+  tie on the active sort key (CreationTime is the default sort for both;
+  ties are plausible under time-resolution collisions), the tied items'
+  relative order is not guaranteed identical between the call that issued
+  page N's token and the call serving page N+1 — each rebuilds and re-sorts
+  from a differently-ordered map read. Proven with a probe that sorts the
+  same tied-CreationTime item set from two different input orderings and
+  shows a concatenated two-page walk duplicates items. This is a *different*
+  failure than Class E (E has no sort at all): here the code does sort, but
+  the comparator lacks a deterministic tiebreak, so two honest,
+  independently-correct calls can still disagree. Fixed by adding a
+  `nameOf`-based tiebreak whenever the primary key compares equal (also
+  used to make the `desc`/`!less` flip well-defined on ties, which was
+  otherwise an invalid `sort.Interface.Less` for both orderings).
+  `filterSortPaginateByNameWindow`'s existing name-only sort needed no
+  change (name is already the sole/unique key there).
+
+All seven checks (non-dividing boundary walk, exact division, single page,
+final page, empty collection, cursor round trip, stale cursor) pass for
+`paginateSlice`, `sagemakerListPagedSlice`, `sagemakerListKeyPagedMap`,
+`sagemakerListKeyPagedN` post-fix; both new tests failed against the
+pre-fix code first, confirmed by the stale-cursor and tied-key assertions.
+
+New tests: `services/sagemaker/pagination_arithmetic_test.go`.
+
+Gates: `go build ./services/sagemaker/...` (clean), `go vet ./services/sagemaker/...`
+(clean, no signature changes), `go test -race -count=1 ./services/sagemaker/...`
+(pass). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 filter-semantics sweep (gopherstack-uox6): Search, and CreationTimeAfter boundary
+
+Audited for the class this issue tracks: a filter field that is read and
+applied but implements the WRONG semantics for what the SDK documents —
+invisible to every shape/enum/field-coverage sweep this campaign has run,
+since the field exists, is read, and the value is a legal enum member.
+
+**`Search` (the richest target: `types.SearchExpression`'s `Filters`,
+`NestedFilters`, `Operator`, `SubExpressions`).** Two real bugs, both
+under-matching turning into over-accepting once combined with the empty-list
+default:
+
+- `handler_automl_search.go`'s `searchInput.SearchExpression` decoded only
+  `Operator` and `Filters` — `NestedFilters` and `SubExpressions` were never
+  read from the wire at all. Since `matchesSearchExpression` returned `true`
+  for an empty filter list, a request expressed purely via `NestedFilters`
+  or `SubExpressions` (no top-level `Filters`) matched **every** resource of
+  the requested type instead of the ones the caller asked for — an
+  over-accept masking an under-match. Fixed by decoding both into a proper
+  recursive `SearchExpression`/`SearchNestedFilter` domain type
+  (`automl_search.go`) and combining every condition across all three lists
+  by `SearchExpression`'s single documented `Operator` (`api_op_Search.go`:
+  "every conditional statement in all lists ... The default value is And"),
+  not per-list. `NestedFilters` is evaluated per its own doc and the SDK's
+  `API_NestedFilters.html` worked example: satisfied if a single object in
+  the `NestedPropertyName` list satisfies every one of its `Filters`, whose
+  `Name` carries the FULL dotted path including the `NestedPropertyName`
+  prefix (e.g. `InputDataConfig.DataSource.S3DataSource.S3Uri`) — verified
+  against `TrainingJob.InputDataConfig`, the one nested list-of-objects field
+  this backend's Search view actually exposes.
+- `matchesSearchFilter` (`automl_search.go`) implemented only 5 of
+  `types.Operator`'s 10 documented values (`Equals`/`NotEquals`/`Contains`/
+  `Exists`/`NotExists`) and matched **unconditionally** (`return true`) for
+  any of the other 5 (`GreaterThan`, `GreaterThanOrEqualTo`, `LessThan`,
+  `LessThanOrEqualTo`, `In`) — over-accepting exactly this campaign's SNS
+  shape (an operator outside the documented behaviour matches everything
+  instead of nothing). Fixed by implementing all five, and changing the
+  default case to reject (no match) rather than accept, matching the
+  established fix pattern for this shape.
+- **Self-inconsistency found and fixed alongside the above**: the response's
+  `CreationTime`/`LastModifiedTime`/`TrainingStartTime`/`TrainingEndTime`
+  are emitted as epoch-seconds numbers (correct for the JSON protocol,
+  `awstime.Epoch`-equivalent), but `Filter.Value`'s own doc states timestamp
+  properties compare as ISO 8601 strings
+  (`YYYY-mm-dd'T'HH:MM:SS`) — a filter built in the documented format could
+  never match this API's own emitted timestamp. Fixed by detecting the four
+  timestamp field names and converting both sides to epoch-seconds before
+  comparing, for `Equals`/`NotEquals` and the four range operators.
+- **Confirmed correct, not fabricated**: the pre-existing default-`Operator`
+  (empty string → `And`) already matched
+  `SearchExpression.Operator`'s documented default exactly; left unchanged.
+
+**Other hand-rolled matchers audited**: `list_helpers.go`'s
+`nameTimeFilter`/`filterSortPaginateByName` (shared by `ListModels`,
+`ListEndpointConfigs`, `ListAlgorithms`, `ListMonitoringExecutions`) treated
+every `CreationTimeAfter` as a strict exclusive (`>`) bound. Checked each
+consuming operation's own SDK doc text individually rather than assuming a
+uniform rule: `ListModelsInput`/`ListEndpointConfigsInput` document
+`CreationTimeAfter` as "**greater than or equal to** the specified time"
+(inclusive), while `ListAlgorithmsInput`/`ListMonitoringExecutionsInput` say
+plain "created after" (exclusive) — a real inconsistency in AWS's own
+generated doc text across sibling operations sharing this emulator's one
+helper. Fixed narrowly: added `nameTimeFilter.AfterInclusive`, set only by
+`ListModels`/`ListEndpointConfigs` (the two call sites whose own doc is
+explicit), leaving `ListAlgorithms` and every other `timeWindowOK`/
+`filterSortPaginateByName*` consumer (~20 other files) untouched and
+unaudited for the same wording variance — named here rather than implied,
+since checking each of the ~12 further sagemaker `List*` operations whose
+pinned-SDK doc also says "greater than or equal"/"on or after"
+(`ListActions`, `ListArtifacts`, `ListContexts`, `ListAssociations`,
+`ListAppImageConfigs`, `ListMonitoringAlertHistory`, `ListEndpoints`,
+`ListHumanTaskUis`, `ListImageVersions`, `ListImages`,
+`ListStudioLifecycleConfigs`) was out of scope for this pass.
+
+**Gap recorded, not guessed**: `NestedFilters`' own SDK type doc gives one
+concrete worked example (`InputDataConfig`/`S3Uri`) but does not state
+whether `Filter.Name`'s dotted path is always exactly
+`NestedPropertyName + "." + <path-within-the-nested-object>` for every
+possible `NestedPropertyName`, or whether some nested properties use a
+different addressing convention. Implemented for the one case both the SDK
+doc and TrainingJob's own field shape confirm; not extended beyond it.
+
+New/changed tests (all confirmed to fail against unmodified code first, 0
+existing assertions weakened or dropped):
+`handler_automl_search_test.go` (58→86 assertions, +28),
+`handler_models_test.go` (41→47, +6), `handler_endpoint_configs_test.go`
+(54→60, +6), `handler_algorithms_test.go` (41→44, +3).
+`export_test.go` gained `SeedModelCreationTime`/`SeedEndpointConfigCreationTime`/
+`SeedAlgorithmCreationTime` — the epoch-seconds wire round trip floors a
+resource's true CreationTime, so a wire-level test can't reliably land on
+the exact boundary second an inclusive-vs-exclusive test needs.
+
+Gates: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go test -race -count=1 ./services/sagemaker/...`, `golangci-lint run
+./services/sagemaker/...` all clean. `go vet ./...` (repo-wide, since
+`SearchParams`/`nameTimeFilter` signatures changed) also clean; no external
+callers of either type exist outside this package. Work left uncommitted
+per this pass's instructions.
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: findings ranged 102-115 across the 5 old runs (96 at
+HEAD), 26 op.field keys moving, all present in some old run and absent at
+HEAD (over-reporting direction); zero keys at HEAD absent from every old
+run.
+
+The collision is `Url`/`URL` (and `Ui`/`UI`) casing:
+`CreateHumanTaskUi`/`CreateHumanTaskUI`, `DeleteHumanTaskUi`/`DeleteHumanTaskUI`,
+`ListHumanTaskUis`/`ListHumanTaskUIs`, `CreateHubContentPresignedUrls`/
+`CreateHubContentPresignedURLs`, `CreatePresignedDomainUrl`/`CreatePresignedDomainURL`,
+`CreatePartnerAppPresignedUrl`/`CreatePartnerAppPresignedURL`,
+`CreatePresignedMlflowAppUrl`/`CreatePresignedMlflowAppURL`,
+`CreatePresignedMlflowTrackingServerUrl`/`CreatePresignedMlflowTrackingServerURL`,
+`CreatePresignedNotebookInstanceUrl`/`CreatePresignedNotebookInstanceURL` each
+have a same-named exported `*InMemoryBackend` method the fallback
+name-reconstruction could land on instead of the real handler. Read all 26
+handler bodies (`handler_human_task_ui.go`, `handler_hub.go`,
+`handler_presigned_session.go`, `handler_partner_apps.go`,
+`handler_mlflow.go`, `handler_notebook_instances.go`): every field is
+genuinely decoded off the JSON body. The `ExpiresInSeconds`/
+`SessionExpirationDurationInSeconds`/`LandingUri` fields on the
+presigned-URL family are declared and decoded but deliberately not applied
+-- a pre-existing, already-documented no-op (this backend's synthetic URLs
+have no verified TTL/query-parameter format to encode them into, per the
+comments already in `handler_presigned_session.go`, `handler_mlflow.go`,
+and `handler_notebook_instances.go`), unrelated to and unmoved by this
+defect. No new bugs found; no code changed.
+
+## PARITY-gap targeting: 18 ops never named in this file (2026-08-31, gopherstack-6flj/21my)
+
+Queue computed by diffing every List/Describe/Get op in the pinned SDK
+(sagemaker@v1.263.2, 172 such ops) against literal-word occurrence in this
+file. 18 never appear by name (the base resource area was often audited
+under a sibling op, but not this exact name): `DescribeDataQualityJobDefinition`,
+`DescribeFlowDefinition`, `DescribeHumanTaskUi`, `DescribeInferenceExperiment`,
+`DescribeModelBiasJobDefinition`, `DescribeModelCard`,
+`DescribeModelExplainabilityJobDefinition`, `DescribeModelQualityJobDefinition`,
+`DescribeOptimizationJob`, `DescribePartnerApp`, `DescribeReservedCapacity`,
+`DescribeTrialComponent`, `ListEdgePackagingJobs`,
+`ListInferenceRecommendationsJobs`, `ListLabelingJobsForWorkteam`,
+`ListModelCardExportJobs`, `ListModelCardVersions`, `ListWorkforces`. All 18
+covered this pass. Protocol confirmed from the deserializer directly:
+awsAwsjson11 (JSON RPC 1.1, case-sensitive) throughout.
+
+TWO SIBLING-SHAPE BUGS FOUND AND FIXED, both the Get-right/List-wrong
+pattern (highest-yield heuristic in this campaign):
+
+1. `ListEdgePackagingJobs`'s per-item summary omitted `CompilationJobName`
+   entirely (`types.EdgePackagingJobSummary.CompilationJobName`,
+   optional but backend-tracked) even though `DescribeEdgePackagingJob`
+   already surfaces the same backend field. Wrapper key
+   `EdgePackagingJobSummaries` was already correct. Fixed:
+   `edgePackagingJobSummary` struct and the summary-building loop in
+   `handler_edge_packaging_jobs.go:161-169,205-216`.
+
+2. `ListInferenceRecommendationsJobs`'s per-item summary omitted
+   `JobDescription` and `RoleArn` -- both members `types.InferenceRecommendationsJob`
+   marks REQUIRED -- even though `DescribeInferenceRecommendationsJob`
+   already surfaces both from the same backend fields. Wrapper key
+   `InferenceRecommendationsJobs` was already correct. Fixed:
+   `inferenceRecommendationsJobSummary` struct and the summary-building
+   loop in `handler_inference_recommendations_jobs.go:125-132,176-186`.
+
+Both fixed under a real-client test added first (confirmed failing against
+unmodified code with the field decoding empty), then confirmed passing:
+`handler_edge_packaging_jobs_realclient_test.go`,
+`handler_inference_recommendations_jobs_realclient_test.go`. Both drive
+the real `aws-sdk-go-v2/service/sagemaker` client (`newTestSageMakerClient`,
+shared from `handler_create_tags_test.go`) and assert on the decoded typed
+response, not a raw body.
+
+SIXTEEN OPS CLEAN, no wrapper-key mismatch, no transposition, no hard
+decode error found in any of them:
+
+- `DescribeDataQualityJobDefinition`/`DescribeModelBiasJobDefinition`/
+  `DescribeModelExplainabilityJobDefinition`/`DescribeModelQualityJobDefinition`:
+  all four share `buildJobDefinitionResponse` (handler_monitoring_job_definitions.go),
+  which stores each type-specific block (AppSpecification/JobInput/JobOutputConfig/
+  BaselineConfig) verbatim from the Create request body and replays it
+  unchanged -- wire-shape-faithful by construction. Their `List*` siblings
+  (already in the "SWEPT" list, all four verified again here) share the
+  generic `MonitoringJobDefinitionSummary` type and wrapper key
+  `JobDefinitionSummaries` correctly.
+- `DescribeFlowDefinition`: wrapper fields and nested `HumanLoopConfig`/
+  `HumanLoopActivationConfig`/`OutputConfig` match `types.FlowDefinition`'s
+  real names via a hand-built `MarshalJSON`. `FailureReason` and
+  `PublicWorkforceTaskPrice` are real optional members not modeled --
+  disclosed, no async failure/pricing state exists to source them.
+- `DescribeHumanTaskUi` (Go-cased `handleDescribeHumanTaskUI`): correct
+  nesting of `UiTemplate.ContentSha256` under `UiTemplate`, epoch-seconds
+  `CreationTime` via `MarshalJSON`. `UiTemplate.Url` already disclosed
+  as unpopulated in an existing comment.
+- `DescribeInferenceExperiment`: `ModelVariants` correctly overrides the
+  persisted `ModelVariantConfigs` json tag to the real wire name
+  `ModelVariants` via a field-shadowing `MarshalJSON` alias; `EndpointMetadata`
+  always built. `CompletionTime` (optional) not modeled -- no completion
+  event distinct from `Status` tracked.
+- `DescribeModelCard`: `CreatedBy`/`LastModifiedBy`/`ModelCardProcessingStatus`
+  (all optional) not modeled -- no user-context or async-processing
+  simulation exists.
+- `DescribeOptimizationJob`: `optimizationJobResponseMap` fields all
+  correct. `FailureReason`/`OptimizationOutput`/`OptimizationStartTime`/
+  `OptimizationEndTime` not modeled -- jobs are created already
+  `COMPLETED` with no state-machine transition, so there is never a
+  distinct start/end/output/failure to report. Disclosed, not fixed
+  (fabricating optimization-output content is a different axis).
+- `DescribePartnerApp`: exhaustively disclosed in its own doc comment
+  (`AvailableUpgrade`/`CurrentVersionEolDate`/`Version`/`Error` all
+  confirmed genuinely unbacked); nothing new found.
+- `DescribeReservedCapacity`: `UltraServerSummary` correctly synthesized
+  via `ultraServerSummary()`, epoch-seconds `StartTime`/`EndTime` via
+  `MarshalJSON`. Already disclosed limitations (single UltraServer per
+  capacity, no unhealthy simulation) hold.
+- `DescribeTrialComponent`: all populated fields verified against
+  `types.TrialComponentParameterValue`'s real `NumberValue`/`StringValue`
+  names. `Metrics`/`Source`/`Sources`/`CreatedBy`/`LastModifiedBy`
+  (all optional) not modeled -- no metric or lineage-source tracking
+  exists on this backend's `TrialComponent`.
+- `ListLabelingJobsForWorkteam`: wrapper key `LabelingJobSummaryList` and
+  every `LabelCountersForWorkteam` sub-field verified against the
+  deserializer's own case list.
+- `ListModelCardExportJobs`/`ListModelCardVersions`: both wrapper keys
+  (`ModelCardExportJobSummaries`/`ModelCardVersionSummaryList`) and every
+  per-item field verified against `types.ModelCardExportJobSummary`/
+  `types.ModelCardVersionSummary`.
+- `ListWorkforces`: wrapper key `Workforces` correct; reuses the same
+  `workforceResponseMap` as `DescribeWorkforce`, so no sibling
+  disagreement. `FailureReason` (optional) not modeled -- no async
+  workforce-creation failure exists on this backend.
+
+Tests: 2 new real-client tests added (`handler_edge_packaging_jobs_realclient_test.go`,
+`handler_inference_recommendations_jobs_realclient_test.go`), 2 items each
+with distinguishable non-zero values, both confirmed failing against
+unmodified code before the fix. No existing test assertions changed or
+dropped. Neither struct touched is persisted (`edgePackagingJobSummary`/
+`inferenceRecommendationsJobSummary` are response-only DTOs built fresh
+per request, not part of `models.go` or the persisted backend state) --
+`TestSnapshotVersionGuard` run anyway as a precaution, unaffected.
+
+Gates: `go build ./services/sagemaker/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/sagemaker/...`, `golangci-lint
+run ./services/sagemaker/...` all clean.

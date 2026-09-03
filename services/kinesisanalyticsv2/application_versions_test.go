@@ -26,14 +26,15 @@ func TestBackend_RollbackApplication(t *testing.T) {
 
 		b := newTestBackend(t)
 
-		app, err := b.CreateApplication(ctx, "rollback-app", "FLINK-1_18", "", "first description", "", nil)
+		app, err := b.CreateApplication(ctx, "rollback-app", "FLINK-1_18",
+			"arn:aws:iam::000000000000:role/first-role", "first description", "", nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), app.ApplicationVersionID)
 
 		updated, opID, err := b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
 			Name:                        "rollback-app",
 			CurrentApplicationVersionID: 1,
-			ApplicationDescription:      "second description",
+			ServiceExecutionRoleUpdate:  "arn:aws:iam::000000000000:role/second-role",
 		})
 		require.NoError(t, err)
 		require.Equal(t, int64(2), updated.ApplicationVersionID)
@@ -44,6 +45,7 @@ func TestBackend_RollbackApplication(t *testing.T) {
 		assert.NotEmpty(t, rollbackOpID)
 		assert.Equal(t, int64(3), rolledBack.ApplicationVersionID)
 		assert.Equal(t, "first description", rolledBack.ApplicationDescription)
+		assert.Equal(t, "arn:aws:iam::000000000000:role/first-role", rolledBack.ServiceExecutionRole)
 
 		op, err := b.DescribeApplicationOperation(ctx, "rollback-app", rollbackOpID)
 		require.NoError(t, err)
@@ -74,7 +76,7 @@ func TestBackend_RollbackApplication(t *testing.T) {
 		_, _, err = b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
 			Name:                        "rollback-mismatch-app",
 			CurrentApplicationVersionID: 1,
-			ApplicationDescription:      "second description",
+			ServiceExecutionRoleUpdate:  "arn:aws:iam::000000000000:role/second-role",
 		})
 		require.NoError(t, err)
 

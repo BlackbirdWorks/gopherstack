@@ -40,5 +40,5 @@ func TestInMemoryBackend_PolicyValidation(t *testing.T) {
 	t.Parallel()
 
 	_, err := newTestBackend().GetPolicy(context.Background(), "")
-	require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+	require.ErrorIs(t, err, acmpca.ErrInvalidArn)
 }

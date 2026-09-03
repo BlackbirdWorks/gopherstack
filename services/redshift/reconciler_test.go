@@ -56,7 +56,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 func describeCount(t *testing.T, b *redshift.InMemoryBackend) int {
 	t.Helper()
 
-	clusters, _, err := b.DescribeClusters("", "", 0)
+	clusters, _, err := b.DescribeClusters("", "", 0, nil, nil)
 	require.NoError(t, err)
 
 	return len(clusters)
@@ -65,7 +65,7 @@ func describeCount(t *testing.T, b *redshift.InMemoryBackend) int {
 func clusterStatus(t *testing.T, b *redshift.InMemoryBackend, id string) (string, bool) {
 	t.Helper()
 
-	clusters, _, err := b.DescribeClusters(id, "", 0)
+	clusters, _, err := b.DescribeClusters(id, "", 0, nil, nil)
 	if err != nil {
 		return "", false
 	}
@@ -218,7 +218,7 @@ func TestReconciler_NoGoroutineLeak(t *testing.T) {
 
 	// Wait for all to become available.
 	require.True(t, waitFor(t, 3*time.Second, func() bool {
-		clusters, _, err := b.DescribeClusters("", "", 0)
+		clusters, _, err := b.DescribeClusters("", "", 0, nil, nil)
 		if err != nil {
 			return false
 		}
@@ -298,7 +298,7 @@ func TestClusterLifecycle_CreatingToAvailable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Immediately after create, status should be "creating".
-	clusters, _, err := b.DescribeClusters("lifecycle-cluster", "", 0)
+	clusters, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	assert.Equal(t, "creating", clusters[0].Status,
@@ -307,7 +307,7 @@ func TestClusterLifecycle_CreatingToAvailable(t *testing.T) {
 	// After the activation delay, status should be "available".
 	time.Sleep(200 * time.Millisecond)
 
-	clusters2, _, err := b.DescribeClusters("lifecycle-cluster", "", 0)
+	clusters2, _, err := b.DescribeClusters("lifecycle-cluster", "", 0, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, clusters2, 1)
 	assert.Equal(t, "available", clusters2[0].Status, "cluster should be available after activation delay")

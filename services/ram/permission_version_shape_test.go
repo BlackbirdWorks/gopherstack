@@ -10,6 +10,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	ramsdk "github.com/aws/aws-sdk-go-v2/service/ram"
+	ramtypes "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,4 +111,32 @@ func Test_ListPermissionVersions_OmitsPolicyDocumentField(t *testing.T) {
 		_, leaked := item["permission"]
 		assert.Falsef(t, leaked, "ListPermissionVersions item leaked policy document: %+v", item)
 	}
+}
+
+// Test_SDKRoundTrip_DeletePermissionVersion_PermissionStatus proves
+// DeletePermissionVersionOutput.PermissionStatus decodes as a real
+// types.PermissionStatus member. Real PermissionStatus only defines
+// ATTACHABLE/UNATTACHABLE/DELETING/DELETED (ram@v1.39.4 types/enums.go:26);
+// pre-fix, gopherstack emitted "UPDATING", not a member of that enum, for an
+// operation that has nothing to do with updating -- deleting a permission
+// version is an asynchronous delete, so DELETING is the correct in-progress
+// status.
+func Test_SDKRoundTrip_DeletePermissionVersion_PermissionStatus(t *testing.T) {
+	t.Parallel()
+
+	backend := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ram.NewHandler(backend)
+	client := newTestRAMClient(t, h)
+
+	created, err := backend.CreatePermission("delpv-shape-perm", "ec2:Subnet", `{"v":"1"}`, nil)
+	require.NoError(t, err)
+	_, err = backend.CreatePermissionVersion(created.ARN, `{"v":"2"}`)
+	require.NoError(t, err)
+
+	out, err := client.DeletePermissionVersion(t.Context(), &ramsdk.DeletePermissionVersionInput{
+		PermissionArn:     aws.String(created.ARN),
+		PermissionVersion: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ramtypes.PermissionStatusDeleting, out.PermissionStatus)
 }

@@ -2,8 +2,10 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,25 +61,28 @@ type deploymentTimer struct {
 	step   int32
 }
 
-// StartDeployment starts a deployment.
-func (b *InMemoryBackend) StartDeployment(
-	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
-) (*Deployment, error) {
-	b.mu.Lock("StartDeployment")
-	defer b.mu.Unlock()
-
+// resolveStartDeploymentInputsLocked resolves and validates every
+// StartDeployment input that can fail before any state is mutated --
+// split out from StartDeployment to keep its cyclomatic complexity down.
+// Must be called under lock.
+func (b *InMemoryBackend) resolveStartDeploymentInputsLocked(
+	applicationID, environmentID, configProfileID, strategyID, configVersion string,
+	latestDeploymentNumber *int32,
+) (ConfigurationProfile, DeploymentStrategy, string, error) {
 	if !b.applications.Has(applicationID) {
-		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+		return ConfigurationProfile{}, DeploymentStrategy{}, "",
+			fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
 	}
 
 	env, ok := b.environments.Get(environmentID)
 	if !ok || env.ApplicationID != applicationID {
-		return nil, fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
+		return ConfigurationProfile{}, DeploymentStrategy{}, "",
+			fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
 	}
 
 	profile, ok := b.configProfiles.Get(configProfileID)
 	if !ok || profile.ApplicationID != applicationID {
-		return nil, fmt.Errorf(
+		return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
 			"%w: configuration profile %s",
 			ErrConfigurationProfileNotFound,
 			configProfileID,
@@ -86,7 +91,7 @@ func (b *InMemoryBackend) StartDeployment(
 
 	strategy, ok := b.deploymentStrategies.Get(strategyID)
 	if !ok {
-		return nil, fmt.Errorf(
+		return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
 			"%w: deployment strategy %s",
 			ErrDeploymentStrategyNotFound,
 			strategyID,
@@ -102,7 +107,7 @@ func (b *InMemoryBackend) StartDeployment(
 	if profile.LocationURI == contentTypeHostedLocation {
 		hcv, found := b.resolveHostedConfigVersion(applicationID, configProfileID, configVersion)
 		if !found {
-			return nil, fmt.Errorf(
+			return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
 				"%w: configuration version %s for profile %s",
 				ErrHostedConfigVersionNotFound,
 				configVersion,
@@ -113,12 +118,61 @@ func (b *InMemoryBackend) StartDeployment(
 		versionLabel = hcv.VersionLabel
 	}
 
+	currentLatestDeployment := b.deploymentCounters[applicationID][environmentID]
+	if latestDeploymentNumber != nil && *latestDeploymentNumber != currentLatestDeployment {
+		return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
+			"%w: latest deployment number %d does not match current latest deployment number %d for environment %s",
+			ErrConflict,
+			*latestDeploymentNumber,
+			currentLatestDeployment,
+			environmentID,
+		)
+	}
+
+	return *profile, *strategy, versionLabel, nil
+}
+
+// StartDeployment starts a deployment. kmsKeyIdentifier, when non-nil and
+// non-empty, overrides the deployed profile's own KmsKeyIdentifier for this
+// specific deployment (real StartDeploymentInput.KmsKeyIdentifier,
+// api_op_StartDeployment.go: "AppConfig uses this ID to encrypt the
+// configuration data using a customer managed key"), falling back to the
+// profile's stored value when omitted. latestDeploymentNumber implements
+// the real optional optimistic-concurrency check (same shape as
+// CreateHostedConfigurationVersion's latestVersionNumber): when non-nil, it
+// must match the environment's current highest deployment number, or the
+// start is rejected with a conflict rather than silently racing another
+// writer. tags are applied inline to the deployment's own ARN, same pattern
+// as the six other Create* ops (see CreateApplication's doc comment) --
+// StartDeployment also accepts inline Tags on the real input but was not
+// among those six.
+func (b *InMemoryBackend) StartDeployment(
+	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+	kmsKeyIdentifier *string,
+	latestDeploymentNumber *int32,
+	tags map[string]string,
+) (*Deployment, error) {
+	b.mu.Lock("StartDeployment")
+	defer b.mu.Unlock()
+
+	profile, strategy, versionLabel, err := b.resolveStartDeploymentInputsLocked(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, latestDeploymentNumber,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	if b.deploymentCounters[applicationID] == nil {
 		b.deploymentCounters[applicationID] = make(map[string]int32)
 	}
 
 	b.deploymentCounters[applicationID][environmentID]++
 	deploymentNumber := b.deploymentCounters[applicationID][environmentID]
+
+	effectiveKmsKeyIdentifier := profile.KmsKeyIdentifier
+	if kmsKeyIdentifier != nil && *kmsKeyIdentifier != "" {
+		effectiveKmsKeyIdentifier = *kmsKeyIdentifier
+	}
 
 	now := time.Now()
 	deployment := &Deployment{
@@ -130,7 +184,7 @@ func (b *InMemoryBackend) StartDeployment(
 		Description:                 description,
 		ConfigurationName:           profile.Name,
 		ConfigurationLocationURI:    profile.LocationURI,
-		KmsKeyIdentifier:            profile.KmsKeyIdentifier,
+		KmsKeyIdentifier:            effectiveKmsKeyIdentifier,
 		GrowthType:                  strategy.GrowthType,
 		GrowthFactor:                strategy.GrowthFactor,
 		VersionLabel:                versionLabel,
@@ -142,6 +196,10 @@ func (b *InMemoryBackend) StartDeployment(
 		AppliedExtensions:           b.appliedExtensionsLocked(applicationID, environmentID, configProfileID),
 	}
 	appendDeploymentEvent(deployment, "DEPLOYMENT_STARTED", triggeredByUser, "Deployment started", now)
+
+	if len(tags) > 0 {
+		b.tags[b.deploymentArn(applicationID, environmentID, deploymentNumber)] = maps.Clone(tags)
+	}
 
 	key := deploymentKey(applicationID, environmentID, deploymentNumber)
 
@@ -438,6 +496,19 @@ func (b *InMemoryBackend) ListDeployments(
 	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
+}
+
+// deploymentArn builds the ARN this backend uses to key a deployment's
+// inline Tags (real StartDeploymentInput.Tags, api_op_StartDeployment.go).
+// GetDeploymentOutput has no Arn member, so this is never stored on
+// Deployment itself -- deploymentNumber alone with the app/env IDs (all
+// three already real, persisted wire fields) is enough to recompute it on
+// demand.
+func (b *InMemoryBackend) deploymentArn(applicationID, environmentID string, deploymentNumber int32) string {
+	return b.appconfigARN(
+		"application/" + applicationID + "/environment/" + environmentID +
+			"/deployment/" + strconv.Itoa(int(deploymentNumber)),
+	)
 }
 
 // deploymentToSummary builds the types.DeploymentSummary shape -- see its

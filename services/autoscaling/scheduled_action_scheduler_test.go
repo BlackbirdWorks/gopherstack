@@ -133,7 +133,7 @@ func TestApplyDueScheduledActions_OneTimeFiresOnceOnly(t *testing.T) {
 
 	b.applyDueScheduledActions(ctx, now, time.Minute)
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"sched-once-asg"})
+	groups, err := b.DescribeAutoScalingGroups([]string{"sched-once-asg"}, nil)
 	if err != nil {
 		t.Fatalf("DescribeAutoScalingGroups: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestApplyDueScheduledActions_OneTimeFiresOnceOnly(t *testing.T) {
 
 	b.applyDueScheduledActions(ctx, now.Add(time.Hour), time.Minute)
 
-	groups, err = b.DescribeAutoScalingGroups([]string{"sched-once-asg"})
+	groups, err = b.DescribeAutoScalingGroups([]string{"sched-once-asg"}, nil)
 	if err != nil {
 		t.Fatalf("DescribeAutoScalingGroups: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestApplyDueScheduledActions_RecurringFiresEveryOccurrence(t *testing.T) {
 
 	b.applyDueScheduledActions(ctx, now, time.Minute)
 
-	actions, err := b.DescribeScheduledActions("sched-recurring-asg", nil)
+	actions, err := b.DescribeScheduledActions("sched-recurring-asg", nil, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("DescribeScheduledActions: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestApplyDueScheduledActions_RecurringFiresEveryOccurrence(t *testing.T) {
 
 	b.applyDueScheduledActions(ctx, now.Add(time.Minute), time.Minute)
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"sched-recurring-asg"})
+	groups, err := b.DescribeAutoScalingGroups([]string{"sched-recurring-asg"}, nil)
 	if err != nil {
 		t.Fatalf("DescribeAutoScalingGroups: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestApplyDueScheduledActions_InvalidCapacityDoesNotPanic(t *testing.T) {
 	// Must not panic.
 	b.applyDueScheduledActions(ctx, now, time.Minute)
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"sched-invalid-asg"})
+	groups, err := b.DescribeAutoScalingGroups([]string{"sched-invalid-asg"}, nil)
 	if err != nil {
 		t.Fatalf("DescribeAutoScalingGroups: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestApplyDueScheduledActions_InvalidCapacityDoesNotPanic(t *testing.T) {
 		t.Fatalf("MinSize = %d, want unchanged 0 (invalid scheduled change must not apply)", got)
 	}
 
-	actions, err := b.DescribeScheduledActions("sched-invalid-asg", nil)
+	actions, err := b.DescribeScheduledActions("sched-invalid-asg", nil, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("DescribeScheduledActions: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestScheduledActionScheduler_RunFiresAndStopsCleanly(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 
 	for time.Now().Before(deadline) {
-		groups, describeErr := b.DescribeAutoScalingGroups([]string{"sched-run-asg"})
+		groups, describeErr := b.DescribeAutoScalingGroups([]string{"sched-run-asg"}, nil)
 		if describeErr != nil {
 			t.Fatalf("DescribeAutoScalingGroups: %v", describeErr)
 		}
@@ -341,7 +341,7 @@ func TestScheduledActionScheduler_RunFiresAndStopsCleanly(t *testing.T) {
 		time.Sleep(tickInterval)
 	}
 
-	groups, err := b.DescribeAutoScalingGroups([]string{"sched-run-asg"})
+	groups, err := b.DescribeAutoScalingGroups([]string{"sched-run-asg"}, nil)
 	if err != nil {
 		t.Fatalf("DescribeAutoScalingGroups: %v", err)
 	}

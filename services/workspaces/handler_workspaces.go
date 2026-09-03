@@ -387,10 +387,12 @@ func toWorkspaceResp(ws *Workspace) workspaceResp {
 // --- DescribeWorkspacesConnectionStatus ---
 
 type describeConnectionStatusInput struct {
+	NextToken    string   `json:"NextToken,omitempty"`
 	WorkspaceIDs []string `json:"WorkspaceIds"`
 }
 
 type describeConnectionStatusOutput struct {
+	NextToken                  string           `json:"NextToken,omitempty"`
 	WorkspacesConnectionStatus []connStatusResp `json:"WorkspacesConnectionStatus"`
 }
 
@@ -408,7 +410,7 @@ type connStatusResp struct {
 func (h *Handler) handleDescribeWorkspacesConnectionStatus(
 	_ context.Context, req *describeConnectionStatusInput,
 ) (*describeConnectionStatusOutput, error) {
-	statuses, err := h.Backend.GetWorkspacesConnectionStatus(req.WorkspaceIDs)
+	statuses, next, err := h.Backend.GetWorkspacesConnectionStatus(req.WorkspaceIDs, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +427,7 @@ func (h *Handler) handleDescribeWorkspacesConnectionStatus(
 		})
 	}
 
-	return &describeConnectionStatusOutput{WorkspacesConnectionStatus: items}, nil
+	return &describeConnectionStatusOutput{WorkspacesConnectionStatus: items, NextToken: next}, nil
 }
 
 // --- ModifyWorkspaceProperties ---

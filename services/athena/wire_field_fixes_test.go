@@ -108,3 +108,207 @@ func TestGetQueryExecution_ReusedPreviousResult_Nesting_RealClient(t *testing.T)
 	assert.True(t, get2.QueryExecution.Statistics.ResultReuseInformation.ReusedPreviousResult,
 		"second identical execution should be marked as having reused the previous result")
 }
+
+// TestCreateWorkGroup_EngineAndMonitoringConfiguration_RealClient covers
+// gopherstack-6flj-athena-1: real types.WorkGroupConfiguration
+// (athena@v1.60.4/types/types.go) has EngineConfiguration and
+// MonitoringConfiguration members (serializers.go's
+// awsAwsjson11_serializeDocumentWorkGroupConfiguration "EngineConfiguration"/
+// "MonitoringConfiguration" cases), but gopherstack's WorkGroupConfiguration
+// model had neither field -- both were silently dropped on CreateWorkGroup
+// regardless of what a real client set. Also covers
+// EngineConfiguration.Classifications (types.Classification{Name,
+// Properties}), a real member missing from gopherstack's EngineConfiguration
+// model entirely -- affecting both this workgroup-level use and the
+// pre-existing StartSession path, since real AWS reuses the identical
+// EngineConfiguration type for both.
+func TestCreateWorkGroup_EngineAndMonitoringConfiguration_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateWorkGroup(ctx, &athenasdk.CreateWorkGroupInput{
+		Name: aws.String("spark-workgroup"),
+		Configuration: &types.WorkGroupConfiguration{
+			ResultConfiguration: &types.ResultConfiguration{
+				OutputLocation: aws.String("s3://my-bucket/results/"),
+			},
+			EngineConfiguration: &types.EngineConfiguration{
+				CoordinatorDpuSize:     aws.Int32(1),
+				DefaultExecutorDpuSize: aws.Int32(2),
+				MaxConcurrentDpus:      aws.Int32(5),
+				Classifications: []types.Classification{
+					{Name: aws.String("spark"), Properties: map[string]string{"key": "value"}},
+				},
+			},
+			MonitoringConfiguration: &types.MonitoringConfiguration{
+				CloudWatchLoggingConfiguration: &types.CloudWatchLoggingConfiguration{
+					Enabled:  aws.Bool(true),
+					LogGroup: aws.String("/aws/athena/spark"),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetWorkGroup(ctx, &athenasdk.GetWorkGroupInput{WorkGroup: aws.String("spark-workgroup")})
+	require.NoError(t, err)
+
+	cfg := got.WorkGroup.Configuration
+	require.NotNil(t, cfg.EngineConfiguration,
+		"WorkGroupConfiguration.EngineConfiguration must round-trip; pre-fix it was always nil")
+	assert.Equal(t, int32(5), aws.ToInt32(cfg.EngineConfiguration.MaxConcurrentDpus))
+	require.Len(t, cfg.EngineConfiguration.Classifications, 1,
+		"EngineConfiguration.Classifications must round-trip; pre-fix the field did not exist")
+	assert.Equal(t, "spark", aws.ToString(cfg.EngineConfiguration.Classifications[0].Name))
+
+	require.NotNil(t, cfg.MonitoringConfiguration,
+		"WorkGroupConfiguration.MonitoringConfiguration must round-trip; pre-fix it was always nil")
+	require.NotNil(t, cfg.MonitoringConfiguration.CloudWatchLoggingConfiguration)
+	assert.True(t, aws.ToBool(cfg.MonitoringConfiguration.CloudWatchLoggingConfiguration.Enabled))
+
+	_, err = client.UpdateWorkGroup(ctx, &athenasdk.UpdateWorkGroupInput{
+		WorkGroup: aws.String("spark-workgroup"),
+		ConfigurationUpdates: &types.WorkGroupConfigurationUpdates{
+			EngineConfiguration: &types.EngineConfiguration{MaxConcurrentDpus: aws.Int32(10)},
+		},
+	})
+	require.NoError(t, err)
+
+	got2, err := client.GetWorkGroup(ctx, &athenasdk.GetWorkGroupInput{WorkGroup: aws.String("spark-workgroup")})
+	require.NoError(t, err)
+	require.NotNil(t, got2.WorkGroup.Configuration.EngineConfiguration)
+	assert.Equal(t, int32(10), aws.ToInt32(got2.WorkGroup.Configuration.EngineConfiguration.MaxConcurrentDpus))
+	outputLoc := aws.ToString(got2.WorkGroup.Configuration.ResultConfiguration.OutputLocation)
+	assert.Equal(t, "s3://my-bucket/results/", outputLoc,
+		"UpdateWorkGroup's ConfigurationUpdates must merge, not wholesale-replace the stored configuration")
+}
+
+// TestCreateDataCatalog_ConnectionTypeRealClient covers
+// gopherstack-wksweep-athena-1: CreateDataCatalogInput/UpdateDataCatalogInput
+// have no top-level ConnectionType member (athena@v1.60.4
+// api_op_{Create,Update}DataCatalog.go) -- only the response types
+// (DataCatalog/DataCatalogSummary) carry ConnectionType. Real AWS derives it
+// from the "connection-type" key inside the Parameters map for a FEDERATED
+// catalog. Before the fix, gopherstack read a nonexistent top-level
+// ConnectionType request field, so a real client's connection type was
+// always dropped and the response field stayed empty.
+func TestCreateDataCatalog_ConnectionTypeRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDataCatalog(ctx, &athenasdk.CreateDataCatalogInput{
+		Name: aws.String("fed-catalog"),
+		Type: types.DataCatalogTypeFederated,
+		Parameters: map[string]string{
+			"connection-type": "REDSHIFT",
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetDataCatalog(ctx, &athenasdk.GetDataCatalogInput{Name: aws.String("fed-catalog")})
+	require.NoError(t, err)
+	require.NotNil(t, got.DataCatalog)
+	assert.Equal(t, types.ConnectionType("REDSHIFT"), got.DataCatalog.ConnectionType,
+		"ConnectionType must be derived from Parameters[connection-type]; pre-fix it was always empty")
+
+	_, err = client.UpdateDataCatalog(ctx, &athenasdk.UpdateDataCatalogInput{
+		Name: aws.String("fed-catalog"),
+		Type: types.DataCatalogTypeFederated,
+		Parameters: map[string]string{
+			"connection-type": "MYSQL",
+		},
+	})
+	require.NoError(t, err)
+
+	updated, err := client.GetDataCatalog(ctx, &athenasdk.GetDataCatalogInput{Name: aws.String("fed-catalog")})
+	require.NoError(t, err)
+	require.NotNil(t, updated.DataCatalog)
+	assert.Equal(t, types.ConnectionType("MYSQL"), updated.DataCatalog.ConnectionType)
+}
+
+// TestStartSession_ExecutionRoleRealClient covers gopherstack-wksweep-athena-2:
+// StartSessionInput has no SessionConfiguration member (athena@v1.60.4
+// api_op_StartSession.go) -- ExecutionRole and SessionIdleTimeoutInMinutes
+// are top-level request fields instead, and GetSessionOutput's
+// SessionConfiguration is derived from them server-side. Before the fix,
+// gopherstack decoded a nonexistent top-level SessionConfiguration object
+// that a real client never sends, so ExecutionRole was always dropped.
+func TestStartSession_ExecutionRoleRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	const (
+		idleMinutes   = 15
+		secondsPerMin = 60
+		idleSeconds   = idleMinutes * secondsPerMin
+	)
+
+	start, err := client.StartSession(ctx, &athenasdk.StartSessionInput{
+		WorkGroup: aws.String("primary"),
+		EngineConfiguration: &types.EngineConfiguration{
+			CoordinatorDpuSize: aws.Int32(1),
+		},
+		ExecutionRole:               aws.String("arn:aws:iam::123456789012:role/spark-exec"),
+		SessionIdleTimeoutInMinutes: aws.Int32(idleMinutes),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, start.SessionId)
+
+	got, err := client.GetSession(ctx, &athenasdk.GetSessionInput{SessionId: start.SessionId})
+	require.NoError(t, err)
+	require.NotNil(t, got.SessionConfiguration)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/spark-exec", aws.ToString(got.SessionConfiguration.ExecutionRole),
+		"SessionConfiguration.ExecutionRole must round-trip; pre-fix it was always empty")
+	assert.Equal(t, int64(idleSeconds), aws.ToInt64(got.SessionConfiguration.IdleTimeoutSeconds))
+}
+
+// TestSession_EngineVersion_RealClient covers two bugs in the same field, found by
+// the "unnamed in PARITY.md" sweep for ListSessions:
+//
+//  1. GetSessionOutput.EngineVersion (athena@v1.60.4 api_op_GetSession.go) is a
+//     *string real member (e.g. "PySpark engine version 3"), but the handler emitted
+//     s.NotebookVersion under the "EngineVersion" key -- a wrong VALUE under a correct
+//     key/type, not a naming mismatch, so no wrapper-key sweep would have caught it.
+//  2. SessionSummary.EngineVersion (athena@v1.60.4 deserializers.go
+//     awsAwsjson11_deserializeDocumentSessionSummary, case "EngineVersion") is a
+//     *types.EngineVersion OBJECT (SelectedEngineVersion/EffectiveEngineVersion), the
+//     same nested shape ListEngineVersions already uses -- gopherstack's SessionSummary
+//     model had no EngineVersion field at all, so ListSessions/ListNotebookSessions
+//     always decoded it nil.
+func TestSession_EngineVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	start, err := client.StartSession(ctx, &athenasdk.StartSessionInput{
+		WorkGroup: aws.String("primary"),
+		EngineConfiguration: &types.EngineConfiguration{
+			CoordinatorDpuSize: aws.Int32(1),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, start.SessionId)
+
+	got, err := client.GetSession(ctx, &athenasdk.GetSessionInput{SessionId: start.SessionId})
+	require.NoError(t, err)
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(got.EngineVersion),
+		"GetSession.EngineVersion must be a real engine version string, not the notebook version")
+
+	listed, err := client.ListSessions(ctx, &athenasdk.ListSessionsInput{WorkGroup: aws.String("primary")})
+	require.NoError(t, err)
+	require.Len(t, listed.Sessions, 1)
+	require.NotNil(t, listed.Sessions[0].EngineVersion, "SessionSummary.EngineVersion must round-trip, not decode nil")
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(listed.Sessions[0].EngineVersion.SelectedEngineVersion))
+	assert.Equal(t, "PySpark engine version 3", aws.ToString(listed.Sessions[0].EngineVersion.EffectiveEngineVersion))
+}

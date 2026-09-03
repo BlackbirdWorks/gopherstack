@@ -138,7 +138,7 @@ func TestInMemoryBackend_AdminCreateUser(t *testing.T) {
 			username:  "iris",
 			password:  "Temp123!",
 			wantErr:   true,
-			errTarget: cognitoidp.ErrUserAlreadyExists,
+			errTarget: cognitoidp.ErrUsernameExists,
 		},
 		{
 			name: "pool_not_found",

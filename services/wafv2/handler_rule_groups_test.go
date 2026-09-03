@@ -143,40 +143,30 @@ func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*wafv2.Handler) string
-		body       func(arnStr string) map[string]any
+		setup      func(*wafv2.Handler) (arnStr, lockToken string)
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *wafv2.Handler) string {
+			setup: func(h *wafv2.Handler) (string, string) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 
-				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-			},
-			body: func(arnStr string) map[string]any {
-				return map[string]any{"WebACLArn": arnStr, "WebACLLockToken": "tok"}
+				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope), w.LockToken
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "missing_arn",
-			setup: func(_ *wafv2.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{"WebACLLockToken": "tok"}
+			setup: func(_ *wafv2.Handler) (string, string) {
+				return "", "tok"
 			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "not_found",
-			setup: func(_ *wafv2.Handler) string {
-				return "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid"
-			},
-			body: func(arnStr string) map[string]any {
-				return map[string]any{"WebACLArn": arnStr, "WebACLLockToken": "tok"}
+			setup: func(_ *wafv2.Handler) (string, string) {
+				return "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid", "tok"
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -187,8 +177,14 @@ func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			arnStr := tt.setup(h)
-			rec := doWafv2Request(t, h, "DeleteFirewallManagerRuleGroups", tt.body(arnStr))
+			arnStr, lockToken := tt.setup(h)
+			body := map[string]any{"WebACLLockToken": lockToken}
+
+			if arnStr != "" {
+				body["WebACLArn"] = arnStr
+			}
+
+			rec := doWafv2Request(t, h, "DeleteFirewallManagerRuleGroups", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -300,6 +296,8 @@ func TestDeleteRuleGroupReferencedByWebACL(t *testing.T) {
 	// Try to delete the RuleGroup — should fail with WAFAssociatedItemException.
 	delRec := doWafv2Request(t, h, "DeleteRuleGroup", map[string]any{
 		"Id":        rgID,
+		"Name":      "my-rg",
+		"Scope":     "REGIONAL",
 		"LockToken": rgLockToken,
 	})
 	assert.Equal(t, http.StatusBadRequest, delRec.Code)
@@ -377,6 +375,8 @@ func TestRuleGroup_UpdateRules(t *testing.T) {
 	// Update with 2 rules.
 	updateRec := doWafv2Request(t, h, "UpdateRuleGroup", map[string]any{
 		"Id":        rgID,
+		"Name":      "updatable-rg",
+		"Scope":     "REGIONAL",
 		"LockToken": rgLock,
 		"Rules": []map[string]any{
 			{
@@ -630,6 +630,7 @@ func TestHandler_UpdateRuleGroup(t *testing.T) {
 		{
 			name:       "not_found",
 			requestID:  "nonexistent",
+			setupName:  "nonexistent-name",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -641,13 +642,15 @@ func TestHandler_UpdateRuleGroup(t *testing.T) {
 			h := newTestHandler(t)
 
 			id := tt.requestID
-			if tt.setupName != "" {
+			if tt.setupName != "" && tt.requestID == "" {
 				id, _ = createRuleGroupHelper(t, h, tt.setupName)
 			}
 
 			var body any
 			if id != "" {
-				body = map[string]any{"Id": id, "Description": tt.description}
+				body = map[string]any{
+					"Id": id, "Name": tt.setupName, "Scope": "REGIONAL", "Description": tt.description,
+				}
 			} else {
 				body = map[string]any{}
 			}

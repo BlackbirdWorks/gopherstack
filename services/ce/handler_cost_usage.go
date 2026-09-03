@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -16,7 +17,7 @@ type groupBySpec struct {
 }
 
 type getCostAndUsageInput struct {
-	Filter        any               `json:"Filter"`
+	Filter        *ceExpression     `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
@@ -32,6 +33,13 @@ type getCostAndUsageOutput struct {
 	ResultsByTime            []ResultByTime `json:"ResultsByTime"`
 	GroupDefinitions         []groupBySpec  `json:"GroupDefinitions"`
 	DimensionValueAttributes []any          `json:"DimensionValueAttributes"`
+}
+
+// resultByTimeKey returns the unique cursor key for a ResultByTime page --
+// its bucket start date, unique because buildTimeBuckets never produces two
+// buckets with the same start.
+func resultByTimeKey(r ResultByTime) string {
+	return r.TimePeriod[timePeriodKeyStart]
 }
 
 func (h *Handler) handleGetCostAndUsage(
@@ -75,10 +83,15 @@ func (h *Handler) handleGetCostAndUsage(
 		groupBy[i] = GroupBySpec(g)
 	}
 
-	results := h.Backend.GetCostAndUsage(start, end, granularity, in.Metrics, groupBy)
+	results := h.Backend.GetCostAndUsage(
+		start, end, granularity, in.Metrics, groupBy, serviceDimensionFilter(in.Filter),
+	)
+
+	page, nextToken := paginateList(results, 0, in.NextPageToken, resultByTimeKey)
 
 	return &getCostAndUsageOutput{
-		ResultsByTime:            results,
+		ResultsByTime:            page,
+		NextPageToken:            nextToken,
 		GroupDefinitions:         in.GroupBy,
 		DimensionValueAttributes: []any{},
 	}, nil
@@ -115,6 +128,25 @@ func (h *Handler) handleGetDimensionValues(
 		return nil, fmt.Errorf("%w: Dimension is required", ErrValidation)
 	}
 
+	// Real GetDimensionValuesInput requires TimePeriod. This emulator's dimension
+	// values are derived from the whole cost ledger rather than narrowed to
+	// TimePeriod (real AWS does narrow by it; there is no per-entry-in-range
+	// filtering here -- see gaps), so this is a presence check only, matching
+	// GetCostAndUsage's required-field-gap fix.
+	if in.TimePeriod == nil || in.TimePeriod[timePeriodKeyStart] == "" || in.TimePeriod[timePeriodKeyEnd] == "" {
+		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
+	}
+
+	// Context selects between COST_AND_USAGE/RESERVATIONS/SAVINGS_PLANS
+	// dimension namespaces; this emulator's ledger models one flat dimension
+	// space shared across all three, so Context is validated (an unrecognized
+	// value real AWS rejects) but does not change which dimensions resolve.
+	switch in.Context {
+	case "", "COST_AND_USAGE", "RESERVATIONS", "SAVINGS_PLANS":
+	default:
+		return nil, fmt.Errorf("%w: Context must be one of COST_AND_USAGE, RESERVATIONS, SAVINGS_PLANS", ErrValidation)
+	}
+
 	var vals []string
 	if in.Filter != nil && in.Filter.Dimensions != nil && in.Filter.Dimensions.Key != "" {
 		vals = h.Backend.GetDimensionValuesFiltered(
@@ -141,15 +173,23 @@ func (h *Handler) handleGetDimensionValues(
 		vals = sortDimensionValuesByCost(h.Backend, in.Dimension, vals, in.SortBy[0])
 	}
 
-	items := make([]dimensionValue, 0, len(vals))
-	for _, v := range vals {
+	totalSize := len(vals)
+
+	// paginateOrdered, not paginateList: vals may already be in SortBy's
+	// cost-based order (sortDimensionValuesByCost), which re-sorting by value
+	// would discard.
+	page, nextToken := paginateOrdered(vals, in.MaxResults, in.NextPageToken, func(v string) string { return v })
+
+	items := make([]dimensionValue, 0, len(page))
+	for _, v := range page {
 		items = append(items, dimensionValue{Value: v})
 	}
 
 	return &getDimensionValuesOutput{
 		DimensionValues: items,
+		NextPageToken:   nextToken,
 		ReturnSize:      len(items),
-		TotalSize:       len(items),
+		TotalSize:       totalSize,
 	}, nil
 }
 
@@ -201,6 +241,13 @@ func (h *Handler) handleGetTags(
 	_ context.Context,
 	in *getTagsInput,
 ) (*getTagsOutput, error) {
+	// Real GetTagsInput requires TimePeriod. As with GetDimensionValues, this
+	// emulator derives tag keys/values from the whole ledger rather than
+	// narrowing by TimePeriod, so this is a presence check only.
+	if in.TimePeriod == nil || in.TimePeriod[timePeriodKeyStart] == "" || in.TimePeriod[timePeriodKeyEnd] == "" {
+		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
+	}
+
 	var constraintKey string
 
 	var constraintValues []string
@@ -238,10 +285,17 @@ func (h *Handler) handleGetTags(
 		tags = []string{}
 	}
 
+	totalSize := len(tags)
+
+	// paginateOrdered: tags may already be in SortBy's cost-based order
+	// (sortTagValuesByCost).
+	page, nextToken := paginateOrdered(tags, in.MaxResults, in.NextPageToken, func(v string) string { return v })
+
 	return &getTagsOutput{
-		Tags:       tags,
-		ReturnSize: len(tags),
-		TotalSize:  len(tags),
+		Tags:          page,
+		NextPageToken: nextToken,
+		ReturnSize:    len(page),
+		TotalSize:     totalSize,
 	}, nil
 }
 
@@ -274,15 +328,22 @@ func sortTagValuesByCost(
 }
 
 type getCostForecastInput struct {
-	Filter                  any               `json:"Filter"`
+	Filter                  *ceExpression     `json:"Filter"`
 	TimePeriod              map[string]string `json:"TimePeriod"`
 	Granularity             string            `json:"Granularity"`
 	Metric                  string            `json:"Metric"`
 	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
+// getCostForecastOutput.Total is field-diffed against real AWS CE's
+// GetCostForecastOutput: the member is *types.MetricValue (Amount/Unit), not
+// a ForecastResult (MeanValue/PredictionIntervalLowerBound/
+// PredictionIntervalUpperBound/TimePeriod) -- that shape belongs to each
+// entry of ForecastResultsByTime, not to Total. A prior revision used the
+// ForecastResult shape for Total too, so a real client's typed
+// Total.Amount/.Unit were always nil regardless of the computed forecast.
 type getCostForecastOutput struct {
-	Total                 *ForecastResult  `json:"Total,omitempty"`
+	Total                 *MetricValue     `json:"Total,omitempty"`
 	ForecastResultsByTime []ForecastResult `json:"ForecastResultsByTime"`
 }
 
@@ -310,33 +371,37 @@ func (h *Handler) handleGetCostForecast(
 		level = 80
 	}
 
-	buckets, totalMean, totalLo, totalHi := h.Backend.GetForecastByTime(
+	buckets, totalMean, _, _ := h.Backend.GetForecastByTime(
 		start,
 		end,
 		granularity,
+		in.Metric,
 		level,
+		serviceDimensionFilter(in.Filter),
 	)
 
 	return &getCostForecastOutput{
-		Total: &ForecastResult{
-			MeanValue:                    fmt.Sprintf("%.4f", totalMean),
-			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", totalLo),
-			PredictionIntervalUpperBound: fmt.Sprintf("%.4f", totalHi),
+		Total: &MetricValue{
+			Amount: fmt.Sprintf("%.4f", totalMean),
+			Unit:   metricUnit(in.Metric),
 		},
 		ForecastResultsByTime: buckets,
 	}, nil
 }
 
 type getUsageForecastInput struct {
-	Filter                  any               `json:"Filter"`
+	Filter                  *ceExpression     `json:"Filter"`
 	TimePeriod              map[string]string `json:"TimePeriod"`
 	Granularity             string            `json:"Granularity"`
 	Metric                  string            `json:"Metric"`
 	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
+// getUsageForecastOutput.Total has the same real shape as
+// getCostForecastOutput.Total (*types.MetricValue, not ForecastResult) --
+// see that type's doc comment.
 type getUsageForecastOutput struct {
-	Total                 *ForecastResult  `json:"Total,omitempty"`
+	Total                 *MetricValue     `json:"Total,omitempty"`
 	ForecastResultsByTime []ForecastResult `json:"ForecastResultsByTime"`
 }
 
@@ -364,18 +429,19 @@ func (h *Handler) handleGetUsageForecast(
 		level = 80
 	}
 
-	buckets, totalMean, totalLo, totalHi := h.Backend.GetForecastByTime(
+	buckets, totalMean, _, _ := h.Backend.GetForecastByTime(
 		start,
 		end,
 		granularity,
+		in.Metric,
 		level,
+		serviceDimensionFilter(in.Filter),
 	)
 
 	return &getUsageForecastOutput{
-		Total: &ForecastResult{
-			MeanValue:                    fmt.Sprintf("%.4f", totalMean),
-			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", totalLo),
-			PredictionIntervalUpperBound: fmt.Sprintf("%.4f", totalHi),
+		Total: &MetricValue{
+			Amount: fmt.Sprintf("%.4f", totalMean),
+			Unit:   metricUnit(in.Metric),
 		},
 		ForecastResultsByTime: buckets,
 	}, nil
@@ -422,7 +488,7 @@ func (h *Handler) handleGetApproximateUsageRecords(
 // "BaseTimePeriod"), there is no Granularity member on this op, and the metric member is
 // the singular, required MetricForComparison string (not a "Metrics" array).
 type getCostAndUsageComparisonsInput struct {
-	Filter               any               `json:"Filter"`
+	Filter               *ceExpression     `json:"Filter"`
 	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
 	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
 	MetricForComparison  string            `json:"MetricForComparison"`
@@ -440,9 +506,13 @@ type comparisonMetricValue struct {
 }
 
 // costAndUsageComparison mirrors aws-sdk-go-v2/service/costexplorer/types'
-// CostAndUsageComparison (Metrics -- a map of metric name to comparison value).
+// CostAndUsageComparison (CostAndUsageSelector -- the Expression identifying
+// which group this entry represents, set only when GroupBy narrowed the
+// comparison to a single dimension value; Metrics -- a map of metric name to
+// comparison value).
 type costAndUsageComparison struct {
-	Metrics map[string]comparisonMetricValue `json:"Metrics,omitempty"`
+	CostAndUsageSelector *ceExpression                    `json:"CostAndUsageSelector,omitempty"`
+	Metrics              map[string]comparisonMetricValue `json:"Metrics,omitempty"`
 }
 
 // getCostAndUsageComparisonsOutput's field names/types are field-diffed against real AWS
@@ -455,13 +525,15 @@ type getCostAndUsageComparisonsOutput struct {
 	CostAndUsageComparisons []costAndUsageComparison         `json:"CostAndUsageComparisons"`
 }
 
-// metricTotalForPeriod sums metric across the cost ledger for [start, end) by reusing
-// the same DAILY-bucketed aggregation GetCostAndUsage uses, so comparisons are derived
-// from real ledger state rather than a hardcoded literal.
-func metricTotalForPeriod(h *Handler, start, end, metric string) float64 {
+// metricTotalForPeriod sums metric across the cost ledger for [start, end),
+// narrowed to serviceFilter (GetCostAndUsageComparisonsInput.Filter's SERVICE
+// dimension, when present), by reusing the same DAILY-bucketed aggregation
+// GetCostAndUsage uses, so comparisons are derived from real ledger state
+// rather than a hardcoded literal.
+func metricTotalForPeriod(h *Handler, start, end, metric string, serviceFilter []string) float64 {
 	var total float64
 
-	for _, r := range h.Backend.GetCostAndUsage(start, end, "DAILY", []string{metric}, nil) {
+	for _, r := range h.Backend.GetCostAndUsage(start, end, "DAILY", []string{metric}, nil, serviceFilter) {
 		if mv, ok := r.Total[metric]; ok {
 			if v, err := strconv.ParseFloat(mv.Amount, 64); err == nil {
 				total += v
@@ -470,6 +542,57 @@ func metricTotalForPeriod(h *Handler, start, end, metric string) float64 {
 	}
 
 	return total
+}
+
+// groupedMetricTotalsForPeriod sums metric across the ledger for [start, end),
+// narrowed by serviceFilter and grouped by the single dimension groupKey
+// (the same DIMENSION set extractGroupKeys models: SERVICE/REGION/USAGE_TYPE/
+// LINKED_ACCOUNT). Gives GetCostAndUsageComparisonsInput.GroupBy a real,
+// per-group breakdown instead of always collapsing to one aggregate entry.
+func groupedMetricTotalsForPeriod(
+	h *Handler, start, end, metric, groupKey string, serviceFilter []string,
+) map[string]float64 {
+	totals := make(map[string]float64)
+
+	groupBy := []GroupBySpec{{Type: "DIMENSION", Key: groupKey}}
+	for _, r := range h.Backend.GetCostAndUsage(start, end, "DAILY", []string{metric}, groupBy, serviceFilter) {
+		for _, g := range r.Groups {
+			if len(g.Keys) == 0 {
+				continue
+			}
+
+			if mv, ok := g.Metrics[metric]; ok {
+				if v, err := strconv.ParseFloat(mv.Amount, 64); err == nil {
+					totals[g.Keys[0]] += v
+				}
+			}
+		}
+	}
+
+	return totals
+}
+
+func comparisonMetricEntry(baseline, comparison float64, metric string) map[string]comparisonMetricValue {
+	return map[string]comparisonMetricValue{
+		metric: {
+			BaselineTimePeriodAmount:   fmt.Sprintf("%.4f", baseline),
+			ComparisonTimePeriodAmount: fmt.Sprintf("%.4f", comparison),
+			Difference:                 fmt.Sprintf("%.4f", comparison-baseline),
+		},
+	}
+}
+
+// costAndUsageComparisonKey returns the pagination cursor key for a
+// costAndUsageComparison: the single group value its CostAndUsageSelector
+// narrows to (unique per group, since it comes from collections.SortedKeys),
+// or "" for the single ungrouped aggregate entry.
+func costAndUsageComparisonKey(c costAndUsageComparison) string {
+	if c.CostAndUsageSelector == nil || c.CostAndUsageSelector.Dimensions == nil ||
+		len(c.CostAndUsageSelector.Dimensions.Values) == 0 {
+		return ""
+	}
+
+	return c.CostAndUsageSelector.Dimensions.Values[0]
 }
 
 func (h *Handler) handleGetCostAndUsageComparisons(
@@ -488,23 +611,64 @@ func (h *Handler) handleGetCostAndUsageComparisons(
 		return nil, fmt.Errorf("%w: MetricForComparison is required", ErrValidation)
 	}
 
-	baseline := metricTotalForPeriod(
-		h, in.BaselineTimePeriod["Start"], in.BaselineTimePeriod["End"], in.MetricForComparison,
-	)
-	comparison := metricTotalForPeriod(
-		h, in.ComparisonTimePeriod["Start"], in.ComparisonTimePeriod["End"], in.MetricForComparison,
-	)
+	baseStart, baseEnd := in.BaselineTimePeriod["Start"], in.BaselineTimePeriod["End"]
+	cmpStart, cmpEnd := in.ComparisonTimePeriod["Start"], in.ComparisonTimePeriod["End"]
+	serviceFilter := serviceDimensionFilter(in.Filter)
 
-	mv := comparisonMetricValue{
-		BaselineTimePeriodAmount:   fmt.Sprintf("%.4f", baseline),
-		ComparisonTimePeriodAmount: fmt.Sprintf("%.4f", comparison),
-		Difference:                 fmt.Sprintf("%.4f", comparison-baseline),
+	var comparisons []costAndUsageComparison
+
+	if len(in.GroupBy) > 0 {
+		groupKey := in.GroupBy[0].Key
+		baselineByGroup := groupedMetricTotalsForPeriod(
+			h,
+			baseStart,
+			baseEnd,
+			in.MetricForComparison,
+			groupKey,
+			serviceFilter,
+		)
+		comparisonByGroup := groupedMetricTotalsForPeriod(
+			h,
+			cmpStart,
+			cmpEnd,
+			in.MetricForComparison,
+			groupKey,
+			serviceFilter,
+		)
+
+		groupValues := make(map[string]struct{}, len(baselineByGroup)+len(comparisonByGroup))
+		for k := range baselineByGroup {
+			groupValues[k] = struct{}{}
+		}
+
+		for k := range comparisonByGroup {
+			groupValues[k] = struct{}{}
+		}
+
+		for _, gv := range collections.SortedKeys(groupValues) {
+			comparisons = append(comparisons, costAndUsageComparison{
+				CostAndUsageSelector: &ceExpression{
+					Dimensions: &ceDimensionValues{Key: groupKey, Values: []string{gv}},
+				},
+				Metrics: comparisonMetricEntry(baselineByGroup[gv], comparisonByGroup[gv], in.MetricForComparison),
+			})
+		}
+	} else {
+		baseline := metricTotalForPeriod(h, baseStart, baseEnd, in.MetricForComparison, serviceFilter)
+		comparison := metricTotalForPeriod(h, cmpStart, cmpEnd, in.MetricForComparison, serviceFilter)
+		metrics := comparisonMetricEntry(baseline, comparison, in.MetricForComparison)
+		comparisons = []costAndUsageComparison{{Metrics: metrics}}
 	}
-	metrics := map[string]comparisonMetricValue{in.MetricForComparison: mv}
+
+	page, nextToken := paginateList(comparisons, in.MaxResults, in.NextPageToken, costAndUsageComparisonKey)
+
+	totalBaseline := metricTotalForPeriod(h, baseStart, baseEnd, in.MetricForComparison, serviceFilter)
+	totalComparison := metricTotalForPeriod(h, cmpStart, cmpEnd, in.MetricForComparison, serviceFilter)
 
 	return &getCostAndUsageComparisonsOutput{
-		CostAndUsageComparisons: []costAndUsageComparison{{Metrics: metrics}},
-		TotalCostAndUsage:       metrics,
+		CostAndUsageComparisons: page,
+		NextPageToken:           nextToken,
+		TotalCostAndUsage:       comparisonMetricEntry(totalBaseline, totalComparison, in.MetricForComparison),
 	}, nil
 }
 
@@ -541,6 +705,19 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
 	}
 
+	// Real GetCostAndUsageWithResourcesInput requires TimePeriod and Metrics
+	// (see api_op_GetCostAndUsageWithResources.go), same required-field gap
+	// this pass closed on GetCostAndUsage. ResultsByTime stays legitimately
+	// empty regardless (see the output type's doc comment above) -- this is
+	// validation-only, not a behavior change to the empty result.
+	if in.TimePeriod == nil || in.TimePeriod[timePeriodKeyStart] == "" || in.TimePeriod[timePeriodKeyEnd] == "" {
+		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
+	}
+
+	if len(in.Metrics) == 0 {
+		return nil, fmt.Errorf("%w: Metrics is required", ErrValidation)
+	}
+
 	return &getCostAndUsageWithResourcesOutput{
 		ResultsByTime:            []any{},
 		GroupDefinitions:         in.GroupBy,
@@ -548,11 +725,21 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 	}, nil
 }
 
+// getCostComparisonDriversInput's metric member is field-diffed against real AWS CE's
+// GetCostComparisonDriversInput: the field is the singular, required MetricForComparison
+// string (same shape as GetCostAndUsageComparisons), not "Metric" -- the previous name
+// matched no real member, so a real client's MetricForComparison was silently dropped and
+// the required-field check below never fired for a request that omitted the (wrong) old
+// name. Real AWS also carries GroupBy/MaxResults on this input and CostComparisonDrivers
+// is always empty (see handler doc below, no per-line-item attribution state exists to
+// derive drivers from) -- both are left off this struct rather than declared-and-ignored,
+// matching Filter's existing documented-inert precedent (see gaps).
 type getCostComparisonDriversInput struct {
 	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
 	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
 	Filter               *ceExpression     `json:"Filter"`
-	Metric               string            `json:"Metric"`
+	MetricForComparison  string            `json:"MetricForComparison"`
+	NextPageToken        string            `json:"NextPageToken"`
 }
 
 type getCostComparisonDriversOutput struct {
@@ -560,12 +747,33 @@ type getCostComparisonDriversOutput struct {
 	CostComparisonDrivers []any  `json:"CostComparisonDrivers"`
 }
 
+// handleGetCostComparisonDrivers always returns zero drivers: computing cost comparison
+// drivers requires per-line-item cost-change attribution analysis this emulator's
+// service+date-granularity synthetic ledger has no state to derive (same documented gap
+// as GetCostAndUsageWithResources.ResultsByTime). NextPageToken is threaded through
+// paginateList for a genuinely empty list (always yields an empty page and no next
+// token, the correct terminal-page shape) rather than being echoed back unconditionally.
 func (h *Handler) handleGetCostComparisonDrivers(
 	_ context.Context,
-	_ *getCostComparisonDriversInput,
+	in *getCostComparisonDriversInput,
 ) (*getCostComparisonDriversOutput, error) {
+	if in.BaselineTimePeriod == nil {
+		return nil, fmt.Errorf("%w: BaselineTimePeriod is required", ErrValidation)
+	}
+
+	if in.ComparisonTimePeriod == nil {
+		return nil, fmt.Errorf("%w: ComparisonTimePeriod is required", ErrValidation)
+	}
+
+	if in.MetricForComparison == "" {
+		return nil, fmt.Errorf("%w: MetricForComparison is required", ErrValidation)
+	}
+
+	page, nextToken := paginateList([]any{}, 0, in.NextPageToken, func(any) string { return "" })
+
 	return &getCostComparisonDriversOutput{
-		CostComparisonDrivers: []any{},
+		CostComparisonDrivers: page,
+		NextPageToken:         nextToken,
 	}, nil
 }
 

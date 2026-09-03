@@ -52,7 +52,9 @@ func (b *InMemoryBackend) GetManagedRuleSet(ctx context.Context, id string) (*Ma
 	return cloneManagedRuleSet(ms), nil
 }
 
-// ListManagedRuleSets returns all managed rule sets sorted by name, optionally filtered by scope.
+// ListManagedRuleSets returns all managed rule sets sorted by (name, id),
+// optionally filtered by scope. The id tiebreak matters here because Name is
+// not unique -- see handleListManagedRuleSets/paginateByNameID's doc comment.
 func (b *InMemoryBackend) ListManagedRuleSets(ctx context.Context, scope string) []*ManagedRuleSet {
 	b.mu.RLock("ListManagedRuleSets")
 	defer b.mu.RUnlock()
@@ -69,7 +71,13 @@ func (b *InMemoryBackend) ListManagedRuleSets(ctx context.Context, scope string)
 		list = append(list, cloneManagedRuleSet(ms))
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+
+		return list[i].ID < list[j].ID
+	})
 
 	return list
 }

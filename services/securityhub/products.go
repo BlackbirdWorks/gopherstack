@@ -100,6 +100,10 @@ func (b *InMemoryBackend) DisableImportFindingsForProduct(productSubscriptionArn
 	b.mu.Lock("DisableImportFindingsForProduct")
 	defer b.mu.Unlock()
 
+	if !b.hubEnabled {
+		return ErrHubNotEnabled
+	}
+
 	if _, ok := b.productSubscriptions[productSubscriptionArn]; !ok {
 		return fmt.Errorf("%w: product subscription %s", ErrNotFound, productSubscriptionArn)
 	}

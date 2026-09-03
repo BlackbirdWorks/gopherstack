@@ -63,6 +63,9 @@ type describeHsmClientCertificatesResponse struct {
 
 func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, error) {
 	id := vals.Get("HsmClientCertificateIdentifier")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
+
 	certs, err := h.Backend.DescribeHsmClientCertificates(id)
 	if err != nil {
 		return nil, err
@@ -71,6 +74,10 @@ func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, err
 	members := make([]hsmClientCertificateXML, 0, len(certs))
 
 	for _, c := range certs {
+		if !anyTagMatchesFilter(c.Tags, tagKeys, tagValues) {
+			continue
+		}
+
 		members = append(members, hsmClientCertificateXML{
 			HsmClientCertificateIdentifier: c.HsmClientCertificateIdentifier,
 			HsmClientCertificatePublicKey:  c.HsmClientCertificatePublicKey,
@@ -170,6 +177,9 @@ type describeHsmConfigurationsResponse struct {
 
 func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) {
 	id := vals.Get("HsmConfigurationIdentifier")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
+
 	cfgs, err := h.Backend.DescribeHsmConfigurations(id)
 	if err != nil {
 		return nil, err
@@ -178,6 +188,10 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 	members := make([]hsmConfigurationXML, 0, len(cfgs))
 
 	for _, c := range cfgs {
+		if !anyTagMatchesFilter(c.Tags, tagKeys, tagValues) {
+			continue
+		}
+
 		members = append(members, hsmConfigurationXML{
 			HsmConfigurationIdentifier: c.HsmConfigurationIdentifier,
 			Description:                c.Description,

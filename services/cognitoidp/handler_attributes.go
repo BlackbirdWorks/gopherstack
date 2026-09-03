@@ -91,17 +91,6 @@ func (h *Handler) handleDeleteUserAttributes(
 	return &deleteUserAttributesOutput{}, nil
 }
 
-func (h *Handler) handleVerifyUserAttribute(
-	_ context.Context,
-	in *verifyUserAttributeInput,
-) (*verifyUserAttributeOutput, error) {
-	if err := h.Backend.VerifyUserAttribute(in.AccessToken, in.AttributeName, in.Code); err != nil {
-		return nil, err
-	}
-
-	return &verifyUserAttributeOutput{}, nil
-}
-
 func (h *Handler) handleGetUserAttributeVerificationCodeFull(
 	_ context.Context,
 	in *getUserAttributeVerifCodeFullInput,
@@ -131,33 +120,13 @@ func (h *Handler) handleVerifyUserAttributeFull(
 	return &verifyUserAttributeFullOutput{}, nil
 }
 
-func (h *Handler) handleGetUserAttributeVerificationCode(
-	_ context.Context,
-	in *getUserAttributeVerificationCodeInput,
-) (*getUserAttributeVerificationCodeOutput, error) {
-	return &getUserAttributeVerificationCodeOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDeliveryMedium: medEmail,
-			keyDestination:    "user@example.com",
-			keyAttributeName:  in.AttributeName,
-		},
-	}, nil
-}
-
 func (h *Handler) attributesOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"DeleteUserAttributes":      service.WrapOp(h.handleDeleteUserAttributes),
-		"VerifyUserAttribute":       service.WrapOp(h.handleVerifyUserAttribute),
 		"UpdateUserAttributes":      service.WrapOp(h.handleUpdateUserAttributes),
 		"AdminUpdateUserAttributes": service.WrapOp(h.handleAdminUpdateUserAttributes),
 		"AddCustomAttributes":       service.WrapOp(h.handleAddCustomAttributes),
 		"AdminDeleteUserAttributes": service.WrapOp(h.handleAdminDeleteUserAttributes),
-	}
-}
-
-func (h *Handler) attributesOpsB() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"GetUserAttributeVerificationCode": service.WrapOp(h.handleGetUserAttributeVerificationCode),
 	}
 }
 

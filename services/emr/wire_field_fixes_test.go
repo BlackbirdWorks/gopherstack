@@ -2,8 +2,10 @@ package emr_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -339,6 +341,75 @@ func TestWireShape_StudioSummary_NoFabricatedFields(t *testing.T) {
 		"StudioSummary must not carry DefaultS3Location -- real StudioSummary has no such member")
 }
 
+// TestWireShape_RunJobFlow_SessionEnabled_RoundTrip proves
+// RunJobFlowInput.SessionEnabled (emr@v1.64.4 api_op_RunJobFlow.go:238-240,
+// real, "Indicates whether Spark Connect sessions are enabled on the
+// cluster") reaches Cluster.SessionEnabled (types.go:447-448) on read-back
+// instead of being silently discarded -- gopherstack previously had no such
+// field anywhere in its RunJobFlow input/Cluster output structs at all, so
+// a real client's SessionEnabled was dropped by json.Unmarshal (unknown
+// field, not an error) and Cluster.SessionEnabled always deserialized nil
+// regardless of what was requested. It also proves the other half of real
+// StartSession's documented precondition ("The cluster must be in the
+// RUNNING or WAITING state and have sessions enabled") is now enforced: a
+// cluster launched without SessionEnabled must reject StartSession even
+// while WAITING, which it did not before this fix (nothing checked the
+// field because the field did not exist).
+func TestWireShape_RunJobFlow_SessionEnabled_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sessionEnabled     *bool
+		name               string
+		wantSessionEnabled bool
+		wantStartSessionOK bool
+	}{
+		{
+			name:               "enabled",
+			sessionEnabled:     awssdk.Bool(true),
+			wantSessionEnabled: true,
+			wantStartSessionOK: true,
+		},
+		{
+			name:               "disabled",
+			sessionEnabled:     nil,
+			wantSessionEnabled: false,
+			wantStartSessionOK: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := emr.NewInMemoryBackend(testAccountID, testRegion)
+			h := emr.NewHandler(backend)
+			client := newTestEMRClient(t, h)
+			ctx := t.Context()
+
+			runOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+				Name:           awssdk.String("session-" + tc.name + "-cluster"),
+				Instances:      &emrtypes.JobFlowInstancesConfig{},
+				SessionEnabled: tc.sessionEnabled,
+			})
+			require.NoError(t, err)
+
+			descOut, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: runOut.JobFlowId})
+			require.NoError(t, err)
+			require.NotNil(t, descOut.Cluster)
+			assert.Equal(t, tc.wantSessionEnabled, awssdk.ToBool(descOut.Cluster.SessionEnabled),
+				"Cluster.SessionEnabled must round-trip RunJobFlowInput.SessionEnabled, never fabricated")
+
+			_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: runOut.JobFlowId})
+			if tc.wantStartSessionOK {
+				assert.NoError(t, err, "StartSession must succeed on a cluster launched with SessionEnabled=true")
+			} else {
+				assert.Error(t, err, "StartSession must reject a cluster launched without SessionEnabled=true")
+			}
+		})
+	}
+}
+
 // TestWireShape_DescribePersistentAppUI_RealShape proves
 // DescribePersistentAppUI's response uses the real
 // types.PersistentAppUI shape (PersistentAppUIId/CreationTime) instead of
@@ -392,4 +463,258 @@ func TestWireShape_DescribePersistentAppUI_RealShape(t *testing.T) {
 			"that belongs to CreatePersistentAppUIOutput, a different shape")
 	assert.Equal(t, createdUI.PersistentAppUIID, raw.PersistentAppUI["PersistentAppUIId"])
 	assert.NotZero(t, raw.PersistentAppUI["CreationTime"])
+}
+
+// TestListNotebookExecutions_ExecutionEngineIdFilter proves
+// ListNotebookExecutionsInput.ExecutionEngineId (real query, emr@v1.64.4
+// api_op_ListNotebookExecutions.go, serializers.go's "ExecutionEngineId"
+// body key) had no field for it at all in gopherstack's request struct --
+// EditorId/Status were read but ExecutionEngineId/From/To were silently
+// dropped, so a real client's filter on this field always no-op'd.
+func TestListNotebookExecutions_ExecutionEngineIdFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	keep, err := client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-KEEP"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-ENGINE-KEEP"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-DROP"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-ENGINE-DROP"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		ExecutionEngineId: awssdk.String("j-ENGINE-KEEP"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.NotebookExecutions, 1)
+	assert.Equal(
+		t,
+		awssdk.ToString(keep.NotebookExecutionId),
+		awssdk.ToString(out.NotebookExecutions[0].NotebookExecutionId),
+	)
+}
+
+// TestListNotebookExecutions_FromToFilter proves From/To (real query,
+// api_op_ListNotebookExecutions.go, epoch-seconds doubles per serializers.go)
+// were also silently dropped -- same missing-field defect as
+// ExecutionEngineId above.
+func TestListNotebookExecutions_FromToFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	started, err := client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-FROMTO"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-FROMTO"),
+		},
+	})
+	require.NoError(t, err)
+
+	future := time.Now().UTC().Add(time.Hour)
+
+	excluded, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		From: awssdk.Time(future),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.NotebookExecutions, "From set to the future must exclude an execution started now")
+
+	past := time.Now().UTC().Add(-time.Hour)
+
+	included, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		From: awssdk.Time(past),
+		To:   awssdk.Time(future),
+	})
+	require.NoError(t, err)
+	require.Len(t, included.NotebookExecutions, 1)
+	assert.Equal(
+		t,
+		awssdk.ToString(started.NotebookExecutionId),
+		awssdk.ToString(included.NotebookExecutions[0].NotebookExecutionId),
+	)
+}
+
+// TestListReleaseLabels_NextTokenPaginates proves ListReleaseLabels' request
+// pagination token round-trips under its real wire key. ListReleaseLabelsInput
+// serializes the token as "NextToken" (emr@v1.64.4 serializers.go's
+// awsAwsjson11_serializeOpDocumentListReleaseLabelsInput -- object.Key("NextToken")),
+// not "Marker" -- the sibling key ListSupportedInstanceTypesInput/Output
+// genuinely does use (api_op_ListSupportedInstanceTypes.go), which this handler's
+// listReleaseLabelsInput had copy-pasted. A real client's second-page NextToken was
+// silently dropped by encoding/json (unknown field ignored), so the second call
+// always restarted from the beginning instead of advancing. This test also proves
+// MaxResults is honoured (a real, sibling bug: it was parsed but never passed to
+// the backend, which paginated at a fixed size of 50 regardless of the caller's
+// requested page size).
+func TestListReleaseLabels_NextTokenPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	first, err := client.ListReleaseLabels(t.Context(), &emrsdk.ListReleaseLabelsInput{
+		MaxResults: awssdk.Int32(5),
+	})
+	require.NoError(t, err)
+	require.Len(t, first.ReleaseLabels, 5, "MaxResults=5 must cap the first page at 5 items")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, *first.NextToken, "a page short of the full catalog must return a NextToken")
+
+	second, err := client.ListReleaseLabels(t.Context(), &emrsdk.ListReleaseLabelsInput{
+		MaxResults: awssdk.Int32(5),
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.ReleaseLabels, 5, "MaxResults=5 must cap the second page at 5 items too")
+
+	seen := make(map[string]bool, 10)
+	for _, l := range first.ReleaseLabels {
+		seen[l] = true
+	}
+
+	for _, l := range second.ReleaseLabels {
+		assert.False(t, seen[l], "second page (via NextToken) repeated %q from the first page -- "+
+			"NextToken was not actually applied, the listing restarted from the beginning", l)
+	}
+}
+
+// TestListStudioSessionMappings_MarkerPaginates proves ListStudioSessionMappings
+// honours its real Marker pagination token (api_op_ListStudioSessionMappings.go
+// declares both a request Marker and a response Marker) instead of silently
+// returning every mapping for the studio in one unbounded page -- previously
+// neither field existed anywhere in this handler's request or response structs
+// at all, unlike every sibling List op in this file (ListStudios, ListSessions),
+// which already threaded Marker/NextToken through to pkgs/page.
+func TestListStudioSessionMappings_MarkerPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateStudio(ctx, &emrsdk.CreateStudioInput{
+		Name:                     awssdk.String("mapping-page-studio"),
+		AuthMode:                 emrtypes.AuthModeSso,
+		DefaultS3Location:        awssdk.String("s3://bucket/studio"),
+		EngineSecurityGroupId:    awssdk.String("sg-eng"),
+		ServiceRole:              awssdk.String("arn:aws:iam::000000000000:role/service"),
+		VpcId:                    awssdk.String("vpc-1"),
+		WorkspaceSecurityGroupId: awssdk.String("sg-workspace"),
+		SubnetIds:                []string{"subnet-1"},
+	})
+	require.NoError(t, err)
+
+	const total = 55 // exceeds this op's 50-item page size
+
+	for i := range total {
+		_, mapErr := client.CreateStudioSessionMapping(ctx, &emrsdk.CreateStudioSessionMappingInput{
+			StudioId:         createOut.StudioId,
+			IdentityType:     emrtypes.IdentityTypeUser,
+			IdentityId:       awssdk.String(fmt.Sprintf("user-%03d", i)),
+			IdentityName:     awssdk.String(fmt.Sprintf("user-%03d", i)),
+			SessionPolicyArn: awssdk.String("arn:aws:iam::000000000000:policy/session"),
+		})
+		require.NoError(t, mapErr)
+	}
+
+	first, err := client.ListStudioSessionMappings(ctx, &emrsdk.ListStudioSessionMappingsInput{
+		StudioId: createOut.StudioId,
+	})
+	require.NoError(t, err)
+	assert.Less(t, len(first.SessionMappings), total,
+		"a single ListStudioSessionMappings page must not return all %d mappings unbounded", total)
+	require.NotNil(t, first.Marker)
+	require.NotEmpty(t, *first.Marker, "a short page must return a Marker")
+
+	second, err := client.ListStudioSessionMappings(ctx, &emrsdk.ListStudioSessionMappingsInput{
+		StudioId: createOut.StudioId,
+		Marker:   first.Marker,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, second.SessionMappings)
+
+	seen := make(map[string]bool, len(first.SessionMappings))
+	for _, m := range first.SessionMappings {
+		seen[awssdk.ToString(m.IdentityId)] = true
+	}
+
+	for _, m := range second.SessionMappings {
+		assert.False(t, seen[awssdk.ToString(m.IdentityId)],
+			"second page (via Marker) repeated %q from the first page", awssdk.ToString(m.IdentityId))
+	}
+}
+
+// TestListSessions_MaxResultsCapsPage proves ListSessions honours a
+// caller-supplied MaxResults (real ListSessionsInput.MaxResults,
+// api_op_ListSessions.go: "The maximum number of sessions to return in each
+// page of results") instead of always paginating at this backend's fixed
+// listSessionsPageSize of 50, the same shape ListReleaseLabels had (see
+// TestListReleaseLabels_NextTokenPaginates above) until it was fixed --
+// ListSessions was not caught by that same pass.
+func TestListSessions_MaxResultsCapsPage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	clusterOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+		Name:           awssdk.String("list-sessions-page-cluster"),
+		Instances:      &emrtypes.JobFlowInstancesConfig{},
+		SessionEnabled: awssdk.Bool(true),
+	})
+	require.NoError(t, err)
+
+	const total = 10
+
+	for i := range total {
+		_, sessErr := client.StartSession(ctx, &emrsdk.StartSessionInput{
+			ClusterId: clusterOut.JobFlowId,
+			Name:      awssdk.String(fmt.Sprintf("session-%03d", i)),
+		})
+		require.NoError(t, sessErr)
+	}
+
+	first, err := client.ListSessions(ctx, &emrsdk.ListSessionsInput{
+		ClusterId:  clusterOut.JobFlowId,
+		MaxResults: awssdk.Int32(4),
+	})
+	require.NoError(t, err)
+	require.Len(t, first.Sessions, 4, "MaxResults=4 must cap the first page at 4 sessions")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, *first.NextToken, "a page short of all %d sessions must return a NextToken", total)
+
+	second, err := client.ListSessions(ctx, &emrsdk.ListSessionsInput{
+		ClusterId:  clusterOut.JobFlowId,
+		MaxResults: awssdk.Int32(4),
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.Sessions, 4, "MaxResults=4 must cap the second page at 4 sessions too")
+
+	seen := make(map[string]bool, len(first.Sessions))
+	for _, s := range first.Sessions {
+		seen[awssdk.ToString(s.Id)] = true
+	}
+
+	for _, s := range second.Sessions {
+		assert.False(t, seen[awssdk.ToString(s.Id)],
+			"second page (via NextToken) repeated %q from the first page -- "+
+				"NextToken was not actually applied, the listing restarted from the beginning", awssdk.ToString(s.Id))
+	}
 }

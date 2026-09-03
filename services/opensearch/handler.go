@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -610,11 +611,7 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 	// gopherstack-l5ir.
 	case strings.HasSuffix(trimmed, "/domainMaintenances"):
 		domainName, _ := strings.CutSuffix(trimmed, "/domainMaintenances")
-		maintenances, _ := h.Backend.ListDomainMaintenances(domainName)
-		if maintenances == nil {
-			maintenances = []*DomainMaintenance{}
-		}
-		h.writeJSON(r, w, map[string]any{"DomainMaintenances": maintenances})
+		h.handleListDomainMaintenances(w, r, domainName)
 	case strings.HasSuffix(trimmed, "/scheduledActions"):
 		domainName, _ := strings.CutSuffix(trimmed, "/scheduledActions")
 		actions := h.Backend.ListScheduledActions(domainName)
@@ -627,6 +624,36 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 	}
 
 	return true
+}
+
+// handleListDomainMaintenances serves ListDomainMaintenances: GET
+// {domainName}/domainMaintenances with action/status/maxResults/nextToken
+// all query-bound (api_op_ListDomainMaintenances.go serializers.go).
+func (h *Handler) handleListDomainMaintenances(w http.ResponseWriter, r *http.Request, domainName string) {
+	q := r.URL.Query()
+
+	var maxResults int
+	if mr := q.Get("maxResults"); mr != "" {
+		if n, convErr := strconv.Atoi(mr); convErr == nil {
+			maxResults = n
+		}
+	}
+
+	p, err := h.Backend.ListDomainMaintenances(
+		domainName, q.Get("action"), q.Get("status"), q.Get("nextToken"), maxResults,
+	)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+
+		return
+	}
+
+	out := map[string]any{"DomainMaintenances": p.Data}
+	if p.Next != "" {
+		out["NextToken"] = p.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 // dispatchDomainGetResourceByID handles GET sub-routes that address a specific resource by ID.

@@ -3,6 +3,7 @@ package redshift
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -287,7 +288,15 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 
 // DescribeClusters returns clusters. If id is non-empty, returns only that cluster.
 // When marker and maxRecords are used, returns a page of results sorted by ClusterIdentifier.
-func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([]Cluster, string, error) {
+// tagKeys/tagValues are applied to the full set before pagination, matching
+// real AWS's "any tag whose key is in tagKeys OR whose value is in
+// tagValues" semantics (DescribeClustersInput doc, redshift@v1.65.4
+// api_op_DescribeClusters.go) — filtering the already-paginated page would
+// both short a matching page and let a tag-filtered client outrun matches
+// sitting past the cursor.
+func (b *InMemoryBackend) DescribeClusters(
+	id, marker string, maxRecords int, tagKeys, tagValues []string,
+) ([]Cluster, string, error) {
 	// Advance any due lifecycle transitions before reading so SDK waiters that
 	// poll DescribeClusters always observe the current state, even when the
 	// background reconciler is not running.
@@ -308,6 +317,18 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([
 	// Snapshot returns every cluster ordered by key (ClusterIdentifier)
 	// ascending, matching the previous sort.Strings(ids) behaviour.
 	sorted := b.clusters.Snapshot()
+
+	if len(tagKeys) > 0 || len(tagValues) > 0 {
+		filtered := make([]*Cluster, 0, len(sorted))
+
+		for _, c := range sorted {
+			if clusterMatchesTagKeysOrValues(c.Tags, tagKeys, tagValues) {
+				filtered = append(filtered, c)
+			}
+		}
+
+		sorted = filtered
+	}
 
 	// Advance past the marker (exclusive — marker is the last ID on the previous page).
 	if marker != "" {
@@ -331,4 +352,26 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([
 	}
 
 	return clusters, nextMarker, nil
+}
+
+// clusterMatchesTagKeysOrValues reports whether t has any tag whose key is
+// in tagKeys or whose value is in tagValues. An empty t or nil t never
+// matches a non-empty filter.
+func clusterMatchesTagKeysOrValues(t *tags.Tags, tagKeys, tagValues []string) bool {
+	if t == nil {
+		return false
+	}
+
+	matched := false
+	t.Range(func(k, v string) bool {
+		if slices.Contains(tagKeys, k) || slices.Contains(tagValues, v) {
+			matched = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return matched
 }

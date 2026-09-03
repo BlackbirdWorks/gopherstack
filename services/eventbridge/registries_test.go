@@ -34,7 +34,7 @@ func TestSchemaRegistry_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", updated.Description)
 
-	registries, _, err := b.ListRegistries(context.Background(), "my-", "")
+	registries, _, err := b.ListRegistries(context.Background(), "my-", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, registries, 1)
 

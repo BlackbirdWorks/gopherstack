@@ -150,6 +150,16 @@ func NewTransactionInProgressException(msg string) *Error {
 	}
 }
 
+// NewIdempotentParameterMismatchException indicates a ClientRequestToken was
+// reused with a request that does not match the one that originally
+// committed under that token.
+func NewIdempotentParameterMismatchException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#IdempotentParameterMismatchException",
+		Message: msg,
+	}
+}
+
 func NewExpiredIteratorException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ExpiredIteratorException",

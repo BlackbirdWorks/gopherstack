@@ -48,9 +48,10 @@ func (h *Handler) handleDeleteSnapshot(
 // --- DescribeSnapshots ---
 
 type describeSnapshotsInput struct {
-	NextToken   string   `json:"NextToken,omitempty"`
-	SnapshotIDs []string `json:"SnapshotIds,omitempty"`
-	MaxResults  int32    `json:"MaxResults,omitempty"`
+	NextToken   string       `json:"NextToken,omitempty"`
+	SnapshotIDs []string     `json:"SnapshotIds,omitempty"`
+	Filters     []wireFilter `json:"Filters,omitempty"`
+	MaxResults  int32        `json:"MaxResults,omitempty"`
 }
 
 type describeSnapshotsOutput struct {
@@ -62,7 +63,7 @@ func (h *Handler) handleDescribeSnapshots(
 	_ context.Context,
 	in *describeSnapshotsInput,
 ) (*describeSnapshotsOutput, error) {
-	snaps, next, err := h.Backend.DescribeSnapshots(in.SnapshotIDs, in.MaxResults, in.NextToken)
+	snaps, next, err := h.Backend.DescribeSnapshots(in.SnapshotIDs, in.Filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

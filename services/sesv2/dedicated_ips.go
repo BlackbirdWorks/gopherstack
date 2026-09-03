@@ -1,6 +1,11 @@
 package sesv2
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 // warmup status constants for dedicated IP tracking.
 const (
@@ -45,19 +50,29 @@ func (b *InMemoryBackend) GetDedicatedIP(ip string) (map[string]any, error) {
 	}, nil
 }
 
-// GetDedicatedIps returns all tracked dedicated IPs.
-func (b *InMemoryBackend) GetDedicatedIps() []map[string]any {
+// GetDedicatedIps returns tracked dedicated IPs, optionally filtered by pool
+// and paginated.
+func (b *InMemoryBackend) GetDedicatedIps(poolName, nextToken string, pageSize int) page.Page[map[string]any] {
 	b.mu.RLock("GetDedicatedIps")
 	defer b.mu.RUnlock()
 
 	snap := b.dedicatedIPs.Snapshot()
 
-	out := make([]map[string]any, 0, len(snap))
+	filtered := make([]*DedicatedIP, 0, len(snap))
 	for _, d := range snap {
+		if poolName == "" || d.PoolName == poolName {
+			filtered = append(filtered, d)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].IP < filtered[j].IP })
+
+	out := make([]map[string]any, 0, len(filtered))
+	for _, d := range filtered {
 		out = append(out, dedicatedIPToMap(d))
 	}
 
-	return out
+	return page.New(out, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
 // dedicatedIPLocked returns the tracked dedicated IP, creating a default entry if

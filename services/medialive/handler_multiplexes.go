@@ -155,6 +155,10 @@ func (h *Handler) handleListMultiplexes(c *echo.Context) error {
 		if zones == nil {
 			zones = []string{}
 		}
+		tags := s.Tags
+		if tags == nil {
+			tags = map[string]string{}
+		}
 
 		out = append(out, map[string]any{
 			keyArn:                  s.ARN,
@@ -164,6 +168,10 @@ func (h *Handler) handleListMultiplexes(c *echo.Context) error {
 			"availabilityZones":     zones,
 			"pipelinesRunningCount": multiplexPipelinesRunningCount(s.State),
 			"programCount":          int32(s.ProgramCount), //nolint:gosec // program count is always small
+			"multiplexSettings": map[string]any{
+				"transportStreamBitrate": s.TransportStreamBitrate,
+			},
+			keyTags: tags,
 		})
 	}
 

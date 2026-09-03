@@ -452,7 +452,7 @@ func TestRunInstances_SecurityGroupIds_Stored(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("my-sg", "My SG", vpc.ID)
@@ -481,7 +481,7 @@ func TestRunInstances_SecurityGroupIds_InDescribeInstances(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("web-sg", "Web SG", vpc.ID)
@@ -521,7 +521,7 @@ func TestRunInstances_SecurityGroupIds_MultipleGroups(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg1, err := b.CreateSecurityGroup("web", "Web", vpc.ID)
@@ -716,7 +716,7 @@ func TestRunInstances_GroupSetPresentInResponse(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("test-sg", "Test SG", vpc.ID)

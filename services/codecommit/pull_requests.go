@@ -59,7 +59,9 @@ func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
 
 // ListPullRequests returns pull request IDs for a repository, optionally filtered by status.
 // IDs are returned in numeric descending order (newest first), matching AWS behaviour.
-// pullRequestStatus accepts "OPEN", "CLOSED", or "MERGED" (empty means return all).
+// pullRequestStatus accepts "OPEN" or "CLOSED" (empty means return all); a merged
+// pull request's status is "CLOSED", matching types.PullRequestStatusEnum, which has
+// no MERGED member.
 func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus, authorARN string) ([]string, error) {
 	b.mu.RLock("ListPullRequests")
 	defer b.mu.RUnlock()
@@ -164,7 +166,7 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalState(prID, userARN, approval
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 
@@ -186,7 +188,7 @@ func (b *InMemoryBackend) UpdatePullRequestDescription(prID, desc string) error 
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.Description = desc
@@ -220,7 +222,7 @@ func (b *InMemoryBackend) UpdatePullRequestTitle(prID, title string) error {
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+	if pr.PullRequestStatus == prStatusClosed {
 		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.Title = title

@@ -1,5 +1,7 @@
 package cognitoidp
 
+import "time"
+
 // CompromisedCredentialsActions defines what action to take for compromised credentials.
 type CompromisedCredentialsActions struct {
 	EventAction string `json:"EventAction,omitempty"` // "BLOCK" | "NO_ACTION"
@@ -54,7 +56,12 @@ type RiskExceptionConfig struct {
 }
 
 // TypedRiskConfiguration holds fully typed risk config fields.
+// LastModifiedAt backs the real RiskConfigurationType.LastModifiedDate
+// response member (types/types.go, cognitoidentityprovider@v1.67.4) --
+// previously untracked entirely (see the now-closed risk_config deferred
+// entry in PARITY.md), set by SetTypedRiskConfiguration on every call.
 type TypedRiskConfiguration struct {
+	LastModifiedAt                   time.Time                         `json:"lastModifiedAt,omitzero"`
 	CompromisedCredentialsRiskConfig *CompromisedCredentialsRiskConfig `json:"compromisedCredentialsRiskConfig,omitempty"`
 	AccountTakeoverRiskConfig        *AccountTakeoverRiskConfig        `json:"accountTakeoverRiskConfig,omitempty"`
 	RiskExceptionConfiguration       *RiskExceptionConfig              `json:"riskExceptionConfiguration,omitempty"`
@@ -139,6 +146,7 @@ type riskConfigurationJSON struct {
 	RiskExceptionConfiguration              *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
 	UserPoolID                              string                         `json:"UserPoolId,omitempty"`
 	ClientID                                string                         `json:"ClientId,omitempty"`
+	LastModifiedDate                        float64                        `json:"LastModifiedDate,omitempty"`
 }
 
 type describeRiskConfigFullOutput struct {
@@ -155,26 +163,6 @@ type setRiskConfigFullInput struct {
 
 type setRiskConfigFullOutput struct {
 	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration,omitempty"`
-}
-
-type describeRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type riskConfigurationType struct{}
-
-type describeRiskConfigurationOutput struct {
-	RiskConfiguration *riskConfigurationType `json:"RiskConfiguration,omitempty"`
-}
-
-type setRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type setRiskConfigurationOutput struct {
-	RiskConfiguration *riskConfigurationType `json:"RiskConfiguration,omitempty"`
 }
 
 type getLogDeliveryConfigurationInput struct {

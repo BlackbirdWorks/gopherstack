@@ -82,7 +82,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 		DirectoryID string `json:"DirectoryId"`
 		Type        string `json:"Type"`
 		NextToken   string `json:"NextToken"`
-		PageSize    int32  `json:"PageSize"`
+		Limit       int32  `json:"Limit"`
 	}
 
 	if len(body) > 0 {
@@ -97,7 +97,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 
 	settings, nextToken, descErr := h.Backend.DescribeClientAuthenticationSettings(
 		h.contextWithRegion(c),
-		req.DirectoryID, req.Type, req.PageSize, req.NextToken,
+		req.DirectoryID, req.Type, req.Limit, req.NextToken,
 	)
 	if descErr != nil {
 		return h.mapError(c, descErr)

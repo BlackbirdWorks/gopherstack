@@ -6,12 +6,13 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: b8ef75b1e   # refreshed 2026-08-20 -- current HEAD at write time (this pass's own dax changes not yet committed by this agent)
-last_audit_date: 2026-08-20
+last_audit_commit: da77e2959   # refreshed 2026-08-29 -- current HEAD at write time
+last_audit_date: 2026-08-29
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
                       # 2026-08-20: wrapper-key / nested-shape sweep. Fixed one fabricated SourceType enum value ("NODE") emitted for node-level Events; the real types.SourceType enum has exactly CLUSTER/PARAMETER_GROUP/SUBNET_GROUP. All other wrapper keys, nesting levels, and per-member shapes across all 20 ops verified clean against the pinned SDK. See Notes.
+                      # 2026-08-29: write-only-state sweep (gopherstack-6flj/21my), forward+reverse, over clusters/parameter_groups/subnet_groups/tags/events control-plane files plus their handlers. No new bug found -- confirms the 2026-08-20 sweep's coverage still holds; no dax-specific commits landed between the two passes. See Notes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -427,3 +428,109 @@ naming which AZs to remove nodes from. Node.AvailabilityZone is real, populated
 state, so this is accept-and-drop rather than a modelling gap. Proven by a
 real-SDK-client round trip: asked to remove the us-east-1b node, the unfixed
 code removed the trailing us-east-1c node instead.
+
+## 2026-08-29 write-only-state sweep (gopherstack-6flj / gopherstack-21my)
+
+Forward+reverse write-only-state sweep of the control-plane backend files (`clusters.go`,
+`parameter_groups.go`, `subnet_groups.go`, `tags.go`, `events.go`) and their handlers
+(`handler_clusters.go`, `handler_parameter_groups.go`, `handler_subnet_groups.go`,
+`handler_tags.go`, `handler_events.go`), against `aws-sdk-go-v2/service/dax@v1.32.4`, on top
+of the already-thorough 2026-08-10 and 2026-08-20 sweeps. No dax-specific commit landed
+between those two prior passes and this one (`git log --oneline -- services/dax/` shows only
+cross-service commits #2435/#2440 touching this service not at all), so this was a genuine
+re-verification against unchanged code, not a stale-claim check.
+
+**No new bug found.** Every field written by a Create/Update op was traced to a real read
+path: `Cluster.Tags` (never surfaces on the wire -- correct, real `types.Cluster` has no
+`Tags` field at all, confirmed at `types/types.go:11-83`); `NotificationConfiguration`'s
+partial-update branch (`UpdateCluster` changing only `NotificationTopicStatus` on an existing
+config without a new ARN); `ParameterGroup.NodeIDsToReboot`/`ParameterApplyStatus`
+transitioning to `"pending-reboot"` on `UpdateParameterGroup` and surfacing on
+`Cluster.ParameterGroup`; `Cluster.NodeIDsToRemove`'s transient in-flight-only lifecycle;
+`SubnetGroup.VpcID`/`Subnets[].SupportedNetworkTypes`. `toClusterResponse` was re-diffed
+field-by-field against the full `types.Cluster` struct (`types/types.go:11-83`) -- all 19 real
+members present and correctly named (`ClusterDiscoveryEndpoint`, not the internal model's
+`Endpoint` field name, confirmed still correctly retagged in `clusterResponse`).
+
+**Zeroguard findings, disqualified:** `UpdateCluster`'s `PreferredMaintenanceWindow`/
+`ParameterGroupName`/`NotificationTopicArn`/`NotificationTopicStatus` and
+`UpdateSubnetGroup`'s `Description` are zero-check-guarded plain strings backing pointer SDK
+fields ("empty means omitted, don't change"), which is the correct optional-update
+convention this backend uses consistently (matches the real API's own pointer-nil-means-omit
+semantics) -- not a meaningful-zero-value bug. `ClusterName`/`ParameterGroupName`/
+`SubnetGroupName` "no zero-guard found" findings are required fields on their respective
+Update inputs, validated explicitly before use; a zero-guard would be wrong here, not missing.
+
+**Not reached this pass:** `dataplane/`, `dataplane_server.go`, `dataplane_integration_test.go`
+(the DAX client-protocol data-plane emulation -- a different wire protocol than the
+control-plane REST/JSON surface this campaign's bug class targets, out of scope); `store.go`/
+`store_setup.go`/`persistence.go`/`provider.go` (read only incidentally).
+
+**Gates:** `go build ./services/dax/...`, `go vet ./services/dax/...`,
+`go test -race -count=1 ./services/dax/...` (pass, including `./services/dax/dataplane/...`),
+`golangci-lint run --fix ./services/dax/...` (0 issues, no changes).
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family, N/A)
+
+Same check as memorydb (same campaign, same reasoning): confirmed DAX is JSON-RPC 1.1
+(`awsAwsjson11_*` prefix, pinned dax@v1.32.4), so this service also decodes requests via
+`encoding/json` into typed structs with no indexed `list.N` key parsing -- the structural precondition
+for the rds/neptune bug family doesn't exist here either. Spot-checked slice-typed request fields
+(`CreateCluster`/`DecreaseReplicationFactor`/`IncreaseReplicationFactor`/`UpdateCluster`/
+`CreateParameterGroup`/`UpdateParameterGroup`/`DescribeParameters`) against `awsAwsjson11_serializeOpDocument<Op>Input`
+in the pinned SDK -- all json tags match. Confirmed `DescribeEventsInput` (dax@v1.32.4
+api_op_DescribeEvents.go) has no `EventCategories` field, so the neptune-specific variant doesn't apply.
+No `[0]`/first-element-only truncation found in request-decode paths (the one `[0]` hit,
+`vpcIDFromSubnets` in `subnet_groups.go`, derives a synthetic placeholder VPC ID from a subnet list and
+isn't request filtering). This bug class doesn't apply to this service.
+
+Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dax/...` (pass, including `./services/dax/dataplane/...`, no changes),
+`golangci-lint run ./services/dax/...` (0 issues). No code changed this pass.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Four bugs found and fixed, all the same class: an exact-match ("==") or bounded
+(`n < len(all)`) cursor lookup that silently fell back to its zero-value default —
+offset/index 0 — whenever the cursor didn't land on a currently-present element, instead
+of resuming past it (a deleted item) or terminating (an exhausted/garbage token). Net
+effect: a stale cursor handed the caller duplicate items already seen (deletion case) or
+restarted pagination at page one forever (exhaustion case), rather than returning the
+correct remainder or an empty page.
+
+- `paginateList` (`store.go`, generic — backs `DescribeParameterGroups` and
+  `DescribeSubnetGroups` via `describeNamedGroups`, 2 operations): fixed by searching for
+  the first `getName(item) >= nextToken` instead of `==`, defaulting `start = len(all)` when
+  no match is found (previously defaulted to 0).
+- `paginateClusters` (`clusters.go` — `DescribeClusters`, 1 operation): same fix,
+  `c.ClusterName >= nextToken` / default `len(all)`.
+- `paginateParameters` (`parameter_groups.go` — `DescribeParameters` and
+  `DescribeDefaultParameters`, 2 operations): its cursor is a plain decimal index
+  (`strconv.Atoi`), not a name lookup, but the inner validation `idx >= 0 && idx < len(all)`
+  rejected any out-of-range `idx` and left `start` at its zero-value default instead of
+  falling through to the existing `if start >= len(all) { return empty }` guard — same
+  net bug, different mechanism. Fixed by dropping the `idx < len(all)` half of the inner
+  check and letting the outer guard do its job.
+- `DescribeEvents` (`events.go`, 1 operation): identical `idx < len(filtered)` bug as
+  `paginateParameters`, same fix.
+- `ListTags` (`tags.go`, 1 operation): identical exact-match-cursor bug as `paginateList`/
+  `paginateClusters` (sorted tag keys via `collections.SortedKeys`), same `>=`/default-to-end
+  fix. Reachable in practice: `UntagResource` between two `ListTags` calls reproduces it.
+
+7 operations affected total. Every fix is proven by a failing-then-passing unit test against
+the helper directly (`pagination_arithmetic_test.go`, `tags_test.go`) plus one real
+`aws-sdk-go-v2/service/dax` client round trip
+(`pagination_sdk_roundtrip_test.go`: `ListTags`, deletes the cursor's tag between pages).
+
+`paginateBlocks`-style "n < len" bug independently recurred in `services/textract` and was
+fixed there too — see that service's PARITY.md; not the same helper, no shared root cause,
+just the same mistake made twice.
+
+**Not fixed, recorded only:** `ListReadSetUploadParts` in `services/omics/read_sets.go` has
+the same exact-match-cursor shape (compares `strconv.Itoa(p.PartNumber) == nextToken`) but
+was found unreachable in that service: there's no per-part delete, only whole-upload
+delete/abort, so the named part can never go missing between calls. See omics's PARITY.md.
+
+Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/dax/...` (pass, including
+`./services/dax/dataplane/...`), `golangci-lint run ./services/dax/...` (0 issues).

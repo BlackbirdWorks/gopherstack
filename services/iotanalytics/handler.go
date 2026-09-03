@@ -657,6 +657,17 @@ func parsePagination(c *echo.Context) (int, string) {
 	return maxResults, cursor
 }
 
+// queryBool parses a boolean query param the way the real SDK's REST-JSON
+// query-boolean binding emits it (strconv.FormatBool, always lowercase
+// "true"/"false" -- smithy-go@v1.27.6 encoding/httpbinding/query.go:43-45),
+// but tolerates strconv.ParseBool's wider accepted set ("1", "t", "T",
+// "TRUE", ...) for non-Go callers. Absent or unparseable defaults to false.
+func queryBool(c *echo.Context, name string) bool {
+	v, err := strconv.ParseBool(c.Request().URL.Query().Get(name))
+
+	return err == nil && v
+}
+
 // encodeNextToken base64-encodes a cursor name for use as a pagination token.
 func encodeNextToken(name string) string {
 	return base64.StdEncoding.EncodeToString([]byte(name))

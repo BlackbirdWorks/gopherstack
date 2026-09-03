@@ -200,10 +200,12 @@ func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	extIdentifier := q.Get("extension_identifier")
 	resourceIdentifier := q.Get("resource_identifier")
+	extVersionNumber := parseAppConfigQueryVersion(c, "extension_version_number")
 	assocs, outToken := h.Backend.ListExtensionAssociations(
 		nextToken,
 		extIdentifier,
 		resourceIdentifier,
+		extVersionNumber,
 		maxResults,
 	)
 

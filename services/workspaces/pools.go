@@ -2,7 +2,10 @@ package workspaces
 
 import (
 	"fmt"
+	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // poolsRunningModeAlwaysOn is the default running mode for a newly created
@@ -13,6 +16,18 @@ const poolsRunningModeAlwaysOn = "ALWAYS_ON"
 // poolStateStopped is the WorkspacesPoolState value StopWorkspacesPool sets
 // and the only state UpdateWorkspacesPool may change RunningMode in.
 const poolStateStopped = "STOPPED"
+
+// poolsPageSize is this backend's default page size for
+// DescribeWorkspacesPools; real AWS doesn't document an exact default, so
+// this is chosen generously (larger than any realistic per-account pool
+// count) so pagination only activates when a caller explicitly requests a
+// smaller Limit.
+const poolsPageSize = 100
+
+// poolSessionsPageSize is DescribeWorkspacesPoolSessions' default page size.
+// Unlike poolsPageSize, real AWS documents this one exactly: "The default
+// value is 20 and the maximum value is 50" (DescribeWorkspacesPoolSessionsInput.Limit).
+const poolSessionsPageSize = 20
 
 // CreateWorkspacesPool creates a new workspace pool.
 func (b *InMemoryBackend) CreateWorkspacesPool(
@@ -55,15 +70,19 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 
 // DescribeWorkspacesPools returns pools, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeWorkspacesPools(
-	poolIDs []string, _ int32, _ string,
+	poolIDs []string, limit int32, nextToken string,
 ) ([]*storedPool, string, error) {
 	b.mu.RLock("DescribeWorkspacesPools")
 	defer b.mu.RUnlock()
 
 	filter := buildFilter(poolIDs)
-	var result []*storedPool
+	all := b.pools.All()
 
-	for _, p := range b.pools.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].PoolID < all[j].PoolID })
+
+	result := make([]*storedPool, 0, len(all))
+
+	for _, p := range all {
 		if !matchesFilter(filter, p.PoolID) {
 			continue
 		}
@@ -72,11 +91,9 @@ func (b *InMemoryBackend) DescribeWorkspacesPools(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedPool{}
-	}
+	pg := page.New(result, nextToken, int(limit), poolsPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // StartWorkspacesPool transitions a pool to RUNNING.
@@ -169,14 +186,18 @@ func (b *InMemoryBackend) UpdateWorkspacesPool(
 
 // DescribeWorkspacesPoolSessions returns sessions for a pool.
 func (b *InMemoryBackend) DescribeWorkspacesPoolSessions(
-	poolID, _ /*userID*/ string, _ int32, _ string,
+	poolID, _ /*userID*/ string, limit int32, nextToken string,
 ) ([]*storedPoolSession, string, error) {
 	b.mu.RLock("DescribeWorkspacesPoolSessions")
 	defer b.mu.RUnlock()
 
-	var result []*storedPoolSession
+	all := b.poolSessions.All()
 
-	for _, s := range b.poolSessions.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].SessionID < all[j].SessionID })
+
+	result := make([]*storedPoolSession, 0, len(all))
+
+	for _, s := range all {
 		if s.PoolID != poolID {
 			continue
 		}
@@ -185,11 +206,9 @@ func (b *InMemoryBackend) DescribeWorkspacesPoolSessions(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedPoolSession{}
-	}
+	pg := page.New(result, nextToken, int(limit), poolSessionsPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // TerminateWorkspacesPoolSession removes a pool session.

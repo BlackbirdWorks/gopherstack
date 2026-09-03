@@ -124,8 +124,12 @@ func (h *Handler) handleCreateDeployment(
 	_ context.Context,
 	in *createDeploymentInput,
 ) (*createDeploymentOutput, error) {
-	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
-		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
+	}
+
+	if in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: deploymentGroupName is required", ErrDeploymentGroupNameRequired)
 	}
 
 	opts := DeploymentOptions{
@@ -184,7 +188,7 @@ func (h *Handler) handleGetDeployment(
 	in *getDeploymentInput,
 ) (*getDeploymentOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	d, err := h.Backend.GetDeployment(in.DeploymentID)
@@ -298,7 +302,7 @@ func (h *Handler) handleStopDeployment(
 	in *stopDeploymentInput,
 ) (*stopDeploymentOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	if err := h.Backend.StopDeployment(in.DeploymentID); err != nil {
@@ -319,7 +323,7 @@ func (h *Handler) handleSkipWaitTimeForInstanceTermination(
 	in *skipWaitTimeInput,
 ) (*skipWaitTimeOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
@@ -341,7 +345,7 @@ func (h *Handler) handleContinueDeployment(
 	in *continueDeploymentInput,
 ) (*continueDeploymentOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	if in.DeploymentWaitType != "" &&
@@ -372,7 +376,7 @@ func (h *Handler) handleBatchGetDeployments(
 	in *batchGetDeploymentsInput,
 ) (*batchGetDeploymentsOutput, error) {
 	if len(in.DeploymentIDs) == 0 {
-		return nil, fmt.Errorf("%w: deploymentIds is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentIds is required", ErrDeploymentIDRequired)
 	}
 
 	deployments := h.Backend.BatchGetDeployments(in.DeploymentIDs)

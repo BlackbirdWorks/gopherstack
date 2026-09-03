@@ -96,9 +96,9 @@ func (h *Handler) handleDeleteAgentActionGroup(
 }
 
 func (h *Handler) handleListAgentActionGroups(
-	ctx context.Context, c *echo.Context, agentID, agentVersion string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	maxResults, nextToken := bodyPageParams(body)
 
 	summaries, outToken, err := h.Backend.ListAgentActionGroups(ctx, agentID, agentVersion, maxResults, nextToken)
 	if err != nil {

@@ -3,6 +3,7 @@ package ec2
 import (
 	"fmt"
 	"maps"
+	"strings"
 )
 
 // resourceTypeByID and resourceExistsLocked live in resource_types.go
@@ -42,11 +43,13 @@ func (b *InMemoryBackend) CreateTags(resourceIDs []string, tags map[string]strin
 // DeleteTags removes the specified tag keys from one or more resources.
 // If keys is empty, the operation is a no-op (EC2 requires at least one tag key).
 // Empty per-resource tag maps are removed after deletions.
+// DeleteTags removes the given tag keys from each resource. Omitting keys
+// deletes every user-defined tag on the resource (ec2@v1.319.1
+// api_op_DeleteTags.go: "If you omit this parameter, we delete all
+// user-defined tags... We do not delete Amazon Web Services-generated tags");
+// this backend never stores an "aws:"-prefixed tag, but the exclusion is kept
+// to match the documented behavior exactly.
 func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
@@ -55,8 +58,16 @@ func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error 
 			continue
 		}
 
-		for _, k := range keys {
-			delete(b.tags[id], k)
+		if len(keys) == 0 {
+			for k := range b.tags[id] {
+				if !strings.HasPrefix(k, "aws:") {
+					delete(b.tags[id], k)
+				}
+			}
+		} else {
+			for _, k := range keys {
+				delete(b.tags[id], k)
+			}
 		}
 
 		if len(b.tags[id]) == 0 {

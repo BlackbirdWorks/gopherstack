@@ -34,7 +34,7 @@ import (
 // snapshot. (ResourceStatistics's sibling renames in the same commit are not
 // a compatibility concern: that struct is never populated with real data by
 // this backend, disclosed as untested in the commit itself.)
-const macie2SnapshotVersion = 2
+const macie2SnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the Macie2 backend.
 //

@@ -29,18 +29,7 @@ func (h *Handler) handleListActions(c *echo.Context) error {
 		ids[i] = a.ID
 	}
 
-	q := c.Request().URL.Query()
-	maxResults, start := paginateWithToken(ids, q)
-
-	end := min(start+maxResults, len(actions))
-
-	var nextTok string
-
-	if end < len(actions) {
-		nextTok = encodePageToken(end)
-	}
-
-	page := actions[start:end]
+	page, nextTok := paginatePage(actions, ids, c.Request().URL.Query())
 	dtos := make([]actionSummaryDTO, len(page))
 
 	for i := range page {
@@ -69,18 +58,7 @@ func (h *Handler) handleListTargetResourceTypes(c *echo.Context) error {
 		ids[i] = rt.ResourceType
 	}
 
-	q := c.Request().URL.Query()
-	maxResults, start := paginateWithToken(ids, q)
-
-	end := min(start+maxResults, len(types))
-
-	var nextTok string
-
-	if end < len(types) {
-		nextTok = encodePageToken(end)
-	}
-
-	page := types[start:end]
+	page, nextTok := paginatePage(types, ids, c.Request().URL.Query())
 	dtos := make([]targetResourceTypeSummaryDTO, len(page))
 
 	for i := range page {

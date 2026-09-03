@@ -160,7 +160,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 	}()
 
 	if result == nil {
-		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
+		return nil, fmt.Errorf("%w: job %s", errJobEvictedBeforeReadback, jobID)
 	}
 
 	return result, nil

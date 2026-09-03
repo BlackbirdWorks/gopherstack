@@ -809,6 +809,62 @@ func TestRoundTrip_NetworkMigrationAnalysisAndDeployment(t *testing.T) {
 	require.Equal(t, types.ExecutionStageActivityDeploy, executions.Items[0].Activity)
 }
 
+// TestRoundTrip_NetworkMigrationCodeGenerationOutputFormatStatus drives
+// StartNetworkMigrationCodeGeneration with real output format types and
+// confirms ListNetworkMigrationCodeGenerations surfaces
+// CodeGenerationOutputFormatStatusDetailsMap (types.
+// NetworkMigrationCodeGenerationJobDetails.CodeGenerationOutputFormatStatusDetailsMap,
+// deserializers.go case "codeGenerationOutputFormatStatusDetailsMap") --
+// one entry per requested format, keyed by the format itself, once the job
+// reaches SUCCEEDED.
+func TestRoundTrip_NetworkMigrationCodeGenerationOutputFormatStatus(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	created, err := client.CreateNetworkMigrationDefinition(ctx, &mgnsdk.CreateNetworkMigrationDefinitionInput{
+		Name:          aws.String("codegen-status-def"),
+		TargetNetwork: &types.TargetNetwork{Topology: types.TargetNetworkTopologyHubAndSpoke},
+		TargetS3Configuration: &types.TargetS3Configuration{
+			S3Bucket: aws.String("bucket"), S3BucketOwner: aws.String(rtTestAccountID),
+		},
+	})
+	require.NoError(t, err)
+	defID := aws.ToString(created.NetworkMigrationDefinitionID)
+	execID := "exec-codegen-status"
+
+	codeGenOut, err := client.StartNetworkMigrationCodeGeneration(ctx, &mgnsdk.StartNetworkMigrationCodeGenerationInput{
+		NetworkMigrationDefinitionID: aws.String(defID), NetworkMigrationExecutionID: aws.String(execID),
+		CodeGenerationOutputFormatTypes: []types.CodeGenerationOutputFormatType{
+			types.CodeGenerationOutputFormatTypeCdkL1, types.CodeGenerationOutputFormatTypeTerraform,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(codeGenOut.JobID))
+
+	var items []types.NetworkMigrationCodeGenerationJobDetails
+	require.Eventually(t, func() bool {
+		out, listErr := client.ListNetworkMigrationCodeGenerations(
+			ctx, &mgnsdk.ListNetworkMigrationCodeGenerationsInput{
+				NetworkMigrationDefinitionID: aws.String(defID), NetworkMigrationExecutionID: aws.String(execID),
+			},
+		)
+		if listErr != nil || len(out.Items) != 1 {
+			return false
+		}
+
+		items = out.Items
+
+		return items[0].Status == types.NetworkMigrationJobStatusSucceeded
+	}, defaultAsyncWait, defaultAsyncPoll, "code generation job never reached SUCCEEDED")
+
+	statusMap := items[0].CodeGenerationOutputFormatStatusDetailsMap
+	require.Len(t, statusMap, 2)
+	require.Equal(t, types.CodeGenerationOutputFormatStatusSucceeded, statusMap["CDK_L1"].Status)
+	require.Equal(t, types.CodeGenerationOutputFormatStatusSucceeded, statusMap["TERRAFORM"].Status)
+}
+
 // TestRoundTrip_ManagedAccounts drives ListManagedAccounts, confirming it
 // only ever returns the calling account itself (no fabricated
 // cross-account data -- PARITY.md).

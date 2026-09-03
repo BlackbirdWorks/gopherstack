@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -311,4 +312,86 @@ func TestDeauthorizeUpdateConnection_EchoesTimestamps_RealClient(t *testing.T) {
 	// ListConnections' real item type has no AuthParameters member at all --
 	// the typed SDK client has no field to decode it into.
 	assert.Equal(t, "my-conn", aws.ToString(listed.Connections[0].Name))
+}
+
+// TestPutRule_CreatedBy_DescribeOnly_RealClient is a write-only-state bug:
+// the backend has always tracked its own account ID (InMemoryBackend.accountID,
+// used to build every rule's ARN), but Rule had no CreatedBy field at all, so
+// PutRule accepted a rule creation and the caller's account identity was never
+// surfaced anywhere -- DescribeRuleOutput.CreatedBy (aws-sdk-go-v2/service/
+// eventbridge@v1.48.4 api_op_DescribeRule.go) was always nil on a real client.
+// CreatedBy is DescribeRule-only: real types.Rule (backing ListRulesOutput)
+// has no such member, so this also proves ListRules correctly omits it.
+func TestPutRule_CreatedBy_DescribeOnly_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+	client := newTestEventBridgeClient(t, h)
+
+	_, err := client.PutRule(t.Context(), &eventbridgesdk.PutRuleInput{
+		Name:         aws.String("my-rule"),
+		EventPattern: aws.String(`{"source":["test"]}`),
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeRule(t.Context(), &eventbridgesdk.DescribeRuleInput{
+		Name: aws.String("my-rule"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, described.CreatedBy,
+		"DescribeRuleOutput.CreatedBy must round-trip from the backend's tracked account ID; pre-fix it was always nil")
+	assert.NotEmpty(t, aws.ToString(described.CreatedBy))
+
+	listed, err := client.ListRules(t.Context(), &eventbridgesdk.ListRulesInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.Rules, 1)
+	// types.Rule (ListRules' item shape) has no CreatedBy member at all --
+	// the typed SDK client has no field to decode it into.
+	assert.Equal(t, "my-rule", aws.ToString(listed.Rules[0].Name))
+}
+
+// TestPutPermission_Condition_RoundTripsThroughPolicy is a write-only-state
+// bug: PutPermissionInput had no Condition field at all (real SDK:
+// aws-sdk-go-v2/service/eventbridge@v1.48.4 api_op_PutPermission.go,
+// PutPermissionInput.Condition *types.Condition), so a caller granting
+// cross-account access scoped to an AWS Organization (Principal="*" plus a
+// Condition on aws:PrincipalOrgID -- the documented pattern for
+// org-wide grants) had that Condition silently dropped by json.Unmarshal:
+// never stored on the statement, and DescribeEventBus.Policy -- the only real
+// read path for a bus's resource policy -- could never echo it back.
+func TestPutPermission_Condition_RoundTripsThroughPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+	client := newTestEventBridgeClient(t, h)
+
+	_, err := client.PutPermission(t.Context(), &eventbridgesdk.PutPermissionInput{
+		Action:      aws.String("events:PutEvents"),
+		Principal:   aws.String("*"),
+		StatementId: aws.String("OrgGrant"),
+		Condition: &ebtypes.Condition{
+			Type:  aws.String("StringEquals"),
+			Key:   aws.String("aws:PrincipalOrgID"),
+			Value: aws.String("o-1234567890"),
+		},
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeEventBus(t.Context(), &eventbridgesdk.DescribeEventBusInput{})
+	require.NoError(t, err)
+	require.NotNil(t, described.Policy)
+
+	var statements []struct {
+		Condition map[string]map[string]string `json:"Condition"`
+		Sid       string                       `json:"Sid"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(described.Policy)), &statements))
+	require.Len(t, statements, 1)
+	assert.Equal(t, "OrgGrant", statements[0].Sid)
+	require.NotEmpty(
+		t, statements[0].Condition,
+		"the Condition supplied to PutPermission must round-trip through "+
+			"DescribeEventBus.Policy; pre-fix it was silently dropped",
+	)
+	assert.Equal(t, "o-1234567890", statements[0].Condition["StringEquals"]["aws:PrincipalOrgID"])
 }

@@ -2,6 +2,7 @@ package cloudfront
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,18 @@ import (
 
 	"github.com/labstack/echo/v5"
 )
+
+// handleDomainAssociationError maps UpdateDomainAssociation errors. Its own
+// deserializer (cloudfront@v1.67.4 deserializers.go) models EntityNotFound
+// for an unknown target distribution, not NoSuchDistribution -- unlike most
+// other distribution ops that reuse ErrNotFound.
+func (h *Handler) handleDomainAssociationError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML(codeEntityNotFound, err.Error()))
+	}
+
+	return h.handleError(c, err)
+}
 
 // associateDistributionTenantWebACLRequestXML models a real
 // AssociateDistributionTenantWebACLRequest body: root
@@ -296,6 +309,9 @@ type tenantSummaryXML struct {
 	Name              string            `xml:"Name,omitempty"`
 	ConnectionGroupID string            `xml:"ConnectionGroupId,omitempty"`
 	Status            string            `xml:"Status"`
+	ETag              string            `xml:"ETag,omitempty"`
+	CreatedTime       string            `xml:"CreatedTime,omitempty"`
+	LastModifiedTime  string            `xml:"LastModifiedTime,omitempty"`
 	Domains           []domainResultXML `xml:"Domains>member"`
 	Enabled           bool              `xml:"Enabled"`
 }
@@ -339,6 +355,9 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 			ConnectionGroupID: t.ConnectionGroupID,
 			Enabled:           t.Enabled,
 			Status:            t.Status,
+			ETag:              t.ETag,
+			CreatedTime:       t.CreationTime,
+			LastModifiedTime:  t.LastModifiedTime,
 		})
 	}
 
@@ -351,9 +370,38 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 }
 
 func (h *Handler) handleListDistributionTenants(c *echo.Context) error {
-	tenants := h.Backend.ListDistributionTenants()
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
 
-	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
+	var req listDistributionTenantsRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDistributionTenantsRequest XML"),
+			)
+		}
+	}
+
+	tenants := h.Backend.ListDistributionTenants()
+	tenants = filterTenantsByAssociation(
+		tenants,
+		req.AssociationFilter.ConnectionGroupID,
+		req.AssociationFilter.DistributionID,
+	)
+
+	page, pageSize, isTruncated := paginateTenants(tenants, req.Marker, req.MaxItems)
+
+	result := tenantsToSummaryList(page)
+	result.DistributionTenantList.MaxItems = pageSize
+	if isTruncated && len(page) > 0 {
+		result.NextMarker = page[len(page)-1].ID
+	}
+
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -395,33 +443,58 @@ func (h *Handler) filterTenantsByCertificateArn(
 }
 
 // paginateTenants applies the Marker/MaxItems page window to an already-sorted tenant list,
-// returning the page, the effective page size, and whether more results follow.
+// returning the page, the effective page size, and whether more results follow. Tenants are
+// already sorted by ID (see ListDistributionTenants/ByCustomization backend methods); the
+// marker is the ID of the last item returned on the previous page.
 func paginateTenants(
 	tenants []*DistributionTenant,
 	marker string,
 	maxItemsReq int,
 ) ([]*DistributionTenant, int, bool) {
-	pageSize := maxItems
-	if maxItemsReq > 0 && maxItemsReq < maxItems {
-		pageSize = maxItemsReq
+	return paginateByMarkerValue(tenants, func(t *DistributionTenant) string { return t.ID }, marker, maxItemsReq)
+}
+
+// distributionTenantAssociationFilterXML models the nested AssociationFilter element of a
+// ListDistributionTenantsRequest body (cloudfront@v1.67.4 types.DistributionTenantAssociationFilter:
+// ConnectionGroupId, DistributionId).
+type distributionTenantAssociationFilterXML struct {
+	ConnectionGroupID string `xml:"ConnectionGroupId"`
+	DistributionID    string `xml:"DistributionId"`
+}
+
+// listDistributionTenantsRequestXML models a ListDistributionTenants request body.
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpHttpBindingsListDistributionTenantsInput
+// returns nil (no HTTP-bound fields), so AssociationFilter, Marker, and MaxItems all serialize
+// into the XML body, not the query string.
+type listDistributionTenantsRequestXML struct {
+	XMLName           xml.Name                               `xml:"ListDistributionTenantsRequest"`
+	AssociationFilter distributionTenantAssociationFilterXML `xml:"AssociationFilter"`
+	Marker            string                                 `xml:"Marker"`
+	MaxItems          int                                    `xml:"MaxItems"`
+}
+
+// filterTenantsByAssociation narrows tenants to those matching the given connection group
+// and/or distribution ID. Blank filters are a no-op.
+func filterTenantsByAssociation(
+	tenants []*DistributionTenant,
+	connectionGroupID, distributionID string,
+) []*DistributionTenant {
+	if connectionGroupID == "" && distributionID == "" {
+		return tenants
 	}
 
-	// Tenants are already sorted by ID (see ListDistributionTenantsByCustomization); the marker
-	// is the ID of the last item returned on the previous page.
-	if marker != "" {
-		cut := 0
-		for cut < len(tenants) && tenants[cut].ID <= marker {
-			cut++
+	filtered := make([]*DistributionTenant, 0, len(tenants))
+	for _, t := range tenants {
+		if connectionGroupID != "" && t.ConnectionGroupID != connectionGroupID {
+			continue
 		}
-		tenants = tenants[cut:]
+		if distributionID != "" && t.DistributionID != distributionID {
+			continue
+		}
+		filtered = append(filtered, t)
 	}
 
-	isTruncated := len(tenants) > pageSize
-	if isTruncated {
-		tenants = tenants[:pageSize]
-	}
-
-	return tenants, pageSize, isTruncated
+	return filtered
 }
 
 // handleListDistributionTenantsByCustomization returns distribution tenants filtered by
@@ -532,7 +605,7 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 		req.Domain, req.TargetResource.DistributionTenantID, req.TargetResource.DistributionID,
 	)
 	if updateErr != nil {
-		return h.handleError(c, updateErr)
+		return h.handleDomainAssociationError(c, updateErr)
 	}
 
 	// Real UpdateDomainAssociationOutput carries a single ResourceId (not a
@@ -811,6 +884,8 @@ type listDomainConflictsXML struct {
 	DomainControlValidationResource *distributionResourceIDXML `xml:"DomainControlValidationResource"`
 	XMLName                         xml.Name                   `xml:"ListDomainConflictsRequest"`
 	Domain                          string                     `xml:"Domain"`
+	Marker                          string                     `xml:"Marker"`
+	MaxItems                        int                        `xml:"MaxItems"`
 }
 
 // handleListDomainConflicts reports every existing distribution or distribution tenant that
@@ -875,11 +950,25 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	// Marker/MaxItems travel in the request body alongside Domain (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpDocumentListDomainConflictsInput), so pagination
+	// uses paginateByMarkerValue, not the query-bound paginateByMarkerID. ResourceID is the
+	// cursor key -- findDomainConflicts sorts by it.
+	page, _, isTruncated := paginateByMarkerValue(
+		conflicts, func(dc DomainConflict) string { return dc.ResourceID }, req.Marker, req.MaxItems,
+	)
+
+	nextMarker := ""
+	if isTruncated && len(page) > 0 {
+		nextMarker = page[len(page)-1].ResourceID
+	}
+
 	// The real deserializer (awsRestxml_deserializeDocumentDomainConflictsList,
 	// cloudfront@v1.67.4) wraps the list in <DomainConflicts>, and each entry
-	// is ALSO named <DomainConflicts> (not <Items>/<DomainConflict>).
+	// is ALSO named <DomainConflicts> (not <Items>/<DomainConflict>). NextMarker is a
+	// sibling of the DomainConflicts entries, not nested inside them.
 	var items strings.Builder
-	for _, dc := range conflicts {
+	for _, dc := range page {
 		fmt.Fprintf(
 			&items,
 			`<DomainConflicts><Domain>%s</Domain><ResourceType>%s</ResourceType>`+
@@ -888,11 +977,16 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		)
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainConflictList xmlns="%s">`+
-		`<DomainConflicts>%s</DomainConflicts>`+
+		`<DomainConflicts>%s</DomainConflicts>%s`+
 		`</DomainConflictList>`,
-		cfNS, items.String())
+		cfNS, items.String(), nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

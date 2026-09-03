@@ -113,7 +113,13 @@ func (b *InMemoryBackend) GetOperations(token string) (page.Page[*Operation], er
 	defer b.mu.RUnlock()
 
 	all := b.operations.All()
-	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+
+		return all[i].ID < all[j].ID
+	})
 
 	out := make([]*Operation, len(all))
 	for i, o := range all {
@@ -133,8 +139,17 @@ func (b *InMemoryBackend) GetOperationsForResource(resourceName, token string) (
 	b.mu.RLock("GetOperationsForResource")
 	defer b.mu.RUnlock()
 
-	all := b.opsByResource.Get(resourceName)
-	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+	// Index.Get returns the index's own backing slice (its doc comment: "the
+	// caller must not mutate it"); copy before sort.Slice reorders it in
+	// place, or concurrent readers of the same resourceName race on it.
+	all := append([]*Operation(nil), b.opsByResource.Get(resourceName)...)
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+
+		return all[i].ID < all[j].ID
+	})
 
 	out := make([]*Operation, len(all))
 	for i, o := range all {

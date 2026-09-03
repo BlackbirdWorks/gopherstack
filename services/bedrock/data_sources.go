@@ -86,7 +86,13 @@ func (b *InMemoryBackend) ListDataSources(
 		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+
+		return list[i].DataSourceID < list[j].DataSourceID
+	})
 
 	return paginate(list, maxResults, nextToken)
 }

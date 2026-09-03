@@ -143,14 +143,110 @@ func (h *Handler) handleGetMLTaskRun(
 	}, nil
 }
 
+// taskRunFilterCriteria mirrors
+// aws-sdk-go-v2/service/glue/types.TaskRunFilterCriteria.
+type taskRunFilterCriteria struct {
+	Status        string  `json:"Status,omitempty"`
+	TaskRunType   string  `json:"TaskRunType,omitempty"`
+	StartedAfter  float64 `json:"StartedAfter,omitempty"`
+	StartedBefore float64 `json:"StartedBefore,omitempty"`
+}
+
+// taskRunSortCriteria mirrors
+// aws-sdk-go-v2/service/glue/types.TaskRunSortCriteria.
+type taskRunSortCriteria struct {
+	Column        string `json:"Column,omitempty"`
+	SortDirection string `json:"SortDirection,omitempty"`
+}
+
+func matchesTaskRunFilter(r *MLTaskRun, f *taskRunFilterCriteria) bool {
+	if f == nil {
+		return true
+	}
+
+	if f.Status != "" && r.Status != f.Status {
+		return false
+	}
+
+	if f.TaskRunType != "" && r.TaskType != f.TaskRunType {
+		return false
+	}
+
+	return matchesTimeWindow(r.StartedOn, f.StartedAfter, f.StartedBefore)
+}
+
+// sortTaskRuns sorts by the requested column/direction, defaulting to
+// STARTED DESCENDING ("newest first", GetMLTaskRuns' documented order) when
+// Sort is unset. Every branch tiebreaks on TaskRunID: StartedOn is a
+// whole-second epoch value (time.Now().Unix() in ml.go), so runs started in
+// the same second tie under any real column and need a total order to
+// paginate safely.
+func sortTaskRuns(runs []*MLTaskRun, sortBy *taskRunSortCriteria) {
+	column, direction := "STARTED", sortDirectionDescending
+
+	if sortBy != nil {
+		if sortBy.Column != "" {
+			column = sortBy.Column
+		}
+
+		if sortBy.SortDirection != "" {
+			direction = sortBy.SortDirection
+		}
+	}
+
+	var less func(a, b *MLTaskRun) bool
+
+	switch column {
+	case "TASK_RUN_TYPE":
+		less = func(a, b *MLTaskRun) bool {
+			if a.TaskType != b.TaskType {
+				return a.TaskType < b.TaskType
+			}
+
+			return a.TaskRunID < b.TaskRunID
+		}
+	case "STATUS":
+		less = func(a, b *MLTaskRun) bool {
+			if a.Status != b.Status {
+				return a.Status < b.Status
+			}
+
+			return a.TaskRunID < b.TaskRunID
+		}
+	case "STARTED":
+		less = func(a, b *MLTaskRun) bool {
+			if a.StartedOn != b.StartedOn {
+				return a.StartedOn < b.StartedOn
+			}
+
+			return a.TaskRunID < b.TaskRunID
+		}
+	default:
+		return
+	}
+
+	sort.SliceStable(runs, func(i, j int) bool {
+		if direction == sortDirectionDescending {
+			return less(runs[j], runs[i])
+		}
+
+		return less(runs[i], runs[j])
+	})
+}
+
 // getMLTaskRunsInput holds input for GetMLTaskRuns.
 type getMLTaskRunsInput struct {
-	TransformID string `json:"TransformId"`
+	TransformID string                 `json:"TransformId"`
+	Filter      *taskRunFilterCriteria `json:"Filter,omitempty"`
+	Sort        *taskRunSortCriteria   `json:"Sort,omitempty"`
+	NextToken   string                 `json:"NextToken,omitempty"`
+	MaxResults  int32                  `json:"MaxResults,omitempty"`
 }
 
 // getMLTaskRunsOutput holds the result for GetMLTaskRuns.
 type getMLTaskRunsOutput struct {
-	TaskRuns []any `json:"TaskRuns"`
+	NextToken string `json:"NextToken,omitempty"`
+	TaskRuns  []any  `json:"TaskRuns"`
 }
 
 func (h *Handler) handleGetMLTaskRuns(
@@ -166,12 +262,29 @@ func (h *Handler) handleGetMLTaskRuns(
 		return nil, err
 	}
 
-	result := make([]any, 0, len(runs))
+	filtered := make([]*MLTaskRun, 0, len(runs))
+
 	for _, r := range runs {
+		if matchesTaskRunFilter(r, in.Filter) {
+			filtered = append(filtered, r)
+		}
+	}
+
+	sortTaskRuns(filtered, in.Sort)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetMLTransformsLimit
+	}
+
+	page, next := paginateSlice(filtered, in.NextToken, limit)
+
+	result := make([]any, 0, len(page))
+	for _, r := range page {
 		result = append(result, r)
 	}
 
-	return &getMLTaskRunsOutput{TaskRuns: result}, nil
+	return &getMLTaskRunsOutput{TaskRuns: result, NextToken: next}, nil
 }
 
 // getMLTransformInput holds input for GetMLTransform.
@@ -283,7 +396,7 @@ func sortTransforms(transforms []*MLTransform, sortBy *transformSortCriteria) {
 	}
 
 	sort.SliceStable(transforms, func(i, j int) bool {
-		if sortBy.SortDirection == "DESCENDING" {
+		if sortBy.SortDirection == sortDirectionDescending {
 			return less(transforms[j], transforms[i])
 		}
 

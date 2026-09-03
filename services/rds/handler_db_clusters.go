@@ -279,6 +279,7 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		StorageType:                     c.StorageType,
 		EngineLifecycleSupport:          c.EngineLifecycleSupport,
 		Port:                            c.Port,
+		Capacity:                        c.ServerlessCapacity,
 		ActivityStreamStatus:            c.ActivityStreamStatus,
 		ActivityStreamMode:              c.ActivityStreamMode,
 		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
@@ -309,7 +310,12 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 	if len(c.DBClusterMembers) > 0 {
 		members := make([]xmlDBClusterMember, 0, len(c.DBClusterMembers))
 		for _, m := range c.DBClusterMembers {
-			members = append(members, xmlDBClusterMember(m))
+			members = append(members, xmlDBClusterMember{
+				DBInstanceIdentifier:          m.DBInstanceIdentifier,
+				DBClusterParameterGroupStatus: dbClusterMemberParamGroupStatusInSync,
+				PromotionTier:                 m.PromotionTier,
+				IsClusterWriter:               m.IsClusterWriter,
+			})
 		}
 
 		x.DBClusterMembers = &xmlDBClusterMemberList{Members: members}
@@ -386,11 +392,16 @@ type xmlServerlessV2ScalingConfiguration struct {
 type xmlServerlessV2Ref = xmlServerlessV2ScalingConfiguration
 
 type xmlDBClusterMember struct {
-	DBInstanceIdentifier        string `xml:"DBInstanceIdentifier"`
-	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName,omitempty"`
-	PromotionTier               int    `xml:"PromotionTier,omitempty"`
-	IsClusterWriter             bool   `xml:"IsClusterWriter"`
+	DBInstanceIdentifier          string `xml:"DBInstanceIdentifier"`
+	DBClusterParameterGroupStatus string `xml:"DBClusterParameterGroupStatus,omitempty"`
+	PromotionTier                 int    `xml:"PromotionTier,omitempty"`
+	IsClusterWriter               bool   `xml:"IsClusterWriter"`
 }
+
+// dbClusterMemberParamGroupStatusInSync is the status AWS reports for a
+// cluster member's parameter group once applied; this emulator applies
+// parameter groups synchronously, so members are always in-sync.
+const dbClusterMemberParamGroupStatusInSync = "in-sync"
 
 // xmlDBClusterRole is the wire shape of types.DBClusterRole (rds@v1.124.1
 // types.go:1511); FeatureName/RoleArn/Status element names and the wrapping
@@ -444,6 +455,7 @@ type xmlDBCluster struct {
 	MonitoringRoleArn                string                   `xml:"MonitoringRoleArn,omitempty"`
 	ClusterCreateTime                string                   `xml:"ClusterCreateTime,omitempty"`
 	Port                             int                      `xml:"Port"`
+	Capacity                         int                      `xml:"Capacity,omitempty"`
 	BackupRetentionPeriod            int                      `xml:"BackupRetentionPeriod"`
 	BacktrackWindow                  int64                    `xml:"BacktrackWindow,omitempty"`
 	MonitoringInterval               int                      `xml:"MonitoringInterval,omitempty"`

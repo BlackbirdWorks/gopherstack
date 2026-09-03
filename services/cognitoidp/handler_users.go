@@ -105,8 +105,13 @@ func (h *Handler) handleListUsers(
 		return nil, err
 	}
 
+	// A miss (the user the token named was deleted) defaults start to the
+	// end of the collection: leaving it at 0 would resume a stale cursor at
+	// page one, forever.
 	start := 0
 	if in.PaginationToken != "" {
+		start = len(users)
+
 		for i, u := range users {
 			if u.Username == in.PaginationToken {
 				start = i

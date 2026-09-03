@@ -432,3 +432,128 @@ fields, 1 counted bug, 2 fixed-but-not-counted findings, 1 disclosed
     all clean on `./services/apprunner/...` (0 issues). Full existing suite (`go test
     ./services/apprunner/...`) green throughout -- no existing test asserted the old
     (missing-field) shape, so none needed correcting.
+
+## Notes (2026-08-30 pass — pagination map-order audit)
+
+Audited every `pkgs/page.New` call site in this service (9 call sites: `vpc_ingress_
+connections.go`, `services.go`, `operations.go`, `observability_configurations.go`,
+`auto_scaling_configurations.go` x2, `custom_domains.go`, `vpc_connectors.go`,
+`connections.go`) for the class of bug confirmed in `services/opsworks`: a paginator
+consuming an unspecified-order Go map walk (`pkgs/store.Table.All()`/`.Range()`)
+with no total sort.
+
+Verdict: 0 bugs. Every call site sources its pre-pagination slice from one of three
+safe mechanisms, none of which is a raw map walk:
+- `Table.Snapshot()` (`ListVpcIngressConnections`, `ListServices`,
+  `ListObservabilityConfigurations`, `ListAutoScalingConfigurations`,
+  `ListServicesForAutoScalingConfiguration`, `ListVpcConnectors`, `ListConnections`)
+  -- per `pkgs/store.Table.Snapshot`'s doc comment this is already sorted by the
+  table's own (definitionally unique) primary key, unlike `Table.All()`;
+- a plain append-only Go slice, not a `Table` at all (`ListOperations` reads
+  `svc.Operations []*storedOperation`, bounded to 200 and only ever grown via
+  `append`; `DescribeCustomDomains` reads `b.customDomains[serviceArn]`, same
+  append/splice-only shape) -- deterministic order requires no sort;
+- filtering (`nameFilter`/`latestOnly`/ARN match) is applied to the
+  already-deterministic `Snapshot()`/slice output and always precedes the
+  `page.New` call -- no filter-after-pagination bug found.
+
+Empirically proved the `Table.Snapshot()` mechanism (the most novel of the three,
+new since the opsworks fix predates `pkgs/store`) with a full-walk test rather than
+trusting the doc comment alone: added `pagination_full_walk_test.go`'s
+`TestListServices_FullWalk_NoDropsOrDuplicates`, seeding 25 services via the real
+`aws-sdk-go-v2` client, walking `ListServices` to completion at `MaxResults=5`, and
+asserting the union of every page is exactly the seed set with no drop or
+duplicate. Passed 10/10 runs under `-race -count=10`.
+
+No sort found non-total on a map-walk-sourced call site (none of the 9 sites
+touch a map walk at all); no MaxResults/NextToken-accepting op found that
+silently returns everything untruncated. Gates on `./services/apprunner/...`:
+`go build`, `go vet`, `go test -race -count=1` (all pass), `golangci-lint run`
+(0 issues).
+
+## 2026-08-31 (value-semantics pass, gopherstack-uox6): two bugs, filter/default
+surface otherwise clean
+
+Scope: every optional filter and boolean default across all 14 List/Describe
+input structs (`aws-sdk-go-v2/service/apprunner@v1.42.4 api_op_List*.go`/
+`api_op_Describe*.go`), read field-by-field against the pinned SDK's own doc
+comments -- the class this campaign has been sweeping other services for
+(bd `gopherstack-uox6`): a filter that is read and applied but implements the
+wrong semantics, invisible to every shape/enum-based scanner.
+
+**Bug 1 -- a documented `Default: true` collapsed to Go's `bool` zero value
+(false).** `ListAutoScalingConfigurations` and `ListObservabilityConfigurations`
+both document `LatestOnly`: "Set to true to list only the latest revision...
+Set to false to list all revisions... **Default: true**." Both handlers
+decoded it as a plain `bool` (`json:"LatestOnly"`), so an omitted key -- the
+*only* wire form any conformant client can produce, since the pinned SDK's
+own serializer (`serializers.go`: `if v.LatestOnly { ok.Boolean(...) }`) never
+puts the key on the wire for a false/unset value -- decoded to Go's zero
+value `false` and fell into this backend's `else` branch: "return every
+revision." The documented default is the *opposite* -- latest-only -- so
+every unfiltered `List*ScalingConfigurations`/`List*ObservabilityConfigurations`
+call returned every revision of every configuration instead of one row per
+name. Fixed by changing both request fields to `*bool` (nil means "key
+absent" and now resolves to the documented default `true`; a decoded `false`
+or `true` is honoured explicitly) -- `handler_auto_scaling_configurations.go`,
+`handler_observability_configurations.go`. `TestAutoScalingConfigurationRevisions`
+(`handler_auto_scaling_configurations_test.go`) was asserting the bug
+directly (empty body expected 3 rows, i.e. every revision); corrected to
+expect 2 (latest-only, matching the explicit-`LatestOnly:true` case
+immediately below it) and a new explicit-`false` case added to keep the
+"list all" branch under test. Added
+`TestObservabilityConfigurationRevisionsLatestOnlyDefault`
+(`handler_observability_configurations_test.go`) from scratch --
+`TestObservabilityConfigurationDescribeDeleteList`'s existing list check only
+ever seeded one revision, so the omitted-`LatestOnly` case was never
+distinguishable from the bug there. Both new/changed assertions hand-verified
+failing against the unmodified code before the fix (bare `bool` still in
+place), then passing after.
+
+**Bug 2 -- a wire key that doesn't exist on the real type.**
+`ListVpcIngressConnections`'s `Filter` decoded a
+`VpcIngressConnectionArn` member that `types.ListVpcIngressConnectionsFilter`
+(`aws-sdk-go-v2/service/apprunner@v1.42.4 types/types.go`) does not have --
+the real second member is `VpcEndpointId` (confirmed against
+`serializers.go`'s `awsAwsjson10_serializeDocumentListVpcIngressConnectionsFilter`,
+which serializes exactly `ServiceArn`/`VpcEndpointId` and nothing named
+`VpcIngressConnectionArn`). The mismatched key meant this filter was
+permanently empty regardless of what a real client sent, and an empty filter
+value fell through this backend's `!= ""` no-filter case -- so a
+`VpcEndpointId` filter silently matched every connection instead of
+narrowing to the one requested. Same shape as the CloudWatch instance in this
+class's twelfth pass: a wrong wire key feeding an otherwise-correct
+empty-means-no-filter default, so each half looks fine in isolation and only
+the combination is wrong. Fixed the field name/JSON tag
+(`handler_vpc_ingress_connections.go`) and renamed the filter through
+`vpc_ingress_connections.go`/`interfaces.go` to match against
+`VpcIngressConnection.VpcEndpointID`, which this backend already tracks on
+the full record (just never on the filter path). Added two new subtests to
+`TestVpcIngressConnectionDescribeDeleteListUpdate`
+(`handler_vpc_ingress_connections_test.go`): a matching-`VpcEndpointId`
+filter (passed even against the bug, since the filter was a no-op) and a
+non-matching one (hand-verified failing against the unmodified code -- it
+returned the one seeded connection instead of an empty list -- then passing
+after the fix).
+
+**Everything else checked, clean.** Every other List/Describe input across
+both services was read against its own doc comment, not assumed from a
+sibling: `ConnectionName`/`AutoScalingConfigurationName`/
+`ObservabilityConfigurationName` (`nameFilter`) all correctly treat an
+absent value as "not filtered by name", matching each op's own prose;
+`ListFirewallRuleGroupAssociations`' `Status`/`Priority`/`VpcId`/
+`FirewallRuleGroupId` (this pass also swept `route53resolver`'s firewall
+family for the same class -- see that service's entry below) and
+`ListVpcIngressConnections`' `ServiceArn` all correctly no-op when absent;
+`ListServicesForAutoScalingConfiguration`'s partial-ARN-or-name resolution
+(`resolveASG`) already accepts both forms. No range/bound/date filter,
+operator grammar, wildcard, or negation syntax exists anywhere in this
+service's request surface -- every filter here is plain scalar equality, so
+those sub-shapes of this bug class (boundary inclusivity, unit mismatch,
+operator mishandling) are structurally absent, not merely unaudited.
+
+Gates: `go build`, `go vet ./...` (repo-wide, no other caller of the two
+changed backend interface methods), `go test -race -count=1
+./services/apprunner/...`, `golangci-lint run ./services/apprunner/...` (0
+issues; `fieldalignment` checked via a scratch-directory oracle per this
+repo's no-automated-fixer convention, hand-applied to both changed structs).

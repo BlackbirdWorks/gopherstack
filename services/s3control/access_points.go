@@ -104,7 +104,9 @@ func (b *InMemoryBackend) DeleteAccessPoint(accountID, name string) error {
 	return nil
 }
 
-// ListAccessPoints returns all access points for an account.
+// ListAccessPoints returns all access points for an account, sorted by name
+// so the handler's index-based nextToken pagination (s3cPaginate) stays
+// stable across calls -- store.Table.All()'s iteration order is unspecified.
 func (b *InMemoryBackend) ListAccessPoints(accountID string) []*AccessPoint {
 	b.mu.RLock("ListAccessPoints")
 	defer b.mu.RUnlock()
@@ -117,6 +119,8 @@ func (b *InMemoryBackend) ListAccessPoints(accountID string) []*AccessPoint {
 			out = append(out, &cp)
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
 }

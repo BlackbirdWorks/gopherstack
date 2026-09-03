@@ -22,6 +22,9 @@ const (
 	defaultCluster          = "default"
 	deploymentStatusPrimary = "PRIMARY"
 
+	azRebalancingEnabled  = "ENABLED"
+	azRebalancingDisabled = "DISABLED"
+
 	// maxTaskDefinitionRevisions is the maximum number of revisions retained per
 	// task definition family. Older INACTIVE revisions beyond this cap are
 	// removed to prevent unbounded memory growth.

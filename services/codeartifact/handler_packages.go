@@ -132,8 +132,18 @@ func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, form
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
+	// package-prefix/publish/upstream are real ListPackagesInput query-bound
+	// members (serializers.go's SetQuery("package-prefix")/SetQuery("publish")/
+	// SetQuery("upstream")) that were silently discarded -- every call
+	// returned every package in the repository regardless of what was
+	// requested.
+	packagePrefix := q.Get("package-prefix")
+	publish := q.Get("publish")
+	upstream := q.Get("upstream")
 
-	all, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
+	all, err := h.Backend.ListPackages(
+		c.Request().Context(), domainName, repoName, format, namespace, packagePrefix, publish, upstream,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

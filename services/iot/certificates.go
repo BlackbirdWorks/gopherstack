@@ -98,6 +98,30 @@ func (b *InMemoryBackend) AddCertificateInternal(c Certificate) {
 	b.certificates.Put(&cp)
 }
 
+// AddCACertificateInternal seeds a CACertificate with a caller-chosen
+// CertificateID directly into the backend for testing (mirrors
+// AddCertificateInternal), letting tests set CreationDate/RegistrationConfig
+// explicitly without going through RegisterCACertificate's real-time clock.
+func (b *InMemoryBackend) AddCACertificateInternal(c CACertificate) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if c.CertificateARN == "" {
+		c.CertificateARN = b.caCertARN(c.CertificateID)
+	}
+
+	if c.Status == "" {
+		c.Status = statusActive
+	}
+
+	if c.OwnedBy == "" {
+		c.OwnedBy = b.accountID
+	}
+
+	cp := c
+	b.caCertificates.Put(&cp)
+}
+
 // newCertificate creates a new Certificate with a random 64-hex-char ID.
 func (b *InMemoryBackend) newCertificate(pem, status, mode string) *Certificate {
 	certID := randomHex(certIDHexLen)

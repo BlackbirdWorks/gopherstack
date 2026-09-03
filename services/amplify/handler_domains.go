@@ -14,6 +14,26 @@ import (
 // JSON response key used by the domain association handlers.
 const keyDomainAssociation = "domainAssociation"
 
+// domainCertificateSettingsIn mirrors aws-sdk-go-v2/service/amplify/
+// types.CertificateSettings, the nested wire shape of
+// CreateDomainAssociationInput/UpdateDomainAssociationInput's
+// "certificateSettings" member.
+type domainCertificateSettingsIn struct {
+	CertificateType      string `json:"type"`
+	CustomCertificateARN string `json:"customCertificateArn"`
+}
+
+func (c *domainCertificateSettingsIn) toBackend() *domainCertificateSettings {
+	if c == nil {
+		return nil
+	}
+
+	return &domainCertificateSettings{
+		CertificateType:      c.CertificateType,
+		CustomCertificateARN: c.CustomCertificateARN,
+	}
+}
+
 // handleDomainAssociations handles POST/GET /apps/{appId}/domains.
 func (h *Handler) handleDomainAssociations(ctx context.Context, c *echo.Context, appID string) error {
 	switch c.Request().Method {
@@ -52,9 +72,12 @@ func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, 
 	}
 
 	var input struct {
-		DomainName          string             `json:"domainName"`
-		SubDomainSettings   []SubDomainSetting `json:"subDomainSettings"`
-		EnableAutoSubDomain bool               `json:"enableAutoSubDomain"`
+		CertificateSettings           *domainCertificateSettingsIn `json:"certificateSettings"`
+		DomainName                    string                       `json:"domainName"`
+		AutoSubDomainIAMRole          string                       `json:"autoSubDomainIAMRole"`
+		SubDomainSettings             []SubDomainSetting           `json:"subDomainSettings"`
+		AutoSubDomainCreationPatterns []string                     `json:"autoSubDomainCreationPatterns"`
+		EnableAutoSubDomain           bool                         `json:"enableAutoSubDomain"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -63,6 +86,8 @@ func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, 
 
 	domain, createErr := h.Backend.CreateDomainAssociation(
 		appID, input.DomainName, input.SubDomainSettings, input.EnableAutoSubDomain,
+		input.AutoSubDomainCreationPatterns, input.AutoSubDomainIAMRole,
+		input.CertificateSettings.toBackend(),
 	)
 	if createErr != nil {
 		return h.handleBackendError(ctx, c, "CreateDomainAssociation", createErr)
@@ -136,8 +161,11 @@ func (h *Handler) updateDomainAssociation(
 	}
 
 	var input struct {
-		SubDomainSettings   []SubDomainSetting `json:"subDomainSettings"`
-		EnableAutoSubDomain bool               `json:"enableAutoSubDomain"`
+		CertificateSettings           *domainCertificateSettingsIn `json:"certificateSettings"`
+		AutoSubDomainIAMRole          string                       `json:"autoSubDomainIAMRole"`
+		SubDomainSettings             []SubDomainSetting           `json:"subDomainSettings"`
+		AutoSubDomainCreationPatterns []string                     `json:"autoSubDomainCreationPatterns"`
+		EnableAutoSubDomain           bool                         `json:"enableAutoSubDomain"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -146,6 +174,8 @@ func (h *Handler) updateDomainAssociation(
 
 	domain, updateErr := h.Backend.UpdateDomainAssociation(
 		appID, domainName, input.SubDomainSettings, input.EnableAutoSubDomain,
+		input.AutoSubDomainCreationPatterns, input.AutoSubDomainIAMRole,
+		input.CertificateSettings.toBackend(),
 	)
 	if updateErr != nil {
 		return h.handleBackendError(ctx, c, "UpdateDomainAssociation", updateErr)
@@ -165,14 +195,25 @@ type subDomainView struct {
 	Verified         bool                 `json:"verified"`
 }
 
+// domainCertificateView mirrors aws-sdk-go-v2/service/amplify/types.Certificate
+// on the response side.
+type domainCertificateView struct {
+	CertificateType                  string `json:"type"`
+	CertificateVerificationDNSRecord string `json:"certificateVerificationDNSRecord,omitempty"`
+	CustomCertificateARN             string `json:"customCertificateArn,omitempty"`
+}
+
 type domainAssociationView struct {
-	DomainName                       string          `json:"domainName"`
-	ARN                              string          `json:"domainAssociationArn"`
-	DomainStatus                     string          `json:"domainStatus"`
-	StatusReason                     string          `json:"statusReason"`
-	CertificateVerificationDNSRecord string          `json:"certificateVerificationDNSRecord,omitempty"`
-	SubDomains                       []subDomainView `json:"subDomains"`
-	EnableAutoSubDomain              bool            `json:"enableAutoSubDomain"`
+	DomainName                       string                 `json:"domainName"`
+	ARN                              string                 `json:"domainAssociationArn"`
+	DomainStatus                     string                 `json:"domainStatus"`
+	StatusReason                     string                 `json:"statusReason"`
+	CertificateVerificationDNSRecord string                 `json:"certificateVerificationDNSRecord,omitempty"`
+	AutoSubDomainIAMRole             string                 `json:"autoSubDomainIAMRole,omitempty"`
+	Certificate                      *domainCertificateView `json:"certificate,omitempty"`
+	SubDomains                       []subDomainView        `json:"subDomains"`
+	AutoSubDomainCreationPatterns    []string               `json:"autoSubDomainCreationPatterns,omitempty"`
+	EnableAutoSubDomain              bool                   `json:"enableAutoSubDomain"`
 }
 
 func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
@@ -188,6 +229,15 @@ func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
 		}
 	}
 
+	var cert *domainCertificateView
+	if d.CertificateType != "" {
+		cert = &domainCertificateView{
+			CertificateType:                  d.CertificateType,
+			CertificateVerificationDNSRecord: d.CertificateVerificationDNSRecord,
+			CustomCertificateARN:             d.CertificateCustomArn,
+		}
+	}
+
 	return domainAssociationView{
 		SubDomains:                       subs,
 		DomainName:                       d.DomainName,
@@ -195,6 +245,9 @@ func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
 		DomainStatus:                     string(d.DomainStatus),
 		StatusReason:                     d.StatusReason,
 		CertificateVerificationDNSRecord: d.CertificateVerificationDNSRecord,
+		AutoSubDomainCreationPatterns:    d.AutoSubDomainCreationPatterns,
+		AutoSubDomainIAMRole:             d.AutoSubDomainIAMRole,
+		Certificate:                      cert,
 		EnableAutoSubDomain:              d.EnableAutoSubDomain,
 	}
 }

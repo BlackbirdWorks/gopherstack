@@ -532,6 +532,13 @@ type BatchStopJobRunError struct {
 	JobName     string      `json:"JobName"`
 }
 
+// BatchStopJobRunSuccessfulSubmission is one successfully-stopped entry from
+// a BatchStopJobRun response.
+type BatchStopJobRunSuccessfulSubmission struct {
+	JobName  string `json:"JobName"`
+	JobRunID string `json:"JobRunId"`
+}
+
 // DataQualityRuleset represents a Glue data quality ruleset.
 // DataQualityRuleset.ARN keeps its "Arn" json tag for persistence (this
 // struct is the value type of a persisted store.Table, and the tag doubles

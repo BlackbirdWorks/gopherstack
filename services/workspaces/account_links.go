@@ -1,9 +1,22 @@
 package workspaces
 
+import (
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
 // accountLinkStatusPendingAcceptance is the real AccountLinkStatusEnum value
 // for a newly created, not-yet-accepted invitation. The previous
 // "PENDING_ACCEPTANCE" here was not a member of the real enum at all.
 const accountLinkStatusPendingAcceptance = "PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT"
+
+// accountLinksPageSize is this backend's default page size for
+// ListAccountLinks; real AWS doesn't document an exact default, so this is
+// chosen generously (larger than any realistic per-account link count) so
+// pagination only activates when a caller explicitly requests a smaller
+// MaxResults.
+const accountLinksPageSize = 100
 
 // CreateAccountLinkInvitation creates an account link invitation.
 func (b *InMemoryBackend) CreateAccountLinkInvitation(
@@ -96,15 +109,19 @@ func (b *InMemoryBackend) GetAccountLink(linkID string) (*storedAccountLink, err
 // ListAccountLinks returns account links, optionally filtered by status.
 func (b *InMemoryBackend) ListAccountLinks(
 	statusFilter string,
-	_ int32,
-	_ string,
+	maxResults int32,
+	nextToken string,
 ) ([]*storedAccountLink, string, error) {
 	b.mu.RLock("ListAccountLinks")
 	defer b.mu.RUnlock()
 
-	var result []*storedAccountLink
+	all := b.accountLinks.All()
 
-	for _, link := range b.accountLinks.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].LinkID < all[j].LinkID })
+
+	result := make([]*storedAccountLink, 0, len(all))
+
+	for _, link := range all {
 		if statusFilter != "" && link.Status != statusFilter {
 			continue
 		}
@@ -113,9 +130,7 @@ func (b *InMemoryBackend) ListAccountLinks(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedAccountLink{}
-	}
+	pg := page.New(result, nextToken, int(maxResults), accountLinksPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }

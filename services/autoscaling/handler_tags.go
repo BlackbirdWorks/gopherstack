@@ -4,6 +4,15 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultTagsMaxRecords and maxTagsMaxRecords are DescribeTags's documented default/max page
+// size (api_op_DescribeTags.go: "The default value is 50 and the maximum value is 100").
+const (
+	defaultTagsMaxRecords = 50
+	maxTagsMaxRecords     = 100
 )
 
 func (h *Handler) handleCreateOrUpdateTags(vals url.Values) (any, error) {
@@ -40,15 +49,25 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlResourceTag, 0, len(tags))
-	for _, tag := range tags {
+	maxRecords := defaultTagsMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), maxTagsMaxRecords)
+		}
+	}
+
+	p := page.New(tags, vals.Get("NextToken"), maxRecords, defaultTagsMaxRecords)
+
+	members := make([]xmlResourceTag, 0, len(p.Data))
+	for _, tag := range p.Data {
 		members = append(members, xmlResourceTag(tag))
 	}
 
 	return &describeTagsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeTagsResult{
-			Tags: xmlResourceTagList{Members: members},
+			NextToken: p.Next,
+			Tags:      xmlResourceTagList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-tags"},
 	}, nil

@@ -62,15 +62,26 @@ type describeRecommendationsOutput struct {
 }
 
 func (h *Handler) handleDescribeRecommendations(
-	ctx context.Context, _ *describeRecommendationsInput,
+	ctx context.Context, in *describeRecommendationsInput,
 ) (*describeRecommendationsOutput, error) {
 	list, err := h.Backend.DescribeRecommendations(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	dbFilter := extractFilterValue(in.Filters, "database-id")
+	engineFilter := extractFilterValue(in.Filters, "engine-name")
+
 	recs := make([]map[string]any, 0, len(list))
 	for _, r := range list {
+		if dbFilter != "" && r.DatabaseID != dbFilter {
+			continue
+		}
+
+		if engineFilter != "" && r.EngineName != engineFilter {
+			continue
+		}
+
 		recs = append(recs, map[string]any{
 			"DatabaseId": r.DatabaseID,
 			"EngineName": r.EngineName,
@@ -78,7 +89,9 @@ func (h *Handler) handleDescribeRecommendations(
 		})
 	}
 
-	return &describeRecommendationsOutput{Recommendations: recs}, nil
+	data, nextMarker := dmsPaginate(recs, in.NextToken, in.MaxRecords)
+
+	return &describeRecommendationsOutput{Recommendations: data, NextToken: nextMarker}, nil
 }
 
 type startRecommendationsInput struct {

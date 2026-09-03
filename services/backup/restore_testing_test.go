@@ -87,3 +87,29 @@ func TestUpdateRestoreTestingSelection_FullReplace(t *testing.T) {
 	// ProtectedResourceType is immutable on Update per the real API.
 	assert.Equal(t, "EC2", updated.ProtectedResourceType)
 }
+
+func TestListScanJobsFiltered_AccountIDWildcard(t *testing.T) {
+	t.Parallel()
+	b := backup.NewInMemoryBackend("123456789012", "us-east-1")
+
+	j1 := b.StartScanJob("arn:aws:backup:us-east-1:123456789012:backup-vault:v1", backup.StartScanJobInput{
+		BackupVaultName: "v1",
+	})
+	j2 := b.StartScanJob("arn:aws:backup:us-east-1:123456789012:backup-vault:v1", backup.StartScanJobInput{
+		BackupVaultName: "v1",
+	})
+
+	// api_op_ListScanJobs.go's ByAccountId doc: "If used from an Amazon Web
+	// Services Organizations management account, passing * returns all jobs
+	// across the organization." No seeded job's AccountID is ever the
+	// literal string "*", so this only passes if "*" is honored as a
+	// wildcard rather than compared for equality.
+	got, _ := b.ListScanJobsFiltered(backup.ListScanJobsFilter{AccountID: "*"})
+	require.Len(t, got, 2)
+	gotIDs := []string{got[0].ScanJobID, got[1].ScanJobID}
+	assert.ElementsMatch(t, []string{j1.ScanJobID, j2.ScanJobID}, gotIDs)
+
+	// A literal, non-matching account ID still excludes everything.
+	none, _ := b.ListScanJobsFiltered(backup.ListScanJobsFilter{AccountID: "999999999999"})
+	assert.Empty(t, none)
+}

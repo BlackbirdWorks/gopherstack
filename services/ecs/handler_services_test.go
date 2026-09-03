@@ -88,6 +88,11 @@ func TestECS_CreateService(t *testing.T) {
 	}
 }
 
+// TestECS_CreateService_AlreadyExists asserts the real code:
+// "ServiceAlreadyExistsException" is not a real ECS exception type (absent
+// from ecs@v1.90.0/types/errors.go and every per-op deserializeOpError
+// switch); CreateService's own deserializer models InvalidParameterException,
+// which is what real AWS returns for a duplicate active service name.
 func TestECS_CreateService_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -105,7 +110,7 @@ func TestECS_CreateService_AlreadyExists(t *testing.T) {
 
 	rec2 := doECSRequest(t, h, "CreateService", input)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "ServiceAlreadyExistsException")
+	assert.Contains(t, rec2.Body.String(), "InvalidParameterException")
 }
 
 func TestECS_DescribeServices(t *testing.T) {

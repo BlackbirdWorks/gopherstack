@@ -1,9 +1,38 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: 7c8077891
-last_audit_date: 2026-08-10
-overall: A            # gopherstack-0xs7 follow-up pass. Verified against live code (not
+last_audit_commit: e50f52dce
+last_audit_date: 2026-08-28
+overall: A            # write-only-state sweep pass (this pass, 2026-08-28). Existing
+                       # wire_field_fixes_test.go (ListRoutingRules wrapper key, Portal
+                       # PublishStatus) was a PARTIAL prior pass, not a finished one -- per this
+                       # campaign's protocol, treated as a signal to dig deeper rather than skip.
+                       # Ran the write-only-state method (what does each backend persist, what real
+                       # op reads it back) across the Api/Stage/Route/Integration/Authorizer/
+                       # Deployment/DomainName/VpcLink/RoutingRule families. Found one real bug:
+                       # UpdateAuthorizer's AuthorizerResultTtlInSeconds/EnableSimpleResponses were
+                       # plain int32/bool with a truthy/nonzero guard (not *int32/*bool like the
+                       # real SDK), so a client's documented way to explicitly disable caching
+                       # (TTL=0) or simple responses (false) was silently dropped -- fixed, see
+                       # UpdateAuthorizer row and Notes. enumcheck: 0 findings in this service.
+                       # apigatewayv2 is REST-shaped (path-bound members via echo routes in
+                       # handler.go, e.g. /v2/apis/{apiId}/authorizers/{authorizerId}), confirmed
+                       # against the vendored SDK's httpBindingEncoder-based serializers.go/
+                       # api_op_*.go for the ops this pass touched. Did not re-verify every op in
+                       # this large service (24k lines) -- see gaps for scope not reached.
+                       # ---- query/header-to-non-string-field sweep (this pass, 2026-08-29) ----
+                       # Hunted for query/header values fed into a non-string Go field without
+                       # conversion (the apigateway-v1 Limit-into-JSON-body class). No merging
+                       # pattern here (nothing merges query values into the JSON body) and no
+                       # hard-fail found. Inventoried every non-string query/header/path member
+                       # across all 103 ops: MaxResults is *string on every Get*/List sibling
+                       # except ListRoutingRules (*int32, serializers.go:6988) -- all correctly
+                       # parsed via apigwPaginationParams/strconv. Found and fixed two inert
+                       # (SILENT) params: ExportApi's IncludeExtensions (*bool) and
+                       # ListRoutingRules' MaxResults/NextToken were declared but never read. See
+                       # ExportApi/ListRoutingRules rows.
+                       # ---- prior pass's note follows ----
+                       # gopherstack-0xs7 follow-up pass. Verified against live code (not
                        # PARITY.md prose) that gopherstack-e81/2tx/jni0 were all still genuinely
                        # open, then closed the real parts of each: RoutingRule Actions/Conditions
                        # are now typed unions (gopherstack-e81, see Notes #12); UpdateRoute now
@@ -45,6 +74,19 @@ overall: A            # gopherstack-0xs7 follow-up pass. Verified against live c
                        # immutability gap (gopherstack-2tx), and the Portal/PortalProduct family
                        # (out of this pass's declared scope, per the task's op list) were
                        # re-confirmed as still accurate/deliberately out of scope, not re-touched.
+                       # ---- sort-totality sweep, Class F/G (this pass, 2026-08-30) ----
+                       # Reviewed every sort.Slice call site across every paginated listing in this
+                       # service (apis/api_mappings/api_models/authorizers/deployments/domain_names
+                       # incl. RoutingRules/integrations/integration_responses/routes/
+                       # route_responses/portals/portal_products/stages/vpc_links). Every one sorts
+                       # on that resource's own real unique ID (APIID/ModelID/APIMappingID/
+                       # AuthorizerID/DeploymentID/RoutingRuleID/DomainNameValue/IntegrationID/
+                       # IntegrationResponseID/RouteID/RouteResponseID/PortalID/PortalProductID/
+                       # StageName/VpcLinkID) -- confirmed each is that resource's primary/unique
+                       # identifier, not assumed from the field name. No non-unique sort key found;
+                       # no Class F bug. Confirmed no listing in this service returns two-or-more
+                       # collections the API defines as one ordered sequence truncated
+                       # independently -- no Class G candidate found. No code changes.
 ops:
   CreateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey+target quick-create shortcut was entirely unimplemented -- CreateAPIInput had no such fields at all, so real quick-create requests silently created a bare API with no route/integration/stage (fixed by a prior pass, see Notes #6). This pass: ipAddressType and quick-create's credentialsArn were ALSO entirely absent from CreateAPIInput -- fixed, see Notes #8-9."}
   GetApi: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Api.ipAddressType/importInfo/warnings were entirely absent -- fixed, see Notes #8"}
@@ -53,8 +95,8 @@ ops:
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also purges authorizerCache entries for the API's authorizers on cascade delete -- see Notes #11"}
   ImportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "basepath and failOnWarnings query params (SetQuery in serializers.go, not body fields) are now read and validated instead of silently ignored; basepath=prepend now prefixes route paths with the spec's declared base path. basepath=split and failOnWarnings-triggered rollback remain unimplemented -- bd gopherstack-jni0, narrowed, see gaps. Api.importInfo/warnings shape itself is correct (Notes #8) but always empty since the emulator never generates import warnings, so failOnWarnings has no observable effect yet."}
   ReimportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same basepath/failOnWarnings fix as ImportApi -- bd gopherstack-jni0, narrowed"}
-  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. StageName/ExportVersion/IncludeExtensions remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion/IncludeExtensions are cosmetic knobs on the exported doc's own metadata/extension-inclusion, not state this backend tracks. Left absent rather than fabricated."}
-  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS \$connect/\$disconnect/\$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
+  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. Also fixed (query/header wrapper-key sweep, this pass): IncludeExtensions (real *bool query param, api_op_ExportApi.go:52, serializers.go:3975) was never read, so AWS extension keys (x-amazon-apigateway-authtype and friends) were always emitted; now defaults true (AWS's documented default) and false strips them recursively. StageName/ExportVersion remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion is a cosmetic knob on the exported doc's own metadata, not state this backend tracks. Left absent rather than fabricated."}
+  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS $connect/$disconnect/$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
   GetRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateRoute: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was mutating RouteKey before validating AuthorizationType, so a rejected update (bad auth type) could still leave a changed route key -- fixed by validating the whole input before mutating anything, see Notes #13. Also now rejects a route-key change on a quick-create $default route (gopherstack-2tx, see Notes #14)."}
@@ -66,12 +108,12 @@ ops:
   DeleteIntegration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetIntegrationResponses: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetIntegrationResponses: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetIntegrationResponsesOutput.NextToken (declared on both input and output, apigatewayv2@v1.37.4) was never populated -- the shared nestedResponseOps.wrapList closure took only the item slice, dropping the cursor entirely. handleGetChildList now applies pkgs/page.New (via apigwPaginationParams) like every other list op in this package."}
   UpdateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRouteResponses: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRouteResponses: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): same nestedResponseOps.wrapList gap as GetIntegrationResponses -- NextToken never populated. Fixed alongside it."}
   UpdateRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRouteResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing clientCertificateId (WS-only) and Tags -- fixed"}
@@ -91,7 +133,7 @@ ops:
   CreateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "JWT issuer/audience + REQUEST identitySource/payloadFormatVersion/enableSimpleResponses/TTL all modeled and enforced on the data plane (http_proxy.go, authorizer.go)"}
   GetAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAuthorizers: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAuthorizer: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "write-only-state bug (gopherstack-wire-sweep, this pass): AuthorizerResultTtlInSeconds/EnableSimpleResponses were plain int32/bool (not *int32/*bool like the real SDK's UpdateAuthorizerInput, api_op_UpdateAuthorizer.go) with a truthy/nonzero guard, so a real client's documented way to disable caching (TTL=0) or simple responses (false) via Update was silently dropped, leaving the previous value forever. The Authorizer response shape also carried omitempty on both fields, which would have hidden a real 0/false value as an absent key on GetAuthorizer/ListAuthorizers -- also fixed. Round-trip test in wire_field_fixes_test.go. Follow-up sweep (this pass, wrapper-key sweep): the same != \"\" guard bug also affected the other four string fields of UpdateAuthorizerInput. Fixed three (AuthorizerURI, AuthorizerCredentialsArn, AuthorizerPayloadFormatVersion): none is required at CreateAuthorizer time (unlike Name), so a client explicitly clearing one -- e.g. dropping AuthorizerCredentialsArn to switch to resource-based Lambda permissions, per its own doc ('don't specify this parameter') -- is a legitimate state, not an error; converted to *string with a nil check. Response side (Authorizer.AuthorizerURI/AuthorizerCredentialsArn/AuthorizerPayloadFormatVersion, models.go) intentionally kept omitempty, unlike TTL/EnableSimpleResponses above -- these three are commonly N/A altogether (e.g. a JWT authorizer never sets AuthorizerURI at all), and stripping omitempty would put spurious empty keys on the common case rather than only the rare explicit-clear case. Left Name unfixed as a silent-ignore: unlike the other three, Name IS required at CreateAuthorizer ('This member is required'), so no authorizer has a valid empty-Name state -- converted to *string too, but an explicit empty value is now rejected with a BadRequestException (fixed handleUpdate's generic error mapping in handler.go, which had never routed ErrBadRequest to 400 for any Update op, to make this correct) instead of either silently ignored or silently applied. Round-trip tests: wire_field_fixes_test.go (TestUpdateAuthorizer_URICredentialsAndPayloadVersionCanBeCleared, TestUpdateAuthorizer_EmptyNameRejected)."}
   DeleteAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "now purges authorizerCache entries for this authorizer -- see Notes #11 (bd gopherstack-wmh, closed)"}
   ResetAuthorizersCache: {wire: ok, errors: ok, state: ok, persist: n/a, note: "cache is in-memory only by design"}
   CreateModel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -102,29 +144,29 @@ ops:
   DeleteModel: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing mutualTlsAuthentication and domainNameArn (fixed by a prior pass). This pass: routingMode was ALSO entirely absent -- fixed, see Notes #10."}
   GetDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "routingMode fix, see Notes #10"}
-  GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DomainName shape fix as GetDomainName"}
+  GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DomainName shape fix as GetDomainName. FIXED 2026-08-29 (cursor-pagination sweep): GetDomainNamesOutput.NextToken was never populated -- handler called h.Backend.GetDomainNames() and returned the full slice with no pagination at all. Now routed through apigwPaginationParams + pkgs/page.New like GetAPIs/GetDeployments/etc."}
   UpdateDomainName: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "routingMode fix, see Notes #10. This pass: was also mutating Tags/DomainNameConfigurations/MutualTLSAuthentication before validating RoutingMode, so a rejected update could leave those partially applied -- fixed, see Notes #13."}
   DeleteDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetApiMappings: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetApiMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetApiMappingsOutput.NextToken was never populated -- no pagination applied at all. Now routed through apigwPaginationParams + pkgs/page.New."}
   UpdateApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   GetVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetVpcLinksOutput.NextToken was never populated -- no pagination applied at all. Now routed through apigwPaginationParams + pkgs/page.New."}
   UpdateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "Actions/Conditions are now typed AWS union shapes (RoutingRuleAction/RoutingRuleActionInvokeAPI, RoutingRuleCondition/RoutingRuleMatchBasePaths/RoutingRuleMatchHeaders/RoutingRuleMatchHeaderValue) instead of []map[string]any passthrough, with required-subfield and FK (target api/stage must exist) validation, plus RoutingRulePriority's modeled [1,1000000] range -- gopherstack-e81, closed, see Notes #12."}
   GetRoutingRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
-  ListRoutingRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
+  ListRoutingRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule. Also fixed (query/header wrapper-key sweep, this pass): MaxResults/NextToken (real *int32/*string query params, api_op_ListRoutingRules.go:40-45, serializers.go:6988 -- the one List op in this service where MaxResults is int32, unlike every Get*/List sibling's *string MaxResults) were never read at all, so every rule always came back in one page regardless of the limit a client asked for. Now paginates via the shared apigwPaginationParams/page.New path like every other List/Get collection op."}
   PutRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same typed-shape + validation fix as CreateRoutingRule"}
   DeleteRoutingRule: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now supports stage ARNs (arn:.../apis/{id}/stages/{name}) in addition to apis/vpclinks/domainnames; 404s were surfacing as 500 for stage ARNs before the errStageNotFound check was added to the handler"}
   UntagResource: {wire: fixed, errors: fixed, state: ok, persist: ok}
   GetTags: {wire: fixed, errors: fixed, state: ok, persist: ok}
 families:
-  Portal/PortalProduct/ProductPage/ProductRestEndpointPage (preview APIGW "portals" feature): {status: ok, note: "gopherstack-0xs7 pass counted the family against botocore apigatewayv2/2018-11-29: 26 operations (CreatePortal/GetPortal/ListPortals/UpdatePortal/DeletePortal/PreviewPortal/PublishPortal/DisablePortal, the same 5 for PortalProduct, Create/List/Get/Update/Delete for ProductPage and ProductRestEndpointPage, Get/Put/DeletePortalProductSharingPolicy). All 26 are implemented with real backend state in portals.go/handler_portals.go (confirmed via GetSupportedOperations() and backend method presence) -- NOT a large unmodelled surface as a prior pass's note speculated. PreviewPortal returns the live Portal (a reasonable preview simulation, not a stub). 2026-08-23 (manifest harvest): did the field-level wire audit this note deferred, against aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_{Create,Update,Get}Portal.go/types.PortalSummary. Found and fixed 3 real accept-and-drop bugs on the Portal type: CreatePortalInput/UpdatePortalInput.IncludedPortalProductArns (a *required* PortalSummary member) and .RumAppMonitorName were decoded off the wire into nothing (no backing field existed) and silently dropped on both Create and Update; PublishPortalInput.Description ('When the portal is published, this description becomes the last published description' -- api_op_PublishPortal.go) was decoded but never used, and GetPortalOutput.LastPublished/LastPublishedDescription had no backing field at all. Added Portal.IncludedPortalProductArns/RumAppMonitorName/LastPublished/LastPublishedDescription (models.go), wired through CreatePortal/UpdatePortal/handlePublishPortal (portals.go/handler_portals.go). GetPortalOutput.Preview/StatusException remain correctly unmodeled -- see gaps. UpdatePortalInput is ALSO missing Authorization/EndpointConfiguration/PortalContent entirely (all three real, optional UpdatePortalInput members -- api_op_UpdatePortal.go); NOT fixed this pass, newly disclosed as a gap (see below) rather than rushed alongside the three accept-and-drop fixes."}
+  Portal/PortalProduct/ProductPage/ProductRestEndpointPage (preview APIGW "portals" feature): {status: ok, note: "gopherstack-0xs7 pass counted the family against botocore apigatewayv2/2018-11-29: 26 operations (CreatePortal/GetPortal/ListPortals/UpdatePortal/DeletePortal/PreviewPortal/PublishPortal/DisablePortal, the same 5 for PortalProduct, Create/List/Get/Update/Delete for ProductPage and ProductRestEndpointPage, Get/Put/DeletePortalProductSharingPolicy). All 26 are implemented with real backend state in portals.go/handler_portals.go (confirmed via GetSupportedOperations() and backend method presence) -- NOT a large unmodelled surface as a prior pass's note speculated. PreviewPortal returns the live Portal (a reasonable preview simulation, not a stub). 2026-08-23 (manifest harvest): did the field-level wire audit this note deferred, against aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_{Create,Update,Get}Portal.go/types.PortalSummary. Found and fixed 3 real accept-and-drop bugs on the Portal type: CreatePortalInput/UpdatePortalInput.IncludedPortalProductArns (a *required* PortalSummary member) and .RumAppMonitorName were decoded off the wire into nothing (no backing field existed) and silently dropped on both Create and Update; PublishPortalInput.Description ('When the portal is published, this description becomes the last published description' -- api_op_PublishPortal.go) was decoded but never used, and GetPortalOutput.LastPublished/LastPublishedDescription had no backing field at all. Added Portal.IncludedPortalProductArns/RumAppMonitorName/LastPublished/LastPublishedDescription (models.go), wired through CreatePortal/UpdatePortal/handlePublishPortal (portals.go/handler_portals.go). GetPortalOutput.Preview/StatusException remain correctly unmodeled -- see gaps. UpdatePortalInput is ALSO missing Authorization/EndpointConfiguration/PortalContent entirely (all three real, optional UpdatePortalInput members -- api_op_UpdatePortal.go); NOT fixed this pass, newly disclosed as a gap (see below) rather than rushed alongside the three accept-and-drop fixes. FIXED (constraint sweep, this pass): ListPortals/ListPortalProducts/ListProductPages/ListProductRestEndpointPages all declare real maxResults/nextToken query params (query-bound, confirmed via each op's own httpBindings serializer) but the handlers called the backend with no pagination args at all -- every item always came back on one page. Wired through apigwPaginationParams/page.New, the same pattern GetApis etc. already use. ListPortalProducts/ListProductPages/ListProductRestEndpointPages' ResourceOwner/ResourceOwnerAccountId query params remain unfiltered: PortalProduct/ProductPage/ProductRestEndpointPage carry no ownership-account field to filter on, so honoring them would mean inventing a model field -- left as a disclosed gap, not fixed."}
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps:
   - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
@@ -410,3 +452,138 @@ Traps for the next auditor (don't re-flag):
   `services/apigatewayv2/` at all (`git show --stat <hash>`). This pass's recorded baseline
   (`d6fae6df`) belonged entirely to the sibling `services/apigateway` (v1 REST API) service; the
   real baseline was recovered via `git log -- services/apigatewayv2/PARITY.md`.
+
+## 2026-08-29 cursor-pagination audit (declares-but-never-sets class)
+
+Enumerated every response struct declaring `NextToken` (17 total, in `models.go`) against
+this package's two shared pagination mechanisms: `handleGetList` (generic helper,
+`handler.go`) and direct `page.New(...)` calls (`pkgs/page`, the repo's shared opaque-cursor
+paginator). 12 of 17 were already correctly wired through one of the two. 5 were not:
+`GetDomainNames`, `GetApiMappings`, `GetIntegrationResponses`, `GetRouteResponses`,
+`GetVpcLinks` -- all real, genuinely-paginated ops (`apigatewayv2@v1.37.4`: each declares
+`MaxResults *string`/`NextToken *string` on input and `NextToken *string` on output) whose
+handlers called the backend and returned the full, unbounded result with no pagination logic
+at all -- not even a broken attempt, just absent. `GetIntegrationResponses`/
+`GetRouteResponses` share a generic `nestedResponseOps[T,U]` helper (two-levels-nested
+"response" resources under an integration/route); its `wrapList` closures took only the item
+slice, with no way to carry a cursor, so `handleGetChildList` (its backing implementation)
+never had a token to set. Widened `wrapList`'s signature to `func([]T, string) any` and moved
+the `apigwPaginationParams`/`page.New` call into `handleGetChildList` itself, matching
+`handleGetList`'s existing shape -- one fix covers both ops.
+
+Every one of these 5 also had the request-side `MaxResults`/`NextToken` completely unread
+(no query-string parsing at all before this fix), the same broken-both-sides pattern the
+brief predicted.
+
+No provably-bounded gaps found in this service -- every declared cursor corresponds to a
+genuinely user-growable collection (domain names, API mappings, integration/route responses,
+VPC links all accumulate via Create* calls with no compile-time cap).
+
+Tests: new `services/apigatewayv2/pagination_cursor_test.go`
+(`TestGetDomainNames_Limit`, `TestGetApiMappings_Limit`, `TestGetIntegrationResponses_Limit`,
+`TestGetRouteResponses_Limit`, `TestGetVpcLinks_Limit`), all driving the real
+`aws-sdk-go-v2/service/apigatewayv2` client via the existing `newTestAPIGatewayV2Client`
+helper, all confirmed failing against unmodified code before the fix.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/apigatewayv2/...` (pass), `golangci-lint run ./services/apigatewayv2/...`
+(0 issues after `gofmt -w` on `handler.go`).
+
+## Notes (2026-08-30 pass — pagination map-order audit)
+
+Audited every `pkgs/page.New`/`NewHMAC` call site in this service (11 literal call
+sites, covering 17 list operations via `handleGetList`/`handleGetChildList`/
+`nestedResponseOps`) for the class of bug confirmed in `services/opsworks`: a
+paginator consuming `Table.All()`/`Table.Range()` (an unspecified-order Go map
+walk, per `pkgs/store.Table.All`'s doc comment) with no total sort, so a
+cursor-token round-trip drops/duplicates records.
+
+Verdict: 0 bugs. Every call site is safe by construction, by one of two
+mechanisms:
+- filtered to a single parent via a `pkgs/store.Index.Get` lookup (stable,
+  insertion-derived order, not a map walk) -- `ListRoutingRules`,
+  `GetApiMappings`, `GetModels`, `GetDeployments`, `GetIntegrations`,
+  `GetRoutes`, `GetStages`, `GetAuthorizers`, `GetIntegrationResponses`,
+  `GetRouteResponses`, `ListProductPages`, `ListProductRestEndpointPages`; and
+- `Table.All()` re-sorted by the table's own primary key (`sort.Slice` on the
+  same field the table's `keyFn` returns), which is definitionally unique --
+  `GetDomainNames` (sorted by `DomainNameValue`, the `domainNames` table key),
+  `GetVpcLinks` (`VpcLinkID`), `GetAPIs` (`APIID`), `ListPortals` (`PortalID`),
+  `ListPortalProducts` (`PortalProductID`).
+
+Empirically proved the riskiest case (`GetDomainNames`, `Table.All()` + sort)
+with a new full-walk test rather than trusting the reasoning alone: added
+`pagination_full_walk_test.go`'s `TestGetDomainNames_FullWalk_NoDropsOrDuplicates`,
+which seeds 25 domain names via the real `aws-sdk-go-v2` client, walks
+`GetDomainNames` to completion at `MaxResults=5`, and asserts the union of
+every page is exactly the seed set with no drop or duplicate. Passed 10/10
+runs under `-race -count=10`. Existing `pagination_cursor_test.go` tests
+(`TestGetDomainNames_Limit` etc.) only ever fetch one page and assert
+`len==1`/`NextToken != ""` -- structurally unable to see a map-order
+drop/duplicate, since that only manifests across a second `GetDomainNames`
+call re-walking the same (re-randomized) map iteration.
+
+No sort found non-total on a call site sourced from a map walk (the actual bug
+condition); no filter-after-pagination; no MaxResults/NextToken-accepting op
+found that silently returns everything untruncated. `PARITY.md` claims not
+re-verified beyond what this pass touched. Gates on `./services/apigatewayv2/...`:
+`go build`, `go vet`, `go test -race -count=1` (all pass, existing suite
+unmodified/ungrown-except-the-1-new-file), `golangci-lint run` (0 issues).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+`cmd/reqfielddiff`/`cmd/reqfieldscan` used to break ties among
+case-insensitive handler-name matches by whichever Go's randomized map
+iteration visited first (ef0eef041 fixed it repo-wide; appsync, e2643a6dd,
+was the first measured victim). This package's REST-path dispatch (no
+`service.JSONOpFunc` table at all) means `reqfielddiff` relies entirely on
+name-convention resolution here, and its `Api`/`API` acronym casing gives it
+39 op/handler pairs that need the ambiguous fold, 10 of them genuine
+collisions between an exported `*InMemoryBackend` method and the real
+unexported handler: `CreateApi`, `DeleteApi`, `DeleteApiMapping`,
+`ExportApi`, `GetApi`, `GetApiMapping`, `GetApiMappings`, `GetApis`,
+`UpdateApi`, `UpdateApiMapping`.
+
+Verified the damage directly: ran the unpatched tool from `ef0eef041~1` five
+times and diffed against the fixed tool at HEAD. `cmd/reqfieldscan` was
+byte-identical across all 5 runs and HEAD -- zero damage (this service's
+dispatch table has no `WrapOp` entries for `reqfieldscan` to resolve
+ambiguously at all). `cmd/reqfielddiff` was not: findings ranged 245-253
+across the 5 old runs (5 distinct counts) vs 238 at HEAD, with 31 op.field
+keys flickering.
+
+29 of the 31 were the safe direction -- present in some old (misresolved)
+run, never at HEAD: `CreateApi.{ApiKeySelectionExpression, CorsConfiguration,
+Description, DisableExecuteApiEndpoint, DisableSchemaValidation,
+IpAddressType, Name, ProtocolType, RouteSelectionExpression, Tags,
+Version}`, `ExportApi.{IncludeExtensions, OutputType}`, `GetApi.ApiId`,
+`GetApiMapping.ApiMappingId`, most of `UpdateApi`'s flickering fields, and
+`UpdateApiMapping.{ApiId, ApiMappingId, ApiMappingKey, Stage}`. Read the
+source for every one of these (apis.go:13-90's `CreateAPI`/`UpdateAPI`,
+handler_apis.go's `ExportApi`/`GetApi` query- and path-param handling,
+handler_api_mappings.go's `GetAPIMapping`/`UpdateAPIMapping`): all genuinely
+declared and threaded to the backend. The tool's own "declared" signal for
+`CreateApi`/`UpdateApi` is itself an artifact of `matchReturnsStructCall`
+picking up the `*API` domain struct `h.Backend.CreateAPI`/`.UpdateAPI`
+returns (which happens to mirror most Input field names) rather than genuine
+recognition of the `json.NewDecoder(...).Decode(&input)` call this tool's
+`decodeCallVerbs` list doesn't match at all -- but the underlying claim
+(field genuinely handled) checks out by direct source read regardless.
+
+2 of the 31 went the other way -- present at HEAD, absent from some old
+(misresolved) runs, the direction that would hide a real bug:
+`UpdateApi.RouteKey`, `UpdateApi.Target`. Investigated specifically for that
+reason. Confirmed genuine and fully applied: `UpdateAPIInput.RouteKey`/
+`.Target` (models.go:250-256, wire keys `routeKey`/`target`, matching
+apigatewayv2@v1.37.4 api_op_UpdateApi.go:80,93's "part of quick create"
+fields) are validated and applied by
+`validateQuickCreateUpdateLocked`/`applyQuickCreateUpdateMutateLocked`
+(apis.go:363-431). Not a bug -- the same tool artifact in reverse (the
+exported `UpdateAPI`'s return-type match doesn't happen to carry these two
+quick-create-only field names, since they're not mirrored onto the `API`
+struct itself).
+
+Verdict: zero real bugs. Every moved finding traces to either the
+determinism fix (safe direction, now resolved) or a separate, pre-existing
+`reqfielddiff` blind spot (`Decode` not in `decodeCallVerbs`) that reading
+the actual source -- rather than trusting either tool -- neutralizes.

@@ -54,7 +54,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	}))
 
 	// schemaExtensions
-	_, err = original.StartSchemaExtension(ctx, dirID, "add attr", "dn: cn=schema")
+	_, err = original.StartSchemaExtension(ctx, dirID, "add attr", "dn: cn=schema", false)
 	require.NoError(t, err)
 
 	// conditionalForwarders

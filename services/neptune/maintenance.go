@@ -3,6 +3,7 @@ package neptune
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -115,13 +116,13 @@ func applyOptIn(pa *PendingMaintenanceAction, optInType string) {
 // includes a ResourcePendingMaintenanceActions entry with an empty
 // PendingMaintenanceActionDetails list.
 func (b *InMemoryBackend) DescribePendingMaintenanceActions(
-	_ context.Context, resourceFilter string,
+	_ context.Context, resourceFilter []string,
 ) []ResourcePendingMaintenanceActions {
 	b.mu.RLock("DescribePendingMaintenanceActions")
 	defer b.mu.RUnlock()
 	result := make([]ResourcePendingMaintenanceActions, 0, len(b.pendingMaintenanceActions))
 	for arn, actions := range b.pendingMaintenanceActions {
-		if resourceFilter != "" && arn != resourceFilter {
+		if len(resourceFilter) > 0 && !slices.Contains(resourceFilter, arn) {
 			continue
 		}
 		details := sortedPendingActions(actions)

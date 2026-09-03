@@ -135,13 +135,13 @@ func TestInMemoryBackend_GetAPIAssociation(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "no_association_returns_not_found_status",
+			name:       "no_association_returns_error",
 			domainName: "api.example.com",
 			setup: func(b *appsync.InMemoryBackend) {
 				_, _ = b.CreateDomainName("api.example.com",
 					"arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
 			},
-			wantStatus: "NOT_FOUND",
+			wantErr: true,
 		},
 		{
 			name: "with_association_returns_success_status",
@@ -227,9 +227,8 @@ func TestInMemoryBackend_DisassociateAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	// Association no longer exists.
-	assoc, err := b.GetAPIAssociation("api.example.com")
-	require.NoError(t, err)
-	assert.Equal(t, "NOT_FOUND", assoc.AssociationStatus)
+	_, err = b.GetAPIAssociation("api.example.com")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
 
 	// Second disassociate returns 404.
 	err = b.DisassociateAPI("api.example.com")

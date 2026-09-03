@@ -39,11 +39,12 @@ func (h *Handler) registryActions() map[string]actionFn {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
+				Limit      int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			regs, next, err := h.Backend.ListRegistries(ctx, input.NamePrefix, input.NextToken)
+			regs, next, err := h.Backend.ListRegistries(ctx, input.NamePrefix, input.NextToken, int(input.Limit))
 			if err != nil {
 				return nil, err
 			}

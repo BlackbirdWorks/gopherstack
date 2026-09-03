@@ -437,6 +437,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	case errors.Is(reqErr, ErrValidationException):
 		errType = "ValidationException"
 		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrScheduledQueryLimitExceeded):
+		errType = "ServiceQuotaExceededException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"
 		statusCode = http.StatusBadRequest

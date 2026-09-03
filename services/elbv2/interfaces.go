@@ -48,7 +48,7 @@ type StorageBackend interface {
 		contents []RevocationContentInput,
 	) ([]TrustStoreRevocation, error)
 	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []int64) error
-	DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error)
+	DescribeTrustStoreRevocations(trustStoreArn string, revocationIDs []int64) ([]TrustStoreRevocation, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
 	DeleteSharedTrustStoreAssociation(trustStoreArn, resourceArn string) error
 	// Capacity reservation operations.

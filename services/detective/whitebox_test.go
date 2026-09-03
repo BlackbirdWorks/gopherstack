@@ -113,3 +113,38 @@ func TestListInvitationsOpaqueToken(t *testing.T) {
 	_, hasTok2 := resp2["NextToken"]
 	assert.False(t, hasTok2, "NextToken must be absent on the last page")
 }
+
+// TestDecodePageToken_NegativeOffset verifies that a token decoding to a
+// negative offset is rejected, matching every other caller's malformed-token
+// handling, rather than reaching graphs[start:end] as a negative slice bound.
+// LTU= is base64 for "-5".
+func TestDecodePageToken_NegativeOffset(t *testing.T) {
+	t.Parallel()
+
+	const negativeToken = "LTU="
+
+	_, err := decodePageToken(negativeToken)
+	require.Error(t, err, "a negative-offset token must be rejected, not accepted as -5")
+}
+
+// TestListGraphs_NegativeToken verifies ListGraphs does not panic when handed
+// a continuation token that decodes to a negative offset.
+func TestListGraphs_NegativeToken(t *testing.T) {
+	t.Parallel()
+
+	const negativeToken = "LTU="
+
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	seedGraph(b, "arn:aws:detective:us-east-1:111111111111:graph:aaaabbbbcccc00001111222233334444")
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("ListGraphs panicked on negative-offset token: %v", r)
+			}
+		}()
+
+		_, _, err := b.ListGraphs(10, negativeToken)
+		require.Error(t, err, "a negative-offset token must be rejected")
+	}()
+}

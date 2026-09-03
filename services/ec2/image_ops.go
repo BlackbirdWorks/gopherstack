@@ -260,6 +260,7 @@ type UsageReport struct {
 	CreatedAt time.Time `json:"createdAt"`
 	ReportID  string    `json:"reportId,omitempty"`
 	ImageID   string    `json:"imageId,omitempty"`
+	State     string    `json:"state,omitempty"`
 }
 
 // resetUsageReportMapsLocked re-initialises the usage report state maps. Must be called with
@@ -297,7 +298,7 @@ func (b *InMemoryBackend) CreateImageUsageReport(
 
 	now := time.Now().UTC()
 	reportID := "imgusgrpt-" + uuid.New().String()[:8]
-	report := &UsageReport{ReportID: reportID, ImageID: imageID, CreatedAt: now}
+	report := &UsageReport{ReportID: reportID, ImageID: imageID, CreatedAt: now, State: stateAvailable}
 	b.usageReports.Put(report)
 
 	accountWanted := len(wantAccounts) == 0 || wantAccounts[b.AccountID]

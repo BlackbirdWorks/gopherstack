@@ -181,12 +181,19 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 		filterSet = b.metricFilters.All()
 	}
 
+	// AWS: filterNamePrefix is honoured only when logGroupName is also set;
+	// without a log group it is a no-op rather than a global name filter.
+	effectivePrefix := filterNamePrefix
+	if logGroupName == "" {
+		effectivePrefix = ""
+	}
+
 	var all []MetricFilter
 	for _, mf := range filterSet {
 		if mf.region != region {
 			continue
 		}
-		if !metricFilterMatches(mf, filterNamePrefix, metricName, metricNamespace) {
+		if !metricFilterMatches(mf, effectivePrefix, metricName, metricNamespace) {
 			continue
 		}
 		cp := *mf

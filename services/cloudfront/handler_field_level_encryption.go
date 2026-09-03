@@ -122,30 +122,70 @@ func (h *Handler) handleGetFieldLevelEncryption(c *echo.Context, id string) erro
 	return xmlResp(c, http.StatusOK, fleResponseXML(fle))
 }
 
+// handleListFieldLevelEncryptions implements ListFieldLevelEncryptionConfigs, paginated via
+// Marker/MaxItems (both query-bound, cloudfront@v1.67.4 serializers.go). Real
+// FieldLevelEncryptionList has no IsTruncated field -- NextMarker's presence alone signals
+// truncation (types/types.go:3054-3074).
 func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
 	items := h.Backend.ListFieldLevelEncryptions()
 
+	page, pageSize, _, nextMarker := paginateByMarkerID(
+		c,
+		items,
+		func(fle *FieldLevelEncryption) string { return fle.ID },
+	)
+
+	type queryArgProfileXML struct {
+		QueryArg  string `xml:"QueryArg"`
+		ProfileID string `xml:"ProfileId"`
+	}
+
+	type queryArgProfileConfigXML struct {
+		Items              []queryArgProfileXML `xml:"QueryArgProfiles>Items>QueryArgProfile"`
+		Quantity           int                  `xml:"QueryArgProfiles>Quantity"`
+		ForwardWhenUnknown bool                 `xml:"ForwardWhenQueryArgProfileIsUnknown"`
+	}
+
 	type fleSummaryXML struct {
-		XMLName xml.Name `xml:"FieldLevelEncryptionSummary"`
-		ID      string   `xml:"Id"`
-		Comment string   `xml:"Comment"`
+		XMLName               xml.Name                 `xml:"FieldLevelEncryptionSummary"`
+		ID                    string                   `xml:"Id"`
+		Comment               string                   `xml:"Comment"`
+		QueryArgProfileConfig queryArgProfileConfigXML `xml:"QueryArgProfileConfig"`
 	}
 
 	type fleListXML struct {
-		XMLName     xml.Name        `xml:"FieldLevelEncryptionList"`
-		XMLNS       string          `xml:"xmlns,attr"`
-		Items       []fleSummaryXML `xml:"Items>FieldLevelEncryptionSummary"`
-		MaxItems    int             `xml:"MaxItems"`
-		Quantity    int             `xml:"Quantity"`
-		IsTruncated bool            `xml:"IsTruncated"`
+		XMLName    xml.Name        `xml:"FieldLevelEncryptionList"`
+		XMLNS      string          `xml:"xmlns,attr"`
+		NextMarker string          `xml:"NextMarker,omitempty"`
+		Items      []fleSummaryXML `xml:"Items>FieldLevelEncryptionSummary"`
+		MaxItems   int             `xml:"MaxItems"`
+		Quantity   int             `xml:"Quantity"`
 	}
 
-	summaries := make([]fleSummaryXML, 0, len(items))
-	for _, fle := range items {
-		summaries = append(summaries, fleSummaryXML{ID: fle.ID, Comment: fle.Comment})
+	summaries := make([]fleSummaryXML, 0, len(page))
+	for _, fle := range page {
+		items := make([]queryArgProfileXML, 0, len(fle.QueryArgProfiles))
+		for _, p := range fle.QueryArgProfiles {
+			items = append(items, queryArgProfileXML(p))
+		}
+		summaries = append(summaries, fleSummaryXML{
+			ID:      fle.ID,
+			Comment: fle.Comment,
+			QueryArgProfileConfig: queryArgProfileConfigXML{
+				ForwardWhenUnknown: fle.ForwardWhenQueryArgProfileIsUnknown,
+				Items:              items,
+				Quantity:           len(items),
+			},
+		})
 	}
 
-	list := fleListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := fleListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
@@ -340,32 +380,77 @@ func (h *Handler) handleGetFieldLevelEncryptionProfile(c *echo.Context, id strin
 	return xmlResp(c, http.StatusOK, fleProfileResponseXML(p))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// handleListFieldLevelEncryptionProfiles paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real FieldLevelEncryptionProfileList has no IsTruncated
+// field -- NextMarker's presence alone signals truncation (types/types.go:3129-3149).
 func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error {
 	items := h.Backend.ListFieldLevelEncryptionProfiles()
 
+	page, pageSize, _, nextMarker := paginateByMarkerID(
+		c, items, func(p *FieldLevelEncryptionProfile) string { return p.ID },
+	)
+
+	type fieldPatternsXML struct {
+		Items    []string `xml:"Items>FieldPattern"`
+		Quantity int      `xml:"Quantity"`
+	}
+
+	type encryptionEntityXML struct {
+		PublicKeyID   string           `xml:"PublicKeyId"`
+		ProviderID    string           `xml:"ProviderId"`
+		FieldPatterns fieldPatternsXML `xml:"FieldPatterns"`
+	}
+
+	type encryptionEntitiesXML struct {
+		Items    []encryptionEntityXML `xml:"Items>EncryptionEntity"`
+		Quantity int                   `xml:"Quantity"`
+	}
+
 	type flePSummaryXML struct {
-		XMLName xml.Name `xml:"FieldLevelEncryptionProfileSummary"`
-		ID      string   `xml:"Id"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
+		XMLName            xml.Name              `xml:"FieldLevelEncryptionProfileSummary"`
+		ID                 string                `xml:"Id"`
+		Name               string                `xml:"Name"`
+		Comment            string                `xml:"Comment"`
+		EncryptionEntities encryptionEntitiesXML `xml:"EncryptionEntities"`
 	}
 
 	type flePListXML struct {
-		XMLName     xml.Name         `xml:"FieldLevelEncryptionProfileList"`
-		XMLNS       string           `xml:"xmlns,attr"`
-		Items       []flePSummaryXML `xml:"Items>FieldLevelEncryptionProfileSummary"`
-		MaxItems    int              `xml:"MaxItems"`
-		Quantity    int              `xml:"Quantity"`
-		IsTruncated bool             `xml:"IsTruncated"`
+		XMLName    xml.Name         `xml:"FieldLevelEncryptionProfileList"`
+		XMLNS      string           `xml:"xmlns,attr"`
+		NextMarker string           `xml:"NextMarker,omitempty"`
+		Items      []flePSummaryXML `xml:"Items>FieldLevelEncryptionProfileSummary"`
+		MaxItems   int              `xml:"MaxItems"`
+		Quantity   int              `xml:"Quantity"`
 	}
 
-	summaries := make([]flePSummaryXML, 0, len(items))
-	for _, p := range items {
-		summaries = append(summaries, flePSummaryXML{ID: p.ID, Name: p.Name, Comment: p.Comment})
+	summaries := make([]flePSummaryXML, 0, len(page))
+	for _, p := range page {
+		entities := make([]encryptionEntityXML, 0, len(p.EncryptionEntities))
+		for _, e := range p.EncryptionEntities {
+			entities = append(entities, encryptionEntityXML{
+				PublicKeyID: e.PublicKeyID,
+				ProviderID:  e.ProviderID,
+				FieldPatterns: fieldPatternsXML{
+					Items:    append([]string(nil), e.FieldPatterns...),
+					Quantity: len(e.FieldPatterns),
+				},
+			})
+		}
+		summaries = append(summaries, flePSummaryXML{
+			ID:                 p.ID,
+			Name:               p.Name,
+			Comment:            p.Comment,
+			EncryptionEntities: encryptionEntitiesXML{Items: entities, Quantity: len(entities)},
+		})
 	}
 
-	list := flePListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := flePListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

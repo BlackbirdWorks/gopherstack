@@ -19,6 +19,9 @@ type createReplicationTaskInput struct {
 	MigrationType             *string    `json:"MigrationType"`
 	TableMappings             *string    `json:"TableMappings"`
 	ReplicationTaskSettings   *string    `json:"ReplicationTaskSettings"`
+	CdcStartPosition          *string    `json:"CdcStartPosition"`
+	CdcStopPosition           *string    `json:"CdcStopPosition"`
+	TaskData                  *string    `json:"TaskData"`
 	Tags                      []tagEntry `json:"Tags"`
 }
 
@@ -74,6 +77,11 @@ func (h *Handler) handleCreateReplicationTask(
 		ptrconv.String(in.TableMappings),
 		ptrconv.String(in.ReplicationTaskSettings),
 		kv,
+		ReplicationTaskCDCSettings{
+			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+			TaskData:         ptrconv.String(in.TaskData),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -107,8 +115,25 @@ func (h *Handler) handleDescribeReplicationTasks(
 		return list[i].ReplicationTaskIdentifier < list[j].ReplicationTaskIdentifier
 	})
 
+	migrationTypeFilter := extractFilterValue(in.Filters, "migration-type")
+	endpointArnFilter := extractFilterValue(in.Filters, "endpoint-arn")
+	riArnFilter := extractFilterValue(in.Filters, "replication-instance-arn")
+
 	all := make([]replicationTaskJSON, 0, len(list))
 	for _, rt := range list {
+		if migrationTypeFilter != "" && rt.MigrationType != migrationTypeFilter {
+			continue
+		}
+
+		if endpointArnFilter != "" && rt.SourceEndpointArn != endpointArnFilter &&
+			rt.TargetEndpointArn != endpointArnFilter {
+			continue
+		}
+
+		if riArnFilter != "" && rt.ReplicationInstanceArn != riArnFilter {
+			continue
+		}
+
 		all = append(all, rtToJSON(rt))
 	}
 
@@ -206,6 +231,9 @@ type replicationTaskJSON struct {
 	TableMappings             string `json:"TableMappings,omitempty"`
 	ReplicationTaskSettings   string `json:"ReplicationTaskSettings,omitempty"`
 	Status                    string `json:"Status"`
+	CdcStartPosition          string `json:"CdcStartPosition,omitempty"`
+	CdcStopPosition           string `json:"CdcStopPosition,omitempty"`
+	TaskData                  string `json:"TaskData,omitempty"`
 	// ReplicationTaskCreationDate is wire-encoded as epoch seconds
 	// (awsjson1.1 unixTimestamp format) -- see pkgs/awstime.Epoch.
 	ReplicationTaskCreationDate float64 `json:"ReplicationTaskCreationDate,omitempty"`
@@ -222,6 +250,9 @@ func rtToJSON(rt *ReplicationTask) replicationTaskJSON {
 		TableMappings:               rt.TableMappings,
 		ReplicationTaskSettings:     rt.ReplicationTaskSettings,
 		Status:                      rt.Status,
+		CdcStartPosition:            rt.CdcStartPosition,
+		CdcStopPosition:             rt.CdcStopPosition,
+		TaskData:                    rt.TaskData,
 		ReplicationTaskCreationDate: awstime.Epoch(rt.CreationTime),
 	}
 }
@@ -359,11 +390,35 @@ func (h *Handler) handleDescribeTableStatistics(
 		}, nil
 	}
 
-	stats := buildTableStatistics(tasks[0].TableMappings)
+	all := buildTableStatistics(tasks[0].TableMappings)
+
+	schemaFilter := extractFilterValue(in.Filters, "schema-name")
+	tableFilter := extractFilterValue(in.Filters, "table-name")
+	stateFilter := extractFilterValue(in.Filters, "table-state")
+
+	stats := make([]tableStatisticJSON, 0, len(all))
+	for _, s := range all {
+		if schemaFilter != "" && s.SchemaName != schemaFilter {
+			continue
+		}
+
+		if tableFilter != "" && s.TableName != tableFilter {
+			continue
+		}
+
+		if stateFilter != "" && s.TableState != stateFilter {
+			continue
+		}
+
+		stats = append(stats, s)
+	}
+
+	data, nextMarker := dmsPaginate(stats, in.Marker, in.MaxRecords)
 
 	return &describeTableStatisticsOutput{
 		ReplicationTaskArn: taskArn,
-		TableStatistics:    stats,
+		TableStatistics:    data,
+		Marker:             nextMarker,
 	}, nil
 }
 
@@ -372,6 +427,9 @@ type modifyReplicationTaskInput struct {
 	MigrationType           *string `json:"MigrationType"`
 	TableMappings           *string `json:"TableMappings"`
 	ReplicationTaskSettings *string `json:"ReplicationTaskSettings"`
+	CdcStartPosition        *string `json:"CdcStartPosition"`
+	CdcStopPosition         *string `json:"CdcStopPosition"`
+	TaskData                *string `json:"TaskData"`
 }
 
 type modifyReplicationTaskOutput struct {
@@ -387,6 +445,11 @@ func (h *Handler) handleModifyReplicationTask(
 		ptrconv.String(in.MigrationType),
 		ptrconv.String(in.TableMappings),
 		ptrconv.String(in.ReplicationTaskSettings),
+		ReplicationTaskCDCSettings{
+			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+			TaskData:         ptrconv.String(in.TaskData),
+		},
 	)
 	if err != nil {
 		return nil, err

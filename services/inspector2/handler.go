@@ -330,11 +330,22 @@ func classifyTagsPath(method, path string) string {
 }
 
 // filterListRequest is the shared shape of the filterCriteria/maxResults/
-// nextToken list requests used by ListFindings and ListCoverage.
+// nextToken list requests used by ListFindings and ListCoverage. SortCriteria
+// is only meaningful for ListFindings -- ListCoverageInput has no such member
+// (api_op_ListCoverage.go, inspector2@v1.54.1), so it is simply absent from
+// that request body and ignored here.
 type filterListRequest struct {
-	FilterCriteria map[string]any `json:"filterCriteria"`
-	NextToken      string         `json:"nextToken"`
-	MaxResults     int32          `json:"maxResults"`
+	FilterCriteria map[string]any    `json:"filterCriteria"`
+	SortCriteria   *findingSortInput `json:"sortCriteria,omitempty"`
+	NextToken      string            `json:"nextToken"`
+	MaxResults     int32             `json:"maxResults"`
+}
+
+// findingSortInput is ListFindingsInput.SortCriteria's wire shape
+// (api_op_ListFindings.go, inspector2@v1.54.1: field/sortOrder).
+type findingSortInput struct {
+	Field     string `json:"field"`
+	SortOrder string `json:"sortOrder"`
 }
 
 // decodeFilterListRequest reads and decodes a filterListRequest. On a malformed

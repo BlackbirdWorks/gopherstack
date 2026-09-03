@@ -166,7 +166,7 @@ func (b *InMemoryBackend) UpdateFirewallDomains(
 	default:
 		return nil, fmt.Errorf(
 			"%w: Operation must be %s, %s, or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			domainUpdateOpReplace,
 			domainUpdateOpAdd,
 			domainUpdateOpRemove,

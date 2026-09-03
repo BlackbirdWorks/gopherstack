@@ -2,6 +2,7 @@ package autoscaling_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,18 +133,18 @@ func TestInMemoryBackend_DescribeScheduledActions(t *testing.T) {
 	require.NoError(t, err)
 
 	// All actions for the group
-	actions, err := b.DescribeScheduledActions("sa-asg", nil)
+	actions, err := b.DescribeScheduledActions("sa-asg", nil, time.Time{}, time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, actions, 2)
 
 	// Filter by name
-	filtered, err := b.DescribeScheduledActions("sa-asg", []string{"action-a"})
+	filtered, err := b.DescribeScheduledActions("sa-asg", []string{"action-a"}, time.Time{}, time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, filtered, 1)
 	assert.Equal(t, "action-a", filtered[0].ScheduledActionName)
 
 	// Group not found
-	_, err = b.DescribeScheduledActions("no-such", nil)
+	_, err = b.DescribeScheduledActions("no-such", nil, time.Time{}, time.Time{})
 	require.Error(t, err)
 }
 

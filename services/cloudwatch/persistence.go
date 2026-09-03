@@ -108,6 +108,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.totalMetrics = snap.TotalMetrics
+	b.reindexAlarmHistorySeqLocked()
 
 	// #60: recompute running total from restored metrics.
 	total := 0

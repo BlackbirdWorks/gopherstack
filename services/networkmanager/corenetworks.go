@@ -2,6 +2,7 @@ package networkmanager
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -35,7 +36,10 @@ func (b *InMemoryBackend) CreateCoreNetwork(
 	defer b.mu.Unlock()
 
 	if !b.globalNetworkExists(globalNetworkID) {
-		return nil, notFoundError(resourceGlobalNetwork, globalNetworkID)
+		// CreateCoreNetwork's own deserializeOpError switch declares no
+		// ResourceNotFoundException case -- ValidationException is the real
+		// type for an unresolved GlobalNetworkId.
+		return nil, validationError(fmt.Sprintf("%s %s not found", resourceGlobalNetwork, globalNetworkID))
 	}
 
 	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {

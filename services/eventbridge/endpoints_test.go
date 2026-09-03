@@ -50,7 +50,7 @@ func TestEndpoint_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated endpoint", updated.Description)
 
-	eps, _, err := b.ListEndpoints(context.Background(), "my-", "")
+	eps, _, err := b.ListEndpoints(context.Background(), "my-", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, eps, 1)
 
@@ -99,7 +99,7 @@ func TestEndpointCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "updated", updated.Description)
 
-		eps, _, err := b.ListEndpoints(context.Background(), "my-", "")
+		eps, _, err := b.ListEndpoints(context.Background(), "my-", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, eps, 1)
 

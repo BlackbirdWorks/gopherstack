@@ -3,6 +3,7 @@ package cognitoidp_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -251,4 +252,53 @@ func TestListUsersInGroup_AttributesKey_RealSDKClient(t *testing.T) {
 	}
 
 	assert.Equal(t, "groupattruser@example.com", email, "Users[].Attributes must decode the supplied attribute")
+}
+
+// TestSetRiskConfiguration_LastModifiedDatePopulated proves
+// SetRiskConfiguration/DescribeRiskConfiguration echo real
+// RiskConfigurationType.LastModifiedDate (cognitoidentityprovider@v1.67.4
+// types/types.go) through a real aws-sdk-go-v2 client -- previously this
+// backend's TypedRiskConfiguration tracked no timestamp at all, so the
+// field always decoded to the zero time regardless of how many times
+// SetRiskConfiguration was called (bd gopherstack-6flj/21my wrapper-key/
+// reverse-direction sweep: a real, computable response member the backend
+// never wrote at all, same class as appconfig's already-fixed
+// KmsKeyIdentifier gaps).
+func TestSetRiskConfiguration_LastModifiedDatePopulated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCognitoIDPClient(t, h)
+
+	pool, err := client.CreateUserPool(t.Context(), &cognitoidpsdk.CreateUserPoolInput{
+		PoolName: aws.String("risk-config-pool"),
+	})
+	require.NoError(t, err)
+	poolID := aws.ToString(pool.UserPool.Id)
+
+	before := time.Now().Add(-time.Minute)
+
+	setOut, err := client.SetRiskConfiguration(t.Context(), &cognitoidpsdk.SetRiskConfigurationInput{
+		UserPoolId: aws.String(poolID),
+		RiskExceptionConfiguration: &types.RiskExceptionConfigurationType{
+			BlockedIPRangeList: []string{"10.0.0.0/8"},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, setOut.RiskConfiguration)
+	require.NotNil(t, setOut.RiskConfiguration.LastModifiedDate,
+		"SetRiskConfigurationOutput.RiskConfiguration.LastModifiedDate must be populated")
+	assert.True(t, setOut.RiskConfiguration.LastModifiedDate.After(before))
+
+	describeOut, err := client.DescribeRiskConfiguration(t.Context(), &cognitoidpsdk.DescribeRiskConfigurationInput{
+		UserPoolId: aws.String(poolID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.RiskConfiguration)
+	require.NotNil(t, describeOut.RiskConfiguration.LastModifiedDate,
+		"the timestamp must round-trip through a subsequent DescribeRiskConfiguration")
+	assert.Equal(t,
+		setOut.RiskConfiguration.LastModifiedDate.Unix(),
+		describeOut.RiskConfiguration.LastModifiedDate.Unix(),
+	)
 }

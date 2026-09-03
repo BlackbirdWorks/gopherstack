@@ -16,6 +16,7 @@ import (
 const (
 	opUnknown   = "Unknown"
 	keyBrokerID = "brokerId"
+	keyCreated  = "created"
 )
 
 const (
@@ -58,7 +59,13 @@ const (
 	sharedResourcesSuffix = "/shared-resources"
 	usersSuffix           = "/users"
 	revisionsSuffix       = "/revisions"
-	mqDefaultPageSize     = 100
+	// mqDefaultPageSize is ListBrokers/ListConfigurations' documented default
+	// MaxResults (20), matching mqUsersDefaultPageSize (handler_users.go) --
+	// see ListBrokersInput.MaxResults / ListConfigurationsInput.MaxResults in
+	// aws-sdk-go-v2/service/mq ("20 by default... must be an integer from 5
+	// to 100"). Not the same as the 5-100 max/min range those inputs also
+	// document -- this is only the value used when MaxResults is omitted.
+	mqDefaultPageSize = 20
 )
 
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.

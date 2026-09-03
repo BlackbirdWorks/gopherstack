@@ -133,7 +133,7 @@ func (b *InMemoryBackend) purgeAccessKeysLocked(cutoff time.Time) {
 // UpdateAccessKey updates the status of an access key (Active or Inactive).
 func (b *InMemoryBackend) UpdateAccessKey(userName, accessKeyID, status string) error {
 	if status != accessKeyStatusActive && status != "Inactive" {
-		return fmt.Errorf("%w: status must be Active or Inactive", ErrInvalidAction)
+		return fmt.Errorf("%w: status must be Active or Inactive", ErrInvalidInput)
 	}
 
 	b.mu.Lock("UpdateAccessKey")

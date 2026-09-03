@@ -12,6 +12,11 @@ const (
 	maxAllowedResults = 1000
 )
 
+// wildcardAccountID is the documented ByAccountId value ("*") that, from an
+// Organizations management account, matches every account rather than the
+// literal string "*".
+const wildcardAccountID = "*"
+
 // ---- New types for batch-1 ops ----
 
 // inTimeRange returns false if t is outside the [after, before) window.

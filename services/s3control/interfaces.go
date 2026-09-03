@@ -64,8 +64,8 @@ type StorageBackend interface {
 	// Access Grants CRUD
 	GetAccessGrant(accountID, grantID string) (*AccessGrant, error)
 	DeleteAccessGrant(accountID, grantID string) error
-	ListAccessGrants(accountID, locationScope string) []*AccessGrant
-	ListCallerAccessGrants(accountID string) []*AccessGrant
+	ListAccessGrants(accountID string, filter AccessGrantsFilter) []*AccessGrant
+	ListCallerAccessGrants(accountID, grantScope string) []*AccessGrant
 	GetAccessGrantsLocation(accountID, locationID string) (*AccessGrantsLocation, error)
 	DeleteAccessGrantsLocation(accountID, locationID string) error
 	UpdateAccessGrantsLocation(accountID, locationID, iamRoleArn string) (*AccessGrantsLocation, error)

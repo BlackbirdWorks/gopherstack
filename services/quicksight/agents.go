@@ -323,6 +323,7 @@ func paginateAgents(all []*storedAgent, maxResults int32, nextToken string) ([]*
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, a := range all {
 			if a.AgentID == nextToken {
 				start = i

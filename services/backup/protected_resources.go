@@ -34,8 +34,9 @@ func (b *InMemoryBackend) DescribeProtectedResource(
 	return pr, nil
 }
 
-// ListProtectedResources returns all protected resources.
-func (b *InMemoryBackend) ListProtectedResources() []*ProtectedResource {
+// ListProtectedResources returns protected resources, paginated by
+// MaxResults/NextToken (real query params, backup@v1.59.4 serializers.go).
+func (b *InMemoryBackend) ListProtectedResources(maxResults int, nextToken string) ([]*ProtectedResource, string) {
 	b.mu.RLock("ListProtectedResources")
 	defer b.mu.RUnlock()
 
@@ -47,13 +48,17 @@ func (b *InMemoryBackend) ListProtectedResources() []*ProtectedResource {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
 
-	return out
+	return paginateByID(out, func(pr *ProtectedResource) string { return pr.ResourceArn }, maxResults, nextToken)
 }
 
-// ListProtectedResourcesByBackupVault returns protected resources for a vault.
+// ListProtectedResourcesByBackupVault returns protected resources for a
+// vault, paginated by MaxResults/NextToken (same wire shape as
+// ListProtectedResources).
 func (b *InMemoryBackend) ListProtectedResourcesByBackupVault(
 	vaultName string,
-) []*ProtectedResource {
+	maxResults int,
+	nextToken string,
+) ([]*ProtectedResource, string) {
 	b.mu.RLock("ListProtectedResourcesByBackupVault")
 	defer b.mu.RUnlock()
 
@@ -66,7 +71,7 @@ func (b *InMemoryBackend) ListProtectedResourcesByBackupVault(
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
 
-	return out
+	return paginateByID(out, func(pr *ProtectedResource) string { return pr.ResourceArn }, maxResults, nextToken)
 }
 
 // ---- Restore Jobs ----

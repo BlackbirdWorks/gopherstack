@@ -30,7 +30,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.RegisterJobDefinition(
 		t.Context(), "jd1", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false,
@@ -57,7 +57,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Pre-Phase-3.3 shape: plain region-nested resource maps, no "version" or
@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := batch.NewInMemoryBackend("111122223333", "us-west-2")
 
 	ce, err := original.CreateComputeEnvironment(
-		t.Context(), "ce-1", "MANAGED", "ENABLED", map[string]string{"env": "prod"}, "role-arn", nil, nil, nil,
+		t.Context(), "ce-1", "MANAGED", "ENABLED", map[string]string{"env": "prod"}, "role-arn", nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, ce.ComputeEnvironmentArn, "111122223333")
@@ -178,7 +178,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// jobs table + byQueue index (ListJobs by queue) + byARN index (DescribeJobs by ARN).
 	// job-1 is still SUBMITTED (never scheduled), so an unfiltered ListJobs --
 	// which real AWS Batch defaults to RUNNING-only -- would find nothing here.
-	jobsInQueue, _, err := fresh.ListJobs(t.Context(), "queue-1", "SUBMITTED", "", 0)
+	jobsInQueue, _, err := fresh.ListJobs(t.Context(), "queue-1", "SUBMITTED", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, jobsInQueue, 1)
 	assert.Equal(t, "job-1", jobsInQueue[0].JobName)
@@ -236,7 +236,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 
 	// Create compute environment.
 	ce, err := b.CreateComputeEnvironment(
-		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ce.ComputeEnvironmentArn)
 
@@ -308,7 +308,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
 	// test-job is still SUBMITTED (never scheduled); real AWS Batch's
 	// unfiltered ListJobs defaults to RUNNING-only, so filter explicitly.
-	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "SUBMITTED", "", 0)
+	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "SUBMITTED", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, job.JobID, listed[0].JobID)

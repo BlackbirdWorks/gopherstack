@@ -124,7 +124,7 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricData(namespace, data); err != nil {
-		return h.cborError(c, putMetricDataErrorStatus(err), putMetricDataErrorCode(err), err.Error())
+		return h.cborError(c, putMetricDataErrorStatus(err), putMetricDataCBORErrorCode(err), err.Error())
 	}
 
 	// PutMetricDataOutput has no members besides the request ID: CloudWatch has
@@ -186,6 +186,15 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 			m["SampleCount"] = cbor.Float64(*dp.SampleCount)
 		}
 
+		if len(dp.ExtendedStatistics) > 0 {
+			es := make(cbor.Map, len(dp.ExtendedStatistics))
+			for k, v := range dp.ExtendedStatistics {
+				es[k] = cbor.Float64(v)
+			}
+
+			m["ExtendedStatistics"] = es
+		}
+
 		if dp.Unit != "" {
 			m["Unit"] = cbor.String(dp.Unit)
 		}
@@ -215,9 +224,12 @@ func applyMetricStatToQuery(q *MetricDataQuery, msMap cbor.Map) {
 	}
 }
 
-// parseMetricDataQueries extracts MetricDataQueries from a CBOR map.
-func parseMetricDataQueries(input cbor.Map) []MetricDataQuery {
-	listVal, hasQueries := input["MetricDataQueries"]
+// parseMetricDataQueries extracts a MetricDataQuery list from a CBOR map
+// under key. GetMetricDataInput calls this member "MetricDataQueries";
+// PutMetricAlarmInput calls the same _MetricDataQueries shape "Metrics"
+// (cloudwatch@v1.66.3 schemas.go).
+func parseMetricDataQueries(input cbor.Map, key string) []MetricDataQuery {
+	listVal, hasQueries := input[key]
 	if !hasQueries {
 		return nil
 	}
@@ -271,7 +283,7 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 	scanBy := cborStr(input, "ScanBy")
 	nextToken := cborStr(input, "NextToken")
 	maxDatapoints := int(cborInt32(input, "MaxDatapoints"))
-	queries := parseMetricDataQueries(input)
+	queries := parseMetricDataQueries(input, "MetricDataQueries")
 
 	var pageResult GetMetricDataPage
 	var err error
@@ -352,7 +364,7 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
 		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 		}
 
 		return h.cborError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())

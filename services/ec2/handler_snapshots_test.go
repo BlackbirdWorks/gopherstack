@@ -19,7 +19,7 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 	require.NoError(t, setupErr)
 
 	t.Run("creates copy with new ID", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		copiedSnap, err := b.CopySnapshot(src.SnapshotID, "copy description")
+		copiedSnap, err := b.CopySnapshot(src.SnapshotID, "copy description", false, "")
 		require.NoError(t, err)
 		assert.NotEqual(t, src.SnapshotID, copiedSnap.SnapshotID)
 		assert.Equal(t, vol.ID, copiedSnap.VolumeID)
@@ -28,7 +28,7 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("unknown source returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.CopySnapshot("snap-doesnotexist", "")
+		_, err := b.CopySnapshot("snap-doesnotexist", "", false, "")
 		require.Error(t, err)
 	})
 }
@@ -36,21 +36,40 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 func TestCreateSnapshots(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
+	insts, err := b.RunInstances("ami-parity-test", "t3.micro", "", 1)
+	require.NoError(t, err)
+	require.Len(t, insts, 1)
+	instID := insts[0].ID
+
 	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
 	v2, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
+	_, err = b.AttachVolume(v1.ID, instID, "/dev/sdf")
+	require.NoError(t, err)
+	_, err = b.AttachVolume(v2.ID, instID, "/dev/sdg")
+	require.NoError(t, err)
 
-	t.Run("creates one snapshot per volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		snaps, err := b.CreateSnapshots([]string{v1.ID, v2.ID}, "batch snap")
-		require.NoError(t, err)
+	t.Run("creates one snapshot per attached volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		snaps, snapErr := b.CreateSnapshots(instID, false, nil, "batch snap")
+		require.NoError(t, snapErr)
 		require.Len(t, snaps, 2)
+
+		gotVolIDs := make(map[string]bool, len(snaps))
 		for _, s := range snaps {
 			assert.Equal(t, "completed", s.State)
+			gotVolIDs[s.VolumeID] = true
 		}
+		assert.True(t, gotVolIDs[v1.ID])
+		assert.True(t, gotVolIDs[v2.ID])
 	})
 
-	t.Run("empty list returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.CreateSnapshots(nil, "")
-		require.Error(t, err)
+	t.Run("empty instance id returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, snapErr := b.CreateSnapshots("", false, nil, "")
+		require.Error(t, snapErr)
+	})
+
+	t.Run("unknown instance id returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, snapErr := b.CreateSnapshots("i-doesnotexist", false, nil, "")
+		require.Error(t, snapErr)
 	})
 }
 
@@ -193,7 +212,7 @@ func TestSnapshotRecycleBin(t *testing.T) { //nolint:paralleltest // existing is
 	})
 
 	t.Run("import snapshot creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		task, err := b.ImportSnapshot("test import")
+		task, err := b.ImportSnapshot("test import", false, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, task.ImportTaskID)
 	})
@@ -385,8 +404,13 @@ func TestSnapshotWireFields_EncryptedOwnerIDTags(t *testing.T) {
 				snapID = accuracyExtractXMLValue(resp, "snapshotId")
 
 			case "CreateSnapshots":
+				insts, instErr := b.RunInstances("ami-parity-test", "t3.micro", "", 1)
+				require.NoError(t, instErr)
+				_, attachErr := b.AttachVolume(vol.ID, insts[0].ID, "/dev/sdf")
+				require.NoError(t, attachErr)
+
 				vals["Action"] = []string{"CreateSnapshots"}
-				vals["VolumeId.1"] = []string{vol.ID}
+				vals["InstanceSpecification.InstanceId"] = []string{insts[0].ID}
 				resp, dispErr := ec2.ExportDispatch(h, vals)
 				require.NoError(t, dispErr)
 				assert.Contains(t, resp, "<encrypted>true</encrypted>")

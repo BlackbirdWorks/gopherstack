@@ -20,13 +20,15 @@ const (
 func validateTagUpdate(existing map[string]string, additions map[string]string) error {
 	for k, v := range additions {
 		if strings.HasPrefix(k, tagReservedPrefix) {
-			return fmt.Errorf("%w: tag key %q uses reserved prefix %q", ErrValidation, k, tagReservedPrefix)
+			return fmt.Errorf("%w: tag key %q uses reserved prefix %q", ErrInvalidTagsToAdd, k, tagReservedPrefix)
 		}
 		if len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrValidation, maxTagKeyLen)
+			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrInvalidTagsToAdd, maxTagKeyLen)
 		}
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value for key %q exceeds maximum length of %d", ErrValidation, k, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d", ErrInvalidTagsToAdd, k, maxTagValueLen,
+			)
 		}
 	}
 
@@ -40,7 +42,7 @@ func validateTagUpdate(existing map[string]string, additions map[string]string) 
 
 	if projected > maxTagsPerResource {
 		return fmt.Errorf("%w: resource would have %d tags, exceeding the maximum of %d",
-			ErrTagLimitExceeded, projected, maxTagsPerResource)
+			ErrInvalidTagsToAdd, projected, maxTagsPerResource)
 	}
 
 	return nil

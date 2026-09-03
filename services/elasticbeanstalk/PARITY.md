@@ -42,8 +42,8 @@ ops:
   CreatePlatformVersion: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "PlatformArn was built with an empty account ID (arn:aws:elasticbeanstalk:region::platform/...), producing a malformed ARN for what is an account-owned custom-platform resource; fixed to use the caller's account ID. gopherstack-uhsb: PlatformDefinitionBundle (S3Location, This member is required) was parsed nowhere and silently dropped -- now validated for presence (S3Bucket/S3Key both non-empty, InvalidParameterValue otherwise), matching every other required-field check this handler already runs. STILL A DELIBERATE STRUCTURAL GAP, not fixed further: real AWS fetches the S3 object, validates it exists, and builds the platform's Docker image from its contents (types.Builder/PlatformSummary/PlatformDescription -- verified none of the three response types has an S3Bucket/S3Key field at all, so there is nowhere on the wire to even round-trip a stored value); this backend has no S3 cross-service wiring for elasticbeanstalk (unlike CreateApplicationVersion's SourceBundle, which is stored-but-unvalidated against the real s3 service) and no Docker-build pipeline, so verifying the object exists or building anything from its contents is out of scope, not something to fake. gopherstack-6flj: response reused ONE shared struct for two genuinely different real shapes -- CreatePlatformVersionOutput/DeletePlatformVersionOutput use types.PlatformSummary (which has NO PlatformName member at all), DescribePlatformVersionOutput uses the larger types.PlatformDescription (which does) -- so this response was FABRICATING a PlatformName field real AWS never sends (over-emission, non-observable to a typed client since PlatformSummary simply has no field to bind it to, but a raw-body diff would show it). Split into platformSummaryDescType/platformDescriptionDescType; also added PlatformOwner ('self', real member on both shapes, derivable since every platform this backend creates is a customer-owned custom platform) which neither response emitted before."}
   DeletePlatformVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: same PlatformSummary-shape fix and PlatformOwner addition as CreatePlatformVersion, see that entry."}
   DescribePlatformVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: uses the real, larger PlatformDescription shape now (platformDescriptionDescType) with PlatformOwner added. STILL PARTIAL: CustomAmiList/DateCreated/DateUpdated/Description/Frameworks/Maintainer/OperatingSystemName/OperatingSystemVersion/PlatformBranchLifecycleState/PlatformBranchName/PlatformCategory/PlatformLifecycleState/ProgrammingLanguages/SolutionStackName/SupportedAddonList/SupportedTierList remain unmodeled -- see gaps (no S3 platform-definition-bundle parsing anywhere in this backend, same root cause as CreatePlatformVersion's structural gap above)."}
-  ListPlatformVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: item type (platformSummary) only emitted PlatformArn+PlatformStatus; real types.PlatformSummary's PlatformVersion member was never emitted despite the backend tracking it (fixed), and PlatformOwner was added (see CreatePlatformVersion). Filters (real ListPlatformVersionsInput.Filters, PlatformFilter.Type/Values) and MaxRecords/NextToken pagination were both parsed nowhere -- both fixed (Filters matches Type against PlatformName/PlatformVersion/PlatformStatus/PlatformArn by equality only, matching handleListPlatformBranches's existing Operator-agnostic precedent; non-equality Operators and OperatingSystemName/SupportedTier/SupportedAddon/ProgrammingLanguageName/PlatformBranchName/PlatformLifecycleState filter Types are not honored -- disclosed, not modeled, since this backend tracks none of that data)."}
-  ListPlatformBranches: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "static catalog with Filters.member support; acceptable emulation of a largely-static AWS list. gopherstack-6flj: MaxRecords/NextToken pagination added via pkgs/page (previously discarded, always returned the full list). BranchOrder/SupportedTierList (real PlatformBranchSummary members) remain unmodeled -- see gaps."}
+  ListPlatformVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: item type (platformSummary) only emitted PlatformArn+PlatformStatus; real types.PlatformSummary's PlatformVersion member was never emitted despite the backend tracking it (fixed), and PlatformOwner was added (see CreatePlatformVersion). Filters (real ListPlatformVersionsInput.Filters, PlatformFilter.Type/Values) and MaxRecords/NextToken pagination were both parsed nowhere -- both fixed (Filters matches Type against PlatformName/PlatformVersion/PlatformStatus/PlatformArn by equality only, matching handleListPlatformBranches's existing Operator-agnostic precedent; non-equality Operators and OperatingSystemName/SupportedTier/SupportedAddon/ProgrammingLanguageName/PlatformBranchName/PlatformLifecycleState filter Types are not honored -- disclosed, not modeled, since this backend tracks none of that data). FIXED 2026-08-30 (gopherstack-6flj wrapper-key sweep, workspaces/codebuild/elasticbeanstalk pass): Filters.Values is a real list (types.PlatformFilter.Values, the standard AWS SearchFilter/PlatformFilter OR-list idiom) but only Values.member.1 was ever read -- a caller filtering on multiple candidate values silently lost every value past the first. Now OR-matches against every listed value."}
+  ListPlatformBranches: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "static catalog with Filters.member support; acceptable emulation of a largely-static AWS list. gopherstack-6flj: MaxRecords/NextToken pagination added via pkgs/page (previously discarded, always returned the full list). BranchOrder/SupportedTierList (real PlatformBranchSummary members) remain unmodeled -- see gaps. FIXED 2026-08-30 (gopherstack-6flj wrapper-key sweep): same Values.member-truncated-to-first-value bug as ListPlatformVersions (both share the identical Filters.member.N.Values.member.M wire shape) -- fixed identically."}
   ListAvailableSolutionStacks: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static catalog; acceptable"}
   DescribeAccountAttributes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeEnvironmentHealth: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-6flj: HealthStatus was populated from this backend's internal color label (envHealthGreen, 'Green') -- 'Green' is not a member of the real EnvironmentHealthStatus enum at all (that's the separate EnvironmentHealth/Color enum); fixed to always emit 'Ok' (envHealthStatusOk), matching this backend's invariant Green/Ready state. EnvironmentId (real input, alternate to EnvironmentName) was also parsed nowhere -- fixed."}
@@ -61,6 +61,7 @@ ops:
   SwapEnvironmentCNAMEs: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateEnvironmentOperationsRole: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateEnvironmentOperationsRole: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteEnvironmentConfiguration: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "gopherstack-6flj/21my re-audit (2026-08-28): op was routed and implemented but had NO manifest entry at all -- caught by the routing-table-vs-PARITY.md diff. Verified against elasticbeanstalk@v1.37.4's api_op_DeleteEnvironmentConfiguration.go: real DeleteEnvironmentConfigurationOutput has zero data members, and the handler correctly emits an empty <DeleteEnvironmentConfigurationResponse><ResponseMetadata>...</ResponseMetadata></DeleteEnvironmentConfigurationResponse> with nothing fabricated. Backend method is a documented no-op (no draft-configuration state exists to delete, since this backend applies environment updates synchronously -- same root cause as DeploymentStatus never being 'pending'/'failed'); state: n/a is correct, not a disguised stub."}
 families:
   ARN construction: {status: fixed, note: "Application/Environment/ApplicationVersion/ConfigurationTemplate ARN patterns verified against https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.iam.policies.arn.html (application/{app}, applicationversion/{app}/{ver}, configurationtemplate/{app}/{tmpl}, environment/{app}/{env}, platform/{name}/{version}) -- all correct except CreatePlatformVersion's missing account ID (fixed)"}
   error-code mapping: {status: fixed, note: "handleOpError previously mapped every ErrNotFound to InvalidParameterValue uniformly; ListTagsForResource/UpdateTagsForResource ARN-not-found now maps to the AWS-documented ResourceNotFoundException via new ErrResourceNotFound sentinel"}
@@ -194,3 +195,120 @@ the real read error). Proof: `TestHandler_OversizedBodySurfacesInternalFailure` 
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/elasticbeanstalk/...` (pass), `golangci-lint run ./services/elasticbeanstalk/...`
 (0 issues).
+
+**2026-08-28 (gopherstack-6flj/21my re-audit)**: this service was tasked as "unswept," but
+this manifest's own entries (dated 2026-07-23, extensively labeled gopherstack-6flj) show
+deep per-field work already shipped on main (69bbb940a), well past a wrapper-key-only pass
+-- e.g. `AbortableOperationInProgress`/`HealthStatus` enum fixes, and the
+`PlatformSummary`/`PlatformDescription` shape split. Independently re-verified against
+elasticbeanstalk@v1.37.4's own `awsAwsquery_deserializeDocument*` functions rather than
+trusting the manifest: `EnvironmentDescription` (all 21 real fields, confirmed
+Resources/EnvironmentLinks are the only omissions, both already disclosed gaps),
+`PlatformSummary` (confirmed no `PlatformName` member, matching
+`platformSummaryDescType`'s deliberate split from `platformDescriptionDescType`), and no
+shared struct carries a stray `XMLName` that could shadow an enclosing field tag (the
+route53/gopherstack-m1gl class) -- every `XMLName` in this service is a unique top-level
+`<XxxResponse>` root, used once. Also diffed the handler.go routing table against this
+manifest's `ops:` keys and found one real gap: `DeleteEnvironmentConfiguration` was routed
+and implemented but had no manifest entry at all -- added above (wire verified correct: a
+real, memberless `DeleteEnvironmentConfigurationOutput`). No wire-shape bugs found this
+pass.
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured) -- audited, no new bug found
+
+Campaign-wide hunt for the class distinct from wire-shape/error-path
+sweeps: a request parameter that constrains the result set but isn't
+correctly applied. This service already received a dedicated, thorough
+pass for exactly this class (gopherstack-6flj, see the `ops:` entries
+above -- `DescribeApplicationVersions`, `DescribeEnvironments`,
+`DescribeEvents`, `ListPlatformVersions`, `ListPlatformBranches`,
+`DescribeEnvironmentManagedActionHistory`, `DescribeInstancesHealth`,
+`CreateConfigurationTemplate`/`UpdateConfigurationTemplate` were all fixed
+there for missing filters or unpaginated MaxRecords/NextToken). Per this
+campaign's rule to treat a PARITY.md claim as a lead and not proof,
+independently re-read the handler code (not just the note) for a sample
+before accepting it:
+
+- `DescribeApplications.ApplicationNames` (`api_op_DescribeApplications.go`)
+  -- confirmed plumbed end to end: `handler_applications.go`'s
+  `parseMembers(vals, "ApplicationNames.member")` into
+  `Backend.DescribeApplications`, which filters by exact name when
+  non-empty (`applications.go`).
+- `DescribeApplicationVersions.ApplicationName`/`VersionLabels` -- both
+  applied together as an AND (`application_versions.go`: `appName != ""`
+  short-circuits, then `slices.Contains(versionLabels, ...)`), not one
+  silently overriding the other.
+- `ListPlatformVersions.Filters` -- re-verified the claimed
+  equality-only/Operator-agnostic behavior by reading
+  `listPlatformVersionsFilterValue`/`handleListPlatformVersions`
+  (`handler_platforms.go`) directly: matches the note exactly, including
+  the "unknown filter Type matches everything" fallback, which is a
+  documented judgment call (no unmodeled-attribute filter should silently
+  exclude platforms this backend can't evaluate the filter against) not a
+  silent bug.
+- `DescribeEnvironmentManagedActions` -- confirmed the handler ignores
+  `vals` entirely and always returns an empty list; confirmed structurally
+  correct (not a disguised stub) by grepping for any pending/scheduled
+  managed-action state anywhere in the backend -- none exists, so there is
+  nothing a `Status` filter could ever exclude.
+- `DescribeConfigurationOptions.Options`/`SolutionStackName`/`PlatformArn`
+  -- confirmed `filterConfigurationOptions(filters)` is called with the
+  parsed `Options.member` filters, not discarded.
+
+No new constraint-parameter bug found this pass. Not exhaustively
+re-diffed against the pinned SDK op-by-op (that already happened in
+gopherstack-6flj); this pass was a spot-check of a sample of its claims
+plus the two ops (`DescribeApplications`, `DescribeEnvironmentManagedActions`)
+its notes don't explicitly call out, rather than a full re-audit.
+
+Gates: no code changed this service this pass, so no new gate run was
+needed beyond the spot-check reads above; the existing `go test -race
+-count=1 ./services/elasticbeanstalk/...` suite was left untouched.
+
+### 2026-08-30 gopherstack-6flj wrapper-key sweep (workspaces/codebuild/elasticbeanstalk pass)
+
+Real bug found and fixed: `ListPlatformVersions`/`ListPlatformBranches` both
+parsed their `Filters.member.N.Values` list via
+`Filters.member.N.Values.member.1` only -- a real `Values` is a list
+(`types.PlatformFilter.Values`/`types.SearchFilter.Values`, confirmed real
+via `serializers.go`'s `awsAwsquery_serializeDocumentPlatformFilterValueList`/
+`awsAwsquery_serializeDocumentSearchFilterValues`, both `.Array("member")`),
+and the standard AWS SearchFilter idiom is an OR-match across every listed
+value (same pattern as EC2's `Filter.N.Value.M`). A caller filtering on more
+than one candidate value silently lost every value past the first. Fixed
+both ops to OR-match against the full `Values.member.*` list via the
+existing `parseMembers` helper plus `slices.ContainsFunc`.
+
+Worth recording: the 2026-08-23-dated note above ("`ListPlatformVersions.Filters`
+-- re-verified the claimed equality-only/Operator-agnostic behavior... matches
+the note exactly") checked one dimension (single-value equality, Operator
+being ignored) and correctly found it accurate, but never exercised a
+multi-value `Values` list, so it did not catch this. A "spot-check confirms
+the claim" pass and a "drive every real field shape, including cardinality"
+pass are different levels of rigor even against the same function.
+
+`DeleteReportGroup.DeleteReports` and this `Values`-truncation bug were the
+only two real findings across the whole three-service batch (workspaces,
+codebuild, elasticbeanstalk); see `services/codebuild/PARITY.md` for the
+codebuild finding and the type-aware field-usage scan method used there.
+Workspaces came back clean (0/90 request-struct fields unreferenced).
+
+## 2026-08-31 exact-case element check (gopherstack-21my)
+
+Roughly twenty operations with data-bearing responses re-verified byte-for-byte
+against the exact string literals the pinned deserializer matches on, including
+all seven nested sub-lists of the environment-resources response. No hard
+mismatch and no case-only mismatch. Not individually re-checked: operations
+sharing a result type already verified, and operations whose response carries no
+data.
+
+The case-only class matters here because this service is query protocol with XML
+responses, where the decoder folds case and a wrong-cased name decodes anyway -
+invisible to any round-trip test.
+
+Every list is member-wrapped, confirmed by the absence of any unwrapped-list
+deserializer call site.
+
+Newly recorded gap, not a bug: a configuration option description carries a
+regex restriction field in the real API that this backend never emits, because
+it tracks no such restriction data.

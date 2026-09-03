@@ -25,6 +25,27 @@ func (b *InMemoryBackend) resolveDomainVerificationID(identifier string) (string
 	return "", false
 }
 
+// resolveDomainVerificationInfo resolves a ResourceConfiguration's stored
+// domainVerificationID (accepted as either an ID or ARN, per
+// CreateResourceConfigurationInput.DomainVerificationIdentifier) to the
+// referenced DomainVerification's ARN and status, for
+// domainVerificationArn/domainVerificationStatus in the
+// Get/CreateResourceConfiguration response. Returns "", "" if unset or no
+// longer resolvable. Must be called under b.mu.
+func (b *InMemoryBackend) resolveDomainVerificationInfo(identifier string) (string, string) {
+	id, ok := b.resolveDomainVerificationID(identifier)
+	if !ok {
+		return "", ""
+	}
+
+	dv, ok := b.domainVerifications.Get(id)
+	if !ok {
+		return "", ""
+	}
+
+	return dv.ARN, dv.Status
+}
+
 // ------- DomainVerification operations -------
 
 // StartDomainVerification begins ownership verification for a custom

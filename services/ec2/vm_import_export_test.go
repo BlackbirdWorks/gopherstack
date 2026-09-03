@@ -216,14 +216,14 @@ func TestBackend_CancelImportTask_AlreadyCompletedFails(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	imgTask, err := b.ImportImage("test", "x86_64", "Linux/UNIX")
+	imgTask, err := b.ImportImage("test", "x86_64", "Linux/UNIX", false, "")
 	require.NoError(t, err)
 	require.Equal(t, "completed", imgTask.Status)
 
 	_, _, err = b.CancelImportTask(imgTask.ImportTaskID)
 	require.ErrorIs(t, err, ec2.ErrTaskNotCancellable)
 
-	snapTask, err := b.ImportSnapshot("test")
+	snapTask, err := b.ImportSnapshot("test", false, "")
 	require.NoError(t, err)
 
 	_, _, err = b.CancelImportTask(snapTask.ImportTaskID)

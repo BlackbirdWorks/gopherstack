@@ -3,6 +3,7 @@ package s3control
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 )
 
@@ -124,7 +125,10 @@ func (b *InMemoryBackend) DeleteStorageLensConfigurationTagging(accountID, confi
 	return nil
 }
 
-// ListStorageLensConfigurations returns the names of all Storage Lens configurations for an account.
+// ListStorageLensConfigurations returns the names of all Storage Lens
+// configurations for an account, sorted so the handler's index-based
+// nextToken pagination (s3cPaginate) stays stable across calls -- Go map
+// iteration order is unspecified.
 func (b *InMemoryBackend) ListStorageLensConfigurations(accountID string) []string {
 	b.mu.RLock("ListStorageLensConfigurations")
 	defer b.mu.RUnlock()
@@ -137,6 +141,8 @@ func (b *InMemoryBackend) ListStorageLensConfigurations(accountID string) []stri
 			out = append(out, name)
 		}
 	}
+
+	sort.Strings(out)
 
 	return out
 }
@@ -194,7 +200,10 @@ func (b *InMemoryBackend) DeleteStorageLensGroup(accountID, name string) error {
 	return nil
 }
 
-// ListStorageLensGroups returns all Storage Lens groups for an account.
+// ListStorageLensGroups returns all Storage Lens groups for an account,
+// sorted by name so the handler's index-based nextToken pagination
+// (s3cPaginate) stays stable across calls -- store.Table.All()'s iteration
+// order is unspecified.
 func (b *InMemoryBackend) ListStorageLensGroups(accountID string) []*StorageLensGroup {
 	b.mu.RLock("ListStorageLensGroups")
 	defer b.mu.RUnlock()
@@ -207,6 +216,8 @@ func (b *InMemoryBackend) ListStorageLensGroups(accountID string) []*StorageLens
 			out = append(out, &cp)
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
 }

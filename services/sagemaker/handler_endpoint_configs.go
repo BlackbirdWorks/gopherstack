@@ -162,7 +162,13 @@ func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListEndpointConfigs(ctx, req.NextToken, req.toFilter())
+	filter := req.toFilter()
+	// ListEndpointConfigsInput.CreationTimeAfter's own doc: "a creation time
+	// greater than or equal to the specified time" -- inclusive, unlike this
+	// family's shared default.
+	filter.AfterInclusive = true
+
+	configs, nextToken := h.Backend.ListEndpointConfigs(ctx, req.NextToken, filter)
 	summaries := make([]endpointConfigSummary, 0, len(configs))
 
 	for _, ec := range configs {

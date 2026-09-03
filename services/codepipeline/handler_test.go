@@ -118,6 +118,8 @@ func approvalPipeline(name string) codepipeline.PipelineDeclaration {
 
 // approvalToken extracts the pending approval token for stageName/actionName
 // from a decoded GetPipelineState response body.
+//
+//nolint:unparam // stageName is always "Approve" today; the helper stays general.
 func approvalToken(t *testing.T, body map[string]any, stageName, actionName string) string {
 	t.Helper()
 

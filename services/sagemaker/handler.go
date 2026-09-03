@@ -918,11 +918,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrResourceNotFound):
-		// AIBenchmarkJob/AIRecommendationJob/AIWorkloadConfig/Job families
-		// only — see ErrResourceNotFound's doc comment. Checked before the
-		// generic ErrNotFound case below so these families' real
-		// "ResourceNotFound" wire exception isn't papered over with the
-		// blanket ValidationException the rest of the service emits.
+		// See ErrResourceNotFound's doc comment for the covered families.
+		// Checked before the generic ErrNotFound case below so these
+		// families' real "ResourceNotFound" wire exception isn't papered
+		// over with the blanket ValidationException the rest of the
+		// service emits.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceNotFound",
 			keyMessageField: err.Error(),

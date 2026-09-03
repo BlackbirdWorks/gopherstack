@@ -20,9 +20,12 @@ package ce
 //   - costLedger ([]CostEntry): a synthetic, regenerated-on-Reset ledger with
 //     no per-entry identity; it is not persisted today (absent from the
 //     pre-refactor backendSnapshot) and remains a plain slice.
-//   - backfillJobs ([]*BackfillJob): append-only history with no identity
-//     field to key a Table by; it was persisted as a raw slice before this
-//     refactor and remains one.
+//   - backfillJobs ([]*BackfillJob): append-only history; it was persisted as
+//     a raw slice before this refactor and remains one. BackfillJob now
+//     carries an internal-only BackfillID (added for deterministic pagination
+//     cursoring -- see ListBackfillHistory) but a plain slice, not a
+//     store.Table, is still the simplest fit since nothing ever looks a job
+//     up by that ID.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func costCategoryKeyFn(v *CostCategory) string { return v.ARN }

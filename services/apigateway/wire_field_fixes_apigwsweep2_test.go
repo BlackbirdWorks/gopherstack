@@ -209,3 +209,305 @@ func TestCreateDeployment_APISummary_RealClient(t *testing.T) {
 	assert.Equal(t, "NONE", aws.ToString(methods["GET"].AuthorizationType))
 	assert.True(t, methods["GET"].ApiKeyRequired)
 }
+
+// TestGetApiKeys_CustomerIdAndNameQueryFilters_RealClient drives GetApiKeys
+// through the real client. The real GetApiKeysInput.CustomerId/NameQuery
+// filter results by wire keys "customerId"/"name"
+// (apigateway@v1.42.4 serializers.go:4102,4114) -- gopherstack never read
+// either, so a real client's filtered request always returned every API key
+// regardless of customerId/nameQuery.
+func TestGetApiKeys_CustomerIdAndNameQueryFilters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	_, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{
+		Name: aws.String("prod-key"), CustomerId: aws.String("cust-1"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{
+		Name: aws.String("dev-key"), CustomerId: aws.String("cust-2"),
+	})
+	require.NoError(t, err)
+
+	byCustomer, err := client.GetApiKeys(t.Context(), &apigwsdk.GetApiKeysInput{CustomerId: aws.String("cust-1")})
+	require.NoError(t, err)
+	require.Len(t, byCustomer.Items, 1, "customerId filter must exclude the key for a different customer")
+	assert.Equal(t, "prod-key", aws.ToString(byCustomer.Items[0].Name))
+
+	byName, err := client.GetApiKeys(t.Context(), &apigwsdk.GetApiKeysInput{NameQuery: aws.String("dev")})
+	require.NoError(t, err)
+	require.Len(t, byName.Items, 1, "name filter must exclude keys that don't match the query")
+	assert.Equal(t, "dev-key", aws.ToString(byName.Items[0].Name))
+}
+
+// TestGetApiKeys_IncludeValues_RealClient drives GetApiKeys through the real
+// client. The real GetApiKeysInput.IncludeValues field serializes to wire key
+// "includeValues" (plural, apigateway@v1.42.4 serializers.go:4106) -- distinct
+// from GetApiKeyInput.IncludeValue's singular "includeValue" (serializers.go:
+// 4036) for the single-key op. gopherstack's list-op handler read the
+// singular key, so a real client's includeValues=true never populated Value.
+func TestGetApiKeys_IncludeValues_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	_, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("k1")})
+	require.NoError(t, err)
+
+	out, err := client.GetApiKeys(t.Context(), &apigwsdk.GetApiKeysInput{IncludeValues: aws.Bool(true)})
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.NotEmpty(t, aws.ToString(out.Items[0].Value),
+		"includeValues=true must return the key value -- real wire key is \"includeValues\" (plural)")
+}
+
+// TestGetDocumentationParts_TypeFilter_RealClient drives GetDocumentationParts
+// through the real client. The real GetDocumentationPartsInput.Type filters
+// by wire key "type" (apigateway@v1.42.4 serializers.go:4925) --
+// gopherstack never read it, so a real client's type=METHOD request always
+// returned every documentation part regardless of location type.
+func TestGetDocumentationParts_TypeFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client, apiID, _ := setupSDKMethod(t, nil)
+
+	_, err := client.CreateDocumentationPart(t.Context(), &apigwsdk.CreateDocumentationPartInput{
+		RestApiId: aws.String(apiID),
+		Location: &apigwtypes.DocumentationPartLocation{
+			Type: apigwtypes.DocumentationPartTypeMethod,
+			Path: aws.String("/"),
+		},
+		Properties: aws.String(`{"description":"method doc"}`),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateDocumentationPart(t.Context(), &apigwsdk.CreateDocumentationPartInput{
+		RestApiId: aws.String(apiID),
+		Location: &apigwtypes.DocumentationPartLocation{
+			Type: apigwtypes.DocumentationPartTypeResource,
+			Path: aws.String("/"),
+		},
+		Properties: aws.String(`{"description":"resource doc"}`),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetDocumentationParts(t.Context(), &apigwsdk.GetDocumentationPartsInput{
+		RestApiId: aws.String(apiID),
+		Type:      apigwtypes.DocumentationPartTypeMethod,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1, "type filter must exclude the RESOURCE-type documentation part")
+	assert.Equal(t, apigwtypes.DocumentationPartTypeMethod, out.Items[0].Location.Type)
+}
+
+// TestGetStages_DeploymentIdFilter_RealClient drives GetStages through the
+// real client. The real GetStagesInput.DeploymentId filters by wire key
+// "deploymentId" (apigateway@v1.42.4 serializers.go:7042) -- gopherstack
+// never read it, so a real client's deploymentId-scoped request always
+// returned every stage on the REST API regardless of deployment.
+func TestGetStages_DeploymentIdFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	api, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("stages-api")})
+	require.NoError(t, err)
+
+	dep1, err := client.CreateDeployment(t.Context(), &apigwsdk.CreateDeploymentInput{RestApiId: api.Id})
+	require.NoError(t, err)
+	dep2, err := client.CreateDeployment(t.Context(), &apigwsdk.CreateDeploymentInput{RestApiId: api.Id})
+	require.NoError(t, err)
+
+	_, err = client.CreateStage(t.Context(), &apigwsdk.CreateStageInput{
+		RestApiId: api.Id, StageName: aws.String("s1"), DeploymentId: dep1.Id,
+	})
+	require.NoError(t, err)
+	_, err = client.CreateStage(t.Context(), &apigwsdk.CreateStageInput{
+		RestApiId: api.Id, StageName: aws.String("s2"), DeploymentId: dep2.Id,
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetStages(t.Context(), &apigwsdk.GetStagesInput{RestApiId: api.Id, DeploymentId: dep1.Id})
+	require.NoError(t, err)
+	require.Len(t, out.Item, 1, "deploymentId filter must exclude the stage on a different deployment")
+	assert.Equal(t, "s1", aws.ToString(out.Item[0].StageName))
+}
+
+// TestGetUsagePlans_KeyIdFilter_RealClient drives GetUsagePlans through the
+// real client. The real GetUsagePlansInput.KeyId filters by wire key "keyId"
+// (apigateway@v1.42.4 serializers.go:7521) -- gopherstack never read it, so a
+// real client's keyId-scoped request always returned every usage plan
+// regardless of key association.
+func TestGetUsagePlans_KeyIdFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	plan1, err := client.CreateUsagePlan(t.Context(), &apigwsdk.CreateUsagePlanInput{Name: aws.String("plan1")})
+	require.NoError(t, err)
+	_, err = client.CreateUsagePlan(t.Context(), &apigwsdk.CreateUsagePlanInput{Name: aws.String("plan2")})
+	require.NoError(t, err)
+
+	key, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("k1")})
+	require.NoError(t, err)
+	_, err = client.CreateUsagePlanKey(t.Context(), &apigwsdk.CreateUsagePlanKeyInput{
+		UsagePlanId: plan1.Id, KeyId: key.Id, KeyType: aws.String("API_KEY"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetUsagePlans(t.Context(), &apigwsdk.GetUsagePlansInput{KeyId: key.Id})
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1, "keyId filter must exclude the plan the key isn't associated with")
+	assert.Equal(t, "plan1", aws.ToString(out.Items[0].Name))
+}
+
+// TestGetUsagePlanKeys_NameFilter_RealClient drives GetUsagePlanKeys through
+// the real client. The real GetUsagePlanKeysInput.NameQuery filters by wire
+// key "name" (apigateway@v1.42.4 serializers.go:7442) -- gopherstack never
+// read it, so a real client's name-scoped request always returned every key
+// on the usage plan regardless of name.
+func TestGetUsagePlanKeys_NameFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	plan, err := client.CreateUsagePlan(t.Context(), &apigwsdk.CreateUsagePlanInput{Name: aws.String("plan")})
+	require.NoError(t, err)
+
+	alice, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("alice")})
+	require.NoError(t, err)
+	bob, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("bob")})
+	require.NoError(t, err)
+
+	_, err = client.CreateUsagePlanKey(t.Context(), &apigwsdk.CreateUsagePlanKeyInput{
+		UsagePlanId: plan.Id, KeyId: alice.Id, KeyType: aws.String("API_KEY"),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateUsagePlanKey(t.Context(), &apigwsdk.CreateUsagePlanKeyInput{
+		UsagePlanId: plan.Id, KeyId: bob.Id, KeyType: aws.String("API_KEY"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetUsagePlanKeys(t.Context(), &apigwsdk.GetUsagePlanKeysInput{
+		UsagePlanId: plan.Id, NameQuery: aws.String("alice"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1, "name filter must exclude the key that doesn't match the query")
+	assert.Equal(t, "alice", aws.ToString(out.Items[0].Name))
+}
+
+// TestGetUsage_KeyIdFilter_RealClient drives GetUsage through the real
+// client. The real GetUsageInput.KeyId filters by wire key "keyId"
+// (apigateway@v1.42.4 serializers.go:7200) -- gopherstack's GetUsageInput had
+// no KeyID field at all, so a real client's keyId-scoped request always
+// returned every key's usage data on the plan.
+func TestGetUsage_KeyIdFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	plan, err := client.CreateUsagePlan(t.Context(), &apigwsdk.CreateUsagePlanInput{Name: aws.String("plan")})
+	require.NoError(t, err)
+
+	key1, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("k1")})
+	require.NoError(t, err)
+	key2, err := client.CreateApiKey(t.Context(), &apigwsdk.CreateApiKeyInput{Name: aws.String("k2")})
+	require.NoError(t, err)
+
+	for _, k := range []*string{key1.Id, key2.Id} {
+		_, err = client.CreateUsagePlanKey(t.Context(), &apigwsdk.CreateUsagePlanKeyInput{
+			UsagePlanId: plan.Id, KeyId: k, KeyType: aws.String("API_KEY"),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.GetUsage(t.Context(), &apigwsdk.GetUsageInput{
+		UsagePlanId: plan.Id, StartDate: aws.String("2024-01-01"), EndDate: aws.String("2024-01-02"),
+		KeyId: key1.Id,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out.Items, aws.ToString(key1.Id))
+	assert.NotContains(t, out.Items, aws.ToString(key2.Id),
+		"keyId filter must exclude usage data for a different key")
+}
+
+// TestGetDomainNames_ResourceOwnerFilter_RealClient drives GetDomainNames
+// through the real client. The real GetDomainNamesInput.ResourceOwner
+// filters by wire key "resourceOwner" (apigateway@v1.42.4 serializers.go:
+// 5307) -- gopherstack never read it, so a real client's
+// resourceOwner=OTHER_ACCOUNTS request always returned every domain name,
+// including ones only ever created under the caller's own account.
+func TestGetDomainNames_ResourceOwnerFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	_, err := client.CreateDomainName(t.Context(), &apigwsdk.CreateDomainNameInput{
+		DomainName: aws.String("api.example.com"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetDomainNames(t.Context(), &apigwsdk.GetDomainNamesInput{
+		ResourceOwner: apigwtypes.ResourceOwnerOtherAccounts,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.Items,
+		"resourceOwner=OTHER_ACCOUNTS must exclude self-owned domain names")
+
+	self, err := client.GetDomainNames(t.Context(), &apigwsdk.GetDomainNamesInput{
+		ResourceOwner: apigwtypes.ResourceOwnerSelf,
+	})
+	require.NoError(t, err)
+	assert.Len(t, self.Items, 1)
+}
+
+// TestGetAuthorizers_Pagination_RealClient drives GetAuthorizers through the
+// real client with Limit=1. The real GetAuthorizersInput.Limit/Position
+// (apigateway@v1.42.4 serializers.go:4264,4268) bound the page size --
+// gopherstack's handler never read either, so a real client's Limit=1 request
+// always returned every authorizer on the REST API in one page.
+func TestGetAuthorizers_Pagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	api, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("authz-page-api")})
+	require.NoError(t, err)
+
+	for _, name := range []string{"a1", "a2", "a3"} {
+		_, err = client.CreateAuthorizer(t.Context(), &apigwsdk.CreateAuthorizerInput{
+			RestApiId: api.Id, Name: aws.String(name), Type: apigwtypes.AuthorizerTypeToken,
+			AuthorizerUri:  aws.String("arn:aws:apigateway:us-east-1:lambda:path/fn"),
+			IdentitySource: aws.String("method.request.header.Auth"),
+		})
+		require.NoError(t, err)
+	}
+
+	page, err := client.GetAuthorizers(
+		t.Context(),
+		&apigwsdk.GetAuthorizersInput{RestApiId: api.Id, Limit: aws.Int32(1)},
+	)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1, "Limit=1 must return exactly one authorizer per page, not all three")
+}
+
+// TestGetClientCertificates_Pagination_RealClient drives
+// GetClientCertificates through the real client with Limit=1. The real
+// GetClientCertificatesInput.Limit/Position (apigateway@v1.42.4
+// serializers.go:4581,4585) bound the page size -- gopherstack's handler
+// never read either, so a real client's Limit=1 request always returned
+// every client certificate in one page.
+func TestGetClientCertificates_Pagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	for range 3 {
+		_, err := client.GenerateClientCertificate(t.Context(), &apigwsdk.GenerateClientCertificateInput{})
+		require.NoError(t, err)
+	}
+
+	page, err := client.GetClientCertificates(t.Context(), &apigwsdk.GetClientCertificatesInput{Limit: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1, "Limit=1 must return exactly one certificate per page, not all three")
+}

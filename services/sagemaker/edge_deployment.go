@@ -26,7 +26,7 @@ const (
 
 var (
 	// ErrEdgeDeploymentPlanNotFound is returned when an edge deployment plan does not exist.
-	ErrEdgeDeploymentPlanNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrEdgeDeploymentPlanNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrEdgeDeploymentPlanAlreadyExists is returned when an edge deployment plan already exists.
 	ErrEdgeDeploymentPlanAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrEdgeDeploymentStageNotFound is returned when a stage does not exist within a plan.

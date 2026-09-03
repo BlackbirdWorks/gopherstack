@@ -127,6 +127,8 @@ type inferenceRecommendationsJobSummary struct {
 	JobArn           string  `json:"JobArn"`
 	Status           string  `json:"Status"`
 	JobType          string  `json:"JobType,omitempty"`
+	JobDescription   string  `json:"JobDescription,omitempty"`
+	RoleArn          string  `json:"RoleArn,omitempty"`
 	CreationTime     float64 `json:"CreationTime"`
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
@@ -180,6 +182,8 @@ func (h *Handler) handleListInferenceRecommendationsJobs(ctx context.Context, bo
 			JobArn:           j.JobArn,
 			Status:           j.Status,
 			JobType:          j.JobType,
+			JobDescription:   j.JobDescription,
+			RoleArn:          j.RoleArn,
 			CreationTime:     epochSeconds(j.CreationTime),
 			LastModifiedTime: epochSeconds(j.LastModifiedTime),
 		})

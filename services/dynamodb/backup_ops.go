@@ -175,7 +175,7 @@ func collectBackupSummaries(
 
 		createdAt := b.CreationDateTime.UTC()
 
-		if timeRangeLower != nil && !createdAt.After(time.Unix(int64(*timeRangeLower), 0).UTC()) {
+		if timeRangeLower != nil && createdAt.Before(time.Unix(int64(*timeRangeLower), 0).UTC()) {
 			continue
 		}
 

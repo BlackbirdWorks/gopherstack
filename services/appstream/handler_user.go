@@ -12,7 +12,6 @@ import (
 
 type createUserInput struct {
 	UserName           string `json:"UserName"`
-	Email              string `json:"Email"`
 	FirstName          string `json:"FirstName"`
 	LastName           string `json:"LastName"`
 	AuthenticationType string `json:"AuthenticationType"`
@@ -26,7 +25,6 @@ func (h *Handler) opCreateUser(_ context.Context, body []byte) (any, error) {
 
 	if _, err := h.Backend.CreateUser(
 		req.UserName,
-		req.Email,
 		req.FirstName,
 		req.LastName,
 		req.AuthenticationType,
@@ -242,9 +240,10 @@ func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte
 // --- Session handlers ---
 
 type describeSessionsInput struct {
-	StackName string `json:"StackName"`
-	FleetName string `json:"FleetName"`
-	UserId    string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	StackName          string `json:"StackName"`
+	FleetName          string `json:"FleetName"`
+	UserId             string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	AuthenticationType string `json:"AuthenticationType"`
 }
 
 func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error) {
@@ -255,7 +254,7 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		}
 	}
 
-	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId)
+	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId, req.AuthenticationType)
 	if err != nil {
 		return nil, err
 	}
@@ -324,20 +323,8 @@ func (h *Handler) opCreateStreamingURL(_ context.Context, body []byte) (any, err
 
 // --- UsageReport handlers ---
 
-type createUsageReportSubscriptionInput struct {
-	S3BucketName string `json:"S3BucketName"`
-	Schedule     string `json:"Schedule"`
-}
-
-func (h *Handler) opCreateUsageReportSubscription(_ context.Context, body []byte) (any, error) {
-	var req createUsageReportSubscriptionInput
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
-		}
-	}
-
-	sub, err := h.Backend.CreateUsageReportSubscription(req.Schedule, req.S3BucketName)
+func (h *Handler) opCreateUsageReportSubscription(_ context.Context, _ []byte) (any, error) {
+	sub, err := h.Backend.CreateUsageReportSubscription()
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +493,6 @@ func userToResponse(u *User) map[string]any {
 	return map[string]any{
 		"UserName":           u.UserName,
 		"Arn":                u.Arn, //nolint:goconst // existing issue.
-		"Email":              u.Email,
 		"FirstName":          u.FirstName,
 		"LastName":           u.LastName,
 		"AuthenticationType": u.AuthenticationType,

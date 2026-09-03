@@ -18,8 +18,11 @@ func (b *InMemoryBackend) CreateCapability(
 	b.mu.Lock("CreateCapability")
 	defer b.mu.Unlock()
 
+	// CreateCapability's own deserializer (eks@v1.90.4 deserializers.go) has
+	// no ResourceNotFoundException case -- an unknown cluster here is
+	// ErrValidation (InvalidParameterException), not ErrNotFound.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
 	}
 
 	key := capabilityKey(clusterName, capabilityName)

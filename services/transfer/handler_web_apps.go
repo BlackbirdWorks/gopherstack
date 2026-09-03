@@ -312,6 +312,7 @@ func (h *Handler) handleDescribeWebAppCustomization(
 	return &describeWebAppCustomizationOutput{
 		WebAppCustomization: map[string]any{
 			keyWebAppID:   c.WebAppID,
+			keyArn:        webAppARN(h.Backend.AccountID(), h.Backend.Region(), c.WebAppID),
 			"Title":       c.Title,
 			"LogoFile":    c.LogoFile,
 			"FaviconFile": c.FaviconFile,
@@ -319,17 +320,22 @@ func (h *Handler) handleDescribeWebAppCustomization(
 	}, nil
 }
 
+type updateWebAppCustomizationOutput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
 func (h *Handler) handleUpdateWebAppCustomization(
 	_ context.Context,
 	in *webAppCustomizationInput,
-) (*struct{}, error) {
+) (*updateWebAppCustomizationOutput, error) {
 	if in.WebAppID == "" {
 		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.UpdateWebAppCustomization(in.WebAppID, in.Title, in.LogoFile, in.FaviconFile); err != nil {
+	c, err := h.Backend.UpdateWebAppCustomization(in.WebAppID, in.Title, in.LogoFile, in.FaviconFile)
+	if err != nil {
 		return nil, err
 	}
 
-	return &struct{}{}, nil
+	return &updateWebAppCustomizationOutput{WebAppID: c.WebAppID}, nil
 }

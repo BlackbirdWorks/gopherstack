@@ -67,9 +67,16 @@ func (h *Handler) listLanguages(input map[string]any) (map[string]any, error) {
 
 	languages := knownLanguages()
 
-	// Apply cursor-based pagination using LanguageCode as token.
+	// Apply cursor-based pagination using LanguageCode as token. languages is
+	// sorted by LanguageName, not LanguageCode, so an unresolved token (a
+	// forged value, since this built-in list can't be mutated) defaults to
+	// the end of the collection rather than index 0 -- restarting at page one
+	// would otherwise be indistinguishable from a genuinely unresolvable
+	// cursor.
 	start := 0
 	if nextTokenIn != "" {
+		start = len(languages)
+
 		for i, lang := range languages {
 			if code, _ := lang[keyLanguageCode].(string); code == nextTokenIn {
 				start = i

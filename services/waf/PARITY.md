@@ -8,7 +8,13 @@ service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
 last_audit_commit: 8c56f4eb9
 last_audit_date: 2026-08-07
-overall: A
+overall: A            # 2026-08-29 (cursor-population sweep): all 16 List ops declare a real NextMarker
+                      # (from the pinned SDK Output structs directly), and 15 of 16 already read
+                      # NextMarker/Limit from the request and set NextMarker on the response through the
+                      # shared paginate() helper (handler.go:124). The one exception, ListSubscribedRule-
+                      # Groups, is correctly left unpaginated: its backend (rule_groups.go) always returns
+                      # an empty slice -- there is no real AWS Marketplace subscription state for this
+                      # mock to page over, so the gap is unobservable. No code changed this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -28,12 +34,13 @@ families:
   GeoMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteGeoMatchSet now also returns WAFNonEmptyEntityException while GeoMatchConstraints is non-empty."}
   RegexPatternSet: {status: ok, note: "ChangeToken validation; DeleteRegexPatternSet now returns WAFReferencedItemException if referenced by a RegexMatchSet tuple's RegexPatternSetId. This pass: DeleteRegexPatternSet now also returns WAFNonEmptyEntityException while RegexPatternStrings is non-empty."}
   RegexMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (a RegexMatchSet is itself a match set referenceable from a Rule Predicate). This pass: DeleteRegexMatchSet now also returns WAFNonEmptyEntityException while RegexMatchTuples is non-empty."}
-  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP. This pass: DeleteRuleGroup now also returns WAFNonEmptyEntityException while it still has activated rules."}
+  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP. DeleteRuleGroup also returns WAFNonEmptyEntityException while it still has activated rules. 2026-08-30 (marker-cursor sweep): UpdateRuleGroup's INSERT action now rejects a RuleId already active in the group (WAFInvalidParameterException) -- previously unchecked, so the same RuleId could be activated twice at different priorities, and since ListActivatedRulesInRuleGroup resumes pagination by matching a RuleId marker (handler_rule_groups.go), a duplicate RuleId broke that resume. Fixed at the mutation boundary rather than the read path, matching this repo's established pattern (e.g. wafv2 rate_based_rules.go rejecting duplicate Name/Priority on write)."}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against real shapes -- no ChangeToken involved in real AWS, correctly not required here"}
   Logging: {status: ok, note: "PutLoggingConfiguration/GetLoggingConfiguration/DeleteLoggingConfiguration/ListLoggingConfigurations -- no ChangeToken in real AWS, correctly not required"}
   PermissionPolicy: {status: ok, note: "no ChangeToken in real AWS, correctly not required"}
   Migration: {status: ok, note: "CreateWebACLMigrationStack returns a deterministic S3 URL shape; genuinely can't produce a real migration template without wafv2 state, documented as a stub-shape return, not a disguised no-op"}
-gaps: []
+gaps:
+  - "2026-08-29 (constrain-not-honoured sweep, confirmed clean): every List op's Limit/NextMarker is applied via the shared paginate() chokepoint (handler.go) except opListSubscribedRuleGroups, which ignores its request body entirely. Not fixed: ListSubscribedRuleGroups' backend (rule_groups.go) always returns an empty slice (structural_gaps: no marketplace-subscription simulation), so there is never more than zero items to paginate -- Limit/NextMarker have no observable effect either way. GetRateBasedRuleManagedKeys.NextMarker is documented on the SDK itself as \"not currently used\" (api_op_GetRateBasedRuleManagedKeys.go), correctly unread. No other List/Get op in this service accepts a filter/selector parameter beyond Limit/NextMarker on the pinned v1.33.4 SDK -- verified by reading every api_op_List*.go/api_op_Get*ManagedKeys.go input struct."
 structural_gaps:
   - "GetSampledRequests always returns an empty SampledRequests list: real AWS randomly samples from actual HTTP requests evaluated against the WebACL's rules. Gopherstack has no request-proxying subsystem -- it never sees or evaluates real client traffic through WAF rules, so there is no request data to sample from, ever. Producing non-empty samples would mean fabricating fictitious HTTP requests, exactly the failure mode this parity campaign exists to remove. (WebAclId existence validation IS buildable from real state and was added this pass; the sample content is not.) (bd: gopherstack-smld)"
   - "GetRateBasedRuleManagedKeys always returns an empty ManagedKeys list: real AWS derives it from live request-rate tracking against the rule's RateLimit over a trailing 5-minute window, which requires the same real-traffic evaluation GetSampledRequests lacks. Nothing in InMemoryBackend's state (RateBasedRule config, WebACL associations) encodes request rates, so there is no rate to threshold against. (RuleId existence validation IS buildable and already present.) (bd: gopherstack-smld)"
@@ -211,3 +218,44 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   has no subsystem that proxies or evaluates real HTTP traffic through WAF rules, so there
   is no request/rate data for either op to report — inventing sample requests or blocked
   IPs would be fabrication, not emulation.
+
+- **2026-08-28 wrapper-key/layer-2 re-sweep (bug class gopherstack-6flj/21my), no bugs
+  found.** Protocol re-confirmed against the pinned `waf@v1.33.4` module:
+  `awsAwsjson11_*` serializer prefix (JSON-RPC), not WAFv2's protocol — read directly, not
+  assumed from `_PROTOCOLS.md`. Per-op manifest-mention check found the match-set
+  families' individual Create/Get/Update op names (ByteMatchSet/IPSet/SizeConstraintSet/
+  SqlInjectionMatchSet/XssMatchSet/GeoMatchSet/RegexPatternSet/RegexMatchSet),
+  CreateRule/CreateRuleGroup/GetRuleGroup/UpdateRuleGroup,
+  CreateRateBasedRule/GetRateBasedRule/UpdateRateBasedRule,
+  ListActivatedRulesInRuleGroup, and PutPermissionPolicy/GetPermissionPolicy/
+  DeletePermissionPolicy at zero literal mentions (this manifest tracks status by
+  *family*, e.g. `IPSet:`, not by individual op name) — swept each against its own
+  `api_op_*.go` Output struct and `deserializers.go` document-deserializer field-for-field
+  at both the wrapper-key and nested-tuple/type layer. All confirmed clean: wrapper keys
+  (`IPSet`/`ByteMatchSet`/.../`Rule` for GetRateBasedRule, `Rules` for
+  ListRateBasedRules) match; `ByteMatchTuple.TargetString` was checked as a possible
+  base64/[]byte type mismatch (real deserializer base64-decodes it,
+  `deserializers.go:10420`) but gopherstack passes the wire-format base64 string through
+  verbatim on both the accept and echo path (never decoding), so a real client's own
+  base64 round trip still produces the original bytes -- not a bug, just an internal
+  representation choice. `ActivatedRule`/`WafAction`/`WafOverrideAction`/`ExcludedRule`/
+  `LoggingConfiguration`/`RedactedFields` also spot-checked clean. No source changes this
+  pass.
+
+- **2026-08-30 marker-cursor-over-a-tie-prone-key sweep.** Audited all 16 List ops'
+  marker/sort key for duplicate-admission. All 12 `store.Table`-keyed listings
+  (WebACLs/Rules/RateBasedRules/IPSets/ByteMatchSets/SizeConstraintSets/
+  SqlInjectionMatchSets/XssMatchSets/GeoMatchSets/RegexPatternSets/RegexMatchSets/
+  RuleGroups) sort/mark by their own `store.Table` key (`store_setup.go` `*KeyFn`
+  functions) — duplicates structurally impossible. `ListLoggingConfigurations` marks by
+  `ResourceArn`, also the table key. `ListTagsForResource` marks by `Tag.Key`, unique by
+  Go map-key construction. `ListSubscribedRuleGroups` is unpaginated (always empty,
+  documented in `structural_gaps`). The one exception: **`ListActivatedRulesInRuleGroup`**
+  marks by `ActivatedRule.RuleId`, a field of a *side slice* (`b.ruleGroupRules[id]`), not
+  a `store.Table` entry — `UpdateRuleGroup`'s INSERT action never checked for a
+  already-active RuleId, so two `ActivatedRule` entries could share the same RuleId and
+  break marker resume deterministically once a page boundary landed inside that pair.
+  Fixed (see `RuleGroup` family note above); reproduced first in
+  `rule_groups_test.go::TestUpdateRuleGroup_RejectsDuplicateRuleId` (fails against
+  unmodified code, passes after the fix). All existing pagination fixtures
+  (`pagination_test.go`) use distinct names/IDs throughout and could not have caught this.

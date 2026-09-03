@@ -352,7 +352,8 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 
 func (h *Handler) handleListClusterAlerts(c *echo.Context, clusterID string) error {
 	maxResults, nextTokenParam := paginationParams(c)
-	alerts, nextToken, err := h.Backend.ListClusterAlerts(clusterID, maxResults, nextTokenParam)
+	stateFilter := c.QueryParam("stateFilter")
+	alerts, nextToken, err := h.Backend.ListClusterAlerts(clusterID, maxResults, nextTokenParam, stateFilter)
 	if err != nil {
 		return respondErr(c, err)
 	}

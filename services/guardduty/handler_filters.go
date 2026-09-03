@@ -7,7 +7,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
-func (h *Handler) dispatchFilterOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchFilterOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateFilter:
 		detectorID := extractID(path, pathDetector)
@@ -35,7 +35,7 @@ func (h *Handler) dispatchFilterOps(op, path string, body []byte) (any, int, boo
 
 	case opListFilters:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListFilters(detectorID)
+		result, code, err := h.handleListFilters(detectorID, query)
 
 		return result, code, true, err
 	}
@@ -133,11 +133,18 @@ func (h *Handler) handleDeleteFilter(detectorID, filterName string) (int, error)
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListFilters(detectorID string) (any, int, error) {
-	names, err := h.Backend.ListFilters(detectorID)
+func (h *Handler) handleListFilters(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	names, next, err := h.Backend.ListFilters(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"filterNames": names}, http.StatusOK, nil
+	resp := map[string]any{"filterNames": names}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }

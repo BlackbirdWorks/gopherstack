@@ -38,7 +38,12 @@ func (h *Handler) handleRecordHandlerProgress(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleGetHookResult(form url.Values, c *echo.Context) error {
-	status, _ := h.Backend.GetHookResult(form.Get("HookResultToken"))
+	// Real GetHookResultInput's identifier field is "HookResultId", not
+	// "HookResultToken" (cloudformation@v1.76.1 serializers.go:8480).
+	status, err := h.Backend.GetHookResult(form.Get("HookResultId"))
+	if err != nil {
+		return h.xmlError(c, "HookResultNotFound", err.Error())
+	}
 	// Real GetHookResultOutput's status member is "Status", not "HookStatus"
 	// (cloudformation@v1.76.1 deserializers.go:
 	// awsAwsquery_deserializeOpDocumentGetHookResultOutput).

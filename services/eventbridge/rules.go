@@ -123,6 +123,11 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		return nil, err
 	}
 
+	createdBy := b.accountID
+	if exists {
+		createdBy = existing.CreatedBy
+	}
+
 	rule := &Rule{
 		Name:               input.Name,
 		Arn:                b.ruleARN(region, busName, input.Name),
@@ -133,6 +138,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		ScheduleExpression: input.ScheduleExpression,
 		RoleArn:            input.RoleArn,
 		ManagedBy:          input.ManagedBy,
+		CreatedBy:          createdBy,
 		compiledPattern:    compiled,
 	}
 
@@ -285,7 +291,7 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 
 // ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
 func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
-	targetARN, eventBusName, nextToken string,
+	targetARN, eventBusName, nextToken string, limit int,
 ) ([]string, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
@@ -307,7 +313,7 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 
 	sort.Strings(names)
 
-	page, outToken := paginate(names, nextToken)
+	page, outToken := paginateN(names, nextToken, limit)
 
 	return page, outToken, nil
 }

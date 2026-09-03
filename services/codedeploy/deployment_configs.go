@@ -134,7 +134,7 @@ func (b *InMemoryBackend) CreateDeploymentConfig(
 
 	if _, ok := validComputePlatforms()[computePlatform]; !ok {
 		return nil, fmt.Errorf("%w: invalid computePlatform %q, must be Server, Lambda, or ECS",
-			ErrValidation, computePlatform)
+			ErrInvalidComputePlatform, computePlatform)
 	}
 
 	cfg := &DeploymentConfig{
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
 	}
 
 	if cfg.IsDefault {
-		return fmt.Errorf("%w: cannot delete built-in deployment config %s", ErrDeploymentConfigInUse, name)
+		return fmt.Errorf("%w: cannot delete built-in deployment config %s", ErrDeploymentConfigIsDefault, name)
 	}
 
 	b.deploymentConfigs.Delete(name)

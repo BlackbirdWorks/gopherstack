@@ -119,7 +119,13 @@ func (b *InMemoryBackend) ListDataQualityEvaluationRuns() []*DataQualityEvaluati
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].StartedOn < out[j].StartedOn })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StartedOn != out[j].StartedOn {
+			return out[i].StartedOn < out[j].StartedOn
+		}
+
+		return out[i].RunID < out[j].RunID
+	})
 
 	return out
 }

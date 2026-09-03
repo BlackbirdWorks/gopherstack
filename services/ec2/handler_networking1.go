@@ -197,8 +197,16 @@ type getLaunchTemplateDataResponse struct {
 	XMLName            xml.Name `xml:"GetLaunchTemplateDataResponse"`
 	RequestID          string   `xml:"requestId"`
 	LaunchTemplateData struct {
-		ImageID      string `xml:"imageId"`
-		InstanceType string `xml:"instanceType"`
+		ImageID                           string `xml:"imageId"`
+		InstanceType                      string `xml:"instanceType"`
+		KeyName                           string `xml:"keyName,omitempty"`
+		InstanceInitiatedShutdownBehavior string `xml:"instanceInitiatedShutdownBehavior,omitempty"`
+		SecurityGroupIDSet                struct {
+			Items []string `xml:"item"`
+		} `xml:"securityGroupIdSet"`
+		DisableAPITermination bool `xml:"disableApiTermination"`
+		DisableAPIStop        bool `xml:"disableApiStop"`
+		EBSOptimized          bool `xml:"ebsOptimized"`
 	} `xml:"launchTemplateData"`
 }
 
@@ -318,6 +326,7 @@ func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeFlowLogs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "FlowLogId")
 	logs := h.Backend.DescribeFlowLogs(ids)
+	logs = applyFlowLogFilters(logs, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeFlowLogsResponse{RequestID: reqID}
 
@@ -391,6 +400,7 @@ func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, e
 func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "DhcpOptionsId")
 	opts := h.Backend.DescribeDhcpOptions(ids)
+	opts = applyDhcpOptionsFilters(opts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeDhcpOptionsResponse{RequestID: reqID}
 
@@ -512,7 +522,9 @@ func (h *Handler) handleDeleteLaunchTemplateVersions(vals url.Values, reqID stri
 }
 
 func (h *Handler) handleGetLaunchTemplateData(vals url.Values, reqID string) (any, error) {
-	lt, err := h.Backend.GetLaunchTemplateData(vals.Get("InstanceId"))
+	instanceID := vals.Get("InstanceId")
+
+	lt, err := h.Backend.GetLaunchTemplateData(instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -520,6 +532,21 @@ func (h *Handler) handleGetLaunchTemplateData(vals url.Values, reqID string) (an
 	resp := &getLaunchTemplateDataResponse{RequestID: reqID}
 	resp.LaunchTemplateData.ImageID = lt.ImageID
 	resp.LaunchTemplateData.InstanceType = lt.InstanceType
+
+	// GetLaunchTemplateData's backend method only builds a bare LaunchTemplate
+	// (id/imageId/instanceType/createdBy/createTime), so fields the real
+	// ResponseLaunchTemplateData carries but that LaunchTemplate type has no
+	// room for -- keyName, security group IDs, the shutdown/stop/termination
+	// flags -- were silently dropped even though the instance tracks them.
+	if insts := h.Backend.DescribeInstances([]string{instanceID}, ""); len(insts) > 0 {
+		inst := insts[0]
+		resp.LaunchTemplateData.KeyName = inst.KeyName
+		resp.LaunchTemplateData.InstanceInitiatedShutdownBehavior = inst.InstanceInitiatedShutdownBehavior
+		resp.LaunchTemplateData.SecurityGroupIDSet.Items = inst.SecurityGroups
+		resp.LaunchTemplateData.DisableAPITermination = inst.DisableAPITermination
+		resp.LaunchTemplateData.DisableAPIStop = inst.DisableAPIStop
+		resp.LaunchTemplateData.EBSOptimized = inst.EBSOptimized
+	}
 
 	return resp, nil
 }

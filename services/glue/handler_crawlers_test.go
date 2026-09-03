@@ -598,10 +598,12 @@ func TestExtractResource(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			// DeleteJob on an unknown JobName is documented as a no-op, not an
+			// error (api_op_DeleteJob.go).
 			name:     "delete_job_extracts_job_name",
 			action:   "DeleteJob",
 			body:     map[string]any{"JobName": "no-such-job"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
 		},
 	}
 

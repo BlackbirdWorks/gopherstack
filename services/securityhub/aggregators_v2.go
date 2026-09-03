@@ -51,7 +51,7 @@ func (b *InMemoryBackend) ListAggregatorsV2(nextToken string, maxResults int) ([
 	b.mu.RLock("ListAggregatorsV2")
 	defer b.mu.RUnlock()
 
-	snap := b.aggregatorsV2.All()
+	snap := b.aggregatorsV2.Snapshot()
 	all := make([]*AggregatorV2, 0, len(snap))
 
 	for _, agg := range snap {

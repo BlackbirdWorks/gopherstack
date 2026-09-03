@@ -321,7 +321,7 @@ func (h *Handler) handleDeleteSecondaryNetwork(vals url.Values, reqID string) (a
 
 func (h *Handler) handleDescribeSecondaryNetworks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SecondaryNetworkId")
-	nets := h.Backend.DescribeSecondaryNetworks(ids)
+	nets := applySecondaryNetworkFilters(h.Backend.DescribeSecondaryNetworks(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeSecondaryNetworksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, n := range nets {
@@ -370,7 +370,7 @@ func (h *Handler) handleDeleteSecondarySubnet(vals url.Values, reqID string) (an
 
 func (h *Handler) handleDescribeSecondarySubnets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SecondarySubnetId")
-	subs := h.Backend.DescribeSecondarySubnets(ids)
+	subs := applySecondarySubnetFilters(h.Backend.DescribeSecondarySubnets(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeSecondarySubnetsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, s := range subs {
@@ -387,7 +387,7 @@ func (h *Handler) handleDescribeSecondarySubnets(vals url.Values, reqID string) 
 
 func (h *Handler) handleDescribeSecondaryInterfaces(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SecondaryInterfaceId")
-	sis := h.Backend.DescribeSecondaryInterfaces(ids)
+	sis := applySecondaryInterfaceFilters(h.Backend.DescribeSecondaryInterfaces(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeSecondaryInterfacesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, si := range sis {
@@ -402,7 +402,9 @@ func (h *Handler) handleDescribeSecondaryInterfaces(vals url.Values, reqID strin
 
 func (h *Handler) handleDescribeServiceLinkVirtualInterfaces(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ServiceLinkVirtualInterfaceId")
-	vifs := h.Backend.DescribeServiceLinkVirtualInterfaces(ids)
+	vifs := applyServiceLinkVirtualInterfaceFilters(
+		h.Backend.DescribeServiceLinkVirtualInterfaces(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeServiceLinkVirtualInterfacesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, v := range vifs {

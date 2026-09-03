@@ -84,14 +84,17 @@ func (b *InMemoryBackend) DescribeSolution(nameOrArn string) (*Solution, error) 
 	return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
 }
 
-// UpdateSolution updates a solution's automatic-training configuration. The
-// real UpdateSolution API only mutates performAutoTraining and
-// performIncrementalUpdate (performAutoML/performHPO are immutable,
-// creation-only fields) -- nil means "not specified in the request", leaving
-// the current value untouched, matching the optional *bool request members.
+// UpdateSolution updates a solution's automatic-training configuration and,
+// via solutionUpdateConfig, the AutoTrainingConfig/EventsConfig subset of
+// its SolutionConfig (types.UpdateSolutionInput.SolutionUpdateConfig,
+// api_op_UpdateSolution.go) -- performAutoML/performHPO and every other
+// SolutionConfig member remain immutable, creation-only fields. nil means
+// "not specified in the request", leaving the current value untouched,
+// matching the optional *bool/*SolutionUpdateConfig request members.
 func (b *InMemoryBackend) UpdateSolution(
 	nameOrArn string,
 	performAutoTraining, performIncrementalUpdate *bool,
+	solutionUpdateConfig *SolutionUpdateConfig,
 ) (*Solution, error) {
 	b.mu.Lock("UpdateSolution")
 	defer b.mu.Unlock()
@@ -106,12 +109,24 @@ func (b *InMemoryBackend) UpdateSolution(
 	if performIncrementalUpdate != nil {
 		sol.PerformIncrementalUpdate = *performIncrementalUpdate
 	}
+	if solutionUpdateConfig != nil {
+		if sol.SolutionConfig == nil {
+			sol.SolutionConfig = &SolutionConfig{}
+		}
+		if solutionUpdateConfig.AutoTrainingConfig != nil {
+			sol.SolutionConfig.AutoTrainingConfig = solutionUpdateConfig.AutoTrainingConfig
+		}
+		if solutionUpdateConfig.EventsConfig != nil {
+			sol.SolutionConfig.EventsConfig = solutionUpdateConfig.EventsConfig
+		}
+	}
 	sol.LastUpdatedDateTime = time.Now().UTC()
 	sol.LatestSolutionUpdate = map[string]any{
 		keyCreationDateTime:         awstime.Epoch(sol.LastUpdatedDateTime),
 		keyLastUpdatedDateTime:      awstime.Epoch(sol.LastUpdatedDateTime),
 		"performAutoTraining":       sol.PerformAutoTraining,
 		keyPerformIncrementalUpdate: sol.PerformIncrementalUpdate,
+		"solutionUpdateConfig":      solutionUpdateConfig,
 		keyStatus:                   sol.Status,
 	}
 
@@ -168,9 +183,12 @@ func (b *InMemoryBackend) findSolution(nameOrArn string) *Solution {
 
 // --- SolutionVersion ---
 
-// CreateSolutionVersion creates a new solution version.
+// CreateSolutionVersion creates a new solution version. name is the real,
+// optional CreateSolutionVersionInput.Name member (api_op_CreateSolutionVersion.go)
+// -- present only on the full SolutionVersion shape, not
+// SolutionVersionSummary (types.go:2164 declares no Name member).
 func (b *InMemoryBackend) CreateSolutionVersion(
-	solutionArn, trainingMode string,
+	solutionArn, trainingMode, name string,
 	tags map[string]string,
 ) (*SolutionVersion, error) {
 	b.mu.Lock("CreateSolutionVersion")
@@ -191,6 +209,7 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 		SolutionArn:        sol.SolutionArn,
 		Status:             statusActive,
 		TrainingMode:       trainingMode,
+		Name:               name,
 		TrainingHours:      mockMetricValue,
 		// SolutionConfig and the fields below reflect the parent solution's
 		// state at training time (the real API has no per-version override on

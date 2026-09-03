@@ -116,10 +116,19 @@ func TestDeleteFirewallDomainList(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			// DeleteFirewallDomainList's own deserializer models no
+			// ValidationException/InvalidRequestException (only
+			// AccessDeniedException/ConflictException/
+			// InternalServiceErrorException/ResourceNotFoundException/
+			// ThrottlingException) -- an empty ID falls through to the
+			// backend lookup, which reports ResourceNotFoundException/404,
+			// a type the op does declare (gopherstack-6flj/uox6).
+			// Previously asserted 400/BadRequest, which was itself the bug
+			// this pass fixed.
 			name:       "missing_id",
 			setupExtra: func(_ *testing.T, _ *route53resolver.Handler) string { return "" },
 			body:       func(_ string) map[string]any { return map[string]any{} },
-			wantCode:   http.StatusBadRequest,
+			wantCode:   http.StatusNotFound,
 		},
 		{
 			name:       "not_found",

@@ -197,7 +197,7 @@ func TestReplaceNetworkACLEntry(t *testing.T) {
 			aclID := tt.aclID
 
 			if tt.setupACL {
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 
 				acl, err := b.CreateNetworkACL(vpc.ID)
@@ -260,7 +260,7 @@ func TestReplaceNetworkACLAssociation(t *testing.T) {
 		{
 			name: "valid_reassociation",
 			setup: func(b *ec2.InMemoryBackend) (string, string) {
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				if err != nil {
 					return "", ""
 				}
@@ -331,7 +331,7 @@ func TestHandlerReplaceNetworkACLEntry(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	acl, err := b.CreateNetworkACL(vpc.ID)

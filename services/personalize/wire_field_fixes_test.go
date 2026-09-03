@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	personalizesdk "github.com/aws/aws-sdk-go-v2/service/personalize"
+	"github.com/aws/aws-sdk-go-v2/service/personalize/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,4 +104,150 @@ func TestDescribeEventTracker_AccountID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "000000000000", aws.ToString(out.EventTracker.AccountId))
+}
+
+// TestUpdateSolution_SolutionUpdateConfig proves UpdateSolution applies the
+// real, caller-supplied UpdateSolutionInput.SolutionUpdateConfig member
+// (AutoTrainingConfig/EventsConfig, api_op_UpdateSolution.go -- added to the
+// pinned v1.50.4 SDK; the package's own doc comment claimed
+// UpdateSolutionInput "only carries performAutoTraining and
+// performIncrementalUpdate", which was true against an older SDK but not
+// this pinned one) onto the solution's SolutionConfig. Previously this
+// field was accepted by the real client but silently dropped -- neither the
+// handler nor the backend's UpdateSolution signature read it at all. This
+// is a round trip through the real UpdateSolution/DescribeSolution ops.
+func TestUpdateSolution_SolutionUpdateConfig(t *testing.T) {
+	t.Parallel()
+
+	b := personalize.NewInMemoryBackend("000000000000", "us-east-1")
+	h := personalize.NewHandler(b)
+	client := newTestPersonalizeClient(t, h)
+
+	dgArn := personalizeCreateDatasetGroup(t, h, "update-solution-config-dg")
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            "update-solution-config",
+		"datasetGroupArn": dgArn,
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+		"solutionConfig": map[string]any{
+			"autoTrainingConfig": map[string]any{"schedulingExpression": "rate(1 day)"},
+		},
+	})
+	require.Equal(t, 200, rec.Code)
+	solArn, _ := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+	require.NotEmpty(t, solArn)
+
+	_, err := client.UpdateSolution(t.Context(), &personalizesdk.UpdateSolutionInput{
+		SolutionArn: aws.String(solArn),
+		SolutionUpdateConfig: &types.SolutionUpdateConfig{
+			AutoTrainingConfig: &types.AutoTrainingConfig{SchedulingExpression: aws.String("rate(7 days)")},
+			EventsConfig: &types.EventsConfig{
+				EventParametersList: []types.EventParameters{{EventType: aws.String("click"), Weight: aws.Float64(1)}},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeSolution(t.Context(), &personalizesdk.DescribeSolutionInput{
+		SolutionArn: aws.String(solArn),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, described.Solution.SolutionConfig)
+	require.NotNil(t, described.Solution.SolutionConfig.AutoTrainingConfig)
+	assert.Equal(
+		t,
+		"rate(7 days)",
+		aws.ToString(described.Solution.SolutionConfig.AutoTrainingConfig.SchedulingExpression),
+	)
+	require.NotNil(t, described.Solution.SolutionConfig.EventsConfig)
+	require.Len(t, described.Solution.SolutionConfig.EventsConfig.EventParametersList, 1)
+	assert.Equal(
+		t,
+		"click",
+		aws.ToString(described.Solution.SolutionConfig.EventsConfig.EventParametersList[0].EventType),
+	)
+
+	require.NotNil(t, described.Solution.LatestSolutionUpdate)
+	require.NotNil(t, described.Solution.LatestSolutionUpdate.SolutionUpdateConfig)
+	assert.Equal(
+		t,
+		"rate(7 days)",
+		aws.ToString(
+			described.Solution.LatestSolutionUpdate.SolutionUpdateConfig.AutoTrainingConfig.SchedulingExpression,
+		),
+	)
+}
+
+// TestDescribeRecommender_ModelMetrics proves DescribeRecommender populates
+// the real, always-present Recommender.ModelMetrics member (types.go:1697,
+// deserializers.go:14660) -- previously absent entirely (not documented as
+// a structural gap anywhere in PARITY.md either, an audit miss rather than
+// a scoped-down decision). Values are a deterministic ARN-hash mock (no
+// real training pipeline exists here), matching the same convention already
+// used for SolutionVersion metrics -- this test locks that the value is
+// non-empty and stable across repeated Describe calls for the same ARN.
+func TestDescribeRecommender_ModelMetrics(t *testing.T) {
+	t.Parallel()
+
+	b := personalize.NewInMemoryBackend("000000000000", "us-east-1")
+	h := personalize.NewHandler(b)
+	client := newTestPersonalizeClient(t, h)
+
+	dgArn := personalizeCreateDatasetGroup(t, h, "recommender-metrics-dg")
+	rec := personalizeDo(t, h, "CreateRecommender", map[string]any{
+		"name":            "recommender-metrics",
+		"datasetGroupArn": dgArn,
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+	})
+	require.Equal(t, 200, rec.Code)
+	recArn, _ := personalizeUnmarshal(t, rec)["recommenderArn"].(string)
+	require.NotEmpty(t, recArn)
+
+	first, err := client.DescribeRecommender(t.Context(), &personalizesdk.DescribeRecommenderInput{
+		RecommenderArn: aws.String(recArn),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Recommender.ModelMetrics)
+
+	second, err := client.DescribeRecommender(t.Context(), &personalizesdk.DescribeRecommenderInput{
+		RecommenderArn: aws.String(recArn),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, first.Recommender.ModelMetrics, second.Recommender.ModelMetrics, "metrics must be stable per ARN")
+}
+
+// TestCreateSolutionVersion_Name proves CreateSolutionVersion stores and
+// DescribeSolutionVersion echoes the real, optional
+// CreateSolutionVersionInput.Name member (api_op_CreateSolutionVersion.go) --
+// previously accepted by the real client but never read by the handler at
+// all (input["name"] was never looked up), so it was silently dropped.
+// types.SolutionVersionSummary has no Name member (types.go:2164), so this
+// is scoped to the full DescribeSolutionVersion shape only.
+func TestCreateSolutionVersion_Name(t *testing.T) {
+	t.Parallel()
+
+	b := personalize.NewInMemoryBackend("000000000000", "us-east-1")
+	h := personalize.NewHandler(b)
+	client := newTestPersonalizeClient(t, h)
+
+	dgArn := personalizeCreateDatasetGroup(t, h, "solution-version-name-dg")
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            "solution-version-name",
+		"datasetGroupArn": dgArn,
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+	})
+	require.Equal(t, 200, rec.Code)
+	solArn, _ := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+	require.NotEmpty(t, solArn)
+
+	created, err := client.CreateSolutionVersion(t.Context(), &personalizesdk.CreateSolutionVersionInput{
+		SolutionArn: aws.String(solArn),
+		Name:        aws.String("my-solution-version"),
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeSolutionVersion(t.Context(), &personalizesdk.DescribeSolutionVersionInput{
+		SolutionVersionArn: created.SolutionVersionArn,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-solution-version", aws.ToString(described.SolutionVersion.Name))
 }

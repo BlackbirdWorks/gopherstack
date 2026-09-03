@@ -126,7 +126,9 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*AvailabilityConfiguration, string, error)
-	TestAvailabilityConfiguration(orgID, domainName string) (bool, string, error)
+	TestAvailabilityConfiguration(
+		orgID, domainName string, ewsProvider *AvailabilityEwsProvider, lambdaARN string,
+	) (bool, string, error)
 
 	// Mobile device access rules
 	CreateMobileDeviceAccessRule(orgID, name, effect, description string,

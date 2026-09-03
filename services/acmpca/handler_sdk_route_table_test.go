@@ -79,8 +79,9 @@ func sdkRouteCases() []string {
 // default case, returning errUnknownACMPCAAction, mapped by handleError to
 // wire code "InvalidAction"). Grepped handler.go: "InvalidAction" is
 // written in exactly that one place -- handleOpError's switch covers a
-// disjoint set of sentinels (ResourceNotFoundException,
-// InvalidParameterException, InvalidStateException,
+// disjoint set of sentinels (ResourceNotFoundException, InvalidArgsException,
+// InvalidArnException, InvalidRequestException, InvalidPolicyException,
+// MalformedCertificateException, MalformedCSRException, InvalidStateException,
 // PermissionAlreadyExistsException, TooManyTagsException, InternalFailure)
 // none of which reuse that code -- so asserting on the wire type is safe
 // here.

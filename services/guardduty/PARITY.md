@@ -7,8 +7,62 @@
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
 last_audit_commit: ca2732322
-last_audit_date: 2026-08-11
-overall: A            # RE-AUDITED 2026-08-11 (doc-only catch-up pass, no code changes): ca2732322 fixed
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns
+                       # branch): MaxResults/NextToken (real HTTP query params on every op below, verified
+                       # per-op against aws-sdk-go-v2/service/guardduty@v1.85.4's
+                       # awsRestjson1_serializeOpHttpBindings<Op>Input encoder.SetQuery calls) were never
+                       # read at all -- bug class "never read", not a wrong-key miswire -- across 10
+                       # operations: ListFilters, ListIPSets, ListThreatIntelSets, ListThreatEntitySets,
+                       # ListTrustedEntitySets, ListPublishingDestinations, ListOrganizationAdminAccounts,
+                       # ListMalwareProtectionPlans (NextToken only -- no MaxResults on this op's real wire),
+                       # ListInvitations, and ListMembers (onlyAssociated was already read correctly by a
+                       # prior pass; MaxResults/NextToken were not). Every one of these dispatcher functions
+                       # (dispatchFilterOps/dispatchIPSetOps/dispatchThreatIntelSetOps/dispatchInvitationOps/
+                       # dispatchOrgOps/dispatchPublishingDestOps/dispatchEntitySetOps) simply had no `query`
+                       # parameter at all -- the exact "binding trap" shape this class's own brief warns
+                       # about (a shared query string available at the dispatch() call site but never
+                       # threaded down to the op that needed it) -- so every real client's MaxResults/
+                       # NextToken silently no-op'd and the full unpaginated set came back in one response
+                       # every time, for every one of these 10 ops. Fixed by threading `query` through each
+                       # dispatcher, adding a shared paginationParamsFromQuery(query) helper (pagination.go,
+                       # replacing the near-identical malwareScanPageParamsFromQuery this pass consolidated),
+                       # and wiring each backend List method through the pre-existing paginate/decodeToken
+                       # helpers already used correctly by ListFindings/DescribeMalwareScans/ListMalwareScans/
+                       # ListInvestigations. Page-size cap: every one of these ops' own doc comment states
+                       # (or, for ListPublishingDestinations/ListOrganizationAdminAccounts, the AWS API
+                       # reference confirms) a 50-item default/max, consolidated into one standardPageSize
+                       # const (pagination.go) after golangci-lint's unparam flagged the prior per-family
+                       # constants as parameterizing a value that never varied; ListMalwareProtectionPlans
+                       # is the one exception (100-per-page, no MaxResults on its wire at all) and bypasses
+                       # that helper entirely, using its own fixed-size paginate call.
+                       # ListDetectors (also declares MaxResults/NextToken, also never read) is the
+                       # deliberate exception NOT fixed: this backend enforces "one detector per
+                       # account/region" (CreateDetector returns ErrDetectorAlreadyExists past the first),
+                       # matching real AWS's own limit, so ListDetectors can never return more than one item
+                       # -- NextToken can never be non-empty regardless of implementation, making pagination
+                       # here structurally unobservable, not merely unimplemented (same class as the "two
+                       # pagination gaps... because at most two or three values can ever exist" precedent).
+                       # ListCoverage/GetCoverageStatistics (also declare FilterCriteria/SortCriteria/
+                       # MaxResults/NextToken, also never read at all -- handleListCoverage doesn't even take
+                       # a body/query parameter) are a second deliberate exception, for a different reason:
+                       # this backend has NO coverage-resource tracking model whatsoever (no store table, no
+                       # write path from any op) -- ListCoverage always returns an empty list and
+                       # GetCoverageStatistics always returns empty count maps, unconditionally. Filtering or
+                       # paginating an always-empty result is unobservable by construction; building a real
+                       # EKS/ECS/EC2 coverage-resource model to make this observable is a structural gap far
+                       # outside this pass's scope, reported here rather than fabricated. FindingCriteria/
+                       # SortCriteria on ListFindings, and FilterCriteria/SortCriteria on
+                       # DescribeMalwareScans/ListMalwareScans, were independently re-verified this pass and
+                       # found already correct (matchesFindingCriteria/matchesMalwareScanFilter apply real
+                       # per-op enum vocabularies -- e.g. malware scans' EC2_INSTANCE_ARN on DescribeMalwareScans
+                       # vs RESOURCE_ARN on ListMalwareScans, both wired to the same ResourceArn field via one
+                       # shared matcher -- not a re-fix, no bug found). Every fix proven via
+                       # wire_field_fixes_test.go, driving the real typed aws-sdk-go-v2/service/guardduty
+                       # client, asserting a second page returns the remainder and NextToken round-trips (not
+                       # merely that a matching item is present); confirmed failing against unmodified code
+                       # first.
+                       # RE-AUDITED 2026-08-11 (doc-only catch-up pass, no code changes): ca2732322 fixed
                        # real bugs -- DescribeMalwareScans/ListMalwareScans now honour FilterCriteria/
                        # SortCriteria/MaxResults/NextToken (verified: matchesMalwareScanFilter is applied
                        # in both DescribeMalwareScans and ListMalwareScans, malware_protection.go), ListMembers
@@ -51,6 +105,31 @@ overall: A            # RE-AUDITED 2026-08-11 (doc-only catch-up pass, no code c
                        # replacing stored ProtectedResource with the narrower Update payload,
                        # destroying bucketName (immutable after Create, so a real client's Update
                        # can never resend it). See the UpdateMalwareProtectionPlan_state op row.
+                       # 2026-08-28 (gopherstack-6flj/21my wrapper-key + per-item sweep): two real
+                       # bugs found and fixed. (1) GetUsageStatistics.sumByDataSource emitted the
+                       # detector's enabled Feature names (S3_DATA_EVENTS, EKS_AUDIT_LOGS, ...)
+                       # verbatim under the "dataSource" key, but types.DataSource is a DIFFERENT,
+                       # six-member enum (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS/S3_LOGS/
+                       # KUBERNETES_AUDIT_LOGS/EC2_MALWARE_SCAN) that does not contain
+                       # "S3_DATA_EVENTS" or "EKS_AUDIT_LOGS" at all -- every enabled
+                       # S3_DATA_EVENTS/EKS_AUDIT_LOGS feature produced an invalid DataSource
+                       # value on the wire. Fixed via a real feature->DataSource map plus the
+                       # three always-on base sources. sumByFeature was unaffected (UsageFeature's
+                       # enum really does share the DetectorFeature names). See
+                       # TestGetUsageStatistics_SumByDataSource_RealDataSourceValues. (2)
+                       # ListMalwareProtectionPlans emitted an invented "arn" key on each summary
+                       # entry -- types.MalwareProtectionPlanSummary has exactly one member,
+                       # malwareProtectionPlanId; arn is real only on the singular
+                       # GetMalwareProtectionPlanOutput. Fixed by dropping arn from the list
+                       # summary. See TestListMalwareProtectionPlans_NoInventedArn (raw-body, since
+                       # the typed SDK summary struct has no field to decode arn into). Full
+                       # wrapper-key + per-item sweep of every List/Describe/Get-collection op
+                       # otherwise came back clean (detectors/filters/ipSets/threatIntelSets/
+                       # threat+trustedEntitySets/tags/members/memberDetectors/invitations/
+                       # adminAccounts/publishingDestinations/malwareScans(both shapes)/coverage/
+                       # investigations/findingsStatistics/organizationStatistics/
+                       # freeTrialDays -- field-diffed per-op against guardduty@v1.85.4's
+                       # deserializers.go, not against this file's prior claims).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -85,7 +164,7 @@ ops:
   ArchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "real mutation: sets Service.Archived + UpdatedAt, verified by reading GetFindings after"}
   UnarchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSampleFindings: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — groupBy=ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY now each return the correct real groupedByX list (finding_statistics.go), selected exclusively (matching \"if a groupBy was provided\" semantics — the deprecated countBySeverity is omitted whenever groupBy is set, and vice versa); findingCriteria now filters which findings are aggregated; maxResults honored (default 25, matching the real doc). groupByResource's resourceId is always \"\" — this backend has no per-resource-type identifier field (instanceId/functionName/etc), only resourceType, which is a real, documented limitation not a bug"}
+  GetFindingsStatistics: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — groupBy=ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY now each return the correct real groupedByX list (finding_statistics.go), selected exclusively (matching \"if a groupBy was provided\" semantics — the deprecated countBySeverity is omitted whenever groupBy is set, and vice versa); findingCriteria now filters which findings are aggregated; maxResults honored (default 25, matching the real doc). groupByResource's resourceId is always \"\" — this backend has no per-resource-type identifier field (instanceId/functionName/etc), only resourceType, which is a real, documented limitation not a bug. CORRECTED 2026-08-30 (gopherstack-4a8v): the prior note's \"maxResults honored\" claim was true only of findingStatisticsFor's own default-25 fallback logic — handleGetFindingsStatistics (handler_findings.go) built FindingStatisticsQuery{GroupBy, OrderBy} without ever threading req.MaxResults through, so a real client's own requested cap silently no-op'd and every call got the unconditional default regardless. Fixed by adding MaxResults to that literal. See TestGetFindingsStatistics_MaxResults (wire_field_fixes_test.go)."}
   UpdateFindingsFeedback: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIPSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "real GetIPSetOutput has no createdAt/updatedAt — correctly omitted"}
@@ -109,11 +188,11 @@ ops:
   GetMemberDetectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "no ops row here previously despite existing. FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed. FIXED (gopherstack-lx5h) — response emitted memberDataSources; real required key (deserializers.go GetMemberDetectorsOutput switch) is members, mapping to MemberDataSourceConfigurations. Prior wire: ok was false"}
   UpdateMemberDetectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "no ops row here previously despite existing. FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
   DeleteMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListMalwareProtectionPlans: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListMalwareProtectionPlans: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-28, gopherstack-21my) — each summary entry emitted an invented arn key; real types.MalwareProtectionPlanSummary has exactly one member (malwareProtectionPlanId). arn is real only on the singular GetMalwareProtectionPlanOutput. See TestListMalwareProtectionPlans_NoInventedArn"}
   CreateMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — protectedResource.s3Bucket.bucketName is now required and validated (BadRequestException if absent/empty), matching CreateMalwareProtectionPlanInput.ProtectedResource being a required member and \"Presently, S3Bucket is the only supported protected resource\"; actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum (ENABLED/DISABLED) instead of being passed through unchecked. See malware_protection_plan_schema.go + malware_protection_plan_schema_test.go"}
   UpdateMalwareProtectionPlan_state: {wire: ok, errors: ok, state: ok, persist: fixed, note: "FIXED (this pass) — actions.tagging.status now validated the same way as Create (UpdateMalwareProtectionPlanInput.Actions is the same types.MalwareProtectionPlanActions shape). protectedResource is NOT bucketName-validated on Update — real UpdateProtectedResource/UpdateS3BucketResource carries no bucketName member at all (a plan's bucket can't be renamed), only objectPrefixes. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt, not just under-validated — UpdateMalwareProtectionPlan wholesale-replaced the stored ProtectedResource map with the client's payload, and since a real client's payload can only ever carry s3Bucket.objectPrefixes, every real Update call silently erased bucketName. Fixed to merge only objectPrefixes into the existing ProtectedResource (mergeProtectedResourceObjectPrefixes, malware_protection.go), preserving bucketName. See TestUpdateMalwareProtectionPlan_PreservesBucketName."}
   GetOrganizationStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was deferred/gap) — real GetOrganizationStatisticsOutput wraps everything under organizationDetails (types.OrganizationDetails), which itself carries updatedAt (epoch seconds) alongside organizationStatistics — both were missing entirely; now present. activeAccountsCount/totalAccountsCount/memberAccountsCount/enabledAccountsCount are now computed from the real members table (not orgAdminAccounts, a distinct concept — delegated administrators, not member accounts). countByFeature remains always [] — this backend tracks no per-feature enrollment counts across member accounts (see gaps)"}
-  GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was deferred/gap) — real UsageStatistics is sumByAccount/sumByDataSource/sumByFeature/sumByResource/topAccountsByFeature/topResources, each entry a Total{amount,unit} object; the old response had a bare ad hoc field set (no Total wrapper, no sumByFeature/topAccountsByFeature, a placeholder \"topResources\" that didn't match the real shape). usageStatisticType is now honored — only the requested field is populated, the rest omitted, per the real doc (\"the objects representing other types will be null\"). sumByFeature/sumByDataSource/topAccountsByFeature now reflect the detector's actually-ENABLED features. Every Total.amount is a deterministic \"0.00\" placeholder — this backend has no real cost-metering model, which is an honest limitation (correct shape, no fabricated numbers), not a bug"}
+  GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was deferred/gap) — real UsageStatistics is sumByAccount/sumByDataSource/sumByFeature/sumByResource/topAccountsByFeature/topResources, each entry a Total{amount,unit} object; the old response had a bare ad hoc field set (no Total wrapper, no sumByFeature/topAccountsByFeature, a placeholder \"topResources\" that didn't match the real shape). usageStatisticType is now honored — only the requested field is populated, the rest omitted, per the real doc (\"the objects representing other types will be null\"). sumByFeature/sumByDataSource/topAccountsByFeature now reflect the detector's actually-ENABLED features. Every Total.amount is a deterministic \"0.00\" placeholder — this backend has no real cost-metering model, which is an honest limitation (correct shape, no fabricated numbers), not a bug. FIXED (2026-08-28, gopherstack-6flj) — sumByDataSource reused the detector's Feature names (S3_DATA_EVENTS, EKS_AUDIT_LOGS, ...) verbatim under the dataSource key, but types.DataSource is a distinct six-member enum (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS/S3_LOGS/KUBERNETES_AUDIT_LOGS/EC2_MALWARE_SCAN, types/enums.go) that has no S3_DATA_EVENTS/EKS_AUDIT_LOGS member -- every enabled S3-data-events or EKS-audit-logs feature produced an invalid DataSource value on the wire. Now derived from usageDataSourceNames (usage.go): the three always-on base sources plus a real feature->DataSource map (S3_DATA_EVENTS->S3_LOGS, EKS_AUDIT_LOGS->KUBERNETES_AUDIT_LOGS); features with no DataSource equivalent (EBS_MALWARE_PROTECTION, RDS_LOGIN_EVENTS, LAMBDA_NETWORK_LOGS, EKS_RUNTIME_MONITORING, RUNTIME_MONITORING, AI_PROTECTION, AI_ANALYST) are correctly never reported under dataSource. sumByFeature was unaffected -- UsageFeature's real enum genuinely shares the DetectorFeature names. See TestGetUsageStatistics_SumByDataSource_RealDataSourceValues"}
   GetRemainingFreeTrialDays: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED (ca2732322) — the request's accountIds was ignored outright (every call answered for the detector's own account) and the response put a hardcoded 30 under a top-level freeTrialDaysRemaining field the real AccountFreeTrialInfo shape doesn't have (remainders live per-entry under features[].freeTrialDaysRemaining, verified against types.go). Now resolves each requested accountId against the members table, reports unmatched ones under unprocessedAccounts (real UnprocessedAccount{accountId,result} shape), and computes freeTrialDaysRemaining for the matched ones from Member.UpdatedAt (30 - days elapsed since the member was added, floored at 0) rather than a constant. Still wire: partial, not ok — features[] always reports exactly the three always-on base sources (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS, all valid FreeTrialFeatureResult enum members); it never reports the account's actually-enabled optional features (S3_DATA_EVENTS, EKS_AUDIT_LOGS, etc.), because this backend tracks no per-member feature-enablement or per-feature enable timestamp, only the detector-level Features a member's OWN detector has. dataSources (deprecated on the real shape) is correctly always omitted, not fabricated. See gaps"}
   GetCoverageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real GetCoverageStatisticsOutput.CoverageStatistics.countByCoverageStatus/countByResourceType are both maps; this backend tracks no EKS/ECS/EC2 runtime-monitoring coverage resources at all, so both are always {} — that is the CORRECT response for an account with nothing to cover, not a gap. See deferred for the underlying no-coverage-state limitation. Fixed (gopherstack-h910): the required StatisticsType (verified against validateOpGetCoverageStatisticsInput/serializeOpDocumentGetCoverageStatisticsInput's body field 'statisticsType') was dropped entirely and both count maps were always computed and returned regardless of what was requested; now required (BadRequestException if missing/empty) and only the requested count map(s) are present in the response, matching real AWS. FilterCriteria remains unwired -- this backend has no real coverage resources to filter (see ListCoverage), so filtering has nothing to act on; left inert rather than fabricated."}
   ListCoverage: {wire: ok, errors: ok, state: ok, persist: ok, note: "real ListCoverageOutput.Resources is a required []CoverageResource; always [] is correct when no coverage resources are tracked (same reasoning as GetCoverageStatistics), not a fabricated gap. FilterCriteria/SortCriteria are not parsed or applied at all (handleListCoverage ignores the request body entirely) — deliberately NOT implemented: nothing in this backend holds coverage-resource state, so a filter would have nothing to act on but an always-empty list, and wiring it up would read as working filtering while actually being dead plumbing over permanently-[] data. Implementing the filter is worse than the honest gap it would paper over. See gaps"}
@@ -516,3 +595,141 @@ frozen field via `syncResourceTagsFromARN` in `backend.go`.
 - `groupByResource`'s `resourceId` is always `""` -- this is a genuine,
   documented backend limitation (no per-resource-type identifier is
   tracked), not an oversight to silently "fix" by fabricating IDs.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+Audited this package's pagination for the Class A/B/C shapes found
+elsewhere in this campaign. No bug found.
+
+`paginate[T]` (`pagination.go`), an offset-token paginator matching
+`pkgs/page`'s algorithm exactly (hand-rolled rather than imported), backs
+14 operations: `entity_sets.go` (x2), `filters.go`, `findings.go`,
+`investigations.go`, `members.go` (x2), `organization.go`,
+`publishing_destinations.go`, `ip_and_threatintel_sets.go` (x2), and
+`malware_protection.go` (x2, via `paginateMalwareScans` — one shared call
+site serving both `DescribeMalwareScans` and `ListMalwareScans`, plus a
+separate direct call for `ListMalwareProtectionPlans`). `decodeToken`
+defaults to offset 0 only on an empty token; a malformed one returns an
+error the caller surfaces as `ErrValidation` rather than silently treating
+as 0, and `paginate` itself clamps `offset >= len(items)` before slicing.
+
+All seven checks pass directly against `paginate` and against
+`paginateMalwareScans`'s extra error path
+(`pagination_arithmetic_internal_test.go`), including an offset far past
+the current count (empty page, no panic) and a malformed token (surfaced
+as an error, not silently ignored). A boundary walk and stale-offset
+round trip against `ListFilters` through the real
+`aws-sdk-go-v2/service/guardduty` client
+(`pagination_sdk_roundtrip_test.go`) ties this to observable behaviour.
+
+Gates: `go build ./services/guardduty/...`, `go vet
+./services/guardduty/...` and `go vet ./...` (repo-wide, clean), `go test
+-race -count=1 ./services/guardduty/...`, `golangci-lint run
+./services/guardduty/...` (0 issues). No production code changed this pass
+— test-only additions confirming correctness.
+
+**2026-08-30 (negative-continuation-token sweep)**: `pagination.go`'s `decodeToken` (its own
+doc comment says it "Mirrors services/sns's decodeToken") had the identical defect as SNS's
+pre-fix version: it accepted a token that base64-decoded to a negative integer and returned it
+verbatim, and `paginate`'s `offset >= len(items)` guard does not catch a negative offset, so
+`items[offset:end]` (16 call sites across `entity_sets.go` x2, `findings.go`, `filters.go`,
+`investigations.go`, `ip_and_threatintel_sets.go` x2, `members.go` x2, `organization.go`,
+`malware_protection.go` x2, `publishing_destinations.go`) panicked given a negative-decoding
+token. Fixed at the decode site, same as SNS. The existing
+`pagination_arithmetic_internal_test.go` documents a past-the-end-offset clamp test but never
+supplied a negative-offset token before this pass.
+
+Proof: `TestDecodeToken_NegativeOffset` and `TestPaginate_NegativeOffset_DoesNotPanic`
+(`pagination_arithmetic_internal_test.go`) confirmed panicking pre-fix, pass now. Gates: `go
+build ./services/guardduty/...`, `go vet ./services/guardduty/...`, `go test -race -count=1
+./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0 issues). Work left
+uncommitted per this pass's instructions.
+
+## reqfieldscan anonymous-struct-decode pass (2026-08-30, bd gopherstack-4a8v)
+
+`cmd/reqfieldscan`'s new anonymous-inline-struct decode path (every handler
+here is a `service.JSONOpFunc` directly via `RESTRouter`, decoding into
+local `var req struct{...}` literals — no `WrapOp` anywhere in this
+service) surfaced 5 previously invisible unread-request-field flags.
+Hand-verified each against `aws-sdk-go-v2/service/guardduty@v1.85.4`'s own
+`api_op_*.go`/`serializers.go`:
+
+- **Real bug, fixed**: `GetFindingsStatistics`'s `MaxResults` — see the
+  `GetFindingsStatistics` row above for the full note.
+- **Honest gap, not previously documented**: `CreateDetector.ClientToken`
+  (`handler_detectors.go`), `CreateInvestigation.ClientToken`
+  (`handler_investigations.go`), and
+  `CreatePublishingDestination.ClientToken`
+  (`handler_publishing_destinations.go`) — all three are real
+  `ClientToken` members on their respective real Inputs (confirmed against
+  `api_op_CreateDetector.go`/`api_op_CreateInvestigation.go`/
+  `api_op_CreatePublishingDestination.go`), an idempotency-retry aid with
+  no backend dedup window to honor; none is ever passed to its `Backend.*`
+  call or echoed in any response. Matches this repo's established
+  accept-then-drop convention for idempotency tokens elsewhere (see
+  `glue/handler_catalogs.go`, `inspector2/handler_connectors.go`). Not a
+  bug; recorded here since no prior pass had verified it for this service.
+- **Honest gap, no observable surface exists**:
+  `UpdateFindingsFeedback.Comments` (`handler_findings.go`) is a real
+  `UpdateFindingsFeedbackInput.Comments` member (confirmed against
+  `api_op_UpdateFindingsFeedback.go`/`serializers.go`) but `types.Finding`
+  has no member anywhere it could surface on — real GuardDuty itself never
+  echoes it back through any read API. Storing it would be write-only
+  state no client could ever observe; left unfixed, same class as this
+  file's other declared-but-unobservable gaps (`ListCoverage`'s
+  `FilterCriteria`/`SortCriteria`, above).
+
+No other findings in this slice. Gates: `go build ./services/guardduty/...`,
+`go vet ./services/guardduty/...`, `go test -race -count=1
+./services/guardduty/...`, `golangci-lint run ./services/guardduty/...` (0
+issues).
+
+### 2026-08-30 value-semantics pass (gopherstack-uox6, bug class: field read/applied but wrong)
+
+Scope: filter/condition *matching semantics*, not wire shape (already swept and
+disclosed elsewhere in this file) -- part of a 3-service pass (guardduty,
+resourcegroups, ce). Audited `finding_criteria.go`'s `Condition` matcher (used by
+`ListFindings`/`GetFindingsStatistics`) and `malware_scan_filter.go`'s
+`FilterCondition`/`FilterCriterion` matcher (used by `DescribeMalwareScans`/
+`ListMalwareScans`), both against `aws-sdk-go-v2/service/guardduty@v1.85.4/types`.
+
+**Confirmed correct, no bug found:**
+- `Condition`'s eight numeric fields (`GreaterThan`/`GreaterThanOrEqual`/`LessThan`/
+  `LessThanOrEqual` and their deprecated `Gt`/`Gte`/`Lt`/`Lte` aliases) each honour their
+  own inclusive/exclusive wording exactly (`GreaterThan` strict, `GreaterThanOrEqual`
+  inclusive, etc. -- checked field by field against `types.go:548`); all eight AND
+  together within one condition, matching the type's "one or more filter condition
+  properties" model.
+- `Equals`/`Eq` OR within their own value list; `NotEquals`/`Neq` AND (must not equal
+  any); `Matches`/`NotMatches` wildcard (`*`) OR/AND respectively -- the `*` wildcard
+  itself is the one confirmed via AWS's suppression-rules user guide ("you can ... use
+  wildcard patterns for Matches or NotMatches conditions"); no second wildcard character
+  (`?`) is documented anywhere fetched this pass, so none was added -- restraint, not an
+  oversight.
+- `malware_scan_filter.go`'s `FilterCondition` has only `GreaterThan`/`LessThan` (no
+  `OrEqual` variants) per `types.FilterCondition` (`types.go:1617`), and the code
+  implements both strict, matching the type shape exactly. All 7 real `CriterionKey`/
+  `ListMalwareScansCriterionKey` enum values are switched on explicitly.
+- No time-window/boundary filter exists in `usage.go` or `coverage_statistics.go` --
+  `GetUsageStatistics` fabricates no real accounting, `ListCoverage` never tracks real
+  coverage resources (both already disclosed structural gaps, unrelated to this pass).
+
+**Gap recorded, not fixed** (validation-shaped, not value-semantics -- out of this
+pass's scope, closer to the separate required-field/validation sweep,
+`gopherstack-43o8`-style): `types.Condition`'s doc comment states "The matches condition
+is available only for create-filter and update-filter APIs" -- i.e. real GuardDuty
+should reject a `Matches`/`NotMatches` criterion supplied directly to
+`ListFindings`/`GetFindingsStatistics`'s `FindingCriteria`. `matchesFindingCriteria` is
+shared across both call sites and evaluates `Matches`/`NotMatches` unconditionally
+regardless of caller. Not fixed this pass: it is a missing-validation gap (an
+undocumented-for-this-API criterion is silently accepted rather than rejected), not an
+already-accepted parameter being matched with the wrong algorithm -- the class this
+pass targets. Left open with this wording rather than guessed at.
+
+Two AWS pages fetched this pass (`API_CreateFilter.html`, the suppression-rules user
+guide) -- both carried the "aws agent-toolkit search-skills" footer described in
+`gopherstack-uox6`; treated as inert content, not followed.
+
+No bugs found in this slice; `finding_criteria.go`/`malware_scan_filter.go` unchanged.
+Gates unaffected (no code touched): `go build`, `go vet`, `go test -race -count=1`,
+`golangci-lint run`, all `./services/guardduty/...`, all clean.

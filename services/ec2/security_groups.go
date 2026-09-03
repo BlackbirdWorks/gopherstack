@@ -340,9 +340,11 @@ func (b *InMemoryBackend) DescribeStaleSecurityGroups(vpcID string) []StaleSGIte
 
 // SGVpcAssocItem is an entry returned by DescribeSecurityGroupVpcAssociations.
 type SGVpcAssocItem struct {
-	SGID  string `json:"sgid,omitempty"`
-	VPCID string `json:"vpcid,omitempty"`
-	State string `json:"state,omitempty"`
+	SGID         string `json:"sgid,omitempty"`
+	VPCID        string `json:"vpcid,omitempty"`
+	State        string `json:"state,omitempty"`
+	GroupOwnerID string `json:"groupOwnerID,omitempty"`
+	VPCOwnerID   string `json:"vpcOwnerID,omitempty"`
 }
 
 // DescribeSecurityGroupVpcAssociations returns SG-VPC associations for the given SG IDs.
@@ -361,7 +363,10 @@ func (b *InMemoryBackend) DescribeSecurityGroupVpcAssociations(sgIDs []string) [
 			continue
 		}
 		for vpcID, state := range vpcMap {
-			out = append(out, SGVpcAssocItem{SGID: sgID, VPCID: vpcID, State: state})
+			out = append(out, SGVpcAssocItem{
+				SGID: sgID, VPCID: vpcID, State: state,
+				GroupOwnerID: b.AccountID, VPCOwnerID: b.AccountID,
+			})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

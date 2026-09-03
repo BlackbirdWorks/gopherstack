@@ -96,16 +96,13 @@ func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []b
 // caller-visibility ACL concept anywhere, the same reasoning already applied
 // to CreatedBy/LastModifiedBy (types.UserContext) elsewhere in this service.
 type searchInput struct {
-	Resource                 string `json:"Resource"`
-	CrossAccountFilterOption string `json:"CrossAccountFilterOption"`
-	SortBy                   string `json:"SortBy"`
-	SortOrder                string `json:"SortOrder"`
-	NextToken                string `json:"NextToken"`
-	SearchExpression         struct {
-		Operator string         `json:"Operator"`
-		Filters  []SearchFilter `json:"Filters"`
-	} `json:"SearchExpression"`
-	MaxResults int32 `json:"MaxResults"`
+	Resource                 string           `json:"Resource"`
+	CrossAccountFilterOption string           `json:"CrossAccountFilterOption"`
+	SortBy                   string           `json:"SortBy"`
+	SortOrder                string           `json:"SortOrder"`
+	NextToken                string           `json:"NextToken"`
+	SearchExpression         SearchExpression `json:"SearchExpression"`
+	MaxResults               int32            `json:"MaxResults"`
 }
 
 func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error) {
@@ -121,8 +118,7 @@ func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error)
 
 	results, total, next, err := h.Backend.Search(ctx, SearchParams{
 		Resource:                 req.Resource,
-		BooleanOperator:          req.SearchExpression.Operator,
-		Filters:                  req.SearchExpression.Filters,
+		Expression:               req.SearchExpression,
 		NextToken:                req.NextToken,
 		SortBy:                   req.SortBy,
 		SortOrder:                req.SortOrder,

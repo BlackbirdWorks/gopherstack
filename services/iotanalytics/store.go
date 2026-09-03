@@ -223,13 +223,13 @@ func validateDatastorePartitionEntry(i int, entry DatastorePartitionEntry) error
 // ARN-keyed reverse lookup against them (resolveARNResource parses the
 // resource name back out of the ARN string and looks it up directly). tags,
 // channelMessages, and datasetContents are left as plain maps: none of their
-// value types is a *T (map[string]string, [][]byte, and []*DatasetContent
+// value types is a *T (map[string]string, []ChannelMessage, and []*DatasetContent
 // respectively), so none fits store.Table's keyed-by-single-identity-value
 // shape. See persistence.go for how they round-trip alongside the registered
 // tables.
 type InMemoryBackend struct {
 	loggingOptions  *LoggingOptions
-	channelMessages map[string][][]byte
+	channelMessages map[string][]ChannelMessage
 	datasetContents map[string][]*DatasetContent
 	tags            map[string]map[string]string
 	channels        *store.Table[Channel]
@@ -258,7 +258,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
 
 	b := &InMemoryBackend{
 		tags:            make(map[string]map[string]string),
-		channelMessages: make(map[string][][]byte),
+		channelMessages: make(map[string][]ChannelMessage),
 		datasetContents: make(map[string][]*DatasetContent),
 		registry:        store.NewRegistry(),
 		svcCtx:          svcCtx,
@@ -303,7 +303,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.channelMessages = make(map[string][][]byte)
+	b.channelMessages = make(map[string][]ChannelMessage)
 	b.datasetContents = make(map[string][]*DatasetContent)
 	b.loggingOptions = nil
 }

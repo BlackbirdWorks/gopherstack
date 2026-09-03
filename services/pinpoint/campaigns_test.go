@@ -3,6 +3,7 @@ package pinpoint_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -667,4 +668,61 @@ func TestGetCampaignVersion_UnknownVersionNotFound(t *testing.T) {
 	var errResp map[string]any
 	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
 	assert.Equal(t, "NotFoundException", errResp["__type"])
+}
+
+// TestHandler_GetCampaigns_DuplicateNames_NoDropOrDupAcrossPages proves GetCampaigns
+// loses (or repeats) campaigns at a page boundary when several campaigns in the same
+// app share a Name. Campaign names have no uniqueness constraint (CreateCampaign never
+// checks for an existing Name), yet GetCampaigns sorts solely by Name with no secondary
+// key, over a *store.Table map walk whose iteration order varies between calls;
+// handleGetCampaigns then pages that resort with an offset cursor (applyPageParams).
+// Looped since this depends on map iteration reshuffling a tie group between the calls
+// backing page 1 and page 2, which does not reproduce on every run.
+func TestHandler_GetCampaigns_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "campaign-pg-tie-app")
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
+				map[string]any{"Name": "dup-campaign-name", "SegmentId": "seg-001"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			created[resp["Id"].(string)] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+		path := "/v1/apps/" + appID + "/campaigns?page-size=2"
+
+		for range dupCount + 1 {
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, _ := resp["Item"].([]any)
+			for _, item := range items {
+				c, isMap := item.(map[string]any)
+				require.True(t, isMap)
+				seen[c["Id"].(string)] = true
+			}
+
+			nextToken, hasToken := resp["NextToken"].(string)
+			if !hasToken {
+				break
+			}
+
+			path = "/v1/apps/" + appID + "/campaigns?page-size=2&token=" + url.QueryEscape(nextToken)
+		}
+
+		assert.Equal(t, created, seen, "paged GetCampaigns dropped or duplicated same-named campaigns across pages")
+	}
 }

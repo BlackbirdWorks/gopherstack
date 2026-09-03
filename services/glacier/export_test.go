@@ -146,3 +146,15 @@ func VaultIndexCount(b *InMemoryBackend, accountID, region string) int {
 
 	return len(b.vaultsByAccountRegion.Get(acctRegionKey(accountID, region)))
 }
+
+// SetJobCreationDate backdates a job's CreationDate (for testing only) so ordering
+// logic can be exercised deterministically without relying on real time.Now() gaps.
+func SetJobCreationDate(b *InMemoryBackend, accountID, region, vaultName, jobID, creationDate string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	vArn := vaultARN(accountID, region, vaultName)
+	if j, ok := b.jobs.Get(jobKey(vArn, jobID)); ok {
+		j.CreationDate = creationDate
+	}
+}

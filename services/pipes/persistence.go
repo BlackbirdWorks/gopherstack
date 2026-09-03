@@ -27,7 +27,7 @@ import (
 // unmarshals into the new array field at all -- an outright decode error
 // that takes down the whole restore, not silent loss -- so it must be
 // discarded like any other shape-incompatible snapshot.
-const pipesSnapshotVersion = 2
+const pipesSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the Pipes backend.
 //

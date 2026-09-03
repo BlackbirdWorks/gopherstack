@@ -22,7 +22,7 @@ const deviceCompositeparts = 2
 
 var (
 	// ErrDeviceFleetNotFound is returned when a device fleet does not exist.
-	ErrDeviceFleetNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrDeviceFleetNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrDeviceFleetAlreadyExists is returned when a device fleet already exists.
 	ErrDeviceFleetAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
@@ -332,7 +332,7 @@ func (b *InMemoryBackend) DeleteDeviceFleet(ctx context.Context, name string) er
 // ---------------------------------------------------------------------------
 
 // ErrDeviceNotFound is returned when a device does not exist.
-var ErrDeviceNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+var ErrDeviceNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 
 // deviceKey uniquely identifies a device within a fleet.
 type deviceKey struct {

@@ -12,7 +12,7 @@ import (
 // Gopherstack synchronously deletes service-linked roles, so status is always SUCCEEDED.
 func (b *InMemoryBackend) GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error) {
 	if deletionTaskID == "" {
-		return "", fmt.Errorf("%w: DeletionTaskId must not be empty", ErrInvalidAction)
+		return "", fmt.Errorf("%w: DeletionTaskId must not be empty", ErrInvalidInput)
 	}
 
 	return "SUCCEEDED", nil
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 	awsServiceName, description, customSuffix string,
 ) (*Role, error) {
 	if awsServiceName == "" {
-		return nil, fmt.Errorf("%w: AWSServiceName must not be empty", ErrInvalidAction)
+		return nil, fmt.Errorf("%w: AWSServiceName must not be empty", ErrInvalidInput)
 	}
 
 	// Build a role name from the service name.

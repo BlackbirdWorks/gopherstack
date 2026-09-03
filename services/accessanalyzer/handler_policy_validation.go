@@ -61,6 +61,10 @@ func (h *Handler) handleCheckAccessNotGranted(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
+	if req.PolicyType == "" {
+		return nil, 0, ErrValidation
+	}
+
 	res := CheckAccessNotGranted(req.PolicyDocument, req.Access)
 	out := map[string]any{keyResult: res.Result, keyMessage: res.Message}
 
@@ -82,6 +86,10 @@ func (h *Handler) handleCheckNoNewAccess(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
+	if req.PolicyType == "" {
+		return nil, 0, ErrValidation
+	}
+
 	res := CheckNoNewAccess(req.ExistingPolicyDocument, req.NewPolicyDocument)
 	out := map[string]any{keyResult: res.Result, keyMessage: res.Message}
 
@@ -99,6 +107,10 @@ func (h *Handler) handleCheckNoPublicAccess(body []byte) (any, int, error) {
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if req.ResourceType == "" {
 		return nil, 0, ErrValidation
 	}
 

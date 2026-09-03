@@ -212,7 +212,7 @@ func (b *InMemoryBackend) CreateVpcAttachment(
 		opts = &VpcOptions{SecurityGroupReferencingSupport: true}
 	}
 
-	a := b.newAttachmentLocked(coreNetworkID, attachmentTypeVpc, "", vpcArn, nil, tagMap)
+	a := b.newAttachmentLocked(coreNetworkID, attachmentTypeVpc, edgeLocationFromArn(vpcArn), vpcArn, nil, tagMap)
 	a.VpcArn = vpcArn
 	a.SubnetArns = append([]string(nil), subnetArns...)
 	a.VpcOptions = opts
@@ -321,7 +321,14 @@ func (b *InMemoryBackend) CreateSiteToSiteVpnAttachment(
 		return nil, notFoundError(resourceEC2VpnConnection, vpnConnectionArn)
 	}
 
-	a := b.newAttachmentLocked(coreNetworkID, attachmentTypeSiteToSiteVpn, "", vpnConnectionArn, nil, tagMap)
+	a := b.newAttachmentLocked(
+		coreNetworkID,
+		attachmentTypeSiteToSiteVpn,
+		edgeLocationFromArn(vpnConnectionArn),
+		vpnConnectionArn,
+		nil,
+		tagMap,
+	)
 	a.VpnConnectionArn = vpnConnectionArn
 	a.RoutingPolicyLabel = routingPolicyLabel
 

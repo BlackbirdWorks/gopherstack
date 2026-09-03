@@ -48,11 +48,18 @@ func (h *Handler) handleAppID(ctx context.Context, c *echo.Context, appID string
 // external Git provider to authorize against, so they are accepted but
 // intentionally discarded, same as it does today for every other AWS
 // service stub's credential-shaped fields).
+// appJobConfigInput mirrors aws-sdk-go-v2/service/amplify/types.JobConfig, the
+// nested wire shape of CreateAppInput/UpdateAppInput's "jobConfig" member.
+type appJobConfigInput struct {
+	BuildComputeType string `json:"buildComputeType"`
+}
+
 type createAppRequest struct {
 	Tags                       map[string]string         `json:"tags"`
 	EnvironmentVariables       map[string]string         `json:"environmentVariables"`
 	AutoBranchCreationConfig   *AutoBranchCreationConfig `json:"autoBranchCreationConfig"`
 	CacheConfig                *CacheConfig              `json:"cacheConfig"`
+	JobConfig                  *appJobConfigInput        `json:"jobConfig"`
 	EnableBranchAutoBuild      *bool                     `json:"enableBranchAutoBuild"`
 	BasicAuthCredentials       string                    `json:"basicAuthCredentials"`
 	Repository                 string                    `json:"repository"`
@@ -61,6 +68,7 @@ type createAppRequest struct {
 	BuildSpec                  string                    `json:"buildSpec"`
 	CustomHeaders              string                    `json:"customHeaders"`
 	IAMServiceRoleArn          string                    `json:"iamServiceRoleArn"`
+	ComputeRoleArn             string                    `json:"computeRoleArn"`
 	Name                       string                    `json:"name"`
 	AutoBranchCreationPatterns []string                  `json:"autoBranchCreationPatterns"`
 	CustomRules                []CustomRule              `json:"customRules"`
@@ -84,6 +92,11 @@ func (r createAppRequest) toAppOptions(isCreate bool) AppOptions {
 		BuildSpec:                  ptrconv.NilIfEmpty(r.BuildSpec),
 		CustomHeaders:              ptrconv.NilIfEmpty(r.CustomHeaders),
 		IAMServiceRoleArn:          ptrconv.NilIfEmpty(r.IAMServiceRoleArn),
+		ComputeRoleARN:             ptrconv.NilIfEmpty(r.ComputeRoleArn),
+	}
+
+	if r.JobConfig != nil {
+		opts.JobConfigBuildComputeType = ptrconv.NilIfEmpty(r.JobConfig.BuildComputeType)
 	}
 
 	// Plain bool JSON fields can't distinguish "false" from "absent", so
@@ -267,6 +280,12 @@ func toProductionBranchView(pb *ProductionBranch) *productionBranchView {
 	return v
 }
 
+// appJobConfigView mirrors aws-sdk-go-v2/service/amplify/types.JobConfig on
+// the response side.
+type appJobConfigView struct {
+	BuildComputeType string `json:"buildComputeType"`
+}
+
 // appView is the JSON representation of an App with timestamps as Unix epoch
 // float64 values, as required by the AWS SDK v2 deserialiser.
 type appView struct {
@@ -275,6 +294,7 @@ type appView struct {
 	AutoBranchCreationConfig   *AutoBranchCreationConfig `json:"autoBranchCreationConfig,omitempty"`
 	CacheConfig                *CacheConfig              `json:"cacheConfig,omitempty"`
 	ProductionBranch           *productionBranchView     `json:"productionBranch,omitempty"`
+	JobConfig                  *appJobConfigView         `json:"jobConfig,omitempty"`
 	BuildSpec                  string                    `json:"buildSpec,omitempty"`
 	IAMServiceRoleArn          string                    `json:"iamServiceRoleArn,omitempty"`
 	Name                       string                    `json:"name"`
@@ -286,6 +306,7 @@ type appView struct {
 	CustomHeaders              string                    `json:"customHeaders,omitempty"`
 	ARN                        string                    `json:"appArn"`
 	RepositoryCloneMethod      string                    `json:"repositoryCloneMethod,omitempty"`
+	ComputeRoleArn             string                    `json:"computeRoleArn,omitempty"`
 	Platform                   Platform                  `json:"platform"`
 	CustomRules                []CustomRule              `json:"customRules,omitempty"`
 	AutoBranchCreationPatterns []string                  `json:"autoBranchCreationPatterns,omitempty"`
@@ -308,12 +329,18 @@ func toAppView(a *App) appView {
 		envVars = map[string]string{}
 	}
 
+	var jobConfig *appJobConfigView
+	if a.JobConfigBuildComputeType != "" {
+		jobConfig = &appJobConfigView{BuildComputeType: a.JobConfigBuildComputeType}
+	}
+
 	return appView{
 		Tags:                       tagMap,
 		EnvironmentVariables:       envVars,
 		AutoBranchCreationConfig:   a.AutoBranchCreationConfig,
 		CacheConfig:                a.CacheConfig,
 		ProductionBranch:           toProductionBranchView(a.ProductionBranch),
+		JobConfig:                  jobConfig,
 		CreateTime:                 float64(a.CreateTime.Unix()),
 		UpdateTime:                 float64(a.UpdateTime.Unix()),
 		AppID:                      a.AppID,
@@ -326,6 +353,7 @@ func toAppView(a *App) appView {
 		BuildSpec:                  a.BuildSpec,
 		CustomHeaders:              a.CustomHeaders,
 		IAMServiceRoleArn:          a.IAMServiceRoleArn,
+		ComputeRoleArn:             a.ComputeRoleARN,
 		RepositoryCloneMethod:      a.RepositoryCloneMethod,
 		AutoBranchCreationPatterns: a.AutoBranchCreationPatterns,
 		CustomRules:                a.CustomRules,

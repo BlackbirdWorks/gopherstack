@@ -80,7 +80,7 @@ func TestInMemoryBackend_AnomalySubscriptionNotFound(t *testing.T) {
 		{
 			name: "UpdateAnomalySubscription",
 			run: func(b *ce.InMemoryBackend) error {
-				_, err := b.UpdateAnomalySubscription(missingARN, "DAILY", "", nil, nil, 0)
+				_, err := b.UpdateAnomalySubscription(missingARN, "DAILY", "", nil, nil, 0, nil)
 
 				return err
 			},
@@ -121,7 +121,7 @@ func TestInMemoryBackend_CreateAnomalySubscription_UnknownMonitor(t *testing.T) 
 	sub, err := b.CreateAnomalySubscription(
 		"BadSub", "DAILY",
 		[]string{"arn:aws:ce::000000000000:anomalymonitor/does-not-exist"},
-		nil, 0, nil,
+		nil, 0, nil, nil,
 	)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ce.ErrUnknownMonitor)
@@ -141,18 +141,18 @@ func TestInMemoryBackend_UpdateAnomalySubscription_UnknownMonitor(t *testing.T) 
 
 	b := ce.NewInMemoryBackend("000000000000", "us-east-1")
 
-	mon, err := b.CreateAnomalyMonitor("RealMonitor", "DIMENSIONAL", "SERVICE", nil)
+	mon, err := b.CreateAnomalyMonitor("RealMonitor", "DIMENSIONAL", "SERVICE", nil, nil)
 	require.NoError(t, err)
 
 	sub, err := b.CreateAnomalySubscription(
-		"RealSub", "DAILY", []string{mon.MonitorARN}, nil, 0, nil,
+		"RealSub", "DAILY", []string{mon.MonitorARN}, nil, 0, nil, nil,
 	)
 	require.NoError(t, err)
 
 	_, err = b.UpdateAnomalySubscription(
 		sub.SubscriptionARN, "", "",
 		[]string{"arn:aws:ce::000000000000:anomalymonitor/does-not-exist"},
-		nil, 0,
+		nil, 0, nil,
 	)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ce.ErrUnknownMonitor)

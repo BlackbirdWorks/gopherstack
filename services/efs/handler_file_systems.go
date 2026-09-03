@@ -9,6 +9,7 @@ import (
 )
 
 type createFileSystemBody struct {
+	Backup                   *bool      `json:"Backup"`
 	CreationToken            string     `json:"CreationToken"`
 	PerformanceMode          string     `json:"PerformanceMode"`
 	ThroughputMode           string     `json:"ThroughputMode"`
@@ -37,6 +38,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		AvailabilityZoneName:     in.AvailabilityZoneName,
 		ProvisionedThroughputMib: in.ProvisionedThroughputMib,
 		Encrypted:                in.Encrypted,
+		Backup:                   in.Backup,
 		Tags:                     tagsFromEntries(in.Tags),
 	}
 

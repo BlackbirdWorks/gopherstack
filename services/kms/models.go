@@ -540,10 +540,13 @@ type RetireGrantInput struct {
 }
 
 // ListRetirableGrantsInput is the request payload for ListRetirableGrants.
+// Real AWS requires exactly one of RetiringPrincipal/RetiringServicePrincipal
+// (aws-sdk-go-v2/service/kms@v1.55.4 api_op_ListRetirableGrants.go).
 type ListRetirableGrantsInput struct {
-	Limit             *int32 `json:"Limit,omitempty"`
-	RetiringPrincipal string `json:"RetiringPrincipal"`
-	Marker            string `json:"Marker,omitempty"`
+	Limit                    *int32 `json:"Limit,omitempty"`
+	RetiringPrincipal        string `json:"RetiringPrincipal,omitempty"`
+	RetiringServicePrincipal string `json:"RetiringServicePrincipal,omitempty"`
+	Marker                   string `json:"Marker,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextInput is the request payload for GenerateDataKeyWithoutPlaintext.

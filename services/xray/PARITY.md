@@ -6,25 +6,25 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
-last_audit_commit: b72533e7a                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-08-10
+last_audit_commit: 4ad94a2e4                       # HEAD when this manifest was last rewritten
+last_audit_date: 2026-08-29
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   PutTraceSegments: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTelemetryRecords: {wire: ok, errors: ok, state: ok, persist: deferred, note: "ring buffer, intentionally ephemeral"}
-  GetTraceSummaries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): EntryPoint was a plain string, real wire shape is a ServiceId object {Name,Type} -- a real client's deserializer errors on a string here; per-item StartTime was entirely missing (a required real-API field); per-item ApproximateTime was a gopherstack-INVENTED field (DELETED) -- the real ApproximateTime is an envelope-level field on GetTraceSummariesOutput (now added there instead). FIXED (6flj sweep, 2026-08-15, flagship Go-kind bug): per-item Annotations was emitted as a flat map[string]<scalar>; the real shape (confirmed against xray@v1.39.4 deserializers.go's awsRestjson1_deserializeDocumentAnnotations) is map[string][]ValueWithServiceIds{AnnotationValue,ServiceIds} -- a JSON ARRAY of tagged-union objects per key. A real client's deserializer calls value.([]interface{}) on each map value and hard-errors ('unexpected JSON type') on anything else, so every real GetTraceSummaries call against a trace with at least one annotation failed outright, not just silently emptied -- this survived the 2026-08-10 pass because that pass diffed member names/nesting but not the Go KIND of a collection value. Fixed by tracking each annotation value's reporting service(s) per distinct value (AnnotationOccurrence, traces.go's accumulateAnnotations) and emitting the tagged union (StringValue/NumberValue/BooleanValue, handler_traces.go's toAnnotationValueView) per the real type. Also disclosed (not fixed): GetTraceSummariesInput's optional Sampling/SamplingStrategy request members are parsed (Sampling) or not modeled at all (SamplingStrategy) and have no effect -- gopherstack has no sampling engine on the trace-summary read path, so every call returns the full unsampled result set, a safe superset rather than a truncation."}
+  GetTraceSummaries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): EntryPoint was a plain string, real wire shape is a ServiceId object {Name,Type} -- a real client's deserializer errors on a string here; per-item StartTime was entirely missing (a required real-API field); per-item ApproximateTime was a gopherstack-INVENTED field (DELETED) -- the real ApproximateTime is an envelope-level field on GetTraceSummariesOutput (now added there instead). FIXED (6flj sweep, 2026-08-15, flagship Go-kind bug): per-item Annotations was emitted as a flat map[string]<scalar>; the real shape (confirmed against xray@v1.39.4 deserializers.go's awsRestjson1_deserializeDocumentAnnotations) is map[string][]ValueWithServiceIds{AnnotationValue,ServiceIds} -- a JSON ARRAY of tagged-union objects per key. A real client's deserializer calls value.([]interface{}) on each map value and hard-errors ('unexpected JSON type') on anything else, so every real GetTraceSummaries call against a trace with at least one annotation failed outright, not just silently emptied -- this survived the 2026-08-10 pass because that pass diffed member names/nesting but not the Go KIND of a collection value. Fixed by tracking each annotation value's reporting service(s) per distinct value (AnnotationOccurrence, traces.go's accumulateAnnotations) and emitting the tagged union (StringValue/NumberValue/BooleanValue, handler_traces.go's toAnnotationValueView) per the real type. Also disclosed (not fixed): GetTraceSummariesInput's optional Sampling/SamplingStrategy request members are parsed (Sampling) or not modeled at all (SamplingStrategy) and have no effect -- gopherstack has no sampling engine on the trace-summary read path, so every call returns the full unsampled result set, a safe superset rather than a truncation. FIXED (2026-08-29 pass, write-only-state/REVERSE direction): TraceSummary.AvailabilityZones ([]AvailabilityZoneDetail{Name}) and .InstanceIds ([]InstanceIdDetail{Id}) (confirmed against deserializers.go's awsRestjson1_deserializeDocumentTraceSummary case \"AvailabilityZones\"/\"InstanceIds\") were entirely absent from the response, even though the data to compute them (segment aws.ec2.{availability_zone,instance_id}, per docs.aws.amazon.com/xray/latest/devguide/xray-api-segmentdocuments.html) was already parsed and stored on every segment (models.go's Segment.AWS, populated by PutTraceSegments) -- Segment.AWS had no read path anywhere in the package. Now accumulated per trace (traces.go's accumulateAWSResourceInfo, de-duplicated) and surfaced (handler_traces.go). Disclosed, not fixed (structural, cross-service/cross-segment analysis gopherstack's per-segment model doesn't perform): ErrorRootCauses/FaultRootCauses/ResponseTimeRootCauses (require root-cause correlation across a trace's segments, same class as Insight's RootCauseServiceId gap below) and MatchedEventTime (X-Ray's separate 'defined events' feature, not modeled at all -- TimeRangeType=Event is accepted but has no distinct behavior)."}
   BatchGetTraces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added missing LimitExceeded field (always false; gopherstack does not enforce/track the trace-document size limit, matching the not-exceeded case)"}
-  GetServiceGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): Edge objects now carry SummaryStatistics/StartTime/EndTime, aggregated from the downstream segment on each edge (buildEdgeStats reuses accumulateNodeStats). Also FIXED a direction bug: edgeKey{From,To} was built as {callee,caller} (buildEdgeSet), so nodeToView attached each edge to the DOWNSTREAM node pointing back at its caller -- backwards from the real Edge doc ('Connections to downstream services', types/types.go:1192 on Service.Edges), and meant every real client's rendered service map had arrows running the wrong way, and the upstream node's own Edges list was always empty. Now From=caller/To=callee, matching real semantics. EdgeType intentionally left unset: it is only populated for async 'link' edges (types/types.go:114-115), and gopherstack does not model segment links, so omitting it is the honest case, not a gap. See handler_service_graph_test.go:TestGetServiceGraph_EdgeStatisticsAndDirection."}
-  GetTraceGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "same edge-statistics/direction fix as GetServiceGraph (shared buildServiceGraph)"}
-  GetTimeSeriesServiceStatistics: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetServiceGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): Edge objects now carry SummaryStatistics/StartTime/EndTime, aggregated from the downstream segment on each edge (buildEdgeStats reuses accumulateNodeStats). Also FIXED a direction bug: edgeKey{From,To} was built as {callee,caller} (buildEdgeSet), so nodeToView attached each edge to the DOWNSTREAM node pointing back at its caller -- backwards from the real Edge doc ('Connections to downstream services', types/types.go:1192 on Service.Edges), and meant every real client's rendered service map had arrows running the wrong way, and the upstream node's own Edges list was always empty. Now From=caller/To=callee, matching real semantics. EdgeType intentionally left unset: it is only populated for async 'link' edges (types/types.go:114-115), and gopherstack does not model segment links, so omitting it is the honest case, not a gap. See handler_service_graph_test.go:TestGetServiceGraph_EdgeStatisticsAndDirection. FIXED (2026-08-29 pass, discarded-filter bug, sibling to GetInsightSummaries' 6flj fix): GetServiceGraphInput's optional GroupName/GroupARN (api_op_GetServiceGraph.go: 'The name of a group based on which you want to generate a graph') were parsed by the handler but never passed to the backend at all -- every group, including a nonexistent one, returned the same unfiltered graph. Now resolved to the group's FilterExpression and applied per-trace via the existing evaluateFilter (handler_service_graph.go's resolveGroupFilterExpression); an unresolvable group yields an empty graph (not an error: this op declares no ResourceNotFoundException, only InvalidRequestException/ThrottledException, confirmed in deserializers.go's error switch). See TestGetServiceGraph_GroupFilterExpression_RealClient."}
+  GetTraceGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "same edge-statistics/direction fix as GetServiceGraph (shared buildServiceGraph). GetTraceGraphInput has no GroupName/GroupARN member (scoped directly by TraceIds), so the sibling group-filter bug does not apply here -- confirmed against api_op_GetTraceGraph.go."}
+  GetTimeSeriesServiceStatistics: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-29 pass): same discarded GroupName/GroupARN bug and fix as GetServiceGraph (handler_service_graph.go's resolveGroupFilterExpression, applied per-trace before segments are bucketed). See TestGetTimeSeriesServiceStatistics_GroupFilterExpression_RealClient. STATE IS 'partial' because of two real, disclosed-not-fixed gaps: EntitySelectorExpression ('a filter expression defining entities that will be aggregated...supports ID, service, and edge functions') and ForecastStatistics (forecasted high/low fault counts, requires an EntitySelectorExpression ID) are both real optional request members (api_op_GetTimeSeriesServiceStatistics.go) that are accepted but have zero effect -- gopherstack has neither an entity-selector query engine nor a fault-count forecasting model, and per this campaign's standing rule against fabricating a plausible-looking number (see SamplingRateBoost's BoostRate below), no invented forecast is produced. Safe superset (always returns edge-level statistics, per the doc's own 'if no selector expression is specified, edge statistics are returned' default), never a truncation."}
+  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-101r, fabricated-error-code sweep): duplicate-name rejection emitted 'GroupAlreadyExistsException', which names no type anywhere in xray@v1.39.4 (absent from types/errors.go and from every awsRestjson1_deserializeOpError* switch). CreateGroup's own deserializer models only InvalidRequestException and ThrottledException, so InvalidRequestException is the correct code. TestCreateGroup_AlreadyExists_RealClient (error_code_fixes_test.go) confirmed failing pre-fix against the real typed SDK client."}
   GetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): InsightsConfiguration was parsed from the request body and silently discarded -- UpdateGroup could never actually change insights/notifications settings. Also FIXED: FilterExpression was unconditionally overwritten (including with empty string) even when the caller only wanted to change InsightsConfiguration; both fields are now independently optional (pointer/patch semantics), matching real UpdateGroupInput"}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added missing SamplingRateBoost field (config passthrough only, see gaps) and missing RuleLimitExceededException cap enforcement (2000 rules/account, AWS default quota)"}
+  CreateSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added missing SamplingRateBoost field (config passthrough only, see gaps) and missing RuleLimitExceededException cap enforcement (2000 rules/account, AWS default quota). FIXED 2026-08-30 (gopherstack-101r, fabricated-error-code sweep): duplicate-name rejection emitted 'RuleAlreadyExistsException' and field-validation failures (RuleName/ServiceName/Priority/FixedRate/ReservoirSize) emitted 'InvalidSamplingRuleException' -- neither type exists anywhere in this SDK. CreateSamplingRule's own deserializer models only InvalidRequestException, RuleLimitExceededException, and ThrottledException; InvalidRequestException is the correct code for both conditions. TestCreateSamplingRule_AlreadyExists_RealClient and TestCreateSamplingRule_InvalidPriority_RealClient (error_code_fixes_test.go) confirmed failing pre-fix against the real typed SDK client."}
   GetSamplingRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): SamplingRateBoost now included in samplingRuleView"}
   UpdateSamplingRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added RuleARN-based lookup (previously RuleName-only; real SamplingRuleUpdate allows specifying either); added SamplingRateBoost update support. FIXED 2026-08-07 (gopherstack-6iwu): the real SamplingRuleUpdate type (types.go, confirmed against aws-sdk-go-v2/service/xray) has an Attributes map[string]string field that samplingRuleUpdateInput had no field for at all, so a real client's UpdateSamplingRule Attributes value was silently dropped by json.Unmarshal even though Attributes round-tripped correctly on CreateSamplingRule -- added Attributes to samplingRuleUpdateInput/SamplingRuleUpdate, threaded it into UpdateSamplingRuleWithPointers (maps.Clone on provided, nil leaves unchanged, matching every other optional-pointer field's semantics), and reverted the xray dashboard's read-only-Attributes workaround now that the backend accepts it. Verified with TestHandler_UpdateSamplingRule_Attributes."}
   DeleteSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added RuleARN-based lookup, and fixed the Default-rule-undeletable check to run against the resolved rule's name (previously checked the raw ruleName parameter, which combined with an ARN-lookup path would have let a caller delete Default by ARN)"}
@@ -33,9 +33,9 @@ ops:
   GetEncryptionConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "real SDK always POST /EncryptionConfig; handler also accepts GET, harmless superset"}
   PutEncryptionConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelTraceRetrieval: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): previously a silent idempotent no-op on an unknown RetrievalToken -- PARITY.md previously (incorrectly) asserted this 'matches AWS' without checking the modeled error set. CancelTraceRetrieval declares ResourceNotFoundException (confirmed in deserializers.go's awsRestjson1_deserializeOpErrorCancelTraceRetrieval switch); an unknown token now returns 400 ResourceNotFoundException, and cancelling the same token twice now correctly fails on the second call"}
-  StartTraceRetrieval: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartTraceRetrieval: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-29 pass), disabled-validation bug: StartTraceRetrievalInput.StartTime/.EndTime are both real, required fields (api_op_StartTraceRetrieval.go: 'the time range to retrieve traces', required alongside TraceIds) that the handler parsed but never enforced as required and never passed to the backend -- a retrieval token always returned every requested trace ID regardless of the requested time range. Now enforced as required and applied: InMemoryBackend.StartTraceRetrieval only includes a trace whose StartTime falls within [StartTime,EndTime] (inclusive, per the field doc comments). See TestStartTraceRetrieval_TimeRangeFiltering_RealClient (backend signature change: traceIDs []string -> traceIDs []string, rangeStart, rangeEnd time.Time; only in-package callers, repo-wide `go build ./...` reconfirmed clean)."}
   ListRetrievedTraces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): each RetrievedTrace's document-list field was wire key \"Segments\"; the real field is \"Spans\" (types.Span{Document,Id}) -- awsRestjson1_deserializeDocumentRetrievedTrace only recognizes \"Spans\" and silently drops unknown keys, so every real SDK client received an EMPTY Spans list for every retrieved trace despite a 200 response. Also FIXED: unknown RetrievalToken now returns ResourceNotFoundException (see CancelTraceRetrieval) instead of a fabricated COMPLETE/empty response. Also added the previously-missing TraceFormat field (always \"XRAY\": gopherstack never stores OTEL-format spans)"}
-  GetRetrievedTracesGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same unknown-token ResourceNotFoundException fix as CancelTraceRetrieval/ListRetrievedTraces"}
+  GetRetrievedTracesGraph: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (this pass): same unknown-token ResourceNotFoundException fix as CancelTraceRetrieval/ListRetrievedTraces. FIXED (2026-08-30, request-field axis sweep): the prior state:ok was itself wrong -- the backend never consulted b.retrievedTraces, so Services/NextToken were unconditionally empty regardless of what StartTraceRetrieval had actually matched. Now builds a real service graph from the retrieved traces' segments (same buildServiceGraph GetTraceGraph uses) and paginates via pkgs/page; see Notes."}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): PolicyRevisionId was parsed by the handler but never passed to/enforced by the backend -- the atomic/guarded delete this parameter exists for was a complete no-op. Now validated against the stored policy's current revision, returning InvalidPolicyRevisionIdException on mismatch"}
   ListResourcePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): resourcePolicyView now includes LastUpdatedTime (see PutResourcePolicy)"}
   PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass): (1) ResourcePolicy.LastUpdatedTime was completely absent from the model and wire view (a real, documented field: 'When the policy was last updated, in Unix time seconds') -- added and set on every Put; (2) the max-5-policies violation used the wrong exception -- was InvalidRequestException, now correctly PolicyCountLimitExceededException (PutResourcePolicy's modeled error set does not even include InvalidRequestException as a fallback, per deserializers.go); (3) added PolicySizeLimitExceededException enforcement, previously entirely unenforced (AWS docs: policy document 'can be up to 5kb in size'). Revision-ID conflict + JSON validation remain correctly enforced. RE-CHECKED (this pass): BypassPolicyLockoutCheck/LockoutPreventionException confirmed still genuinely blocked, not merely under-implemented -- see gaps for why (this is NOT the same as the other 'IAM simulation' claims that turned out reachable this campaign; the blocker here is architectural, not effort)"}
@@ -62,6 +62,8 @@ gaps:
   - "SamplingRateBoost's runtime boost-trigger VALUE (the actual BoostRate number X-Ray would compute) is NOT implemented and never will be guessed: AWS does not publish the algorithm (API_SamplingBoostStatisticsDocument.html describes the inputs, AnomalyCount/SampledAnomalyCount/TotalCount, only qualitatively), so SamplingTargetDocument.SamplingBoost is always left unset. An earlier draft of this pass computed a fabricated rate (linear interpolation between FixedRate and MaxRate by anomaly ratio) and was reverted on review: a fabricated quota/price/rate is worse than an absent one, because a client reads and acts on it without rechecking a plausible-looking number. NARROWED this pass: the WIRE gap (SamplingBoostStatisticsDocuments/UnprocessedBoostStatistics were previously silently absent regardless of the algorithm question) IS fixed -- documents for known rules are now accepted, documents for unknown rules are now reported in UnprocessedBoostStatistics. The net effect for a client: submitting a boost document for a rule with SamplingRateBoost configured is accepted and produces no error, but also produces no observable SamplingBoost on the returned target -- an honest 'accepted, no engine behind it' gap."
   - "PutResourcePolicy's BypassPolicyLockoutCheck field is parsed but LockoutPreventionException is never raised. RE-VERIFIED this pass (WebFetch against docs.aws.amazon.com/xray/latest/api/API_PutResourcePolicy.html): the real check is 'the policy would prevent THE CALLER OF THIS REQUEST from calling PutResourcePolicy in the future' -- i.e. it evaluates the submitted policy document against the calling IAM principal's identity, not against any abstract/generic principal. gopherstack's xray package never resolves or threads a calling principal into request handling at all (grep confirms zero use of pkgs/awsmeta, which only carries Account/Region/Partition/RequestID, not a principal ARN) -- there is no 'the caller' value in scope to evaluate against. This is a genuine architectural gap distinct from the six other 'blocked' claims resolved this campaign: those were blocked by unimplemented-but-available logic, this one is blocked by an identity concept the request pipeline does not carry at all. Implementing a real per-principal check would require adding caller-identity plumbing to the whole service (or repo-wide), which is out of scope for a resource-policy op. The parameter is still accepted (matches wire shape) but has no effect, which is safe (never falsely rejects a real client's request) even though it under-enforces relative to real AWS."
   - "ThrottledException is declared in the modeled error set for every X-Ray operation but is never emitted anywhere in gopherstack (no rate limiting is modeled). This is consistent with the rest of gopherstack's emulation approach (no service throttles by default) and is not treated as a gap specific to X-Ray."
+  - "GetTraceSummaries' TraceSummary.ErrorRootCauses/FaultRootCauses/ResponseTimeRootCauses and MatchedEventTime remain always empty/unset (2026-08-29 pass): the root-cause fields require cross-segment causality analysis gopherstack's per-segment model doesn't perform (same class as Insight's RootCauseServiceId gap above); MatchedEventTime belongs to X-Ray's separate 'defined events' feature, not modeled at all."
+  - "GetTimeSeriesServiceStatisticsInput's EntitySelectorExpression (entity-selector query language) and ForecastStatistics (fault-count forecasting) are real optional request members (2026-08-29 pass) that are accepted but have no effect -- gopherstack has neither engine, and per this file's standing rule against fabricating a plausible-looking number (see SamplingRateBoost below), no invented forecast is produced. Always returns the documented default (edge-level statistics), a safe superset."
 deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
@@ -250,3 +252,197 @@ Fixed defensively for consistency with the class, reusing the existing
 own `errUnknownPath` site already produces two lines below) -- not proven
 by a real SDK client, since none can reach it. `TestHandler_UnknownPath`
 updated to assert the new typed 400 body instead of the old bare 404.
+
+## 2026-08-29 pass: write-only-state sweep (gopherstack-6flj/21my), forward and reverse
+
+Re-audited despite six prior campaign passes (per this campaign's standing
+"a prior pass proves nothing" rule). Verified the premise first: `git log`
+showed no drift since the 2026-08-15 6flj sweep; `sdk_version` (xray@v1.39.4)
+matched the checked-out module exactly (no SDK bump to re-audit); bd issue
+gopherstack-yjn2 ("xray FOLLOW-UP") was read and treated as a claim to
+verify, not a map -- its SamplingRateBoost/LockoutPreventionException/edge-
+statistics/insight-anomaly-field/quota items were all already resolved or
+correctly disclosed-as-gap by the 2026-08-15 pass (see notes above); the one
+new angle it raised (Edge SummaryStatistics/StartTime/EndTime) was already
+fixed, and the "verify maxSamplingRules/defaultIndexingPct" item was already
+independently re-verified against two sources. yjn2's own suggestion was not
+where this pass's bugs turned out to be -- both real bugs found this pass
+(AvailabilityZones/InstanceIds, GroupName/GroupARN filtering on
+GetServiceGraph/GetTimeSeriesServiceStatistics) came from the briefed
+REVERSE method applied fresh to GetTraceSummaries/GetServiceGraph, not from
+yjn2's list.
+
+Applied the write-only-state method in both directions against every op:
+
+- REVERSE (response-computable-from-stored-state): grepped every field
+  declared on `Segment` (models.go) for a read site outside its own
+  declaration. `Segment.AWS` (the segment document's `aws` block, parsed by
+  `PutTraceSegments`/`trace_segments.go` on every ingested segment) had
+  zero read sites anywhere in the package -- confirmed via
+  `docs.aws.amazon.com/xray/latest/devguide/xray-api-segmentdocuments.html`
+  that `aws.ec2.{instance_id,availability_zone}` are real, documented
+  fields, and confirmed via `deserializers.go`'s
+  `awsRestjson1_deserializeDocumentTraceSummary` that `AvailabilityZones`/
+  `InstanceIds` are real `TraceSummary` response members gopherstack never
+  populated. Fixed (see GetTraceSummaries above). Considered but did NOT
+  fix the sibling `ResourceARNs`/`ErrorRootCauses`/`FaultRootCauses`/
+  `ResponseTimeRootCauses`/`MatchedEventTime` fields: `ResourceARNs` has no
+  single unambiguous source field in the segment document schema (several
+  candidates -- `ecs.container_arn`, `cloudwatch_logs[].arn` -- none
+  canonically "the" resource), and the RootCause/MatchedEventTime fields
+  require cross-segment causality analysis or a distinct "defined events"
+  feature gopherstack does not implement; disclosed as gaps rather than
+  guessed at, per this file's standing rule against fabricating a
+  plausible-looking value.
+- FORWARD (accepted-request-field with no read path / disabled validation):
+  wrote a script diffing every `*Input` struct field against its usage
+  sites in the same file. Two real hits, both fixed: `GetServiceGraphInput`/
+  `GetTimeSeriesServiceStatisticsInput`'s optional `GroupName`/`GroupARN`
+  (parsed, never passed to the backend -- every group returned the
+  identical unfiltered graph/stats) and `StartTraceRetrievalInput`'s
+  required `StartTime`/`EndTime` (parsed, never enforced as required and
+  never passed to the backend -- every retrieval token returned every
+  requested trace ID regardless of the requested time range, a disabled
+  validation in the same class as emr's SessionEnabled/fsx's
+  SourceSnapshotARN/appconfig's LatestDeploymentNumber). All other script
+  hits were false positives from nested-struct field access the crude regex
+  didn't follow (e.g. `in.SamplingRule.ResourceARN`), manually verified used.
+
+All three fixes proven with a real `aws-sdk-go-v2/service/xray` client
+round-tripping through the real `pkgs/service` router
+(`wire_field_fixes_test.go`): each test was written and confirmed to fail
+against the pre-fix code before the fix was applied, including a
+hand-revert-and-reconfirm of the `StartTraceRetrieval` fix specifically
+(temporarily forced `filterExpr = ""` at the
+`GetTimeSeriesServiceStatistics` call site, reconfirmed the sibling test
+failed, restored byte-for-byte via `cp` from a scratchpad copy).
+
+Ops NOT specifically re-audited this pass beyond the two directions above
+(unchanged since 2026-08-15, no SDK drift): `PutTraceSegments`,
+`PutTelemetryRecords`, `BatchGetTraces`, `CreateGroup`/`GetGroup`/
+`GetGroups`/`UpdateGroup`/`DeleteGroup`, all `SamplingRule`/
+`SamplingStatistic`/`SamplingTarget` ops, `GetEncryptionConfig`/
+`PutEncryptionConfig`, `CancelTraceRetrieval`/`ListRetrievedTraces`/
+`GetRetrievedTracesGraph` (beyond confirming they don't share
+`StartTraceRetrieval`'s bug -- they take a token, not a time range),
+`DeleteResourcePolicy`/`ListResourcePolicies`/`PutResourcePolicy`,
+`GetIndexingRules`/`UpdateIndexingRule`, `GetInsight`/`GetInsightEvents`/
+`GetInsightImpactGraph`/`GetInsightSummaries` (beyond re-confirming the
+6flj group-filter fix's own scope), `GetTraceSegmentDestination`/
+`UpdateTraceSegmentDestination`, and all three tag ops.
+
+## 2026-08-30: enumcheck struct-field-hop fix (gopherstack-3dzb), 0 confirmed bugs
+`cmd/enumcheck` gained struct-field-hop resolution (a value assigned to a
+local struct field, then read back into a `map[string]any` wire-key
+position, is now resolved the same way a direct literal/SDK-selector value
+already was). Re-run across the whole repo produced the SAME 71 findings as
+before the fix (0 confident either way) -- the fix closed a real blind spot
+but found nothing new here.
+
+xray's own single hit, `service_graph.go:164`'s `"State": "active"` under
+the ambiguous `State` key, was manually verified against
+`xray@v1.39.4/types/types.go:1213`: `Service.State` is a plain `*string`
+("The service's state.", no enum), not `types.InsightState` -- the exact
+Polymorphic collision already documented in `cmd/enumcheck/wirekeys.go`'s
+own package doc comment. FALSE POSITIVE, not fixed (nothing to fix: this
+field has no SDK-declared legal-value set to check "active" against).
+
+## 2026-08-30: request-field axis sweep (gopherstack-4shm's class), reqfieldscan
+
+Ran `cmd/reqfieldscan -dir xray`: dispatch table 38 ops, 36/38 resolved
+(95%, all via the literal-decode path -- xray never uses
+`service.JSONOpFunc`/`service.WrapOp`, so the tool's coverage guard is
+silent by construction here, confirmed by reading its own
+`packageMentionsJSONOpFunc` gate rather than inferring from silence). The 2
+unresolved ops, `GetEncryptionConfig`/`GetTraceSegmentDestination`, take no
+request body at all (`handleGetEncryptionConfigBody`/
+`handleGetTraceSegmentDestination` both `func(_ context.Context, _ []byte)`)
+-- correctly unresolved, not a blind spot. 6 fields flagged.
+
+**1 real bug found and fixed:** `getRetrievedTracesGraphInput.NextToken` led
+to discovering `GetRetrievedTracesGraph` (backend, `trace_retrieval.go`)
+never consulted `b.retrievedTraces` at all -- the exact store
+`ListRetrievedTraces` (same file, same retrieval token) reads for its own
+response. The handler always emitted `Services: []`/`NextToken: ""`
+regardless of what a real `StartTraceRetrieval` had actually matched: **a
+listing that never consults its store**, gopherstack-4shm's own named
+shape. Fixed: `GetRetrievedTracesGraph`'s signature changed from
+`(string, []*Trace, error)` to `(string, []map[string]any, error)`
+(`interfaces.go`, `trace_retrieval.go`) -- it now looks up each retrieved
+trace's segments via `b.traceSegments` (the same index `GetTraceGraph`
+already uses) and calls the existing `buildServiceGraph`, mirroring
+`GetTraceGraph`'s pattern exactly rather than inventing a new one. The
+handler (`handler_trace_retrieval.go`) now passes the real result through
+`pkgs/page.New` for `NextToken`, the same pagination helper
+`GetServiceGraph`/`GetTraceGraph` already use, instead of hardcoding both
+`Services` and `NextToken` to empty. New test
+`TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces`
+(`handler_trace_retrieval_test.go`) seeds a real segment, starts a
+retrieval that matches it, and asserts `Services` is non-empty with the
+right service name; confirmed failing (`Services: []`) against unmodified
+code before the fix. No existing test assertion was weakened -- the
+pre-existing `TestHandler_GetRetrievedTracesGraph`'s "returns status for a
+real retrieval token" subtest still correctly asserts empty `Services`
+(its `startTestRetrieval` helper retrieves a trace ID with no segment data
+seeded, so empty is the honest answer there too; left unchanged). Repo-wide
+`go build ./...`/`go vet ./...` reconfirmed clean -- the only two call
+sites of the changed signature were this package's own handler and two
+tests already discarding the second return value.
+
+**Confirmed already-documented honest gaps (no new work):**
+`getTraceSummariesInput.Sampling` (see `gaps`, GetTraceSummaries note above
+-- no sampling engine on the read path); `getTimeSeriesServiceStatisticsInput
+.EntitySelectorExpression`/`.ForecastStatistics` (GetTimeSeriesServiceStatistics
+`ops:` note, `partial` state -- no entity-selector query engine or
+fault-forecast model); `putResourcePolicyInput.BypassPolicyLockoutCheck`
+(`gaps` above -- architectural: no caller-identity plumbing anywhere in the
+request pipeline to evaluate the lockout check against).
+
+**Newly clarified (folded into an existing gap, not a new one):**
+`getInsightImpactGraphInput.NextToken` has nothing to paginate because
+`GetInsightImpactGraph`'s `Services` is unconditionally `[]` by the
+already-disclosed, deliberate design gap above ("Services always [] (out
+of scope, see gaps)") -- unlike `GetRetrievedTracesGraph`, this handler
+never discards a real backend return value; there is no backend call to
+compute per-insight service impact at all. Confirmed via code read, not
+assumed from the existing gap note.
+
+Gates: `go build ./services/xray/...`, `go vet ./services/xray/...`,
+`go test -race -count=1 ./services/xray/...` all clean;
+`golangci-lint run ./services/xray/...` 0 issues (see below).
+
+**2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6):**
+2 class A findings, both `PutResourcePolicy`, both at the shared
+`errInvalidRequest` sentinel (which 26 other operations in this service use
+legitimately -- every one re-confirmed to declare `InvalidRequestException`
+in its own `awsRestjson1_deserializeOpError<Op>` switch; see
+`error_code_fixes_test.go` for the per-op enumeration). `PutResourcePolicy`'s
+own deserializer declares `InvalidPolicyRevisionIdException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ThrottledException` -- no `InvalidRequestException` at all.
+
+- **PolicyDocument == "" (handler_resource_policies.go:91-93, FIXED):** the
+  handler-level check short-circuited before the backend's own
+  `PutResourcePolicy` (`resource_policies.go:26-28`), which already validates
+  the document as JSON and returns `ErrMalformedPolicyDocument` -- a
+  correctly declared type -- for exactly this case. Removed the redundant,
+  wrongly-classified pre-check; the backend's existing validation now
+  handles it correctly. `validateOpPutResourcePolicyInput` (pinned SDK
+  `validators.go`) only checks `PolicyDocument != nil`, not non-empty, so
+  `aws.String("")` passes client-side validation and this path is reachable
+  by a real client. New test `TestPutResourcePolicy_EmptyDocument_RealClient`
+  asserts `errors.As` against `*types.MalformedPolicyDocumentException`;
+  confirmed to fail against the unfixed handler (got untyped
+  `InvalidRequestException` instead).
+- **PolicyName == "" (handler_resource_policies.go:87-89, NOT fixed --
+  refusal):** no modeled type in `PutResourcePolicy`'s declared set fits "the
+  name field is empty/missing" (its list has none of ValidationException,
+  InvalidRequestException, or an analogue of MalformedPolicyDocumentException
+  for names). Left as-is rather than invent a code the model doesn't
+  declare for this condition -- the operation's own model declares no type
+  for it.
+
+Zero other findings for xray. Gates: `go build`/`go vet`/`go test -race
+-count=1 ./services/xray/...` clean; `golangci-lint run ./services/xray/...`
+0 issues.

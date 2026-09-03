@@ -3,6 +3,7 @@ package ec2
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"time"
 )
 
@@ -33,27 +34,24 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		State:          stateAvailable,
 	}
 	b.images.Put(image)
-	b.imageUsageReports.Put(&ImageUsageReport{
-		ImageID:        imageID,
-		State:          stateAvailable,
-		GenerationDate: time.Now().UTC().Format(time.RFC3339),
-	})
 
 	cp := *image
 
 	return &cp, nil
 }
 
-// DescribeImageUsageReports returns synthetic image usage reports.
-func (b *InMemoryBackend) DescribeImageUsageReports() []*ImageUsageReport {
+// DescribeImageUsageReports returns the usage reports created via
+// CreateImageUsageReport, sorted by report ID for a stable order.
+func (b *InMemoryBackend) DescribeImageUsageReports() []*UsageReport {
 	b.mu.RLock("DescribeImageUsageReports")
 	defer b.mu.RUnlock()
 
-	reports := make([]*ImageUsageReport, 0, b.imageUsageReports.Len())
-	for _, report := range b.imageUsageReports.All() {
+	reports := make([]*UsageReport, 0, b.usageReports.Len())
+	for _, report := range b.usageReports.All() {
 		cp := *report
 		reports = append(reports, &cp)
 	}
+	sort.Slice(reports, func(i, j int) bool { return reports[i].ReportID < reports[j].ReportID })
 
 	return reports
 }
@@ -179,7 +177,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	}
 
 	if endpointType == "" {
-		endpointType = "Interface"
+		endpointType = vpcEndpointTypeInterface
 	}
 
 	b.mu.Lock("CreateVpcEndpoint")

@@ -2,6 +2,23 @@ service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
+                       # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
+                       # pagination_sweep entry below still holds: every List* backend method
+                       # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
+                       # ListMultiRegionAccessPoints/ListAccessPointsForObjectLambda/
+                       # ListRegionalBuckets/ListAccessGrants/ListAccessGrantsLocations/
+                       # ListStorageLensGroups/ListStorageLensConfigurations) filters
+                       # store.Table.All() (or a raw map, for the last one) down to one AccountID
+                       # first, then sorts by the exact field that -- together with that fixed
+                       # AccountID -- forms the table's own composite key (accessPointKeyFn etc.,
+                       # store_setup.go), so no tie survives the AccountID filter regardless of
+                       # store.Table.All()'s documented unspecified order. The handler layer
+                       # pages uniformly via s3cPaginate (handler.go), an integer-offset cursor --
+                       # this service does NOT use a marker/equality cursor anywhere in its List
+                       # family (contrary to a prior assumption that it might), so there is no
+                       # deterministic-drop risk to separately check. No fixes needed this pass;
+                       # 0 code changes. TestListAccessPoints_Pagination/similar existing tests
+                       # use distinct names throughout.
 overall: A            # 2026-08-07 (gopherstack-tir4 follow-up): independently re-verified this
                        # file's two "closed" claims by reading code directly rather than trusting
                        # the prior pass's narrative -- DeleteAccessGrantsInstance's precondition
@@ -133,9 +150,9 @@ ops:
   PutMultiRegionAccessPointPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "route used '/put_policy' (underscore); real SDK URI is '/put-policy' (hyphen) -- UNREACHABLE via real SDK. Fixed."}
   GetMultiRegionAccessPointPolicyStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "route suffix was '/policyStatus'; real SDK uses all-lowercase '/policystatus' for MRAP specifically (unlike AccessPoint/ObjectLambda, which really do use camelCase '/policyStatus' -- verified both, only MRAP was wrong). UNREACHABLE via real SDK. Fixed."}
   ListAccessPointsForDirectoryBuckets: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was '/accesspointfordirectories' (plural); real SDK URI is '/accesspointfordirectory' (singular). UNREACHABLE via real SDK. Fixed."}
-  ListCallerAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was '/accessgrantsinstance/caller-grants'; real SDK URI is '/accessgrantsinstance/caller/grants' (path segment, not hyphenated). UNREACHABLE via real SDK. Fixed."}
-  ListAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "was routed on the same singular path as CreateAccessGrant ('/accessgrantsinstance/grant'); real SDK ListAccessGrants URI is plural '/accessgrantsinstance/grants'. UNREACHABLE via real SDK. Added pathAccessGrantsList const, fixed both extract+dispatch."}
-  ListAccessGrantsLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same singular-vs-plural bug as ListAccessGrants ('/location' vs real '/locations'). UNREACHABLE via real SDK. Added pathAccessGrantsLocationsList const, fixed."}
+  ListCallerAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was '/accessgrantsinstance/caller-grants'; real SDK URI is '/accessgrantsinstance/caller/grants' (path segment, not hyphenated). UNREACHABLE via real SDK. Fixed. this pass: also fixed -- the grantscope query filter (wire key 'grantscope', api_op_ListCallerAccessGrants.go) was read nowhere; ListCallerAccessGrants(accountID) hardcoded an empty scope internally even where the handler could have passed one through. Now ListCallerAccessGrants(accountID, grantScope string) honors it. allowedByApplication remains unenforced -- this backend has no IAM Identity Center federation/caller-identity model to determine which application 'allowed' a grant, so the filter is structurally unobservable; left as a documented gap rather than fabricated (see gaps: below)."}
+  ListAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "was routed on the same singular path as CreateAccessGrant ('/accessgrantsinstance/grant'); real SDK ListAccessGrants URI is plural '/accessgrantsinstance/grants'. UNREACHABLE via real SDK. Added pathAccessGrantsList const, fixed both extract+dispatch. this pass: also fixed -- the handler read query key 'locationscope' (that's ListAccessGrantsLocations's filter key, not this op's) into what it treated as a grantScope filter, so a real client's grantscope query param (serializers.go: awsRestxml_serializeOpHttpBindingsListAccessGrantsInput, wire key 'grantscope') was silently ignored -- a wrong-key bug, not merely an absent filter. application_arn/granteeidentifier/granteetype/permission were never read at all. Now ListAccessGrants(accountID, AccessGrantsFilter) reads and applies all five (grantscope/application_arn/granteeidentifier/granteetype/permission)."}
+  ListAccessGrantsLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same singular-vs-plural bug as ListAccessGrants ('/location' vs real '/locations'). UNREACHABLE via real SDK. Added pathAccessGrantsLocationsList const, fixed. this pass: also fixed -- the locationscope query filter (wire key 'locationscope', serializers.go:5564-5566) was parsed nowhere; every call returned every location in the account regardless of the filter sent. Now applied (exact match against AccessGrantsLocation.LocationScope)."}
   UpdateJobPriority: {wire: ok, errors: ok, state: ok, persist: ok, note: "route required http.MethodPut; real SDK sends POST for this op (it's not a pure REST-semantic PUT). UNREACHABLE via real SDK. Fixed method check to MethodPost in both extract+dispatch. THIS PASS: also fixed GetJob/UpdateJobDetails/UpdateJobPriority/UpdateJobStatus returning the wrong AWS error code (generic ErrNotFound == \"NoSuchPublicAccessBlockConfiguration\") on a missing job -- now errJobNotFound (\"NoSuchJob\"). See jobs.go."}
   UpdateJobStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same PUT-vs-POST bug as UpdateJobPriority. UNREACHABLE via real SDK. Fixed. See UpdateJobPriority note for the error-code fix in this pass."}
   CreateAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-07 (gopherstack-tir4 follow-up audit): real CreateAccessPointInput (confirmed via awsRestxml_serializeOpDocumentCreateAccessPointInput, s3control@v1.73.4) also accepts inline Scope and Tags fields, neither of which createAccessPointRequestXML had a struct field for at all -- both were silently read off the wire and dropped, requiring a caller to know to make a separate PutAccessPointScope/TagResource call the real API does not require. Fixed: Scope captured as raw inner XML (createJobXMLCapture, same pattern PutAccessPointScope already uses) and stored via the existing PutAccessPointScope backend method; Tags parsed with the same resourceTagXML/<Tag> shape ListTagsForResource/TagResource already use and stored via TagResource(ap.AccessPointArn, ...). Verified CreateAccessPointForObjectLambda and CreateMultiRegionAccessPoint do NOT have the same gap (their real request bodies have no Tags/Scope members at all, confirmed via the same serializers.go read) -- this was not a wider pattern. New test TestCreateAccessPoint_InlineScopeAndTags locks in the round-trip (create with inline Scope+Tags, then GetAccessPointScope/ListTagsForResource confirm both landed)."}
@@ -181,8 +198,42 @@ families:
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource backed by real resourceTags map, prefix-matched route ok. THIS PASS: every resource-delete path that has a generic ARN (AccessPoint, ObjectLambda AP, Outposts Bucket, AccessGrant, AccessGrantsLocation, AccessGrantsInstance, StorageLensGroup) now cascade-cleans resourceTags[arn] on delete -- previously only AccessPoint's OWN policy map was cleaned by DeleteAccessPoint and nothing else cleaned tags anywhere, so a delete/recreate cycle under the same name/ARN could silently resurrect a prior resource's tags."}
   error-wire-shape: {status: ok, note: "SERVICE-WIDE bug: every error response (handleBackendError + ~30 ad-hoc 'invalid request body'/'not found' sites) returned c.String(status, plainText) instead of the AWS REST-XML <Error><Code>/<Message> envelope. Fixed prior pass via pkgs/awserr.Write. THIS PASS found a SECOND, narrower service-wide bug of the same class: 15 call sites across access_points.go (7), multi_region_access_points.go (4), and jobs.go (4) used the generic `ErrNotFound` sentinel (code \"NoSuchPublicAccessBlockConfiguration\") for AccessPoint-not-found / MRAP-not-found / Job-not-found errors instead of the resource-specific sentinel (errAccessPointNotFound/\"NoSuchAccessPoint\", errMRAPNotFound/\"NoSuchMultiRegionAccessPoint\", errJobNotFound/\"NoSuchJob\"). HTTP status (404) was correct in every case -- only the XML <Code> body was wrong -- so status-code-only tests never caught it; a real SDK client doing typed error matching (err.Code(), errors.As against a specific exception) on any of these paths got the wrong exception class. All 15 fixed; also added a new errAccessPointPolicyNotFound (\"NoSuchAccessPointPolicy\") sentinel to distinguish \"AP doesn't exist\" from \"AP exists but has no policy\" in GetAccessPointPolicy, which the prior pass had conflated under NoSuchAccessPoint."}
   persistence-gap: {status: ok, note: "NEW FAMILY THIS PASS -- found via reading persistence.go against store.go's field list. backendSnapshot only ever round-tripped the 'batch2' raw maps (bucketReplication, storageLensConfigs, storageLensConfigTags, resourceTags, accessPointPolicies) plus the store.Table-backed resources; the 10 'batch1' raw maps (accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, jobTags) were declared on InMemoryBackend and actively read/written by real handlers, but Snapshot() never serialized them and Restore() never restored them -- a Snapshot/Restore cycle (a service restart with persistence enabled) silently dropped access point scopes, Object Lambda AP policies/configs, Outposts bucket policy/tagging/lifecycle/versioning, MRAP routes, Access Grants instance resource policies, and job tags, even though the owning resource itself (e.g. the access point, the bucket) survived intact. Fixed: all 10 fields added to backendSnapshot, wired into Snapshot/Restore (including the version-mismatch discard-and-reset branch), s3controlSnapshotVersion bumped 1 -> 2. New test TestPersistence_Batch1Maps_SnapshotRestore locks in all 10."}
+  pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): all List ops paginate at the handler layer via the shared s3cPaginate(items, nextToken, maxResults) index-token helper (handler.go:431), which itself correctly truncates/resumes/emits-only-when-truncated. The bug was upstream: pkgs/store.Table.All() (table.go:154) documents 'iteration order is UNSPECIFIED (Go map order)', and ListAccessPoints/ListJobs fed that unsorted order directly into s3cPaginate with no sort.Slice at all -- so a nextToken computed as an offset into one call's ordering could land on a different item in the next call's ordering, duplicating or skipping access points/jobs across a page boundary (same list-ordering-plus-pagination bug class flagged in this campaign's prior passes). Fixed: both now sort.Slice by Name/JobID before returning, matching the convention every other sorted List op in this service already follows (ListAccessGrants, ListAccessGrantsLocations, ListAccessPointsForObjectLambda, ListAccessPointsForDirectoryBuckets, ListRegionalBuckets). TestListAccessPoints_FullPagination/TestListJobs_FullPagination (wire_field_fixes_test.go) create 9 records each, page at MaxResults=4, and assert the union across the full pagination loop is exactly the created set with no duplicates; both hand-verified to fail intermittently against unfixed code (Go's randomized map iteration makes the failure probabilistic, not every run -- confirmed by running the unfixed test 5x). Also fixed the same missing-sort gap in ListMultiRegionAccessPoints/ListStorageLensConfigurations/ListStorageLensGroups for consistency, though those three are not truncation bugs in the same sense: ListMultiRegionAccessPointsInput.MaxResults/NextToken are themselves documented 'Not currently used. Do not use this parameter.' (api_op_ListMultiRegionAccessPoints.go), and ListStorageLensConfigurations/ListStorageLensGroups have no MaxResults member in the real API at all (NextToken only, and the handler already passes maxResults=0 meaning unbounded/no-token, matching that wire shape) -- so ordering stability is the only real improvement there, not a truncation fix."}
 
 gaps:
+  - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): investigated
+    the cloudwatchlogs/memorydb bug class (a resource identifier/storage key built from the
+    backend's fixed default region instead of the request's) against every non-MRAP resource
+    family here (AccessPoint, ObjectLambdaAccessPoint, OutpostsBucket, BatchJob, AccessGrant/
+    AccessGrantsLocation/AccessGrantsInstance, StorageLensGroup/StorageLensConfig). Confirmed via
+    the SDK's own doc-comment ARN examples (api_op_CreateAccessPoint.go's Outposts example uses a
+    real region, arn:aws:s3-outposts:us-west-2:...) that these ARE real, regional AWS resources --
+    not global. This backend, however, builds every one of their ARNs from b.region (store.go), a
+    single value fixed once at Provider.Init from global config, and every composite key function
+    (store_setup.go's accessPointKeyFn et al.) is AccountID+Name/ID only -- no region dimension
+    anywhere, in any resource family, uniformly. Proved with a throwaway test (since deleted, per
+    this task's own instructions) that two real aws-sdk-go-v2 clients signing for different
+    regions (us-east-1/us-west-2) against ONE gopherstack process DO collide: a
+    same-named CreateAccessPoint from the second region silently overwrote the first region's
+    record. NOT fixed. Verdict: this is NOT judged the same bug class as cloudwatchlogs/memorydb,
+    because those services show the actual tell -- SOME operation scoping correctly by
+    request-derived region (httputils.ExtractRegionFromRequest into a ctx value, consumed by
+    per-region store.Table maps) while a SIBLING operation in the SAME service does not. s3control
+    has zero per-region storage anywhere and never calls ExtractRegionFromRequest at all (confirmed
+    absent, unlike ~65 other services including this campaign's own ssm) -- behavior is 100%
+    uniform across every op in this service, which this task's own guidance treats as a legitimate
+    single-region-per-backend-instance design, not an inconsistency bug. A full fix would require
+    adding a region parameter across roughly 16 AccessPoint backend methods alone (111+ call sites
+    including tests, per a repo grep), times five more resource families -- crossing well past a
+    single-pass, safely-verifiable change for an otherwise heavily-tested A-grade service; left
+    unfixed rather than forced. If multi-region isolation is ever wanted here, the mechanical
+    pattern to copy is services/ssm's: getRegion(ctx) sourced from
+    httputils.ExtractRegionFromRequest, per-region store.Table maps via a getOrCreateTable-style
+    helper (services/ssm/store_setup.go), region folded into each KeyFn, and a region parameter
+    threaded through every handler/backend call site -- excluding MultiRegionAccessPoint, which is
+    correctly already treated as global (CreateMultiRegionAccessPointInput.Regions []Region and the
+    arn:aws:s3::<account>:async-request/... token ARN's empty region segment both confirm MRAP
+    itself spans regions by design)."
   - REMOVED 2026-08-01 (gopherstack-tir4 close-out): the synchronous "DELETE /v20180820/mrap/instances/{Name}" route mapped to DeleteMultiRegionAccessPoint was proven genuinely unreachable by any real aws-sdk-go-v2 client (awsRestxml_serializeOpDeleteMultiRegionAccessPoint hardcodes "POST /v20180820/async-requests/mrap/delete" as the op's one and only wire binding; the only serializer targeting "/v20180820/mrap/instances/{Name+}" is GetMultiRegionAccessPoint's, method GET) and deleted from extractMRAPInstanceOp/dispatchMRAPInstanceDispatch (handler_multi_region_access_points.go), along with its now-dead handleDeleteMultiRegionAccessPoint handler and the opDeleteMRAP const. DeleteMultiRegionAccessPoint remains fully served via the real async route. Locked in by TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved (asserts 404 + resource survives) and the updated ExtractOperation dispatch-table case (now expects "Unknown" for this path+method).
   - s3control.ErrAlreadyExists (errors.go) wraps a generic "BucketAlreadyExists" code but is never actually returned by any backend method (verified via repo-wide grep) -- unused/dead sentinel, not a live bug, but worth removing or wiring up correctly if AlreadyExists semantics are ever needed for e.g. CreateAccessPoint on a duplicate name.
   - (CORRECTED 2026-07-30, was previously stale) DeleteAccessGrantsInstance's precondition IS enforced -- see items_still_open.
@@ -726,3 +777,131 @@ drives `handleBackendError` directly with a synthetic unmatched error and
 asserts the XML response's `<Error><Code>` is `InternalServiceException`;
 confirmed it fails pre-fix with the old `"InternalError"` code
 (hand-reverted, byte-identical restore after).
+
+## gopherstack-21my per-item typed round-trip pass (2026-08-31)
+
+s3control was one of the eighteen services in gopherstack-21my marked "clean
+at wrapper level, never swept per-item." Per that issue's own finding (rds's
+DescribeDBInstances read clean by hand the session before a real bug was
+found underneath it), this pass writes a typed round-trip test instead of
+reading `deserializers.go` by eye.
+
+**Covered**: `CreateJob`/`DescribeJob`/`ListJobs` -- this service's richest
+nested item shape, and its most unusual: `Job.Manifest`/`Operation`/`Report`
+are stored and re-emitted as the client's own raw inner XML
+(`createJobXMLCapture`, handler_jobs.go) rather than individually modeled,
+so the only way to prove this actually round-trips through the real SDK's
+serializer/deserializer pair -- not merely that the stored bytes look
+plausible -- is a typed client test. Seeded two jobs (a `LambdaInvoke` and
+an `S3PutObjectCopy` operation, each with a full `Manifest{Location,Spec}`
+and `Report`) and asserted via the real client: `ListJobs`' per-item
+`Operation` enum (derived from the raw XML's root element name via
+`jobOperationName`) for both jobs, and `DescribeJob`'s full decoded
+`Manifest.Location`/`Manifest.Spec.Fields`/`Report`/`Operation.LambdaInvoke`
+for one of them. `TestSDKRoundTrip_JobManifestOperationReport`
+(`sdk_roundtrip_nested_test.go`), 19 `require` calls. **Result: clean** --
+the raw-echo strategy holds because CreateJob's raw capture is exactly what
+the real client itself serialized, so DescribeJob's deserializer (built for
+the same real client) parses it back correctly by construction; this test
+is the first to actually exercise that symmetry rather than assume it.
+
+**Not covered this pass**: `ListMultiRegionAccessPoints` (`Regions[]` nested
+list), `ListStorageLensConfigurations`/`ListStorageLensGroups`,
+`ListAccessGrants`/`ListAccessGrantsLocations` (already has real-client
+pagination coverage via `wire_field_fixes_test.go` and prior
+`ListAccessGrants` filter-key fixes, but not a nested-list nested-field
+sweep), `ListRegionalBuckets`. `ListAccessPoints` already has real-client
+pagination coverage (`TestListAccessPoints_FullPagination`) but its item
+fields (`apVpcConfigurationXML`, `apPublicAccessBlockXML`) were not
+re-verified in this pass.
+
+**Test-file exposure**: of 23 `*_test.go` files in this service, only 4 (5
+counting the new one) drive a real typed `aws-sdk-go-v2` client
+(`NewFromConfig`) -- the remaining ~83% assert on raw XML/HTTP responses,
+which cannot see a wrong-element-name or dropped-nested-field bug of this
+class.
+
+Gates: `go build ./services/s3control/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/s3control/...` (pass),
+`golangci-lint run ./services/s3control/...` (0 issues, `golines -w -m 120`
+applied then re-verified with plain `golangci-lint run`).
+
+## gopherstack-21my continuation (2026-08-31, s3control+neptune pair)
+
+Confirmed protocol from `deserializers.go` before starting: s3control is
+`awsRestxml_`, so the case-only class (smithy-go's XML decoder folds
+element-name case, `encoding/xml/xml_decoder.go:92`) is live here.
+
+**Covered this pass**: `ListAccessPoints` item fields (re-verified against
+`types.AccessPoint`, clean), `ListMultiRegionAccessPoints` (shares its item
+struct with `GetMultiRegionAccessPoint`, verified against
+`types.MultiRegionAccessPointReport`, clean), `ListAccessGrants`/
+`ListCallerAccessGrants`/`ListAccessGrantsLocations` (verified byte-for-byte
+against `types.ListAccessGrantEntry`/`ListCallerAccessGrantsEntry`/
+`ListAccessGrantsLocationsEntry`, clean), `ListRegionalBuckets` (verified
+against `types.RegionalBucket` -- see gap below), `ListStorageLensConfigurations`
+and `ListStorageLensGroups` (both had real bugs, see below).
+
+**BUG (fixed): `ListStorageLensConfigurations`' per-item shape emitted only
+`Id`.** The real item type, `types.ListStorageLensConfigurationEntry`
+(s3control@v1.73.4 types/types.go:1389, confirmed via
+`awsRestxml_deserializeDocumentListStorageLensConfigurationEntry`), has four
+required members: `HomeRegion`, `Id`, `StorageLensArn`, `IsEnabled`. Three
+were dropped entirely -- right config count, `IsEnabled` always false and
+`HomeRegion`/`StorageLensArn` always empty regardless of what was actually
+configured. This backend stores each config as the client's own raw
+`<StorageLensConfiguration>` inner XML (`storage_lens.go`), so `IsEnabled`
+is genuinely present in that raw blob but was never parsed back out for the
+list response; `HomeRegion` and `StorageLensArn` are synthesized from the
+backend's own region/account (new `arnFmtStorageLensConfig` in store.go,
+matching the real `arn:aws:s3:<region>:<account-id>:storage-lens/<config-id>`
+format documented at types/types.go:3029). Fixed in
+`handler_storage_lens.go` (`listStorageLensConfigItemXML`, new
+`storageLensConfigIsEnabled` raw-XML-fragment parser, same technique as the
+existing `jobOperationName` helper). Test:
+`TestSDKRoundTrip_ListStorageLensConfigurations_ItemFields`
+(`sdk_roundtrip_nested_test.go`), seeds two enabled configs via a real
+client and asserts `IsEnabled`/`HomeRegion`/`StorageLensArn` on both;
+confirmed failing pre-fix (`IsEnabled` false when the client sent true).
+Silent-blank failure signature, not a hard decode error (`IsEnabled` uses
+`strconv.ParseBool` only when the element is present).
+
+**BUG (fixed): `ListStorageLensGroups`' per-item shape dropped `HomeRegion`.**
+`types.ListStorageLensGroupEntry` (types/types.go:1417) requires
+`HomeRegion`/`Name`/`StorageLensGroupArn`; `listStorageLensGroupItemXML`
+emitted only the latter two. The backend already computes the region-scoped
+ARN at `CreateStorageLensGroup` time (`arnFmtStorageLensGroup` with
+`b.region`), so the same region value was trivially available and simply
+never threaded into the list item. Fixed: `buildListSLGItem` now takes the
+backend's `Region()` and sets `HomeRegion`. Test:
+`TestSDKRoundTrip_ListStorageLensGroups_HomeRegion`
+(`sdk_roundtrip_nested_test.go`), confirmed failing pre-fix (`HomeRegion`
+empty against `"us-east-1"`).
+
+**Gap recorded, not fixed**: `ListRegionalBuckets`' per-item
+`types.RegionalBucket` requires `CreationDate` (a `*time.Time`) and also
+carries `PublicAccessBlockEnabled`/`OutpostId` -- all three are absent from
+`OutpostsBucket` (models.go), so `listRegionalBucketItemXML` correctly omits
+what it cannot honestly populate. Verified this is NOT a sibling
+disagreement: `GetBucket` shares the identical gap (its own doc comment
+already says so), so there is no naming mismatch to fix, only backend state
+that was never modeled. Fixing it would mean adding a real `CreationDate` to
+`OutpostsBucket` and threading it through `CreateBucket`, the same shape as
+neptune's `ClusterCreateTime`/`InstanceCreateTime` fixes elsewhere in this
+campaign -- worth a dedicated follow-up, not folded into this per-item
+naming sweep.
+
+Wrapping shape re-checked for every op above: no call site of any
+`*Unwrapped` deserializer variant in this service outside the two
+already-documented flattened Storage Lens lists (which are correctly
+flattened per their own doc comments). No case-only mismatch found this
+pass.
+
+Gates: `go build ./services/s3control/... ./services/neptune/...`, `go vet
+./services/s3control/... ./services/neptune/...` (clean; repo-wide `go vet
+./...` currently fails in `services/ec2`, out of scope, held by a different
+agent's concurrent in-progress work -- confirmed via `git status --short
+services/ec2` showing unrelated uncommitted changes), `go test -race
+-count=1 ./services/s3control/... ./services/neptune/...` (pass),
+`golangci-lint run ./services/s3control/... ./services/neptune/...` (0
+issues, `golines -w -m 120` applied then re-verified).

@@ -3,6 +3,7 @@ package bedrock
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,15 +102,51 @@ func (h *Handler) handleCreateModelCopyJob(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, modelCopyJobToOutput(job))
 }
 
+func parseListModelCopyJobsQuery(c *echo.Context) *ListModelCopyJobsInput {
+	q := c.Request().URL.Query()
+
+	maxResults, _ := strconv.ParseInt(q.Get("maxResults"), 10, 32)
+
+	in := &ListModelCopyJobsInput{
+		StatusEquals:            q.Get("statusEquals"),
+		SourceAccountEquals:     q.Get("sourceAccountEquals"),
+		SourceModelArnEquals:    q.Get("sourceModelArnEquals"),
+		TargetModelNameContains: q.Get("outputModelNameContains"),
+		SortBy:                  q.Get("sortBy"),
+		SortOrder:               q.Get("sortOrder"),
+		NextToken:               q.Get("nextToken"),
+		MaxResults:              int32(maxResults),
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListModelCopyJobs(c *echo.Context) error {
-	jobs := h.Backend.ListModelCopyJobs()
+	jobs, nextToken := h.Backend.ListModelCopyJobs(parseListModelCopyJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
 		summaries = append(summaries, modelCopyJobToOutput(j))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"modelCopyJobSummaries": summaries})
+	resp := map[string]any{"modelCopyJobSummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {

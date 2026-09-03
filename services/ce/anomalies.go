@@ -79,6 +79,7 @@ func (b *InMemoryBackend) buildAnomalySubscriptionARN() string {
 // CreateAnomalyMonitor creates a new anomaly monitor.
 func (b *InMemoryBackend) CreateAnomalyMonitor(
 	monitorName, monitorType, monitorDimension string,
+	monitorSpecification *ceExpression,
 	resourceTags map[string]string,
 ) (*AnomalyMonitor, error) {
 	b.mu.Lock("CreateAnomalyMonitor")
@@ -99,13 +100,14 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	now := time.Now().UTC()
 	monARN := b.buildAnomalyMonitorARN()
 	mon := &AnomalyMonitor{
-		MonitorARN:       monARN,
-		MonitorName:      monitorName,
-		MonitorType:      monitorType,
-		MonitorDimension: monitorDimension,
-		CreationDate:     now,
-		LastUpdatedDate:  now,
-		Tags:             tagsCopy,
+		MonitorARN:           monARN,
+		MonitorName:          monitorName,
+		MonitorType:          monitorType,
+		MonitorDimension:     monitorDimension,
+		MonitorSpecification: monitorSpecification,
+		CreationDate:         now,
+		LastUpdatedDate:      now,
+		Tags:                 tagsCopy,
 	}
 	b.anomalyMonitors.Put(mon)
 
@@ -206,6 +208,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	monitorARNList []string,
 	subscribers []Subscriber,
 	threshold float64,
+	thresholdExpression *ceExpression,
 	resourceTags map[string]string,
 ) (*AnomalySubscription, error) {
 	b.mu.Lock("CreateAnomalySubscription")
@@ -237,15 +240,16 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 
 	subARN := b.buildAnomalySubscriptionARN()
 	sub := &AnomalySubscription{
-		SubscriptionARN:  subARN,
-		SubscriptionName: subscriptionName,
-		AccountID:        b.accountID,
-		Frequency:        frequency,
-		MonitorARNList:   monCopy,
-		Subscribers:      subsCopy,
-		Threshold:        threshold,
-		CreationDate:     time.Now().UTC(),
-		Tags:             tagsCopy,
+		SubscriptionARN:     subARN,
+		SubscriptionName:    subscriptionName,
+		AccountID:           b.accountID,
+		Frequency:           frequency,
+		MonitorARNList:      monCopy,
+		Subscribers:         subsCopy,
+		Threshold:           threshold,
+		ThresholdExpression: thresholdExpression,
+		CreationDate:        time.Now().UTC(),
+		Tags:                tagsCopy,
 	}
 	b.anomalySubscriptions.Put(sub)
 
@@ -339,6 +343,7 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	monitorARNList []string,
 	subscribers []Subscriber,
 	threshold float64,
+	thresholdExpression *ceExpression,
 ) (*AnomalySubscription, error) {
 	b.mu.Lock("UpdateAnomalySubscription")
 	defer b.mu.Unlock()
@@ -380,15 +385,48 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 		sub.Threshold = threshold
 	}
 
+	if thresholdExpression != nil {
+		sub.ThresholdExpression = thresholdExpression
+	}
+
 	out := *sub
 
 	return &out, nil
 }
 
+// TotalImpactFilter narrows GetAnomalies results by an anomaly's total dollar
+// impact -- mirrors aws-sdk-go-v2/service/costexplorer/types.TotalImpactFilter.
+type TotalImpactFilter struct {
+	NumericOperator string
+	StartValue      float64
+	EndValue        float64
+}
+
+func (f *TotalImpactFilter) matches(value float64) bool {
+	switch f.NumericOperator {
+	case "EQUAL":
+		return value == f.StartValue
+	case "GREATER_THAN":
+		return value > f.StartValue
+	case "GREATER_THAN_OR_EQUAL":
+		return value >= f.StartValue
+	case "LESS_THAN":
+		return value < f.StartValue
+	case "LESS_THAN_OR_EQUAL":
+		return value <= f.StartValue
+	case "BETWEEN":
+		return value >= f.StartValue && value <= f.EndValue
+	default:
+		return true
+	}
+}
+
 // GetAnomalies returns detected anomalies, optionally filtered by monitor ARN, feedback type,
-// and date interval. maxResults and nextPageToken implement opaque-cursor pagination.
+// date interval, and total dollar impact. maxResults and nextPageToken implement
+// opaque-cursor pagination.
 func (b *InMemoryBackend) GetAnomalies(
 	monitorARN, feedback, startDate, endDate string, maxResults int, nextPageToken string,
+	totalImpact *TotalImpactFilter,
 ) ([]*Anomaly, string) {
 	b.mu.RLock("GetAnomalies")
 	defer b.mu.RUnlock()
@@ -405,12 +443,18 @@ func (b *InMemoryBackend) GetAnomalies(
 			continue
 		}
 
-		// Filter by date interval: anomaly must overlap [startDate, endDate].
+		// Filter by AnomalyEndDate alone, per GetAnomaliesInput.DateInterval's doc
+		// comment: "The returned anomaly object will have an AnomalyEndDate in the
+		// specified time range." AnomalyStartDate plays no part in the match.
 		if startDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate < startDate {
 			continue
 		}
 
-		if endDate != "" && a.AnomalyStartDate != "" && a.AnomalyStartDate > endDate {
+		if endDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate > endDate {
+			continue
+		}
+
+		if totalImpact != nil && !totalImpact.matches(a.TotalImpact) {
 			continue
 		}
 

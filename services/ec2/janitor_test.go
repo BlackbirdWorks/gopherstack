@@ -47,7 +47,7 @@ func TestJanitor_SweepOnce(t *testing.T) {
 			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
 			// Create and terminate an instance.
-			vpc, err := b.CreateVpc("10.0.0.0/16")
+			vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 			require.NoError(t, err)
 			subnet, err := b.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
 			require.NoError(t, err)

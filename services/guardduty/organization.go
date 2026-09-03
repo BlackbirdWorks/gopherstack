@@ -1,6 +1,7 @@
 package guardduty
 
 import (
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -30,7 +31,10 @@ func (b *InMemoryBackend) DisableOrganizationAdminAccount(adminAccountID string)
 }
 
 // ListOrganizationAdminAccounts returns all org admin accounts.
-func (b *InMemoryBackend) ListOrganizationAdminAccounts() []*OrgAdminAccount {
+func (b *InMemoryBackend) ListOrganizationAdminAccounts(
+	maxResults int32,
+	nextToken string,
+) ([]*OrgAdminAccount, string) {
 	b.mu.RLock("ListOrganizationAdminAccounts")
 	defer b.mu.RUnlock()
 
@@ -42,7 +46,17 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts() []*OrgAdminAccount {
 		all = append(all, &cp)
 	}
 
-	return all
+	sort.Slice(all, func(i, j int) bool { return all[i].AdminAccountID < all[j].AdminAccountID })
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, ""
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(all, offset, size)
+
+	return page, next
 }
 
 // DescribeOrganizationConfiguration returns org config for a detector.

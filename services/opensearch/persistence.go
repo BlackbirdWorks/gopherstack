@@ -31,7 +31,7 @@ import (
 // about decoding an older snapshot became unsafe. Only bump this when a
 // registered/DTO table's value *shape* changes (as the 1->2 and 2->3 bumps
 // above did), not for pure table additions.
-const opensearchSnapshotVersion = 3
+const opensearchSnapshotVersion = 4
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
 // domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors

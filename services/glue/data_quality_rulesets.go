@@ -224,7 +224,7 @@ func (b *InMemoryBackend) CancelDataQualityRulesetEvaluationRun(runID string) er
 	if run.Status != stateRunning {
 		return ErrValidation
 	}
-	run.Status = "CANCELLED"
+	run.Status = stateStopped
 
 	return nil
 }
@@ -284,7 +284,7 @@ func (b *InMemoryBackend) CancelDataQualityRuleRecommendationRun(runID string) e
 		return ErrDQRecommendationRunNotFound
 	}
 
-	run.Status = "CANCELLED"
+	run.Status = stateStopped
 
 	return nil
 }
@@ -302,7 +302,11 @@ func (b *InMemoryBackend) ListDataQualityRuleRecommendationRuns() []*DQRuleRecom
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].RecommendationRunID < runs[k].RecommendationRunID
 	})
 
 	return runs

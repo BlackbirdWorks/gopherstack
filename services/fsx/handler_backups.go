@@ -20,9 +20,10 @@ func (h *Handler) handleCreateBackup(_ context.Context, in *createBackupInput) (
 // --- DescribeBackups ---
 
 type describeBackupsInput struct {
-	NextToken  string   `json:"NextToken,omitempty"`
-	BackupIDs  []string `json:"BackupIds,omitempty"`
-	MaxResults int32    `json:"MaxResults,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
+	BackupIDs  []string     `json:"BackupIds,omitempty"`
+	Filters    []wireFilter `json:"Filters,omitempty"`
+	MaxResults int32        `json:"MaxResults,omitempty"`
 }
 
 type describeBackupsOutput struct {
@@ -31,7 +32,7 @@ type describeBackupsOutput struct {
 }
 
 func (h *Handler) handleDescribeBackups(_ context.Context, in *describeBackupsInput) (*describeBackupsOutput, error) {
-	bks, next, err := h.Backend.DescribeBackups(in.BackupIDs, in.MaxResults, in.NextToken)
+	bks, next, err := h.Backend.DescribeBackups(in.BackupIDs, in.Filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

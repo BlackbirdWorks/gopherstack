@@ -867,3 +867,42 @@ func TestHandler_QuotaShare_Lifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
+
+// TestHandler_UpdateJobQueue_SchedulingPolicyArn covers gopherstack-4shm's
+// class directly: UpdateJobQueueInput.SchedulingPolicyArn is a real field
+// (batch@v1.68.4 api_op_UpdateJobQueue.go: "the fair-share scheduling
+// policy can be replaced but not removed") that the WrapOp-dispatched
+// handler decoded but never passed to the backend at all. Asserts on the
+// decoded DescribeJobQueues response, not just err == nil.
+func TestHandler_UpdateJobQueue_SchedulingPolicyArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "sched-jq",
+		"priority":     10,
+		"state":        "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	const wantArn = "aws:aws:batch:us-east-1:123456789012:scheduling-policy/MySchedulingPolicy"
+
+	rec = post(t, h, "/v1/updatejobqueue", map[string]any{
+		"jobQueue":            "sched-jq",
+		"schedulingPolicyArn": wantArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/describejobqueues", map[string]any{"jobQueues": []string{"sched-jq"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		JobQueues []struct {
+			SchedulingPolicyArn string `json:"schedulingPolicyArn"`
+		} `json:"jobQueues"`
+	}
+	mustUnmarshal(t, rec, &out)
+	require.Len(t, out.JobQueues, 1)
+	assert.Equal(t, wantArn, out.JobQueues[0].SchedulingPolicyArn)
+}

@@ -95,7 +95,35 @@ func (b *InMemoryBackend) CreateResourceConfiguration(
 	b.resourceConfigurations.Put(rc)
 	b.tags[rcARN] = copyTags(tags)
 
-	return rc.toResourceConfiguration(), nil
+	out := rc.toResourceConfiguration()
+	out.DomainVerificationARN, out.DomainVerificationStatus = b.resolveDomainVerificationInfo(
+		b.effectiveDomainVerificationID(rc),
+	)
+
+	return out, nil
+}
+
+// effectiveDomainVerificationID returns rc's own DomainVerificationID, or --
+// for a CHILD resource configuration that never set one -- its parent
+// GROUP's current DomainVerificationID. Real AWS: "Child resources inherit
+// the verification status of the [parent GROUP's] domain"
+// (CreateResourceConfigurationInput.GroupDomain doc comment), and that
+// inheritance is live, not a create-time snapshot -- if the parent's domain
+// verification later changes, the CHILD's Get/CreateResourceConfiguration
+// response must reflect the parent's CURRENT identifier, so this resolves
+// against the parent record on every call rather than copying the ID once.
+// Must be called under b.mu.
+func (b *InMemoryBackend) effectiveDomainVerificationID(rc *storedResourceConfiguration) string {
+	if rc.DomainVerificationID != "" || rc.Type != "CHILD" || rc.ResourceConfigurationGroupID == "" {
+		return rc.DomainVerificationID
+	}
+
+	parent, ok := b.resourceConfigurations.Get(rc.ResourceConfigurationGroupID)
+	if !ok {
+		return ""
+	}
+
+	return parent.DomainVerificationID
 }
 
 // resolveResourceConfigurationParents validates and resolves
@@ -148,7 +176,12 @@ func (b *InMemoryBackend) GetResourceConfiguration(id string) (*ResourceConfigur
 
 	rc, _ := b.resourceConfigurations.Get(rcID)
 
-	return rc.toResourceConfiguration(), nil
+	out := rc.toResourceConfiguration()
+	out.DomainVerificationARN, out.DomainVerificationStatus = b.resolveDomainVerificationInfo(
+		b.effectiveDomainVerificationID(rc),
+	)
+
+	return out, nil
 }
 
 // UpdateResourceConfiguration updates a resource configuration's

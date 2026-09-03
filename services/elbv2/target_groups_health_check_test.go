@@ -127,7 +127,15 @@ func TestTargetGroupGrpcMatcherPersisted(t *testing.T) {
 	assert.Equal(t, "0", resp.Result.TargetGroups.Members[0].Matcher.GrpcCode)
 }
 
-// TestCrossZoneLoadBalancingDefault verifies CrossZoneLoadBalancing defaults to true.
+// TestCrossZoneLoadBalancingDefault verifies cross-zone load balancing
+// defaults to enabled, surfaced the real way -- as the
+// "load_balancing.cross_zone.enabled" DescribeTargetGroupAttributes
+// attribute (elasticloadbalancingv2@v1.58.5 deserializers.go). Real AWS's
+// TargetGroup type (returned by DescribeTargetGroups) has no
+// CrossZoneLoadBalancing member at all; gopherstack previously also emitted
+// one directly on DescribeTargetGroups, a fabricated field a real client's
+// decoder silently drops -- confirmed by hand-reverting: this test's
+// predecessor asserted that fabricated field as correct.
 func TestCrossZoneLoadBalancingDefault(t *testing.T) {
 	t.Parallel()
 
@@ -135,24 +143,32 @@ func TestCrossZoneLoadBalancingDefault(t *testing.T) {
 	tgArn := mustCreateTG(t, h, "cz-tg")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                   {"DescribeTargetGroups"},
-		"Version":                  {"2015-12-01"},
-		"TargetGroupArns.member.1": {tgArn},
+		"Action":         {"DescribeTargetGroupAttributes"},
+		"Version":        {"2015-12-01"},
+		"TargetGroupArn": {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
 		Result struct {
-			TargetGroups struct {
+			Attributes struct {
 				Members []struct {
-					CrossZoneLoadBalancing bool `xml:"CrossZoneLoadBalancing"`
+					Key   string `xml:"Key"`
+					Value string `xml:"Value"`
 				} `xml:"member"`
-			} `xml:"TargetGroups"`
-		} `xml:"DescribeTargetGroupsResult"`
+			} `xml:"Attributes"`
+		} `xml:"DescribeTargetGroupAttributesResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Result.TargetGroups.Members, 1)
-	assert.True(t, resp.Result.TargetGroups.Members[0].CrossZoneLoadBalancing)
+
+	found := false
+	for _, m := range resp.Result.Attributes.Members {
+		if m.Key == "load_balancing.cross_zone.enabled" {
+			found = true
+			assert.Equal(t, "true", m.Value)
+		}
+	}
+	assert.True(t, found, "load_balancing.cross_zone.enabled attribute should be present")
 }
 
 // TestModifyTargetGroupAttributesPersists verifies deregistration_delay is persisted.

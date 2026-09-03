@@ -32,20 +32,24 @@ func sqlHaSupportedOperations() []string {
 // ---- Response shapes ----
 
 type registeredSQLHaInstanceItem struct {
-	InstanceID            string `xml:"instanceId,omitempty"`
-	HaStatus              string `xml:"haStatus,omitempty"`
-	LastUpdatedTime       string `xml:"lastUpdatedTime,omitempty"`
-	ProcessingStatus      string `xml:"processingStatus,omitempty"`
-	SQLServerLicenseUsage string `xml:"sqlServerLicenseUsage,omitempty"`
+	InstanceID            string          `xml:"instanceId,omitempty"`
+	HaStatus              string          `xml:"haStatus,omitempty"`
+	LastUpdatedTime       string          `xml:"lastUpdatedTime,omitempty"`
+	ProcessingStatus      string          `xml:"processingStatus,omitempty"`
+	SQLServerCredentials  string          `xml:"sqlServerCredentials,omitempty"`
+	SQLServerLicenseUsage string          `xml:"sqlServerLicenseUsage,omitempty"`
+	TagSet                []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toRegisteredSQLHaInstanceItem(r *RegisteredSQLHaInstance) registeredSQLHaInstanceItem {
+func toRegisteredSQLHaInstanceItem(r *RegisteredSQLHaInstance, tags map[string]string) registeredSQLHaInstanceItem {
 	return registeredSQLHaInstanceItem{
 		InstanceID:            r.InstanceID,
 		HaStatus:              r.HaStatus,
 		LastUpdatedTime:       r.LastUpdatedTime.UTC().Format(time.RFC3339),
 		ProcessingStatus:      r.ProcessingStatus,
+		SQLServerCredentials:  r.SQLServerCredentials,
 		SQLServerLicenseUsage: r.SQLServerLicenseUsage,
+		TagSet:                tagItemsFromMap(tags),
 	}
 }
 
@@ -97,7 +101,10 @@ func (h *Handler) handleEnableInstanceSQLHaStandbyDetections(vals url.Values, re
 
 	resp := &enableInstanceSQLHaStandbyDetectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range regs {
-		resp.InstanceSet.Items = append(resp.InstanceSet.Items, toRegisteredSQLHaInstanceItem(r))
+		resp.InstanceSet.Items = append(
+			resp.InstanceSet.Items,
+			toRegisteredSQLHaInstanceItem(r, h.Backend.TagsForResource(r.InstanceID)),
+		)
 	}
 
 	return resp, nil
@@ -113,7 +120,10 @@ func (h *Handler) handleDisableInstanceSQLHaStandbyDetections(vals url.Values, r
 
 	resp := &disableInstanceSQLHaStandbyDetectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range regs {
-		resp.InstanceSet.Items = append(resp.InstanceSet.Items, toRegisteredSQLHaInstanceItem(r))
+		resp.InstanceSet.Items = append(
+			resp.InstanceSet.Items,
+			toRegisteredSQLHaInstanceItem(r, h.Backend.TagsForResource(r.InstanceID)),
+		)
 	}
 
 	return resp, nil
@@ -125,7 +135,10 @@ func (h *Handler) handleDescribeInstanceSQLHaStates(vals url.Values, reqID strin
 
 	resp := &describeInstanceSQLHaStatesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range regs {
-		resp.InstanceSet.Items = append(resp.InstanceSet.Items, toRegisteredSQLHaInstanceItem(r))
+		resp.InstanceSet.Items = append(
+			resp.InstanceSet.Items,
+			toRegisteredSQLHaInstanceItem(r, h.Backend.TagsForResource(r.InstanceID)),
+		)
 	}
 
 	return resp, nil
@@ -136,11 +149,16 @@ func (h *Handler) handleDescribeInstanceSQLHaHistoryStates(vals url.Values, reqI
 	startTime, _ := time.Parse(time.RFC3339, vals.Get("StartTime"))
 	endTime, _ := time.Parse(time.RFC3339, vals.Get("EndTime"))
 
-	regs := h.Backend.DescribeInstanceSQLHaHistoryStates(instanceIDs, startTime, endTime)
+	regs := applySQLHaHistoryFilters(
+		h.Backend.DescribeInstanceSQLHaHistoryStates(instanceIDs, startTime, endTime), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeInstanceSQLHaHistoryStatesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range regs {
-		resp.InstanceSet.Items = append(resp.InstanceSet.Items, toRegisteredSQLHaInstanceItem(r))
+		resp.InstanceSet.Items = append(
+			resp.InstanceSet.Items,
+			toRegisteredSQLHaInstanceItem(r, h.Backend.TagsForResource(r.InstanceID)),
+		)
 	}
 
 	return resp, nil

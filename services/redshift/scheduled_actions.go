@@ -2,6 +2,12 @@ package redshift
 
 import "fmt"
 
+// scheduledActionStateActiveValue is the wire State value scheduledActionState
+// returns for an enabled scheduled action. Named locally (rather than reusing
+// dataShareStatusActive, which shares the "ACTIVE" string by coincidence) so a
+// future change to either enum can't silently desync the other.
+const scheduledActionStateActiveValue = "ACTIVE"
+
 // scheduledActionState returns the wire State ("ACTIVE"/"DISABLED") for the given
 // Enable input. A nil enable (unspecified) defaults to enabled, matching this
 // backend's prior always-ACTIVE behavior for callers that don't pass Enable.
@@ -10,7 +16,7 @@ func scheduledActionState(enable *bool) string {
 		return "DISABLED"
 	}
 
-	return dataShareStatusActive
+	return scheduledActionStateActiveValue
 }
 
 // CreateScheduledAction creates a new Redshift scheduled action.

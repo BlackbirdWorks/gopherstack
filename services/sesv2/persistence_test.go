@@ -189,7 +189,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "CREATED", job.JobStatus)
 
-	importJobs := fresh.ListImportJobs("", 0)
+	importJobs := fresh.ListImportJobs("", "", 0)
 	require.Len(t, importJobs.Data, 1)
 
 	suppressed, err := fresh.GetSuppressedDestination("suppressed@example.com")

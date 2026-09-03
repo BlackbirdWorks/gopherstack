@@ -209,6 +209,10 @@ type AlarmHistoryItem struct {
 	HistoryItemType string    `json:"HistoryItemType"`
 	HistorySummary  string    `json:"HistorySummary"`
 	HistoryData     string    `json:"HistoryData,omitempty"`
+	// seq is a monotonic append order, used only as a DescribeAlarmHistory sort
+	// tiebreak when two items share a Timestamp. Deliberately unexported and
+	// untagged so it is never part of the wire shape or persisted snapshot.
+	seq uint64
 }
 
 // MetricStat specifies a metric and statistic for a MetricDataQuery.

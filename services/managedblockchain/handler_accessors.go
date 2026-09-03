@@ -14,6 +14,10 @@ func (h *Handler) handleCreateAccessor(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.ClientRequestToken == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
+	}
+
 	accessor, err := h.Backend.CreateAccessor(
 		h.DefaultRegion,
 		h.AccountID,

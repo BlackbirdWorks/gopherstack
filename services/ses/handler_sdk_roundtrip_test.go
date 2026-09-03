@@ -1,6 +1,7 @@
 package ses_test
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
+	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,4 +116,144 @@ func testListTemplates(t *testing.T, backend *ses.InMemoryBackend, client *sessd
 	require.NoError(t, err)
 	require.Len(t, out.TemplatesMetadata, 1)
 	assert.Equal(t, "rt-template", aws.ToString(out.TemplatesMetadata[0].Name))
+}
+
+// TestListReceiptRuleSets_Pagination proves ListReceiptRuleSetsInput.NextToken
+// (api_op_ListReceiptRuleSets.go) is actually plumbed through: the handler
+// previously took no query params at all and always returned every rule set
+// in one page.
+func TestListReceiptRuleSets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := ses.NewInMemoryBackend()
+	h := ses.NewHandler(backend)
+	client := newTestSESClient(t, h)
+	ctx := t.Context()
+
+	// ListReceiptRuleSetsInput has no MaxItems (real AWS hardcodes the page
+	// size at 100 -- see its NextToken doc comment), so proving truncation
+	// needs more than 100 rule sets.
+	const total = 101
+	for i := range total {
+		require.NoError(t, backend.CreateReceiptRuleSet(fmt.Sprintf("rs-%03d", i)))
+	}
+
+	page1, err := client.ListReceiptRuleSets(ctx, &sessdk.ListReceiptRuleSetsInput{})
+	require.NoError(t, err)
+	require.Len(t, page1.RuleSets, 100)
+	require.NotNil(t, page1.NextToken, "a truncated page must return a NextToken")
+
+	page2, err := client.ListReceiptRuleSets(ctx, &sessdk.ListReceiptRuleSetsInput{
+		NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	assert.Len(t, page2.RuleSets, 1)
+}
+
+// TestListCustomVerificationEmailTemplates_Pagination proves
+// ListCustomVerificationEmailTemplatesInput.MaxResults/NextToken
+// (api_op_ListCustomVerificationEmailTemplates.go) are honoured: the
+// handler previously took no query params at all and always returned every
+// template in one page.
+func TestListCustomVerificationEmailTemplates_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := ses.NewInMemoryBackend()
+	h := ses.NewHandler(backend)
+	client := newTestSESClient(t, h)
+	ctx := t.Context()
+
+	for _, name := range []string{"tmpl-a", "tmpl-b", "tmpl-c"} {
+		require.NoError(t, backend.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
+			TemplateName:          name,
+			FromEmailAddress:      "sender@example.com",
+			TemplateSubject:       "Verify",
+			TemplateContent:       "<a>{{RedirectUrl}}</a>",
+			SuccessRedirectionURL: "https://example.com/success",
+			FailureRedirectionURL: "https://example.com/failure",
+		}))
+	}
+
+	out, err := client.ListCustomVerificationEmailTemplates(ctx, &sessdk.ListCustomVerificationEmailTemplatesInput{
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.CustomVerificationEmailTemplates, 2)
+	require.NotNil(t, out.NextToken, "a truncated page must return a NextToken")
+
+	next, err := client.ListCustomVerificationEmailTemplates(ctx, &sessdk.ListCustomVerificationEmailTemplatesInput{
+		NextToken: out.NextToken,
+	})
+	require.NoError(t, err)
+	assert.Len(t, next.CustomVerificationEmailTemplates, 1)
+}
+
+// TestListTemplates_DefaultAndCappedPageSize proves ListTemplatesInput.MaxItems'
+// documented default and cap (api_op_ListTemplates.go: "must be at least 1 and
+// less than or equal to 100... automatically set to 100... If you do not
+// specify a value, 10 is the default page size").
+func TestListTemplates_DefaultAndCappedPageSize(t *testing.T) {
+	t.Parallel()
+
+	backend := ses.NewInMemoryBackend()
+	h := ses.NewHandler(backend)
+	client := newTestSESClient(t, h)
+	ctx := t.Context()
+
+	for i := range 105 {
+		require.NoError(t, backend.CreateTemplate(ses.EmailTemplate{
+			TemplateName: fmt.Sprintf("tmpl-%03d", i),
+			SubjectPart:  "hello",
+		}))
+	}
+
+	byDefault, err := client.ListTemplates(ctx, &sessdk.ListTemplatesInput{})
+	require.NoError(t, err)
+	assert.Len(t, byDefault.TemplatesMetadata, 10, "an absent MaxItems must default to 10, not sesDefaultMaxItems")
+
+	capped, err := client.ListTemplates(ctx, &sessdk.ListTemplatesInput{MaxItems: aws.Int32(1000)})
+	require.NoError(t, err)
+	assert.Len(t, capped.TemplatesMetadata, 100, "MaxItems above 100 must be capped at 100, not unlimited")
+}
+
+// TestDescribeConfigurationSet_AttributeNames proves
+// DescribeConfigurationSetInput.ConfigurationSetAttributeNames
+// (api_op_DescribeConfigurationSet.go: "A list of configuration set
+// attributes to return") gates which optional sub-objects come back --
+// real SES only returns EventDestinations/TrackingOptions/DeliveryOptions/
+// ReputationOptions when their name is explicitly requested.
+func TestDescribeConfigurationSet_AttributeNames(t *testing.T) {
+	t.Parallel()
+
+	backend := ses.NewInMemoryBackend()
+	h := ses.NewHandler(backend)
+	client := newTestSESClient(t, h)
+	ctx := t.Context()
+
+	require.NoError(t, backend.CreateConfigurationSet("attr-cs"))
+	require.NoError(t, backend.CreateConfigurationSetTrackingOptions("attr-cs", "track.example.com"))
+
+	none, err := client.DescribeConfigurationSet(ctx, &sessdk.DescribeConfigurationSetInput{
+		ConfigurationSetName: aws.String("attr-cs"),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, none.TrackingOptions, "TrackingOptions must be absent when not requested")
+	assert.Nil(t, none.ReputationOptions, "ReputationOptions must be absent when not requested")
+	assert.Nil(t, none.DeliveryOptions, "DeliveryOptions must be absent when not requested")
+	assert.Empty(t, none.EventDestinations, "EventDestinations must be absent when not requested")
+
+	withTracking, err := client.DescribeConfigurationSet(ctx, &sessdk.DescribeConfigurationSetInput{
+		ConfigurationSetName: aws.String("attr-cs"),
+		ConfigurationSetAttributeNames: []types.ConfigurationSetAttribute{
+			types.ConfigurationSetAttributeTrackingOptions,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, withTracking.TrackingOptions)
+	assert.Equal(t, "track.example.com", aws.ToString(withTracking.TrackingOptions.CustomRedirectDomain))
+	assert.Nil(
+		t,
+		withTracking.ReputationOptions,
+		"ReputationOptions must stay absent when only trackingOptions is requested",
+	)
 }

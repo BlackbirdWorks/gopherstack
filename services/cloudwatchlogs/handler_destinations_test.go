@@ -62,13 +62,19 @@ func TestHandler_Destination(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:   "PutDestinationPolicy/NotFound",
+			// PutDestinationPolicy's own deserializer declares
+			// InvalidParameterException/OperationAbortedException/
+			// ServiceUnavailableException, not ResourceNotFoundException, so an
+			// unknown destination reports 400 InvalidParameterException here,
+			// not 404 -- unlike DeleteDestination/NotFound below, whose op does
+			// declare ResourceNotFoundException.
+			name:   "PutDestinationPolicy/InvalidParameter",
 			action: "PutDestinationPolicy",
 			body: map[string]any{
 				"destinationName": "ghost",
 				"accessPolicy":    `{}`,
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DescribeDestinations/WithPrefix",

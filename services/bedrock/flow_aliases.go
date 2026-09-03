@@ -79,7 +79,13 @@ func (b *InMemoryBackend) ListFlowAliases(
 		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+
+		return list[i].FlowAliasID < list[j].FlowAliasID
+	})
 
 	return paginate(list, maxResults, nextToken)
 }

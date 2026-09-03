@@ -124,8 +124,11 @@ func (b *InMemoryBackend) CreateIdentityProvider(
 	}
 
 	if _, exists := b.identityProviders.Get(identityProviderKey(userPoolID, providerName)); exists {
+		// CreateIdentityProvider's own deserializer models
+		// DuplicateProviderException for this, not GroupExistsException
+		// (ErrAlreadyExists is CreateGroup's sentinel, not this op's).
 		return nil, fmt.Errorf("%w: identity provider %q already exists in pool %q",
-			ErrAlreadyExists, providerName, userPoolID)
+			ErrDuplicateProvider, providerName, userPoolID)
 	}
 
 	now := time.Now()

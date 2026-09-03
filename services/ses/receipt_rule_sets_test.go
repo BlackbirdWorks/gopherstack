@@ -452,10 +452,12 @@ func TestHandler_DeleteReceiptRuleSet(t *testing.T) {
 			wantContains: "DeleteReceiptRuleSetResponse",
 		},
 		{
-			name:         "not_found",
+			// Idempotent: DeleteReceiptRuleSet's own deserializer (ses@v1.37.4
+			// deserializers.go) declares only CannotDelete, not RuleSetDoesNotExist.
+			name:         "not_found_is_idempotent",
 			body:         "Action=DeleteReceiptRuleSet&Version=2010-12-01&RuleSetName=nonexistent",
-			wantCode:     http.StatusBadRequest,
-			wantContains: "RuleSetDoesNotExist",
+			wantCode:     http.StatusOK,
+			wantContains: "DeleteReceiptRuleSetResponse",
 		},
 		{
 			name:         "empty_name",
@@ -688,8 +690,8 @@ func TestBackend_ListReceiptRuleSets_SortedOrder(t *testing.T) {
 	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "zzz-set", CreatedAt: time.Now()})
 	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "aaa-set", CreatedAt: time.Now()})
 
-	sets := b.ListReceiptRuleSets()
-	require.Len(t, sets, 2)
-	assert.Equal(t, "aaa-set", sets[0].Name)
-	assert.Equal(t, "zzz-set", sets[1].Name)
+	sets := b.ListReceiptRuleSets("")
+	require.Len(t, sets.Data, 2)
+	assert.Equal(t, "aaa-set", sets.Data[0].Name)
+	assert.Equal(t, "zzz-set", sets.Data[1].Name)
 }

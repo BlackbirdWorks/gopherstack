@@ -147,9 +147,10 @@ func (h *Handler) handleDeleteStorageVirtualMachine(
 // --- DescribeStorageVirtualMachines ---
 
 type describeStorageVirtualMachinesInput struct {
-	NextToken                string   `json:"NextToken,omitempty"`
-	StorageVirtualMachineIDs []string `json:"StorageVirtualMachineIds,omitempty"`
-	MaxResults               int32    `json:"MaxResults,omitempty"`
+	NextToken                string       `json:"NextToken,omitempty"`
+	StorageVirtualMachineIDs []string     `json:"StorageVirtualMachineIds,omitempty"`
+	Filters                  []wireFilter `json:"Filters,omitempty"`
+	MaxResults               int32        `json:"MaxResults,omitempty"`
 }
 
 type describeStorageVirtualMachinesOutput struct {
@@ -162,7 +163,7 @@ func (h *Handler) handleDescribeStorageVirtualMachines(
 	in *describeStorageVirtualMachinesInput,
 ) (*describeStorageVirtualMachinesOutput, error) {
 	svms, next, err := h.Backend.DescribeStorageVirtualMachines(
-		in.StorageVirtualMachineIDs, in.MaxResults, in.NextToken,
+		in.StorageVirtualMachineIDs, in.Filters, in.MaxResults, in.NextToken,
 	)
 	if err != nil {
 		return nil, err
@@ -236,9 +237,10 @@ func (h *Handler) handleDeleteDataRepositoryAssociation(
 // --- DescribeDataRepositoryAssociations ---
 
 type describeDataRepositoryAssociationsInput struct {
-	NextToken      string   `json:"NextToken,omitempty"`
-	AssociationIDs []string `json:"AssociationIds,omitempty"`
-	MaxResults     int32    `json:"MaxResults,omitempty"`
+	NextToken      string       `json:"NextToken,omitempty"`
+	AssociationIDs []string     `json:"AssociationIds,omitempty"`
+	Filters        []wireFilter `json:"Filters,omitempty"`
+	MaxResults     int32        `json:"MaxResults,omitempty"`
 }
 
 type describeDataRepositoryAssociationsOutput struct {
@@ -250,7 +252,12 @@ func (h *Handler) handleDescribeDataRepositoryAssociations(
 	_ context.Context,
 	in *describeDataRepositoryAssociationsInput,
 ) (*describeDataRepositoryAssociationsOutput, error) {
-	assocs, next, err := h.Backend.DescribeDataRepositoryAssociations(in.AssociationIDs, in.MaxResults, in.NextToken)
+	assocs, next, err := h.Backend.DescribeDataRepositoryAssociations(
+		in.AssociationIDs,
+		in.Filters,
+		in.MaxResults,
+		in.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

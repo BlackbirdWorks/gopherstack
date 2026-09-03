@@ -91,6 +91,24 @@ families:
   gui_sessions: {status: ok, note: "3 ops, tagging_vpc_misc.go. Real SettingUp->Ready timer-driven state walk per instance, real Stop/restart bookkeeping."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps:
+  - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
+    the cloudwatchlogs/memorydb bug class (an identifier/storage key built from the backend's
+    fixed default region instead of the request's) against this service. Confirmed CLEAN, and by
+    a stronger margin than a mere absence of evidence: this service's OWN code explicitly
+    documents the intended architecture at disks.go's CopySnapshot (the one genuinely cross-region
+    op in the whole 161-op surface) -- \"This repo models each AWS region as its own separate
+    InMemoryBackend instance\" -- and every handler in this package discards ctx
+    ((_ context.Context, body []byte)) because NewInMemoryBackend(ctx, accountID, region) fixes
+    both identity dimensions once, at construction, for the life of the instance; every
+    store_setup.go KeyFn is Name-alone (not even AccountID-scoped, since one instance is also one
+    account). This is the same single-account-single-region-per-process design already
+    independently confirmed correct for regionalARN/globalARN/distributionARN (store.go, section
+    5.1/1047-1055 above -- Domain literal-\"global\", Distribution region-agnostic-but-reports-
+    us-east-1, everything else regional-via-b.region) with zero sibling inconsistency: no operation
+    anywhere in this package derives region from a request the way services/ssm's
+    getRegion(ctx)/httputils.ExtractRegionFromRequest does (confirmed absent from this package).
+    Not a bug per this task's own criterion that a uniformly single-region service can be a
+    legitimate design -- no fix made."
   - "NEW this pass (gopherstack-jigw, 2026-08-13): UpdateDistributionInput.Origin
     (*types.InputOrigin) is real and optional but not wired -- UpdateDistribution
     (certificates_distributions.go) now accepts and replaces
@@ -1205,3 +1223,127 @@ eyeballed, per this campaign's stated practice of catching an audit's own arithm
 
 No corrections were needed to the counts above after this re-check; this note itself IS that
 re-check, done before this document was finalized rather than after.
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order. Every resource collection in this backend is a `store.Table[V]`
+keyed by `Name` (or, for a handful of families, another field), so a sort on
+that same key field is total by construction — `Table.Put` cannot produce
+two distinct entries with equal key. That covers every `Name`-sorted site
+(instances, disks, static IPs, key pairs, snapshots, load balancers,
+databases, buckets, distributions, domains, certificates, alarms, CFN stack
+records, export snapshot records, container services) and the one
+`Protocol`-sorted site (`alarms_contacts.go`'s contact-method listing —
+`contactMethodKeyFn` keys the table on `Protocol` itself, so two contact
+methods with the same protocol cannot coexist). None of those needed a
+change.
+
+**Fixed (non-total sort, tiebreak added) — `CreatedAt`-based, sourced from
+`store.Table.All()` (unordered map iteration) with no tiebreak:**
+
+- `GetOperations` — sorted on `Operation.CreatedAt` alone. Operations are
+  routinely created in batches (one mutating call can spawn several), so a
+  tie is the ordinary case, not a contrived one. Added `ID` tiebreak.
+- `GetOperationsForResource` — same `CreatedAt`-alone sort, same fix
+  (`ID` tiebreak). Its source is `opsByResource.Get` (an `Index`), not
+  `Table.All()` — see the mutation-safety fix below, which is the more
+  serious bug at this call site.
+- `GetSetupHistory` — same `CreatedAt`-alone sort in both branches
+  (`resourceName`-scoped via the `setupHistoryByResource` index, and the
+  unscoped `setupHistory.All()` branch). Added `OperationID` tiebreak to
+  both.
+
+**Also fixed — a second, more serious bug found at the same two call
+sites while auditing them for totality:** `Index.Get` returns the index's
+own backing slice (its doc comment: *"The returned slice is owned by the
+index — the caller must not mutate it"*), but `GetOperationsForResource` and
+`GetSetupHistory`'s `resourceName`-scoped branch both passed that slice
+straight into `sort.Slice`, reordering the index's live bucket in place.
+Under this package's coarse-lock convention that's a correctness bug even
+single-threaded (a concurrent `RLock` reader of the same `resourceName`
+observes the sort mid-flight) and a `go test -race` hazard the moment two
+goroutines call either method concurrently for the same resource. Fixed by
+copying the slice (`append([]*T(nil), idx.Get(...)...)`) before sorting.
+Verified with `go test -race -count=1 ./services/lightsail/...` — clean.
+
+**Confirmed correct, left unfixed (evidence, not presumption):**
+
+- `addons.go`'s `sortAutoSnapshots` (sorts `AutoSnapshotDetails.Date`) reads
+  from `Instance.AutoSnapshots`/`Disk.AutoSnapshots`, a strictly
+  append-ordered slice field (`i.AutoSnapshots = append(...)`), never
+  rebuilt from a map or index. Same shape as the `ram`-listings precedent
+  from the prior pass: append-ordered source means a tied `Date`'s relative
+  order is a fixed function of insertion order, reproducible across repeated
+  calls with no intervening mutation — and in practice an auto-snapshot's
+  `Date` (one per calendar day) cannot tie for the same resource anyway. Not
+  fixed; not observably unstable.
+- `databases.go`'s `GetRelationalDatabaseEvents` sorts `db.Events`, also a
+  strictly append-ordered slice field (`db.Events = append(...)`) reached via
+  a single unique-key `Table.Get(name)` lookup, not iteration. Same
+  reasoning; not fixed.
+
+**Existing test-suite weakness confirmed:** no existing pagination test in
+this package constructed a tie group and compared item identity across a
+full multi-page walk. `GetOperations`/`GetOperationsForResource`/
+`GetSetupHistory` all page at a fixed size (`defaultPageLimit` = 100 — none
+of the three real Lightsail ops they mirror takes a caller-supplied page
+size), so the new tests (`pagination_sort_totality_test.go`) seed 105 tied
+records per case to force a real two-page boundary, via new
+`SeedOperationForTest`/`SeedSetupHistoryEntryForTest` test-only helpers
+(`export_test.go`, this package's first — added following the same pattern
+already established in `bedrock`/`cloudwatchlogs`) since neither type's
+`CreatedAt` is otherwise reachable from a `_test` package to force an exact
+tie.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/lightsail/...`).
+
+## 2026-08-30 gopherstack-wlo1: error-envelope sweep, confirmed clean
+
+Lightsail is `awsAwsjson11` (AWS JSON 1.1 RPC), not restjson1 -- confirmed
+by `deserializers.go`'s `awsAwsjson11_deserializeOpError<Op>` function name
+prefix on all 161 ops. Read all 161 (161-of-161, not sampled): every one is
+byte-identical generated boilerplate calling `getProtocolErrorInfo(decoder)`
+plus `response.Header.Get("X-Amzn-ErrorType")`, resolved via
+`resolveProtocolErrorType` (header first, else body `__type`, else body
+`code`), with `message`/`Message` (case-insensitive, untagged struct field)
+for the message. `handler.go`'s `handleError` writes exactly
+`{"__type": errType, "message": err.Error()}` -- no header needed since the
+body `__type` key alone satisfies the client's fallback. Single error path
+confirmed: grepped for any other `JSONBlob`/`__type` writer in the package,
+found none -- `handleError` is the sole call site, used for both real
+business-logic errors (`classifyLightsailError`) and framework-level
+dispatch failures (`pkgs/service/jsondisp.go`'s shared `writeDispatchError`,
+already fixed for the whole JSON-target family). HTTP status doesn't affect
+identification here -- the client's error path triggers on any status
+outside 200-299, confirmed in the generated deserializer.
+
+No bug found. Added `TestErrorEnvelope_NotFoundDecodesToTypedError`
+(`error_envelope_test.go`), driving a real `lightsailsdk.Client` through
+`GetInstance` for a nonexistent instance: asserts `errors.As` unwraps to
+the concrete `*types.NotFoundException` (not just that an error occurred),
+and separately asserts on the raw response bytes/status for the same case.
+Passed against unmodified code, confirming this service's error envelope
+was already wire-correct.
+
+Gates (this pass, `services/lightsail/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Ip`/`IP`, `Tls`/`TLS`, and `Https`/`HTTPS` acronym casing
+gives it 13 op/handler pairs needing the ambiguous fold, 13 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `AllocateStaticIp`, `AttachLoadBalancerTlsCertificate`, `AttachStaticIp`, `CreateLoadBalancerTlsCertificate`, `DeleteLoadBalancerTlsCertificate`, `DetachStaticIp`, `GetLoadBalancerTlsCertificates`, `GetLoadBalancerTlsPolicies`, `GetStaticIp`, `GetStaticIps`, `ReleaseStaticIp`, `SetIpAddressType`, `SetupInstanceHttps`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (161 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

@@ -84,6 +84,11 @@ func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	snaps, err = filterSnapshotsByTimeRange(snaps, vals.Get("StartTime"), vals.Get("EndTime"))
+	if err != nil {
+		return nil, err
+	}
+
 	pageSize := defaultSnapshotPageSize
 	if maxRecordsStr != "" {
 		n, parseErr := strconv.Atoi(maxRecordsStr)
@@ -136,6 +141,52 @@ func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 		Marker:    nextMarker,
 		Snapshots: xmlSnapshotList{Members: members},
 	}, nil
+}
+
+// filterSnapshotsByTimeRange applies DescribeClusterSnapshotsInput.StartTime/
+// EndTime (inclusive bounds on Snapshot.SnapshotCreateTime, per
+// api_op_DescribeClusterSnapshots.go) before pagination, matching this
+// service's filter-before-paginate convention. Empty strings impose no bound.
+func filterSnapshotsByTimeRange(snaps []Snapshot, startStr, endStr string) ([]Snapshot, error) {
+	if startStr == "" && endStr == "" {
+		return snaps, nil
+	}
+
+	var startTime, endTime time.Time
+
+	if startStr != "" {
+		t, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid StartTime", ErrInvalidParameter)
+		}
+
+		startTime = t
+	}
+
+	if endStr != "" {
+		t, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid EndTime", ErrInvalidParameter)
+		}
+
+		endTime = t
+	}
+
+	filtered := make([]Snapshot, 0, len(snaps))
+
+	for _, s := range snaps {
+		if startStr != "" && s.SnapshotCreateTime.Before(startTime) {
+			continue
+		}
+
+		if endStr != "" && s.SnapshotCreateTime.After(endTime) {
+			continue
+		}
+
+		filtered = append(filtered, s)
+	}
+
+	return filtered, nil
 }
 
 // ---- CopyClusterSnapshot ----

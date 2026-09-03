@@ -27,6 +27,7 @@ type reservedInstancesOfferingItem struct {
 type describeReservedInstancesOfferingsResponse struct {
 	XMLName                       xml.Name `xml:"DescribeReservedInstancesOfferingsResponse"`
 	RequestID                     string   `xml:"requestId"`
+	NextToken                     string   `xml:"nextToken,omitempty"`
 	ReservedInstancesOfferingsSet struct {
 		Items []reservedInstancesOfferingItem `xml:"item"`
 	} `xml:"reservedInstancesOfferingsSet"`
@@ -193,7 +194,17 @@ func (h *Handler) handleDescribeReservedInstancesOfferings(
 
 	offerings := h.Backend.DescribeReservedInstancesOfferings(instanceType, az, productDesc)
 
-	resp := &describeReservedInstancesOfferingsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxReservedInstancesOfferings, ec2PageMaxReservedInstancesOfferings,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	offerings, nextToken = pageSlice(offerings, offset, maxResults)
+
+	resp := &describeReservedInstancesOfferingsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, o := range offerings {
 		resp.ReservedInstancesOfferingsSet.Items = append(
 			resp.ReservedInstancesOfferingsSet.Items,
@@ -278,7 +289,11 @@ func (h *Handler) handleDescribeReservedInstancesListings(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "ReservedInstancesListingId")
+	var ids []string
+	if id := vals.Get("ReservedInstancesListingId"); id != "" {
+		ids = []string{id}
+	}
+
 	listings := h.Backend.DescribeReservedInstancesListings(ids)
 
 	resp := &describeReservedInstancesListingsResponse{RequestID: reqID}

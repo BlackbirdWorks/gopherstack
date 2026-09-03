@@ -771,6 +771,62 @@ gaps:
     SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
     (see the same dated entry) remain open.
 
+  - "Constraining-parameter sweep (wrapper-key campaign, 2026-08-29): six real
+    never-applied-constraint bugs found and fixed, all confirmed with a real
+    aws-sdk-go-v2 client test that failed against the unfixed handler first.
+    (1) ListClusterAlerts never read StateFilter (SET/CLEARED/ALL) -- the
+    synthetic \"cluster-not-ready\" alert (always state SET) was returned for
+    ANY filter value, so a client asking for CLEARED alerts wrongly got the
+    SET one back; now stateFilter==\"CLEARED\" excludes it.
+    (2) ListReservations never read Codec/MaximumBitrate/MaximumFramerate/
+    Resolution/ResourceType/SpecialFeature/VideoQuality -- an account can
+    purchase an unbounded number of reservations (see the pagination test's
+    25-reservation setup), so unlike ListOfferings' fixed 3-item catalog
+    (left unfixed -- see below) this was the \"unbounded counts\" case that
+    must honor its filters, not the \"at most a few values\" restraint case;
+    now filtered via ReservationFilter (reservations.go) against each
+    reservation's inherited ResourceSpecification. ChannelClass is NOT
+    filterable -- neither Offering nor Reservation tracks it anywhere in
+    this backend, a genuine structural gap, disclosed rather than faked.
+    (3) ListCloudWatchAlarmTemplates/ListEventBridgeRuleTemplates never read
+    GroupIdentifier (resolved via the same findCWAlarmTemplateGroup/
+    findEBRuleTemplateGroup ID/ARN/name lookup Create already uses) or
+    SignalMapIdentifier (a signal map's own cloudWatchAlarmTemplateGroupIds/
+    eventBridgeRuleTemplateGroupIds lists, both AND-combinable with
+    GroupIdentifier).
+    (4) ListCloudWatchAlarmTemplateGroups/ListEventBridgeRuleTemplateGroups
+    never read SignalMapIdentifier -- same signal-map-list match, shared via
+    the new generic listTemplateGroups (cloudwatch_alarm_templates.go).
+    (5) ListSignalMaps never read CloudWatchAlarmTemplateGroupIdentifier/
+    EventBridgeRuleTemplateGroupIdentifier -- the reverse direction of (4),
+    filtering signal maps down to those referencing a given group.
+    (6) ListInputDeviceTransfers echoed back whatever transferType
+    (OUTGOING/INCOMING) the client queried on every pending transfer,
+    regardless of its real direction -- TransferInputDevice is the only way
+    this backend ever creates a pending transfer, and it always makes THIS
+    account the source (no path exists for another account to initiate a
+    transfer targeting this one), so every pending transfer is inherently
+    OUTGOING; querying INCOMING now correctly returns empty instead of the
+    same devices relabeled. This also corrected an existing test
+    (TestHandlerListInputDeviceTransfers's \"incoming transfers\" case) that
+    asserted the bug's own wrong output (wantCount: 2) as correct.
+    Left as disclosed restraint, not fixed: ListOfferings' 10 filter params
+    (ChannelClass/ChannelConfiguration/Codec/Duration/MaximumBitrate/
+    MaximumFramerate/Resolution/ResourceType/SpecialFeature/VideoQuality) --
+    seedOfferings is a fixed 3-item catalog (store.go), squarely the \"at
+    most one to three values can ever exist\" case filtering would not
+    meaningfully change; ChannelConfiguration additionally requires deriving
+    compatibility from an existing channel's configuration, a distinct
+    feature with no backing logic here. medialive's Scope filter (LOCAL vs
+    AWS_MANAGED on the CW/EB template-group List ops) was also left
+    unimplemented: it is a plain *string in the pinned SDK with no typed
+    enum anywhere in the module (grepped types/enums.go and the whole SDK
+    package for AWS_MANAGED/LOCAL -- zero hits), so its exact wire values
+    are asserted only in a prose doc comment; implementing a filter against
+    an unverified literal risks the wrong-vocabulary bug class more than
+    leaving it a documented gap, since this backend has zero AWS-managed
+    groups to ever wrongly include regardless."
+
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
@@ -1042,3 +1098,267 @@ no terraform-provider-aws resource for a MediaLive reservation and no CI
 failure to corroborate it the way the Input fix had, so this is flagged
 here as a follow-up question rather than changed.
 
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state concept (`store.go`'s shared
+`stateIdle`/`stateRunning`/`stateStopping`/`stateStarting`/`stateDeleted`/`stateDeleting`/
+`stateDetached` vocabulary spans `Channel.State`/`Multiplex.State`/`Input.State`, plus dedicated
+per-family constants for `Cluster`/`Node`/`Network`/`SdiSource`/`ChannelPlacementGroup`) against
+the real SDK enum (`medialive@v1.101.4 types/enums.go`). `cmd/enumcheck` was run both before and
+after and flagged **none** of the findings below.
+
+**Found and fixed**: `signal_maps.go`'s `SignalMap.Status`/`MonitorDeploymentStatus` — a single
+sloppy pair of literals wrong in four places, the comprehend shape (one invented vocabulary
+reused across a family of ops, not matching the real per-op enum):
+
+- `CreateSignalMap` and `StartUpdateSignalMap` both set `Status = "SUCCEEDED"`. The real member
+  is `types.SignalMapStatus` (CREATE_IN_PROGRESS/CREATE_COMPLETE/CREATE_FAILED/
+  UPDATE_IN_PROGRESS/UPDATE_COMPLETE/UPDATE_REVERTED/UPDATE_FAILED/READY/NOT_READY,
+  `types/enums.go`), which has no `SUCCEEDED` member at all. Fixed to `"CREATE_COMPLETE"` /
+  `"UPDATE_COMPLETE"` respectively (this backend has no async signal-map pipeline, so the
+  immediate-terminal-state convention already used elsewhere in this file applies).
+- `StartMonitorDeployment` set `MonitorDeploymentStatus = "DEPLOYED"`; `StartDeleteMonitorDeployment`
+  set it to `"DELETING"`. The real member is `types.SignalMapMonitorDeploymentStatus`
+  (NOT_DEPLOYED/DRY_RUN_DEPLOYMENT_*/DEPLOYMENT_COMPLETE/DEPLOYMENT_FAILED/
+  DEPLOYMENT_IN_PROGRESS/DELETE_COMPLETE/DELETE_FAILED/DELETE_IN_PROGRESS) — neither `"DEPLOYED"`
+  nor bare `"DELETING"` is a member. Fixed to `"DEPLOYMENT_COMPLETE"` / `"DELETE_COMPLETE"`.
+
+Three pre-existing unit tests in `handler_signal_maps_test.go` asserted the old, wrong literals
+as correct (`TestSignalMap_CRUD`'s "create returns 201 with id and SUCCEEDED status" case,
+`TestSignalMap_GetListDelete`'s `"DEPLOYED"` assertion, `TestStartDeleteMonitorDeployment`'s
+`"DELETING"` assertion) — all three updated to assert the real enum values instead, per this
+campaign's "do not trust existing tests" rule.
+
+**Response-nesting sweep (separate pass, same bug class as above but wire-shape depth, not a
+value) — N of N ops checked for this class: all 5 ops sharing `toSignalMapOutput`
+(`CreateSignalMap`/`GetSignalMap`/`StartUpdateSignalMap`/`StartMonitorDeployment`/
+`StartDeleteMonitorDeployment`)**: `toSignalMapOutput` (`handler_signal_maps.go`) emitted a flat
+top-level `"monitorDeploymentStatus"` key, but the real `CreateSignalMapOutput`/`GetSignalMapOutput`/
+`StartUpdateSignalMapOutput`/`StartMonitorDeploymentOutput`/`StartDeleteMonitorDeploymentOutput`
+all nest it as `MonitorDeployment *types.MonitorDeployment` → `.Status`
+(`types/types.go:5679`, wire key `"monitorDeployment"` per
+`deserializers.go:4687-4690`). A real SDK client silently discarded the flat key and decoded
+`MonitorDeployment` as `nil` — losing exactly that one field (`Status`/`Arn`/`Id`/etc. all decoded
+correctly; this is a one-field loss, not the total-nil-decode shape glue's sibling bug has). Fixed
+by nesting: `"monitorDeployment": map[string]any{"status": sm.MonitorDeploymentStatus}`. The
+sibling `toSignalMapSummary` (`ListSignalMaps`) was re-verified against `types.SignalMapSummary`
+and correctly keeps `MonitorDeploymentStatus` flat — that type genuinely has no nested member, so
+it was left unchanged. Verified via `TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember` and
+`TestCreateSignalMap_MonitorDeploymentNested` (real typed client, asserts
+`.MonitorDeployment.Status` is non-nil/populated post-fix, confirmed failing pre-fix) in
+`wire_field_fixes_test.go`. Four pre-existing tests asserted the flat key as correct
+(`TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember` — rewritten to drive the real client
+rather than raw HTTP — plus `TestSignalMap_CRUD`, `TestSignalMap_GetListDelete`, and
+`TestStartDeleteMonitorDeployment` in `handler_signal_maps_test.go`) — all updated to assert the
+real nested shape instead.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`ChannelState` (5/11: IDLE/STARTING/RUNNING/STOPPING/DELETED used), `MultiplexState`,
+`InputState`, `ClusterState`, `NetworkState`, `SdiSourceState`, `ChannelPlacementGroupState`,
+`NodeConnectionState`, `InputDeviceConnectionState`, `DeviceSettingsSyncState`,
+`DeviceUpdateStatus`, `ReservationState`, `ClusterAlertState`. `nodeStateDeleted = "DELETED"`
+(`store.go:54`) is DORMANT — declared but never assigned anywhere (`DeleteNode` removes the Node
+from its map entirely rather than transitioning state, `UpdateNodeState`'s `state` param is
+pure client-input passthrough for the real typed `types.NodeState` field) — not fixed, no
+reachable path exists to manufacture without fabricating one.
+
+Gates: `go build ./services/medialive/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes this pass), `go test -race -count=1 ./services/medialive/...` (pass, including
+new `wire_field_fixes_test.go` and the three corrected pre-existing tests, each new/changed
+assertion hand-verified to fail against the pre-fix literals then restored),
+`golangci-lint run --fix ./services/medialive/...` (0 issues). Work left uncommitted per this
+pass's instructions.
+
+## Error-discard sweep (2026-08-29): verified clean, no bugs found
+
+Audited every discarded-error/discarded-return-value assignment
+(`x, _ := ...`, bare `_ = ...`) in non-test `.go` files -- ~149 sites --
+looking for the sesv2 `SendBulkEmail` class of bug: a call whose failure had
+a designated place to be reported and wasn't.
+
+`BatchStart`, `BatchStop`, `BatchDelete` (batch.go, handler_batch.go) and
+`BatchUpdateSchedule` (schedules.go, handler_schedules.go) are the only
+per-item-status/batch-shaped operations in this service; all four check
+their backend call's `err` return via `respondErr` and thread
+`Successful`/`Failed` (or `Creates`/`Deletes`) fully into the response --
+none silently drop a per-item failure.
+
+The rest of the non-type-assertion discards are the `extractX(body) (T,
+bool)` optional-field helpers feeding `extractChannelCreateExtras`/
+`extractChannelUpdateExtras` (handler_channels.go, handler_clusters.go,
+handler_reservations.go, handler_channels_encoder.go) -- discarding the
+presence bool is correct: an absent field should leave the extra at its
+zero value, which is what happens. `classifyPath`'s unused return values
+(handler.go:423) are routing outputs already consumed elsewhere in the same
+call.
+
+No test changes; no source changes. Recorded as genuinely clean for this bug
+class.
+
+## 2026-08-30 gopherstack-wlo1: error-envelope re-verification (N-of-N)
+
+Re-visited as part of a 5-service error-envelope sweep (lightsail,
+medialive, pinpoint, quicksight, apigateway). The 2026-08-22 fix above was
+verified via 2 sampled `deserializeOpError` functions
+(`DescribeChannel`/`CreateChannel`); this pass read all 123 in
+`deserializers.go` (123-of-123, not sampled) and confirms every one is
+identical generated boilerplate reading `X-Amzn-ErrorType` then
+`restjson.GetErrorInfo` -- the existing fix covers the whole surface, not
+just the two sampled ops.
+
+Strengthened `handler_error_type_test.go`'s existing
+`TestDescribeChannel_UnknownChannelSurfacesNotFoundException` (which
+asserted only the `smithy.APIError` interface + `ErrorCode()` string) with
+an additional `errors.As` assertion against the concrete
+`*types.NotFoundException`, and added
+`TestDescribeChannel_UnknownChannelRawEnvelope` asserting on the raw
+response header/body bytes directly. Both pass unmodified -- no bug found,
+this service remains correctly fixed.
+
+Gates (this pass, `services/medialive/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-08-30 value-semantics sweep (gopherstack-uox6) -- clean, no code change
+
+Re-audited every List/Describe operation's optional request parameters against the pinned
+`medialive@v1.101.4` doc comments for the class described in gopherstack-uox6 (a parameter that
+IS read and applied but with the wrong algorithm -- negation/case/operator/combining-rule/
+boundary/default-meaning errors invisible to a field-shape or enum scanner). 41 List/Describe ops
+counted directly from `api_op_List*.go`/`api_op_Describe*.go` filenames (24 List + 17 Describe),
+matching the brief's count.
+
+Nearly this entire surface was already closed by the prior "Constraining-parameter sweep
+(wrapper-key campaign, 2026-08-29)" entry above (six real bugs fixed: ListClusterAlerts'
+StateFilter, ListReservations' six filters, GroupIdentifier/SignalMapIdentifier on the CW/EB
+template-group and template List ops, ListSignalMaps' two group filters,
+ListInputDeviceTransfers' TransferType direction bug) -- that pass used the identical discipline
+(read the SDK doc comment, check the algorithm, not just whether the field is read) even though it
+predates this bd issue. This pass independently re-verified rather than trusted that entry:
+
+- `ListAlerts`/`ListMultiplexAlerts`: confirmed `StateFilter` (SET/CLEARED/ALL) is still never read
+  by `channels.go`/`multiplexes.go` -- but both backends always return `[]map[string]any{}`
+  unconditionally (no `ChannelAlert`/synthetic-alert generation exists for either resource, unlike
+  `ListClusterAlerts`' synthetic "cluster-not-ready" alert). No legal `StateFilter` value can ever
+  change either operation's output, so this is structurally inert, not a live bug -- the same
+  restraint class as `RecipeProvider` in personalize below. Already documented at the `Alerts:`
+  entry above; not re-opened.
+- `ReservationFilter.matches` (reservations.go): re-read against `ListReservations`'/
+  `ListOfferings`' doc comments (`api_op_ListReservations.go`/`api_op_ListOfferings.go`) -- every
+  filter is a plain equality string with no wildcard/negation/case-insensitivity documented; AND
+  across the seven independent dimensions, correct as written.
+- `findCWAlarmTemplateGroup`/`findEBRuleTemplateGroup` (id-or-ARN-or-name lookup): same helper used
+  by both Create's uniqueness check and List's `GroupIdentifier`/`SignalMapIdentifier` filters --
+  internally consistent, and MediaLive's own doc ("Can be either be its id or current name") is a
+  subset of what's accepted (ARN also matches), not a narrower set silently excluded.
+- MaxResults: every List op's doc comment is either "Placeholder documentation for MaxResults" (SDK
+  codegen placeholder, not a real spec) or a bare "The maximum number of items to return" -- no
+  operation in this service documents a specific default page size to check against.
+
+No new bug found; no source or test changes this pass. Restraint already on record (ListOfferings'
+10 filters against a fixed 3-item catalog, Scope's undocumented wire vocabulary) re-confirmed, not
+re-litigated.
+
+Gates: `go build ./services/medialive/...`, `go vet ./services/medialive/...` (no changes, nothing
+to verify beyond confirming the tree is unchanged). Work left uncommitted per this pass's
+instructions.
+
+## 2026-08-31 wrapper-key/per-item sweep of PARITY-unnamed ops (gopherstack-6flj / -21my)
+
+Targeted the standing shortcut: every `List*`/`Describe*` operation in `medialive@v1.101.4` whose
+name never appeared anywhere in this file before today. 17 such ops (derived directly from
+`api_op_List*.go`/`api_op_Describe*.go` filenames against a grep of this file, not assumed):
+`DescribeAccountConfiguration`, `DescribeChannelPlacementGroup`, `DescribeCluster`,
+`DescribeInputSecurityGroup`, `DescribeMultiplex`, `DescribeMultiplexProgram`, `DescribeNetwork`,
+`DescribeNode`, `DescribeOffering`, `DescribeSdiSource`, `DescribeThumbnails`,
+`ListChannelPlacementGroups`, `ListInputSecurityGroups`, `ListMultiplexPrograms`,
+`ListMultiplexes`, `ListNetworks`, `ListSdiSources`. Protocol confirmed from
+`deserializers.go` itself: `awsRestjson1` (JSON) -- no case folding, so a naming mismatch here is
+always a hard failure, never a latent case-only bug.
+
+Read each op's own deserializer function in the pinned SDK (not a sibling's, not a doc). All 6
+List wrapper keys were already correct (`channelPlacementGroups`, `inputSecurityGroups`,
+`multiplexPrograms`, `multiplexes`, `networks`, `sdiSources`) -- this service's earlier wrapper-key
+pass covered the ops that existed at the time, and no new List op has been added since. Two
+per-item bugs found, both the "list omits a field its singular sibling carries" shape:
+
+1. `ListInputSecurityGroups`' item map never included `tags`, though
+   `types.InputSecurityGroup` (the exact same wire type reused for both List and Describe, not a
+   separate summary shape) declares `tags` as a real member, the backend already tracks it per
+   group, and `DescribeInputSecurityGroup`/`CreateInputSecurityGroup` already emit it correctly.
+   Fixed: added `Tags` to `InputSecurityGroupSummary` (`interfaces.go`), populated in
+   `storedInputSecurityGroup.toSummary` (`models.go`), emitted in
+   `handleListInputSecurityGroups` (`handler_input_security_groups.go`).
+2. `ListMultiplexes`' item map never included `multiplexSettings` or `tags`, though
+   `types.MultiplexSummary` declares both (`multiplexSettings` as a
+   `*types.MultiplexSettingsSummary{TransportStreamBitrate}`), the backend tracks both per
+   multiplex, and `DescribeMultiplex` already emits them correctly. Fixed: added
+   `TransportStreamBitrate`/`Tags` to `MultiplexSummary` (`interfaces.go`), populated in
+   `storedMultiplex.toSummary` (`models.go`), emitted in `handleListMultiplexes`
+   (`handler_multiplexes.go`).
+
+One more bug found off this axis, not list-vs-singular but singular-vs-tracked-state:
+`DescribeOffering`/`PurchaseOffering`/`DescribeReservation` all build their
+`resourceSpecification` object by hand and every one of them omitted `specialFeature`, even
+though `OfferingResourceSpecification`/`Reservation.ResourceSpecification` already track
+`SpecialFeature` (it is even read as a `ListReservations` query filter, per the
+2026-08-29 entry above), and `types.ReservationResourceSpecification` declares it as a real
+member. No seed offering had ever set a non-empty `SpecialFeature`, so this decoded empty for
+every offering/reservation regardless of catalog data. Fixed: added `SpecialFeature:
+"AUDIO_NORMALIZATION"` to the seeded `87654321` HD offering (`store.go`, flows into any
+reservation purchased from it) and added the `specialFeature` key to both `toOfferingOutput` and
+`toReservationOutput` (`handler_reservations.go`).
+
+CLEAN (checked field-for-field against the pinned deserializer, not skimmed) among the 17 targeted:
+`DescribeAccountConfiguration`
+(wrapper `accountConfiguration`+`kmsKeyId`), `DescribeChannelPlacementGroup`/
+`ListChannelPlacementGroups` (all 7 real `DescribeChannelPlacementGroupSummary` fields present),
+`DescribeCluster` (all 8 real `DescribeClusterOutput` fields present via shared `toClusterOutput`),
+`DescribeNetwork`/`ListNetworks` (all 7 real `DescribeNetworkSummary` fields present, plus a
+harmless extra `tags` key the real summary type doesn't declare -- ignored by any real client's
+decoder), `DescribeSdiSource`/`ListSdiSources` (all 7 real `SdiSourceSummary` fields present),
+`ListMultiplexPrograms` (both real `MultiplexProgramSummary` fields present -- initially
+mis-suspected of a bug from a spillover grep match on the *next* deserializer function in the
+file; re-verified with an exact function-boundary read).
+
+GAPS recorded, not fixed -- real per-item mismatches that no legal input can currently populate,
+because nothing in this backend tracks the value:
+- `InputSecurityGroup.channels`/`.inputs` (both List and Describe -- shared gap, no
+  channel/input-to-security-group association tracked on the security group side).
+- `DescribeMultiplex`'s top-level `destinations` (real member of `types.Multiplex`; this backend
+  never models multiplex output destinations).
+- `DescribeMultiplexProgram`'s `packetIdentifiersMap`, `pipelineDetails`, and
+  `multiplexProgramSettings.videoSettings` (all real members with zero backing state -- no PID
+  mapping or video-mux engine modeled).
+- `DescribeNode`'s `instanceArn`, `nodeInterfaceMappings`, `sdiSourceMappings` (real members; no
+  hardware-level node/interface modeling in this backend).
+- `DescribeThumbnails` always returns an empty `thumbnailDetails` list (correct wrapper key,
+  correct empty-when-unmodeled behavior -- no actual video pipeline generates thumbnail images
+  here).
+- `resourceSpecification.channelClass` on `Offering`/`Reservation` (real member of
+  `types.ReservationResourceSpecification`; `OfferingResourceSpecification` has never modeled
+  `ChannelClass`, consistent with the 2026-08-29 entry's note on the same axis).
+
+Tests: 4 new, all in `wire_field_fixes_sweep2_test.go`, each driving the real
+`aws-sdk-go-v2/service/medialive` client end-to-end and asserting on the decoded typed response
+(`TestDescribeOffering_ResourceSpecification_SpecialFeature_RealClient`,
+`TestDescribeReservation_ResourceSpecification_SpecialFeature_RealClient`,
+`TestListInputSecurityGroups_Tags_RealClient`,
+`TestListMultiplexes_SettingsAndTags_RealClient`). Seeded distinguishable non-zero values
+(`"AUDIO_NORMALIZATION"`, two-key tag maps, a specific `TransportStreamBitrate`) and at least two
+items where relevant. All 4 confirmed failing against unmodified code before the fix (zero
+value/nil/missing key in every case), then confirmed passing after.
+
+No case-only mismatches (impossible on this protocol -- restjson1 does not fold case). No hard
+decode errors or panics found this pass. No elements emitted that are not real type members. No
+wrapping-shape mismatches (every list here was already correctly member-wrapped, not flattened).
+No stale `nolint` found in any edited file (`interfaces.go`'s pre-existing `dupl` suppression at
+line ~1692 and `handler_multiplexes.go`'s two pre-existing `gosec` suppressions are unrelated to
+this pass's edits and remain in active use per `golangci-lint run` returning 0 issues).
+
+Gates: `go build ./services/medialive/...`, `go vet ./services/medialive/...`,
+`go test ./services/medialive/... -race -count=1`, `golangci-lint run ./services/medialive/...` --
+all clean. Work left uncommitted per this session's hard constraints.

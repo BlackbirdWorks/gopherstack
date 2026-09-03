@@ -636,7 +636,7 @@ func TestDeleteActivation_NotFound(t *testing.T) {
 	b := ssm.NewInMemoryBackend()
 	_, err := b.DeleteActivation(context.TODO(), &ssm.DeleteActivationInput{ActivationID: "nonexistent"})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ssm.ErrActivationNotFound)
+	assert.ErrorIs(t, err, ssm.ErrInvalidActivationID)
 }
 
 // TestCreateActivation_WithTags covers tags path in CreateActivation.
@@ -819,7 +819,7 @@ func TestDeleteActivation_TableDriven(t *testing.T) {
 			name:       "nonexistent_activation_returns_error",
 			setupFirst: false,
 			wantStatus: http.StatusBadRequest,
-			wantErrMsg: "ActivationNotFound",
+			wantErrMsg: "InvalidActivationId",
 		},
 	}
 
@@ -870,4 +870,79 @@ func TestDescribeInstanceProperties_DerivedFromActivations(t *testing.T) {
 	propsResp := doRequest(t, h, "DescribeInstanceProperties", `{}`)
 	require.Equal(t, http.StatusOK, propsResp.Code)
 	assert.Contains(t, propsResp.Body.String(), activation.ActivationID)
+}
+
+// TestDescribeActivations_PageWalkReproducesFullSet proves DescribeActivations
+// must sort before paginating: it derives ActivationList from
+// activations.All() (a store.Table map walk, whose iteration order Go
+// randomizes between calls) and hands the result straight to paginateSlice,
+// an offset-index scheme documented (store.go) as requiring "an
+// already-ordered slice". With no sort call at all, two honest page walks of
+// the same activation set can observe different orders, so an offset window
+// that lined up with one item on one call lines up with a different item (or
+// none) on the next -- items get dropped or duplicated across the page
+// boundary with nothing else changed. Looped: a single walk can pass by
+// luck since map iteration is randomized per-call, not per-process.
+func TestDescribeActivations_PageWalkReproducesFullSet(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	ctx := context.Background()
+
+	const total = 12
+
+	want := make(map[string]bool, total)
+
+	for range total {
+		out, err := b.CreateActivation(ctx, &ssm.CreateActivationInput{IamRole: "role"})
+		require.NoError(t, err)
+		want[out.ActivationID] = true
+	}
+
+	pageSize := int32(5)
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		var token string
+		for range total/int(pageSize) + 2 {
+			out, err := b.DescribeActivations(ctx, &ssm.DescribeActivationsInput{
+				MaxResults: &pageSize,
+				NextToken:  token,
+			})
+			require.NoError(t, err)
+
+			for _, a := range out.ActivationList {
+				got[a.ActivationID]++
+			}
+
+			if out.NextToken == "" {
+				break
+			}
+
+			token = out.NextToken
+		}
+
+		require.Len(
+			t,
+			got,
+			total,
+			"iteration %d: page walk produced %d distinct activations, want %d",
+			iter,
+			len(got),
+			total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t,
+				1,
+				got[id],
+				"iteration %d: activation %s appeared %d times across the page walk",
+				iter,
+				id,
+				got[id],
+			)
+		}
+	}
 }

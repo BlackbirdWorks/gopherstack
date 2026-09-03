@@ -238,9 +238,16 @@ func (h *Handler) handleDeleteTask(_ context.Context, in *deleteTaskInput) (*del
 	return &deleteTaskOutput{}, nil
 }
 
+type taskFilterInput struct {
+	Name     string   `json:"Name"`
+	Operator string   `json:"Operator"`
+	Values   []string `json:"Values"`
+}
+
 type listTasksInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string            `json:"NextToken"`
+	Filters    []taskFilterInput `json:"Filters"`
+	MaxResults int32             `json:"MaxResults"`
 }
 
 type taskListEntryOutput struct {
@@ -256,7 +263,12 @@ type listTasksOutput struct {
 }
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
-	tasks, nextToken, err := h.Backend.ListTasks(in.MaxResults, in.NextToken)
+	filters := make([]TaskFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, TaskFilter(f))
+	}
+
+	tasks, nextToken, err := h.Backend.ListTasks(filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

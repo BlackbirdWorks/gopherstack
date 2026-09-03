@@ -61,7 +61,7 @@ func TestHandlerReplaceRouteTableAssociation(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// Create a VPC, subnet, and two route tables.
-	vpc, err := b.CreateVpc("10.6.0.0/16")
+	vpc, err := b.CreateVpc("10.6.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.6.1.0/24", "us-east-1a")

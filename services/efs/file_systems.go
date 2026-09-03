@@ -92,6 +92,20 @@ func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
 	return kmsKeyID, nil
 }
 
+// applyInitialBackupPolicy sets the backup policy a newly created file
+// system starts with, per CreateFileSystemInput.Backup's documented default:
+// false, or true when AvailabilityZoneName is set (One Zone). Must be called
+// while holding b.mu.
+func (b *InMemoryBackend) applyInitialBackupPolicy(region, id string, req CreateFileSystemRequest) {
+	enableBackup := req.AvailabilityZoneName != ""
+	if req.Backup != nil {
+		enableBackup = *req.Backup
+	}
+	if enableBackup {
+		b.backupStore(region)[id] = backupStatusEnabled
+	}
+}
+
 // CreateFileSystem creates a new EFS file system.
 func (b *InMemoryBackend) CreateFileSystem(
 	ctx context.Context,
@@ -173,6 +187,8 @@ func (b *InMemoryBackend) CreateFileSystem(
 	b.fileSystems.Put(fs)
 	b.fileSystemsByARN.Put(fs)
 	tokenIdx[req.CreationToken] = id
+
+	b.applyInitialBackupPolicy(region, id, req)
 
 	// When a non-zero activation delay is configured, simulate the AWS
 	// "creating" → "available" lifecycle transition asynchronously.

@@ -10,8 +10,10 @@ import (
 )
 
 // TestStopMaterializedViewRefreshTaskRun_NotFound verifies that
-// StopMaterializedViewRefreshTaskRun raises EntityNotFoundException when no
-// refresh run exists for the given table. The real
+// StopMaterializedViewRefreshTaskRun raises
+// MaterializedViewRefreshTaskNotRunningException when no refresh run exists
+// for the given table -- its error switch (glue@v1.152.0 deserializers.go)
+// has no EntityNotFoundException case. The real
 // StopMaterializedViewRefreshTaskRunInput (glue@v1.152.0
 // api_op_StopMaterializedViewRefreshTaskRun.go) identifies the run by
 // DatabaseName+TableName, not a run ID.
@@ -25,10 +27,10 @@ func TestStopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
 		create    bool
 	}{
 		{
-			name:      "stop_missing_run_returns_entity_not_found",
+			name:      "stop_missing_run_returns_not_running",
 			create:    false,
 			wantCode:  http.StatusBadRequest,
-			wantError: "EntityNotFoundException",
+			wantError: "MaterializedViewRefreshTaskNotRunningException",
 		},
 		{
 			name:     "stop_existing_run_succeeds",

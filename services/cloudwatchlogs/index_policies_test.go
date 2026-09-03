@@ -27,14 +27,15 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeIndexPolicies()
+				policies, _ := b.DescribeIndexPolicies([]string{"/aws/lambda/fn"}, "", 0)
 				require.Len(t, policies, 1)
 				assert.Equal(t, "/aws/lambda/fn", policies[0].LogGroupIdentifier)
 
 				err := b.DeleteIndexPolicy("/aws/lambda/fn")
 				require.NoError(t, err)
 
-				assert.Empty(t, b.DescribeIndexPolicies())
+				emptied, _ := b.DescribeIndexPolicies([]string{"/aws/lambda/fn"}, "", 0)
+				assert.Empty(t, emptied)
 			},
 		},
 		{
@@ -48,7 +49,7 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeIndexPolicies()
+				policies, _ := b.DescribeIndexPolicies([]string{"/grp"}, "", 0)
 				require.Len(t, policies, 1)
 				assert.JSONEq(t, `{"new":"policy"}`, policies[0].PolicyDocument)
 			},
@@ -64,7 +65,7 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeIndexPolicies()
+				policies, _ := b.DescribeIndexPolicies([]string{"/z-grp", "/a-grp"}, "", 0)
 				require.Len(t, policies, 2)
 				assert.Equal(t, "/a-grp", policies[0].LogGroupIdentifier)
 				assert.Equal(t, "/z-grp", policies[1].LogGroupIdentifier)

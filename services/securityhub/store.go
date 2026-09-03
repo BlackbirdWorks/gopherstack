@@ -30,6 +30,11 @@ const (
 
 	errCodeInvalidInput = "InvalidInput"
 
+	// errCodeUnprocessedInvalidInput is types.UnprocessedErrorCodeInvalidInput
+	// (enums.go:2086); UnprocessedSecurityControl.ErrorCode is that enum, not
+	// the free-form string errCodeInvalidInput above.
+	errCodeUnprocessedInvalidInput = "INVALID_INPUT"
+
 	keyStandardsArn      = "StandardsArn"
 	keySecurityControlID = "SecurityControlId"
 	keyRuleArn           = "RuleArn"
@@ -379,10 +384,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// filterOrAll returns values from m for the given arns, or all values if arns is empty.
+// filterOrAll returns values from m for the given arns, or all values if arns
+// is empty. The "all" branch uses Snapshot (sorted by key), not All (map
+// order): callers pass the result straight into paginateSlice, and an
+// unordered read would drop or duplicate items across two separate
+// DescribeActionTargets/GetEnabledStandards calls that straddle a page
+// boundary.
 func filterOrAll[V any](arns []string, t *store.Table[V]) []*V {
 	if len(arns) == 0 {
-		return t.All()
+		return t.Snapshot()
 	}
 
 	var results []*V
@@ -419,6 +429,10 @@ func encodeToken(offset int) string {
 	return strconv.Itoa(offset)
 }
 
+// decodeToken decodes a pagination token to an integer offset. A negative
+// offset is rejected like any other malformed token: paginateSlice's
+// `start >= len(results)` guard does not catch a negative offset and would
+// otherwise slice results[start:end] with a negative bound and panic.
 func decodeToken(token string) int {
 	if token == "" {
 		return 0
@@ -426,7 +440,7 @@ func decodeToken(token string) int {
 
 	var offset int
 
-	if _, err := fmt.Sscanf(token, "%d", &offset); err != nil {
+	if _, err := fmt.Sscanf(token, "%d", &offset); err != nil || offset < 0 {
 		return 0
 	}
 

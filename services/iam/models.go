@@ -502,6 +502,7 @@ type InstanceProfileXML struct {
 	Arn                 string    `xml:"Arn"`
 	CreateDate          string    `xml:"CreateDate"`
 	Roles               []RoleXML `xml:"Roles>member"`
+	Tags                []TagXML  `xml:"Tags>member,omitempty"`
 }
 
 // CreateInstanceProfileResponse is the XML response for CreateInstanceProfile.
@@ -574,6 +575,7 @@ type ListAttachedUserPoliciesResponse struct {
 
 // ListAttachedUserPoliciesResult contains the list of attached policies.
 type ListAttachedUserPoliciesResult struct {
+	Marker           string              `xml:"Marker,omitempty"`
 	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
 	IsTruncated      bool                `xml:"IsTruncated"`
 }
@@ -588,6 +590,7 @@ type ListAttachedRolePoliciesResponse struct {
 
 // ListAttachedRolePoliciesResult contains the list of attached policies for a role.
 type ListAttachedRolePoliciesResult struct {
+	Marker           string              `xml:"Marker,omitempty"`
 	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
 	IsTruncated      bool                `xml:"IsTruncated"`
 }
@@ -677,6 +680,7 @@ type ListAttachedGroupPoliciesResponse struct {
 
 // ListAttachedGroupPoliciesResult contains the list of attached policies for a group.
 type ListAttachedGroupPoliciesResult struct {
+	Marker           string              `xml:"Marker,omitempty"`
 	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
 	IsTruncated      bool                `xml:"IsTruncated"`
 }

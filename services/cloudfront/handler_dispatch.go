@@ -665,7 +665,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByWebACLID:
 		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributionsByWebACLId/"))
 	case opListDistributionsByRealtimeLogConfig:
-		return h.handleListDistributionsByRealtimeLogConfig(c, extractRealtimeLogConfigArn(c))
+		return h.handleListDistributionsByRealtimeLogConfig(c, decodeListDistributionsByRealtimeLogConfigBody(c))
 	case opListDistributionsByKeyGroup:
 		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributionsByKeyGroupId/"))
 	case opListDistributionsByVpcOriginID:
@@ -740,9 +740,9 @@ func notFoundCodeCore(err error) (string, bool) {
 	case errors.Is(err, ErrAnycastIPListNotFound):
 		return "NoSuchAnycastIPList", true
 	case errors.Is(err, ErrConnectionFunctionNotFound):
-		return "NoSuchConnectionFunction", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrConnectionGroupNotFound):
-		return "NoSuchConnectionGroup", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrContinuousDeploymentPolicyNotFound):
 		return "NoSuchContinuousDeploymentPolicy", true
 	case errors.Is(err, ErrInvalidationNotFound):
@@ -776,13 +776,13 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrKeyValueStoreNotFound):
 		return codeEntityNotFound, true
 	case errors.Is(err, ErrVpcOriginNotFound):
-		return "NoSuchVpcOrigin", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrDistributionTenantNotFound):
-		return "NoSuchDistributionTenant", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrStreamingDistributionNotFound):
 		return "NoSuchStreamingDistribution", true
 	case errors.Is(err, ErrTrustStoreNotFound):
-		return "NoSuchTrustStore", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrResourcePolicyNotFound):
 		return codeEntityNotFound, true
 	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
@@ -835,7 +835,7 @@ var errCodeMapping = []struct {
 	{ErrConnectionGroupAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
 	{ErrInvalidTagging, "InvalidTagging", http.StatusBadRequest},
 	{ErrStreamingDistributionNotDisabled, "StreamingDistributionNotDisabled", http.StatusConflict},
-	{ErrDomainConflict, "DomainConflictException", http.StatusConflict},
+	{ErrCNAMEAlreadyExists, "CNAMEAlreadyExists", http.StatusConflict},
 	{ErrInconsistentQuantities, "InconsistentQuantities", http.StatusBadRequest},
 	{ErrValidation, "InvalidArgument", http.StatusBadRequest},
 }

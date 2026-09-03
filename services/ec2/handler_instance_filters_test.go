@@ -103,13 +103,13 @@ func TestDescribeInstances_FilterByVpcID(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc1, err := b.CreateVpc("10.0.0.0/16")
+	vpc1, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sub1, err := b.CreateSubnet(vpc1.ID, "10.0.1.0/24", "us-east-1a")
 	require.NoError(t, err)
 
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	sub2, err := b.CreateSubnet(vpc2.ID, "10.1.1.0/24", "us-east-1a")
@@ -142,7 +142,7 @@ func TestDescribeInstances_FilterBySubnetID(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sub1, err := b.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
@@ -490,7 +490,7 @@ func TestDescribeInstances_GroupSetInResponse(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("app-sg", "App SG", vpc.ID)
@@ -619,7 +619,7 @@ func TestDescribeInstances_FilterByPublicIP(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sub, err := b.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
@@ -634,7 +634,7 @@ func TestDescribeInstances_FilterByPublicIP(t *testing.T) {
 	require.NotEmpty(t, insts[0].PublicIPAddress)
 
 	// Run another instance without public IP.
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	sub2, err := b.CreateSubnet(vpc2.ID, "10.1.1.0/24", "us-east-1b")

@@ -217,9 +217,19 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	var active *bool
+	if v := vals.Get("Active"); v != "" {
+		b := v == paramValueTrue
+		active = &b
+	}
+
 	members := make([]scheduledActionXML, 0, len(actions))
 
 	for i := range actions {
+		if active != nil && (actions[i].State == scheduledActionStateActiveValue) != *active {
+			continue
+		}
+
 		members = append(members, scheduledActionToXML(&actions[i]))
 	}
 

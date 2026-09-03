@@ -194,8 +194,16 @@ func (b *InMemoryBackend) arnExists(resourceARN string) bool {
 func paginate(n, maxResults int, nextToken string, keyFn func(int) string) (int, int, string) {
 	start := 0
 	if nextToken != "" {
+		// Every caller sorts its slice ascending by keyFn's key, so a
+		// resume point that's since been deleted still sorts between two
+		// survivors: find the first surviving key >= nextToken. A miss
+		// (nothing left is >= the token) defaults to n, not 0 -- an
+		// equality match defaulting to 0 would restart at page one forever
+		// on any stale or tampered token.
+		start = n
+
 		for i := range n {
-			if keyFn(i) == nextToken {
+			if keyFn(i) >= nextToken {
 				start = i
 
 				break

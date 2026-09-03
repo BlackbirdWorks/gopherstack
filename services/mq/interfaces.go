@@ -48,7 +48,7 @@ type StorageBackend interface {
 
 	// Configuration operations
 	CreateConfiguration(
-		name, description, engineType, engineVersion string,
+		name, description, engineType, engineVersion, authenticationStrategy string,
 		tags map[string]string,
 	) (*Configuration, error)
 	DescribeConfiguration(configID string) (*Configuration, error)

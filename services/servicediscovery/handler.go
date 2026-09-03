@@ -550,7 +550,10 @@ func encodeCursor(offset int) string {
 	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
-// decodeCursor decodes an opaque NextToken to an integer offset.
+// decodeCursor decodes an opaque NextToken to an integer offset. A negative
+// offset is rejected like any other malformed token: every caller's
+// `offset >= len(items)` guard does not catch a negative offset and would
+// otherwise slice items[offset:end] with a negative bound and panic.
 func decodeCursor(token string) int {
 	if token == "" {
 		return 0
@@ -563,7 +566,9 @@ func decodeCursor(token string) int {
 
 	var offset int
 
-	_, _ = fmt.Sscanf(string(b), "%d", &offset)
+	if _, err = fmt.Sscanf(string(b), "%d", &offset); err != nil || offset < 0 {
+		return 0
+	}
 
 	return offset
 }

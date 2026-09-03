@@ -53,6 +53,32 @@ func newTestRedshiftClient(t *testing.T, h *redshift.Handler) *redshiftsdk.Clien
 
 const rtTestRegion = "us-east-1"
 
+// TestPurchaseReservedNodeOffering_State proves the newly purchased
+// ReservedNode.State value matches real AWS's documented wire string. Real
+// ReservedNode.State is a plain *string (redshift@v1.65.4 types/types.go),
+// not an enum, but its doc comment enumerates the legal values, and the
+// pending-payment one is "pending-payment" (word order: state then reason);
+// pre-fix, gopherstack emitted "payment-pending" (reason then state).
+func TestPurchaseReservedNodeOffering_State(t *testing.T) {
+	t.Parallel()
+
+	h := redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", rtTestRegion))
+	client := newTestRedshiftClient(t, h)
+
+	offerings, err := client.DescribeReservedNodeOfferings(
+		t.Context(), &redshiftsdk.DescribeReservedNodeOfferingsInput{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, offerings.ReservedNodeOfferings)
+
+	out, err := client.PurchaseReservedNodeOffering(t.Context(), &redshiftsdk.PurchaseReservedNodeOfferingInput{
+		ReservedNodeOfferingId: offerings.ReservedNodeOfferings[0].ReservedNodeOfferingId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ReservedNode)
+	assert.Equal(t, "pending-payment", aws.ToString(out.ReservedNode.State))
+}
+
 // TestSDKRoundTrip_ListWrapperFixes covers six independent list-decoding
 // bugs found by diffing every gopherstack redshift XML list tag against the
 // pinned SDK's deserializer (redshift@v1.65.4): each handler wrapped list
@@ -693,4 +719,136 @@ func testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode(
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "AuthorizationNotFound", apiErr.ErrorCode())
+}
+
+// TestDescribeNodeConfigurationOptions_FilterWireKey drives a real
+// aws-sdk-go-v2 client with typed Filters. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput,
+// awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter,
+// awsAwsquery_serializeDocumentValueStringList) puts each filter value on
+// the wire as "Filter.NodeConfigurationOptionsFilter.N.Value.item.M" --
+// singular "Value" wrapping an "item" list, not the plural
+// "...Values.M" the handler's nodeConfigFilterValue looked for. A real
+// client's filters were silently ignored entirely.
+func TestDescribeNodeConfigurationOptions_FilterWireKey(t *testing.T) {
+	t.Parallel()
+
+	backend := redshift.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := redshift.NewHandler(backend)
+	client := newTestRedshiftClient(t, h)
+	ctx := t.Context()
+
+	t.Run("NodeType filter selects the requested target", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNodeType,
+					Operator: types.OperatorTypeEq,
+					Values:   []string{"ra3.4xlarge"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, out.NodeConfigurationOptionList)
+		assert.Equal(t, "ra3.4xlarge", aws.ToString(out.NodeConfigurationOptionList[0].NodeType))
+	})
+
+	t.Run("NumberOfNodes filter narrows the result set", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeEq,
+					Values:   []string{"4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.NodeConfigurationOptionList, 1)
+		assert.EqualValues(t, 4, aws.ToInt32(out.NodeConfigurationOptionList[0].NumberOfNodes))
+	})
+
+	// NodeConfigurationOptionsFilter.Operator (types/types.go:1379-1388) documents
+	// gt/lt/le/ge/between/in alongside eq -- "Provide one value to evaluate for
+	// 'eq', 'lt', 'le', 'gt', and 'ge'. Provide two values to evaluate for
+	// 'between'." The Eq-only subtest above cannot see an operator that is parsed
+	// and then ignored (every filter always compared with ==), because Eq's
+	// wrong-in-every-way and Eq's right-by-coincidence result are identical.
+	t.Run("NumberOfNodes filter honours the gt operator", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeGt,
+					Values:   []string{"4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		got := make([]int32, 0, len(out.NodeConfigurationOptionList))
+		for _, o := range out.NodeConfigurationOptionList {
+			got = append(got, aws.ToInt32(o.NumberOfNodes))
+		}
+
+		assert.ElementsMatch(t, []int32{8}, got, "gt 4 must return only the 8-node option")
+	})
+
+	t.Run("NumberOfNodes filter honours the between operator", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeBetween,
+					Values:   []string{"2", "4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		got := make([]int32, 0, len(out.NodeConfigurationOptionList))
+		for _, o := range out.NodeConfigurationOptionList {
+			got = append(got, aws.ToInt32(o.NumberOfNodes))
+		}
+
+		assert.ElementsMatch(t, []int32{2, 4}, got, "between 2 and 4 must include both inclusive bounds, exclude 8")
+	})
+}
+
+// TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey drives a real
+// aws-sdk-go-v2 client. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeDocumentScheduleDefinitionList) puts each entry on
+// the wire as "ScheduleDefinitions.ScheduleDefinition.N" -- the handler's
+// parseStringList call was missing the separating "." before the index, so
+// the key it looked for ("ScheduleDefinitions.ScheduleDefinition" + N, with
+// no dot) never matched anything a real client sent.
+func TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey(t *testing.T) {
+	t.Parallel()
+
+	backend := redshift.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := redshift.NewHandler(backend)
+	client := newTestRedshiftClient(t, h)
+	ctx := t.Context()
+
+	out, err := client.CreateSnapshotSchedule(ctx, &redshiftsdk.CreateSnapshotScheduleInput{
+		ScheduleIdentifier: aws.String("rt-sched-wire"),
+		ScheduleDefinitions: []string{
+			"rate(12 hours)",
+			"cron(30 4 * * ? *)",
+		},
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"rate(12 hours)", "cron(30 4 * * ? *)"}, out.ScheduleDefinitions)
 }

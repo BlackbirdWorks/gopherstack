@@ -134,11 +134,7 @@ type StorageBackend interface {
 	) (*RunGroup, error)
 
 	// Run
-	StartRun(
-		workflowID, roleARN, name, runGroupID, runBatchID, networkingMode, runOutputURI string,
-		params map[string]any,
-		tags map[string]string,
-	) (*Run, error)
+	StartRun(input StartRunInput) (*Run, error)
 	CancelRun(id string) error
 	DeleteRun(id string) error
 	GetRun(id string) (*Run, error)
@@ -152,14 +148,11 @@ type StorageBackend interface {
 	) ([]*RunTask, string, error)
 
 	// Workflow
-	CreateWorkflow(
-		name, description, definitionZip, definitionURI, engine string,
-		tags map[string]string,
-	) (*Workflow, error)
+	CreateWorkflow(input CreateWorkflowInput) (*Workflow, error)
 	DeleteWorkflow(id string) error
 	GetWorkflow(id string) (*Workflow, error)
 	ListWorkflows(filter *WorkflowFilter, maxResults int, nextToken string) ([]*Workflow, string, error)
-	UpdateWorkflow(id, name, description string) error
+	UpdateWorkflow(id, name, description, storageType string, storageCapacity *int) error
 
 	// AnnotationStore
 	CreateAnnotationStore(
@@ -249,11 +242,11 @@ type StorageBackend interface {
 	) ([]*Share, string, error)
 
 	// RunCache
-	CreateRunCache(name, cacheS3Location string, tags map[string]string) (*RunCache, error)
+	CreateRunCache(name, cacheS3Location, cacheBehavior string, tags map[string]string) (*RunCache, error)
 	DeleteRunCache(id string) error
 	GetRunCache(id string) (*RunCache, error)
 	ListRunCaches(maxResults int, nextToken string) ([]*RunCache, string, error)
-	UpdateRunCache(id, name, description string) error
+	UpdateRunCache(id, name, description, cacheBehavior string) error
 
 	// RunBatch
 	StartRunBatch(
@@ -281,10 +274,7 @@ type StorageBackend interface {
 	ListConfigurations(maxResults int, nextToken string) ([]*Configuration, string, error)
 
 	// WorkflowVersion
-	CreateWorkflowVersion(
-		workflowID, versionName, description string,
-		tags map[string]string,
-	) (*WorkflowVersion, error)
+	CreateWorkflowVersion(input CreateWorkflowVersionInput) (*WorkflowVersion, error)
 	DeleteWorkflowVersion(workflowID, versionName string) error
 	GetWorkflowVersion(workflowID, versionName string) (*WorkflowVersion, error)
 	ListWorkflowVersions(
@@ -293,7 +283,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*WorkflowVersion, string, error)
-	UpdateWorkflowVersion(workflowID, versionName, description string) error
+	UpdateWorkflowVersion(workflowID, versionName, description, storageType string, storageCapacity *int) error
 
 	// S3 Access Policy
 	PutS3AccessPolicy(s3AccessPointARN, policy string) error

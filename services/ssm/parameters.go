@@ -1004,9 +1004,13 @@ func paramMatchesFilters(meta ParameterMetadata, filters []ParameterFilter) bool
 }
 
 // paramMatchesFilter returns true when the metadata satisfies a single filter.
-// Within one filter, multiple Values are OR-combined.
-// Returns an error for unrecognised filter keys (AWS behavior).
+// Within one filter, multiple Values are OR-combined. Unrecognised keys match
+// everything (gopherstack has no schema-validation layer for filter keys).
 func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
+	if f.Key == "Path" {
+		return paramMatchesPathFilter(meta.Name, f)
+	}
+
 	var fieldValue string
 
 	switch f.Key {
@@ -1024,12 +1028,17 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 		return true // unknown keys are silently ignored (backwards compat)
 	}
 
-	option := f.Option
+	return fieldMatchesFilterOption(fieldValue, f.Option, f.Values)
+}
+
+// fieldMatchesFilterOption compares fieldValue against each value under the
+// given option (defaulting to Equals), OR-combining the values.
+func fieldMatchesFilterOption(fieldValue, option string, values []string) bool {
 	if option == "" {
 		option = "Equals"
 	}
 
-	for _, v := range f.Values {
+	for _, v := range values {
 		switch option {
 		case "Equals":
 			if fieldValue == v {
@@ -1044,6 +1053,31 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 				return true
 			}
 		}
+	}
+
+	return false
+}
+
+// paramMatchesPathFilter applies a Key=Path ParameterFilter (DescribeParameters
+// only, per types.ParameterStringFilter's own doc comment) to a parameter name.
+// Option Recursive matches any descendant of the value; OneLevel matches only
+// a direct child.
+func paramMatchesPathFilter(name string, f ParameterFilter) bool {
+	for _, v := range f.Values {
+		prefix := v
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+
+		if f.Option == "OneLevel" && strings.Contains(name[len(prefix):], "/") {
+			continue
+		}
+
+		return true
 	}
 
 	return false

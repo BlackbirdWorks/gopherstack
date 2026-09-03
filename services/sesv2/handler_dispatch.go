@@ -178,7 +178,7 @@ func (h *Handler) dispatchDedicatedIPOps(c *echo.Context, op, resource string) (
 	case opGetDedicatedIP:
 		return h.handleGetDedicatedIP(resource)
 	case opGetDedicatedIps:
-		return h.handleGetDedicatedIps()
+		return h.handleGetDedicatedIps(c)
 	case opPutDedicatedIPInPool:
 		return h.handlePutDedicatedIPInPool(c, resource)
 	case opPutDedicatedIPPoolScalingAttributes:

@@ -2,6 +2,7 @@ package s3control
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -335,8 +336,18 @@ func (h *Handler) handleDeleteStorageLensConfigurationTagging(c *echo.Context) e
 // HomeRegion/IsEnabled/StorageLensArn have no backing data in this backend —
 // storageLensConfigs stores each configuration as an opaque raw XML blob,
 // not parsed fields (GAP, not fabricated).
+// listStorageLensConfigItemXML mirrors aws-sdk-go-v2's
+// ListStorageLensConfigurationEntry, a narrower, DISTINCT real type from
+// StorageLensConfiguration (confirmed via
+// awsRestxml_deserializeDocumentListStorageLensConfigurationEntry,
+// s3control@v1.73.4 types/types.go:1389): HomeRegion, Id, StorageLensArn and
+// IsEnabled are all required members. A previous version of this handler
+// emitted only Id.
 type listStorageLensConfigItemXML struct {
-	ID string `xml:"Id"`
+	ID             string `xml:"Id"`
+	HomeRegion     string `xml:"HomeRegion,omitempty"`
+	StorageLensArn string `xml:"StorageLensArn,omitempty"`
+	IsEnabled      bool   `xml:"IsEnabled"`
 }
 
 // listStorageLensConfigurationsResultXML mirrors
@@ -352,15 +363,41 @@ type listStorageLensConfigurationsResultXML struct {
 	Configs   []listStorageLensConfigItemXML `xml:"StorageLensConfiguration"`
 }
 
+// storageLensConfigIsEnabled extracts IsEnabled from a config's raw captured
+// inner XML (storage_lens.go stores the client's own
+// <StorageLensConfiguration> body verbatim, PutStorageLensConfiguration's
+// StorageLensConfigRaw.Raw -- see handlePutStorageLensConfiguration). Wrapped
+// in a synthetic root since raw is a fragment of sibling elements, same
+// technique as jobOperationName.
+func storageLensConfigIsEnabled(raw string) bool {
+	var v struct {
+		IsEnabled bool `xml:"IsEnabled"`
+	}
+	_ = xml.Unmarshal([]byte("<r>"+raw+"</r>"), &v)
+
+	return v.IsEnabled
+}
+
 func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	nextToken := c.Request().URL.Query().Get("nextToken")
+	region := h.Backend.Region()
 
 	names := h.Backend.ListStorageLensConfigurations(accountID)
 	items := make([]listStorageLensConfigItemXML, 0, len(names))
 
 	for _, n := range names {
-		items = append(items, listStorageLensConfigItemXML{ID: n})
+		raw, err := h.Backend.GetStorageLensConfiguration(accountID, n)
+		if err != nil {
+			continue
+		}
+
+		items = append(items, listStorageLensConfigItemXML{
+			ID:             n,
+			HomeRegion:     region,
+			StorageLensArn: fmt.Sprintf(arnFmtStorageLensConfig, region, accountID, n),
+			IsEnabled:      storageLensConfigIsEnabled(raw),
+		})
 	}
 
 	page, tok := s3cPaginate(items, nextToken, 0)
@@ -406,17 +443,21 @@ func buildSLGItem(grp *StorageLensGroup) storageLensGroupItemXML {
 // ListStorageLensGroupEntry, which is a narrower, DISTINCT real type from
 // StorageLensGroup above: it carries Name/StorageLensGroupArn/HomeRegion,
 // NOT Filter or CreatedAt (confirmed via
-// awsRestxml_deserializeDocumentListStorageLensGroupEntry). HomeRegion has
-// no backing data in this backend -- GAP, not fabricated.
+// awsRestxml_deserializeDocumentListStorageLensGroupEntry). HomeRegion is a
+// required member; this backend is single-region, so it's the backend's own
+// configured region (h.Backend.Region(), same value already used to build
+// StorageLensGroupArn at create time).
 type listStorageLensGroupItemXML struct {
 	Name                string `xml:"Name"`
 	StorageLensGroupArn string `xml:"StorageLensGroupArn,omitempty"`
+	HomeRegion          string `xml:"HomeRegion,omitempty"`
 }
 
-func buildListSLGItem(grp *StorageLensGroup) listStorageLensGroupItemXML {
+func buildListSLGItem(grp *StorageLensGroup, region string) listStorageLensGroupItemXML {
 	return listStorageLensGroupItemXML{
 		Name:                grp.Name,
 		StorageLensGroupArn: grp.StorageLensGroupArn,
+		HomeRegion:          region,
 	}
 }
 
@@ -495,9 +536,10 @@ func (h *Handler) handleListStorageLensGroups(c *echo.Context) error {
 
 	groups := h.Backend.ListStorageLensGroups(accountID)
 	items := make([]listStorageLensGroupItemXML, 0, len(groups))
+	region := h.Backend.Region()
 
 	for _, g := range groups {
-		items = append(items, buildListSLGItem(g))
+		items = append(items, buildListSLGItem(g, region))
 	}
 
 	page, tok := s3cPaginate(items, nextToken, 0)

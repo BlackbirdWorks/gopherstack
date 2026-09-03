@@ -79,7 +79,9 @@ func (h *Handler) handleDeleteV2LoggingLevel(c *echo.Context) error {
 	targetName := c.Request().URL.Query().Get("targetName")
 	target := map[string]any{"targetType": targetType, "targetName": targetName}
 	if err := h.Backend.DeleteV2LoggingLevel(target); err != nil {
-		return respondErr(c, err)
+		// DeleteV2LoggingLevel's own deserializeOpError switch declares no
+		// ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)

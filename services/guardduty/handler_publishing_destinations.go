@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (h *Handler) dispatchPublishingDestOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchPublishingDestOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreatePublishingDestination:
 		detectorID := extractID(path, pathDetector)
@@ -27,7 +27,7 @@ func (h *Handler) dispatchPublishingDestOps(op, path string, body []byte) (any, 
 
 	case opListPublishingDestinations:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleListPublishingDestinations(detectorID)
+		result, code, err := h.handleListPublishingDestinations(detectorID, query)
 
 		return result, code, true, err
 
@@ -93,8 +93,10 @@ func (h *Handler) handleDescribePublishingDestination(detectorID, destID string)
 	}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListPublishingDestinations(detectorID string) (any, int, error) {
-	dests, err := h.Backend.ListPublishingDestinations(detectorID)
+func (h *Handler) handleListPublishingDestinations(detectorID, query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	dests, next, err := h.Backend.ListPublishingDestinations(detectorID, maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -108,7 +110,12 @@ func (h *Handler) handleListPublishingDestinations(detectorID string) (any, int,
 		})
 	}
 
-	return map[string]any{"destinations": out}, http.StatusOK, nil
+	resp := map[string]any{"destinations": out}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdatePublishingDestination(detectorID, destID string, body []byte) (int, error) {

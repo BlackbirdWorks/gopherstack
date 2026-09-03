@@ -166,6 +166,23 @@ func buildTimeBuckets(start, end, granularity string) []timeBucket {
 	return buckets
 }
 
+// filterEntriesByService narrows entries to those whose Service is in
+// serviceFilter, giving GetCostAndUsageInput.Filter's SERVICE dimension a
+// real, non-fabricated effect (same pattern as
+// GetReservationCoverageFiltered/GetReservationUtilizationFiltered). Other
+// documented Filter dimensions have no per-entry breakdown to narrow.
+func filterEntriesByService(entries []CostEntry, serviceFilter []string) []CostEntry {
+	kept := make([]CostEntry, 0, len(entries))
+
+	for _, e := range entries {
+		if stringSliceContainsFold(serviceFilter, e.Service) {
+			kept = append(kept, e)
+		}
+	}
+
+	return kept
+}
+
 func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 	keys := make([]string, 0, len(groupBy))
 
@@ -187,8 +204,18 @@ func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 	return keys
 }
 
+// normalizeMetricName upper-cases and strips underscores so both wire
+// conventions this API mixes match the same switch: GetCostAndUsage's
+// Metrics []string uses plain CamelCase ("BlendedCost"), while
+// GetCostForecast/GetUsageForecast/GetCostComparisonDrivers' singular
+// Metric/MetricForComparison is a real Smithy enum in SCREAMING_SNAKE_CASE
+// ("BLENDED_COST") -- confirmed via types.Metric's enum constants.
+func normalizeMetricName(metric string) string {
+	return strings.ReplaceAll(strings.ToUpper(metric), "_", "")
+}
+
 func getMetricValue(e CostEntry, metric string) float64 {
-	switch strings.ToUpper(metric) {
+	switch normalizeMetricName(metric) {
 	case "BLENDEDCOST":
 		return e.BlendedCost
 	case "UNBLENDEDCOST":
@@ -207,7 +234,7 @@ func getMetricValue(e CostEntry, metric string) float64 {
 }
 
 func metricUnit(metric string) string {
-	switch strings.ToUpper(metric) {
+	switch normalizeMetricName(metric) {
 	case "USAGEQUANTITY", "NORMALIZEDUSAGEAMOUNT":
 		return metricUnitNA
 	default:
@@ -310,6 +337,7 @@ func (b *InMemoryBackend) GetCostAndUsage(
 	start, end, granularity string,
 	metrics []string,
 	groupBy []GroupBySpec,
+	serviceFilter []string,
 ) []ResultByTime {
 	b.mu.RLock("GetCostAndUsage")
 	defer b.mu.RUnlock()
@@ -324,6 +352,10 @@ func (b *InMemoryBackend) GetCostAndUsage(
 
 	for _, bucket := range buckets {
 		entries := b.costLedgerInBucket(bucket.start, bucket.end)
+		if len(serviceFilter) > 0 {
+			entries = filterEntriesByService(entries, serviceFilter)
+		}
+
 		r := ResultByTime{
 			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
 			Estimated:  bucket.start >= now || bucket.end > now,
@@ -555,13 +587,24 @@ func (b *InMemoryBackend) TagValueCost(tagKey, value, metric string) float64 {
 	return total
 }
 
-// GetForecastByTime returns per-bucket cost forecasts for a time range.
+// GetForecastByTime returns per-bucket cost/usage forecasts for a time range,
+// computed from the requested metric (GetCostForecastInput/
+// GetUsageForecastInput.Metric) over ledger entries narrowed by
+// serviceFilter (GetCostForecastInput/GetUsageForecastInput.Filter's SERVICE
+// dimension), matching the same pattern used across this file. A prior
+// revision always used BlendedCost and ignored Filter regardless of what was
+// requested.
 func (b *InMemoryBackend) GetForecastByTime(
-	start, end, granularity string,
+	start, end, granularity, metric string,
 	predictionIntervalLevel int,
+	serviceFilter []string,
 ) ([]ForecastResult, float64, float64, float64) {
 	b.mu.RLock("GetForecastByTime")
 	defer b.mu.RUnlock()
+
+	if metric == "" {
+		metric = "BlendedCost"
+	}
 
 	histEnd := time.Now().UTC().Format("2006-01-02")
 	histStart := time.Now().UTC().AddDate(0, 0, -30).Format("2006-01-02")
@@ -570,9 +613,14 @@ func (b *InMemoryBackend) GetForecastByTime(
 	histValues := make([]float64, 0, len(histBuckets))
 
 	for _, hb := range histBuckets {
+		entries := b.costLedgerInBucket(hb.start, hb.end)
+		if len(serviceFilter) > 0 {
+			entries = filterEntriesByService(entries, serviceFilter)
+		}
+
 		var bucketTotal float64
-		for _, e := range b.costLedgerInBucket(hb.start, hb.end) {
-			bucketTotal += e.BlendedCost
+		for _, e := range entries {
+			bucketTotal += getMetricValue(e, metric)
 		}
 		histValues = append(histValues, bucketTotal)
 	}

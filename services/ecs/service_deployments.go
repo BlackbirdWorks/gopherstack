@@ -1,7 +1,9 @@
 package ecs
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -123,6 +125,10 @@ func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]Ser
 
 		out = append(out, *sd)
 	}
+
+	slices.SortFunc(out, func(a, b ServiceDeployment) int {
+		return cmp.Compare(a.ServiceDeploymentArn, b.ServiceDeploymentArn)
+	})
 
 	return out, nil
 }

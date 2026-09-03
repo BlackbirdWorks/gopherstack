@@ -13,7 +13,6 @@ type storedUser struct {
 	CreatedTime        time.Time `json:"createdTime"`
 	UserName           string    `json:"userName"`
 	Arn                string    `json:"arn"`
-	Email              string    `json:"email"`
 	FirstName          string    `json:"firstName"`
 	LastName           string    `json:"lastName"`
 	AuthenticationType string    `json:"authenticationType"`
@@ -26,7 +25,6 @@ func (u *storedUser) toUser() *User {
 		CreatedTime:        u.CreatedTime,
 		UserName:           u.UserName,
 		Arn:                u.Arn,
-		Email:              u.Email,
 		FirstName:          u.FirstName,
 		LastName:           u.LastName,
 		AuthenticationType: u.AuthenticationType,
@@ -42,7 +40,7 @@ func (b *InMemoryBackend) userARN(userName, authType string) string {
 }
 
 // CreateUser creates a new UserPool user.
-func (b *InMemoryBackend) CreateUser(userName, email, firstName, lastName, authType string) (*User, error) {
+func (b *InMemoryBackend) CreateUser(userName, firstName, lastName, authType string) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -55,7 +53,6 @@ func (b *InMemoryBackend) CreateUser(userName, email, firstName, lastName, authT
 		CreatedTime:        time.Now().UTC(),
 		UserName:           userName,
 		Arn:                b.userARN(userName, authType),
-		Email:              email,
 		FirstName:          firstName,
 		LastName:           lastName,
 		AuthenticationType: authType,

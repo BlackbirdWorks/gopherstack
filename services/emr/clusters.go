@@ -278,6 +278,7 @@ func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, param
 		EbsRootVolumeIops:           params.EbsRootVolumeIops,
 		EbsRootVolumeThroughput:     params.EbsRootVolumeThroughput,
 		VisibleToAllUsers:           params.VisibleToAllUsers,
+		SessionEnabled:              params.SessionEnabled,
 		TerminationProtected:        params.Instances.TerminationProtected,
 		KeepJobFlowAliveWhenNoSteps: params.Instances.KeepJobFlowAliveWhenNoSteps,
 		AutoTerminate:               !params.Instances.KeepJobFlowAliveWhenNoSteps,

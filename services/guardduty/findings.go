@@ -41,14 +41,6 @@ type FindingsQuery struct {
 	MaxResults int32
 }
 
-const (
-	// defaultFindingsPageSize and maxFindingsPageSize match the real
-	// ListFindingsInput.MaxResults doc ("The default value is 50. The
-	// maximum value is 50.").
-	defaultFindingsPageSize = 50
-	maxFindingsPageSize     = 50
-)
-
 // ListFindings returns finding IDs for a detector, filtered by
 // q.Criteria, sorted per q.SortAttr/q.SortOrder (defaulting to ID
 // ascending), and paginated per q.MaxResults/q.NextToken.
@@ -77,7 +69,7 @@ func (b *InMemoryBackend) ListFindings(detectorID string, q FindingsQuery) ([]st
 		return nil, "", ErrValidation
 	}
 
-	size := resolvePageSize(int(q.MaxResults), defaultFindingsPageSize, maxFindingsPageSize)
+	size := resolvePageSize(int(q.MaxResults))
 	page, nextToken := paginate(matched, offset, size)
 
 	ids := make([]string, len(page))

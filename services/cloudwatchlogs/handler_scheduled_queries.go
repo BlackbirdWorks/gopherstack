@@ -30,7 +30,7 @@ type createScheduledQueryOutput struct {
 
 // --- DeleteScheduledQuery ---.
 type deleteScheduledQueryInput struct {
-	ScheduledQueryArn string `json:"scheduledQueryArn"`
+	Identifier string `json:"identifier"`
 }
 
 type deleteScheduledQueryOutput struct{}
@@ -95,22 +95,22 @@ func scheduledQuerySummaryToWire(sq *ScheduledQuery) map[string]any {
 
 // --- UpdateScheduledQuery ---.
 type updateScheduledQueryInput struct {
-	ScheduledQueryArn string `json:"scheduledQueryArn"`
-	State             string `json:"state"`
+	Identifier string `json:"identifier"`
+	State      string `json:"state"`
 }
 
 type updateScheduledQueryOutput struct{}
 
 // --- GetScheduledQuery ---.
 type getScheduledQueryInput struct {
-	ScheduledQueryArn string `json:"scheduledQueryArn"`
+	Identifier string `json:"identifier"`
 }
 
 // --- GetScheduledQueryHistory ---.
 type getScheduledQueryHistoryInput struct {
-	ScheduledQueryArn string `json:"scheduledQueryArn"`
-	NextToken         string `json:"nextToken"`
-	MaxResults        int    `json:"maxResults"`
+	Identifier string `json:"identifier"`
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
 }
 
 type getScheduledQueryHistoryOutput struct {
@@ -168,7 +168,7 @@ func (h *Handler) handleDeleteScheduledQuery(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.DeleteScheduledQuery(input.ScheduledQueryArn); err != nil {
+	if err := h.Backend.DeleteScheduledQuery(input.Identifier); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +204,7 @@ func (h *Handler) handleUpdateScheduledQuery(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.UpdateScheduledQuery(input.ScheduledQueryArn, input.State); err != nil {
+	if err := h.Backend.UpdateScheduledQuery(input.Identifier, input.State); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +219,7 @@ func (h *Handler) handleGetScheduledQuery(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	sq, err := h.Backend.GetScheduledQuery(input.ScheduledQueryArn)
+	sq, err := h.Backend.GetScheduledQuery(input.Identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (h *Handler) handleGetScheduledQueryHistory(
 		return nil, err
 	}
 	summaries, next, err := h.Backend.GetScheduledQueryHistory(
-		input.ScheduledQueryArn,
+		input.Identifier,
 		input.NextToken,
 		input.MaxResults,
 	)

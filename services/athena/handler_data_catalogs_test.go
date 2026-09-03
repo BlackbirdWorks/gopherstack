@@ -376,7 +376,7 @@ func TestHandler_DataCatalog_FederatedStatus(t *testing.T) {
 			h := newTestHandler(t)
 			connField := ""
 			if tt.connectionType != "" {
-				connField = `,"ConnectionType":"` + tt.connectionType + `"`
+				connField = `,"Parameters":{"connection-type":"` + tt.connectionType + `"}`
 			}
 			body := `{"Name":"cat-` + tt.name + `","Type":"` + tt.catalogType + `"` + connField + `}`
 			rec := doRequest(t, h, "CreateDataCatalog", body)
@@ -401,7 +401,8 @@ func TestHandler_DataCatalog_ListIncludesStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_ = doRequest(t, h, "CreateDataCatalog", `{"Name":"fed-cat","Type":"FEDERATED","ConnectionType":"MYSQL"}`)
+	_ = doRequest(t, h, "CreateDataCatalog",
+		`{"Name":"fed-cat","Type":"FEDERATED","Parameters":{"connection-type":"MYSQL"}}`)
 
 	rec := doRequest(t, h, "ListDataCatalogs", `{}`)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -452,7 +453,7 @@ func TestDataCatalog_Lifecycle(t *testing.T) {
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
 				a1Do(t, h, "CreateDataCatalog",
-					`{"Name":"fed-cat","Type":"FEDERATED","ConnectionType":"REDSHIFT"}`)
+					`{"Name":"fed-cat","Type":"FEDERATED","Parameters":{"connection-type":"REDSHIFT"}}`)
 				rec := a1Do(t, h, "GetDataCatalog", `{"Name":"fed-cat"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
 				dc := a1Unmarshal(t, rec)["DataCatalog"].(map[string]any)

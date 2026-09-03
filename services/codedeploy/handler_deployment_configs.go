@@ -56,7 +56,7 @@ func (h *Handler) handleCreateDeploymentConfig(
 	in *createDeploymentConfigInput,
 ) (*createDeploymentConfigOutput, error) {
 	if in.DeploymentConfigName == "" {
-		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentConfigName is required", ErrDeploymentConfigNameRequired)
 	}
 
 	var mhh *MinimumHealthyHosts
@@ -175,7 +175,7 @@ func (h *Handler) handleGetDeploymentConfig(
 	in *getDeploymentConfigInput,
 ) (*getDeploymentConfigOutput, error) {
 	if in.DeploymentConfigName == "" {
-		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentConfigName is required", ErrDeploymentConfigNameRequired)
 	}
 
 	cfg, err := h.Backend.GetDeploymentConfig(in.DeploymentConfigName)
@@ -210,7 +210,7 @@ func (h *Handler) handleDeleteDeploymentConfig(
 	in *deleteDeploymentConfigInput,
 ) (*deleteDeploymentConfigOutput, error) {
 	if in.DeploymentConfigName == "" {
-		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentConfigName is required", ErrDeploymentConfigNameRequired)
 	}
 
 	if err := h.Backend.DeleteDeploymentConfig(in.DeploymentConfigName); err != nil {

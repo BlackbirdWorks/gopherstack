@@ -1,5 +1,7 @@
 package mgn
 
+import "github.com/blackbirdworks/gopherstack/pkgs/page"
+
 // This file backs family K (2 ops): InitializeService, ListManagedAccounts.
 //
 // InitializeService is the account-level "opt in" call every other legacy
@@ -43,20 +45,20 @@ type ManagedAccount struct {
 // organization's management account or a registered MGN delegated
 // administrator, else just the calling account itself -- never fabricated
 // data for another account.
-func (b *InMemoryBackend) ListManagedAccounts() ([]ManagedAccount, error) {
+func (b *InMemoryBackend) ListManagedAccounts(token string, limit int) (page.Page[ManagedAccount], error) {
 	b.mu.RLock("ListManagedAccounts")
 	defer b.mu.RUnlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
-		return nil, err
+		return page.Page[ManagedAccount]{}, err
 	}
 
 	ids := b.resolveManagedAccountsLocked()
-	out := make([]ManagedAccount, len(ids))
+	all := make([]ManagedAccount, len(ids))
 
 	for i, id := range ids {
-		out[i] = ManagedAccount{AccountID: id}
+		all[i] = ManagedAccount{AccountID: id}
 	}
 
-	return out, nil
+	return page.New(all, token, limit, defaultPageLimit), nil
 }

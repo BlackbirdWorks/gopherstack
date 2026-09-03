@@ -37,6 +37,7 @@ type runJobFlowInput struct {
 	EbsRootVolumeIops       int                      `json:"EbsRootVolumeIops"`
 	EbsRootVolumeThroughput int                      `json:"EbsRootVolumeThroughput"`
 	VisibleToAllUsers       bool                     `json:"VisibleToAllUsers"`
+	SessionEnabled          bool                     `json:"SessionEnabled"`
 }
 
 type runJobFlowOutput struct {
@@ -76,6 +77,7 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		EbsRootVolumeIops:       in.EbsRootVolumeIops,
 		EbsRootVolumeThroughput: in.EbsRootVolumeThroughput,
 		VisibleToAllUsers:       in.VisibleToAllUsers,
+		SessionEnabled:          in.SessionEnabled,
 	})
 	if err != nil {
 		return nil, err

@@ -127,8 +127,14 @@ func (h *Handler) handleDescribeInstanceProfiles(
 		return list[i].InstanceProfileName < list[j].InstanceProfileName
 	})
 
+	idFilter := extractFilterValue(in.Filters, "instance-profile-identifier")
+
 	all := make([]instanceProfileJSON, 0, len(list))
 	for _, ip := range list {
+		if idFilter != "" && ip.InstanceProfileName != idFilter && ip.InstanceProfileArn != idFilter {
+			continue
+		}
+
 		all = append(all, ipToJSON(ip))
 	}
 

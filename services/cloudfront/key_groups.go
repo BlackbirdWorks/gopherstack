@@ -188,7 +188,10 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 
 	for _, itemID := range items {
 		if _, ok := b.publicKeys.Get(itemID); !ok {
-			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+			// CreateKeyGroup's own deserializer (cloudfront@v1.67.4
+			// deserializers.go) has no NoSuchPublicKey case -- unlike
+			// GetPublicKey/UpdatePublicKey/DeletePublicKey, which do.
+			return nil, fmt.Errorf("%w: public key %s not found", ErrValidation, itemID)
 		}
 	}
 
@@ -262,7 +265,10 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 
 	for _, itemID := range items {
 		if _, exists := b.publicKeys.Get(itemID); !exists {
-			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+			// UpdateKeyGroup's own deserializer models NoSuchResource, not
+			// NoSuchPublicKey, for this case -- reuse ErrKeyGroupNotFound's
+			// code (also NoSuchResource) rather than ErrPublicKeyNotFound's.
+			return nil, fmt.Errorf("%w: public key %s not found", ErrKeyGroupNotFound, itemID)
 		}
 	}
 

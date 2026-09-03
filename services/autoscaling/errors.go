@@ -28,6 +28,11 @@ var (
 	ErrWarmPoolNotFound = errors.New("ValidationError")
 	// ErrPolicyNotFound is returned when the specified scaling policy does not exist.
 	ErrPolicyNotFound = errors.New("ValidationError")
+	// ErrInstanceRefreshInProgress is returned when StartInstanceRefresh is called
+	// while another instance refresh is already in progress for the group.
+	// Matches the real SDK's InstanceRefreshInProgressFault, whose ErrorCode() is
+	// "InstanceRefreshInProgress" (autoscaling@v1.70.4 types/errors.go).
+	ErrInstanceRefreshInProgress = errors.New("InstanceRefreshInProgress")
 	// ErrDeletionProtected is returned when DeleteAutoScalingGroup is called on a
 	// group whose DeletionProtection setting forbids the requested delete.
 	// Matches the real SDK's ResourceInUseFault, whose ErrorCode() is "ResourceInUse".

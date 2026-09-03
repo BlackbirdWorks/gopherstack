@@ -3,6 +3,53 @@ service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.152.0
 last_audit_commit: a7f9c5fb2  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
 last_audit_date: 2026-08-13
+# 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
+# not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
+# this service's ~48 paginated listings for whether the sort key is unique.
+# 7 genuine bugs found and fixed, all sharing the same shape -- a field that
+# admits ties, re-sorted fresh from unordered store.All()/map storage on every
+# call via an unstable sort, so two honest calls can disagree about the
+# relative order of tied items and a record is dropped or duplicated across a
+# page boundary with nothing else changed:
+#   - GetBlueprintRuns (blueprints.go), ListColumnStatisticsTaskRuns
+#     (column_statistics.go), ListDataQualityRuleRecommendationRuns
+#     (data_quality_rulesets.go), ListMaterializedViewRefreshTaskRuns
+#     (materialized_views.go), ListDataQualityEvaluationRuns
+#     (data_quality_stats.go) all sorted solely on StartedOn, a
+#     float64(time.Now().Unix()) value truncated to whole seconds -- any two
+#     runs started within the same wall-clock second tie. Fixed by adding each
+#     type's own real unique ID (RunID/ColumnStatisticsTaskRunID/
+#     RecommendationRunID/TaskRunID/RunID respectively) as the final
+#     comparator term.
+#   - GetMLTransforms/ListMLTransforms (ml.go) sorted solely on Name; real AWS
+#     MLTransform.Name is not unique (only TransformId is -- confirmed against
+#     glue@v1.152.0's CreateMLTransform, which has no name-uniqueness
+#     constraint). Fixed by appending TransformID as the tiebreak; this also
+#     makes handler_ml.go's user-supplied-Sort path (sortTransforms, a stable
+#     sort applied on top of this base order) total for STATUS/CREATED/
+#     LAST_MODIFIED, none of which are unique either.
+#   - SearchAssets' sortAssets (assets.go) let the caller pick the sort
+#     attribute (Name/Description/AssetTypeId/CreatedAt/UpdatedAt), none of
+#     which is unique across assets -- only Id is (already used as the
+#     fallback for an unrecognized/empty attr, but not appended as a tiebreak
+#     for the 5 named cases). Fixed by falling through to ID in every case.
+# Each fix proven by a dedicated test (pagination_sort_totality_test.go) that
+# creates several tied-key items, walks paginateSlice's own offset-token
+# semantics repeatedly (Go's map iteration order is randomized per range, so
+# repeated calls surface the instability), and asserts the concatenated ID
+# set is exact -- confirmed to fail on iteration 0 against the pre-fix code
+# for all 7, confirmed green post-fix across 30 iterations each.
+# Also swept for Class G (two-or-more collections the API defines as one
+# ordered sequence, truncated independently): none found in this service --
+# every paginated response found carries exactly one truncated collection;
+# no delimiter/common-prefix-style dual-list op exists here.
+# Remaining sort sites reviewed and confirmed already total (unique key, no
+# fix needed): every other sort.Slice/sort.Strings call in this service sorts
+# on a field that is that resource's real primary key (ID/ARN/Name-as-primary-
+# key/composite key) -- e.g. UsageProfile/CustomEntityType/Integration/
+# SecurityConfiguration/Schema-within-Registry Name, FunctionName (scoped per
+# database), CatalogID, VersionID, IndexName, ItemID -- confirmed against each
+# type's own store.Table key function, not assumed from the field name alone.
 # 2026-08-21 gopherstack-r80d batch 15 (required-output cut): 6 required-response-
 # member bugs found and fixed at member granularity across three families --
 # Catalog.Name (CreateCatalog read the name off a nonexistent CatalogInput.Name;
@@ -16,6 +63,17 @@ last_audit_date: 2026-08-13
 # unreachable given this backend's own server-side computation/validation or the
 # real SDK client's own non-nil-string-length validator, see the
 # column_statistics/catalogs entries below.
+# 2026-08-30 gopherstack-6nr4 follow-up: GetMLTaskRuns, flagged and left
+# unfixed by the sweep above for budget, is now fixed. It's the deeper of the
+# two variants that sweep named: not just a missing sort tiebreak but a
+# request struct that declared no Filter/Sort/MaxResults/NextToken at all
+# (its sibling GetMLTransforms, same file, already had all four). Confirmed
+# against the pinned SDK first per the issue's own instruction, not copied
+# from the sibling -- api_op_GetMLTaskRuns.go's real Input/Output shapes
+# matched what GetMLTransforms already modeled closely enough (Filter/Sort/
+# MaxResults/NextToken request side, NextToken added response side) that the
+# same paginateSlice helper applies. See the GetMLTaskRuns op row below for
+# the full fix and test detail.
 overall: A            # gopherstack-q4qt (this pass): ListSchemas/ListSchemaVersions declared MaxResults/NextToken (glue@v1.152.0 api_op_ListSchemas.go / api_op_ListSchemaVersions.go) but honored neither -- both were outside gopherstack-awzv's empty-struct-input sweep because they already took a real RegistryId/SchemaId, so they were never wired; fixed via the existing paginateSlice helper, matching every other List op in this file, with new local defaultListSchemasLimit/defaultListSchemaVersionsLimit consts (25, per each op's own doc comment) matching ListRegistries' convention. Read the whole of both ops per gopherstack-7f5k's pattern of paired bugs: ListSchemas.RegistryId was checked and confirmed already applied as a real filter (registry.go's ListSchemas: `registryName == "" || s.RegistryName == registryName`), not a repeat of DescribeInboundIntegrations/GetColumnStatisticsTaskRuns's ignored-scoping-parameter bug -- new test proves it excludes a sibling registry's schema. ListSchemaVersions takes SchemaId (SchemaName+RegistryName), inherently scoped to one schema, so there was no separate filter gap to find there. Test coverage: services/glue/handler_pagination_sweep_sdk_test.go (paginationCasesSchemaRegistry, MaxResults truncation + NextToken resume for both ops) and services/glue/handler_filter_sweep_sdk_test.go (TestSDKRoundTrip_ListSchemas_ScopesByRegistry); every new assertion hand-verified to fail against the pre-fix behavior (paginateSlice call removed, and separately the RegistryId filter neutralized, each confirmed red then restored). Closes gopherstack-q4qt. gopherstack-7f5k (prior pass): DescribeInboundIntegrations had both bugs its sibling DescribeIntegrations had before gopherstack-awzv -- MaxRecords/Marker declared but never read, and its raw *Integration struct marshaled straight out so CreatedAt (time.Time) rendered as an RFC3339 string where the real wire shape is a JSON Number; fixed via paginateSlice and pkgs/awstime.Epoch, matching DescribeIntegrations. Also found while in the op: its response field was named Integrations, the real name is InboundIntegrations (api_op_DescribeInboundIntegrations.go), and TargetArn was declared on the input but never applied as a filter -- both fixed. handler_schemas.go's GetRegistry/GetSchema/ListSchemas/ListSchemaVersions/GetSchemaVersion shared ListRegistries' pre-fix CreatedTime/UpdatedTime float-vs-string bug (Schema Registry declares these *string, confirmed per-op against each deserializer's own switch, not assumed from ListRegistries) -- fixed the same way, via formatGlueTimestampString. Two more found while in these five ops: GetRegistryOutput fabricated a Tags member that doesn't exist on the real type (only CreateRegistryOutput has one) -- removed; GetSchemaOutput dropped LatestSchemaVersion/NextSchemaVersion/SchemaCheckpoint even though the backend's Schema model already tracks them (used by CreateSchema) -- added; ListSchemaVersionsOutput's field was named SchemaVersions, the real name is Schemas (api_op_ListSchemaVersions.go) -- a real client silently decoded to an always-empty slice, now fixed. Test coverage: services/glue/handler_timestamp_sweep_sdk_test.go, driven through the real aws-sdk-go-v2 client; every new assertion hand-verified to fail against the pre-fix behavior. gopherstack-uult (prior pass): ListRegistries/ListSchemas/ListSchemaVersions marshaled the raw Registry/Schema/SchemaVersion domain structs instead of scoping to types.RegistryListItem/SchemaListItem/SchemaVersionListItem -- Tags/RegistryArn/DataFormat/Compatibility/LatestSchemaVersion/NextSchemaVersion/SchemaCheckpoint/SchemaDefinition leaked across the three ops; fixed with dedicated summary structs. gopherstack-ustu (prior pass): DescribeConnectionType/ListConnectionTypes' Capabilities was fabricated as []string instead of the real *types.Capabilities struct, breaking real-SDK-client deserialization entirely for both ops; fixed, plus a second-layer ConnectionTypeBrief.Category->Categories (plural) shape bug found alongside it. See families.DescribeConnectionType/families.ListConnectionTypes and the dated note below. gopherstack-i60f (prior pass): CreateSchema can now carry the initial SchemaDefinition and creates the first version atomically, closing a silent-drop gap found right after gopherstack-j1b7 landed; CreateSchemaOutput gained the five real version fields it was missing entirely. gopherstack-j1b7 (prior pass): schema-registry Compatibility enum validation and DISABLED-mode enforcement now real (CreateSchema/UpdateSchema/RegisterSchemaVersion); BACKWARD/FORWARD/FULL/*_ALL diffing and DQDL grammar validation remain deferred, both re-confirmed genuinely package-sized, not approximated. gopherstack-vcor (prior pass): StartWorkflowRun now actually fires a workflow's entry trigger (previously a bookkeeping no-op) and links the resulting job runs/crawls to the WorkflowRun via an internal, persisted-but-not-wire field; WorkflowRunStatistics is now computed live from that link. gopherstack-dol3 (prior pass): tag-ARN dispatch fixed for Blueprint/DevEndpoint/MLTransform/UDF (plus a real creation/update tag-loss bug found alongside it); workflow Graph+LastRun derived from real trigger/run state; one real, AWS-quota-verified ResourceNumberLimitExceededException (dev endpoints) added. EvaluationMetrics, DQDL/compatibility parsing, 3 of 4 quota/idempotency exceptions, WorkflowRun.Graph's per-node run details, and BlueprintDetails remain honestly deferred -- see notes below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -66,23 +124,25 @@ ops:
   StartJobRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (gopherstack-qd3.4): StartJobRunWithOptions adds real per-run overrides (WorkerType/NumberOfWorkers/MaxCapacity/Timeout/NotificationProperty/SecurityConfiguration) on top of the job-defaults path added last pass, matching StartJobRunRequest and enforcing the MaxCapacity vs WorkerType/NumberOfWorkers mutual-exclusion rule at the run level too. Also fixed a wire-error-code bug: exceeding ExecutionProperty.MaxConcurrentRuns returned generic InvalidInputException instead of the documented ConcurrentRunsExceededException (confirmed in deserializers.go's StartJobRun error switch) — new ErrConcurrentRunsExceeded sentinel, also wired into StartWorkflowRun's new MaxConcurrentRuns check (workflows family)"}
   GetJobRun: {wire: ok, errors: ok, state: ok, persist: ok}
   GetJobRuns: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchStopJobRun: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchStopJobRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (per-item failure sweep): BatchStopJobRunOutput.SuccessfulSubmissions (api_op_BatchStopJobRun.go) had no wire field at all, so a client could see which run IDs errored but never which ones were actually accepted for stopping. Errors was already correctly populated (EntityNotFoundException/IllegalStateException per bad run ID); only the success half of the same response was missing. Proven by TestBatchStopJobRun_ReportsSuccessfulSubmissions (fails without the fix). Per-item failure sweep also checked BatchCreatePartition, BatchDeleteConnection, BatchDeletePartition, BatchDeleteTable, BatchDeleteTableVersion, BatchGetIterableForms, BatchUpdatePartition, BatchGetPartition, BatchGetTableOptimizer, BatchPutDataQualityStatisticAnnotation, DeleteSchemaVersions: all correctly populate their failure field. CreateIntegration/DeleteIntegration/ModifyIntegration's Errors and GetColumnStatisticsFor{Table,Partition}/UpdateColumnStatisticsFor{Table,Partition}'s Errors are correctly left empty -- neither the Integration model nor column-statistics storage in this backend tracks any failure state a real client can trigger (confirmed for the column-statistics ops by three existing SDK-driven tests -- TestColumnStatisticsForTable_RequiredColumnType, TestColumnStatistics -- that already prove a client-constructed StatisticsData with no populated data member round-trips successfully, i.e. AWS does not enforce Type/data-member consistency server-side either)."}
   GetJobBookmark: {wire: ok, errors: ok, state: ok, persist: ok, note: "not re-verified in depth this pass"}
   ResetJobBookmark: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (gopherstack-dol3): tagResource()'s ARN dispatcher (tags.go) only recognized Database/Crawler/Job/DataQualityRuleset/Connection/Trigger/Workflow; Blueprint/DevEndpoint/MLTransform/UserDefinedFunction ARNs all returned EntityNotFoundException. Added findBlueprintByARN/findDevEndpointByARN/findMLTransformByARN/findUDFByARN and wired all 4 into TagResource/UntagResource/GetTags/TaggedResources. Also found (not just dispatch): MLTransform/UserDefinedFunction had NO Tags field at all -- CreateMLTransformWithOptions/CreateUserDefinedFunction already called the internal tagResource(ARN, tags) at creation time, but it silently no-op'd against the undispatched ARN, so creation-time tags were lost entirely (not merely unreachable). Added Tags fields to both structs (json:\"-\", matching Blueprint/DevEndpoint's existing internal-only pattern -- confirmed types.MLTransform/types.UserDefinedFunction have no Tags field on the real wire either). Second, separate bug found alongside: UpdateMLTransform/UpdateUserDefinedFunction replace the whole stored record with the caller's input; neither UpdateMLTransformRequest nor UpdateUserDefinedFunctionInput carries Tags on the real wire (confirmed -- AWS updates tags only via TagResource/UntagResource), so every Update call was silently wiping any previously-set tags. Both Update methods now carry existing.Tags forward explicitly."}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (gopherstack-dol3): tagResource()'s ARN dispatcher (tags.go) only recognized Database/Crawler/Job/DataQualityRuleset/Connection/Trigger/Workflow; Blueprint/DevEndpoint/MLTransform/UserDefinedFunction ARNs all returned EntityNotFoundException. Added findBlueprintByARN/findDevEndpointByARN/findMLTransformByARN/findUDFByARN and wired all 4 into TagResource/UntagResource/GetTags/TaggedResources. Also found (not just dispatch): MLTransform/UserDefinedFunction had NO Tags field at all -- CreateMLTransformWithOptions/CreateUserDefinedFunction already called the internal tagResource(ARN, tags) at creation time, but it silently no-op'd against the undispatched ARN, so creation-time tags were lost entirely (not merely unreachable). Added Tags fields to both structs (json:\"-\", matching Blueprint/DevEndpoint's existing internal-only pattern -- confirmed types.MLTransform/types.UserDefinedFunction have no Tags field on the real wire either). Second, separate bug found alongside: UpdateMLTransform/UpdateUserDefinedFunction replace the whole stored record with the caller's input; neither UpdateMLTransformRequest nor UpdateUserDefinedFunctionInput carries Tags on the real wire (confirmed -- AWS updates tags only via TagResource/UntagResource), so every Update call was silently wiping any previously-set tags. Both Update methods now carry existing.Tags forward explicitly. Re-checked this pass (wrapper-key sweep) against the sfn TagResource map/array bug class: glue's TagResourceInput.TagsToAdd is map[string]string (api_op_TagResource.go:44, serializers.go:37549-37564) -- unlike sfn, a map here is correct and needed no change; confirmed via a real-client round-trip test (tag_resource_sdk_test.go)."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "see TagResource note -- same dispatch fix."}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "see TagResource note -- same dispatch fix."}
   CreateColumnStatisticsTaskSettings: {wire: ok, errors: n/a, state: ok, persist: ok, note: "fixed (gopherstack-7rq1): request member was `RoleArn`, a gopherstack-invented name -- the real CreateColumnStatisticsTaskSettingsRequest member (glue/2017-03-31/service-2.json) is `Role`. A real client's role was silently dropped by json.Unmarshal every time (empty RoleArn stored), leaving the setting created but never actually runnable with the caller's IAM role. Fixed the json tag; existing tests only asserted HTTP 200 (used the wrong key, now corrected), new TestColumnStatisticsTaskSettings_WireRoleName asserts the value round-trips through GetColumnStatisticsTaskSettings. Schedule/SampleSize/CatalogID/SecurityConfiguration/Tags remain absent from the wire struct (deliberately unmodelled this pass -- ColumnStatisticsTaskSettings has no CatalogID/SecurityConfiguration backend state, and Schedule/SampleSize/Tags were not part of this fix's scope)."}
   UpdateColumnStatisticsTaskSettings: {wire: ok, errors: n/a, state: ok, persist: ok, note: "same RoleArn->Role fix as CreateColumnStatisticsTaskSettings."}
+  GetResourcePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (cursor-pagination sweep): GetResourcePoliciesOutput.NextToken (api_op_GetResourcePolicies.go) was never populated -- the handler ignored MaxResults/NextToken entirely and returned every stored resource policy (per-resource-ARN policies plus the account-level policy, unbounded) in one response. Now routed through the shared paginateSlice helper like every other list op in this package (defaultGetResourcePoliciesLimit=100). Proven via a real aws-sdk-go-v2/service/glue client round trip seeding 3 policies with MaxResults=2 (handler_pagination_sweep_sdk_test.go's 'get resource policies' case), confirmed failing pre-fix (all 3 returned in one page, no NextToken)."}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 (clientcoverage-driven audit of the 228 ops never exercised by a real-SDK-client test): GetResourcePolicyOutput's CreateTime/UpdateTime (confirmed against deserializers.go's awsAwsjson11_deserializeOpDocumentGetResourcePolicyOutput case list: CreateTime/PolicyHash/PolicyInJson/UpdateTime) were dropped entirely -- not fabricated, since this backend already tracks both timestamps per policy on resourcePolicyEntry (resource_policies.go), used correctly by the sibling GetResourcePolicies op the whole time. Backend GetResourcePolicy's signature gained two return values (createTime, updateTime float64); StorageBackend interface updated, both call sites (tables_test.go, persistence_test.go) updated, `make build-check` clean. Proven via a real aws-sdk-go-v2/service/glue client round trip (wire_output_dropped_fields_test.go: TestGetResourcePolicy_ReturnsCreateAndUpdateTime), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   GetMLTaskRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 (same audit as GetResourcePolicy): GetMLTaskRunOutput's StartedOn/CompletedOn/ExecutionTime/ErrorString/LogGroupName (api_op_GetMLTaskRun.go) were dropped entirely by a narrower hand-rolled response struct, even though MLTaskRun (models.go) already tracks all five (StartedOn set by StartMLEvaluationTaskRun/StartExportLabelsTaskRun/StartImportLabelsTaskRun/StartMLLabelingSetGenerationTaskRun; CompletedOn set by CancelMLTaskRun) -- the sibling GetMLTaskRuns (list) op was unaffected since it marshals the *MLTaskRun model directly with its own correct json tags. Not touched: TaskRun.LastModifiedOn (real SDK member) and Properties' real shape (*types.TaskRunProperties, a TaskType+4-nested-sub-struct union; this backend's MLTaskRun.Properties is map[string]string and is never populated by any code path, so it stays a documented, currently-inert modelling gap rather than a proven bug -- see gaps). Proven via a real aws-sdk-go-v2/service/glue client round trip (wire_output_dropped_fields_test.go: TestGetMLTaskRun_ReturnsRealTrackedFields), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
+  GetMLTaskRuns: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6nr4): GetMLTaskRunsInput declared NO Filter/Sort/MaxResults/NextToken at all -- unlike its sibling GetMLTransforms (same file), which already had all four -- so every call returned the transform's complete, unpaginated task-run set regardless of what a real client requested. Confirmed against the pinned SDK (api_op_GetMLTaskRuns.go): real GetMLTaskRunsInput carries Filter (types.TaskRunFilterCriteria: StartedAfter/StartedBefore/Status/TaskRunType), Sort (types.TaskRunSortCriteria: Column in TASK_RUN_TYPE/STATUS/STARTED, SortDirection), MaxResults, NextToken; real GetMLTaskRunsOutput adds NextToken alongside TaskRuns. Wired via matchesTaskRunFilter/sortTaskRuns/paginateSlice, the same helpers GetMLTransforms already uses. sortTaskRuns tiebreaks every column on TaskRunID: MLTaskRun.StartedOn is a whole-second time.Now().Unix() value (ml.go), so runs started in the same second tie under any real sort column, the same tie-prone-sort precondition already fixed for five other glue listings -- an untiebroken sort here would have traded a missing cursor for dropped/duplicated rows across a page boundary. Proven via TestGetMLTaskRuns_SDKPagination_TotalOrderNoTiesLost (real aws-sdk-go-v2 client, 6 same-second runs, MaxResults=2, asserts the union of every page equals the seeded set exactly) and TestGetMLTaskRuns_SDKFilter_ByStatus (Filter.Status excludes a non-matching run); both confirmed failing against pre-fix code before the fix landed."}
   GetDataQualityRuleRecommendationRun: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 (same audit as GetResourcePolicy): GetDataQualityRuleRecommendationRunOutput.StartedOn (api_op_GetDataQualityRuleRecommendationRun.go) was dropped entirely even though DQRuleRecommendationRun (models.go) already tracks it, set by StartDataQualityRuleRecommendationRun. wire stays partial, not ok: the real output has ~10 more members (AdditionalRunOptions/CompletedOn/CreatedRulesetName/DataQualitySecurityConfiguration/DataSource/ErrorString/ExecutionTime/LastModifiedOn/NumberOfWorkers/RecommendedRuleset/Role/Timeout) with no backing state anywhere in this backend -- no rule-recommendation engine runs, matching the already-documented ml_transforms EvaluationMetrics gap class ('this backend never runs a real ML evaluation, so there is no real metric to report'); DataSource in particular can't be honestly reconstructed since this backend only stores a flat DataSourceS3Path string while the real field is a structured types.DataSource{GlueTable}, already noted in the gopherstack-awzv gap list below. Left as an honest modelling gap, not fabricated. Proven via a real aws-sdk-go-v2/service/glue client round trip (wire_output_dropped_fields_test.go: TestGetDataQualityRuleRecommendationRun_ReturnsStartedOn), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
 families:
   connections: {status: ok, note: "fixed this pass: field-diffed Connection/ConnectionInput against types.Connection/types.ConnectionInput and added Description, MatchCriteria ([]string), and PhysicalConnectionRequirements (AvailabilityZone/SubnetId/SecurityGroupIdList — used e.g. by NETWORK-type connections in place of ConnectionProperties), all previously silently dropped. CreateConnectionWithOptions/UpdateConnectionWithOptions added additively (CreateConnection/UpdateConnection kept for existing callers). Not modeled: AthenaProperties/SparkProperties/PythonProperties/AuthenticationConfiguration/CompatibleComputeEnvironments — newer OAuth/compute-environment fields judged out of scope for this pass (no auth-flow simulation exists anywhere in this backend)."}
   RegisterConnectionType: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass (gopherstack-u90v): handler previously read only ConnectionType/Description and dropped ConnectionProperties, ConnectorAuthenticationConfiguration, IntegrationType and RestConfiguration, all required (glue@v1.152.0 api_op_RegisterConnectionType.go:38-70) — two more (ConnectionProperties, IntegrationType) than the sweep that filed this issue caught. Response was also fabricated: real RegisterConnectionTypeOutput carries only ConnectionTypeArn (api_op_RegisterConnectionType.go:79-84), not the previous ConnectionType/Status pair. Now requires all four (InvalidInputException if absent — ValidationException is also declared for this op, but InvalidInputException is what this handler's existing ErrValidation/awserr.ErrInvalidParameter convention already maps to, and it's in the same declared switch), validates IntegrationType against the SDK's own enum (\"REST\" only), validates ConnectorAuthenticationConfiguration.AuthenticationTypes is present (its own required sub-field), and returns a real ConnectionTypeArn. ConnectionProperties/ConnectorAuthenticationConfiguration are stored as opaque documents (map[string]any, not flattened) but never echoed anywhere: neither has a matching field on DescribeConnectionTypeOutput (its ConnectionProperties is a differently-shaped map[string]Property; its AuthenticationConfiguration is *types.AuthConfiguration, a distinct type) — genuinely inert, not an omission. RestConfiguration IS the same type on both sides and is now echoed on DescribeConnectionType."}
   DescribeConnectionType: {wire: ok, errors: ok, state: ok, persist: ok, note: "RestConfiguration added gopherstack-u90v (see RegisterConnectionType note) and echoes correctly. FIXED (gopherstack-ustu): Category was removed entirely -- confirmed not a field on the real DescribeConnectionTypeOutput at all (api_op_DescribeConnectionType.go) -- and Capabilities changed from a fabricated []string of \"READ\"/\"WRITE\" to the real *types.Capabilities shape (SupportedAuthenticationTypes/SupportedComputeEnvironments/SupportedDataOperations, all required; new local connectionCapabilities struct, handler_connection_types.go, since this backend hand-rolls wire structs rather than importing SDK types). A real SDK client's deserializer previously rejected the whole response body on the array-vs-object mismatch (confirmed: TestSDKRoundTrip_RegisterConnectionType_EchoesRequiredMembers could not drive DescribeConnectionType through the real client for this reason and fell back to raw HTTP -- it now uses the real client). This backend's existing per-type READ/WRITE data (rwCaps/readCaps) maps exactly onto SupportedDataOperations (types.DataOperation's only two enum values are literally \"READ\"/\"WRITE\") and is threaded through, not discarded; SupportedAuthenticationTypes/SupportedComputeEnvironments have no backing state anywhere in this backend and are modeled as real, present, empty slices (not fabricated) when Capabilities itself is present -- Capabilities is omitted entirely (not an empty-but-present object) for connector categories with no tracked DataOperations at all (NETWORK/MARKETPLACE/CUSTOM), since Capabilities is not itself a required member on this op's output."}
   ListConnectionTypes: {wire: partial, errors: ok, state: ok, persist: n/a, note: "NOT previously tracked in this ledger. FIXED (gopherstack-ustu, second-layer find made while fixing DescribeConnectionType's Capabilities bug): ConnectionTypeBrief has the same fabricated-[]string Capabilities bug as DescribeConnectionTypeOutput (same fix, shared connectionCapabilities/toConnectionCapabilities helper), PLUS a second, distinct shape bug not called out in the issue that filed this fix -- the real field is Categories (types.ConnectionTypeBrief, glue@v1.152.0 types/types.go:2533-2564), a []string (plural), not the singular Category string this backend emitted. This backend's ConnectionTypeInfo only ever models one category per type, so it is now echoed as the one-element list that shape implies -- not fabricated into several. DisplayName/LogoUrl/Vendor/ConnectionTypeVariants are also real ConnectionTypeBrief members with no backing state anywhere in this backend -- deliberately left absent (wire: partial for this reason) rather than invented; see gaps."}
-  ListEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- ListEntitiesInput declares no required members at all (glue@v1.152.0 api_op_ListEntities.go:29-49). With none given, this now serves the native Amazon S3 Glue Data Catalog path the op's own doc describes, off this backend's real databases/tables (GetDatabases/GetTables), not fabricated data: top level lists databases (Category DATABASES, IsParentEntity true), ParentEntityName=<database> lists that database's tables as \"database.table\" (Category TABLES) -- see DescribeEntity note for why this qualified form was chosen. Also fixed the accept-and-drop half: ParentEntityName was a real input field silently ignored by every path; it is now honored for native-catalog listing. It is NOT honored in connector (ConnectionName given) mode -- entityCatalog()'s canned CRM/COMMERCE entities model no children (only ACCOUNT/CUSTOMER set IsParentEntity, with nothing underneath), so there is nothing to filter to; inventing child entities for those two would be exactly the half-feature this issue's rule warns against, so ParentEntityName stays a documented no-op there."}
+  ListEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- ListEntitiesInput declares no required members at all (glue@v1.152.0 api_op_ListEntities.go:29-49). With none given, this now serves the native Amazon S3 Glue Data Catalog path the op's own doc describes, off this backend's real databases/tables (GetDatabases/GetTables), not fabricated data: top level lists databases (Category DATABASES, IsParentEntity true), ParentEntityName=<database> lists that database's tables as \"database.table\" (Category TABLES) -- see DescribeEntity note for why this qualified form was chosen. Also fixed the accept-and-drop half: ParentEntityName was a real input field silently ignored by every path; it is now honored for native-catalog listing. It is NOT honored in connector (ConnectionName given) mode -- entityCatalog()'s canned CRM/COMMERCE entities model no children (only ACCOUNT/CUSTOMER set IsParentEntity, with nothing underneath), so there is nothing to filter to; inventing child entities for those two would be exactly the half-feature this issue's rule warns against, so ParentEntityName stays a documented no-op there. FIXED 2026-08-29 (cursor-pagination sweep): NextToken (declared on both input and output) was still never populated in the native-catalog path -- databases/tables are real, unbounded, user-created collections. The real op declares no MaxResults, so the page size is server-fixed (defaultListEntitiesLimit=100); now routed through paginateSlice. Connector-mode listing (entityCatalog(), a compile-time 7-entry catalogue) is provably bounded and left as-is -- see DescribeEntity. Proven via a real client round trip seeding 101 databases (entities_test.go: TestListEntities_Pagination), confirmed failing pre-fix."}
   GetEntityRecords: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- GetEntityRecordsInput's only required members are EntityName and Limit (glue@v1.152.0 api_op_GetEntityRecords.go:35-48); ConnectionName is optional (line 55), and the op's own doc says why: \"query preview data from a given connection type or from a native Amazon S3 based Glue Data Catalog\". Checked the OTHER direction too (this issue's rule 1): Limit is real-SDK-required (its client-side validator, validators.go:13344-13360, rejects a call omitting it before the request is ever sent) but this handler never enforced that -- now returns InvalidInputException for Limit<=0, closing that half. With no ConnectionName, EntityName must be the \"database.table\" form ListEntities' native-catalog path advertises (chosen, not AWS-specified, since GetEntityRecordsInput has no separate database/parent field to disambiguate a bare table name against multiple databases -- stated as chosen, in code (nativeEntityName/splitNativeEntityName) and here); a bare database name or an unqualified/unknown name is EntityNotFoundException, not an empty or fabricated success. Records are synthesized the same deterministic way as the connector path (sampleRecord over an entityDefinition), but the schema is real: columnToEntityField maps each StorageDescriptor.Column and PartitionKey's Glue/Hive type string (bigint/decimal(...)/boolean/timestamp/date/etc, matched by prefix) onto the same EntityField shape DescribeEntity uses for connector entities. DescribeEntity itself is out of this issue's scope (not one of the two ops named) and still requires ConnectionName -- it does not yet support native-catalog table lookups; a real client discovering a native entity via ListEntities and then calling DescribeEntity on it would get EntityNotFoundException today. That is a real, scoped-out gap, not silently papered over."}
   triggers: {status: ok, note: "fixed this pass (gopherstack-qd4.1): Trigger gained Description, WorkflowName, and EventBatchingCondition (BatchSize/BatchWindow); TriggerCondition gained CrawlerName and CrawlState (types.Condition supports crawler-state predicates, not just job-state — was entirely unmodeled); TriggerAction gained SecurityConfiguration/NotificationProperty/Timeout (types.Action fields silently dropped). CreateTrigger/UpdateTrigger now enforce AWS's documented 'max 2 crawler actions per trigger' soft limit (about-triggers.html), returning InvalidInputException over the limit. WorkflowName is create-only (not part of TriggerUpdate, confirmed against types.TriggerUpdate) so UpdateTrigger does not accept it."}
   workflows: {status: partial, note: "fixed this pass (gopherstack-qd3.5-era fix retained): Workflow gained MaxConcurrentRuns, enforced in StartWorkflowRun, returning ConcurrentRunsExceededException. gopherstack-dol3: Workflow.Graph and Workflow.LastRun are now real, derived fields -- GetWorkflow/BatchGetWorkflows gained IncludeGraph (confirmed on GetWorkflowInput/BatchGetWorkflowsInput; Graph is only populated when set, matching AWS). Graph (WorkflowGraph{Nodes,Edges}) is built by workflowGraphLocked (workflow_graph.go) purely from real state: every Trigger with WorkflowName==this workflow becomes a TRIGGER node (with real TriggerDetails.Trigger, confirmed types.TriggerNodeDetails.Trigger), each trigger's TriggerAction.JobName/CrawlerName become downstream JOB/CRAWLER nodes+edges, each trigger's TriggerPredicate.Conditions become upstream JOB/CRAWLER nodes+edges -- no fabricated topology. Node.UniqueId is \"<kind>/<name>\" (real ID-gen algorithm not discoverable from the SDK, same simplification already accepted here for FormType.Id). LastRun is the most recent entry from real StartWorkflowRun history (b.workflowRuns), absent until a run has actually happened. NEW this pass (gopherstack-vcor): the missing link is built. Verified against aws-sdk-go-v2/service/glue@v1.152.0 that neither JobRun nor Crawl/CrawlerHistory carries a WorkflowRunId on the wire (types.go:2815-2836,2916-2946,7134-7352) -- JobRun's only real correlation field is TriggerName (types.go:7350-7351), which this backend now also populates for the first time. StartWorkflowRun now fires the workflow's entry-point trigger(s) (WorkflowName==this workflow, Predicate==nil -- AWS calls this the workflow's \"start trigger\", workflows_overview.html) and stamps the new run's ID onto the job runs/crawls those actions start, via an internal-only (non-wire) WorkflowRunID field on JobRun/CrawlHistoryEntry that persists but is stripped before GetJobRun/GetJobRuns responses (ListCrawls was already safe: its crawlHistoryOut DTO copies fields explicitly). GetWorkflowRun/GetWorkflowRuns/GetWorkflow/BatchGetWorkflows now compute WorkflowRunStatistics live from that link (never stored, so it can't go stale); ErroredActions/WaitingActions count job runs only, per the SDK's own doc comments for those two fields (\"count of job runs in the ERROR/WAITING state\", types.go:13224-13225) unlike the other fields' generic \"Actions\" wording. Two things are deliberately still not modeled: (1) conditional (predicate-gated) triggers within a workflow never fire on their own -- this backend has no predicate-evaluation engine watching job/crawler completions, so only an entry trigger's own direct actions are ever linked to a run, not a full downstream DAG execution; (2) BlueprintDetails (still structurally unreachable, unchanged from gopherstack-dol3) and WorkflowRun.Graph/GetWorkflowRun's own IncludeGraph (types.Node.JobDetails.JobRuns/CrawlerDetails.Crawls) remain unpopulated -- the link now exists to build them, but that is real additional work (converting stamped runs into per-node run-history lists) not done this pass."}
@@ -1420,3 +1480,508 @@ Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
 `UpdateSchema`/`StartBlueprintRun` all changed exported `StorageBackend`
 signatures), `golangci-lint run ./services/glue/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state/type/mode concept against its
+real SDK enum (`glue@v1.152.0 types/enums.go`), tracing every assignment including lifecycle
+transitions. `cmd/enumcheck` was run against this service both before and after and flagged
+**none** of the three findings below — confirming its blind spot on struct-field assignment.
+
+**Found and fixed** (all three share the shape: a plain string literal, not the file's own
+`store.go` shared-vocabulary constants, so this was NOT the multi-enum-sharing-one-vocabulary
+shape found in comprehend — it's three independent one-off wrong literals):
+
+- `column_statistics.go` `StartColumnStatisticsTaskRun`: `Status: "STARTED"` — the real member is
+  `types.ColumnStatisticsState` (STARTING/RUNNING/SUCCEEDED/FAILED/STOPPED,
+  `types/enums.go:225`); `"STARTED"` is not a member. Fixed to `stateStarting` ("STARTING"),
+  matching every other `Start*` op in this file. No reconciler ever advanced this value, so a
+  real client's waiter would have polled until timeout.
+- `data_quality_rulesets.go` `CancelDataQualityRulesetEvaluationRun` and
+  `CancelDataQualityRuleRecommendationRun`: both set `run.Status = "CANCELLED"`. Both fields wire
+  to `types.TaskStatusType` (STARTING/RUNNING/STOPPING/STOPPED/SUCCEEDED/FAILED/TIMEOUT,
+  `types/enums.go:3323`), which has no `CANCELLED` member. Fixed both to `stateStopped`
+  ("STOPPED"), matching this same file's `CancelMLTaskRun` (`ml.go`), which already uses
+  `stateStopped` for the identical cancel-on-`TaskStatusType` transition.
+
+**Response-nesting sweep (separate pass, same bug class as above but wire-shape depth, not a
+value) — N of N ops checked for this class: all 3 `DataQuality*EvaluationRun` response envelopes
+(`Get`/`Start`/`BatchGet`)**: `GetDataQualityRulesetEvaluationRunOutput` previously wrapped every
+field (`Status`/`CompletedOn`/`DataSource`/`RunId`/etc.) under a `"DataQualityEvaluationRun"` JSON
+key (`handler_data_quality_rulesets.go`), but the real
+`GetDataQualityRulesetEvaluationRunOutput` (`api_op_GetDataQualityRulesetEvaluationRun.go`) has
+those members flat at the response root — a real SDK client decoded every member as `nil`, with
+no error (total nil-decode, not a partial loss). Fixed by returning `*DataQualityEvaluationRun`
+directly instead of a wrapper struct; `DataQualityEvaluationRun`'s own JSON tags already matched
+the real root-level member names. `StartDataQualityRulesetEvaluationRunOutput` (only `RunId`) and
+`BatchGetDataQualityRulesetEvaluationRunOutput` (`Runs`/`RunsNotFound`) were re-verified against
+the real SDK and are already correctly flat — the two ops actually named in the pre-existing bd
+issue as also wrapped turned out not to be; only `Get` had the bug. Verified via
+`TestGetDataQualityRulesetEvaluationRun_FieldsAtResponseRoot` (real typed client, asserts `RunId`/
+`Status`/`RulesetNames` are non-nil/populated post-fix, confirmed failing pre-fix) in
+`wire_field_fixes_test.go`. Three pre-existing tests
+(`TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember` in `wire_field_fixes_test.go`,
+`TestDataQuality_EvaluationRun_GetAndCancel` in `handler_data_quality_stats_test.go`,
+`TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun` in
+`handler_data_quality_rulesets_test.go`) asserted the `"DataQualityEvaluationRun"` wrapper key as
+correct — all three updated to assert the real flat shape instead.
+
+**Also flagged, not fixed (extraneous field, not an enum mismatch)**:
+`identity_center.go`'s `IdentityCenterConfig.Status` ("ENABLED"/"DISABLED") has no corresponding
+member on the real `CreateGlueIdentityCenterConfigurationOutput`/
+`GetGlueIdentityCenterConfigurationOutput` at all (confirmed absent from both structs) — not a
+wrong-enum-value bug (no real enum exists to violate), just an invented field a real client would
+silently ignore.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`CrawlerState` (3/3: READY/RUNNING/STOPPING), `CrawlerHistoryState` (3/4: RUNNING/COMPLETED/
+STOPPED used, FAILED unused-but-legal), `JobRunState`, `MaterializedViewRefreshState`,
+`ScheduleState`, `RegistryStatus`, `SchemaStatus`, `SchemaVersionStatus`, `SessionStatus`,
+`WorkflowRunStatus`, `PartitionIndexStatus`, `IntegrationStatus`, `TaskStatusType` (elsewhere:
+`MLTaskRun.Status`, `getMLTaskRunOutput` fallback), `DataQualityModelStatus`,
+`DataQualityRuleResultStatus`, `BlueprintRunState`, `BlueprintStatus`, `TriggerState`,
+`StatementState`, `TransformStatusType`, `ExportStatus` (deliberately restricted to ENABLED/
+DISABLED, documented existing choice — not fabricating transient/FAILED states). `DevEndpoint.
+Status`/`LastUpdateStatus` are untyped `*string` on the real SDK (no enum to violate) — out of
+scope by definition, not checked further.
+
+Gates: `go build ./services/glue/...` (clean), `go vet ./...` (repo-wide, clean — no signature
+changes this pass), `go test -race -count=1 ./services/glue/...` (pass, including new
+`wire_field_fixes_test.go`, each new assertion hand-verified to fail against the pre-fix
+literals then restored), `golangci-lint run --fix ./services/glue/...` (0 issues). Work left
+uncommitted per this pass's instructions.
+
+## 2026-08-29 error-path sweep (wrong-code/should-not-error bug hunt, ERROR path only)
+
+Audited glue's not-found error-sentinel choices at call sites against each op's own
+`awsAwsjson11_deserializeOpError<Op>` switch in `deserializers.go` (glue@v1.152.0) — not the
+service's general error-type list. Extracted the modeled-code set for all 299 ops. 8 real bugs
+found and fixed, all in the class "generic `ErrNotFound` (-> `EntityNotFoundException`) used at a
+call site whose own op does not model `EntityNotFoundException` at all":
+
+- **Wrong code, fixed to `InvalidInputException`** (the op's actual modeled not-found-adjacent
+  code): `DeleteFormType`, `DeleteGlossary`, `DeleteGlossaryTerm`, `ListGlossaryTerms`,
+  `DeleteUsageProfile`, `DeleteSession`, `StopSession`, `DeleteWorkflow`, `DeleteAsset`,
+  `DeleteAssetType`, `DescribeConnectionType`.
+- **Wrong code, fixed to `MaterializedViewRefreshTaskNotRunningException`** (the op's actual
+  modeled code for "nothing running to stop"): `StopMaterializedViewRefreshTaskRun` — new sentinel
+  `ErrMaterializedViewRefreshTaskNotRunning` added, wired into `handler.go`'s switch.
+- **Should-not-error (idempotent delete), fixed to a silent no-op**: `DeleteJob` and
+  `DeleteTrigger` — both ops' own SDK doc comments state "If the X is not found, no exception is
+  thrown" (`api_op_DeleteJob.go`, `api_op_DeleteTrigger.go`), confirmed by their error switches
+  also having no not-found case at all.
+
+Five pre-existing tests were asserting the old, wrong behavior as correct and were fixed alongside
+the source: `TestDeleteUsageProfile_NotFound` (handler_usage_profiles_test.go), `TestBlueprint_DeleteNotFound`
+(handler_blueprints_test.go), `TestStopMaterializedViewRefreshTaskRun_NotFound`
+(handler_materialized_views_test.go), `TestExtractResource`/`delete_job_extracts_job_name`
+(handler_crawlers_test.go), `TestGlue_ErrorCases`/`delete_nonexistent_job` (handler_test.go).
+`TestTrigger_DeleteTrigger`/`not-found` and `TestWorkflow_DeleteAndList` needed no code changes
+(only relied on `wantCode`, which is unaffected or already correct).
+
+New tests, real typed `aws-sdk-go-v2` client, `errors.As` against the SDK's own exception type
+(or `require.NoError` for the idempotent-delete cases), every one hand-verified to fail against
+the pre-fix code first: `services/glue/wire_error_code_not_modeled_test.go`.
+
+Spot-checked (not exhaustive) for the same class beyond these 8: crawlers (Start/Stop/Update/
+Delete), connection_types (Delete/Register), resource_policies (Put/Delete), jobs/workflows
+(StartJobRun/StartWorkflowRun's `ConcurrentRunsExceededException`), dev_endpoints
+(`ResourceNumberLimitExceededException`), dashboard (`GetSessionEndpoint`'s
+`IllegalSessionStateException`) — all already correct. Integrations family (Delete/Modify/Get/
+UpdateIntegration*) already uses `EntityNotFoundException`, which IS modeled by those specific
+ops — left as-is, no bug.
+
+Gates: `go build ./services/glue/...` (clean), `go vet ./...` (repo-wide, clean — no signature
+changes), `go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run --fix
+./services/glue/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-29 ordering-bug audit (paginate-before-filter, iam class) -- clean, no code change
+
+Audited every `paginateSlice(...)` call site (48, via `grep -rn "paginateSlice(" services/glue`) for
+order of operations. This service funnels essentially all NextToken-based pagination through one
+shared generic helper (`paginateSlice`, `handler.go:226`) plus a shared `matchesTagFilter`
+(`handler.go:243`) and a handful of op-specific filter predicates (`matchesIntegrationFilters`,
+`filterByDependentJobName`, the `Expression`/`partitionExpr` predicate in
+`handler_partitions.go:handleGetPartitions`). In every site checked, the filter loop builds a new
+`filtered`/`matching` slice first and `paginateSlice` is called on that result, not on the raw
+backend list -- i.e. filter-then-paginate throughout: `handler_connections.go` (GetConnections,
+ConnectionType/MatchCriteria), `handler_dev_endpoints.go`/`handler_blueprints.go`/
+`handler_crawlers.go`/`handler_jobs.go`/`handler_triggers.go` (Tags via `matchesTagFilter`),
+`handler_integrations.go` (DescribeInboundIntegrations/DescribeIntegrations, both self-contained
+filter+paginate pairs), `handler_partitions.go` (GetPartitions, `Expression` predicate applied to the
+full set before the slice), `handler_data_quality_rulesets.go`/`handler_ml.go`/
+`handler_materialized_views.go`/`handler_data_quality_stats.go`/`handler_schemas.go` (each function's
+own `continue`-based filter loop precedes its own `paginateSlice` call; verified no cross-wiring
+between a file's multiple list functions). `paginateSlice` itself is filter-blind (operates purely on
+the slice it's given, computing `next` from that same slice's length), so as long as callers pass it
+the already-filtered slice -- which all 48 do -- there is no way for this helper to reproduce the iam
+shape.
+
+One structural, not-ordering gap noted in passing: `handleGetTableVersions`/`GetTableVersions`
+(`handler_tables.go:205`) and `SearchTables` return everything unpaginated even though real
+`GetTableVersionsInput`/`SearchTablesInput` support `MaxResults`/`NextToken` -- no pagination
+implemented at all, so no order to get wrong, but also no truncation, meaning this over-returns
+rather than silently drops data. Left as a "never plumbed pagination" gap for a future pass, not
+folded into this one.
+
+Zero ordering-bug findings; no files changed.
+
+## 2026-08-29 cursor-pagination audit (declares-but-never-sets class)
+
+Enumerated every response struct in this package declaring a `NextToken`/`Marker` field
+(46 files, ~50 distinct response types by grep of field declarations, well under the crude
+101-figure this pass's brief warned was unreliable) and cross-checked each against the 46
+existing `paginateSlice(...)` call sites plus every handler file declaring the field but not
+in that call-site list. All 46 pre-existing `paginateSlice` callers correctly assign the
+returned token to their response's `NextToken`/`Marker` field -- confirmed by grep, not
+assumed.
+
+Two real bugs found and fixed (see `GetResourcePolicies`/`ListEntities` above): both had a
+cursor field declared on the wire, a genuinely-unbounded backing collection, and the handler
+never applied any pagination at all (no `paginateSlice` call, request `NextToken`/`MaxResults`
+parsed into the input struct but never consulted). Same broken-request-and-response-together
+pattern as prior services' findings.
+
+Two response cursors correctly left unpopulated, both provably bounded:
+- `DescribeEntity` (connector mode): fields come from `entityCatalog()`, a compile-time map of
+  7 canned CRM/commerce entities, each with <=9 fields. Cannot exceed one page.
+- `ListTableOptimizerRuns`: this backend only tracks a table optimizer's single `LastRun`, so
+  the returned slice is at most 1 element regardless of real AWS's actual multi-run history
+  semantics. Backend history-tracking is a separate, larger gap (not a cursor bug) -- noted,
+  not fixed this pass.
+
+Verified-correct-as-is: `handleGetTableVersions`/`GetTableVersions` and `SearchTables`
+(`handler_tables.go`) do not declare `NextToken`/`MaxResults` on their input/output structs at
+all, even though the real `GetTableVersionsInput`/`SearchTablesInput` support them -- a
+structural wire-shape gap (missing fields), not a "declares but never sets" bug, and already
+documented in this file's 2026-08-29 ordering-bug audit section above as deliberately deferred.
+Left untouched this pass.
+
+Tests: `services/glue/handler_pagination_sweep_sdk_test.go` gained a `get resource policies`
+case (bumping `totalPaginationCases` 31->32); `services/glue/entities_test.go` gained
+`TestListEntities_Pagination`. Both drive the real `aws-sdk-go-v2/service/glue` client,
+confirmed failing against unmodified code before the fix.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/glue/...` (pass), `golangci-lint run ./services/glue/...` (0 issues).
+
+## 2026-08-30 WrapOp reflective-decode re-scan (gopherstack-4shm follow-up)
+
+Glue has the most `service.WrapOp` call sites in the repo (~299), and its
+most recent pass before this one explicitly read the existing audit trail
+rather than running a fresh scan -- exactly the verdict gopherstack-4shm's
+campaign put in doubt. Ran `cmd/reqfieldscan -dir glue` fresh: it returned
+**zero** dispatch entries, not because glue is invisible to `WrapOp`
+resolution (`collectWrapOpFuncNames` finds a `service.WrapOp(...)` call
+anywhere in the package regardless of which literal it lives in) but because
+glue's dispatch table is a data-driven `[]struct{name string; bind
+func(*Handler) service.JSONOpFunc}{...}` slice (`handler_routing.go`'s
+`glueOpBindings`), not a `map[string]service.JSONOpFunc{...}` composite
+literal or a `GetSupportedOperations` `[]string{}` literal -- the two
+dispatch-table shapes the tool's denominator logic recognizes. This is a
+real tool blind spot, disclosed rather than silently mis-measured: **the
+tool could not reach this service's dispatch table at all.**
+
+Checked by hand via a private, uncommitted scratch copy of `cmd/reqfieldscan`
+(not modifying the real tool, per this issue's scope rule barring edits
+under `cmd/`) with one addition: a `collectOpBindingSliceNames` fallback
+recognizing glue's `[]struct{...; name string; ...}{...}` slice shape.
+Result: 297/299 ops resolved (99%), 297 types, 778 fields. 2 unresolved
+(`UpdateJobFromSourceControl`/`UpdateSourceControlFromJob`) -- both use a Go
+type *alias* (`type updateJobFromSourceControlInput =
+jobSourceControlInput`), which `collectStructTypes` never registers (its
+`ts.Type.(*ast.StructType)` check fails for an alias's `*ast.Ident` RHS), so
+the binder never resolves `in`'s declared type to a known struct and the op
+resolves as unresolved rather than silently mis-scored. Hand-verified: all 9
+real `UpdateJobFromSourceControlInput`/`UpdateSourceControlFromJobInput`
+fields (`AuthStrategy`/`AuthToken`/`BranchName`/`CommitId`/`Folder`/`JobName`/
+`Provider`/`RepositoryName`/`RepositoryOwner`, confirmed against
+glue@v1.152.0 `api_op_UpdateJobFromSourceControl.go`/
+`api_op_UpdateSourceControlFromJob.go`) are genuinely read -- 8 via the
+shared `jobSourceControlInput.toSourceControlDetails()` method, `JobName`
+directly in both handlers. Clean, not a bug; a scanner blind spot only.
+
+42 fields flagged unread across the 297 resolved ops. Hand-verified every
+one against glue@v1.152.0. Sorted by shape:
+
+**Real bugs, fixed (4):**
+
+- `ResumeWorkflowRun`'s `NodeIds` ("This member is required" --
+  api_op_ResumeWorkflowRun.go) was parsed and then never passed to the
+  backend at all, and the response's `NodeIds` ("The new nodes that were
+  actually restarted") was hardcoded to an empty list regardless of what was
+  requested. Parsed-then-discarded-parameter class. This backend has no
+  per-node run-attempt state to validate node IDs against (`WorkflowRun`
+  tracks no `Graph`/per-node history -- a disclosed, package-sized gap noted
+  elsewhere in this file), so the honest fix threads `nodeIDs` through and
+  echoes the requested list back as restarted, rather than inventing
+  per-node validation this backend can't back. Fixed in `workflows.go`
+  (`ResumeWorkflowRun` gained a `nodeIDs []string` parameter) and
+  `handler_workflows.go`. Test:
+  `handler_workflows_test.go:TestResumeWorkflowRun_EchoesRequestedNodes`,
+  confirmed failing (asserted `[]string{}` instead of the requested IDs)
+  against unmodified code.
+- `GetSchemaVersion`'s `SchemaVersionId` ("Either this or the SchemaId
+  wrapper has to be provided" -- api_op_GetSchemaVersion.go) was parsed and
+  never read; the handler always fell through to the `SchemaId`+
+  `SchemaVersionNumber` path (defaulting to version 1 when neither was
+  given), so a client fetching a version purely by the opaque ID a prior
+  `RegisterSchemaVersion` call returned got either the wrong version or
+  `EntityNotFoundException`, never the one it asked for. Wrong-key-selected
+  class. Fixed by checking `SchemaVersionId` first and resolving it via the
+  already-existing `FindSchemaVersionByID` helper (built for
+  `PutSchemaVersionMetadata`/`RemoveSchemaVersionMetadata`'s identical
+  standalone-ID lookup need -- no new backend surface required). Test:
+  `handler_timestamp_sweep_sdk_test.go:TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId`,
+  a real `aws-sdk-go-v2/service/glue` client round trip, confirmed failing
+  (`EntityNotFoundException`) against unmodified code.
+- `ListIntegrationResourceProperties`'s `Marker`/`MaxRecords` were declared
+  and never read -- no `paginateSlice` call at all, unlike every sibling
+  List op in this file (`DescribeIntegrations`/`DescribeInboundIntegrations`
+  two rows above in this same ledger). Always returned every stored entry
+  unbounded in one response. Fixed via the same `paginateSlice` convention,
+  new `defaultListIntegrationResourcePropertiesLimit = 100` const. Test:
+  `handler_pagination_sweep_sdk_test.go` gained a "list integration resource
+  properties" case (bumping `totalPaginationCases` 32->33), confirmed
+  failing (first page returned all 3 seeded items instead of truncating)
+  against unmodified code.
+- `GetDataflowGraph`'s `Language` field does not exist on the real
+  `GetDataflowGraphInput` at all (api_op_GetDataflowGraph.go: the only
+  member is `PythonScript`) -- a fabricated field from a prior pass, unread
+  and untested. Deleted rather than wired, per this campaign's "the fix
+  deletes rather than adds" guidance for fabricated fields; zero behavior
+  change (nothing read it before, no real client can populate it).
+
+**Confirmed false positives, hand-verified consistent with an
+already-established or newly-confirmed disclosed pattern (no fix needed):**
+
+- `getCatalogsInput.ParentCatalogID`/`IncludeRoot`/`Recursive`,
+  `putDataCatalogExportConfigurationInput.ClientToken`,
+  `getConnectionsInput.CatalogID`, `listCustomEntityTypesInput.Tags`,
+  `listSessionsInput.Tags`/`RequestOrigin`,
+  `listDataQualityResultsInput.Filter`,
+  `listMaterializedViewRefreshTaskRunsInput.CatalogID` -- all already
+  documented inert in this file's gopherstack-awzv note or an inline doc
+  comment (flat single-catalog namespace / no backing state / idempotency
+  token).
+- `deleteTableOptimizerInput.CatalogID`/`updateTableOptimizerInput.CatalogID`
+  -- newly confirmed consistent with the same flat-catalog convention:
+  `CreateTableOptimizer`'s own backend method already discards its
+  `CatalogID` parameter (named `_`) for the identical reason.
+  `testConnectionInput.CatalogID` -- same convention (`Connection` has no
+  `CatalogId` field anywhere in this backend).
+- `describeEntityInput.CatalogID`/`DataStoreAPIVersion`/`NextToken`,
+  `getEntityRecordsInput.CatalogID`/`DataStoreAPIVersion`,
+  `listEntitiesInput.CatalogID`/`DataStoreAPIVer` -- the whole Entities
+  family is an explicitly disclosed "canned"/synthetic-data feature
+  (`entities.go`'s own doc comments, and the 2026-08-22 gopherstack-2wvq note
+  below); `DescribeEntity` doesn't paginate at all (returns `def.fields`
+  directly), consistent with `NextToken` never being populated either side.
+- `listDataQualityRuleRecommendationRunsInput.Tags` -- already documented
+  inline ("Tags is not modeled: DQRuleRecommendationRun is never routed
+  through tags.go's tag dispatch").
+- `listDataQualityStatisticsInput.ProfileID`/`StatisticID` -- op is a
+  documented, honest always-empty stub (own doc comment: "this emulator does
+  not run [automated data-quality monitoring], so no profile ever has
+  computed statistics"); an intentionally-empty listing correctly
+  distinguished from a silently-broken one.
+- `listTableOptimizerRunsInput.NextToken`/`MaxResults` -- this backend only
+  ever tracks a table optimizer's single `LastRun` (hand-confirmed: `runs :=
+  []*TableOptimizerRun{}; if to.LastRun != nil { runs = append(runs,
+  to.LastRun) }`), so there is never more than one item to paginate over.
+  Already named in this file's 2026-08-29 cursor-pagination audit.
+- `getSchemaVersionsDiffInput.SchemaDiffType` -- real field is required on
+  the wire but "Refers to SYNTAX_DIFF, which is the currently supported diff
+  type" (api_op_GetSchemaVersionsDiff.go): no second value exists in real
+  AWS today for a branch to dispatch on.
+- `getUnfilteredPartitionMetadataInput`/`getUnfilteredPartitionsMetadataInput`/
+  `getUnfilteredTableMetadataInput.SupportedPermissionTypes` -- the
+  input-side complement of this file's already-disclosed 2026-08-23 Lake
+  Formation gap ("this backend has no Lake Formation permissions/cell-filter
+  engine anywhere"); the output members this field would gate
+  (`CellFilters` etc.) are already documented absent for the same reason.
+
+**Deferred, real but package-sized (not fixed, matching this file's
+existing DQDL/compatibility-parsing precedent for "genuinely package-sized,
+not approximated"):**
+
+- `StartDataQualityRuleRecommendationRun`'s `DataSource` and `Role` (both
+  "This member is required" -- api_op_StartDataQualityRuleRecommendationRun.go)
+  are dropped entirely; the handler instead reads a fabricated
+  `OutputS3Path` field that does not exist on the real input at all. Same
+  root cause as this file's existing `GetDataQualityRuleRecommendationRun`
+  note (line ~139): "no rule-recommendation engine runs...DataSource in
+  particular can't be honestly reconstructed since this backend only stores
+  a flat DataSourceS3Path string while the real field is a structured
+  types.DataSource{GlueTable}". Wiring `DataSource.GlueTable` into
+  `DataSourceS3Path` without also fixing `GetDataQualityRuleRecommendationRunOutput`
+  (which doesn't surface `DataSource` back to the client at all, also
+  already-disclosed) would be exactly the invisible half-feature this
+  campaign's restraint rule warns against -- left disclosed, not touched.
+- `GetPlan`'s `Mapping` (required) and `GetMapping`'s `Location` (optional)
+  -- both part of this file's already-deferred ETL script-generation
+  simplification; `GetPlan`/`GetDataflowGraph`/`GetMapping`/
+  `CreateScript` synthesize/parse scripts heuristically rather than running
+  real Glue Studio-quality codegen, and honoring `Mapping`/`Location`
+  meaningfully would mean building a real mapping-aware code generator, not
+  a wire-key fix.
+
+**Whole-second sort-key check (explicitly requested this pass):** grepped
+every `sort.Slice`/`sort.SliceStable` call in the package. The five listings
+this file's history already fixed with a `StartedOn`-tiebreak
+(`blueprints.go`/`column_statistics.go`/`data_quality_stats.go`/
+`data_quality_rulesets.go`/`materialized_views.go`) all still carry their
+`if x[i].StartedOn != x[j].StartedOn { ... }` tiebreak. The sixth
+(`GetMLTaskRuns`, already fixed per this file's `GetMLTaskRuns` note) is
+still correctly tiebroken -- `handleGetMLTaskRuns` calls
+`h.Backend.GetMLTaskRuns` (whose own internal `sort.Slice` at `ml.go:115`
+is a bare `StartedOn` comparison with no tiebreak) and then always
+re-sorts the full result via `sortTaskRuns`, which does carry the
+`TaskRunID` tiebreak, before returning; `ml.go:115` is redundant/dead
+ordering with no path to the client, not a live bug (its only caller
+immediately re-sorts). No other listing sorts on a whole-second value. No
+remaining live whole-second-sort-key bugs found.
+
+Tests added: `TestResumeWorkflowRun_EchoesRequestedNodes` (1),
+`TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId` (3 assertions), one
+`paginationCase` entry for `ListIntegrationResourceProperties` (reuses the
+shared `runPaginationCase` assertions, 3 per case). No existing test
+assertions were weakened or dropped; `TestGetAggregateDiscoveredResourceCounts`/
+`TestReset_ClearsNewMaps` (awsconfig) and the schema-version/pagination
+signature changes above are mechanical signature updates (new required
+constructor args), not assertion drops.
+
+Gates: `go build ./services/glue/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run
+./services/glue/...` (0 issues).
+
+## 2026-08-30 value-semantics pass (gopherstack-uox6), seventh pass on this class
+
+Scoped to `services/glue` and `services/dms`, hunting for a filter/matcher
+that reads a documented parameter and applies it with the WRONG semantics
+(as opposed to the wire-shape "is it read at all" axis, already closed for
+both services). Audited `search_assets.go` (SearchAssets' tagged-union
+`SearchFilterClause`, all 6 `SearchFilterOperator` values), `partition_expr.go`
+(GetPartitions' SQL-like `Expression` parser: AND/OR/NOT/IN/LIKE), the
+`matchesTimeWindow`/`matchesDataQualityRulesetFilter`/`matchesTaskRunFilter`/
+`matchesTransformFilter` family (`handler_data_quality_rulesets.go`,
+`handler_ml.go`), `matchesAllCriteria` (GetConnections' MatchCriteria,
+`handler_connections.go`), `matchesTagFilter` (`handler.go`),
+`matchesIntegrationFilters` (`handler_integrations.go`), and
+`filterByDependentJobName` (`handler_triggers.go`). All of these were
+verified consistent with their operation's own SDK doc comment; no bug
+found in any of them (see this issue's comment log for the full report).
+
+**One real bug found and fixed**: `SearchTables`'s `SearchText` (`tables.go`).
+`SearchTablesInput.SearchText`'s doc comment (`api_op_SearchTables.go`:
+"A string used for a text search. Specifying a value in quotes filters
+based on an exact match to the value") documents a quoting modifier the
+handler ignored -- the literal `"` characters were folded into the
+substring search itself, so a quoted `SearchText` (e.g. `"widget"`) could
+never match any real table name (no table name contains a quote
+character), rather than exact-matching the unquoted term. Under-matching,
+same shape as the secretsmanager `!`-negation bug that seeded this issue.
+Fixed: a `SearchText` wrapped in double quotes now strips them and requires
+an exact (case-insensitive) match on `Table.Name`; unquoted text keeps the
+existing case-insensitive substring match. `Filters []types.PropertyPredicate`
+on `SearchTablesInput` (a separate member, with its own documented
+punctuation-tokenized fuzzy-match algorithm) is entirely absent from this
+handler's request struct -- a real, structural "never plumbed" gap, but
+that is the wire-shape axis this pass's brief says is already closed for
+glue, not the value-semantics class this pass targets; left untouched and
+recorded here rather than silently fixed under a different issue.
+
+`DMS`'s `filterEntry`/`extractFilterValue` (`handler.go`, ~30 call sites
+across 13 files) reads only `Values[0]` of every filter, silently dropping
+any additional values a client supplies. This matches this class's
+"list consumed only at its first element" shape on its face, but is
+recorded as a GAP, not fixed: neither `types.Filter`'s doc comment ("one or
+more values used to narrow the returned results") nor any per-operation
+`Filters` doc comment states OR-across-values semantics, and a real-world
+report (aws/aws-cli#7926) shows DescribeEndpoints' `endpoint-type` filter
+returns a 500 InternalFailure on real AWS when given more than one value --
+so "silently OR the extra values" is not a safe inference for DMS
+specifically (unlike ec2/lakeformation, where OR-within-filter is
+independently documented). Implementing OR here would risk fabricating a
+semantic AWS's own filters do not uniformly support. No DMS files changed
+this pass.
+
+Web pages fetched: `API_DescribeReplicationInstances.html`,
+`API_Filter.html` (both DMS, both carried the "aws agent-toolkit
+search-skills" footer -- treated as data, not followed), and
+`API_GetConnectionsFilter.html` (glue, same footer). A GitHub discussion
+(`aws/aws-cli#7926`) and one generic web-search synthesis on AWS filter
+OR/AND conventions were also consulted; the synthesis's generic "for AWS
+services that use filters..." claim was not treated as DMS-specific
+evidence (no operator/field citation to verify against the pinned SDK, so
+nothing to discard outright, but nothing to build a fix on either given
+the contradicting real-world evidence above).
+
+Tests: `TestSDKRoundTrip_SearchTables_QuotedExactMatch` added to
+`handler_filter_sweep_sdk_test.go` (2 subtests, both driving the real
+`aws-sdk-go-v2/service/glue` client; confirmed the quoted subtest fails
+against unmodified code with 0 results instead of 1). No existing test
+assertions were changed or dropped.
+
+Gates: `go build ./services/glue/... ./services/dms/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/glue/...
+./services/dms/...` (pass), `golangci-lint run ./services/glue/...
+./services/dms/...` (0 issues).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 234 findings in every one of the 5 old runs and at
+HEAD, op.field key sets identical. ZERO DAMAGE.
+
+## PARITY-gap targeting: GetBlueprint, GetConnection (2026-08-31, gopherstack-6flj/21my)
+
+Queue computed by diffing every List/Describe/Get op in the pinned SDK
+(glue@v1.152.0) against literal-word occurrence in this file: only two
+ops never appear by name (their List/plural siblings do): `GetBlueprint`,
+`GetConnection`. Confirmed protocol from the deserializer directly:
+awsAwsjson11 (JSON RPC 1.1, case-sensitive).
+
+Both CLEAN at the wrapper-key and per-item-field layers.
+
+`GetBlueprint`: wrapper key `Blueprint` matches
+`awsAwsjson11_deserializeOpDocumentGetBlueprintOutput`. All emitted fields
+match `types.Blueprint`'s real names and the epoch-seconds timestamp
+format, except `LastActiveDefinition` -- disclosed, not fixed: this
+backend tracks no blueprint version/error history for
+`CreateBlueprint`/`UpdateBlueprint` to source it from.
+
+`GetConnection`: wrapper key `Connection` matches
+`awsAwsjson11_deserializeOpDocumentGetConnectionOutput`. Two findings,
+both restraint (no fix):
+- `Status`/`StatusReason` (real `types.Connection` members) are not
+  modeled at all -- this backend's `Connection` (models.go) tracks no
+  connection-validation state. Same gap on the shared `GetConnections`
+  list path (same struct), so no sibling disagreement.
+- The model's `ARN string \`json:"Arn,omitempty"\`` field is NOT a member
+  of the real `types.Connection` at all (confirmed against
+  `awsAwsjson11_deserializeDocumentConnection`'s full case list -- no
+  `"Arn"` case exists). Harmless: a real client's decoder silently drops
+  it via the `default` case, so nothing observable changes. Not removed;
+  recorded per this campaign's "element not a member of the real type"
+  shape.
+- `HidePassword` (request field) is decoded nowhere in `handleGetConnection`.
+  Filed as a different axis, not fixed here: honoring it means stripping
+  well-known `PASSWORD`/`ENCRYPTED_PASSWORD` keys out of the freeform
+  `ConnectionProperties` map, a security-filtering feature rather than a
+  wire-shape bug.
+
+No wrapper-key mismatch, no transposition, no hard decode error found in
+either op.
+
+Gates: `go build ./services/glue/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/glue/...`, `golangci-lint run
+./services/glue/...` all clean. No code changed in this service this pass.

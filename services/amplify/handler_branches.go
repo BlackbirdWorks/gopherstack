@@ -41,31 +41,37 @@ func (h *Handler) handleBranchName(ctx context.Context, c *echo.Context, appID, 
 	}
 }
 
+// branchBackendInput mirrors aws-sdk-go-v2/service/amplify/types.Backend, the
+// nested wire shape of CreateBranchInput/UpdateBranchInput's "backend" member.
+type branchBackendInput struct {
+	StackARN string `json:"stackArn"`
+}
+
 // createBranchRequest is the wire shape of a CreateBranch/UpdateBranch
 // request body, mirroring aws-sdk-go-v2/service/amplify's
-// CreateBranchInput/UpdateBranchInput field-for-field (minus Backend/
-// ComputeRoleArn/EnableSkewProtection, which gopherstack does not model at
-// all: there is no Gen2 CloudFormation-backed backend, SSR compute role, or
-// deployment-skew concept behind this emulator).
+// CreateBranchInput/UpdateBranchInput field-for-field.
 type createBranchRequest struct {
-	EnvironmentVariables       map[string]string `json:"environmentVariables"`
-	Tags                       map[string]string `json:"tags"`
-	DisplayName                string            `json:"displayName"`
-	BackendEnvironmentARN      string            `json:"backendEnvironmentArn"`
-	Description                string            `json:"description"`
-	Framework                  string            `json:"framework"`
-	TTL                        string            `json:"ttl"`
-	BasicAuthCredentials       string            `json:"basicAuthCredentials"`
-	BuildSpec                  string            `json:"buildSpec"`
-	Stage                      string            `json:"stage"`
-	PullRequestEnvironmentName string            `json:"pullRequestEnvironmentName"`
-	SourceBranch               string            `json:"sourceBranch"`
-	BranchName                 string            `json:"branchName"`
-	EnableAutoBuild            bool              `json:"enableAutoBuild"`
-	EnableBasicAuth            bool              `json:"enableBasicAuth"`
-	EnableNotification         bool              `json:"enableNotification"`
-	EnablePullRequestPreview   bool              `json:"enablePullRequestPreview"`
-	EnablePerformanceMode      bool              `json:"enablePerformanceMode"`
+	EnvironmentVariables       map[string]string   `json:"environmentVariables"`
+	Tags                       map[string]string   `json:"tags"`
+	Backend                    *branchBackendInput `json:"backend"`
+	DisplayName                string              `json:"displayName"`
+	BackendEnvironmentARN      string              `json:"backendEnvironmentArn"`
+	Description                string              `json:"description"`
+	Framework                  string              `json:"framework"`
+	TTL                        string              `json:"ttl"`
+	BasicAuthCredentials       string              `json:"basicAuthCredentials"`
+	BuildSpec                  string              `json:"buildSpec"`
+	Stage                      string              `json:"stage"`
+	PullRequestEnvironmentName string              `json:"pullRequestEnvironmentName"`
+	SourceBranch               string              `json:"sourceBranch"`
+	ComputeRoleARN             string              `json:"computeRoleArn"`
+	BranchName                 string              `json:"branchName"`
+	EnableAutoBuild            bool                `json:"enableAutoBuild"`
+	EnableBasicAuth            bool                `json:"enableBasicAuth"`
+	EnableNotification         bool                `json:"enableNotification"`
+	EnablePullRequestPreview   bool                `json:"enablePullRequestPreview"`
+	EnablePerformanceMode      bool                `json:"enablePerformanceMode"`
+	EnableSkewProtection       bool                `json:"enableSkewProtection"`
 }
 
 // toBranchOptions converts the wire request into the BranchOptions the
@@ -83,6 +89,11 @@ func (r createBranchRequest) toBranchOptions(isCreate bool) BranchOptions {
 		BackendEnvironmentARN:      ptrconv.NilIfEmpty(r.BackendEnvironmentARN),
 		PullRequestEnvironmentName: ptrconv.NilIfEmpty(r.PullRequestEnvironmentName),
 		SourceBranch:               ptrconv.NilIfEmpty(r.SourceBranch),
+		ComputeRoleARN:             ptrconv.NilIfEmpty(r.ComputeRoleARN),
+	}
+
+	if r.Backend != nil {
+		opts.BackendStackARN = ptrconv.NilIfEmpty(r.Backend.StackARN)
 	}
 
 	if isCreate {
@@ -90,11 +101,13 @@ func (r createBranchRequest) toBranchOptions(isCreate bool) BranchOptions {
 		opts.EnableNotification = &r.EnableNotification
 		opts.EnablePullRequestPreview = &r.EnablePullRequestPreview
 		opts.EnablePerformanceMode = &r.EnablePerformanceMode
+		opts.EnableSkewProtection = &r.EnableSkewProtection
 	} else {
 		opts.EnableBasicAuth = boolPtrIfTrue(r.EnableBasicAuth)
 		opts.EnableNotification = boolPtrIfTrue(r.EnableNotification)
 		opts.EnablePullRequestPreview = boolPtrIfTrue(r.EnablePullRequestPreview)
 		opts.EnablePerformanceMode = boolPtrIfTrue(r.EnablePerformanceMode)
+		opts.EnableSkewProtection = boolPtrIfTrue(r.EnableSkewProtection)
 	}
 
 	return opts
@@ -229,35 +242,44 @@ func parseBranchOperation(method string) string {
 	}
 }
 
+// branchBackendView mirrors aws-sdk-go-v2/service/amplify/types.Backend on the
+// response side.
+type branchBackendView struct {
+	StackARN string `json:"stackArn,omitempty"`
+}
+
 // branchView is the JSON representation of a Branch with timestamps as Unix
 // epoch float64 values, as required by the AWS SDK v2 deserialiser.
 type branchView struct {
-	Tags                       map[string]string `json:"tags,omitempty"`
-	EnvironmentVariables       map[string]string `json:"environmentVariables"`
-	BasicAuthCredentials       string            `json:"basicAuthCredentials,omitempty"`
-	DisplayName                string            `json:"displayName,omitempty"`
-	AppID                      string            `json:"appId"`
-	BranchARN                  string            `json:"branchArn"`
-	BranchName                 string            `json:"branchName"`
-	Description                string            `json:"description"`
-	BuildSpec                  string            `json:"buildSpec,omitempty"`
-	Framework                  string            `json:"framework"`
-	TTL                        string            `json:"ttl,omitempty"`
-	ActiveJobID                string            `json:"activeJobId"`
-	BackendEnvironmentARN      string            `json:"backendEnvironmentArn,omitempty"`
-	TotalNumberOfJobs          string            `json:"totalNumberOfJobs,omitempty"`
-	Stage                      Stage             `json:"stage"`
-	PullRequestEnvironmentName string            `json:"pullRequestEnvironmentName,omitempty"`
-	SourceBranch               string            `json:"sourceBranch,omitempty"`
-	CustomDomains              []string          `json:"customDomains"`
-	AssociatedResources        []string          `json:"associatedResources,omitempty"`
-	CreateTime                 float64           `json:"createTime"`
-	UpdateTime                 float64           `json:"updateTime"`
-	EnableAutoBuild            bool              `json:"enableAutoBuild"`
-	EnableBasicAuth            bool              `json:"enableBasicAuth"`
-	EnableNotification         bool              `json:"enableNotification"`
-	EnablePullRequestPreview   bool              `json:"enablePullRequestPreview"`
-	EnablePerformanceMode      bool              `json:"enablePerformanceMode,omitempty"`
+	Tags                       map[string]string  `json:"tags,omitempty"`
+	EnvironmentVariables       map[string]string  `json:"environmentVariables"`
+	Backend                    *branchBackendView `json:"backend,omitempty"`
+	BasicAuthCredentials       string             `json:"basicAuthCredentials,omitempty"`
+	DisplayName                string             `json:"displayName,omitempty"`
+	AppID                      string             `json:"appId"`
+	BranchARN                  string             `json:"branchArn"`
+	BranchName                 string             `json:"branchName"`
+	Description                string             `json:"description"`
+	BuildSpec                  string             `json:"buildSpec,omitempty"`
+	Framework                  string             `json:"framework"`
+	TTL                        string             `json:"ttl,omitempty"`
+	ActiveJobID                string             `json:"activeJobId"`
+	BackendEnvironmentARN      string             `json:"backendEnvironmentArn,omitempty"`
+	TotalNumberOfJobs          string             `json:"totalNumberOfJobs,omitempty"`
+	Stage                      Stage              `json:"stage"`
+	PullRequestEnvironmentName string             `json:"pullRequestEnvironmentName,omitempty"`
+	SourceBranch               string             `json:"sourceBranch,omitempty"`
+	ComputeRoleARN             string             `json:"computeRoleArn,omitempty"`
+	CustomDomains              []string           `json:"customDomains"`
+	AssociatedResources        []string           `json:"associatedResources,omitempty"`
+	CreateTime                 float64            `json:"createTime"`
+	UpdateTime                 float64            `json:"updateTime"`
+	EnableAutoBuild            bool               `json:"enableAutoBuild"`
+	EnableBasicAuth            bool               `json:"enableBasicAuth"`
+	EnableNotification         bool               `json:"enableNotification"`
+	EnablePullRequestPreview   bool               `json:"enablePullRequestPreview"`
+	EnablePerformanceMode      bool               `json:"enablePerformanceMode,omitempty"`
+	EnableSkewProtection       bool               `json:"enableSkewProtection,omitempty"`
 }
 
 func toBranchView(b *Branch) branchView {
@@ -276,9 +298,15 @@ func toBranchView(b *Branch) branchView {
 		customDomains = []string{}
 	}
 
+	var backend *branchBackendView
+	if b.BackendStackARN != "" {
+		backend = &branchBackendView{StackARN: b.BackendStackARN}
+	}
+
 	return branchView{
 		Tags:                       tagMap,
 		EnvironmentVariables:       envVars,
+		Backend:                    backend,
 		CustomDomains:              customDomains,
 		AssociatedResources:        b.AssociatedResources,
 		CreateTime:                 float64(b.CreateTime.Unix()),
@@ -296,6 +324,7 @@ func toBranchView(b *Branch) branchView {
 		BackendEnvironmentARN:      b.BackendEnvironmentARN,
 		PullRequestEnvironmentName: b.PullRequestEnvironmentName,
 		SourceBranch:               b.SourceBranch,
+		ComputeRoleARN:             b.ComputeRoleARN,
 		TotalNumberOfJobs:          b.TotalNumberOfJobs,
 		Stage:                      b.Stage,
 		EnableAutoBuild:            b.EnableAutoBuild,
@@ -303,6 +332,7 @@ func toBranchView(b *Branch) branchView {
 		EnableNotification:         b.EnableNotification,
 		EnablePullRequestPreview:   b.EnablePullRequestPreview,
 		EnablePerformanceMode:      b.EnablePerformanceMode,
+		EnableSkewProtection:       b.EnableSkewProtection,
 	}
 }
 

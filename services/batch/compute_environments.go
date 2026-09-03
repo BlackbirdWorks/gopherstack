@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -12,6 +14,11 @@ const (
 	fargateSpot = "FARGATE_SPOT"
 
 	maxCENameLength = 128
+
+	// orchestrationTypeECS/orchestrationTypeEKS mirror
+	// types.OrchestrationType's two real values (batch@v1.68.4 types/enums.go).
+	orchestrationTypeECS = "ECS"
+	orchestrationTypeEKS = "EKS"
 )
 
 // isValidCEType returns true if the given type is a valid compute environment type (MANAGED or UNMANAGED).
@@ -154,6 +161,7 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	computeResources *ComputeResources,
 	eksConfig *EksConfiguration,
 	updatePolicy *UpdatePolicy,
+	unmanagedvCpus *int32,
 ) (*ComputeEnvironment, error) {
 	region := getRegion(ctx, b.region)
 
@@ -185,18 +193,26 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	eksCopy := cloneEksConfiguration(eksConfig)
 	upCopy := cloneUpdatePolicy(updatePolicy)
 
+	orchestrationType := orchestrationTypeECS
+	if eksCopy != nil {
+		orchestrationType = orchestrationTypeEKS
+	}
+
 	ce := &ComputeEnvironment{
-		region:                 region,
-		ComputeEnvironmentName: name,
-		ComputeEnvironmentArn:  ceARN,
-		Type:                   ceType,
-		State:                  state,
-		Status:                 statusValid,
-		Tags:                   tagsCopy,
-		ServiceRole:            serviceRole,
-		ComputeResources:       crCopy,
-		EksConfiguration:       eksCopy,
-		UpdatePolicy:           upCopy,
+		region:                     region,
+		ComputeEnvironmentName:     name,
+		ComputeEnvironmentArn:      ceARN,
+		Type:                       ceType,
+		State:                      state,
+		Status:                     statusValid,
+		Tags:                       tagsCopy,
+		ServiceRole:                serviceRole,
+		ComputeResources:           crCopy,
+		EksConfiguration:           eksCopy,
+		UpdatePolicy:               upCopy,
+		ContainerOrchestrationType: orchestrationType,
+		UUID:                       uuid.NewString(),
+		UnmanagedvCpus:             unmanagedvCpus,
 	}
 	b.computeEnvironments.Put(ce)
 	b.cesByARN[ceARN] = name
@@ -265,6 +281,7 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(
 	nameOrARN, state, serviceRole string,
 	computeResources *ComputeResources,
 	updatePolicy *UpdatePolicy,
+	unmanagedvCpus *int32,
 ) (*ComputeEnvironment, error) {
 	region := getRegion(ctx, b.region)
 
@@ -295,6 +312,10 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(
 	if updatePolicy != nil {
 		up := *updatePolicy
 		ce.UpdatePolicy = &up
+	}
+
+	if unmanagedvCpus != nil {
+		ce.UnmanagedvCpus = unmanagedvCpus
 	}
 
 	cp := *ce

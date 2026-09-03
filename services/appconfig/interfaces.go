@@ -65,7 +65,7 @@ type StorageBackend interface {
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
 	// ListConfigurationProfiles returns paginated profiles for an application.
 	ListConfigurationProfiles(
-		applicationID, nextToken string,
+		applicationID, nextToken, profileType string,
 		maxResults int,
 	) ([]ConfigurationProfile, string, error)
 	// UpdateConfigurationProfile updates a configuration profile. Nil
@@ -131,9 +131,14 @@ type StorageBackend interface {
 	// DeleteDeploymentStrategy deletes a deployment strategy.
 	DeleteDeploymentStrategy(strategyID string) error
 
-	// StartDeployment starts a deployment.
+	// StartDeployment starts a deployment. See its doc comment in
+	// deployments.go for kmsKeyIdentifier/latestDeploymentNumber/tags
+	// semantics.
 	StartDeployment(
 		applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+		kmsKeyIdentifier *string,
+		latestDeploymentNumber *int32,
+		tags map[string]string,
 	) (*Deployment, error)
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)
@@ -202,6 +207,7 @@ type StorageBackend interface {
 	// ListExtensionAssociations returns paginated extension associations.
 	ListExtensionAssociations(
 		nextToken, extensionIdentifier, resourceIdentifier string,
+		extensionVersionNumber int32,
 		maxResults int,
 	) ([]ExtensionAssociation, string)
 	// UpdateExtensionAssociation updates an extension association's parameters.

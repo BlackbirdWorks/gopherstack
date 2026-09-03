@@ -59,10 +59,11 @@ type resolverRuleIDInput struct {
 }
 
 type targetIP struct {
-	IP       string `json:"Ip"`
-	Ipv6     string `json:"Ipv6,omitempty"`
-	Protocol string `json:"Protocol,omitempty"`
-	Port     int32  `json:"Port"`
+	IP                   string `json:"Ip"`
+	Ipv6                 string `json:"Ipv6,omitempty"`
+	Protocol             string `json:"Protocol,omitempty"`
+	ServerNameIndication string `json:"ServerNameIndication,omitempty"`
+	Port                 int32  `json:"Port"`
 }
 
 type resolverRuleOutput struct {
@@ -235,8 +236,15 @@ func (h *Handler) handleGetResolverRulePolicy(
 	ctx context.Context,
 	in *getResolverRulePolicyInput,
 ) (*getResolverRulePolicyOutput, error) {
+	// GetResolverRulePolicy declares InvalidParameterException, not
+	// InvalidRequestException/ValidationException (AccessDeniedException,
+	// InternalServiceErrorException, InvalidParameterException,
+	// UnknownResourceException) -- the backend policy lookup is a blind map
+	// read with no natural not-found path to defer to, so ErrInvalidParameter
+	// ("One or more parameters in this request are not valid") is used
+	// directly rather than inventing a new sentinel.
 	if in.Arn == "" {
-		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Arn is required", ErrInvalidParameter)
 	}
 	policy := h.Backend.GetResolverRulePolicy(ctx, in.Arn)
 
@@ -258,8 +266,11 @@ func (h *Handler) handlePutResolverRulePolicy(
 	ctx context.Context,
 	in *putResolverRulePolicyInput,
 ) (*putResolverRulePolicyOutput, error) {
+	// Same rationale as GetResolverRulePolicy above: PutResolverRulePolicy
+	// declares InvalidParameterException, not InvalidRequestException/
+	// ValidationException, and the backend policy store is a blind write.
 	if in.Arn == "" {
-		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Arn is required", ErrInvalidParameter)
 	}
 	if err := h.Backend.PutResolverRulePolicy(ctx, in.Arn, in.ResolverRulePolicy); err != nil {
 		return nil, err

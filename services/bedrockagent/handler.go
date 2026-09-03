@@ -352,7 +352,7 @@ func (h *Handler) dispatchAgentRoot(
 	case http.MethodPut:
 		return h.handleCreateAgent(ctx, c, body)
 	case http.MethodPost, http.MethodGet:
-		return h.handleListAgents(ctx, c)
+		return h.handleListAgents(ctx, c, body)
 	}
 
 	return c.JSON(http.StatusMethodNotAllowed, errResp("MethodNotAllowedException", method))
@@ -393,7 +393,7 @@ func (h *Handler) dispatchAgentVersions(
 		// accepted here as harmless extra leniency.
 		switch method {
 		case http.MethodPost, http.MethodGet:
-			return h.handleListAgentVersions(ctx, c, agentID)
+			return h.handleListAgentVersions(ctx, c, agentID, body)
 		}
 
 		return c.JSON(http.StatusMethodNotAllowed, errResp("MethodNotAllowedException", method))
@@ -443,7 +443,7 @@ func (h *Handler) dispatchActionGroups(
 		case http.MethodPut:
 			return h.handleCreateAgentActionGroup(ctx, c, agentID, agentVersion, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListAgentActionGroups(ctx, c, agentID, agentVersion)
+			return h.handleListAgentActionGroups(ctx, c, agentID, agentVersion, body)
 		}
 	}
 
@@ -474,7 +474,7 @@ func (h *Handler) dispatchCollaborators(
 		case http.MethodPut:
 			return h.handleAssociateCollaborator(ctx, c, agentID, agentVersion, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListCollaborators(ctx, c, agentID, agentVersion)
+			return h.handleListCollaborators(ctx, c, agentID, agentVersion, body)
 		}
 	}
 
@@ -505,7 +505,7 @@ func (h *Handler) dispatchAgentKBs(
 		case http.MethodPut:
 			return h.handleAssociateAgentKB(ctx, c, agentID, agentVersion, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListAgentKBs(ctx, c, agentID, agentVersion)
+			return h.handleListAgentKBs(ctx, c, agentID, agentVersion, body)
 		}
 	}
 
@@ -537,7 +537,7 @@ func (h *Handler) dispatchAgentAliases(
 		case http.MethodPut:
 			return h.handleCreateAgentAlias(ctx, c, agentID, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListAgentAliases(ctx, c, agentID)
+			return h.handleListAgentAliases(ctx, c, agentID, body)
 		}
 	}
 
@@ -567,7 +567,7 @@ func (h *Handler) dispatchKB(
 		case http.MethodPut:
 			return h.handleCreateKB(ctx, c, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListKBs(ctx, c)
+			return h.handleListKBs(ctx, c, body)
 		}
 	}
 
@@ -614,7 +614,7 @@ func (h *Handler) dispatchDataSources(
 		case http.MethodPut:
 			return h.handleCreateDS(ctx, c, kbID, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListDS(ctx, c, kbID)
+			return h.handleListDS(ctx, c, kbID, body)
 		}
 	}
 
@@ -662,7 +662,7 @@ func (h *Handler) dispatchIngestionJobs(
 		case http.MethodPut:
 			return h.handleStartIngestionJob(ctx, c, kbID, dsID, body)
 		case http.MethodPost, http.MethodGet:
-			return h.handleListIngestionJobs(ctx, c, kbID, dsID)
+			return h.handleListIngestionJobs(ctx, c, kbID, dsID, body)
 		}
 	}
 
@@ -693,7 +693,7 @@ func (h *Handler) dispatchKBDocuments(
 	case rest == "" && method == http.MethodPut:
 		return h.handleIngestKBDocs(ctx, c, kbID, dsID, body)
 	case rest == "" && (method == http.MethodPost || method == http.MethodGet):
-		return h.handleListKBDocs(ctx, c, kbID, dsID)
+		return h.handleListKBDocs(ctx, c, kbID, dsID, body)
 	case rest == "/deleteDocuments":
 		return h.handleDeleteKBDocs(ctx, c, kbID, dsID, body)
 	case rest == "/getDocuments":

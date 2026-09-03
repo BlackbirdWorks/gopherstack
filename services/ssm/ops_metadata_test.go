@@ -509,7 +509,7 @@ func TestClassifySSMErrorExtended(t *testing.T) {
 			action:      "DeleteActivation",
 			body:        `{"ActivationId":"nonexistent"}`,
 			wantCode:    http.StatusBadRequest,
-			wantErrType: "ActivationNotFound",
+			wantErrType: "InvalidActivationId",
 		},
 		{
 			name:        "association_not_found_via_delete",

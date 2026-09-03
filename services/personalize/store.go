@@ -123,7 +123,12 @@ func copyStringMap(m map[string]string) map[string]string {
 // paginateItems is the store.Table-backed counterpart of paginate: items must
 // already be in the table's key-sorted order (as returned by
 // [store.Table.Snapshot]), which paginateItems relies on for both the page
-// slice and the nextToken continuation semantics.
+// slice and the nextToken continuation semantics. Every caller's keyOf is
+// exactly the table's own (unique) primary-key function, so items is totally
+// ordered by keyOf -- this is a threshold search: resume at the first item
+// whose key is strictly greater than nextToken. A deleted or forged token
+// then resumes past everything already served instead of restarting at page
+// one, and a deleted item simply resumes at the next one.
 func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nextToken string) ([]*T, string) {
 	const defaultPageSize = 100
 
@@ -133,8 +138,10 @@ func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nex
 
 	start := 0
 	if nextToken != "" {
+		start = len(items)
+
 		for i, v := range items {
-			if keyOf(v) == nextToken {
+			if keyOf(v) > nextToken {
 				start = i
 
 				break
@@ -155,7 +162,10 @@ func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nex
 
 // paginate is used only by ListMetricAttributionMetrics, which pages over a
 // synthetic, non-map-backed []map[string]any and so is out of scope for the
-// store.Table conversion above.
+// store.Table conversion above. Its sole caller sorts keys ascending and
+// unique before calling in, so this is a threshold search: resume at the
+// first key strictly greater than nextToken. A deleted or forged token then
+// resumes past everything already served instead of restarting at page one.
 func paginate[T any](keys []string, get func(string) T, maxResults int, nextToken string) ([]T, string) {
 	const defaultPageSize = 100
 
@@ -165,8 +175,10 @@ func paginate[T any](keys []string, get func(string) T, maxResults int, nextToke
 
 	start := 0
 	if nextToken != "" {
+		start = len(keys)
+
 		for i, k := range keys {
-			if k == nextToken {
+			if k > nextToken {
 				start = i
 
 				break

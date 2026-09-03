@@ -268,7 +268,7 @@ func TestRedshiftHandler_DescribeReservedNodeExchangeStatus(t *testing.T) {
 			body: "Action=DescribeReservedNodeExchangeStatus&Version=2012-12-01" +
 				"&ReservedNodeId=rn-exchange",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeReservedNodeExchangeStatusResponse", "Active"},
+			wantContains: []string{"DescribeReservedNodeExchangeStatusResponse", "SUCCEEDED"},
 		},
 		{
 			name:         "missing_node_id",

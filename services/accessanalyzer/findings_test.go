@@ -39,11 +39,11 @@ func TestListFindings_FilterByStatus(t *testing.T) {
 	// Archive one finding.
 	require.NoError(t, b.UpdateFindings("list-find-analyzer", []string{f2.ID}, accessanalyzer.FindingStatusArchived))
 
-	active, _, err := b.ListFindings("list-find-analyzer", nil, "ACTIVE", 0, "")
+	active, _, err := b.ListFindings("list-find-analyzer", nil, "ACTIVE", nil, 0, "")
 	require.NoError(t, err)
 	assert.Len(t, active, 1)
 
-	archived, _, err := b.ListFindings("list-find-analyzer", nil, "ARCHIVED", 0, "")
+	archived, _, err := b.ListFindings("list-find-analyzer", nil, "ARCHIVED", nil, 0, "")
 	require.NoError(t, err)
 	assert.Len(t, archived, 1)
 }

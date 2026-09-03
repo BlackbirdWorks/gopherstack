@@ -1,10 +1,12 @@
 package dms_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	dmssdk "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
+	"github.com/aws/aws-sdk-go-v2/service/databasemigrationservice/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -24,18 +26,24 @@ func TestDeleteFleetAdvisorCollector(t *testing.T) {
 	assert.Equal(t, 0, h.Backend.FleetAdvisorCollectorCount())
 }
 
+// TestDeleteFleetAdvisorCollector_NotFound drives the real SDK client and
+// asserts the specific typed exception. DeleteFleetAdvisorCollector's own
+// deserializeOpError models CollectorNotFoundFault, not the service-wide
+// ResourceNotFoundFault every other DMS delete op uses (databasemigrationservice
+// @v1.66.4 deserializers.go:2875-2913).
 func TestDeleteFleetAdvisorCollector_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
-	rec := doDMS(t, h, "DeleteFleetAdvisorCollector", map[string]any{
-		"CollectorReferencedId": "nonexistent-collector-id",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	client := newTestDMSClient(t, h)
 
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, "ResourceNotFoundFault", body["__type"])
+	_, err := client.DeleteFleetAdvisorCollector(t.Context(), &dmssdk.DeleteFleetAdvisorCollectorInput{
+		CollectorReferencedId: aws.String("nonexistent-collector-id"),
+	})
+	require.Error(t, err)
+
+	var cnf *types.CollectorNotFoundFault
+	require.ErrorAs(t, err, &cnf, "expected a real CollectorNotFoundFault from the SDK deserializer")
 }
 
 func TestFleetAdvisorDatabases(t *testing.T) {

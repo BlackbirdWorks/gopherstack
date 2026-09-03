@@ -4,8 +4,13 @@ sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
 last_audit_commit: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-08-11
-overall: A                # 2026-07-23 pass: deleted 3 invented ops, implemented pagination,
+last_audit_date: 2026-08-28
+overall: A                # 2026-08-28 pass (gopherstack-6flj write-only-state sweep): 7 genuine
+                           # bugs found and fixed via the write-only-state method (backend-persisted
+                           # fields with no read path, or request fields accepted then silently
+                           # dropped before reaching the backend at all) -- see Notes. All fixed
+                           # with real-client round-trip tests in wire_field_fixes_test.go.
+                           # 2026-07-23 pass: deleted 3 invented ops, implemented pagination,
                            # sourceVersion, extended Webhook fields (see below). 2026-07-25 pass #1:
                            # field-diffed Fleet against real types.Fleet -- found+fixed a real gap
                            # (id/overflowBehavior/imageId/fleetServiceRole silently unsupported on
@@ -37,20 +42,32 @@ overall: A                # 2026-07-23 pass: deleted 3 invented ops, implemented
                            # delete) -- fixed all five. ListReportsForReportGroup was missing the
                            # same reportGroupArn existence check as GetReportGroupTrend/
                            # DescribeTestCases -- fixed.
+                           # 2026-08-30 pass (gopherstack-6flj wrapper-key sweep,
+                           # workspaces/codebuild/elasticbeanstalk batch): type-aware field-usage
+                           # scan of all 59 request structs (90 named XxxInput types minus dupes)
+                           # flagged 2 declared-but-never-referenced fields. Hand-verified against
+                           # the pinned SDK per this sweep's own rule: DeleteReportGroup.DeleteReports
+                           # was a genuine bug (fixed, see ops below); ImportSourceCredentials.Username
+                           # was NOT a bug on inspection -- already correctly disclosed as a
+                           # deliberate non-fix in the 2026-08-23 gopherstack-secp note below (real
+                           # SourceCredentialsInfo has no Username member to round-trip through any
+                           # response, same as the sibling Token field already discarded by design).
+                           # No other unread fields found across workspaces (0/90) or codebuild
+                           # (2/59, one real, one already-disclosed non-bug).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now threads top-level sourceVersion, see gaps fixed below"}
-  UpdateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as CreateProject"}
+  CreateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: badgeEnabled, Source.buildStatusConfig/gitSubmodulesConfig, Environment.computeConfiguration/dockerServer/fleet/hostKernel were all silently dropped; see Notes. Prior fix: now threads top-level sourceVersion, see gaps fixed below"}
+  UpdateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28, same fields as CreateProject (badgeEnabled/Source/Environment gaps). Prior fix: same as CreateProject"}
   DeleteProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades build deletion via buildsByProject index. FIXED this pass: now idempotent on a nonexistent name -- real AWS declares no ResourceNotFoundException for this op, gopherstack previously invented one"}
   BatchGetProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "includes webhook and sourceVersion fields"}
   ListProjects:    {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder all implemented via ListProjectsSortedBy + paginateIDs, 100-item default page matching real AWS"}
-  StartBuild:      {wire: ok, errors: ok, state: ok, persist: ok, note: "env var override uses correct AWS replace-by-name-else-append merge semantics"}
+  StartBuild:      {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: sourceVersion override was corrupting Source.Location (Build had no SourceVersion field at all); artifactsOverride was parsed off the wire then silently dropped, never reaching the backend; ~20 more real override fields (cacheOverride/environmentTypeOverride/fleetOverride/etc.) were entirely unmodeled. AutoRetryConfig (real Build field) added. env var override uses correct AWS replace-by-name-else-append merge semantics"}
   StopBuild:       {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetBuilds:  {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts both build ID and ARN via buildsByARN index"}
   ListBuilds:      {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortOrder via paginateIDs (ListBuilds has no sortBy/maxResults in the real request shape)"}
   ListBuildsForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortOrder via paginateIDs"}
-  RetryBuild:      {wire: ok, errors: ok, state: ok, persist: ok, note: "inherits env/source/artifacts/role/timeouts from original build, matching AWS"}
+  RetryBuild:      {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: now maintains the real AutoRetryConfig chain (AutoRetryNumber/PreviousAutoRetry/NextAutoRetry), a real Build field with no prior model support. inherits env/source/artifacts/role/timeouts from original build, matching AWS"}
   BatchDeleteBuilds: {wire: ok, errors: ok, state: ok, persist: ok}
   StartBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   StopBuildBatch:  {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,7 +78,7 @@ ops:
   ListBuildBatchesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListBuildBatches; also newly documented here"}
   CreateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject"}
+  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject. FIXED 2026-08-30 (gopherstack-6flj wrapper-key sweep): DeleteReportGroupInput.DeleteReports (real, api_op_DeleteReportGroup.go) was parsed off the wire and never passed to the backend -- deleting a group with existing reports always silently succeeded (real AWS: 'If you call DeleteReportGroup for a report group that contains one or more reports, an exception is thrown' when DeleteReports is false) and DeleteReports=true never cascade-deleted the group's reports, leaving them orphaned. Now: DeleteReports=false + existing reports -> InvalidInputException; DeleteReports=true -> reports deleted along with the group."}
   BatchGetReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name"}
   ListReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder/maxResults via ListReportGroupsSortedBy + paginateIDs"}
   BatchGetReports: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -87,15 +104,15 @@ ops:
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent, matches AWS"}
   UpdateProjectVisibility: {wire: ok, errors: ok, state: ok, persist: ok, note: "generates/clears publicProjectAlias correctly on PUBLIC_READ toggle"}
   InvalidateProjectCache: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly a real no-op (cache not modeled) once project existence is validated"}
-  StartSandbox:    {wire: ok, errors: ok, state: ok, persist: ok}
+  StartSandbox:    {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: Sandbox never inherited environment/source/vpcConfig/serviceRole/encryptionKey/sourceVersion/secondarySources/fileSystemLocations/timeouts from the project (types.Sandbox carries the same project-derived field set as types.Build); Sandbox.Environment/Source/etc. were always nil regardless of project config"}
   StopSandbox:     {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetSandboxes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSandboxes:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortOrder/maxResults via paginateIDs"}
   ListSandboxesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListSandboxes"}
   StartSandboxConnection: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns a synthesized wss:// endpoint; real interactive terminal not modeled, acceptable for an emulator"}
-  StartCommandExecution: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartCommandExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: ExitCode was modeled as int32; real wire type is string (deserializer: expected NonEmptyString to be of type string) -- latent hard-decode-error risk once ever populated (it never was, pre-fix). standardErrContent wire key was misspelled standardErrorContent, so real AWS's field was always nil"}
   BatchGetCommandExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCommandExecutionsForSandbox: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly returns full CommandExecution objects, not just IDs"}
+  ListCommandExecutionsForSandbox: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly returns full CommandExecution objects, not just IDs. FIXED 2026-08-29 (wrapper-key sweep): maxResults/nextToken/sortOrder were real ListCommandExecutionsForSandboxInput fields (aws-sdk-go-v2 api_op_ListCommandExecutionsForSandbox.go) that listCommandExecutionsForSandboxInput didn't even declare -- json.Unmarshal silently dropped them, so every call returned every execution, unpaginated, always ascending-ID order. Now uses a new paginateCommandExecutions helper (pagination.go), the same nextToken/sortOrder semantics as every other List op's shared paginateIDs, generalized to page full objects since this op (unlike its siblings) returns CommandExecution records directly rather than bare IDs for a separate BatchGet* step. See TestCodeBuild_CommandExecutionsForSandbox/pagination_and_sort_order."}
   ListCuratedEnvironmentImages: {wire: ok, errors: n/a, state: ok, persist: n/a, note: "hardcoded minimal image catalog, acceptable (AWS's own catalog is also effectively static reference data)"}
   ListSharedProjects: {wire: ok, errors: n/a, state: ok, persist: n/a, note: "correctly empty — no cross-account project sharing modeled"}
   ListSharedReportGroups: {wire: ok, errors: n/a, state: ok, persist: n/a, note: "correctly empty, same reasoning"}
@@ -106,10 +123,11 @@ families:
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
 items_still_open:            # genuinely unfinished — do not mark ok
   - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty content (codeCoverages/testCases/stats) because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). This remains genuinely correct to leave empty rather than fabricate numbers a client cannot distinguish from real data. Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass. NOTE: as of the 2026-08-11 pass, this is now *only* a content gap -- the request validation these three ops perform (required fields, ARN existence where real AWS declares it, trendField enum) is complete and correct; see ops: above."
-gaps: []                  # known divergences NOT fixed — link bd issue ids. Fleet's
+gaps:                      # known divergences NOT fixed — link bd issue ids. Fleet's
                            # ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
                            # (found genuinely unmodeled in the first 2026-07-25 pass) were
                            # implemented end to end in the second 2026-07-25 pass -- see Notes.
+  - "2026-08-31 (value-semantics sweep, gopherstack-uox6): ListBuildsForProjectInput.SortOrder's own doc comment (api_op_ListBuildsForProject.go) states 'If the project has more than 100 builds, setting the sort order will result in an error', but handleListBuildsForProject (handler_builds.go) never checks the project's build count before applying sortOrder -- it just sorts. This is a MISSING REJECTION (validation axis), not a wrong value read or a wrong default; recorded separately per this pass's own discipline for keeping the two classes distinct, not fixed."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Report-content ingestion (DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend real data) — see items_still_open above for why this is a substantially larger feature (build artifact parsing), not a quick fix."
 leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker.Group.Stop(); TestCodeBuildJanitor_RunContext passes under -race. paginateIDs/ListProjectsSortedBy/ListFleetsSortedBy/ListReportGroupsSortedBy are pure functions under the existing RLock scope — no new goroutines, no new lock paths, all backend locks remain defer-released."}
@@ -465,3 +483,232 @@ All confirmed correctly emitted, no bugs:
 mechanism surfaced was either already correctly wired or not provable under this campaign's own
 rules. See `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s batch-34 section for the cross-service
 verdict (the paired candidate, fsx, did find a bug this way).
+
+### 2026-08-28 pass (gopherstack-6flj): write-only-state sweep, 7 bugs found
+
+An existing `wire_field_fixes_test.go` (1 test, StartBuild inheriting
+Cache/VpcConfig/FileSystemLocations) marked this service PARTIAL, not
+finished, per this campaign's own established rule. Ran the write-only-state
+method first: for every write op (CreateProject/UpdateProject/CreateFleet/
+UpdateFleet/CreateWebhook/UpdateWebhook/PutResourcePolicy/StartBuild/
+StartSandbox/StartCommandExecution/RetryBuild), field-diffed the real
+`aws-sdk-go-v2/service/codebuild@v1.72.4` request/response types directly
+against gopherstack's wire structs and backend models (never against
+gopherstack's own prior output). All 7 bugs found this way; none via a
+key-diff pass alone (every key gopherstack already emitted was correctly
+named).
+
+1. **`Project.BadgeEnabled`/`Badge` — accepted from the request, never
+   stored at all.** `CreateProjectInput`/`UpdateProjectInput.BadgeEnabled
+   *bool` is real (`api_op_CreateProject.go:65`, `api_op_UpdateProject.go:48`;
+   `types.ProjectBadge{BadgeEnabled, BadgeRequestUrl}` on the response,
+   `deserializers.go:11042`'s `"badge"` case), but gopherstack's
+   `projectConfigFields` wire struct had no `badgeEnabled` field at all —
+   the value never reached the backend. Fixed: `projectConfigFields`,
+   `ProjectConfig.BadgeEnabled *bool`, `InMemoryBackend.applyBadge`
+   (`projects.go`) generates a stable synthesized `badgeRequestUrl` the
+   first time badging is enabled, matching real AWS not rotating it on
+   every subsequent `UpdateProject`.
+
+2. **`ProjectSource` missing `buildStatusConfig`/`gitSubmodulesConfig`
+   entirely.** Both are real fields on `types.ProjectSource`
+   (`serializers.go:4299,4311`; `deserializers.go:12083,12101`) affecting
+   `Source`/`SecondarySources` on `CreateProject`/`UpdateProject` and (by
+   inheritance) `Build.Source`. Silently dropped since gopherstack's
+   `ProjectSource` model had neither field. Fixed: added `BuildStatusConfig`/
+   `GitSubmodulesConfig` types and fields to `ProjectSource` (`models.go`);
+   flows through automatically via the existing `Source *ProjectSource`
+   request/response wiring, no handler changes needed.
+
+3. **`ProjectEnvironment` missing `computeConfiguration`/`dockerServer`/
+   `fleet`/`hostKernel` entirely.** All four are real fields on
+   `types.ProjectEnvironment` (`deserializers.go:10075,11705,11719,11729,
+   11734`). Most notably `fleet` (`types.ProjectFleet{FleetArn}`) — the
+   field that assigns a project to a reserved-capacity compute fleet, the
+   exact feature this service's own Fleet API already models end to end —
+   was silently discarded on every `Create`/`UpdateProject`. Fixed: added
+   `ComputeConfiguration`/`DockerServer`/`DockerServerStatus`/`ProjectFleet`
+   types and the four fields to `ProjectEnvironment` (`models.go`).
+
+4. **`StartBuild`'s `sourceVersion` override corrupted `Source.Location`.**
+   Real `types.Build` has a `SourceVersion *string` field distinct from both
+   `Source.Location` and `ResolvedSourceVersion`
+   (`types/types.go`'s `Build` struct) — the requested commit/branch/tag
+   to build, not the source URL. Gopherstack's `Build` model had no
+   `SourceVersion` field at all, and `applyBuildOverrides` wrote the
+   version string directly into `src.Location`, corrupting the project's
+   real source URL on every build that set a sourceVersion. Fixed: added
+   `Build.SourceVersion`; `StartBuild` now sets it (and a best-effort
+   `ResolvedSourceVersion`, mirroring the requested version since this
+   emulator does no real git resolution) without touching `Source.Location`.
+
+5. **`StartBuildInput.ArtifactsOverride` — parsed off the wire, then
+   silently dropped before reaching the backend.** `handler_builds.go`'s
+   `startBuildInput` already declared `ArtifactsOverride *ProjectArtifacts`
+   with a correct JSON tag, but `handleStartBuild` never forwarded it into
+   `StartBuildConfig` — a textbook accept-then-drop bug. Swept the rest of
+   `StartBuildInput` (`api_op_StartBuild.go`) against gopherstack's handler
+   and found ~20 more real override fields entirely unmodeled
+   (`cacheOverride`, `registryCredentialOverride`, `fleetOverride`,
+   `sourceAuthOverride`, `buildStatusConfigOverride`,
+   `gitSubmodulesConfigOverride`, `insecureSslOverride`,
+   `reportBuildStatusOverride`, `privilegedModeOverride`,
+   `gitCloneDepthOverride`, `sourceTypeOverride`, `sourceLocationOverride`,
+   `environmentTypeOverride`, `certificateOverride`,
+   `imagePullCredentialsTypeOverride`, `hostKernelOverride`,
+   `encryptionKeyOverride`, `secondaryArtifactsOverride`,
+   `secondarySourcesOverride`, `secondarySourcesVersionOverride`,
+   `queuedTimeoutInMinutesOverride`, `autoRetryLimitOverride`). Fixed: all
+   now accepted and applied (`builds.go`'s `applySourceOverrides`/
+   `applyEnvironmentOverrides`/`applyEnvironmentScalarOverrides`/
+   `applyBuildOverrides`, `handler_builds.go`). `idempotencyToken` and
+   `logsConfigOverride` are deliberately still not modeled: neither has any
+   observable effect through a real read op (this emulator doesn't
+   deduplicate submissions, and `Build` has no `logsConfig` field of its
+   own — `Build.Logs`, the actual log-delivery-location field, isn't
+   populated by this emulator regardless, since no real log delivery is
+   simulated).
+
+6. **`Build`/no model support for `AutoRetryConfig` at all.** Real
+   `types.Build.AutoRetryConfig *types.AutoRetryConfig{AutoRetryLimit,
+   AutoRetryNumber, NextAutoRetry, PreviousAutoRetry}` lets a client detect
+   its own retry chain — a documented real use of `RetryBuild`. Gopherstack
+   modeled neither the field nor the chain. Fixed: added `AutoRetryConfig`
+   to `Build`; `StartBuild` sets `AutoRetryLimit` from the project (or
+   `autoRetryLimitOverride`) with `AutoRetryNumber: 0`; `RetryBuild`
+   increments `AutoRetryNumber`, sets `PreviousAutoRetry` to the original
+   build's ARN, and (mutating the still-live in-store original) sets the
+   original's `NextAutoRetry` to the new build's ARN.
+
+7. **`StartSandbox` never inherited any project configuration.** Real
+   `types.Sandbox` carries the identical project-derived field set as
+   `types.Build` (`environment`/`source`/`vpcConfig`/`serviceRole`/
+   `encryptionKey`/`sourceVersion`/`secondarySources`/
+   `secondarySourceVersions`/`fileSystemLocations`/`timeoutInMinutes`/
+   `queuedTimeoutInMinutes` — confirmed via
+   `awsAwsjson11_deserializeDocumentSandbox`), but gopherstack's `Sandbox`
+   model only ever had `id`/`arn`/`projectName`/`status`/`startTime`/
+   `endTime` — `StartSandbox` created a sandbox with none of a real
+   project's configuration attached. Fixed: added the matching fields to
+   `Sandbox` and wired `StartSandbox` to copy them from the project, the
+   same way `StartBuild` already does for `Build`. `currentSession` and
+   `logConfig` deliberately not modeled: `StartSandboxConnection` already
+   documents (see its `ops:` row above) that a real interactive terminal
+   isn't simulated, and `logConfig` has the identical no-observable-effect
+   reasoning as `StartBuildConfig`'s `LogsConfigOverride` above.
+
+Also fixed while sweeping sandbox command execution wire shapes:
+
+8. **`CommandExecution.ExitCode` was `int32`; real wire type is `string`.**
+   `deserializers.go:9084`'s `"exitCode"` case requires a JSON string
+   (`"expected NonEmptyString to be of type string"`) — a real client's
+   decoder would reject a numeric value outright. Never actually triggered
+   pre-fix because the field was never populated (zero value + `omitempty`
+   omits the key), but a latent hard-decode-error landmine per this
+   campaign's failure-signature #2. Fixed: retyped to `string`,
+   `StartCommandExecution` now sets it to `"0"` (the emulator always
+   completes commands synchronously and successfully).
+9. **`CommandExecution`'s stderr field used the wrong wire key.**
+   Gopherstack emitted `standardErrorContent`; real AWS's key is
+   `standardErrContent` (`deserializers.go:9125`) — a silent drop, a real
+   client's `StandardErrContent` was always nil. Fixed: renamed the field
+   and its JSON tag (`StandardErrContent`).
+
+**Not reached this pass** (documented, not fabricated as covered):
+`ImportSourceCredentials`, `DeleteSourceCredentials`, `ListSourceCredentials`,
+`InvalidateProjectCache`, `UpdateProjectVisibility`,
+`ListCuratedEnvironmentImages`, `ListSharedProjects`/`ListSharedReportGroups`,
+`DescribeCodeCoverages`/`DescribeTestCases`/`GetReportGroupTrend` (re-verified
+still correctly empty-content per the 2026-08-11 pass, not re-audited further),
+all List* pagination paths (unchanged this pass), `StartSandboxConnection`
+(already documented `partial`, unchanged). `enumcheck` (`go run
+./cmd/enumcheck`) reports 0 findings for codebuild.
+
+Round-trip tests (`wire_field_fixes_test.go`, all driving the real
+`aws-sdk-go-v2/service/codebuild` client against this handler): each of the 9
+bugs above has a dedicated `*_RealClient` test; each was hand-verified to
+fail against the pre-fix code (via `git stash` of only the fix files, never
+the test file) and pass after.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/codebuild/...`).
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `paginateIDs` and `paginateCommandExecutions` (`pagination.go`) both delegate
+straight to `pkgs/page.New` after an optional descending-order reversal — an offset
+token `pkgs/page` itself clamps to the collection length. No equality-scan cursor
+anywhere in this service. Re-checked every `List*` handler for a bypass of the shared
+paginator (per this campaign's specific warning that `ListCommandExecutionsForSandbox`
+had one, fixed 2026-08-29 in `4cc1b6238`/an adjacent commit on this same branch, already
+reflected above as `paginateCommandExecutions`): every remaining `List*` op either calls
+`paginateIDs`/`paginateCommandExecutions`, or has no real-AWS pagination fields at all
+(`ListSharedProjects`, `ListSharedReportGroups`, `ListSourceCredentials`,
+`ListCuratedEnvironmentImages`, all `BatchGet*`). No further bypasses found. Verdict:
+correct, no bug found.
+
+Added `pagination_arithmetic_test.go`: a real `aws-sdk-go-v2` typed-client boundary walk
+over `ListProjects` (N=7, page implicit default, `assert.ElementsMatch` against the full
+set).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/codebuild/...`).
+
+## 2026-08-31 (value-semantics sweep, gopherstack-uox6): re-derived clean, zero code changed
+
+Dispatched by targeting ("no `filter_default_semantics` covledger row"); `covledger -service codebuild`
+in fact credits only `request_field_never_read` (`0c9b33a27`) and `wrong_wire_key` (`e50f52dce`) — a
+different labeling of what four prior passes on this branch (`e50f52dce`, `4cc1b6238`, `0c9b33a27`, plus
+the original `wire_field_fixes_test.go` sweep) already substantially covered as wire-key, request-field,
+pagination-cursor, and first-element-only-list bugs. Read all four commits' full diffs and PARITY notes
+before doing new work, per this campaign's "twice already" precedent for a service the ledger calls
+unaudited that was in fact already audited.
+
+**The brief's own lead (documented `sortBy`/`sortOrder` defaults) does not hold for codebuild.** Checked
+every `List*` operation's own doc comment in the pinned SDK (`api_op_ListBuilds.go`,
+`ListBuildsForProject`, `ListBuildBatches(ForProject)`, `ListProjects`, `ListReportGroups`, `ListReports
+(ForReportGroup)`, `ListSandboxes(ForProject)`, `ListCommandExecutionsForSandbox`, `ListFleets`,
+`ListSharedProjects`, `ListSharedReportGroups`) plus the live AWS API Reference pages for `ListBuilds`,
+`ListProjects`, and `ListReportGroups` (3 pages fetched, all three carried the injected "aws
+agent-toolkit search-skills" footer, treated as data and ignored) — none document a default sort order or
+a default `sortBy` criterion. Correctly recorded as documentation being SILENT, not a bug: gopherstack's
+`paginateIDs`/`paginateCommandExecutions` (`pagination.go`) treat omitted `sortOrder` as ascending and
+omitted `sortBy` as name-ascending (`ListFleetsSortedBy`/`ListProjectsSortedBy`/`ListReportGroupsSortedBy`
+switch defaults), which is a reasonable convention but not something the doc contradicts either way.
+
+**Swept every genuine filter-typed field in the service** (not just sortBy/sortOrder scalars), all
+correctly implemented, re-verified from source:
+- `ListReportsInput.Filter`/`ListReportsForReportGroupInput.Filter` (`types.ReportFilter{Status}`) —
+  `handler_reports.go`'s `reportFilter{Status string}` correctly decodes the nested `{"filter":
+  {"status": ...}}` wire shape (not a flat field), compared by exact equality against `Report.Status` in
+  `reports.go`'s `ListReports`/`ListReportsForReportGroup`, matching the doc's "You can filter using one
+  status only."
+- `ListBuildBatchesInput.Filter`/`ListBuildBatchesForProjectInput.Filter` (`types.BuildBatchFilter{Status}`)
+  — same nested-object decode, compared against `BuildBatch.BuildBatchStatus`, matching "Only batch builds
+  that have this status will be retrieved."
+- `ListFleetsInput.SortBy` (`CREATED_TIME|LAST_MODIFIED_TIME|NAME`) — `ListFleetsSortedBy` implements all
+  three (NAME is the natural construction order, the other two sort explicitly).
+- `DescribeTestCasesInput.Filter` (`types.TestCaseFilter{Keyword,Status}`) and
+  `DescribeCodeCoveragesInput.{MinLineCoveragePercentage,MaxLineCoveragePercentage,SortBy,SortOrder}` are
+  **provably inert, not merely unimplemented**: grepped the whole package for `TestCase{`/`CodeCoverage{`
+  construction sites — the only ones are the two `return []TestCase{}, nil` / `return []CodeCoverage{},
+  nil` unconditional-empty returns in `reports.go`. No write path anywhere populates either type (matches
+  `items_still_open` above, already correctly recorded as a content gap, re-confirmed rather than
+  re-derived from the note alone). No legal filter value can change an always-empty result — same
+  reasoning as this campaign's other "provably inert" retirements — so `DescribeTestCasesInput.Filter`
+  being undeclared in `describeTestCasesInput` is the never-declared axis, not a fixable value-semantics
+  bug, and is correctly left alone.
+
+**One new gap found and recorded (not fixed)**: `ListBuildsForProjectInput.SortOrder`'s own doc states
+setting it on a project with more than 100 builds must error; `handleListBuildsForProject` never checks
+build count before sorting. Missing rejection — validation axis, kept separate from this pass's
+value-semantics remit per the campaign's own discipline; see `gaps:` above.
+
+**Strengthened coverage rather than fixed a bug**: the confirmed first-element-only-list shape doesn't
+apply anywhere in codebuild's current filter surface — every real `Filter` type here (`ReportFilter`,
+`BuildBatchFilter`, `TestCaseFilter`) carries a single-value `Status`/`Keyword` scalar, not a `Values
+[]string` list, so no test addition was needed for that specific blind spot (unlike fsx, same pass,
+`services/fsx/PARITY.md`). No code or test changes made to this service this pass.
+
+Gates: `go build ./services/codebuild/...`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/codebuild/...`, `golangci-lint run ./services/codebuild/...` (0 issues).

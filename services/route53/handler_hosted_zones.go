@@ -312,8 +312,10 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 			maxItems = n
 		}
 	}
+	delegationSetID := normaliseDelegationSetID(q.Get("delegationsetid"))
+	hostedZoneType := q.Get("hostedzonetype")
 
-	p, err := h.Backend.ListHostedZones(marker, maxItems)
+	p, err := h.Backend.ListHostedZones(marker, maxItems, delegationSetID, hostedZoneType)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -392,13 +394,8 @@ func (h *Handler) listHostedZonesByName(c *echo.Context) error {
 	}
 
 	xmlZones := make([]xmlHostedZone, 0, len(zones))
-	for _, z := range zones {
-		xmlZones = append(xmlZones, xmlHostedZone{
-			ID:              "/hostedzone/" + z.ID,
-			Name:            z.Name,
-			CallerReference: z.CallerReference,
-			Config:          xmlHostedZoneConfig{Comment: z.Comment},
-		})
+	for i := range zones {
+		xmlZones = append(xmlZones, toXMLHostedZone(&zones[i]))
 	}
 
 	return writeXML(c, http.StatusOK, listHZByNameResponse{
@@ -434,12 +431,14 @@ type listHZByVPCResponse struct {
 	XMLName     xml.Name               `xml:"ListHostedZonesByVPCResponse"`
 	Xmlns       string                 `xml:"xmlns,attr"`
 	MaxItems    string                 `xml:"MaxItems"`
+	NextToken   string                 `xml:"NextToken,omitempty"`
 	HostedZones []xmlHostedZoneSummary `xml:"HostedZoneSummaries>HostedZoneSummary"`
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	vpcID := c.Request().URL.Query().Get("vpcid")
 	vpcRegion := c.Request().URL.Query().Get("vpcregion")
+	nextToken := c.Request().URL.Query().Get("nexttoken")
 	maxItems := maxHZByVPC
 	if v := c.Request().URL.Query().Get("maxitems"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -451,13 +450,13 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
 	}
 
-	zones, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion)
+	p, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion, nextToken, maxItems)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	xmlZones := make([]xmlHostedZoneSummary, 0, len(zones))
-	for _, z := range zones {
+	xmlZones := make([]xmlHostedZoneSummary, 0, len(p.Data))
+	for _, z := range p.Data {
 		xmlZones = append(xmlZones, xmlHostedZoneSummary{
 			HostedZoneID: "/hostedzone/" + z.ID,
 			Name:         z.Name,
@@ -469,6 +468,7 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		Xmlns:       route53Namespace,
 		HostedZones: xmlZones,
 		MaxItems:    strconv.Itoa(maxItems),
+		NextToken:   p.Next,
 	})
 }
 
@@ -518,7 +518,13 @@ type updateHZFeaturesResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) updateHostedZoneFeatures(c *echo.Context, _ string) error {
+func (h *Handler) updateHostedZoneFeatures(c *echo.Context, path string) error {
+	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53FeaturesSuffix)
+
+	if _, err := h.Backend.GetHostedZone(zoneID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, updateHZFeaturesResponse{Xmlns: route53Namespace})
 }
 

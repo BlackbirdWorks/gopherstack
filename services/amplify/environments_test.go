@@ -38,12 +38,12 @@ func TestInMemoryBackend_BackendEnvironment_Lifecycle(t *testing.T) {
 	require.Error(t, err)
 
 	// List
-	list, _, err := b.ListBackendEnvironments(app.AppID, "", 0)
+	list, _, err := b.ListBackendEnvironments(app.AppID, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 
 	// List for nonexistent app
-	_, _, err = b.ListBackendEnvironments("nonexistent", "", 0)
+	_, _, err = b.ListBackendEnvironments("nonexistent", "", "", 0)
 	require.Error(t, err)
 
 	// Delete

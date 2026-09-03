@@ -29,7 +29,7 @@ func (h *Handler) cborPutInsightRuleWithName(
 
 	definition := cborStr(input, "RuleDefinition")
 	if err := validateInsightRuleDefinition(definition); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	if err := h.Backend.PutInsightRule(&InsightRule{

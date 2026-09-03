@@ -162,14 +162,17 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	rev2 := r2["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationRevision"].(float64)
 	assert.InDelta(t, float64(2), rev2, 0.0001)
 
+	// LatestOnly's doc (aws-sdk-go-v2/service/apprunner@v1.42.4
+	// api_op_ListAutoScalingConfigurations.go): "Default: true" -- an omitted
+	// LatestOnly must behave the same as an explicit true, not the same as
+	// an explicit false.
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	list := listResp["AutoScalingConfigurationSummaryList"].([]any)
-	// my-asg's 2 revisions plus the account's always-present
-	// DefaultConfiguration (see ensureDefaultAutoScalingConfiguration).
-	assert.Len(t, list, 3)
+	// my-asg's latest revision plus DefaultConfiguration.
+	assert.Len(t, list, 2)
 
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": true})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -177,6 +180,14 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
 	// my-asg's latest revision plus DefaultConfiguration.
 	assert.Len(t, list, 2)
+
+	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": false})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
+	// my-asg's 2 revisions plus the account's always-present
+	// DefaultConfiguration (see ensureDefaultAutoScalingConfiguration).
+	assert.Len(t, list, 3)
 
 	rec = doRequest(t, h, "UpdateDefaultAutoScalingConfiguration", map[string]any{
 		"AutoScalingConfigurationArn": asgArn1,

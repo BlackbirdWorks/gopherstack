@@ -33,6 +33,7 @@ type oaiSummary struct {
 type oaiList struct {
 	XMLName     xml.Name     `xml:"CloudFrontOriginAccessIdentityList"`
 	XMLNS       string       `xml:"xmlns,attr"`
+	NextMarker  string       `xml:"NextMarker,omitempty"`
 	Items       []oaiSummary `xml:"Items>CloudFrontOriginAccessIdentitySummary"`
 	MaxItems    int          `xml:"MaxItems"`
 	Quantity    int          `xml:"Quantity"`
@@ -110,11 +111,19 @@ func (h *Handler) handleGetOAI(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
 }
 
+// handleListOAIs paginates via Marker/MaxItems (both query-bound, cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpHttpBindingsListCloudFrontOriginAccessIdentitiesInput).
 func (h *Handler) handleListOAIs(c *echo.Context) error {
 	oais := h.Backend.ListOAIs()
 
-	summaries := make([]oaiSummary, 0, len(oais))
-	for _, oai := range oais {
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		oais,
+		func(oai *OriginAccessIdentity) string { return oai.ID },
+	)
+
+	summaries := make([]oaiSummary, 0, len(page))
+	for _, oai := range page {
 		summaries = append(summaries, oaiSummary{
 			ID:                oai.ID,
 			S3CanonicalUserID: oai.S3CanonicalUserID,
@@ -123,10 +132,12 @@ func (h *Handler) handleListOAIs(c *echo.Context) error {
 	}
 
 	list := oaiList{
-		XMLNS:    cfNS,
-		MaxItems: maxItems,
-		Quantity: len(summaries),
-		Items:    summaries,
+		XMLNS:       cfNS,
+		NextMarker:  nextMarker,
+		MaxItems:    pageSize,
+		Quantity:    len(summaries),
+		Items:       summaries,
+		IsTruncated: isTruncated,
 	}
 
 	out, xmlErr := xml.Marshal(list)
@@ -309,12 +320,20 @@ func (h *Handler) handleGetOriginAccessControlConfig(c *echo.Context, id string)
 	return xmlResp(c, http.StatusOK, resp)
 }
 
+// handleListOriginAccessControls paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go).
 func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 	oacs := h.Backend.ListOriginAccessControls()
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		oacs,
+		func(oac *OriginAccessControl) string { return oac.ID },
+	)
+
 	var sb strings.Builder
 
-	for _, oac := range oacs {
+	for _, oac := range page {
 		fmt.Fprintf(
 			&sb,
 			`<OriginAccessControlSummary>`+
@@ -334,13 +353,21 @@ func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 		)
 	}
 
+	isTruncatedXML := "false"
+	nextMarkerXML := ""
+	if isTruncated {
+		isTruncatedXML = "true"
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<OriginAccessControlList xmlns="%s">`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
 		`<Items>%s</Items>`+
+		`<IsTruncated>%s</IsTruncated>%s`+
 		`</OriginAccessControlList>`,
-		cfNS, maxItems, len(oacs), sb.String())
+		cfNS, pageSize, len(page), sb.String(), isTruncatedXML, nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

@@ -75,10 +75,12 @@ func TestInMemoryBackend_Datastore(t *testing.T) {
 	}
 }
 
-// TestInMemoryBackend_DatastorePartitionsValidation verifies CreateDatastore and
-// UpdateDatastore validate the DatastorePartitions union shape: exactly one of
+// TestInMemoryBackend_DatastorePartitionsValidation verifies CreateDatastore
+// validates the DatastorePartitions union shape: exactly one of
 // attributePartition/timestampPartition must be set per entry, and the set variant must
 // carry a non-empty attributeName -- mirroring the AWS SDK's client-side validators.
+// UpdateDatastore doesn't take partitions at all (real UpdateDatastoreInput has no
+// partitions member; they're only settable at CreateDatastore).
 func TestInMemoryBackend_DatastorePartitionsValidation(t *testing.T) {
 	t.Parallel()
 
@@ -169,9 +171,6 @@ func TestInMemoryBackend_DatastorePartitionsValidation(t *testing.T) {
 				return
 			}
 
-			require.NoError(t, err)
-
-			err = b.UpdateDatastore("ds_"+tt.name, nil, nil, nil, tt.partitions)
 			require.NoError(t, err)
 		})
 	}

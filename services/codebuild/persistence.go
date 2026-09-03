@@ -18,7 +18,7 @@ import (
 // snapshot decodes with Version == 0, which is guaranteed to mismatch
 // codebuildSnapshotVersion and is discarded the same way any other
 // incompatible snapshot is.
-const codebuildSnapshotVersion = 1
+const codebuildSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the CodeBuild backend.
 //

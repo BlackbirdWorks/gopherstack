@@ -181,3 +181,214 @@ func TestListFunctions_SDKRoundTrip_Pagination(t *testing.T) {
 
 	assert.Len(t, seen, 20)
 }
+
+// TestListDistributionTenants_SDKRoundTrip_Pagination drives the real SDK client across two
+// pages of ListDistributionTenants and asserts the pages are disjoint. Before the fix,
+// handleListDistributionTenants never read the request body (Marker/MaxItems, like
+// AssociationFilter, travel there -- cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpHttpBindingsListDistributionTenantsInput returns nil) and always
+// returned every tenant in one unbounded page.
+func TestListDistributionTenants_SDKRoundTrip_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	h := cloudfront.NewHandler(backend)
+	client := newTestCloudFrontClient(t, h)
+
+	const total = 25
+
+	for i := range total {
+		dist, err := backend.CreateDistribution(
+			fmt.Sprintf("ref-pg-tenant-%02d", i),
+			fmt.Sprintf("pg-tenant-dist-%02d", i),
+			true,
+			nil,
+		)
+		require.NoError(t, err)
+
+		_, err = backend.CreateDistributionTenant(
+			dist.ID, fmt.Sprintf("pg-tenant-%02d", i), []string{fmt.Sprintf("pg-tenant-%02d.example.com", i)}, nil,
+		)
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{
+		MaxItems: aws.Int32(10),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.DistributionTenantList, 10)
+	require.NotNil(t, page1.NextMarker)
+
+	page2, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{
+		MaxItems: aws.Int32(10),
+		Marker:   page1.NextMarker,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.DistributionTenantList, 10)
+
+	seen := make(map[string]bool, 20)
+	for _, tn := range page1.DistributionTenantList {
+		seen[aws.ToString(tn.Id)] = true
+	}
+
+	for _, tn := range page2.DistributionTenantList {
+		assert.False(t, seen[aws.ToString(tn.Id)], "page 2 repeated tenant %s from page 1", aws.ToString(tn.Id))
+		seen[aws.ToString(tn.Id)] = true
+	}
+
+	assert.Len(t, seen, 20)
+}
+
+// TestListConnectionGroups_SDKRoundTrip_Pagination drives the real SDK client across two pages
+// of ListConnectionGroups and asserts the pages are disjoint. Before the fix,
+// handleListConnectionGroups never read the request body and always returned every connection
+// group in one unbounded response with no NextMarker.
+func TestListConnectionGroups_SDKRoundTrip_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	h := cloudfront.NewHandler(backend)
+	client := newTestCloudFrontClient(t, h)
+
+	const total = 25
+
+	for i := range total {
+		_, err := backend.CreateConnectionGroup(fmt.Sprintf("pg-cg-%02d", i), "pagination test")
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListConnectionGroups(t.Context(), &cfsdk.ListConnectionGroupsInput{
+		MaxItems: aws.Int32(10),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ConnectionGroups, 10)
+	require.NotNil(t, page1.NextMarker)
+
+	page2, err := client.ListConnectionGroups(t.Context(), &cfsdk.ListConnectionGroupsInput{
+		MaxItems: aws.Int32(10),
+		Marker:   page1.NextMarker,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ConnectionGroups, 10)
+
+	seen := make(map[string]bool, 20)
+	for _, cg := range page1.ConnectionGroups {
+		seen[aws.ToString(cg.Id)] = true
+	}
+
+	for _, cg := range page2.ConnectionGroups {
+		assert.False(
+			t,
+			seen[aws.ToString(cg.Id)],
+			"page 2 repeated connection group %s from page 1",
+			aws.ToString(cg.Id),
+		)
+		seen[aws.ToString(cg.Id)] = true
+	}
+
+	assert.Len(t, seen, 20)
+}
+
+// TestListKeyValueStores_SDKRoundTrip_Pagination drives the real SDK client across two pages of
+// ListKeyValueStores and asserts the pages are disjoint. Before the fix,
+// handleListKeyValueStores ignored Marker/MaxItems (both real ListKeyValueStoresInput members,
+// query-bound per cloudfront@v1.67.4 serializers.go) and always returned every store in one
+// unbounded page.
+func TestListKeyValueStores_SDKRoundTrip_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	h := cloudfront.NewHandler(backend)
+	client := newTestCloudFrontClient(t, h)
+
+	const total = 25
+
+	for i := range total {
+		_, err := backend.CreateKeyValueStore(fmt.Sprintf("pg-kvs-%02d", i), "pagination test", nil)
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListKeyValueStores(t.Context(), &cfsdk.ListKeyValueStoresInput{
+		MaxItems: aws.Int32(10),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, page1.KeyValueStoreList)
+	require.Len(t, page1.KeyValueStoreList.Items, 10)
+	require.NotNil(t, page1.KeyValueStoreList.NextMarker)
+
+	page2, err := client.ListKeyValueStores(t.Context(), &cfsdk.ListKeyValueStoresInput{
+		MaxItems: aws.Int32(10),
+		Marker:   page1.KeyValueStoreList.NextMarker,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.KeyValueStoreList.Items, 10)
+
+	seen := make(map[string]bool, 20)
+	for _, kvs := range page1.KeyValueStoreList.Items {
+		seen[aws.ToString(kvs.Name)] = true
+	}
+
+	for _, kvs := range page2.KeyValueStoreList.Items {
+		assert.False(
+			t,
+			seen[aws.ToString(kvs.Name)],
+			"page 2 repeated key value store %s from page 1",
+			aws.ToString(kvs.Name),
+		)
+		seen[aws.ToString(kvs.Name)] = true
+	}
+
+	assert.Len(t, seen, 20)
+}
+
+// TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages proves
+// handleListConnectionFunctions loses records at a page boundary when several
+// connection functions share a Name. CreateConnectionFunctionWithCode documents that
+// "AWS allows multiple connection functions to share the same Name -- they are keyed
+// and uniqued by ID, not by name" (connection.go), yet ListConnectionFunctions sorts
+// solely by Name and paginateByMarkerValue's cursor is `getID(item) <= marker`: once a
+// tie group of same-named functions straddles a MaxItems boundary, the members left
+// out of page 1 share the exact marker value emitted for page 1's last item, so page
+// 2's cutoff silently discards the rest of the group forever -- deterministically, not
+// just under map-iteration luck, so this is looped only for extra confidence.
+func TestListConnectionFunctions_DuplicateNames_NoDropAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		backend := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		h := cloudfront.NewHandler(backend)
+		client := newTestCloudFrontClient(t, h)
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			fn, err := backend.CreateConnectionFunction("dup-fn-name", "pagination tie test")
+			require.NoError(t, err)
+			created[fn.ID] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+
+		marker := (*string)(nil)
+		for range dupCount + 1 {
+			out, err := client.ListConnectionFunctions(t.Context(), &cfsdk.ListConnectionFunctionsInput{
+				MaxItems: aws.Int32(2),
+				Marker:   marker,
+			})
+			require.NoError(t, err)
+
+			for _, fn := range out.ConnectionFunctions {
+				seen[aws.ToString(fn.Id)] = true
+			}
+
+			if out.NextMarker == nil {
+				break
+			}
+
+			marker = out.NextMarker
+		}
+
+		assert.Equal(t, created, seen, "paged ListConnectionFunctions dropped same-named functions across pages")
+	}
+}

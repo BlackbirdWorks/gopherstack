@@ -415,7 +415,7 @@ func TestSnapshotsFamilyPagination_RealPageRoundTrip(t *testing.T) {
 
 		want := make(map[string]bool, seedCount)
 		for range seedCount {
-			task, terr := b.ImportSnapshot("import-test")
+			task, terr := b.ImportSnapshot("import-test", false, "")
 			require.NoError(t, terr)
 			want[task.ImportTaskID] = true
 		}

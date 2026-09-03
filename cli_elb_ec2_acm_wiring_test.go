@@ -56,7 +56,7 @@ func TestInitializeServices_ELBEC2ACMWiring(t *testing.T) {
 
 	ctx := t.Context()
 
-	vpc, err := ec2H.Backend.CreateVpc("10.0.0.0/16")
+	vpc, err := ec2H.Backend.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := ec2H.Backend.CreateSecurityGroup("wiring-test-sg", "wiring test", vpc.ID)

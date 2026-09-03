@@ -454,12 +454,11 @@ func notFoundExceptionName(err error) string {
 }
 
 // conflictExceptionName returns the exception name for an awserr.ErrConflict-class error.
+// ErrGroupAlreadyExists/ErrSamplingRuleAlreadyExists fall through to the
+// default (both are InvalidRequestException -- see their doc in errors.go):
+// CreateGroup/CreateSamplingRule model no AlreadyExists-shaped exception.
 func conflictExceptionName(err error) string {
 	switch {
-	case errors.Is(err, ErrGroupAlreadyExists):
-		return "GroupAlreadyExistsException"
-	case errors.Is(err, ErrSamplingRuleAlreadyExists):
-		return "RuleAlreadyExistsException"
 	case errors.Is(err, ErrInvalidPolicyRevisionID):
 		return "InvalidPolicyRevisionIdException"
 	default:
@@ -468,11 +467,11 @@ func conflictExceptionName(err error) string {
 }
 
 // invalidParameterExceptionName returns the exception name for an
-// awserr.ErrInvalidParameter-class error.
+// awserr.ErrInvalidParameter-class error. ErrInvalidSamplingRule falls
+// through to the default (InvalidRequestException -- see its doc in
+// errors.go): CreateSamplingRule models no InvalidSamplingRuleException.
 func invalidParameterExceptionName(err error) string {
 	switch {
-	case errors.Is(err, ErrInvalidSamplingRule):
-		return "InvalidSamplingRuleException"
 	case errors.Is(err, ErrMalformedPolicyDocument):
 		return "MalformedPolicyDocumentException"
 	case errors.Is(err, ErrTooManyPolicies):

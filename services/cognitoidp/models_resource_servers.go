@@ -52,10 +52,12 @@ type describeResourceServerAccurateOutput struct {
 
 type listResourceServersAccurateInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listResourceServersAccurateOutput struct {
+	NextToken       string                       `json:"NextToken,omitempty"`
 	ResourceServers []resourceServerAccurateType `json:"ResourceServers,omitempty"`
 }
 
@@ -76,54 +78,3 @@ type deleteResourceServerAccurateInput struct {
 }
 
 type deleteResourceServerAccurateOutput struct{}
-
-type resourceServerType struct {
-	UserPoolID string              `json:"UserPoolId,omitempty"`
-	Identifier string              `json:"Identifier,omitempty"`
-	Name       string              `json:"Name,omitempty"`
-	Scopes     []map[string]string `json:"Scopes,omitempty"`
-}
-
-type createResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Identifier string `json:"Identifier,omitempty"`
-	Name       string `json:"Name,omitempty"`
-}
-
-type createResourceServerOutput struct {
-	ResourceServer *resourceServerType `json:"ResourceServer,omitempty"`
-}
-
-type deleteResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Identifier string `json:"Identifier,omitempty"`
-}
-
-type deleteResourceServerOutput struct{}
-
-type describeResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Identifier string `json:"Identifier,omitempty"`
-}
-
-type describeResourceServerOutput struct {
-	ResourceServer *resourceServerType `json:"ResourceServer,omitempty"`
-}
-
-type listResourceServersInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-}
-
-type listResourceServersOutput struct {
-	ResourceServers []resourceServerType `json:"ResourceServers,omitempty"`
-}
-
-type updateResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Identifier string `json:"Identifier,omitempty"`
-	Name       string `json:"Name,omitempty"`
-}
-
-type updateResourceServerOutput struct {
-	ResourceServer *resourceServerType `json:"ResourceServer,omitempty"`
-}

@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func extractPortalsOp(path, method string) string {
@@ -325,7 +326,10 @@ func (h *Handler) handleListPortals(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listPortalsOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listPortalsOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetPortal(c *echo.Context, portalID string) error {
@@ -355,7 +359,10 @@ func (h *Handler) handleListPortalProducts(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listPortalProductsOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listPortalProductsOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetPortalProduct(c *echo.Context, portalProductID string) error {
@@ -389,7 +396,10 @@ func (h *Handler) handleListProductPages(c *echo.Context, portalProductID string
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listProductPagesOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listProductPagesOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListProductRestEndpointPages(c *echo.Context, portalProductID string) error {
@@ -407,7 +417,10 @@ func (h *Handler) handleListProductRestEndpointPages(c *echo.Context, portalProd
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listProductREPagesOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listProductREPagesOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {

@@ -107,7 +107,7 @@ func TestReplay_CancelNonRunningFails(t *testing.T) {
 
 	// Cancelling a COMPLETED replay must fail.
 	_, err = b.CancelReplay(context.Background(), "my-replay")
-	require.ErrorIs(t, err, eventbridge.ErrInvalidState)
+	require.ErrorIs(t, err, eventbridge.ErrReplayNotCancellable)
 }
 
 func TestReplay_DuplicateNameFails(t *testing.T) {
@@ -159,7 +159,7 @@ func TestReplay_ListWithPrefix(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	replays, _, err := b.ListReplays(context.Background(), "prod-", "", "", "")
+	replays, _, err := b.ListReplays(context.Background(), "prod-", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, replays, 2)
 }
@@ -233,7 +233,7 @@ func TestReplayCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "my-replay", got.ReplayName)
 
-		replays, _, err := b.ListReplays(context.Background(), "my-", "", "", "")
+		replays, _, err := b.ListReplays(context.Background(), "my-", "", "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, replays, 1)
 
@@ -260,9 +260,9 @@ func TestCancelReplay(t *testing.T) {
 		wantNoReplay bool
 	}{
 		{name: "not_found", wantNoReplay: true, wantErr: eventbridge.ErrNotFound},
-		{name: "completed_is_terminal", seedState: "COMPLETED", wantErr: eventbridge.ErrInvalidState},
-		{name: "cancelled_is_terminal", seedState: "CANCELLED", wantErr: eventbridge.ErrInvalidState},
-		{name: "failed_is_terminal", seedState: "FAILED", wantErr: eventbridge.ErrInvalidState},
+		{name: "completed_is_terminal", seedState: "COMPLETED", wantErr: eventbridge.ErrReplayNotCancellable},
+		{name: "cancelled_is_terminal", seedState: "CANCELLED", wantErr: eventbridge.ErrReplayNotCancellable},
+		{name: "failed_is_terminal", seedState: "FAILED", wantErr: eventbridge.ErrReplayNotCancellable},
 		{name: "running_transitions_to_cancelling", seedState: "RUNNING", wantState: "CANCELLING"},
 		{name: "starting_transitions_to_cancelling", seedState: "STARTING", wantState: "CANCELLING"},
 	}

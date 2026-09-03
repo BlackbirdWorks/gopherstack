@@ -203,21 +203,39 @@ func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespac
 
 // UpdateHTTPNamespace updates the description of an HTTP namespace.
 func (b *InMemoryBackend) UpdateHTTPNamespace(id, description string) (string, error) {
-	return b.updateNamespace(id, namespaceTypeHTTP, description)
+	return b.updateNamespace(id, namespaceTypeHTTP, description, 0, false)
 }
 
-// UpdatePrivateDNSNamespace updates the description of a private DNS namespace.
-func (b *InMemoryBackend) UpdatePrivateDNSNamespace(id, description string) (string, error) {
-	return b.updateNamespace(id, namespaceTypeDNSPrivate, description)
+// UpdatePrivateDNSNamespace updates the description of a private DNS
+// namespace, and its SOA TTL when hasSOATTL is true (types.
+// PrivateDnsNamespaceChange.Properties.DnsProperties.SOA.TTL,
+// api_op_UpdatePrivateDnsNamespace.go).
+func (b *InMemoryBackend) UpdatePrivateDNSNamespace(
+	id, description string,
+	soaTTL int64,
+	hasSOATTL bool,
+) (string, error) {
+	return b.updateNamespace(id, namespaceTypeDNSPrivate, description, soaTTL, hasSOATTL)
 }
 
-// UpdatePublicDNSNamespace updates the description of a public DNS namespace.
-func (b *InMemoryBackend) UpdatePublicDNSNamespace(id, description string) (string, error) {
-	return b.updateNamespace(id, namespaceTypeDNSPublic, description)
+// UpdatePublicDNSNamespace updates the description of a public DNS
+// namespace, and its SOA TTL when hasSOATTL is true (types.
+// PublicDnsNamespaceChange.Properties.DnsProperties.SOA.TTL,
+// api_op_UpdatePublicDnsNamespace.go).
+func (b *InMemoryBackend) UpdatePublicDNSNamespace(
+	id, description string,
+	soaTTL int64,
+	hasSOATTL bool,
+) (string, error) {
+	return b.updateNamespace(id, namespaceTypeDNSPublic, description, soaTTL, hasSOATTL)
 }
 
 // updateNamespace is the internal helper for namespace update operations.
-func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (string, error) {
+func (b *InMemoryBackend) updateNamespace(
+	id, nsType, description string,
+	soaTTL int64,
+	hasSOATTL bool,
+) (string, error) {
 	b.mu.Lock("updateNamespace")
 	defer b.mu.Unlock()
 
@@ -231,6 +249,11 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 	}
 
 	ns.Description = description
+
+	if hasSOATTL && ns.Properties != nil && ns.Properties.DNSProperties != nil &&
+		ns.Properties.DNSProperties.SOA != nil {
+		ns.Properties.DNSProperties.SOA.TTL = soaTTL
+	}
 
 	now := time.Now()
 	opID := b.nextOpID()

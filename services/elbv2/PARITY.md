@@ -29,7 +29,7 @@ ops:
   SetSubnets: {wire: ok, errors: ok, state: ok, persist: ok}
   SetIpAddressType: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteTargetGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised TargetGroupNotFound for a missing target group, but DeleteTargetGroup's own deserializeOpError models only ResourceInUse -- no TargetGroupNotFound anywhere in its switch (unlike every other resource family's Delete op, which all model their own NotFound). Now idempotent on a missing target group, matching AWS."}
   DescribeTargetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyTargetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyTargetGroupAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,20 +37,20 @@ ops:
   RegisterTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: omitted Targets.member.N.Port was stored as 0 instead of defaulting to the target group's port (AWS behaviour), corrupting DescribeTargetHealth/Deregister lookups for any caller that omits Port"}
   DeregisterTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Port-defaulting fix as RegisterTargets"}
   DescribeTargetHealth: {wire: ok, errors: ok, state: ok, persist: ok, note: "Targets.member.N filter now also defaults omitted Port before matching against registered targets"}
-  CreateListener: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: AlpnPolicy was modeled/serialized as a bare string; real wire shape is a list (AlpnPolicy.member.N request, <AlpnPolicy><member> response)"}
+  CreateListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "fixed: AlpnPolicy was modeled/serialized as a bare string; real wire shape is a list (AlpnPolicy.member.N request, <AlpnPolicy><member> response). ERRORS FIXED (error-path sweep, 2026-08-29): CreateListener models TargetGroupNotFound, but never validated that DefaultActions' forward target group references actually exist -- a listener could be created pointing at a target group that was never created (missing-error). Now validates via the new validateForwardTargetGroupsExist, shared with ModifyListener/CreateRule/ModifyRule."}
   DeleteListener: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too"}
-  ModifyListener: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too"}
+  DescribeListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too. 2026-08-30: fixed a pagination-drop bug -- see Notes marker-cursor sweep."}
+  ModifyListener: {wire: ok, errors: fixed, state: ok, persist: ok, note: "AlpnPolicy list-shape fix applies here too. ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener, now validated when DefaultActions is supplied."}
   ModifyListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "added fallback to the legacy top-level Values.member.N field for host-header/path-pattern conditions when the modern HostHeaderConfig/PathPatternConfig is absent (both are valid on the real wire). NEW 2026-08-07: Transforms (types.RuleTransform, host-header-rewrite/url-rewrite) now parsed/validated/stored/returned -- see families.rule-transforms"}
+  CreateRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener (see below); added fallback to the legacy top-level Values.member.N field for host-header/path-pattern conditions when the modern HostHeaderConfig/PathPatternConfig is absent (both are valid on the real wire). NEW 2026-08-07: Transforms (types.RuleTransform, host-header-rewrite/url-rewrite) now parsed/validated/stored/returned -- see families.rule-transforms"}
   DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "same legacy-Values fallback as CreateRule. NEW 2026-08-07: Transforms/ResetTransforms now handled -- ResetTransforms clears Transforms, a non-empty Transforms replaces it, and specifying both is rejected (InvalidParameter), matching ModifyRuleInput's doc comment"}
+  DescribeRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-30: fixed a pagination-drop bug -- see Notes marker-cursor sweep."}
+  ModifyRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing forward-target-group-existence check as CreateListener; same legacy-Values fallback as CreateRule. NEW 2026-08-07: Transforms/ResetTransforms now handled -- ResetTransforms clears Transforms, a non-empty Transforms replaces it, and specifying both is rejected (InvalidParameter), matching ModifyRuleInput's doc comment"}
   SetRulePriorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: the priority-conflict error code was fabricated (\"DuplicatePriority\"); real AWS code is \"PriorityInUse\" (PriorityInUseException)"}
-  AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): AddTags models LoadBalancerNotFound/TargetGroupNotFound/ListenerNotFound/RuleNotFound/TrustStoreNotFound for an unknown resource ARN, but the backend silently skipped any ARN it couldn't find instead of raising (missing-error). Now raises the resource-type-specific NotFound via the new notFoundErrorForResourceARN, matching AddTags/RemoveTags/DescribeTags' shared not-found set."}
+  RemoveTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing-error as AddTags -- an unknown resource ARN was silently no-op'd instead of raising."}
+  DescribeTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ERRORS FIXED (error-path sweep, 2026-08-29): same missing-error as AddTags -- an unknown resource ARN returned an empty tag list under that key instead of raising."}
   AddListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,7 +61,7 @@ ops:
   DescribeAccountLimits: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static limits table verified against AWS defaults"}
   DescribeCapacityReservation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeSSLPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static policy list verified against real AWS SSL policy names/ciphers"}
-  DescribeTrustStoreAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeTrustStoreAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-30: fixed a pagination-drop bug (no sort at all) -- see Notes marker-cursor sweep."}
   DescribeTrustStores: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix (2026-07-05): response list field was named RevocationContents; real wire field (verified against the SDK deserializer) is TrustStoreRevocations. A real SDK client parsing this response would have silently received an EMPTY list on every call despite the mock holding real revocation data. RevocationId is now int64 (see AddTrustStoreRevocations note, 2026-07-23)."}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -292,3 +292,205 @@ confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/elbv2/...` (pass),
 `golangci-lint run ./services/elbv2/...` (0 issues).
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every generic indexed-list parse site enumerated against its own operation's
+serializer in `elasticloadbalancingv2@v1.58.5` (request-side parameter
+reads -- this service's protocol is confirmed `awsAwsquery_*` / Query-XML,
+not one of the two CBOR/hand-read exceptions).
+
+**~40 call sites checked by hand, 0 new bugs found.** Generic single-level
+lists (25 sites): `parseMembers` across `Certificates`/`ResourceArns`/
+`AlpnPolicy`/`RuleArns`/`ListenerArns`/`Names` (checked independently for
+`DescribeSSLPolicies`/`DescribeTargetGroups`/`DescribeLoadBalancers`/
+`DescribeTrustStores` -- four different `serializeDocument*Names` functions
+sharing only the field name `Names`, all confirmed `member`-wrapped)/
+`TargetGroupArns`/`LoadBalancerArns`/`SecurityGroups`/`Subnets`
+(`CreateLoadBalancer` and `SetSubnets` checked independently, same
+serializer)/`RemoveIpamPools`/`TrustStoreArns`, plus `parseTagKeys`,
+`parseCertArns`, and `parseRevocationIDs` (already correctly `int64`, per
+the prior `RemoveTrustStoreRevocations` fix). Nested lists (~15 more sites):
+`parseKVAttrs` (three independent `*Attributes` shapes --
+`ListenerAttributes`/`LoadBalancerAttributes`/`TargetGroupAttributes`, each
+its own serializer, all identically `Key`/`Value`/`member`), `parseActions`
+(`DefaultActions` on `CreateListener`/`ModifyListener`, `Actions` on
+`CreateRule`/`ModifyRule` -- same `awsAwsquery_serializeDocumentActions`,
+confirmed on both op pairs independently), `parseForwardConfigTargetGroups`
+(`ForwardConfig.TargetGroups.member.N.{TargetGroupArn,Weight}`),
+`parseSubnetMappings`, `parseTargets` (`Register`/`Deregister`/
+`DescribeTargetHealth`, same `TargetDescriptions`), and
+`parseTrustStoreRevocationContents` (already correctly rejecting the
+invented plain-content shape per the prior fix).
+
+**Missing feature, left alone (not this bug class):** `SubnetMapping.
+SourceNatIpv6Prefix` and `TargetDescription.{AvailabilityZone,QuicServerId}`
+are real, unparsed request fields (confirmed on the types, not invented);
+`DescribeTargetHealth.Include` is never parsed either.
+
+**Not re-walked from scratch this pass** (already fixed/verified against
+this identical bug class in prior, cited passes -- see the `CreateListener`/
+`CreateRule`/`AddTrustStoreRevocations`/`RemoveTrustStoreRevocations`/
+`RegisterTargets` family notes above): the `Conditions`/`RegexValues`/
+`QueryStringPairs` chain (`parseConditions`/`parseConditionAt`/
+`parseRegexValues`/`parseQueryStringPairs`), and the `Transforms`/
+`RewriteConfig` chain (`parseTransforms`/`parseRewriteConfigs`). Spot-read
+their outer wrapper calls this pass to confirm they still route through
+`Actions.member`/`Conditions.member`/`Transforms.member` as documented
+above; did not re-verify every leaf field a second time.
+
+**Coverage: N-of-N for every site read this pass (40 of 40 freshly
+checked); the Conditions/Transforms family (documented separately above,
+not recounted here) was cross-referenced rather than re-verified.** No code
+changes in this service this pass -- the enumeration found nothing to fix,
+consistent with how much of this exact bug class this service's PARITY.md
+already shows fixed from earlier campaigns.
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 4 operations fixed
+
+That prior pass audited request-body *field parsing* (Actions/Conditions/Transforms/etc.). This pass
+covers a different surface: whether each Describe op's own constraint fields (filters, Marker/PageSize)
+are read at all. Measured from each op's own Input struct in the pinned SDK
+(`elasticloadbalancingv2@v1.58.5`): 10 ops carry `Names`/`*Arns`/`RevocationIds`/`Marker`/`PageSize`.
+
+- **`DescribeTrustStores`** (`handler_trust_stores.go`): `TrustStoreArns`/`Names` were already correctly
+  read and applied by the backend, but `Marker`/`PageSize` were never read at all -- every call returned
+  every trust store in one unbounded page, with `describeTrustStoresResult.NextMarker` always empty.
+  Fixed via a new generic `applyMarkerPage[T any]` helper (`handler.go`), reused by all three fixes below
+  rather than copy-pasting the same marker-scan-then-cut logic a fourth time (avoiding the "no helper
+  exists -> repeated bug" pattern the campaign brief flags).
+- **`DescribeListenerCertificates`** (`handler_listener_certificates.go`): same gap -- `Marker`/
+  `PageSize` never read despite the response struct already carrying an (always-empty) `NextMarker`
+  field, which was the tell. Fixed.
+- **`DescribeTrustStoreAssociations`** (`handler_trust_stores.go`): same gap, plus the response struct
+  didn't even have a `NextMarker` field yet (added; confirmed against `DescribeTrustStoreAssociationsOutput`
+  in the pinned SDK). Fixed. Not covered by a dedicated SDK-driven pagination test this pass -- the fix
+  is mechanically identical to the two above via the same `applyMarkerPage` helper, and multi-listener
+  trust-store-association fixtures are comparatively expensive to set up through the real client; verified
+  by code review and the full existing suite passing, not by a new targeted test.
+- **`DescribeTrustStoreRevocations`** (`trust_stores.go`/`handler_trust_stores.go`): `RevocationIds`
+  (`api_op_DescribeTrustStoreRevocations.go`: "The revocation IDs of the revocation files you want to
+  describe") was never read -- every call returned every revocation on the trust store regardless of the
+  requested IDs. Fixed, reusing the existing `parseRevocationIDs` helper `RemoveTrustStoreRevocations`
+  already had (found by grep before adding a second, duplicate parser of the same shape). Also added
+  `Marker`/`PageSize` pagination, previously absent here too.
+
+**Confirmed already correct, not touched**: `DescribeListeners` (`LoadBalancerArn`/`ListenerArns`/
+pagination), `DescribeRules` (`ListenerArn`/`RuleArns`/pagination), `DescribeTargetGroups`
+(`TargetGroupArns`/`Names`/`LoadBalancerArn`/pagination), and `DescribeLoadBalancers`
+(`LoadBalancerArns`/`Names`/pagination) all already read and apply every documented constraint field.
+**Restraint**: `DescribeSSLPolicies`'s `LoadBalancerType` filter (doc: "The default lists the SSL
+policies for all load balancers") is not applied -- `allSSLPolicies()` is a hardcoded 6-entry static
+catalog with no per-load-balancer-type availability modeled at all (a structural gap, not a filter
+bug); implementing it would mean fabricating which of the 6 policies is "available" per LB type, which
+this backend has no real basis for. Left alone and documented rather than invented.
+
+Gates: `go build ./services/elbv2/...`, `go vet ./...` (repo-wide), `go test ./services/elbv2/...
+-race -count=1` (pass), `golangci-lint run ./services/elbv2/...` (0 issues after fixing golines and two
+variable-shadow warnings). New tests in `list_filter_params_test.go` drive the real typed SDK client
+(`elbv2sdk.Client`) for every case covered.
+
+- **2026-08-30 marker-cursor-over-a-tie-prone-key sweep, 3 real bugs found and fixed.**
+  All 8 Marker-paginated Describe* ops go through the shared `applyMarkerPage`/inline
+  offset-by-marker helpers in `handler.go`. `DescribeLoadBalancers` (marks by
+  `LoadBalancerArn`), `DescribeTargetGroups` (`TargetGroupArn`), `DescribeTrustStores`
+  (`TrustStoreArn`) all mark by the `store.Table`'s own key -- structurally unique, safe.
+  `DescribeListenerCertificates` marks by `CertificateArn`; `AddListenerCertificates`
+  already de-dupes by that field before appending -- safe.
+  `DescribeTrustStoreRevocations` marks by `RevocationID`, a monotonically-increasing
+  global counter -- safe.
+
+  Two ops broke on a genuine tie: **`DescribeListeners`** sorts by `Port`, and
+  **`DescribeRules`** sorts by `Priority` -- both fields are only required unique
+  *per-load-balancer*/*per-listener* respectively (`checkDuplicateListenerPort` scopes to
+  `b.listenersByLB`; `CreateRule`'s duplicate-priority check scopes to
+  `b.rulesByListener`), so an unfiltered call (no `LoadBalancerArn`/`ListenerArn`, listing
+  across every listener/rule in the account) routinely produces ties. Both source lists
+  come from `b.listeners.All()`/`b.rules.All()` -- a map walk Go re-randomizes on every
+  call -- so tied entries could reorder between the call that issued a Marker and the
+  call that consumed it, silently dropping the reordered entry from the walk. Fixed by
+  adding `ListenerArn`/`RuleArn` (the marker field itself) as the final sort comparison,
+  making the order a stable total order regardless of input order. Reproduced first with
+  a 30-trial paginated-walk test per op (`handler_describe_listeners_pagination_test.go`,
+  `handler_describe_rules_pagination_test.go`) -- both fail reliably (trial 0, every run)
+  against unmodified code, pass after the fix.
+
+  A third op had no sort at all: **`DescribeTrustStoreAssociations`** builds its result by
+  scanning `b.listeners.All()` for `MutualAuthentication.TrustStoreArn` matches and never
+  sorted the resulting `[]string` before `applyMarkerPage` ran. Each `ListenerArn` in the
+  result is unique (each listener visited once), but with zero sort the *order* itself was
+  a fresh random permutation on every call, so the Marker-based resume could drop
+  associations with no tie required at all. Fixed with `sort.Strings`. Reproduced with the
+  same 30-trial pattern (`handler_describe_trust_store_associations_pagination_test.go`).
+
+  **Refuting a prior claim**: the "Confirmed already correct, not touched" note above
+  (this file, DescribeListeners/DescribeRules/DescribeTargetGroups/DescribeLoadBalancers)
+  was about constraint-field filtering (`LoadBalancerArn`/`ListenerArns`/etc. being read
+  and applied), which is still true -- but it did not cover cross-listener/cross-rule
+  marker-resume correctness on the unfiltered path, which was broken. Existing pagination
+  tests for these ops used a single load balancer/listener per test, so ties across
+  siblings never arose and the bug went uncaught.
+
+  `DescribeTargetGroups` (sorts by `TargetGroupName`) and `DescribeLoadBalancers` (sorts
+  by name) were re-verified, not assumed safe: both names are checked for global
+  uniqueness across every target group/load balancer at Create time (`b.targetGroups.All()`
+  / `b.loadBalancers.All()` scans in `CreateTargetGroup`/`CreateLoadBalancer`), so neither
+  sort key can tie.
+
+**2026-08-30 — value-semantics sweep (gopherstack-uox6), no bug found.**
+elbv2's optional-parameter surface is almost entirely ARN/name identifier
+lists rather than predicate filters, and every one that is read matches its
+SDK doc comment's stated absence-default of "list everything":
+`DescribeLoadBalancers.{LoadBalancerArns,Names}` ("Describes the specified
+load balancers or all of your load balancers"),
+`DescribeTargetGroups.{TargetGroupArns,Names,LoadBalancerArn}` ("By default,
+all target groups are described"), `DescribeTrustStores.{TrustStoreArns,Names}`
+("Describes all trust stores for the specified account"), and
+`DescribeSSLPolicies.Names` (no stated non-empty default; verified against
+the sibling that does specify one, `LoadBalancerType`, see below).
+`DescribeTargetHealth.Targets` is the one true optional filter with
+documented match-narrowing semantics ("targets" absent → health of every
+registered target) — `handleDescribeTargetHealth` (`handler_targets.go:97`)
+gets this right, including synthesizing `unused`/`Target.NotRegistered` for
+a requested-but-unregistered target, matching real AWS.
+
+`DescribeSSLPoliciesInput.LoadBalancerType` ("The default lists the SSL
+policies for all load balancers") and `DescribeTargetHealthInput.Include`
+are never read at all — this backend's SSL-policy list is static and not
+type-gated, and anomaly-detection inclusion isn't modeled. Both are the
+wire-key/field-coverage axis already disclosed elsewhere in this campaign,
+not this pass's value-semantics axis — recorded, not fixed.
+
+`DescribeListeners`/`DescribeRules`, called with neither the scoping ARN
+(`LoadBalancerArn`/`ListenerArn`) nor the ID list, return every
+listener/rule in the account rather than the `ValidationError` their doc
+comments imply ("You must specify either a load balancer or one or more
+listeners" / "...a listener or rules"). That is a missing-rejection gap
+(validation-shaped), not a wrong empty-case default — recorded separately,
+per this campaign's discrimination between validation and semantics, not
+fixed here.
+
+No range/bound/date filters and no name/value filter pairing (hence no
+unrecognized-key class) exist anywhere in elbv2's Describe surface.
+
+Gates: `go build ./services/elbv2/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/elbv2/...` (pass, no tests changed —
+0 added, 0 dropped), `golangci-lint run ./services/elbv2/...` (0 issues).
+
+## Handler-collision determinism sweep (2026-08-31, gopherstack-id70)
+
+Same defect and fix as the census in `cmd/reqfielddiff`/`cmd/reqfieldscan`
+(ef0eef041, appsync e2643a6dd). This package's `Ip`/`IP` acronym casing
+gives it 2 op/handler pairs needing the ambiguous fold, 2 of them
+genuine collisions between an exported backend method and the real
+unexported handler: `ModifyIpPools`, `SetIpAddressType`.
+
+Verified directly rather than assumed: ran the unpatched tool from
+`ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
+both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
+across all 5 old runs and HEAD (51 SDK operations compared) -- the
+determinism defect never flipped a finding here, because the resolution
+that actually mattered (this package's dispatch-table union) already
+carried the correct field set regardless of which fold candidate won.
+
+Verdict: confirmed zero damage, not merely predicted.

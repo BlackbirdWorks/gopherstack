@@ -15,7 +15,7 @@ func TestSecurityGroupVpc(t *testing.T) { //nolint:paralleltest // existing issu
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	sg, _ := b.CreateSecurityGroup("test-sg", "test", "vpc-default")
-	vpc, _ := b.CreateVpc("10.0.0.0/16")
+	vpc, _ := b.CreateVpc("10.0.0.0/16", "default")
 
 	t.Run( //nolint:paralleltest // existing issue.
 		"DescribeSecurityGroupReferences returns empty before association",
@@ -206,7 +206,7 @@ func TestHandlerModifySecurityGroupRules(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.11.0.0/16")
+	vpc, err := b.CreateVpc("10.11.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("test-sg", "test", vpc.ID)
@@ -232,10 +232,10 @@ func TestDescribeSecurityGroups_FilterByVpcId(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc1, err := b.CreateVpc("10.0.0.0/16")
+	vpc1, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	vpc2, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg1, err := b.CreateSecurityGroup("sg-vpc1", "SG in vpc1", vpc1.ID)
@@ -265,7 +265,7 @@ func TestDescribeSecurityGroups_FilterByGroupName(t *testing.T) {
 	h.AccountID = "123456789012"
 	h.Region = "us-east-1"
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg1, err := b.CreateSecurityGroup("web-sg", "Web SG", vpc.ID)
@@ -295,7 +295,7 @@ func TestDescribeSecurityGroups_ByID_NoFilters(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg, err := b.CreateSecurityGroup("test-sg", "Test", vpc.ID)
@@ -320,7 +320,7 @@ func TestDescribeSecurityGroups_FilterByGroupId(t *testing.T) {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := newTestHandlerWithBackend(b)
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	sg1, err := b.CreateSecurityGroup("sg1", "SG1", vpc.ID)

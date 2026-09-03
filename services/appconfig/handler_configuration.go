@@ -29,6 +29,15 @@ func (h *Handler) handleGetConfiguration(
 			Set("Configuration-Version", strconv.Itoa(int(configVersion.VersionNumber)))
 	}
 
+	// Real GetConfigurationInput binds ClientConfigurationVersion as the
+	// "client_configuration_version" query param: when it matches the
+	// current version, AWS returns 204 with empty Content instead of
+	// resending unchanged data (api_op_GetConfiguration.go:101-104).
+	clientVersion := c.Request().URL.Query().Get("client_configuration_version")
+	if clientVersion != "" && clientVersion == strconv.Itoa(int(configVersion.VersionNumber)) {
+		return c.NoContent(http.StatusNoContent)
+	}
+
 	if len(configVersion.Content) == 0 {
 		return c.NoContent(http.StatusNoContent)
 	}

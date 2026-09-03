@@ -1,5 +1,17 @@
 package workspaces
 
+import (
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// ipGroupsPageSize is this backend's default page size for DescribeIpGroups;
+// real AWS doesn't document an exact default, so this is chosen generously
+// (larger than any realistic per-account IP group count) so pagination only
+// activates when a caller explicitly requests a smaller MaxResults.
+const ipGroupsPageSize = 100
+
 // CreateIpGroup creates a new IP group and returns its ID.
 func (b *InMemoryBackend) CreateIpGroup( //nolint:revive,staticcheck // existing issue.
 	groupName, groupDesc string,
@@ -28,15 +40,19 @@ func (b *InMemoryBackend) CreateIpGroup( //nolint:revive,staticcheck // existing
 
 // DescribeIpGroups returns IP groups, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeIpGroups( //nolint:revive,staticcheck // existing issue.
-	groupIDs []string, _ int32, _ string,
+	groupIDs []string, maxResults int32, nextToken string,
 ) ([]*storedIpGroup, string, error) {
 	b.mu.RLock("DescribeIpGroups")
 	defer b.mu.RUnlock()
 
 	filter := buildFilter(groupIDs)
-	var result []*storedIpGroup
+	all := b.ipGroups.All()
 
-	for _, g := range b.ipGroups.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].GroupID < all[j].GroupID })
+
+	result := make([]*storedIpGroup, 0, len(all))
+
+	for _, g := range all {
 		if !matchesFilter(filter, g.GroupID) {
 			continue
 		}
@@ -47,11 +63,9 @@ func (b *InMemoryBackend) DescribeIpGroups( //nolint:revive,staticcheck // exist
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedIpGroup{}
-	}
+	pg := page.New(result, nextToken, int(maxResults), ipGroupsPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // DeleteIPGroup removes an IP group by ID.

@@ -6,7 +6,8 @@ import (
 )
 
 type getStagesInput struct {
-	RestAPIID string `json:"restApiId"`
+	RestAPIID    string `json:"restApiId"`
+	DeploymentID string `json:"deploymentId"`
 }
 
 type getStageInput struct {
@@ -100,6 +101,15 @@ func (h *Handler) getStagesAction(b []byte) (int, any, error) {
 	stages, err := h.Backend.GetStages(input.RestAPIID)
 	if err != nil {
 		return 0, nil, err
+	}
+	if input.DeploymentID != "" {
+		filtered := make([]Stage, 0, len(stages))
+		for _, s := range stages {
+			if s.DeploymentID == input.DeploymentID {
+				filtered = append(filtered, s)
+			}
+		}
+		stages = filtered
 	}
 
 	return http.StatusOK, map[string]any{keyItem: stages}, nil

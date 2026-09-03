@@ -64,7 +64,7 @@ func TestHandler_GetScheduledQuery_WireShape(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, queryARN)
 
-	getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"scheduledQueryArn":"`+queryARN+`"}`)
+	getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"identifier":"`+queryARN+`"}`)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var sq map[string]any
@@ -132,7 +132,7 @@ func TestHandler_ScheduledQuery_DestinationConfiguration(t *testing.T) {
 			queryARN, arnOK := createOut["scheduledQueryArn"].(string)
 			require.True(t, arnOK)
 
-			getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"scheduledQueryArn":"`+queryARN+`"}`)
+			getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"identifier":"`+queryARN+`"}`)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var sq map[string]any

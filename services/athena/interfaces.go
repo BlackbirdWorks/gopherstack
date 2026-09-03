@@ -22,13 +22,13 @@ type StorageBackend interface {
 
 	// Data Catalogs
 	CreateDataCatalog(
-		name, catalogType, description, connectionType string,
+		name, catalogType, description string,
 		params, tags map[string]string,
 	) (*DataCatalog, error)
 	GetDataCatalog(name string) (*DataCatalog, error)
 	ListDataCatalogs(nextToken string, maxResults int) ([]*DataCatalogSummary, string, error)
 	UpdateDataCatalog(
-		name, catalogType, description, connectionType string,
+		name, catalogType, description string,
 		params map[string]string,
 	) error
 	DeleteDataCatalog(name string, deleteCatalogOnly bool) (*DataCatalog, error)

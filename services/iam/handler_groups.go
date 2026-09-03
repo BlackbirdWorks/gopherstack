@@ -30,15 +30,24 @@ func (h *Handler) iamGroupAttachedPolicyDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
-			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
-			for _, p := range policies {
+			pg, err := h.listAttachedPoliciesFiltered(policies, vals)
+			if err != nil {
+				return nil, err
+			}
+
+			xmlPolicies := make([]AttachedPolicyXML, 0, len(pg.Data))
+			for _, p := range pg.Data {
 				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
 			}
 
 			return &ListAttachedGroupPoliciesResponse{
-				Xmlns:                           iamXMLNS,
-				ListAttachedGroupPoliciesResult: ListAttachedGroupPoliciesResult{AttachedPolicies: xmlPolicies},
-				ResponseMetadata:                ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListAttachedGroupPoliciesResult: ListAttachedGroupPoliciesResult{
+					AttachedPolicies: xmlPolicies,
+					IsTruncated:      pg.Next != "",
+					Marker:           pg.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}

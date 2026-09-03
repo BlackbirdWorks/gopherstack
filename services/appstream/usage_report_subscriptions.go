@@ -1,5 +1,12 @@
 package appstream
 
+import "fmt"
+
+// usageReportSchedule is the only real UsageReportSchedule enum value
+// (aws-sdk-go-v2 appstream@v1.64.5 types/enums.go: UsageReportScheduleDaily
+// = "DAILY" is the sole member).
+const usageReportSchedule = "DAILY"
+
 type storedUsageReportSubscription struct {
 	S3BucketName string `json:"s3BucketName"`
 	Schedule     string `json:"schedule"`
@@ -13,22 +20,28 @@ func (u *storedUsageReportSubscription) toUsageReportSubscription() *UsageReport
 }
 
 // CreateUsageReportSubscription creates a usage report subscription.
-func (b *InMemoryBackend) CreateUsageReportSubscription(schedule, s3Bucket string) (*UsageReportSubscription, error) {
+//
+// Real CreateUsageReportSubscriptionInput takes no parameters
+// (aws-sdk-go-v2 appstream@v1.64.5 api_op_CreateUsageReportSubscription.go)
+// -- AWS derives both the schedule (always DAILY) and the S3 bucket
+// server-side rather than accepting them from the caller.
+func (b *InMemoryBackend) CreateUsageReportSubscription() (*UsageReportSubscription, error) {
 	b.mu.Lock("CreateUsageReportSubscription")
 	defer b.mu.Unlock()
 
 	if b.usageReport != nil {
+		// CreateUsageReportSubscription's own error model (appstream@v1.64.5
+		// deserializers.go rpc2_deserializeOpErrorCreateUsageReportSubscription)
+		// declares InvalidAccountStatusException, InvalidRoleException,
+		// LimitExceededException -- no conflict/already-exists type at all.
+		// No correct code exists to send here; left rather than substituted
+		// (gopherstack-6flj/uox6 error-envelope sweep).
 		return nil, ErrAlreadyExists
 	}
 
-	sched := schedule
-	if sched == "" {
-		sched = "DAILY"
-	}
-
 	b.usageReport = &storedUsageReportSubscription{
-		S3BucketName: s3Bucket,
-		Schedule:     sched,
+		S3BucketName: fmt.Sprintf("appstream-logs-%s-%s", b.region, b.accountID),
+		Schedule:     usageReportSchedule,
 	}
 
 	return b.usageReport.toUsageReportSubscription(), nil

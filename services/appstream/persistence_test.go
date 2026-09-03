@@ -78,7 +78,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateUser("user1", "user1@example.com", "First", "Last", "USERPOOL")
+	_, err = b.CreateUser("user1", "First", "Last", "USERPOOL")
 	require.NoError(t, err)
 
 	_, err = b.BatchAssociateUserStack([]appstream.UserStackAssociation{
@@ -89,7 +89,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, _, err = b.CreateStreamingURL("stack1", "fleet1", "user1", 0)
 	require.NoError(t, err)
 
-	_, err = b.CreateUsageReportSubscription("DAILY", "usage-bucket")
+	_, err = b.CreateUsageReportSubscription()
 	require.NoError(t, err)
 
 	_, err = b.CreateThemeForStack(
@@ -161,7 +161,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	require.Len(t, dirConfigs, 1)
 	assert.Equal(t, []string{"OU=test,DC=example,DC=com"}, dirConfigs[0].OrganizationalUnitDistinguishedNames)
 
-	images, err := fresh.DescribeImages([]string{"image1"})
+	images, err := fresh.DescribeImages([]string{"image1"}, "")
 	require.NoError(t, err)
 	require.Len(t, images, 1)
 
@@ -172,7 +172,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	users, err := fresh.DescribeUsers("USERPOOL")
 	require.NoError(t, err)
 	require.Len(t, users, 1)
-	assert.Equal(t, "user1@example.com", users[0].Email)
+	assert.Equal(t, "user1", users[0].UserName)
 
 	theme, err := fresh.DescribeThemeForStack("stack1")
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 
 	// imagePermissions (the table given a real ImageName identity field --
 	// see storedImagePermissions in images.go).
-	perms, err := fresh.DescribeImagePermissions("image1")
+	perms, err := fresh.DescribeImagePermissions("image1", nil)
 	require.NoError(t, err)
 	require.Len(t, perms, 1)
 	assert.Equal(t, "111111111111", perms[0].SharedAccountID)
@@ -253,7 +253,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
 
-	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1")
+	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "session-0000000001", sessions[0].ID)
@@ -274,7 +274,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	reports, err := fresh.DescribeUsageReportSubscriptions()
 	require.NoError(t, err)
 	require.Len(t, reports, 1)
-	assert.Equal(t, "usage-bucket", reports[0].S3BucketName)
+	assert.Equal(t, "appstream-logs-us-east-1-000000000000", reports[0].S3BucketName)
 	assert.Equal(t, "DAILY", reports[0].Schedule)
 }
 

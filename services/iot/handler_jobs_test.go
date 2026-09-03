@@ -841,7 +841,11 @@ func TestCancelJob_DescriptionAndTerminalStateGuard(t *testing.T) {
 	assert.Equal(t, "cancel-desc-job", out["jobId"])
 	assert.Equal(t, "a job worth describing", out["description"])
 
+	// CancelJob's own deserializeOpError switch (iot@v1.77.4/deserializers.go)
+	// declares no InvalidStateTransitionException case -- InvalidRequestException
+	// (400) is the real type for re-canceling an already-terminal job. See
+	// wire_error_code_topic_rule_test.go's sibling fixes for the same shape.
 	rec := iotRequest(t, h, http.MethodPut, "/jobs/cancel-desc-job/cancel", nil)
-	assert.Equal(t, http.StatusConflict, rec.Code,
-		"canceling an already-CANCELED job must return InvalidStateTransitionException, got: %s", rec.Body.String())
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"canceling an already-CANCELED job must return InvalidRequestException, got: %s", rec.Body.String())
 }

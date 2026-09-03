@@ -55,7 +55,12 @@ func TestECS_CreateCluster(t *testing.T) {
 	}
 }
 
-func TestECS_CreateCluster_AlreadyExists(t *testing.T) {
+// TestECS_CreateCluster_Idempotent covers real ECS's documented idempotent
+// behavior: calling CreateCluster again with an existing ClusterName returns
+// the existing cluster (HTTP 200), not an error. "ClusterAlreadyExistsException"
+// is not a real ECS exception type -- it appears in no per-op
+// deserializeOpError switch and has no shape in ecs@v1.90.0/types/errors.go.
+func TestECS_CreateCluster_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -64,8 +69,8 @@ func TestECS_CreateCluster_AlreadyExists(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dupe"})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "ClusterAlreadyExistsException")
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "\"clusterName\":\"dupe\"")
 }
 
 func TestECS_DescribeClusters(t *testing.T) {
@@ -80,11 +85,17 @@ func TestECS_DescribeClusters(t *testing.T) {
 		wantFailures int
 	}{
 		{
-			name:      "list all",
+			// DescribeClustersInput.Clusters doc: "If you do not specify a
+			// cluster, the default cluster is assumed." Omitting the filter
+			// describes the "default" cluster, not every cluster in the
+			// account -- ListClusters (a different operation, no such
+			// default-substitution language) is the one that returns
+			// everything.
+			name:      "empty describes default cluster only",
 			clusters:  []string{"cluster-a", "cluster-b"},
 			filter:    nil,
 			wantCode:  http.StatusOK,
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name:      "filter by name",
@@ -673,7 +684,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		assert.Len(t, failures, 3)
 	})
 
-	t.Run("empty returns all", func(t *testing.T) {
+	t.Run("empty describes default cluster, not every cluster", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
@@ -687,7 +698,9 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 		clusters, _ := resp["clusters"].([]any)
-		assert.Len(t, clusters, 2)
+		require.Len(t, clusters, 1)
+		c := clusters[0].(map[string]any)
+		assert.Equal(t, "default", c["clusterName"])
 
 		failures, _ := resp["failures"].([]any)
 		assert.Empty(t, failures)

@@ -189,7 +189,11 @@ func (b *InMemoryBackend) ListGeneratedTemplates(
 		result = append(result, *gt)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].GeneratedTemplateName < result[j].GeneratedTemplateName
+		if result[i].GeneratedTemplateName != result[j].GeneratedTemplateName {
+			return result[i].GeneratedTemplateName < result[j].GeneratedTemplateName
+		}
+
+		return result[i].GeneratedTemplateID < result[j].GeneratedTemplateID
 	})
 
 	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
@@ -253,6 +257,8 @@ func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[Resourc
 	for _, rs := range b.resourceScans.All() {
 		result = append(result, *rs)
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ResourceScanID < result[j].ResourceScanID })
 
 	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
 }

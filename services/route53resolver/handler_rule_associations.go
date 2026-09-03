@@ -119,9 +119,11 @@ func (h *Handler) handleGetResolverRuleAssociation(
 	ctx context.Context,
 	in *getResolverRuleAssociationInput,
 ) (*getResolverRuleAssociationOutput, error) {
-	if in.ResolverRuleAssociationID == "" {
-		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
-	}
+	// GetResolverRuleAssociation's own deserializer models no
+	// InvalidRequestException/ValidationException (InternalServiceErrorException,
+	// InvalidParameterException, ResourceNotFoundException, ThrottlingException
+	// only) -- an empty ID is left to the backend lookup, which reports
+	// ResourceNotFoundException, a type the op does declare.
 	assoc, err := h.Backend.GetResolverRuleAssociation(ctx, in.ResolverRuleAssociationID)
 	if err != nil {
 		return nil, err

@@ -1,8 +1,94 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
 last_audit_commit: 7c8077891728
-last_audit_date: 2026-08-23
-overall: A            # follow-up pass on gopherstack-o5ig: both deferred items from the prior
+last_audit_date: 2026-08-28
+# 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
+# NextToken actually SET one before the collection can exceed a page?). Enumerated all 17 SDK ops
+# whose Input/Output declare NextToken. This service has NO shared pagination chokepoint (only
+# account.go/directories.go/bundles.go/workspaces.go hand-rolled their own correctly) -- 10 of the
+# 17 silently returned every item on one page with an empty NextToken, ignoring the caller's
+# MaxResults/NextToken entirely: DescribeApplicationAssociations, DescribeConnectClientAddIns,
+# DescribeConnectionAliases, DescribeConnectionAliasPermissions, DescribeIpGroups,
+# DescribeWorkspaceImagePermissions, DescribeWorkspaceImages, DescribeWorkspacesPools,
+# DescribeWorkspacesPoolSessions, ListAccountLinks. All 10 fixed via pkgs/page.New (the same
+# chokepoint mgn/cognitoidp already use) plus a deterministic sort where the backend read straight
+# off an unordered store.All()/map range. DescribeWorkspacesPoolSessions' fix is currently
+# unobservable in practice -- b.poolSessions is never Put anywhere in this backend (no op creates a
+# session), so the list is always empty today -- but the wiring is correct once that changes.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Reviewed every
+# sort.Slice/sort.Strings/slices.Sort* call site across every paginated listing
+# in this service (including the 10 ops the cursor-population sweep above just
+# added pagination to). Every one sorts on that resource's own real unique ID
+# (BundleID/AliasID/GroupID/PoolID/SessionID/AddInID/LinkID/DirectoryID/
+# ImageID/WorkspaceName-echoed-workspaceID, and DescribeConnectionAliasPermissions
+# preserves insertion order over a plain non-reordered slice rather than
+# resorting a map) -- confirmed against each type's own store key, not assumed.
+# No non-unique sort key found. Confirmed no listing in this service returns
+# two-or-more collections the API defines as one ordered sequence truncated
+# independently (each op returns exactly one paginated array). No Class F/G
+# bugs found.
+# ALSO CHECK sweep (classes A-E) found one genuine, previously mis-diagnosed
+# bug: DescribeWorkspacesConnectionStatus. The 2026-08-13 audit (see the
+# "2 left unfixed as provably bounded" note above) claimed this op's response
+# "can never exceed the request's own bound" since WorkspaceIds is capped at 25
+# -- true only when WorkspaceIds is given. Real
+# DescribeWorkspacesConnectionStatusInput/Output (workspaces@v1.73.1
+# api_op_DescribeWorkspacesConnectionStatus.go) BOTH declare NextToken, and the
+# real doc comment's 25-item cap is on WorkspaceIds specifically, not on the
+# unfiltered (WorkspaceIds omitted, "describe every WorkSpace") path -- that
+# PARITY claim was wrong. gopherstack's wire structs didn't declare NextToken
+# at all (worse than declared-but-unpopulated), and the unfiltered path built
+# its response straight off store.Table.All() (unspecified map order) with no
+# sort -- both a missing-cursor gap (Class B-adjacent) and Class E (never
+# sorted). Hand-verified against the pre-fix code: 15 repeated calls with no
+# intervening writes returned a different WorkspaceId order nearly every time.
+# Fixed: NextToken now on both wire structs, backend method now takes/returns
+# a token, sorts by WorkspaceID (unique) before pkgs/page.New with a new
+# internal connectionStatusPageSize=100 (the real input has no MaxResults, so
+# the page size is server-chosen -- same pattern as DescribeAccountModifications/
+# ListAvailableManagementCidrRanges). GetWorkspacesConnectionStatus's exported
+# signature changed (added nextToken in, added nextToken out) -- StorageBackend
+# interface and the one call site (handler_workspaces.go) updated to match; no
+# other caller existed. Proven by
+# TestDescribeWorkspacesConnectionStatus_UnfilteredPageWalksExactly (130 items,
+# walks 2 internal pages, asserts the concatenation is exactly the created set)
+# and TestDescribeWorkspacesConnectionStatus_UnfilteredOrderIsDeterministic (15
+# repeated calls, same order every time) in
+# connection_status_pagination_test.go.
+# 5 ops confirmed already correct: DescribeAccountModifications, DescribeWorkspaceDirectories,
+# DescribeWorkspaces, ListAvailableManagementCidrRanges, and DescribeWorkspaceBundles (whose
+# unfiltered path pages correctly; its BundleIds-filtered path returns unpaginated results bounded
+# by the caller's own BundleIds list length, a judgment call, not a fix). 1 left unfixed as
+# provably bounded: DescribeApplications (its backing store, b.applications, is registered but
+# never Put by any op -- always 0 items). CORRECTED 2026-08-30 (sort-totality sweep): this note
+# previously also claimed DescribeWorkspacesConnectionStatus was provably bounded because
+# WorkspaceIds is capped at 25 per call -- that cap is real but only applies when WorkspaceIds is
+# given; the unfiltered (WorkspaceIds omitted) path genuinely paginates on real AWS (both
+# DescribeWorkspacesConnectionStatusInput/Output declare NextToken) and had no cursor at all here.
+# Now fixed -- see that op's own dated note and ops: entry below.
+overall: A            # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep):
+                       # DescribeWorkspaceDirectories' dirResp carried only
+                       # DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds --
+                       # EndpointEncryptionMode, CertificateBasedAuthProperties, SamlProperties,
+                       # SelfservicePermissions, WorkspaceAccessProperties,
+                       # WorkspaceCreationProperties, and ipGroupIds were all silently dropped
+                       # despite this backend already holding the data via the 7 `Modify*`
+                       # directory-settings ops and AssociateIpGroups -- real AWS has no
+                       # separate Describe op for any of these settings, so this was an
+                       # accept-and-drop bug across the whole DescribeWorkspaceDirectories
+                       # response, not a mere omission. Fixed by reading the existing
+                       # storedDirSettings.Properties prefixed keys and directoryIpGroups back
+                       # into the response; see DescribeWorkspaceDirectories's op note. Two
+                       # related gaps found and disclosed (not fixed, budget): UserSettings on
+                       # ModifyStreamingProperties is accepted off the wire and then dropped
+                       # before reaching the backend (a second accept-and-drop, smaller in
+                       # scope); WorkspaceBundle has no BundleType/CreationTime/
+                       # LastUpdatedTime/State at all (no existing state to read back, unlike
+                       # the directory-settings fix -- a real gap, not accept-and-drop). No
+                       # other silent-drop, hard-decode-error, invented-member, or
+                       # wrong-enum-value bugs found in the ops re-checked this pass.
+                       # follow-up pass on gopherstack-o5ig: both deferred items from the prior
                        # pass (RunningMode-while-STOPPED, Applications family) fixed for real,
                        # plus 3 more genuine bugs found via the same sweep classes.
                        # gopherstack-gt9o (part of the gopherstack-u8my sdk_module pin sweep):
@@ -22,7 +108,7 @@ overall: A            # follow-up pass on gopherstack-o5ig: both deferred items 
 ops:
   CreateWorkspaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (prior pass) — was all-or-nothing; now partitions FailedRequests/PendingRequests per item, matching real FailedCreateWorkspaceRequest{WorkspaceRequest,ErrorCode,ErrorMessage} shape. FIXED 2026-08-23: WorkspaceRequest.WorkspaceName (aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879, real input member, required for user-decoupled WorkSpaces where UserName=[UNDEFINED]) was accepted nowhere -- createWorkspaceSpec/WorkspaceCreationSpec had no field for it at all, so it was silently dropped end to end. Now threaded through ThemeUpdateOptions-style (see appstream's UpdateThemeForStack fix, same session) into WorkspaceCreationSpec and echoed on PendingRequests/FailedRequests.WorkspaceRequest."}
   DescribeWorkspaces: {wire: fixed, errors: ok, state: ok, persist: ok, note: "pagination (25/page), region filter, WorkspaceIds/DirectoryId/UserName/BundleId filters all verified against real field names. FIXED 2026-08-23: workspaceResp already had a WorkspaceName wire key (added after this file's 2026-08-13 audit without a corresponding PARITY.md update -- see Notes), but InMemoryBackend.CreateWorkspace was fabricating its value by echoing UserName (or WorkspaceId when UserName was empty) for EVERY WorkSpace -- real types.Workspace.WorkspaceName is documented as 'the name of the user-decoupled WorkSpace' and 'not applicable if UserName is specified for user-assigned WorkSpaces', so a real client describing an ordinary WorkSpace was receiving a fabricated field value that does not exist on real AWS's wire for that case. Now only ever set from the caller-supplied WorkspaceRequest.WorkspaceName, absent (omitempty) otherwise."}
-  DescribeWorkspacesConnectionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity."}
+  DescribeWorkspacesConnectionStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity. FIXED 2026-08-30 (sort-totality sweep): the unfiltered (WorkspaceIds omitted) path had no NextToken on either wire struct and built its response off an unsorted map -- see the dated note above for the full correction of this file's own prior 'provably bounded' claim."}
   ModifyWorkspaceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidComputeTypeName was a hand-copied 9-entry allowlist predating 14 values types.Compute now has (GENERALPURPOSE_4XLARGE/8XLARGE and the G6/GR6/G6F GPU families) -- ComputeTypeName was falsely rejected for any of them. Now derives from types.Compute.Values()."}
   ModifyWorkspaceState: {wire: ok, errors: ok, state: ok, persist: ok}
   RebootWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "intentionally does not transition state — documented + tested (TestRebootWorkspaces_DoesNotChangeState in workspaces_lifecycle_test.go); this emulator models reboot as instantaneous with no transient REBOOTING window, not a bug. FIXED this pass (gopherstack-o5ig): real AWS's documented precondition 'You cannot reboot a WorkSpace unless its state is AVAILABLE, UNHEALTHY, or REBOOTING' was entirely unenforced (only existence was checked) — now returns a per-item FailedRequests{ErrorCode:\"OperationNotSupportedException\"} entry (the only error OperationNotSupportedException in this op's real error list) for a workspace in a disallowed state, e.g. STOPPED or ADMIN_MAINTENANCE."}
@@ -34,13 +120,13 @@ ops:
   DeleteTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeWorkspaceBundles: {wire: ok, errors: ok, state: ok, persist: ok, note: "Amazon-owned static list + custom bundles, owner filter, pagination all verified"}
-  DescribeWorkspaceDirectories: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeWorkspaceDirectories: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep): dirResp (handler_directories.go) carried only DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds -- every one of these real WorkspaceDirectory members (workspaces@v1.73.1 deserializers.go's awsAwsjson11_deserializeDocumentWorkspaceDirectory case list) was silently dropped despite this backend already holding the data via the 7 `Modify*` directory-settings ops (see DirectoryModifyOps below) and AssociateIpGroups: EndpointEncryptionMode, CertificateBasedAuthProperties, SamlProperties, SelfservicePermissions, WorkspaceAccessProperties, WorkspaceCreationProperties, and ipGroupIds (note the unusual lowercase-led wire key, deserializers.go:18124). Real AWS has no separate Describe op for any of these settings -- DescribeWorkspaceDirectories is the only place a real client ever reads them back, so this was an accept-and-drop bug across the whole family, not a mere omission. Fixed by reading storedDirSettings.Properties' existing prefixed keys (CertAuth_/Saml_/SelfSvc_/Access_/Creation_) and b.directoryIpGroups back into the new WorkspaceDirectory fields (interfaces.go), threaded through dirResp. Pointer sub-structs stay nil (omitted) for a directory never touched by the corresponding Modify op. See TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip in wire_field_fixes_test.go. NOT fixed this pass: WorkspaceAccessProperties.AccessEndpointConfig (ModifyWorkspaceAccessProperties' handler never accepted it as input either -- genuine unbuilt feature, not accept-and-drop) and StreamingProperties (ModifyStreamingProperties only threads StreamingExperiencePreferredProtocol through as a flat string; UserSettings/GlobalAccelerator/StorageConnectors are accepted on the input struct in the handler but never passed to the backend at all -- see gaps below, disclosed not fixed, out of scope for this pass' budget)."}
   RegisterWorkspaceDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — re-registering an already-registered directory silently 200'd (unconditionally idempotent); now returns ResourceAlreadyExistsException, matching real AWS."}
   DeregisterWorkspaceDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — deregistered a directory unconditionally even with live WorkSpaces still assigned to it (a ghost-reference risk: DescribeWorkspaces would keep returning WorkSpaces whose DirectoryId no longer resolved to any registered directory). Real AWS: 'If any WorkSpaces are registered to this directory, you must remove them before you can deregister the directory' — now enforced via InvalidResourceStateException. Also now cascade-cleans the directoryIpGroups association map on a successful deregister (was leaked as an orphaned entry keyed by the dead DirectoryId)."}
   RestoreWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — was a true no-op with no existence check (silently 200'd for unknown WorkspaceId); now returns ResourceNotFoundException. No snapshot modeling, so still otherwise a no-op beyond validation — acceptable given no snapshot state exists to restore from."}
   MigrateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "source deleted, new workspace created with target bundleId, tested in workspaces_lifecycle_test.go"}
   CreateIpGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "lowercase groupId/groupName/groupDesc/userRules JSON keys verified against real deserializer — an AWS API quirk, not a bug"}
-  DescribeIpGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeIpGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30, cursor sweep) -- backend ignored MaxResults/NextToken entirely (`_ int32, _ string` params), always returning every IP group on one page with NextToken always empty. Now sorted by GroupID and paginated via pkgs/page.New. Proven via TestDescribeIpGroups_Pagination + hand-revert."}
   DeleteIpGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   AuthorizeIpRules: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeIpRules: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -73,6 +159,8 @@ families:
 
 gaps:
   - "clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself)"
+  - "ModifyStreamingProperties' UserSettings ([]types.UserSetting -- Action/Permission/MaximumLength, real per workspaces@v1.73.1 types.go:1277-1291) is decoded off the wire by modifyStreamingPropertiesInput (handler_directories.go's sibling file) but then dropped before it ever reaches Backend.ModifyStreamingProperties -- only StreamingExperiencePreferredProtocol is threaded through. This is a genuine accept-and-drop, found but NOT fixed this pass (gopherstack-6flj/21my, 2026-08-28) due to budget: storedDirSettings.Properties is a flat map[string]string, so representing a list of structs needs either a JSON-encoded value or a schema change, more than a field-level fix. GlobalAccelerator/StorageConnectors (also real StreamingProperties members) aren't captured by the input struct at all, so those are a separate, smaller unbuilt-feature gap, not accept-and-drop. DescribeWorkspaceDirectories' new StreamingProperties field was deliberately left out of this pass' fix for the same reason -- see that op's note. (bd: gopherstack-6flj/21my)"
+  - "WorkspaceBundle (custom bundles) has no BundleType/CreationTime/LastUpdatedTime/State at all -- all four are real WorkspaceBundle members (workspaces@v1.73.1 types.go:1507-1543) DescribeWorkspaceBundles never populates. Unlike the DescribeWorkspaceDirectories fix above, this is not accept-and-drop: storedCustomBundle (models.go) never captured CreationTime either, so there is no existing state to read back -- CreateWorkspaceBundle would need a new CreatedAt field threaded through persistence.go's snapshot DTO. State is buildable cheaply (this backend creates bundles synchronously and never fails, so a hardcoded AVAILABLE would be honest, matching the pattern already used for e.g. EMR's WAITING-on-create clusters), but was left out of this pass' scope. Found but not fixed (bd: gopherstack-6flj/21my, 2026-08-28)."
   # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests,
   # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this
   # pass — see the ops table entries above for what changed.
@@ -431,3 +519,68 @@ are all clean.
   image/bundle<->application association at all (only
   `AssociateWorkspaceApplication`, which is WorkSpace-only). Don't "fix" this by
   inventing a fake association-creation pathway.
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+This service dispatches every op through `service.WrapOp` (91 entries,
+`GetSupportedOperations` derived from `h.ops`'s own keys at runtime). A
+field scan anchored on literal decode calls alone -- what an earlier pass's
+"0 of 90 request shapes flagged" verdict was measured against -- resolves
+**0 of 91 operations (0%)**: this service was entirely invisible to that
+method, gopherstack-4shm's exact class, and the prior clean verdict was
+measuring nothing at all.
+
+The new `cmd/reqfieldscan` tool reaches **91 of 91 (100%)**, 218 fields
+across 91 distinct request types, and found **6 unread fields, 3 real bugs,
+2 fixed this pass**:
+
+- **`CreateWorkspaceBundleInput.UserStorage`/`RootStorage`**
+  (workspaces@v1.73.1 `api_op_CreateWorkspaceBundle.go`: `UserStorage` is
+  "This member is required") were decoded and dropped entirely --
+  `storedCustomBundle` had no field to hold them at all, and every custom
+  bundle silently reported an empty `Capacity` string regardless of what
+  was requested, even though the seeded default bundles (PowerPro,
+  Performance, ...) already populate and marshal these same
+  `UserStorage`/`RootStorage` output fields correctly. Fixed: added
+  `UserStorageGiB`/`RootStorageGiB int32` to `storedCustomBundle`, threaded
+  `Capacity` string parsing (`storageCapacityGiB`, `ParseInt` base 10, bit
+  size 32 -- not `Atoi`+cast, which `gosec` correctly flags as a possible
+  overflow) through `CreateWorkspaceBundle`, and populated the response.
+  New test `TestCreateWorkspaceBundle_StoresStorageCapacity`
+  (`bundles_test.go`) confirmed failing (`""` instead of `"50"`/`"80"`)
+  against unmodified code, then passing.
+- **`RegisterWorkspaceDirectoryInput.Tags`** was decoded and dropped
+  entirely -- every sibling `Create*` op in this package (connection alias,
+  IP group, bundle, image, pool, nested workspace tags) already applies its
+  `Tags` via the shared `b.tags` map (`TestCreateOpsWithTags_RoundTrip`,
+  `handler_create_tags_test.go`), but `RegisterWorkspaceDirectory` never
+  did. Fixed by mirroring that established pattern
+  (`b.tags[directoryID] = cloneTags(tags)`). Extended
+  `TestCreateOpsWithTags_RoundTrip` with a `"workspace directory"` subtest
+  (real SDK client, asserts on `DescribeTags`'s decoded `TagList`) --
+  confirmed failing against unmodified code, then passing; the other 6
+  subtests in that same test function were unaffected (still pass).
+- **`RegisterWorkspaceDirectoryInput.EnableSelfService`** is also decoded
+  and dropped. NOT fixed this pass: the real field is a single bool toggle,
+  while this backend already models self-service as the fine-grained
+  `SelfservicePermissions` struct (5 independent members, set later via
+  `ModifySelfservicePermissions`) -- mapping one bool onto five named
+  permissions needs a semantic decision (which permissions does "enabled"
+  actually turn on?) this pass didn't have grounds to make. Left for a
+  follow-up with that decision made explicit.
+
+**3 unread fields left unfixed, judged not to be bugs or out of scope for
+this pass**:
+- `CreateAccountLinkInvitationInput.ClientToken` -- a standard AWS
+  idempotency token; this backend follows the same convention as its other
+  `Create*` ops in never enforcing idempotency-token semantics.
+- `DescribeWorkspaceSnapshotsInput.WorkspaceId` -- `handleDescribeWorkspaceSnapshots`
+  is a full stub (`return &describeWorkspaceSnapshotsOutput{RebuildSnapshots:
+  []any{}, RestoreSnapshots: []any{}}, nil`, no backend call at all); this
+  backend has no snapshot data model anywhere to report from. A real fix is
+  a feature addition (a snapshot store), not a field-wiring fix, and is
+  left as a known stub rather than attempted here.
+- `RegisterWorkspaceDirectoryInput.EnableSelfService` -- see above.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/workspaces/...` and `./cmd/reqfieldscan/...`).

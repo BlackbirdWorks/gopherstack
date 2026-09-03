@@ -48,7 +48,7 @@ ops:
   DeleteFoundationModelAgreement: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as DELETE /delete-foundation-model-agreement/{modelId} (path-param, wrong method); real SDK sends POST /delete-foundation-model-agreement with modelId in the JSON body. Also removed a fabricated no-op-on-empty-id 204 short-circuit; missing modelId is now a ValidationException."}
   CreateProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListProvisionedModelThroughputs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListProvisionedModelThroughputs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — took only nextToken; statusEquals/modelArnEquals/nameContains/creationTimeAfter/creationTimeBefore/sortOrder/maxResults were parsed nowhere, so a real client's filter was silently ignored and every call returned every PMT. Same shape as ListModelCopyJobs/ListModelImportJobs/ListCustomModelDeployments below (see comment there) -- no shared list-filter helper across this family, so the bug repeated four times (this pass)."}
   UpdateProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed on PUT (real SDK sends PATCH, so real clients could never reach this op); also accepted a fabricated \"modelId\"/\"modelUnits\" body (AWS has no unit-resize capability on Update, only desiredModelId + desiredProvisionedModelName, wrong JSON keys too). Now PATCH + desiredModelId/desiredProvisionedModelName, with name-uniqueness enforced on rename."}
   DeleteProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModelInvocationLoggingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 — see PutModelInvocationLoggingConfiguration entry for the full shape bug. Additionally, an unconfigured account previously got a fabricated non-nil, present-but-zeroed loggingConfig object back (Get never returned nil); LoggingConfig is optional on the real GetModelInvocationLoggingConfigurationOutput, so the key is now omitted entirely until the first Put, matching this service's convention elsewhere for absent-vs-empty-required state."}
@@ -69,7 +69,7 @@ ops:
   DeleteCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomModelDeployment: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): Status was stamped Creating and nothing else in this backend ever advanced it -- confirmed via GetCustomModelDeployment, which echoes the stored value verbatim; the pre-existing TestAccuracy_CustomModelDeployment_StatusIsActive was named after the terminal state but its own assertion checked Creating and stopped there. Fixed via a new AdvanceCustomModelDeploymentStatuses, wired into the existing janitor.go tick alongside the identically-shaped AdvanceProvisionedModelThroughputStatuses -- no new infrastructure."}
   GetCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — List/Get/Update/Delete were routed under a fabricated \"/custom-model-deployments\" path; real SDK uses the SAME base path as Create (\"/model-customization/custom-model-deployments\") for all five ops. Completely unreachable by real clients before this fix."}
-  ListCustomModelDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as GetCustomModelDeployment"}
+  ListCustomModelDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as GetCustomModelDeployment. this pass: also fixed -- ListCustomModelDeployments() took no arguments at all, so statusEquals/modelArnEquals/nameContains/createdAfter/createdBefore/sortOrder/maxResults were all silently ignored. Now filters/sorts/paginates per ListCustomModelDeploymentsInput."}
   UpdateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix, PLUS: the shared Handler() body-reader only read request bodies for POST/PUT, never PATCH — so even with the path fixed, this PATCH op's body was silently discarded (fabricated no-op). Both fixed."}
   DeleteCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix as GetCustomModelDeployment"}
   CreateInferenceProfile: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-ii4c) -- required member ModelSource (api_op_CreateInferenceProfile.go:48, the CopyFrom ARN this profile tracks) was accepted nowhere; the profile got a name but no model link. Now validated as required and echoed back on Get/List as the required Models list (api_op_GetInferenceProfile.go:62); this backend does not expand a system-defined profile's CopyFrom into its per-region constituent models, so Models always has exactly one entry."}
@@ -78,10 +78,10 @@ ops:
   DeleteInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateModelCopyJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (gopherstack-4sov) -- required member TargetModelName (api_op_CreateModelCopyJob.go:44) was accepted nowhere; the handler never read it and the backend fabricated its own target name (\"custom-model/copy-\"+id) instead, the opposite failure from a dropped field. Now validated as required (400 if missing) and used verbatim to build TargetModelArn (\"custom-model/\"+targetModelName) and stored on ModelCopyJob.TargetModelName. Proven via a real aws-sdk-go-v2 client round trip (TestParity_ModelCopyJob_TargetModelNameRoundTrip) that fails against the unfixed handler."}
   GetModelCopyJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 (gopherstack-r80d) -- SourceAccountId (required, api_op_GetModelCopyJob.go:55-59) was dropped entirely. Derived honestly from the account segment already embedded in the stored SourceModelArn (this backend's own ARNs, never fabricated), not a new tracked field."}
-  ListModelCopyJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListModelCopyJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: fixed -- ListModelCopyJobs() took no arguments at all, so creationTimeAfter/creationTimeBefore/statusEquals/sourceAccountEquals/sourceModelArnEquals/outputModelNameContains (real wire key for TargetModelNameContains -- NOT targetModelNameContains)/sortOrder/maxResults were all silently ignored regardless of what a real client sent. Now filters/sorts/paginates per ListModelCopyJobsInput."}
   CreateModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — accepted only {jobName,tags}, silently dropping importedModelName, roleArn, and modelDataSource, all three \"This member is required\" on the real CreateModelImportJobInput. GetModelImportJob/ListModelImportJobs responses were therefore always missing importedModelName/roleArn/modelDataSource too. Now parses and stores all three; response includes them."}
   GetModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListModelImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-uult: reused modelImportJobToOutput (the Get-shape converter) unscoped, leaking roleArn/modelDataSource/tags -- none of which types.ModelImportJobSummary declares (creationTime/jobArn/jobName/status/endTime/importedModelArn/importedModelName/lastModifiedTime only). Fixed with a dedicated modelImportJobToSummary."}
+  ListModelImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-uult: reused modelImportJobToOutput (the Get-shape converter) unscoped, leaking roleArn/modelDataSource/tags -- none of which types.ModelImportJobSummary declares (creationTime/jobArn/jobName/status/endTime/importedModelArn/importedModelName/lastModifiedTime only). Fixed with a dedicated modelImportJobToSummary. this pass: also fixed -- ListModelImportJobs() took no arguments at all, so statusEquals/nameContains/creationTimeAfter/creationTimeBefore/sortOrder/maxResults were all silently ignored. Now filters/sorts/paginates per ListModelImportJobsInput."}
   GetImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed — response invented a \"status\" field with no basis in the real GetImportedModelOutput shape (ImportedModel has no lifecycle status of its own), and used \"createdAt\" instead of the real \"creationTime\" key, while omitting the required modelArn/modelName/jobArn/jobName fields entirely. Now matches the real shape (modelArn, modelName, jobArn, jobName, creationTime, modelDataSource); the invented status field is deleted."}
   ListImportedModels: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same field-shape fix as GetImportedModel (per-item). Also fixed: previously took zero params and returned every imported model unfiltered/unpaginated; now supports nameContains + creationTimeAfter/Before + nextToken."}
   DeleteImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "status code fixed 204 -> 200 for consistency with DeleteImportedModelOutput's empty (non-204-specified) real shape, matching this service's other verified-ok Delete ops."}
@@ -238,13 +238,22 @@ gaps:
     re-verified individually against the pinned SDK per
     .claude/memories/parity-principles.md #2 before changing routes. (bd: gopherstack-7znk closed)"
   - "UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)"
+  - "ListAutomatedReasoningPolicies (this pass's audit): the PolicyArn filter is parsed nowhere and pagination (MaxResults/NextToken) is never applied -- ListAutomatedReasoningPolicies() takes zero arguments, always returns every DRAFT policy in the account regardless of what a real client sends. Per its own doc comment (api_op_ListAutomatedReasoningPolicies.go:38-41), PolicyArn filters to that ARN's *versions* (from a separate arpVersions store, not automatedReasoningPolicies) rather than DRAFT policies -- a real fix has to switch data source based on whether PolicyArn is set, not just filter the same list. Left unfixed this pass: narrow feature, and getting the version-vs-draft switch wrong risks fabricating a response shape worse than the current unfiltered one. NOT fixed, judged out of scope for this pass; pagination (a straightforward addition, independent of the PolicyArn semantics) would be a safe follow-up. (bd: file follow-up)"
   - "ListCustomModels and ListModelCustomizationJobs: sortBy is parsed but never changes the sort field (always CreationTime, real AWS's default) — no ValidationException on an unrecognized value either. Low risk. (bd: file follow-up)"
-  - "ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)"
+  - "STALE, corrected (this pass's audit): this bullet previously claimed ListInferenceProfiles was missing its typeEquals filter and ListMarketplaceModelEndpoints its modelSourceEquals filter. Both are verified correct as of this pass -- handleListInferenceProfiles reads q.Get(\"type\") into ListInferenceProfiles's typeEquals param (handler_inference_profiles.go:150-152), and handleListMarketplaceModelEndpoints reads q.Get(\"modelSourceIdentifier\") into ListMarketplaceModelEndpoints's modelSourceEquals param (handler_marketplace_model_endpoints.go:229-231); both backends apply the filter. No fix needed; the prior gap note was itself wrong (parity-principles.md #4's false-positive warning, applied to a PARITY.md claim instead of a grep hit)."
   - "ListFoundationModels (2026-08-23 audit): all 4 real query filters -- byCustomizationType, byInferenceType, byOutputModality, byProvider (api_op_ListFoundationModels.go:32-55, serializers.go:6497-6519, all query-string bound) -- are parsed nowhere; the handler reads only nextToken and always returns the full seeded catalog. Modeling gap, not a wire-shape bug: the seeded catalog is static test-fixture data (per the ListFoundationModels ops entry above), so the filters have real query params to honor but nothing behaviorally depends on them being applied today. Same low-risk missing-filter class as ListInferenceProfiles/ListMarketplaceModelEndpoints just above. (bd: file follow-up)"
   - "ListEvaluationJobs: applicationTypeEquals filter and sortBy/sortOrder not implemented (statusEquals/nameContains/creationTimeAfter/creationTimeBefore/nextToken now are, see ops entry). (bd: file follow-up)"
   - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"
   - "bedrock-agent DeleteResourcePolicy (parity-4): the real response's revisionId field is documented only as \"the revision identifier after the resource policy was deleted\" — ambiguous whether AWS mints a fresh post-delete marker or echoes the just-deleted policy's own revision. gopherstack returns the latter (the deleted policy's own RevisionID), a defensible reading but unverified against a real API response. Low risk: DeleteResourcePolicy's real Input has no further use for this value (only Put/subsequent-Delete's expectedRevisionId does, and a deleted resource has no policy left to update). (bd: file follow-up if a real captured response ever surfaces to confirm/refute)"
   - "ListAdvancedPromptOptimizationJobs (parity-4): does not validate sortBy against the real single allowed value (CreationTime) — an unrecognized value is silently ignored rather than raising ValidationException. Same low-risk shape as this service's other List ops' unvalidated sort/filter params (see ListCustomModels/ListModelCustomizationJobs gap above). (bd: file follow-up)"
+  - "FIXED: the internal, non-canonical DeletePromptVersion route (handleDeletePromptVersion,
+    handler_prompt_versions.go — see the DeletePromptVersion/GetPromptVersion/ListPromptVersions
+    phantom-triage entry above for why it's unreachable by a real client) had two wire-shape
+    bugs on its response: it emitted the deleted prompt's identifier under the key \"promptId\"
+    and fabricated a \"status\": \"DELETING\" field. The real DeletePromptOutput
+    (bedrockagent@v1.58.4 deserializers.go's awsRestjson1_deserializeOpDocumentDeletePromptOutput
+    — DeletePrompt with a promptVersion set is the real op backing this internal route) declares
+    only \"id\" and \"version\", no status. Fixed to {id, version}. See wire_field_fixes_test.go."
 
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
@@ -304,3 +313,252 @@ confirming the predicted symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order, not just whether the surrounding pagination arithmetic is correct.
+Every collection in this backend is a `store.Table[V]`, whose `.All()`
+returns map-iteration order — Go randomises the range start per call, not
+per map instance — so a comparator that treats two distinct records as equal
+(no secondary key) can reorder them differently across two calls in the same
+paginated walk, dropping or duplicating a record across a page boundary with
+nothing changed in between.
+
+**Fixed (non-total sort, tiebreak added) — string-keyed, tie is possible
+because no create-time uniqueness check exists:**
+
+- `ListAgentActionGroups` — sorted on `ActionGroupName` alone;
+  `CreateAgentActionGroup` never checks for an existing action group with the
+  same name on the same agent (real AWS presumably would reject the
+  duplicate; this backend's Create path doesn't). Added `ActionGroupID`
+  tiebreak.
+- `ListDataSources` — sorted on `Name` alone; `CreateDataSource` has no
+  per-knowledge-base name uniqueness check. Added `DataSourceID` tiebreak.
+- `ListFlowAliases` — sorted on `Name` alone; `CreateFlowAlias` has no
+  per-flow name uniqueness check. Added `FlowAliasID` tiebreak.
+- `ListAgentAliases` — sorted on `AgentAliasName` alone; `CreateAgentAlias`
+  has no per-agent name uniqueness check. Added `AgentAliasID` tiebreak.
+
+**Fixed (non-total sort, tiebreak added) — `CreationTime`-based, ten call
+sites sharing the exact same shape:**
+
+`ListCustomModels`, `ListEvaluationJobs`, `ListCustomModelDeployments`,
+`ListModelCopyJobs`, `ListModelInvocationJobs`, `ListModelImportJobs`,
+`ListImportedModels`, `ListModelCustomizationJobs`,
+`ListProvisionedModelThroughputs`, `ListAdvancedPromptOptimizationJobs` — all
+sorted purely on `CreationTime` (ascending or descending per `SortOrder`,
+neither branch had a fallback), with no tiebreak. Two records created in the
+same instant (or seeded identically) tie with nothing to break the tie.
+Fixed by falling back to each type's own unique ARN
+(`ModelArn`/`JobArn`/`CustomModelDeploymentArn`/`ImportedModelArn`/`ProvisionedModelArn`
+as appropriate) when `CreationTime` compares equal, in both the ascending
+and descending branches (the tiebreak itself is always ascending — only the
+primary key honors `SortOrder`).
+
+Note: `ListCustomModels`/`ListModelCustomizationJobs`'s existing gaps entry
+("sortBy is parsed but never changes the sort field, always CreationTime")
+is unrelated and still accurate — that's about `SortBy` not being honored,
+not about totality; not touched by this pass.
+
+**Also fixed — earlier-class bug found while auditing these same call
+sites:** the shared `paginate[T]` helper (`store.go`), used by ~20 List
+ops including four above, parsed `nextToken` via `strconv.Atoi` with no
+lower-bound check (`parseNextToken`, its sibling used by
+`paginateBedrockSlice`, does clamp negative values to 0 — `paginate` did
+not). A forged or stale token like `"-1"` parsed to `startIdx = -1`, which
+then passed the `startIdx >= len(list)` bounds check and panicked on
+`list[-1:end]`. Fixed by requiring `n >= 0` alongside `err == nil` before
+accepting the parsed offset. `TestPaginateRejectsNegativeToken`
+(pagination_sort_totality_test.go) reproduces the panic pre-fix and asserts
+it's gone.
+
+**Confirmed correct, left unfixed (evidence, not presumption):**
+
+- Every remaining single-field string/ARN/version sort (`ListPromptRouters`
+  on `PromptRouterName`, `ListAutomatedReasoningPolicies` family on
+  `Name`/`BuildWorkflowID`/`TestCaseID`, `ListAgentKnowledgeBaseAssociations`
+  on `KnowledgeBaseID`, `ListAgentCollaborators` on `CollaboratorID`,
+  `ListGuardrails` on `GuardrailID`, `ListMarketplaceModelEndpoints` on
+  `EndpointArn`, `ListIngestionJobs` on `IngestionJobID`, `ListFlows`/
+  `ListKnowledgeBases`/`ListPrompts` on `Name`, `ListInferenceProfiles` on
+  `InferenceProfileArn`, `ListKnowledgeBaseDocuments` on `DocumentID`,
+  `ListAgentVersions`/`ListFlowVersions`/`ListPromptVersions` on `Version`)
+  sorts on either the exact field the backing `store.Table`'s `keyFn` uses
+  as the primary key, or a field a real create-time uniqueness check
+  enforces (`flowsByName`/`kbByName`/`promptsByName`/`agentsByName`/
+  `arpByName`/`promptRoutersByName`/`customModelsByName`, verified against
+  each `Create*` function). No tie is possible; nothing to fix.
+
+**Existing test-suite weakness confirmed:** no existing pagination test in
+this package constructed a tie group and compared item identity across a
+full multi-page walk — the closest coverage was arithmetic-only (page-size
+and continuation-token assertions). New tests
+(`pagination_sort_totality_test.go`) fill that gap for every fixed op above,
+looping each 30x per the reasoning that map-iteration instability shows up
+across separate calls, not within one; the `CreationTime`-based tests that
+use `paginateBedrockSlice` (fixed 100-item page size, no caller-controlled
+page size) seed 105 tied items to force a real two-page boundary.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/bedrock/...`).
+
+## 2026-08-30 reqfieldscan fifth-dispatch-shape sweep
+
+This package is REST-routed (`dispatchOps`/path-based, not a `map[string]service.JSONOpFunc`
+table) so `cmd/reqfieldscan`'s dispatch-table ground truth only reaches the subset of handlers
+that decode into an anonymous inline struct and are also named in `GetSupportedOperations`'s
+static list (19 of 77 ops; the rest are legitimately outside this scan's ground truth, not a
+coverage failure -- see the tool's own package doc). After the tool's method-receiver-binding
+fix, 1 field flagged in that subset:
+
+- `handleUpdateAgentActionGroup`'s `ActionGroupName string`: REAL bug. The real
+  `UpdateAgentActionGroupInput.ActionGroupName` (bedrockagent SDK) is a REQUIRED member --
+  "Specifies a new name for the action group" -- decoded here but never forwarded to
+  `Backend.UpdateAgentActionGroupWithSchemas`, which had no parameter slot for it at all, so
+  UpdateAgentActionGroup could never actually rename an action group. Fixed: added an
+  `actionGroupName` parameter to `UpdateAgentActionGroup`/`UpdateAgentActionGroupWithSchemas`
+  (`agent_action_groups.go`), applied when non-empty (same tolerance as the existing
+  `description` field, for callers/tests predating this parameter), wired from the handler.
+  Proven via `TestAgentsHandler_UpdateActionGroup_RenamesActionGroup`
+  (`handler_agent_action_groups_test.go`).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
+(`./services/bedrock/...`).
+
+## 2026-08-31 directed sweep: request-key/silent-empty-default compound bug (gopherstack-uox6 territory), CLEAN
+
+Regenerated the campaign's plural-heuristic candidate list against
+`bedrock@v1.66.4/serializers.go` from non-test `.go` files only:
+`instruction`/`instructions`, `message`/`messages`, `policy`/`policies` (the
+originally-supplied list's `model` does not appear as a quoted literal
+anywhere in this package's non-test source -- it only occurs as a test
+fixture string value, e.g. `b.CreateAgent(..., "model", ...)` -- so it was
+noise from a test-inclusive grep, not reproducible from source alone).
+`instruction`/`message`/`policy` are all substrings inside longer real field
+names (`instructions` as part of e.g. `AgentInstruction`,
+`messages`/policy-document fields) rather than standalone request keys --
+spot-checked against their surrounding call sites and confirmed non-issues,
+consistent with this file's existing note that this service's request-field
+scan legitimately undercounts because it is REST-routed (path-keyed
+dispatch, not a decode-target table the scanner's ground truth reaches).
+
+Went beyond the heuristic since the plural check is REST-routing-blind here:
+read every `parseList*Query` filter-decode function against its operation's
+own `awsRestjson1_serializeOpHttpBindings*Input` in the pinned SDK --
+`ListCustomModels`, `ListModelCustomizationJobs`, `ListModelCopyJobs`,
+`ListModelImportJobs`, `ListModelInvocationJobs`, `ListEvaluationJobs`,
+`ListProvisionedModelThroughputs`, `ListCustomModelDeployments`,
+`ListGuardrails`. Every query-parameter name matched exactly, including the
+one sibling-trap-shaped field in this set:
+`ListModelCopyJobsInput.TargetModelNameContains` serializes under the query
+name `outputModelNameContains` (not `targetModelNameContains`), and
+`parseListModelCopyJobsQuery` already reads exactly that real name
+correctly.
+
+One pagination-only (not filter-narrowing) gap noted, not fixed:
+`ListGuardrails`'s real `maxResults` query parameter is never read by
+`handleListGuardrails`, so page size isn't capped -- this doesn't cause
+wrong *records* to come back (no filter is silently defeated), only an
+uncapped page, so it's a different axis from this compound bug and left
+alone as out of this pass's scope.
+
+No code changes this pass -- service verdict is CLEAN on this specific axis
+across the ops checked (the bedrock-agent REST surface -- agents, flows,
+prompts, knowledge bases -- was not re-swept here; see this file's REST-routed
+coverage note above, unchanged from the prior pass). Gates re-run to confirm
+no regression: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
+`golangci-lint run` -- all clean (`./services/bedrock/...`), 0 diff.
+
+## 2026-08-31 error-envelope-shape sweep (gopherstack-6flj/gopherstack-uox6 axis), 4 bugs
+
+covledger had no `error_envelope_shape` row for this service; `git log
+--oneline -- services/bedrock/` and this file's own history show no prior
+pass on this specific axis either (the closest neighbour, the 2026-08-31
+entry above, covers request-key/silent-empty-default, a different bug
+class). So this is genuinely first coverage, not a re-derivation.
+
+This package hosts TWO distinct real AWS operation families in one Go
+package: core bedrock (`*Handler`, bedrock@v1.66.4, 108 restjson1 ops --
+`handler_sdk_route_table_test.go`) and, separately, an in-package
+`AgentsHandler` sub-API emulating bedrock-agent.amazonaws.com
+(bedrockagent@v1.58.4, 67 restjson1 ops -- `handler_agent_sdk_route_table_test.go`).
+Both speak `awsRestjson1`, confirmed per-op from each SDK's own
+`awsRestjson1_deserializeOpError<Op>`, not assumed service-wide. Both
+route ALL error responses through one shared per-domain mapper
+(`Handler.writeError` / `AgentsHandler`'s equivalent), which converts a
+small set of sentinel errors (`ErrNotFound`->ResourceNotFoundException,
+`ErrAlreadyExists`->ConflictException, `ErrValidation`->ValidationException)
+uniformly across every operation in that domain -- the shared-sentinel
+hazard this campaign has flagged before.
+
+Extracted every op's declared error codes from both pinned SDKs'
+`deserializers.go` (regex over each `awsRestjson1_deserializeOpError<Op>`
+body for `EqualFold("<Code>"`) and cross-checked every `ErrNotFound` (138
+call sites core+agent), `ErrAlreadyExists` (34), and `ErrValidation` (58)
+call site against its op's own declared set. 108 core ops + 67 agent ops
+checked for this axis; the two ops the real bedrockagent SDK does not
+expose at all (`bedrock-agent-runtime`'s `GetAgentMemory`/`DeleteAgentMemory`,
+already documented in `handler_agents_dispatch.go`) were not re-verified --
+no pinned SDK for that client exists in this module cache to check against.
+
+FOUR REAL BUGS, all core-bedrock, all the same shape: a shared sentinel
+correct for most Create/Update ops in its domain but wrong for these four,
+whose OWN deserializer declares no `ConflictException`/`ResourceNotFoundException`
+at all -- verified directly against `bedrock@v1.66.4/deserializers.go`, not
+inferred.
+
+1. `CreateCustomModelDeployment` duplicate name: emitted ConflictException
+   (`ErrAlreadyExists`); declares AccessDenied/InternalServer/ResourceNotFound/
+   ServiceQuotaExceeded/Throttling/TooManyTags/Validation -- no Conflict.
+2. `CreateProvisionedModelThroughput` duplicate name: same shape, same
+   declared set (minus ResourceNotFound... no, RNF is declared; Conflict is
+   not).
+3. `UpdateProvisionedModelThroughput` duplicate rename target: same shape.
+4. `PutResourcePolicy` (core bedrock domain -- bedrock-agent's OWN
+   PutResourcePolicy for knowledge bases, in the same file, DOES declare
+   ConflictException and was left alone) on an unrecognized resourceArn:
+   emitted ResourceNotFoundException (`ErrNotFound`); core PutResourcePolicy
+   declares AccessDenied/Conflict/InternalServer/Throttling/Validation -- no
+   ResourceNotFound.
+
+Fix: per-call-site override to `ErrValidation` (declared by all four, and
+the closest documented semantic match -- "Input validation failed" per
+`types/errors.go`'s doc comment, versus ConflictException's vaguer "conflict
+while performing an operation") rather than changing the shared sentinels,
+which would have broken every other correctly-typed caller of
+`ErrAlreadyExists`/`ErrNotFound` in this package (dozens of sites, spot-checked
+clean -- see e.g. `CreateGuardrail`/`CreateAgent`/`DeleteAgent`, which DO
+declare ConflictException and were left on the shared sentinel).
+
+RESTRAINT: `CreateModelCopyJob`'s two required-field checks also return
+`ErrValidation`, but that op's declared set (AccessDenied/InternalServer/
+ResourceNotFound/TooManyTags) has no ValidationException either -- no
+declared code fits "field required" here. Left as-is with a comment
+recording the gap; inventing a replacement would be the exact bug this
+sweep removes.
+
+TESTS: added `error_envelope_shape_test.go`, 4 new `_RealClient` tests
+driving the real `aws-sdk-go-v2` client and asserting `errors.As` into
+`*types.ValidationException` -- each confirmed to fail against the
+unmodified code first (all four failed with the old ConflictException/
+ResourceNotFoundException `*smithy.GenericAPIError` in the chain, exactly
+as the bug predicts). Corrected 3 existing tests that asserted only the
+raw HTTP status code and therefore could not have detected this class:
+`handler_custom_model_deployments_test.go` ("duplicate deployment name",
+409->400), `handler_provisioned_throughput_test.go` ("duplicate name",
+409->400), `handler_test.go` (`TestHandler_ResourcePolicy`, "put on a
+nonexistent resource is not found" -> renamed "...is a validation error",
+404->400). All three: 1 status-code assertion each, value corrected,
+assertion count unchanged (1 before, 1 after, all three).
+
+`errcodeaudit` (gopherstack-r3pr/r08q) reports ZERO findings, confident or
+needs-review, for either `services/bedrock` or `services/iotwireless` --
+consistent with this being class-A envelope-shape bugs (a real SDK-defined
+code used on the wrong operation), not class-B fabricated codes (a string
+the SDK never defines anywhere), which is what that tool targets.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` (0 issues after one `golines -m 120` pass on the new
+test file) -- all clean on `./services/bedrock/...`. No new
+cyclop/gocyclo/gocognit/funlen nolints (0 in this package, unchanged).

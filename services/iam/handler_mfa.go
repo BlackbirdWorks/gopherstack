@@ -3,8 +3,6 @@ package iam
 import (
 	"encoding/xml"
 	"net/url"
-
-	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // iamMFALinkDispatch wires EnableMFADevice, DeactivateMFADevice, and ListMFADevices.
@@ -123,9 +121,17 @@ func (h *Handler) iamVirtualMFADispatch() map[string]iamActionFn {
 
 			xmlDevices := make([]VirtualMFADeviceXML, 0, len(p.Data))
 			for i := range p.Data {
-				xmlDevices = append(xmlDevices, VirtualMFADeviceXML{
+				dev := VirtualMFADeviceXML{
 					SerialNumber: p.Data[i].SerialNumber,
-				})
+					Tags:         tagsToXML(h.getTags("mfa:" + p.Data[i].SerialNumber)),
+				}
+				if owner := h.Backend.GetMFADeviceOwner(p.Data[i].SerialNumber); owner != "" {
+					if u, uErr := h.Backend.GetUser(owner); uErr == nil {
+						x := toUserXML(u)
+						dev.User = &x
+					}
+				}
+				xmlDevices = append(xmlDevices, dev)
 			}
 
 			return &ListVirtualMFADevicesResponse{
@@ -184,11 +190,7 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 		},
 		"ListMFADeviceTags": func(vals url.Values, reqID string) (any, error) {
 			serial := vals.Get("SerialNumber")
-			tags := h.getTags("mfa:" + serial)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
-			}
+			members := tagsMapToKV(h.getTags("mfa:" + serial))
 
 			return &iamListTagsResponse{
 				XMLName:          xml.Name{Local: "ListMFADeviceTagsResponse"},

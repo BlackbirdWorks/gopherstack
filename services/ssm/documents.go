@@ -284,6 +284,27 @@ func evictOldestDocumentVersions(vers []DocumentVersion, defaultVersion string, 
 	return kept
 }
 
+// associationDocumentContent resolves an association document's body for
+// DescribeEffectiveInstanceAssociations, matching real
+// InstanceAssociation.Content (ssm@v1.73.4 types.go). Caller must already
+// hold b.mu. Returns "" if the document (or the specific version) no longer
+// exists -- an association can outlive the document it was created against.
+func (b *InMemoryBackend) associationDocumentContent(region, docName, docVersion string) string {
+	docPtr, ok := b.documentsStore(region).Get(docName)
+	if !ok {
+		return ""
+	}
+
+	target := resolveDocumentVersionSelector(*docPtr, docVersion)
+	for _, v := range b.documentVersionsStore(region)[docName] {
+		if v.DocumentVersion == target {
+			return v.Content
+		}
+	}
+
+	return ""
+}
+
 // GetDocument retrieves a document's content.
 func (b *InMemoryBackend) GetDocument(
 	ctx context.Context,
@@ -325,23 +346,35 @@ func (b *InMemoryBackend) GetDocument(
 	return nil, ErrInvalidDocumentVersion
 }
 
-// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
-// Supported filter keys: DocumentType, Name.
+// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters
+// (types.DocumentKeyValuesFilter, api_op_ListDocuments.go: "valid keys include Owner,
+// Name, PlatformTypes, DocumentType, and TargetType"). Owner ("Self" vs. other
+// accounts) and tag:tagName keys aren't modeled -- there's no document-ownership or
+// tag-key data to filter on -- and fall through to unfiltered, matching this backend's
+// established unknown-key convention (matchesActivationFilter).
 func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 	for _, f := range filters {
-		var fieldValue string
-
 		switch f.Key {
 		case "DocumentType":
-			fieldValue = doc.DocumentType
+			if !slices.Contains(f.Values, doc.DocumentType) {
+				return false
+			}
 		case filterKeyName:
-			fieldValue = doc.Name
+			if !slices.Contains(f.Values, doc.Name) {
+				return false
+			}
+		case "TargetType":
+			if !slices.Contains(f.Values, doc.TargetType) {
+				return false
+			}
+		case "PlatformTypes":
+			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
+				return slices.Contains(f.Values, p)
+			}) {
+				return false
+			}
 		default:
 			continue
-		}
-
-		if !slices.Contains(f.Values, fieldValue) {
-			return false
 		}
 	}
 

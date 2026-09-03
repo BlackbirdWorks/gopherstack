@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func extractAPIMappingsCollOp(collection, method string) string {
@@ -97,7 +98,10 @@ func (h *Handler) handleGetAPIMappings(c *echo.Context, domainName string) error
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listAPIMappingsOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listAPIMappingsOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetAPIMapping(c *echo.Context, domainName, mappingID string) error {

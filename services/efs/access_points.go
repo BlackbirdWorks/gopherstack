@@ -124,6 +124,7 @@ func (b *InMemoryBackend) DescribeAccessPoints(
 		b.accessPointsByRegion.Get(region),
 		accessPointID, ErrAccessPointNotFound,
 		fileSystemID,
+		func(fsID string) error { return b.requireFileSystem(region, fsID) },
 		func(ap *AccessPoint) string { return ap.FileSystemID },
 		copyAccessPoint,
 		func(ap *AccessPoint) string { return ap.AccessPointID },

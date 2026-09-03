@@ -82,11 +82,13 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
-	CreationTime time.Time  `xml:"CreationTime"           json:"creationTime"`
-	DeletionTime *time.Time `xml:"DeletionTime,omitempty" json:"deletionTime,omitempty"`
-	StackID      string     `xml:"StackId"                json:"stackID"`
-	StackName    string     `xml:"StackName"              json:"stackName"`
-	StackStatus  string     `xml:"StackStatus"            json:"stackStatus"`
+	CreationTime      time.Time  `xml:"CreationTime"                json:"creationTime"`
+	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"      json:"deletionTime,omitempty"`
+	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"   json:"lastUpdatedTime,omitempty"`
+	StackID           string     `xml:"StackId"                     json:"stackID"`
+	StackName         string     `xml:"StackName"                   json:"stackName"`
+	StackStatus       string     `xml:"StackStatus"                 json:"stackStatus"`
+	StackStatusReason string     `xml:"StackStatusReason,omitempty" json:"stackStatusReason,omitempty"`
 }
 
 // StackEvent is a single event in a stack's history.
@@ -137,13 +139,15 @@ type ChangeSet struct {
 
 // ChangeSetSummary is a brief summary of a change set.
 type ChangeSetSummary struct {
-	ChangeSetID   string    `xml:"ChangeSetId"`
-	ChangeSetName string    `xml:"ChangeSetName"`
-	StackID       string    `xml:"StackId"`
-	StackName     string    `xml:"StackName"`
-	Status        string    `xml:"Status"`
-	CreationTime  time.Time `xml:"CreationTime"`
-	Description   string    `xml:"Description,omitempty"`
+	ChangeSetID     string    `xml:"ChangeSetId"`
+	ChangeSetName   string    `xml:"ChangeSetName"`
+	StackID         string    `xml:"StackId"`
+	StackName       string    `xml:"StackName"`
+	Status          string    `xml:"Status"`
+	StatusReason    string    `xml:"StatusReason,omitempty"`
+	ExecutionStatus string    `xml:"ExecutionStatus,omitempty"`
+	CreationTime    time.Time `xml:"CreationTime"`
+	Description     string    `xml:"Description,omitempty"`
 }
 
 // Change represents a single change in a change set.
@@ -200,7 +204,7 @@ type StackResourceDrift struct {
 	StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
 	ExpectedProperties       string               `xml:"ExpectedProperties,omitempty" json:"expectedProperties,omitempty"`
 	ActualProperties         string               `xml:"ActualProperties,omitempty"   json:"actualProperties,omitempty"`
-	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences"          json:"propertyDifferences,omitempty"`
+	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences>member"   json:"propertyDifferences,omitempty"`
 }
 
 // PropertyDifference describes a single property-level difference between the
@@ -313,11 +317,13 @@ type ResourceScan struct {
 
 // TypeSummary holds a brief summary of a CloudFormation type.
 type TypeSummary struct {
-	TypeName    string `xml:"TypeName,omitempty"`
-	TypeArn     string `xml:"TypeArn,omitempty"`
-	Type        string `xml:"Type,omitempty"`
-	Visibility  string `xml:"Visibility,omitempty"`
-	Description string `xml:"Description,omitempty"`
+	TypeName         string `xml:"TypeName,omitempty"`
+	TypeArn          string `xml:"TypeArn,omitempty"`
+	Type             string `xml:"Type,omitempty"`
+	Visibility       string `xml:"Visibility,omitempty"`
+	Description      string `xml:"Description,omitempty"`
+	DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+	IsActivated      bool   `xml:"IsActivated,omitempty"`
 }
 
 // StackSetOperation represents a StackSet operation (create/update/delete instances, etc.).
@@ -456,7 +462,7 @@ type ChangeSetHook struct {
 
 // StackSetOperationSummary is a brief summary of a StackSet operation.
 type StackSetOperationSummary struct {
-	CreationTime time.Time `xml:"CreationTime,omitempty"`
+	CreationTime time.Time `xml:"CreationTimestamp,omitempty"`
 	OperationID  string    `xml:"OperationId"`
 	Action       string    `xml:"Action"`
 	Status       string    `xml:"Status"`
@@ -476,13 +482,18 @@ type StackRefactorSummary struct {
 }
 
 // StackRefactorAction is a single action performed during a stack refactor.
+// StackName/LogicalResourceID/ResourceType are retained for internal/JSON use
+// only (json tags omitted here as this type predates that convention) --
+// types.StackRefactorAction (types.go:2118) has no such top-level members;
+// the real wire shape nests source/destination under ResourceMapping.
 type StackRefactorAction struct {
-	Action             string `xml:"Action,omitempty"`
-	Description        string `xml:"Description,omitempty"`
-	StackName          string `xml:"StackName,omitempty"`
-	LogicalResourceID  string `xml:"LogicalResourceId,omitempty"`
-	PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
-	ResourceType       string `xml:"ResourceType,omitempty"`
+	Action             string          `xml:"Action,omitempty"`
+	Description        string          `xml:"Description,omitempty"`
+	StackName          string          `xml:"StackName,omitempty"`
+	LogicalResourceID  string          `xml:"LogicalResourceId,omitempty"`
+	PhysicalResourceID string          `xml:"PhysicalResourceId,omitempty"`
+	ResourceType       string          `xml:"ResourceType,omitempty"`
+	ResourceMapping    ResourceMapping `xml:"-"`
 }
 
 // TypeConfigurationDetail holds configuration detail for a CloudFormation type.

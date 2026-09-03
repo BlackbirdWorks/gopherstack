@@ -317,6 +317,7 @@ type GraphqlAPI struct {
 	APIType                           string                             `json:"apiType,omitempty"`
 	APIID                             string                             `json:"apiId"`
 	Owner                             string                             `json:"owner,omitempty"`
+	OwnerContact                      string                             `json:"ownerContact,omitempty"`
 	AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders,omitempty"` //nolint:lll // AWS field name is long
 	CreatedAt                         int64                              `json:"createdAt,omitempty"`
 	UpdatedAt                         int64                              `json:"updatedAt,omitempty"`
@@ -333,6 +334,7 @@ type GraphqlAPIConfig struct {
 	LambdaAuthorizerConfig *LambdaAuthorizerConfig
 	LogConfig              *LogConfig
 	IntrospectionConfig    string
+	OwnerContact           string
 	QueryDepthLimit        int32
 	ResolverCountLimit     int32
 }

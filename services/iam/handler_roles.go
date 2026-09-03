@@ -148,10 +148,10 @@ func (h *Handler) toRoleDetailXML(r RoleDetail) RoleDetailXML {
 
 	for i := range r.InstanceProfiles {
 		ip := &r.InstanceProfiles[i]
-		profiles = append(profiles, toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)))
+		profiles = append(profiles, h.toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)))
 	}
 
-	return RoleDetailXML{
+	x := RoleDetailXML{
 		Path:                     r.Path,
 		RoleName:                 r.RoleName,
 		RoleID:                   r.RoleID,
@@ -161,5 +161,15 @@ func (h *Handler) toRoleDetailXML(r RoleDetail) RoleDetailXML {
 		RolePolicyList:           toInlinePolicyEntriesXML(r.InlinePolicies),
 		AttachedManagedPolicies:  toAttachedPoliciesXML(r.AttachedPolicies),
 		InstanceProfileList:      profiles,
+		Tags:                     tagsToXML(r.Tags),
 	}
+
+	if r.PermissionsBoundary != "" {
+		x.PermissionsBoundary = &PermissionsBoundaryXML{
+			PermissionsBoundaryArn:  r.PermissionsBoundary,
+			PermissionsBoundaryType: xmlElemPolicy,
+		}
+	}
+
+	return x
 }

@@ -180,12 +180,19 @@ func TestCircuitBreaker_TripsToFailed_NoRollback(t *testing.T) {
 	r := NewReconciler(b)
 	r.RunOnce(t.Context())
 
-	arns, err := b.ListTasksFiltered(ListTasksInput{Cluster: "cb", ServiceName: "svc"})
-	if err != nil {
-		t.Fatalf("ListTasksFiltered: %v", err)
+	// ListTasksFiltered defaults DesiredStatus to RUNNING (its documented
+	// default); the failed launches are STOPPED, so total task count must be
+	// summed across both statuses rather than relying on the default filter.
+	total := 0
+	for _, status := range []string{statusRunning, statusStopped} {
+		arns, err := b.ListTasksFiltered(ListTasksInput{Cluster: "cb", ServiceName: "svc", DesiredStatus: status})
+		if err != nil {
+			t.Fatalf("ListTasksFiltered(%s): %v", status, err)
+		}
+		total += len(arns)
 	}
-	if len(arns) != 3 {
-		t.Errorf("task count after halt = %d, want 3 (no relaunch of failing deployment)", len(arns))
+	if total != 3 {
+		t.Errorf("task count after halt = %d, want 3 (no relaunch of failing deployment)", total)
 	}
 }
 

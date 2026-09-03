@@ -563,3 +563,44 @@ func TestSDKRoundTrip_DataQualityRuns_StartedFilterAndRulesetName(t *testing.T) 
 		assert.Empty(t, out.Runs)
 	})
 }
+
+// TestSDKRoundTrip_SearchTables_QuotedExactMatch proves SearchTablesInput.
+// SearchText's documented quoting rule ("Specifying a value in quotes
+// filters based on an exact match to the value", glue@v1.152.0
+// api_op_SearchTables.go:74-76) is honored. Before the fix, the quote
+// characters were treated as part of the literal substring to search for,
+// so a quoted SearchText could never match any real table name.
+func TestSDKRoundTrip_SearchTables_QuotedExactMatch(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := backend.CreateDatabase(glue.DatabaseInput{Name: "db1"}, nil)
+	require.NoError(t, err)
+	_, err = backend.CreateTable("db1", glue.TableInput{Name: "widget"})
+	require.NoError(t, err)
+	_, err = backend.CreateTable("db1", glue.TableInput{Name: "super-widget-99"})
+	require.NoError(t, err)
+
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+
+	t.Run("quoted search text exact-matches only the identical name", func(t *testing.T) {
+		t.Parallel()
+
+		out, callErr := client.SearchTables(t.Context(), &gluesdk.SearchTablesInput{
+			SearchText: aws.String(`"widget"`),
+		})
+		require.NoError(t, callErr)
+		require.Len(t, out.TableList, 1)
+		assert.Equal(t, "widget", aws.ToString(out.TableList[0].Name))
+	})
+
+	t.Run("unquoted search text still substring-matches both", func(t *testing.T) {
+		t.Parallel()
+
+		out, callErr := client.SearchTables(t.Context(), &gluesdk.SearchTablesInput{
+			SearchText: aws.String("widget"),
+		})
+		require.NoError(t, callErr)
+		assert.Len(t, out.TableList, 2)
+	})
+}

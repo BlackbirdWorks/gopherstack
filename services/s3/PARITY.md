@@ -784,3 +784,236 @@ var block and swapping a raw `errors.As`+`require.True` for
 `require.ErrorAs` per testifylint), `go test ./pkgs/persistence/...` (no
 persisted struct changed — pass anyway per standing rule), `make
 build-check` (0 external call sites), banned-nolint grep (0 hits, unchanged).
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- no live bugs found
+
+Hunt for the class distinct from the wrapper-key/nesting sweeps above: HTTP
+status, AWS error code, and whether a given operation's own
+`awsRestxml_deserializeOpError<Op>` (s3@v1.106.5, `deserializers.go`) models
+that code -- most S3 ops declare *zero* typed exceptions (fall through to
+`smithy.GenericAPIError` with whatever `Code`/status the server actually
+sent), so the load-bearing check for this service is mostly "is the exact
+code string and HTTP status correct", not "is a specific Go type produced".
+
+**Error path**: single centralized `errorTable()`/`WriteError()`
+(`errors.go`) mapping typed Go sentinels to `{code, message, status}` via
+`errors.Is`, used uniformly by every handler -- same shared-helper shape as
+sts/iam. Spot-checked the handful of ops that *do* declare typed exceptions:
+`GetObject` (`NoSuchKey`, `InvalidObjectState`), `CreateBucket`
+(`BucketAlreadyExists`/`BucketAlreadyOwnedByYou`), `AbortMultipartUpload`
+(`NoSuchUpload`), `CopyObject` (`ObjectNotInActiveTierError`) -- all confirmed
+correct code+404/409/404/403-class status in `errorTable()`.
+
+**HeadObject/HeadBucket confirmed not a bug**: both ops' own deserializers
+pass `UseStatusCode: true` to `s3shared.GetErrorResponseComponents`, which
+only synthesizes a code from the HTTP status when the body carries no
+`Code`/`Message` at all -- irrelevant here since Go's own `net/http` server
+already suppresses the response body on `HEAD` requests
+(`net/http/server.go`'s `chunkWriter`, `req.Method == "HEAD"` check), so
+gopherstack's XML error body is never actually sent for these two ops
+regardless of what `WriteError` writes; only the status code (already 404
+for both `NoSuchBucket`/`NoSuchKey`) reaches the client. No gopherstack-side
+special case is needed or missing.
+
+**Structural gap disclosed, not fixed**: `CopyObject` never checks a source
+object's storage class before copying -- real S3 raises
+`ObjectNotInActiveTierError` (403, modeled on this op) when the source is in
+GLACIER/DEEP_ARCHIVE and hasn't been restored. This emulator has no
+archival-tier/restore-state model at all (`StorageClass` is stored as a
+label with no enforcement), so implementing this one error code alone would
+mean building the entire Glacier restore state machine as a side effect --
+out of scope for an error-code-shape pass; genuinely unimplementable without
+that larger feature.
+
+No live bugs found this pass; no code changes made to this service.
+
+Gates: `go build`, `go vet ./services/s3/...`, `go test -race -count=1
+./services/s3/...` (pass, unchanged), `golangci-lint run ./services/s3/...`
+(0 issues, unchanged).
+
+## 2026-08-29 constraint-parameter sweep (filters/pagination never applied) -- 1 operation fixed
+
+s3 is REST-XML with bucket/key routing; per the campaign brief this service's "filters" are
+prefix/delimiter/marker/max-keys rather than a `Filter` object, so the audit unit was each List op's
+own Input struct in the pinned SDK (`s3@v1.106.5`), read directly rather than assumed from a sibling:
+`ListObjects`, `ListObjectsV2`, `ListObjectVersions`, `ListMultipartUploads`, `ListParts`, `ListBuckets`.
+
+**Confirmed already correct** (read every constraint field's handler + backend code path, not just
+grepped for its name): `ListObjects`/`ListObjectsV2` (`prefix`/`delimiter`/`marker`/`max-keys`/
+`encoding-type`, V2's `continuation-token`/`start-after`), `ListObjectVersions` (`prefix`/`delimiter`/
+`key-marker`/`version-id-marker`/`max-keys`, correctly combining key-marker+version-id-marker for the
+seek per the documented semantics), `ListMultipartUploads` (`prefix`/`delimiter`/`key-marker`/
+`upload-id-marker`/`max-uploads`), `ListParts` (`part-number-marker`/`max-parts`). All apply their
+documented constraints and truncate/paginate correctly (verified in `listing.go`/`multipart.go`/
+`bucket_ops_listing.go`/`multipart_ops.go`, not inferred).
+
+- **`ListBuckets`** (`bucket_ops.go`/`buckets.go`): `BucketRegion` (`api_op_ListBuckets.go`: "Limits the
+  response to buckets that are located in the specified Amazon Web Services Region", query-bound as
+  `bucket-region` per `awsRestxml_serializeOpHttpBindingsListBucketsInput`) was never read by the HTTP
+  handler at all, and the backend's `ListBuckets` never filtered on it even had it been set -- every
+  call returned buckets from every region. `Prefix`/`MaxBuckets`/`ContinuationToken` were already
+  correctly applied (including the documented 10,000 default page size). Fixed: `bucket-region` is now
+  read in `listBuckets` (`bucket_ops.go`) and applied against each `StoredBucket.Region` in
+  `InMemoryBackend.ListBuckets` (`buckets.go`).
+
+**Restraint, not pursued**: `ListBucketAnalyticsConfigurations`/`ListBucketInventoryConfigurations`/
+`ListBucketMetricsConfigurations` also carry a `ContinuationToken`-only pagination parameter, but each
+bucket's configuration count is realistically small (these are admin-configured, not per-object) and
+AWS itself caps them at low three-digit counts -- an unbounded page here is not the observable bug this
+class targets. Left unaudited in depth this pass.
+
+Gates: `go build ./services/s3/...`, `go vet ./...` (repo-wide; no signature changes, so no other
+package needed updating), `go test ./services/s3/... -race -count=1` (pass), `golangci-lint run
+./services/s3/...` (0 issues). New test in `list_filter_params_test.go` drives the real typed SDK
+client (`sdk_s3.Client`, path-style) via the existing `newRealS3ClientTest` helper.
+
+## 2026-08-30 pagination arithmetic sweep
+
+s3 is structurally different from the other services audited in this sweep:
+every real listing here is prefix/delimiter/marker-based (no equality-matched
+opaque cursor), so Classes B and C (miss-defaults-to-zero infinite loop) do
+not apply to any site found. Census: `ListObjects`/`ListObjectsV2`
+(`listing.go`), `ListObjectVersions` (`listing.go`), `ListMultipartUploads`
+(`multipart.go`), `ListParts` (`multipart.go`), `ListBuckets` (`buckets.go`,
+via `pkgs/page`), `ListObjectAnnotations` (`annotations.go`, a
+gopherstack-only API, not real AWS), and `GetObjectAttributes`'s embedded
+Parts list (`objects.go`). No inline `for i, x := range all { if x.ID ==
+token { start = i } }` site exists — every marker seek in this service is
+either a `sort.Search` threshold search or a linear scan with a `>`
+comparison, both safe-by-construction against a stale marker.
+
+**Found and fixed 3 real bugs, all in the delimiter-truncation path — a bug
+shape not on the A–E list.** `ListObjects`, `ListObjectVersions`, and
+`ListMultipartUploads` each computed `Contents`/`Versions`/`Uploads` and
+`CommonPrefixes` as **two independently truncated lists** instead of one
+list cut in true lexicographic order:
+
+- `ListObjects` (`truncateVersionResults`) filled the page from
+  non-grouped keys first and only padded with CommonPrefixes if room
+  remained. A CommonPrefix whose flat neighbors on both sides fit within
+  MaxKeys got skipped entirely, and because the resulting NextMarker landed
+  past the CommonPrefix's own key range, every later page's `key > marker`
+  seek excluded it too — the CommonPrefix was **dropped from the listing
+  permanently**, not merely reordered. Reproduced with `{a, b/x, c}` at
+  MaxKeys=2 (page 1 = `{a, c}`, `b/` never returned) and a 10-key/3-group
+  case where all 3 groups vanished.
+- `ListObjectVersions` had the same shape but worse: `CommonPrefixes` were
+  **never truncated or counted toward MaxKeys at all** (`buildVersionPage`'s
+  `count` loop only ran over the non-grouped snapshot list), so a response
+  could silently exceed MaxKeys, and `NextKeyMarker` — derived purely from
+  the truncated non-grouped list — again ignored where a CommonPrefix fell
+  in true order.
+- `ListMultipartUploads` had the identical CommonPrefix-truncation gap
+  (`groupUploadsByDelimiter`'s CommonPrefixes were never passed to
+  `truncateUploads` at all) **plus a separate, independent bug covered
+  below.**
+
+Fixed all three the same way: built one ordered sequence of
+tagged entries (`listObjectEntry` / `versionListEntry` / `uploadListEntry`
+— an object-or-delete-marker-or-CommonPrefix union, in the same sorted
+order the raw key list was already in), cut that single sequence at
+MaxKeys/MaxUploads, and derived NextMarker from the last entry actually
+included, whichever kind it was. Also fixed the marker-seek side to match:
+a NextMarker that is itself a CommonPrefix (recognizable because every
+CommonPrefix this package emits ends with `delimiter`, by construction) now
+excludes every key sharing that prefix (`key > marker && !HasPrefix(key,
+marker)`), not just keys greater than the bare prefix string — without this,
+a plain `key > marker` resumes *inside* the very subtree the prior page
+already summarized and the client sees the same CommonPrefix duplicated on
+the next page (confirmed as the failure mode once the truncation-order fix
+alone was applied and tested).
+
+**Fourth bug, `ListMultipartUploads`, Class D — textbook shape, no delimiter
+needed.** `truncateUploads` derived `NextKeyMarker`/`NextUploadIdMarker`
+from `uploads[maxUploads]` — the first upload **not** returned on the page,
+i.e. the token names the first item of the next page — while
+`seekMultipartMarker`'s decoder resumes strictly after the item matching
+the marker. Naming the next page's first item and then skipping past
+whatever matches it drops that exact upload on *every* truncation boundary.
+Reproduced with 23 uploads at MaxUploads=5: `upload-05`, `upload-11`,
+`upload-17` (indices 5, 11, 17 — exactly the marker-named item at each
+boundary) silently vanished on a plain walk, no delimiter, deletion, or
+tampering involved. Fixed by switching the encoder to name the *last
+included* item (matching `ListParts`' and the fixed `ListObjects`'
+convention), folded into the same combined-entries rewrite above.
+
+**Safe-by-construction patterns confirmed already correct, no bug:**
+`ListParts` (threshold search `partNumbers[i] > partNumberMarker`,
+NextMarker = last item on page); `GetObjectAttributes`'s parts list
+(`objects.go`, same shape); `ListBuckets` (sorts by Name, then delegates to
+`pkgs/page.New` — out of this pass's scope to re-audit `pkgs/`);
+`ListObjectAnnotations` (a gopherstack-only API: sorted names, threshold
+search, NextContinuationToken = last name on page — clean end to end).
+
+Seven checks run via real boundary walks through the exported SDK-shaped
+backend methods (not synthetic unit tests of an isolated helper): boundary
+walk with a non-dividing page size (10 keys / 3 groups at MaxKeys=2),
+delimiter interleaving of flat keys and groups, cursor round trip, and the
+Class-D drop reproduction above. All failed against the pre-fix code first
+(shown in the diffs above) and pass post-fix. Full existing `services/s3`
+suite (multipart list/round-trip tests, `ListObjects`/`ListObjectVersions`
+unit and HTTP-driven tests) re-run with `-race` and shows no regression.
+
+New tests: `services/s3/pagination_arithmetic_test.go`.
+
+**Left unaudited, unchanged from the 2026-08-15 note above:**
+`ListBucketAnalyticsConfigurations`/`ListBucketInventoryConfigurations`/
+`ListBucketMetricsConfigurations`'s `ContinuationToken`-only pagination —
+still not pursued this pass either, same restraint reasoning (small,
+admin-configured collections; AWS itself caps them low). `pkgs/page`
+(backing `ListBuckets`) is outside this pass's scope (`pkgs/` is off limits)
+and was not independently re-verified.
+
+Gates: `go build ./services/s3/...` (clean), `go vet ./services/s3/...`
+(clean, no exported signature changed — `truncateVersionResults`,
+`applyDelimiterToVersions`, `seekVersionMarker`, `applyVersionDelimiter`,
+`buildVersionPage`, `seekMultipartMarker`, `groupUploadsByDelimiter`,
+`truncateUploads` are all unexported), `go test -race -count=1
+./services/s3/...` (pass, full package). Work left uncommitted per this
+pass's instructions.
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 738-739 findings across the 5 old runs, 740 at HEAD
+(this service trips the tool's own coverage guard in every run, old and
+new alike -- "only 31/109 (28%) of resolved handlers show ANY declared
+field at all", pre-existing and unrelated to this defect: most s3 handlers
+read `url.Values`/headers directly with no intervening named struct for
+the scan to see, the same structural gap gopherstack-id70's parent issue
+already named as why "s3 did not improve" from the query-form-shape
+recognizer).
+
+One key moved in the direction worth naming: `PutBucketAcl.ACL` is flagged
+at HEAD but in NO old run. Traced it: `PutBucketAcl`/`PutBucketACL` and
+`PutObjectAcl`/`PutObjectACL` both collide between the real handler
+(`bucket_ops_acl_policy.go:29`, `object_ops_acl.go:70`) and a same-named
+exported `*InMemoryBackend` method (`acl_policy_store.go:8,267`). Under
+misresolution, the old tool sometimes landed on the backend method, whose
+body happens to reference an identifier named `acl` (`bucket.ACL = acl`,
+`acl_policy_store.go:19`) -- enough to satisfy the tool's naive read
+check and suppress the finding, even though that is not where the field
+is actually read. The real handler reads the field correctly via
+`r.Header.Get("X-Amz-Acl")` (`bucket_ops_acl_policy.go:42`,
+`object_ops_acl.go:82`) -- genuinely handled -- but `cmd/reqfielddiff` has
+no HTTP-header-read recognizer at all (confirmed: no `Header.Get` handling
+anywhere in `cmd/reqfielddiff/main.go`), so once resolution is fixed and
+correctly lands on the real handler, it flags ACL as a false positive for
+an unrelated reason (the header blind spot, not the collision).
+
+This is exactly the "field reported read because the wrong body happened
+to read it" risk gopherstack-id70 asked to watch for, and it did occur
+here -- but it did not conceal a bug: the field is genuinely applied by
+the real code, just through a mechanism (`r.Header.Get`) this scan cannot
+see, independent of and unimproved by the resolution fix. `PutObjectAcl.ACL`
+shows the same pattern (flickered within the 5 old runs, 2/5, and is
+flagged at HEAD like `PutBucketAcl.ACL`). No bug, no code changed. The
+740 pre-existing findings themselves (identical wire-name-collision misses,
+`omitempty`-swallowed defaults, etc.) are outside this pass's scope --
+`cmd/reqfielddiff`'s own coverage guard already marks that count
+unverified for this package independent of the resolution defect.

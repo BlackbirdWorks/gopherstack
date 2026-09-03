@@ -13,21 +13,27 @@ var (
 	ErrExportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrImportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrValidation                    = errors.New("InvalidParameterException")
-	// ErrValidationException is returned for the small set of operations whose
-	// own awsAwsjson11_deserializeOpError<Op> switch declares ValidationException
-	// rather than InvalidParameterException as its client-error code (e.g.
-	// ListAggregateLogGroupSummaries -- confirmed against
-	// aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1/deserializers.go; most other
+	// ErrValidationException is returned for the operations whose own
+	// awsAwsjson11_deserializeOpError<Op> switch declares ValidationException
+	// rather than InvalidParameterException as its client-error code -- this
+	// is a whole family, not a handful: ListAggregateLogGroupSummaries plus
+	// every Delivery/DeliveryDestination/DeliverySource/ScheduledQuery/
+	// S3TableIntegration operation (confirmed per-op against
+	// aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1/deserializers.go). Older
 	// ops in this service declare InvalidParameterException instead, which is
-	// what ErrValidation above maps to).
-	ErrValidationException        = errors.New("ValidationException")
-	ErrDeliveryNotFound           = errors.New("ResourceNotFoundException")
-	ErrLogAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
-	ErrScheduledQueryNotFound     = errors.New("ResourceNotFoundException")
-	ErrMetricFilterNotFound       = errors.New("ResourceNotFoundException")
-	ErrQueryDefinitionNotFound    = errors.New("ResourceNotFoundException")
-	ErrOperationAborted           = errors.New("OperationAbortedException")
-	ErrInvalidOperation           = errors.New("InvalidOperationException")
+	// what ErrValidation above maps to.
+	ErrValidationException = errors.New("ValidationException")
+	// ErrScheduledQueryLimitExceeded is CreateScheduledQuery's own quota-exceeded
+	// case; its deserializer declares ServiceQuotaExceededException, not
+	// ValidationException or InvalidParameterException.
+	ErrScheduledQueryLimitExceeded = errors.New("ServiceQuotaExceededException")
+	ErrDeliveryNotFound            = errors.New("ResourceNotFoundException")
+	ErrLogAnomalyDetectorNotFound  = errors.New("ResourceNotFoundException")
+	ErrScheduledQueryNotFound      = errors.New("ResourceNotFoundException")
+	ErrMetricFilterNotFound        = errors.New("ResourceNotFoundException")
+	ErrQueryDefinitionNotFound     = errors.New("ResourceNotFoundException")
+	ErrOperationAborted            = errors.New("OperationAbortedException")
+	ErrInvalidOperation            = errors.New("InvalidOperationException")
 )
 
 var (

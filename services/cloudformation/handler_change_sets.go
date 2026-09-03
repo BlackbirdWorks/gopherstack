@@ -123,24 +123,28 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	summaries := p.Data
 
 	type summaryXML struct {
-		ChangeSetID   string `xml:"ChangeSetId"`
-		ChangeSetName string `xml:"ChangeSetName"`
-		StackID       string `xml:"StackId"`
-		StackName     string `xml:"StackName"`
-		Status        string `xml:"Status"`
-		CreationTime  string `xml:"CreationTime"`
-		Description   string `xml:"Description,omitempty"`
+		ChangeSetID     string `xml:"ChangeSetId"`
+		ChangeSetName   string `xml:"ChangeSetName"`
+		StackID         string `xml:"StackId"`
+		StackName       string `xml:"StackName"`
+		Status          string `xml:"Status"`
+		StatusReason    string `xml:"StatusReason,omitempty"`
+		ExecutionStatus string `xml:"ExecutionStatus,omitempty"`
+		CreationTime    string `xml:"CreationTime"`
+		Description     string `xml:"Description,omitempty"`
 	}
 	members := make([]summaryXML, 0, len(summaries))
 	for _, s := range summaries {
 		members = append(members, summaryXML{
-			ChangeSetID:   s.ChangeSetID,
-			ChangeSetName: s.ChangeSetName,
-			StackID:       s.StackID,
-			StackName:     s.StackName,
-			Status:        s.Status,
-			CreationTime:  s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
-			Description:   s.Description,
+			ChangeSetID:     s.ChangeSetID,
+			ChangeSetName:   s.ChangeSetName,
+			StackID:         s.StackID,
+			StackName:       s.StackName,
+			Status:          s.Status,
+			StatusReason:    s.StatusReason,
+			ExecutionStatus: s.ExecutionStatus,
+			CreationTime:    s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			Description:     s.Description,
 		})
 	}
 

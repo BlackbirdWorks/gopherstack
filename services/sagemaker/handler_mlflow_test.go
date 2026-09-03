@@ -635,6 +635,41 @@ func TestHandler_UpdateMlflowTrackingServer(t *testing.T) {
 	assert.NotEmpty(t, resp["TrackingServerArn"])
 }
 
+// TestHandler_UpdateMlflowTrackingServer_MlflowVersionNotOnWire proves
+// MlflowVersion cannot be changed via UpdateMlflowTrackingServer:
+// UpdateMlflowTrackingServerInput has no MlflowVersion member at all
+// (api_op_UpdateMlflowTrackingServer.go:28-63) -- unlike
+// CreateMlflowTrackingServerInput, which does -- so no real client can ever
+// send it on Update. A prior version of this handler accepted and applied it
+// anyway (a fabricated field, not a real wire member).
+func TestHandler_UpdateMlflowTrackingServer_MlflowVersionNotOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateMlflowTrackingServer", map[string]any{
+		"TrackingServerName": "my-server",
+		"RoleArn":            "arn:aws:iam::000000000000:role/TestRole",
+		"MlflowVersion":      "2.0.0",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateMlflowTrackingServer", map[string]any{
+		"TrackingServerName": "my-server",
+		"MlflowVersion":      "9.9.9",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	describeRec := doSageMakerRequest(t, h, "DescribeMlflowTrackingServer", map[string]any{
+		"TrackingServerName": "my-server",
+	})
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	assert.Equal(
+		t, "2.0.0", resp["MlflowVersion"],
+		"MlflowVersion is not a real UpdateMlflowTrackingServerInput field and must not change",
+	)
+}
+
 func TestHandler_UpdateMlflowTrackingServer_NotFound(t *testing.T) {
 	t.Parallel()
 

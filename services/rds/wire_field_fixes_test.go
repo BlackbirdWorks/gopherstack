@@ -417,3 +417,34 @@ func TestCreateDBProxyEndpoint_VpcConfig_RealClient(t *testing.T) {
 	require.ElementsMatch(t, []string{"sg-2"}, ep.VpcSecurityGroupIds,
 		"VpcSecurityGroupIds must round-trip; pre-fix DescribeDBProxyEndpoints never emitted it")
 }
+
+// TestDescribeAccountAttributes_QuotaFields_RealClient covers a per-item
+// field-name bug: xmlAccountAttribute swapped its wire tags. AccountQuota's
+// real name field ("AccountQuotaName", rds@v1.124.1 deserializers.go's
+// awsAwsquery_deserializeDocumentAccountQuota) was emitted under the Go
+// field tagged "AttributeName" -- a name the real deserializer never
+// matches -- while the tag "AccountQuotaName" was applied to the numeric
+// Used count instead of the real "Used" member. Pre-fix, a real client's
+// AccountQuotaName decoded a stringified count and Used stayed nil.
+func TestDescribeAccountAttributes_QuotaFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestRDSClient(t, newTestRDSHandler())
+	ctx := t.Context()
+
+	out, err := client.DescribeAccountAttributes(ctx, &rdssdk.DescribeAccountAttributesInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.AccountQuotas)
+
+	var found bool
+	for _, q := range out.AccountQuotas {
+		if aws.ToString(q.AccountQuotaName) == "DBInstances" {
+			found = true
+			assert.NotNil(t, q.Used, "Used must round-trip; pre-fix it was permanently nil")
+			assert.NotEqual(t, int64(0), aws.ToInt64(q.Max), "Max must be non-zero for DBInstances quota")
+
+			break
+		}
+	}
+	require.True(t, found, "AccountQuotaName must round-trip; pre-fix it was emitted under the wrong tag")
+}

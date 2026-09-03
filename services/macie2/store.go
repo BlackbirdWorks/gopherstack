@@ -23,6 +23,9 @@ const (
 	// substructure of the same finding.
 	categoryClassification = "CLASSIFICATION"
 	keyType                = "type"
+	keyCreatedAt           = "createdAt"
+	keyUpdatedAt           = "updatedAt"
+	keyJobStatus           = "jobStatus"
 	defaultPageSize        = 50
 
 	errResourceNotFound  = "ResourceNotFoundException"

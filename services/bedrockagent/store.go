@@ -247,6 +247,11 @@ func paginate(ids []string, nextToken string, maxResults int) ([]string, string)
 	start := 0
 
 	if nextToken != "" {
+		// Default a miss (e.g. the item the token named was deleted) to the
+		// end of the collection, not the start: leaving start at 0 here
+		// would resume every stale cursor at page one, forever.
+		start = len(ids)
+
 		for i, id := range ids {
 			if id == nextToken {
 				start = i

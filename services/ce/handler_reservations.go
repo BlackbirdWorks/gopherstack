@@ -2,6 +2,7 @@ package ce
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +40,34 @@ func sortByTime[T any](items []T, timePeriod func(T) map[string]string, desc boo
 	})
 }
 
+// buildTimeSeriesResponse is the shared shape behind
+// handleGetReservationCoverage/handleGetReservationUtilization: apply
+// SortBy=Time if requested, derive Total from the first (possibly reordered)
+// entry, then paginate preserving whatever order sortByTime produced.
+func buildTimeSeriesResponse[T, A any](
+	items []T,
+	timePeriod func(T) map[string]string,
+	totalOf func(T) A,
+	sortBy *ceSortDefinition,
+	nextPageToken string,
+) ([]T, *A, string) {
+	if sortBy != nil && strings.EqualFold(sortBy.Key, "Time") {
+		sortByTime(items, timePeriod, sortDescending(sortBy.SortOrder))
+	}
+
+	var total *A
+	if len(items) > 0 {
+		t := totalOf(items[0])
+		total = &t
+	}
+
+	page, nextToken := paginateOrdered(items, 0, nextPageToken, func(item T) string {
+		return timePeriod(item)[timePeriodKeyStart]
+	})
+
+	return page, total, nextToken
+}
+
 // resolveCoverageTimeRange extracts start/end/granularity from a
 // GetReservationCoverage/Utilization-style request, applying the defaults
 // both operations share.
@@ -63,6 +92,12 @@ func resolveCoverageTimeRange(timePeriod map[string]string, granularity string) 
 	return start, end, gran
 }
 
+// getReservationCoverageInput.GroupBy is accepted for wire parity but stays
+// unapplied: this emulator's CoveragesByTime entries never populate a
+// per-group Groups breakdown (Groups is always [], see
+// GetReservationCoverageFiltered) -- there is no real per-SERVICE/AZ/... RI
+// coverage state to disguise a fabricated breakdown from (same documented
+// shape as GetCostAndUsageWithResources.ResultsByTime).
 type getReservationCoverageInput struct {
 	Filter        *ceExpression     `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
@@ -86,19 +121,16 @@ func (h *Handler) handleGetReservationCoverage(
 
 	coverages := h.Backend.GetReservationCoverageFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	if in.SortBy != nil && strings.EqualFold(in.SortBy.Key, "Time") {
-		sortByTime(coverages, func(c ReservationCoverageByTime) map[string]string { return c.TimePeriod },
-			sortDescending(in.SortBy.SortOrder))
-	}
-
-	var total *ReservationCoverageAgg
-	if len(coverages) > 0 {
-		agg := coverages[0].Total
-		total = &agg
-	}
+	page, total, nextToken := buildTimeSeriesResponse(
+		coverages,
+		func(c ReservationCoverageByTime) map[string]string { return c.TimePeriod },
+		func(c ReservationCoverageByTime) ReservationCoverageAgg { return c.Total },
+		in.SortBy, in.NextPageToken,
+	)
 
 	return &getReservationCoverageOutput{
-		CoveragesByTime: coverages,
+		CoveragesByTime: page,
+		NextPageToken:   nextToken,
 		Total:           total,
 	}, nil
 }
@@ -139,6 +171,16 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 	_ context.Context,
 	in *getReservationPurchaseRecommendationInput,
 ) (*getReservationPurchaseRecommendationOutput, error) {
+	// AccountScope distinguishes PAYER (whole-org) from LINKED
+	// (single-account) recommendations on real AWS; this emulator has only
+	// one account's worth of state either way, so the value is validated (an
+	// unrecognized scope real AWS rejects) rather than left unchecked.
+	switch in.AccountScope {
+	case "", accountScopePayer, accountScopeLinked:
+	default:
+		return nil, fmt.Errorf("%w: AccountScope must be PAYER or LINKED", ErrValidation)
+	}
+
 	recs := h.Backend.GetReservationPurchaseRecommendations(
 		in.Service, in.LookbackPeriodInDays, in.TermInYears, in.PaymentOption,
 	)
@@ -151,6 +193,9 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		recs = []ReservationRecommendation{}
 	}
 
+	page, nextToken := paginateList(recs, in.PageSize, in.NextPageToken,
+		func(ReservationRecommendation) string { return "" })
+
 	// No Metadata: types.ReservationPurchaseRecommendationMetadata
 	// (costexplorer@v1.67.4 types/types.go) has only
 	// AdditionalMetadata/GenerationTimestamp/RecommendationId, none of which
@@ -158,10 +203,13 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 	// use of handlerCurrencyCode's own value as a map key) were both
 	// fabricated.
 	return &getReservationPurchaseRecommendationOutput{
-		Recommendations: recs,
+		Recommendations: page,
+		NextPageToken:   nextToken,
 	}, nil
 }
 
+// getReservationUtilizationInput.GroupBy has the same accepted-but-inert
+// shape as getReservationCoverageInput.GroupBy above.
 type getReservationUtilizationInput struct {
 	Filter        *ceExpression     `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
@@ -185,19 +233,16 @@ func (h *Handler) handleGetReservationUtilization(
 
 	utils := h.Backend.GetReservationUtilizationFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	if in.SortBy != nil && strings.EqualFold(in.SortBy.Key, "Time") {
-		sortByTime(utils, func(u ReservationUtilizationByTime) map[string]string { return u.TimePeriod },
-			sortDescending(in.SortBy.SortOrder))
-	}
-
-	var total *ReservationUtilizationAgg
-	if len(utils) > 0 {
-		agg := utils[0].Total
-		total = &agg
-	}
+	page, total, nextToken := buildTimeSeriesResponse(
+		utils,
+		func(u ReservationUtilizationByTime) map[string]string { return u.TimePeriod },
+		func(u ReservationUtilizationByTime) ReservationUtilizationAgg { return u.Total },
+		in.SortBy, in.NextPageToken,
+	)
 
 	return &getReservationUtilizationOutput{
-		UtilizationsByTime: utils,
+		UtilizationsByTime: page,
+		NextPageToken:      nextToken,
 		Total:              total,
 	}, nil
 }
@@ -215,7 +260,7 @@ type rightsizingRecommendationConfiguration struct {
 
 type getRightsizingRecommendationInput struct {
 	Service       string                                  `json:"Service"`
-	Filter        any                                     `json:"Filter"`
+	Filter        *ceExpression                           `json:"Filter"`
 	Configuration *rightsizingRecommendationConfiguration `json:"Configuration"`
 	NextPageToken string                                  `json:"NextPageToken"`
 	PageSize      int                                     `json:"PageSize"`
@@ -239,9 +284,22 @@ func (h *Handler) handleGetRightsizingRecommendation(
 ) (*getRightsizingRecommendationOutput, error) {
 	recs := h.Backend.GetRightsizingRecommendations(in.Service)
 
+	// Real AWS documents Filter's Dimensions as limited to LINKED_ACCOUNT/
+	// REGION/RIGHTSIZING_TYPE for this op. This emulator's single synthetic
+	// recommendation is always for the caller's own account, so LINKED_ACCOUNT
+	// is the one clause with a real, non-fabricated exclude/include effect
+	// (same shape as GetReservationPurchaseRecommendation's Filter).
+	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) {
+		recs = nil
+	}
+
 	if recs == nil {
 		recs = []RightsizingRecommendation{}
 	}
+
+	page, nextToken := paginateList(recs, in.PageSize, in.NextPageToken,
+		func(RightsizingRecommendation) string { return "" })
+	recs = page
 
 	summary := map[string]string{
 		"TotalRecommendationCount":           strconv.Itoa(len(recs)),
@@ -265,6 +323,7 @@ func (h *Handler) handleGetRightsizingRecommendation(
 
 	return &getRightsizingRecommendationOutput{
 		RightsizingRecommendations: recs,
+		NextPageToken:              nextToken,
 		Summary:                    summary,
 		Configuration:              config,
 	}, nil

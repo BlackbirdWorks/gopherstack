@@ -34,10 +34,16 @@ func TestCreateEventBusAlreadyExists(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "dup-bus"})
+	_, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "dup-bus"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "dup-bus"})
+	_, err = b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "dup-bus"},
+	)
 	require.ErrorIs(t, err, eventbridge.ErrEventBusAlreadyExists)
 }
 
@@ -45,7 +51,10 @@ func TestDeleteEventBus(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "to-delete"})
+	_, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "to-delete"},
+	)
 	require.NoError(t, err)
 
 	err = b.DeleteEventBus(context.Background(), "to-delete")
@@ -94,7 +103,10 @@ func TestListEventBuses(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			for _, name := range tt.setupBuses {
-				_, _ = b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: name})
+				_, _ = b.CreateEventBus(
+					context.Background(),
+					eventbridge.CreateEventBusParams{Name: name},
+				)
 			}
 
 			buses, next, err := b.ListEventBuses(context.Background(), tt.prefix, "", 0)
@@ -161,7 +173,11 @@ func TestDescribeRule(t *testing.T) {
 
 	_, err := b.PutRule(
 		context.Background(),
-		eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`},
+		eventbridge.PutRuleInput{
+			Name:         "r1",
+			Description:  "desc",
+			EventPattern: `{"source":["test"]}`,
+		},
 	)
 	require.NoError(t, err)
 
@@ -194,7 +210,11 @@ func TestEnableDisableRule(t *testing.T) {
 
 	_, err := b.PutRule(
 		context.Background(),
-		eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`},
+		eventbridge.PutRuleInput{
+			Name:         "toggle-rule",
+			State:        "ENABLED",
+			EventPattern: `{"source":["test"]}`,
+		},
 	)
 	require.NoError(t, err)
 
@@ -319,8 +339,11 @@ func TestPutRule(t *testing.T) {
 		wantState string
 	}{
 		{
-			name:      "DefaultState",
-			input:     eventbridge.PutRuleInput{Name: "no-state-rule", EventPattern: `{"source":["test"]}`},
+			name: "DefaultState",
+			input: eventbridge.PutRuleInput{
+				Name:         "no-state-rule",
+				EventPattern: `{"source":["test"]}`,
+			},
 			wantState: "ENABLED",
 		},
 		{
@@ -396,7 +419,10 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Create a user-defined event bus and a rule.
-	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "user-bus"})
+	_, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "user-bus"},
+	)
 	require.NoError(t, err)
 
 	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
@@ -446,7 +472,12 @@ func newBlockedLambdaInvoker() *blockedLambdaInvoker {
 	}
 }
 
-func (h *blockedLambdaInvoker) InvokeFunction(_ context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
+func (h *blockedLambdaInvoker) InvokeFunction(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ []byte,
+) ([]byte, int, error) {
 	h.once.Do(func() { close(h.started) })
 	<-h.exit
 
@@ -520,9 +551,14 @@ func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing
 			})
 			require.NoError(t, err)
 
-			_, err = b.PutTargets(context.Background(), "hung-rule", "default", []eventbridge.Target{
-				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
-			})
+			_, err = b.PutTargets(
+				context.Background(),
+				"hung-rule",
+				"default",
+				[]eventbridge.Target{
+					{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
+				},
+			)
 			require.NoError(t, err)
 
 			b.PutEvents(context.Background(), []eventbridge.EventEntry{
@@ -590,9 +626,14 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = b.PutTargets(context.Background(), "timeout-rule", "default", []eventbridge.Target{
-				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
-			})
+			_, err = b.PutTargets(
+				context.Background(),
+				"timeout-rule",
+				"default",
+				[]eventbridge.Target{
+					{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
+				},
+			)
 			require.NoError(t, err)
 
 			b.PutEvents(context.Background(), []eventbridge.EventEntry{
@@ -707,9 +748,14 @@ func TestPutRule_RuleIndexUpdatedOnRuleUpdate(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets(context.Background(), "idx-rule", "default", []eventbridge.Target{
-				{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:index-queue"},
-			})
+			_, err = backend.PutTargets(
+				context.Background(),
+				"idx-rule",
+				"default",
+				[]eventbridge.Target{
+					{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:index-queue"},
+				},
+			)
 			require.NoError(t, err)
 
 			_, err = backend.PutRule(context.Background(), eventbridge.PutRuleInput{
@@ -725,7 +771,9 @@ func TestPutRule_RuleIndexUpdatedOnRuleUpdate(t *testing.T) {
 			})
 
 			require.Eventually(t, func() bool {
-				return len(sqsSender.MessagesFor("arn:aws:sqs:us-east-1:123456789012:index-queue")) == 1
+				return len(
+					sqsSender.MessagesFor("arn:aws:sqs:us-east-1:123456789012:index-queue"),
+				) == 1
 			}, 2*time.Second, 10*time.Millisecond)
 		})
 	}
@@ -794,7 +842,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list archives empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListArchives(context.Background(), "", "", "", "")
+		got, next, err := b.ListArchives(context.Background(), "", "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -803,7 +851,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list connections empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListConnections(context.Background(), "", "")
+		got, next, err := b.ListConnections(context.Background(), "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -812,7 +860,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list endpoints empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListEndpoints(context.Background(), "", "")
+		got, next, err := b.ListEndpoints(context.Background(), "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -821,7 +869,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list replays empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListReplays(context.Background(), "", "", "", "")
+		got, next, err := b.ListReplays(context.Background(), "", "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -830,7 +878,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list API destinations empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListAPIDestinations(context.Background(), "", "")
+		got, next, err := b.ListAPIDestinations(context.Background(), "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -839,7 +887,13 @@ func TestListPagination(t *testing.T) {
 	t.Run("list rule names by target with no targets returns empty", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, _, err := b.ListRuleNamesByTarget(context.Background(), "arn:aws:lambda:us-east-1:123:function:fn", "", "")
+		got, _, err := b.ListRuleNamesByTarget(
+			context.Background(),
+			"arn:aws:lambda:us-east-1:123:function:fn",
+			"",
+			"",
+			0,
+		)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -856,7 +910,9 @@ func TestSeedHelpers(t *testing.T) {
 	b.AddArchiveInternal(&eventbridge.Archive{ArchiveName: "a1"})
 	b.AddConnectionInternal(&eventbridge.Connection{Name: "c1"})
 	b.AddEndpointInternal(&eventbridge.Endpoint{Name: "e1"})
-	b.AddEventSourceInternal(&eventbridge.EventSource{Name: "es1", State: "PENDING", CreationTime: now})
+	b.AddEventSourceInternal(
+		&eventbridge.EventSource{Name: "es1", State: "PENDING", CreationTime: now},
+	)
 	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "RUNNING"})
 	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{Name: "p1"})
 
@@ -924,7 +980,10 @@ func TestBackend_ConcurrentReadNoRace(t *testing.T) {
 		{
 			name: "get_event_bus_policy",
 			setup: func(b *eventbridge.InMemoryBackend, ctx context.Context) {
-				_, err := b.CreateEventBus(ctx, eventbridge.CreateEventBusParams{Name: "concurrent-bus"})
+				_, err := b.CreateEventBus(
+					ctx,
+					eventbridge.CreateEventBusParams{Name: "concurrent-bus"},
+				)
 				require.NoError(t, err)
 			},
 			call: func(b *eventbridge.InMemoryBackend, ctx context.Context) error {

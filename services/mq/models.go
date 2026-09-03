@@ -63,6 +63,7 @@ const (
 // BrokerInstance holds endpoint information for a broker instance.
 type BrokerInstance struct {
 	ConsoleURL string   `json:"consoleURL"`
+	IPAddress  string   `json:"ipAddress,omitempty"`
 	Endpoints  []string `json:"endpoints"`
 }
 
@@ -170,8 +171,11 @@ type Broker struct {
 	BrokerInstances            []BrokerInstance         `json:"brokerInstances,omitempty"`
 	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
 	SubnetIDs                  []string                 `json:"subnetIds,omitempty"`
+	PendingResourceShareArns   []string                 `json:"pendingResourceShareArns,omitempty"`
 	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
 	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
+	StorageSize                int32                    `json:"storageSize,omitempty"`
+	PendingStorageSize         int32                    `json:"pendingStorageSize,omitempty"`
 }
 
 // EncryptionOptions configures KMS encryption for an Amazon MQ broker.
@@ -278,17 +282,18 @@ type ConfigurationRevision struct {
 // backendSnapshot.Tags and re-linked by reestablishTagPointers so the
 // b.tags[arn]/cfg.Tags shared-pointer invariant survives a restore.
 type Configuration struct {
-	Tags           map[string]string       `json:"-"`
-	Data           map[int32]string        `json:"data,omitempty"`
-	LatestRevision *ConfigurationRevision  `json:"latestRevision"`
-	Arn            string                  `json:"arn"`
-	ID             string                  `json:"id"`
-	Name           string                  `json:"name"`
-	Description    string                  `json:"description"`
-	EngineType     string                  `json:"engineType"`
-	EngineVersion  string                  `json:"engineVersion"`
-	Created        string                  `json:"created"`
-	Revisions      []ConfigurationRevision `json:"revisions,omitempty"`
+	Tags                   map[string]string       `json:"-"`
+	Data                   map[int32]string        `json:"data,omitempty"`
+	LatestRevision         *ConfigurationRevision  `json:"latestRevision"`
+	Arn                    string                  `json:"arn"`
+	ID                     string                  `json:"id"`
+	Name                   string                  `json:"name"`
+	Description            string                  `json:"description"`
+	EngineType             string                  `json:"engineType"`
+	EngineVersion          string                  `json:"engineVersion"`
+	Created                string                  `json:"created"`
+	AuthenticationStrategy string                  `json:"authenticationStrategy,omitempty"`
+	Revisions              []ConfigurationRevision `json:"revisions,omitempty"`
 }
 
 // CreateBrokerOptions carries optional configuration for CreateBrokerWithOptions.
@@ -312,6 +317,9 @@ type CreateBrokerOptions struct {
 	// client reading DescribeBroker back sees its own request echoed.
 	DataReplicationMode             string
 	DataReplicationPrimaryBrokerArn string
+	// StorageSize is CreateBrokerInput.StorageSize (the broker's storage
+	// size in GB). Zero means "not specified".
+	StorageSize int32
 }
 
 // UpdateBrokerOptions carries optional fields for UpdateBrokerWithOptions.
@@ -323,6 +331,17 @@ type UpdateBrokerOptions struct {
 	Configuration              *ConfigurationID
 	AuthenticationStrategy     string
 	DataReplicationMode        string
+	// ResourceShareArns is UpdateBrokerInput.ResourceShareArns ("The list
+	// of resource shares to update on the broker"). This backend does not
+	// model AWS RAM resource sharing (see DescribeSharedResources), so the
+	// list is accepted and echoed back on UpdateBrokerOutput.ResourceShareArns
+	// without any real sharing behavior -- the same accept-and-echo
+	// treatment already given to DataReplicationMode/CRDR.
+	ResourceShareArns []string
+	// StorageSize is UpdateBrokerInput.StorageSize. Like EngineVersion/
+	// HostInstanceType, it stages into Broker.PendingStorageSize and only
+	// takes effect on the next reboot (DescribeBrokerOutput.PendingStorageSize).
+	StorageSize int32
 }
 
 // EngineVersion holds a single engine version entry.

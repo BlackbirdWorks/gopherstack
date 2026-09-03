@@ -3,6 +3,7 @@ package elasticache
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -60,10 +61,34 @@ func builtinReservedOfferings() []ReservedCacheNodesOffering {
 	}
 }
 
+// matchesReservedDuration reports whether filterValue (as sent in the
+// Duration request field) matches storedSeconds. AWS accepts "1"/"3" (years)
+// or the equivalent raw seconds -- "31536000"/"94608000"
+// (elasticache@v1.56.4 api_op_DescribeReservedCacheNodes.go: "Valid Values: 1
+// | 3 | 31536000 | 94608000").
+func matchesReservedDuration(filterValue string, storedSeconds int32) bool {
+	if filterValue == "" {
+		return true
+	}
+
+	const secondsPerYear = 365 * 24 * 60 * 60
+
+	switch filterValue {
+	case "1":
+		return storedSeconds == secondsPerYear
+	case "3":
+		return storedSeconds == 3*secondsPerYear
+	default:
+		n, err := strconv.ParseInt(filterValue, 10, 32)
+
+		return err == nil && int32(n) == storedSeconds
+	}
+}
+
 // DescribeReservedCacheNodes returns a paginated list of reserved cache nodes.
 func (b *InMemoryBackend) DescribeReservedCacheNodes(
 	ctx context.Context,
-	id, cacheNodeType, offeringType, marker string,
+	id, cacheNodeType, offeringType, duration, productDescription, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNode], error) {
 	b.mu.RLock("DescribeReservedCacheNodes")
@@ -77,7 +102,9 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 		ErrReservedCacheNodeNotFound,
 		func(rcn ReservedCacheNode) bool {
 			return (cacheNodeType == "" || rcn.CacheNodeType == cacheNodeType) &&
-				(offeringType == "" || rcn.OfferingType == offeringType)
+				(offeringType == "" || rcn.OfferingType == offeringType) &&
+				matchesReservedDuration(duration, rcn.Duration) &&
+				(productDescription == "" || rcn.ProductDescription == productDescription)
 		},
 		func(rcn ReservedCacheNode) string { return rcn.ReservedCacheNodeID },
 		marker,
@@ -88,7 +115,7 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 // DescribeReservedCacheNodesOfferings returns a paginated list of reserved cache node offerings.
 func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
 	_ context.Context,
-	offeringID, cacheNodeType, offeringType, marker string,
+	offeringID, cacheNodeType, offeringType, duration, productDescription, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNodesOffering], error) {
 	b.mu.RLock("DescribeReservedCacheNodesOfferings")
@@ -112,6 +139,12 @@ func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
 			continue
 		}
 		if offeringType != "" && o.OfferingType != offeringType {
+			continue
+		}
+		if !matchesReservedDuration(duration, o.Duration) {
+			continue
+		}
+		if productDescription != "" && o.ProductDescription != productDescription {
 			continue
 		}
 		filtered = append(filtered, o)

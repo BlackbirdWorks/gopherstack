@@ -395,3 +395,76 @@ func TestManagedRuleSet_RequiredFieldValidation(t *testing.T) {
 }
 
 // ---- Mobile SDK release catalog ---------------------------------------------
+
+// TestListManagedRuleSets_DuplicateNamePagination proves that
+// handleListManagedRuleSets can drop a record when two ManagedRuleSets share
+// a Name: PutManagedRuleSetVersions keys strictly on the caller-supplied Id
+// (managed_rule_sets.go's PutManagedRuleSetVersions has no "name already
+// exists" check, unlike CreateWebACL/CreateIPSet/CreateRegexPatternSet/
+// CreateRuleGroup's webACLsByNameScope-style dedup), so Name is not a total
+// order the way it is for those four families. handleListManagedRuleSets
+// still paginates with paginateByName -- an equality/marker cursor that
+// skips every item whose name is <= the marker (handler.go's
+// skipToLoggingConfigMarker sibling) -- so once a page boundary falls inside
+// a same-name tie group, every remaining item in that tie group is skipped
+// on the next page, deterministically, not just map-order-dependently: one
+// walk is enough to prove it (see CLAUDE.md's pagination-audit "HOW TO
+// PROVE A BUG" note on marker cursors).
+func TestListManagedRuleSets_DuplicateNamePagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	const dupName = "dup-managed-ruleset"
+
+	for _, id := range []string{"ms-1", "ms-2", "ms-3"} {
+		rec := doWafv2Request(t, h, "PutManagedRuleSetVersions", map[string]any{
+			"Id":    id,
+			"Name":  dupName,
+			"Scope": "REGIONAL",
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "PutManagedRuleSetVersions(%s): %s", id, rec.Body.String())
+	}
+
+	seen := map[string]bool{}
+	nextMarker := ""
+
+	for range 5 {
+		req := map[string]any{"Scope": "REGIONAL", "Limit": 2}
+		if nextMarker != "" {
+			req["NextMarker"] = nextMarker
+		}
+
+		rec := doWafv2Request(t, h, "ListManagedRuleSets", req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		items, _ := resp["ManagedRuleSets"].([]any)
+		for _, item := range items {
+			id, _ := item.(map[string]any)["Id"].(string)
+			seen[id] = true
+		}
+
+		nextMarker, _ = resp["NextMarker"].(string)
+		if nextMarker == "" {
+			break
+		}
+	}
+
+	assert.ElementsMatch(
+		t, []string{"ms-1", "ms-2", "ms-3"}, mapKeys(seen),
+		"paginating through all pages must reproduce every ManagedRuleSet exactly once, "+
+			"even when several share a Name",
+	)
+}
+
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+
+	return out
+}

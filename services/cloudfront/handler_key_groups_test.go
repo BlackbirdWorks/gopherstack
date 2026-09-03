@@ -256,9 +256,12 @@ func TestKeyGroupItemValidation(t *testing.T) {
 		wantCode int
 	}{
 		{
+			// CreateKeyGroup's own deserializer (cloudfront@v1.67.4
+			// deserializers.go) has no NoSuchPublicKey case -- this is
+			// InvalidArgument (400), not 404.
 			name:     "nonexistent_key_id_rejected",
 			items:    []string{"pk-doesnotexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -854,4 +857,56 @@ func TestInMemoryBackend_KeyGroup(t *testing.T) {
 			tt.run(t, b)
 		})
 	}
+}
+
+// TestListPublicKeys_ItemShape_RealClient is a regression test for gopherstack-21my:
+// ListPublicKeys' item struct (pkSummaryXML, handler_key_groups.go) omitted EncodedKey
+// entirely, even though the real PublicKeySummary deserializer
+// (awsRestxml_deserializeDocumentPublicKeySummary) reads it and the sibling GetPublicKey
+// (publicKeyResponseXML) already emits it correctly from the same backing
+// PublicKey.EncodedKey field -- the "Get right, List wrong" trap. Seeds two public keys
+// with distinguishable Name/Comment and asserts EncodedKey round-trips non-empty for both.
+func TestListPublicKeys_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(ref, name, comment string) *cfsdk.CreatePublicKeyOutput {
+		out, err := client.CreatePublicKey(t.Context(), &cfsdk.CreatePublicKeyInput{
+			PublicKeyConfig: &types.PublicKeyConfig{
+				CallerReference: aws.String(ref),
+				EncodedKey:      aws.String(testRSA2048PublicKeyPEM),
+				Name:            aws.String(name),
+				Comment:         aws.String(comment),
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("ref-pk-list-shape-1", "list-shape-pk-1", "first key")
+	second := mk("ref-pk-list-shape-2", "list-shape-pk-2", "second key")
+
+	listed, err := client.ListPublicKeys(t.Context(), &cfsdk.ListPublicKeysInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.PublicKeyList)
+	require.Len(t, listed.PublicKeyList.Items, 2)
+
+	byID := make(map[string]types.PublicKeySummary, 2)
+	for _, item := range listed.PublicKeyList.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.PublicKey.Id]
+	require.True(t, ok)
+	assert.Equal(t, "first key", aws.ToString(item1.Comment))
+	assert.Equal(t, testRSA2048PublicKeyPEM, aws.ToString(item1.EncodedKey))
+
+	item2, ok := byID[*second.PublicKey.Id]
+	require.True(t, ok)
+	assert.Equal(t, "second key", aws.ToString(item2.Comment))
+	assert.Equal(t, testRSA2048PublicKeyPEM, aws.ToString(item2.EncodedKey))
 }

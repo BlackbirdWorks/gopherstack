@@ -406,8 +406,10 @@ func (b *InMemoryBackend) paginateClusters(
 	start := 0
 
 	if nextToken != "" {
+		start = len(all)
+
 		for i, c := range all {
-			if c.ClusterName == nextToken {
+			if c.ClusterName >= nextToken {
 				start = i
 
 				break

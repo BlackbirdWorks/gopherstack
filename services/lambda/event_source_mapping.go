@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -160,16 +161,17 @@ type jsonESMResponse struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig,omitempty"`   //nolint:lll // AWS field name
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource,omitempty"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig,omitempty"`
+	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
 	UUID                                string                               `json:"UUID"`
-	EventSourceARN                      string                               `json:"EventSourceArn"`
 	FunctionARN                         string                               `json:"FunctionArn"`
 	State                               string                               `json:"State"`
+	EventSourceARN                      string                               `json:"EventSourceArn"`
 	StartingPosition                    string                               `json:"StartingPosition,omitempty"`
-	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
+	Queues                              []string                             `json:"Queues,omitempty"`
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
 	Topics                              []string                             `json:"Topics,omitempty"`
-	Queues                              []string                             `json:"Queues,omitempty"`
 	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes,omitempty"`
+	LastModified                        float64                              `json:"LastModified"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"` //nolint:lll // AWS field name
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds,omitempty"`
@@ -192,6 +194,7 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		EventSourceARN:                      m.EventSourceARN,
 		FunctionARN:                         m.FunctionARN,
 		State:                               string(m.State),
+		LastModified:                        awstime.Epoch(m.LastModified),
 		BatchSize:                           m.BatchSize,
 		StartingPosition:                    m.StartingPosition,
 		LastProcessingResult:                m.LastProcessingResult,

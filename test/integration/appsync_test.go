@@ -33,12 +33,24 @@ func TestIntegration_AppSync_CRUD(t *testing.T) {
 	createOut, err := client.CreateGraphqlApi(ctx, &appsyncsdkv2.CreateGraphqlApiInput{
 		Name:               aws.String("integration-test-api"),
 		AuthenticationType: appsyncsdktypes.AuthenticationTypeApiKey,
+		OwnerContact:       aws.String("team-a@example.com"),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, createOut.GraphqlApi)
 	apiID := aws.ToString(createOut.GraphqlApi.ApiId)
 	assert.NotEmpty(t, apiID)
 	assert.Equal(t, "integration-test-api", aws.ToString(createOut.GraphqlApi.Name))
+	assert.Equal(t, "team-a@example.com", aws.ToString(createOut.GraphqlApi.OwnerContact))
+
+	// UpdateGraphqlApi — OwnerContact round-trips through an update too.
+	updateOut, err := client.UpdateGraphqlApi(ctx, &appsyncsdkv2.UpdateGraphqlApiInput{
+		ApiId:              aws.String(apiID),
+		Name:               aws.String("integration-test-api"),
+		AuthenticationType: appsyncsdktypes.AuthenticationTypeApiKey,
+		OwnerContact:       aws.String("team-b@example.com"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "team-b@example.com", aws.ToString(updateOut.GraphqlApi.OwnerContact))
 
 	// Get API.
 	getOut, err := client.GetGraphqlApi(ctx, &appsyncsdkv2.GetGraphqlApiInput{
@@ -46,6 +58,7 @@ func TestIntegration_AppSync_CRUD(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, apiID, aws.ToString(getOut.GraphqlApi.ApiId))
+	assert.Equal(t, "team-b@example.com", aws.ToString(getOut.GraphqlApi.OwnerContact))
 
 	// List APIs — should include our API.
 	listOut, err := client.ListGraphqlApis(ctx, &appsyncsdkv2.ListGraphqlApisInput{})

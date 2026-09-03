@@ -3,6 +3,11 @@ package workspaces_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/aws/aws-sdk-go-v2/service/workspaces/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConnectionAliasCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -97,4 +102,107 @@ func TestConnectionAliasCRUD(t *testing.T) { //nolint:paralleltest // existing i
 			}
 		})
 	}
+}
+
+// TestDescribeConnectionAliases_Pagination proves the op pages through every
+// connection alias exactly once instead of returning them all on a single
+// page with no cursor.
+func TestDescribeConnectionAliases_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	strs := []string{"alias-a.example.com", "alias-b.example.com", "alias-c.example.com"}
+	for _, s := range strs {
+		_, err := client.CreateConnectionAlias(ctx, &wssdk.CreateConnectionAliasInput{
+			ConnectionString: aws.String(s),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.DescribeConnectionAliases(ctx, &wssdk.DescribeConnectionAliasesInput{
+		Limit: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ConnectionAliases, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more aliases remain")
+
+	page2, err := client.DescribeConnectionAliases(ctx, &wssdk.DescribeConnectionAliasesInput{
+		Limit:     aws.Int32(2),
+		NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ConnectionAliases, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, a := range page1.ConnectionAliases {
+		seen[aws.ToString(a.AliasId)] = true
+	}
+
+	for _, a := range page2.ConnectionAliases {
+		id := aws.ToString(a.AliasId)
+		require.False(t, seen[id], "alias %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(strs))
+}
+
+// TestDescribeConnectionAliasPermissions_Pagination proves the op pages
+// through every shared-account permission exactly once instead of returning
+// them all on a single page with no cursor.
+func TestDescribeConnectionAliasPermissions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	createOut, err := client.CreateConnectionAlias(ctx, &wssdk.CreateConnectionAliasInput{
+		ConnectionString: aws.String("perms.example.com"),
+	})
+	require.NoError(t, err)
+
+	accounts := []string{"111111111111", "222222222222", "333333333333"}
+	for _, acct := range accounts {
+		_, updateErr := client.UpdateConnectionAliasPermission(ctx, &wssdk.UpdateConnectionAliasPermissionInput{
+			AliasId: createOut.AliasId,
+			ConnectionAliasPermission: &types.ConnectionAliasPermission{
+				SharedAccountId:  aws.String(acct),
+				AllowAssociation: aws.Bool(true),
+			},
+		})
+		require.NoError(t, updateErr)
+	}
+
+	page1, err := client.DescribeConnectionAliasPermissions(ctx, &wssdk.DescribeConnectionAliasPermissionsInput{
+		AliasId:    createOut.AliasId,
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ConnectionAliasPermissions, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more permissions remain")
+
+	page2, err := client.DescribeConnectionAliasPermissions(ctx, &wssdk.DescribeConnectionAliasPermissionsInput{
+		AliasId:    createOut.AliasId,
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ConnectionAliasPermissions, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, p := range page1.ConnectionAliasPermissions {
+		seen[aws.ToString(p.SharedAccountId)] = true
+	}
+
+	for _, p := range page2.ConnectionAliasPermissions {
+		acct := aws.ToString(p.SharedAccountId)
+		require.False(t, seen[acct], "account %s returned on both pages", acct)
+		seen[acct] = true
+	}
+
+	require.Len(t, seen, len(accounts))
 }

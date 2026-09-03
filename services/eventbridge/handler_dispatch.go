@@ -453,7 +453,7 @@ func (h *Handler) handleError(
 	case errors.Is(reqErr, ErrEventBusAlreadyExists), errors.Is(reqErr, ErrAlreadyExists):
 		errType = "ResourceAlreadyExistsException"
 		statusCode = http.StatusConflict
-	case errors.Is(reqErr, ErrCannotDeleteDefaultBus):
+	case errors.Is(reqErr, ErrCannotDeleteDefaultBus), errors.Is(reqErr, ErrReplayNotCancellable):
 		errType = "IllegalStatusException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidParameter):

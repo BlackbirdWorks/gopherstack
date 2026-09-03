@@ -2,6 +2,9 @@ package kafka
 
 import (
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // ListClusterOperations returns all cluster operations for a cluster.
@@ -44,6 +47,7 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 	}
 
 	clusterOperationArn := b.clusterOperationARN(region, clusterArn)
+	now := time.Now().UTC().Format(time.RFC3339)
 	op := &ClusterOperation{
 		ClusterOperationArn: clusterOperationArn,
 		ClusterArn:          clusterArn,
@@ -51,6 +55,9 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 		OperationState:      ClusterOperationStateUpdateComplete,
 		SourceClusterInfo:   source,
 		TargetClusterInfo:   target,
+		ClientRequestID:     uuid.New().String(),
+		CreationTime:        now,
+		EndTime:             now,
 	}
 	b.clusterOperations.Put(op)
 
@@ -82,11 +89,15 @@ func (b *InMemoryBackend) AddClusterOperationInternal(
 
 	region := regionFromARN(clusterArn, b.region)
 	clusterOperationArn := b.clusterOperationARN(region, clusterArn)
+	now := time.Now().UTC().Format(time.RFC3339)
 	op := &ClusterOperation{
 		ClusterOperationArn: clusterOperationArn,
 		ClusterArn:          clusterArn,
 		OperationType:       operationType,
 		OperationState:      ClusterOperationStateUpdateComplete,
+		ClientRequestID:     uuid.New().String(),
+		CreationTime:        now,
+		EndTime:             now,
 	}
 	b.clusterOperations.Put(op)
 
@@ -102,5 +113,8 @@ func cloneClusterOperation(op *ClusterOperation) *ClusterOperation {
 		OperationState:      op.OperationState,
 		SourceClusterInfo:   cloneMutableClusterInfo(op.SourceClusterInfo),
 		TargetClusterInfo:   cloneMutableClusterInfo(op.TargetClusterInfo),
+		ClientRequestID:     op.ClientRequestID,
+		CreationTime:        op.CreationTime,
+		EndTime:             op.EndTime,
 	}
 }

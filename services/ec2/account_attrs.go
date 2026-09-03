@@ -148,9 +148,12 @@ func (b *InMemoryBackend) DescribeAggregateIDFormat() []IDFormatItem {
 	return b.DescribeIDFormat(nil)
 }
 
-// DescribePrincipalIDFormat returns ID format for a principal (same as aggregate here).
-func (b *InMemoryBackend) DescribePrincipalIDFormat(_ string) []IDFormatItem {
-	return b.DescribeIDFormat(nil)
+// DescribePrincipalIDFormat returns ID format settings for the calling
+// principal, optionally filtered by resource type
+// (DescribePrincipalIdFormatInput has no principal-ARN parameter at all --
+// the operation always describes the caller -- only a Resources filter).
+func (b *InMemoryBackend) DescribePrincipalIDFormat(resources []string) []IDFormatItem {
+	return b.DescribeIDFormat(resources)
 }
 
 // ---- Instance event notification attributes ----

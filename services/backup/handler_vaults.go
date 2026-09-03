@@ -106,7 +106,7 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	f := ListVaultsFilter{
-		VaultType:  q.Get("byVaultType"),
+		VaultType:  q.Get("vaultType"),
 		NextToken:  q.Get("nextToken"),
 		MaxResults: parseInt(q.Get("maxResults")),
 	}

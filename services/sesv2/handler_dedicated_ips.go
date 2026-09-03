@@ -3,6 +3,7 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -16,10 +17,21 @@ func (h *Handler) handleGetDedicatedIP(ip string) (any, error) {
 	return map[string]any{"DedicatedIp": info}, nil
 }
 
-func (h *Handler) handleGetDedicatedIps() (any, error) {
-	ips := h.Backend.GetDedicatedIps()
+func (h *Handler) handleGetDedicatedIps(c *echo.Context) (any, error) {
+	poolName := c.QueryParam("PoolName")
+	nextToken := c.QueryParam("NextToken")
 
-	return map[string]any{"DedicatedIps": ips}, nil
+	pageSize := 0
+	if v := c.QueryParam("PageSize"); v != "" {
+		pageSize, _ = strconv.Atoi(v)
+	}
+
+	pg := h.Backend.GetDedicatedIps(poolName, nextToken, pageSize)
+
+	return map[string]any{
+		"DedicatedIps": pg.Data,
+		keyNextToken:   pg.Next,
+	}, nil
 }
 
 type putDedicatedIPInPoolInput struct {

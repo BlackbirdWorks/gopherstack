@@ -153,10 +153,11 @@ type ResolverRule struct {
 
 // TargetIP represents a forwarding target IP for a resolver rule.
 type TargetIP struct {
-	IP       string `json:"ip"`
-	Ipv6     string `json:"ipv6,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
-	Port     int32  `json:"port"`
+	IP                   string `json:"ip"`
+	Ipv6                 string `json:"ipv6,omitempty"`
+	Protocol             string `json:"protocol,omitempty"`
+	ServerNameIndication string `json:"serverNameIndication,omitempty"`
+	Port                 int32  `json:"port"`
 }
 
 // FirewallRuleGroup represents a DNS Firewall rule group.
@@ -268,6 +269,9 @@ type OutpostResolver struct {
 	OutpostARN            string `json:"outpostArn"`
 	PreferredInstanceType string `json:"preferredInstanceType"`
 	Status                string `json:"status"`
+	StatusMessage         string `json:"statusMessage,omitempty"`
+	CreationTime          string `json:"creationTime,omitempty"`
+	ModificationTime      string `json:"modificationTime,omitempty"`
 	// Region -- see FirewallRuleGroup.Region doc comment.
 	Region        string       `json:"region"`
 	Tags          []svcTags.KV `json:"tags,omitempty"`

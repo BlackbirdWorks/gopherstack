@@ -61,7 +61,7 @@ func (h *Handler) handleBatchGetApplicationRevisions(
 	in *batchGetApplicationRevisionsInput,
 ) (*batchGetApplicationRevisionsOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	backendRevisions := make([]RevisionLocation, 0, len(in.Revisions))
@@ -103,7 +103,7 @@ func (h *Handler) handleRegisterApplicationRevision(
 	in *registerApplicationRevisionInput,
 ) (*registerApplicationRevisionOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	if err := h.Backend.RegisterApplicationRevision(
@@ -131,7 +131,7 @@ func (h *Handler) handleGetApplicationRevision(
 	in *getApplicationRevisionInput,
 ) (*getApplicationRevisionOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	rev, err := h.Backend.GetApplicationRevision(in.ApplicationName, *revisionFromWire(&in.Revision))
@@ -164,7 +164,7 @@ func (h *Handler) handleListApplicationRevisions(
 	in *listApplicationRevisionsInput,
 ) (*listApplicationRevisionsOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	revs, err := h.Backend.ListApplicationRevisions(in.ApplicationName, RevisionListFilter{

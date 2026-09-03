@@ -83,7 +83,13 @@ func (b *InMemoryBackend) ListAgentAliases(
 		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].AgentAliasName < list[j].AgentAliasName })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].AgentAliasName != list[j].AgentAliasName {
+			return list[i].AgentAliasName < list[j].AgentAliasName
+		}
+
+		return list[i].AgentAliasID < list[j].AgentAliasID
+	})
 
 	return paginate(list, maxResults, nextToken)
 }

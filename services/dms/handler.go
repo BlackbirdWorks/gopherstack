@@ -386,6 +386,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			Type:    "ResourceNotFoundFault",
 			Message: err.Error(),
 		})
+	case errors.Is(err, ErrCollectorNotFound):
+
+		return c.JSON(http.StatusNotFound, service.JSONErrorResponse{
+			Type:    "CollectorNotFoundFault",
+			Message: err.Error(),
+		})
 	case errors.Is(err, ErrAlreadyExists):
 
 		return c.JSON(http.StatusConflict, service.JSONErrorResponse{

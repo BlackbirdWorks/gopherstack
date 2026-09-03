@@ -1,6 +1,8 @@
 package datasync_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -138,4 +140,41 @@ func TestNotFound_TypesAsInvalidRequestException_RealClient(t *testing.T) {
 
 	var invalidRequest *types.InvalidRequestException
 	require.ErrorAs(t, err, &invalidRequest)
+}
+
+// TestListLocations_NoFabricatedCreationTime covers an invented-field bug:
+// types.LocationListEntry (datasync@v1.61.4 api_op_ListLocations.go) has
+// exactly two members, LocationArn and LocationUri -- no CreationTime.
+// gopherstack's per-item response emitted an extra "CreationTime" key that
+// doesn't exist on the real wire (harmless to a typed client, which ignores
+// unknown JSON fields, but incorrect against the real shape). Asserted on
+// the raw body since the typed SDK response has no field to read it into.
+func TestListLocations_NoFabricatedCreationTime(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateLocationS3", map[string]any{
+		"S3BucketArn":  "arn:aws:s3:::wfx-bucket",
+		"Subdirectory": "/",
+		"S3Config": map[string]any{
+			"BucketAccessRoleArn": "arn:aws:iam::000000000000:role/Role",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	listRec := doRequest(t, h, "ListLocations", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
+
+	var resp struct {
+		Locations []map[string]any `json:"Locations"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.Len(t, resp.Locations, 1, "must exercise a non-empty collection")
+
+	_, hasCreationTime := resp.Locations[0]["CreationTime"]
+	assert.False(t, hasCreationTime,
+		"ListLocations: LocationListEntry has no CreationTime member on the real wire")
+	assert.Contains(t, resp.Locations[0], "LocationArn")
+	assert.Contains(t, resp.Locations[0], "LocationUri")
 }

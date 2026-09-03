@@ -3,8 +3,31 @@ service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.77.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
 last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321  # pass #4; pass #5 below is uncommitted at write time
-last_audit_date: 2026-08-13
-overall: A            # 2026-08-21 (gopherstack-c8ge): fixed two singleton-configs-with-no-Create-op
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
+                       # filter/sort constraints across the certificate, policy, authorizer,
+                       # role-alias, stream, and audit-suppression families were never read or
+                       # never plumbed through at all. ListCertificates/ListCACertificates/
+                       # ListCertificatesByCA/ListCertificateProviders never applied AscendingOrder
+                       # or pageSize/marker pagination (ListCACertificates also never applied its
+                       # TemplateName filter); ListPolicies read the WRONG pagination query keys
+                       # (maxResults/nextToken instead of the real pageSize/marker) and never sorted
+                       # by creation date; ListAuthorizers/ListRoleAliases/ListStreams never applied
+                       # AscendingOrder or pagination at all (ListAuthorizers also never applied its
+                       # Status filter); ListAuditSuppressions read NO request fields whatsoever
+                       # (CheckName/ResourceIdentifier/MaxResults/NextToken/AscendingOrder all
+                       # silently ignored). Fixing ListPrincipalPolicies' AscendingOrder surfaced a
+                       # separate, more severe wire bug found along the way: it read the Principal
+                       # from the WRONG header (X-Amzn-Principal instead of the real
+                       # X-Amzn-Iot-Principal), so every real client's request principal was
+                       # silently dropped and the op always returned empty -- a pre-existing test
+                       # sent the same wrong header and could never have caught it. ListPolicyPrincipals'
+                       # AscendingOrder was left unimplemented and documented as a genuine structural
+                       # gap: it returns bare principal strings with no per-attachment creation
+                       # timestamp anywhere in this backend to sort by. ListOutgoingCertificates was
+                       # verified already correct. See the ops: entries below for full detail.
+                       #
+                       # --- 2026-08-21 (gopherstack-c8ge) --- fixed two singleton-configs-with-no-Create-op
                        # merge bugs -- UpdateAccountAuditConfiguration and UpdatePackageConfiguration both
                        # wholesale-replaced a stored map with whatever the request carried instead of
                        # merging per key, so naming one check/field in a call silently reset every
@@ -160,7 +183,7 @@ ops:
   CreatePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "creationDate/lastModifiedDate were raw time.Time (RFC3339 string) instead of epoch-seconds; fixed via awstime.Epoch"}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): two bugs. (1) binding trap -- handler read maxResults/nextToken (parseIoTPagination) but the real wire binding is pageSize/marker (serializers.go awsRestjson1_serializeOpHttpBindingsListPoliciesInput), so a real client's pageSize/marker were silently ignored; switched to parseIoTMarkerPagination. (2) AscendingOrder (\"results are returned in ascending creation order\") was never read at all -- results were always name-sorted (ListPolicies() default), not by CreatedAt; now sorted by CreatedAt per the flag."}
   CreatePolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response was missing policyArn (real CreatePolicyVersionOutput has it); fixed"}
   GetPolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "used wrong date field name \"createDate\" (real GetPolicyVersionOutput uses \"creationDate\", verified against v1.76.0's awsRestjson1_deserializeOpDocumentGetPolicyVersionOutput -- \"createDate\" is only correct for the ListPolicyVersions summary shape) and was missing generationId/lastModifiedDate + epoch encoding; fixed, added GenerationID to the PolicyVersion domain type"}
   ListPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "createDate was a raw time.Time; fixed via awstime.Epoch"}
@@ -175,7 +198,17 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCertificate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing ownedBy/previousOwnedBy/generationId/certificateMode/customerVersion/validity/transferData (bd: gopherstack-jy57, now closed) and creationDate/lastModifiedDate were raw time.Time instead of epoch-seconds; fully field-diffed against v1.76.0 CertificateDescription and implemented"}
-  ListCertificates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was returning the wrong summary shape (included lastModifiedDate, which real ListCertificates does NOT have; was missing certificateMode) plus the same epoch-encoding bug; fixed to match the real Certificate summary shape exactly (certificateArn/certificateId/certificateMode/creationDate/status). A pre-existing test (TestListCertificates_IncludesLastModifiedDate) asserted the WRONG shape -- rewritten as TestListCertificates_WireShape"}
+  ListCertificates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was returning the wrong summary shape (included lastModifiedDate, which real ListCertificates does NOT have; was missing certificateMode) plus the same epoch-encoding bug; fixed to match the real Certificate summary shape exactly (certificateArn/certificateId/certificateMode/creationDate/status). A pre-existing test (TestListCertificates_IncludesLastModifiedDate) asserted the WRONG shape -- rewritten as TestListCertificates_WireShape. 2026-08-29 (wrapper-key-sweep): AscendingOrder and pageSize/marker pagination were never read at all -- the handler returned every certificate in one response, unsorted by creation date regardless of the flag. Both now applied."}
+  ListCACertificates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): AscendingOrder, pageSize/marker pagination, and TemplateName (\"only CA certificates linked to the provided provisioning template are returned\") were all never read -- handler returned every CA cert unfiltered/unpaginated/unsorted. All three now applied; TemplateName matched against the already-stored RegistrationConfig.TemplateName (populated by RegisterCACertificate)."}
+  ListCertificatesByCA: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): same AscendingOrder + pageSize/marker gap as ListCertificates -- fixed the same way."}
+  ListCertificateProviders: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): AscendingOrder (\"ascending alphabetical order\") was never read -- always returned the name-ascending default regardless of the flag; now reverses to descending when false. Real op has no MaxResults field at all (only NextToken with an undocumented implicit page size), so pagination is left as a single implicit page -- unobservable without a documented page size to honor, consistent with this service's other N/A-pagination ops (ListVersions-class)."}
+  ListOutgoingCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): verified already correct -- AscendingOrder and pageSize/marker were already applied (handler_certificates.go handleListOutgoingCertificates), unlike its four siblings above. Confirmed by reading the handler; no change made."}
+  ListPrincipalPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): two bugs. (1) wire key: read the Principal from header X-Amzn-Principal (headerIoTPrincipal), but this op's real header is X-Amzn-Iot-Principal (serializers.go awsRestjson1_serializeOpHttpBindingsListPrincipalPoliciesInput; matches its AttachPrincipalPolicy/DetachPrincipalPolicy siblings, which already hardcoded the correct header) -- every real client's request principal was silently dropped, always returning empty. A pre-existing test (TestPolicyPrincipalListing_Pagination/list_principal_policies) sent the same wrong header and could never have caught this; fixed alongside the handler. (2) AscendingOrder (\"ascending creation order\") was never read -- backend always sorted by policy name; now sorted by each returned policy's own CreatedAt per the flag."}
+  ListPolicyPrincipals: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): AscendingOrder is documented (\"ascending creation order\") but this op returns bare principal identifier strings (ListPolicyPrincipals() -> []string from policyTargets), which carries no per-attachment creation timestamp at all -- AttachPolicy/AttachPrincipalPolicy never record an attach time. Honoring the flag would require fabricating a timestamp, banned by the no-stub rule; left as the existing deterministic alphabetical order (sort.Strings) regardless of the flag. Documented gap, not silently mishandled -- no bd issue filed, structural (unlike ListPrincipalPolicies' sibling, which returns full Policy objects that DO carry the policy's own CreatedAt)."}
+  ListAuthorizers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): AscendingOrder, Status filter, and pageSize/marker pagination were all never read -- handler returned every authorizer unfiltered/unpaginated, always name-ascending. All three now applied (name-ascending is ListAuthorizers()'s existing default via store.Table.Snapshot's key order, so only the false/descending case needed a reversal)."}
+  ListRoleAliases: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): same AscendingOrder + pageSize/marker gap as ListAuthorizers -- fixed the same way (no Status-equivalent filter on this op)."}
+  ListStreams: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): AscendingOrder and maxResults/nextToken pagination (this op's binding differs from its pageSize/marker-based siblings -- confirmed against its own serializer) were both never read -- handler returned every stream in one response. Both now applied; ascending basis taken as StreamID (the store's key order), the only stable sort key available since real AWS's doc comment doesn't state a basis the way the alphabetical-order ops do."}
+  ListAuditSuppressions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 (wrapper-key-sweep): the handler read no request fields at all -- CheckName, ResourceIdentifier, MaxResults/NextToken, and AscendingOrder were all silently ignored, always returning every suppression. All now applied (JSON-body-bound: serializers.go awsRestjson1_serializeOpDocumentListAuditSuppressionsInput). AscendingOrder needed special handling: real AWS documents 'If parameter isn't provided, ascendingOrder=true' but the Go SDK's field is a plain bool (encoded only when true), so the request struct here uses *bool to distinguish omitted (default true/ascending) from explicit false (descending) -- a bare bool would have made the documented default unreachable to detect. ResourceIdentifier is matched via a dynamic per-key-set-in-filter equality helper since AuditSuppression stores it as an opaque map (unlike AuditFinding's typed ResourceIdentifier)."}
   DescribeCertificateProvider: {wire: fixed, errors: ok, state: ok, persist: ok, note: "creationDate/lastModifiedDate were raw time.Time instead of epoch-seconds; fixed. Full field set (name/arn/lambdaFunctionArn/accountDefaultForOperations/creationDate/lastModifiedDate) verified against v1.76.0 -- no other gaps"}
   TransferCertificate: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now accepts+stores transferMessage (was silently dropped) and records TransferDate for transferData"}
   AcceptCertificateTransfer: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was a near-total stub: wrote a bogus value into the wrong side of the certificateTransfers map for ANY certificate ID (including nonexistent ones), never validated PENDING_TRANSFER state, and never actually moved ownership or changed cert status. Fully reimplemented: validates the cert exists and is pending transfer (ResourceNotFoundException/InvalidRequestException), moves ownedBy -> previousOwnedBy chain, activates/deactivates per SetAsActive, and consumes the pending transfer"}
@@ -233,6 +266,7 @@ families:
   persistence: {status: ok, note: "backendSnapshot/Restore in persistence.go covers all backend maps observed during this audit (policyTargets, thingPrincipals, thingBillingGroups, thingThingGroups, securityProfileTargets, resourceTags, certificateTransfers, etc.); Handler.Snapshot/Restore already delegate correctly -- no gaps found. Certificate struct's new transfer-lifecycle fields (OwnedBy/PreviousOwnedBy/GenerationID/CertificateMode/CustomerVersion/Validity*/Transfer*) round-trip correctly since persistence marshals the full struct, not the handler-layer wire shape."}
   fleet_metric: {status: ok, note: "(pass #5, 2026-08-13, gopherstack-oc9v) CLOSED. Prior pass fixed UpdateFleetMetric's dropped expectedVersion but left indexName/aggregationType/aggregationField/queryVersion/unit unfixed. This pass converted handler_metrics.go's 3 remaining anonymous inline request structs (UpdateFleetMetric, UpdateCustomMetric, UpdateDimension -- part of the wire-sweep-blind-spot campaign, gopherstack-oc9v) to named types (UpdateFleetMetricInput/UpdateCustomMetricInput/UpdateDimensionInput, metrics.go), and while doing so field-diffed the whole family against v1.77.4's UpdateFleetMetricInput/CreateFleetMetricInput/DescribeFleetMetricOutput directly. Fixed all 5 of those documented UpdateFleetMetric gaps (indexName, aggregationType, aggregationField, queryVersion, unit all now applied). Also found a SIXTH, previously-untracked gap the same diff surfaced: CreateFleetMetricInput was ALSO missing aggregationField/aggregationType entirely (both `This member is required` on the real type) -- CreateFleetMetric silently dropped them with no error, and FleetMetric never modeled them at all, so DescribeFleetMetric/ListFleetMetrics could never have surfaced them either even if a caller worked around the drop. New `AggregationType{Name,Values}` type (metrics.go) mirrors types.AggregationType; both Create and Update now thread aggregationField/aggregationType through end to end (request parsing, backend storage on FleetMetric, response wire shape -- confirmed against awsRestjson1_deserializeOpDocumentDescribeFleetMetricOutput's \"aggregationField\"/\"aggregationType\" keys, aggregationType nested as {name,values}). UpdateCustomMetric/UpdateDimension's inline structs were already field-complete (DisplayName-only / StringValues-only, matching real UpdateCustomMetricInput/UpdateDimensionInput exactly) -- converted for tooling visibility only, no bug. Regression: TestFleetMetric_AggregationAndUpdateFields (handler_metrics_test.go), verified to fail against the pre-fix code by temporarily reverting the field-wiring."}
   device_shadows: {status: ok, note: "NEW entry (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): DeleteThingShadow/GetThingShadow/ListNamedShadowsForThing/UpdateThingShadow are real IoT Data Plane operations, on a separate SDK client (aws-sdk-go-v2/service/iotdataplane) from this service's control-plane client (aws-sdk-go-v2/service/iot) -- confirmed by name against iotdataplane.Client. pkgs/sdkcheck's reverse check was flagging all 4 as 'phantom' only because it compared them against iotsdk.Client instead of iotdataplanesdk.Client; sdk_completeness_test.go now checks this family separately against the correct client (notImplemented: DeleteConnection/GetConnection/GetRetainedMessage/ListRetainedMessages/ListSubscriptions/Publish/SendDirectMessage, the rest of that client's surface, covered instead by the separate services/iotdataplane package -- this Handler's shadow REST routes (handler_shadows.go) and services/iotdataplane's own shadow implementation are a pre-existing duplication across the two packages, not introduced by this fix and not resolved here). No wire-shape field-diff done, naming/completeness only."}
+  filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2026-08-30): audited every hand-rolled filter/matcher/comparison helper against its SDK doc comment (aws-sdk-go-v2/service/iot@v1.77.4) for the class field-diff tools can't see (right field, wrong algorithm) -- MatchesTopic/matchParts (MQTT # /+ wildcard rules, correct), ListAuditFindings' matchResourceIdentifier/matchPolicyVersionIdentifier/matchIssuerCertificateIdentifier/matchesFilter (per-field discriminator AND-match against types.ResourceIdentifier, correct; ListSuppressedFindings tri-state nil/true/false correctly mirrors 'if not provided, lists both'), ListAuditSuppressions' matchAuditSuppressionResourceIdentifier (same shape, dynamic map form, correct) plus its AscendingOrder default-true-when-nil (matches api_op_ListAuditSuppressions.go), ListCommandExecutionsByFilter (commandARN/targetARN/status AND-equality, matches api_op_ListCommandExecutions.go -- no documented modifier on any of the three), and device_defender's violationFilter.matchesCommon/matchesBehaviorCriteriaType/matchesWindow (ListActiveViolations/ListViolationEvents, types.ListActiveViolationsInput/ListViolationEventsInput carry no modifier docs -- AND-equality plus a nil/true/false tri-state for listSuppressedAlerts, correct). No bugs found -- clean verdict. Adjacent, NOT this bug class (field never read at all, not read-and-misapplied -- a field-diff-catchable gap, not fixed here): handleListThings (handler.go) ignores ListThingsInput's documented attributeName/attributeValue/thingTypeName query parameters entirely, unlike ListCommandExecutionsByFilter's real filtering; and indexing.go's matchesThingQuery/matchThingTerm/matchesThingGroupQuery/matchThingGroupTerm reimplement AWS's fleet-indexing query syntax (SearchIndex's queryString, doc-linked to https://docs.aws.amazon.com/iot/latest/developerguide/query-syntax.html) as a simplified whitespace/colon/substring DSL rather than the real query grammar -- the real grammar isn't specified precisely enough in the SDK source to verify field-by-field without guessing, same class of gap as secretsmanager's word-splitting rule (gopherstack-uox6's own originating note), recorded rather than reshaped."}
 gaps: []
   # The UpdateFleetMetric gap (dropped indexName/aggregationType/
   # aggregationField/queryVersion/unit) closed by pass #5 (2026-08-13, gopherstack-oc9v)
@@ -1420,3 +1454,273 @@ exit 0 -- covers this pass's exported-signature changes to
 `UpdateIoTPackage`, `UpdateIoTPackageVersion`, `UpdateProvisioningTemplate`,
 and the new `Backend.ListPrincipalThingsV2`). Work left uncommitted per
 this pass's instructions.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services) -- no fix found
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state/type/mode concept against its
+real SDK enum (`iot@v1.77.4 types/enums.go`): `CertificateStatus`, `TopicRuleDestinationStatus`,
+`ConfigurationStatus`, `DomainConfigurationStatus`, `AuthorizerStatus`, `PackageVersionStatus`,
+`IndexStatus`, `OTAUpdateStatus`, `AuditTaskStatus`, `AuditMitigationActionsTaskStatus`,
+`DetectMitigationActionsTaskStatus`, `SbomValidationResult`, `SbomValidationStatus`,
+`VerificationState`. `cmd/enumcheck` was run and, consistent with the rest of this campaign,
+would not have caught anything even if a bug existed (it can't see struct-field assignment) —
+moot here since none was found.
+
+Specifically checked for the comprehend shape (one shared vocabulary reused across several
+enums that don't actually share values): `jobs.go`'s local `JobStatus`/`JobExecutionStatus`
+mirror types (`IN_PROGRESS`/`CANCELED`) are reused verbatim for `AuditTaskStatus`/
+`AuditMitigationActionsTaskStatus`/`DetectMitigationActionsTaskStatus` fields across
+`audit.go`/`device_defender.go` — genuinely risky-looking, but every string gopherstack actually
+assigns from that shared vocabulary (`"IN_PROGRESS"`, `"CANCELED"`) happens to be a legal member
+of all three real target enums, so no wrong value currently escapes; this is a near-miss worth
+flagging for future vigilance, not a live bug. Likewise `packages.go` assigns
+`SbomValidationResult`'s `"SUCCEEDED"`/`"FAILED"` values onto a field typed for the sibling
+`SbomValidationStatus` enum — both target values are members of both enums, so also not live.
+
+One DORMANT finding, not fixed (unreachable, so not fabricating a path to it per this campaign's
+rule): `jobs.go`'s local `JobStatus` mirror type declares `JobStatusFailed = "FAILED"`, which is
+NOT a member of the real `types.JobStatus` (IN_PROGRESS/CANCELED/COMPLETED/DELETION_IN_PROGRESS/
+SCHEDULED -- no FAILED at the aggregate-Job level in the real API, only per-execution). The
+constant is never assigned anywhere in the backend (`Job.Status` only ever reaches
+`JobStatusInProgress`/`JobStatusCanceled` via `jobs.go:352`/`578`) -- confirmed by grep across the
+whole service. Real Jobs in this backend also never reach `COMPLETED`/`DELETION_IN_PROGRESS`/
+`SCHEDULED` at all, a completeness gap (missing lifecycle transitions), not a wrong-value bug --
+named here, not fixed, out of this pass's scope.
+
+Everything else checked used values that were both legal for their real enum and client-input
+passthrough where the field is a request parameter rather than a backend-computed value
+(`CertificateStatus`/`DomainConfigurationStatus`/`PackageVersionStatus`/`VerificationState`
+transitions all originate from the caller's own typed SDK field, which cannot carry an illegal
+member in the first place).
+
+No code changes this pass. Gates: `go build ./services/iot/...` (clean), `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iot/...` (pass, no new tests --
+nothing to prove).
+
+## 2026-08-31 error-envelope-shape / fabricated-error-code sweep
+
+**Scope**: this campaign's two remaining classes -- error envelope shape (does an
+error deserialize into the typed exception a real SDK client branches on) and
+fabricated error codes (a code the emulator returns that the pinned SDK does not
+define for that specific operation). Not the filter/value-semantics class other
+recent passes chased.
+
+**Protocol/envelope mechanism confirmed correct at the generic level**: this
+service's `awsErrBody{Type string \`json:"__type"\`, Message string \`json:"message"\`}`
+(handler_helpers.go) is read correctly by every operation's real
+`awsRestjson1_deserializeOpError<Op>` function (`iot@v1.77.4/deserializers.go`) via
+the shared `restjson.GetErrorInfo` helper (`aws-sdk-go-v2@v1.43.4/aws/protocol/restjson/decoder_util.go`),
+which checks header `X-Amzn-ErrorType` first, then body `code`, then body `__type`
+-- this service sets no header but does set `__type`, so the body fallback always
+resolves. Also confirmed for the `iotdataplane` SDK (Get/Update/DeleteThingShadow,
+ListNamedShadowsForThing) via the same generic pattern.
+
+**IMPORTANT DISCOVERY: `handler_shadows.go`/`shadows.go` (Device Shadow ops) are
+unreachable by any correctly-signed real client.** `Handler.RouteMatcher()`
+(handler.go) explicitly gates shadow paths (`isThingShadowPath`) by SigV4 signing
+service, matching only `svc == "" || svc == iotServiceName` -- a genuinely
+iotdataplane-signed request (`svc == "iotdata"`) is deliberately NOT claimed here,
+per the existing comment citing gopherstack-61i8, so a real `iotdataplane` client's
+shadow calls route to the separate `services/iotdataplane` package instead (out of
+this pass's scope; confirmed to exist via `cmd/errcodeaudit`'s
+`services/iotdataplane/handler.go:411 ResourceAlreadyExistsException` finding, not
+investigated further). Verified empirically: a real `aws-sdk-go-v2/service/iotdataplane`
+client's `UpdateThingShadow` against this package's handler 404's at the Echo
+routing layer (RouteMatcher rejects it, falls through to default 404) before ever
+reaching `shadows.go`. A found wire-shape bug there (UpdateThingShadow's
+unknown-thing path wrongly returns ResourceNotFoundException; real op declares no
+such case) was NOT fixed because it cannot affect any real client -- fixing dead
+code would not move the needle this campaign cares about. This should be recorded
+as a standing caveat for any future pass over this file.
+
+**8 real bugs found and fixed, one shape, one family**: the entire TopicRule/
+TopicRuleDestination op family (GetTopicRule, DeleteTopicRule, EnableTopicRule,
+DisableTopicRule, ReplaceTopicRule, GetTopicRuleDestination,
+UpdateTopicRuleDestination, DeleteTopicRuleDestination) uses a genuinely different,
+smaller exception vocabulary than the rest of this service -- confirmed by direct
+per-op read of each operation's own `deserializeOpError<Op>` switch:
+`{InternalException, InvalidRequestException, ServiceUnavailableException,
+UnauthorizedException}` plus `ConflictingResourceUpdateException`/
+`SqlParseException` where applicable. None of the 8 declare
+`ResourceNotFoundException` at all, unlike almost every other Get/Delete op in this
+service. `writeIoTError`'s shared not-found case previously rendered
+`ErrRuleNotFound`/`ErrTopicRuleDestinationNotFound` as `ResourceNotFoundException`
+-- a code none of these 8 operations' real deserializer switches match, so a real
+client got a `*smithy.GenericAPIError` instead of any typed exception (silent
+failure mode). Fixed by moving both sentinels into `writeIoTError`'s
+`InvalidRequestException` case (the only client-fault type this family declares).
+Two existing tests asserted the old, wrong behavior as correct and were corrected,
+not weakened: `TestRuleNotFound_Returns404` (renamed `_Returns400`,
+`handler_test.go`) and `TestErrorFormat_UsesAWSFormat`'s `RuleNotFound` case
+(`errors_test.go`) both asserted 404/ResourceNotFoundException; now assert
+400/InvalidRequestException. `TestDeleteTopicRule_Handler`'s `delete_missing_rule`
+case (`handler_topic_rules_test.go`) had the same fix. Zero assertions dropped in
+any of the three -- only expected values changed.
+
+**14 more real bugs, same shape, spread across families that share the generic
+`ErrResourceNotFound`/`ErrThingGroupNotFound`/`ErrDeleteConflict`/
+`ErrInvalidStateTransition` sentinels with other operations that DO need the
+richer type**: DeleteAuditSuppression, DeleteMitigationAction, DeleteBillingGroup,
+PutVerificationStateOnViolation, DeleteV2LoggingLevel, DeleteFleetMetric,
+DeleteCustomMetric, DeleteDimension, DeleteSecurityProfile, DeleteThingGroup,
+DeleteDynamicThingGroup, ListThingRegistrationTaskReports (all: not-found ->
+InvalidRequestException, not ResourceNotFoundException, per their own real
+deserializer switches), plus CancelJob (InvalidStateTransitionException not
+declared; InvalidRequestException is) and DeleteThing (DeleteConflictException not
+declared for the "has attached principals" case; InvalidRequestException is --
+DeleteThing's genuine not-found case via `ErrThingNotFound` IS correctly declared
+and was left alone). Because these sentinels are shared with other operations that
+correctly need `ResourceNotFoundException`/etc, the fix is a new per-call-site
+override (`respondAsInvalidRequest(c, err, sentinel)`, handler_helpers.go) rather
+than a change to the sentinels' own semantics or `writeIoTError`'s global mapping
+-- preserves every other caller and every existing backend-level test asserting the
+sentinel itself. One existing test asserted the old wrong behavior:
+`TestCancelJob_DescriptionAndTerminalStateGuard` (`handler_jobs_test.go`) expected
+409/InvalidStateTransitionException; now asserts 400/InvalidRequestException. Zero
+assertions dropped.
+
+Every fix above was proven fail-before/pass-after with a real `aws-sdk-go-v2`
+client (`errors.As` on the specific typed exception, not a status code): the
+TopicRule family in `wire_error_code_topic_rule_test.go` (8 subtests), the 12
+shared-sentinel operations plus CancelJob/DeleteThing in
+`wire_error_code_delete_not_found_test.go` (14 subtests total). For the 12-op batch
+the fail-before proof was done as a batch via `git apply -R` on the handler diff
+(all 14 new subtests confirmed failing against the reverted code, then confirmed
+passing after `git apply` re-applied it) rather than one revert per operation --
+recorded here since it is a coarser proof than the per-operation reverts used
+elsewhere in this pass, though it exercises the same code paths.
+
+**9 more confirmed real bugs, found but NOT fixed this pass -- different families,
+need new wire infrastructure**: CreateCommand/DeleteCommand/DeleteCommandExecution
+(Commands API) and CreateIoTPackage/CreateIoTPackageVersion/DeleteIoTPackage/
+DeleteIoTPackageVersion (Software Package Catalog, real ops CreatePackage/
+CreatePackageVersion/DeletePackage/DeletePackageVersion) both use AWS's newer
+common vocabulary (`ConflictException`/`ValidationException`/
+`InternalServerException`) instead of this service's classic
+`InvalidRequestException`/`ResourceAlreadyExistsException`/`InternalFailureException`
+-- confirmed by direct per-op read, e.g. `CreatePackage`'s real set is
+`{ConflictException, InternalServerException, ServiceQuotaExceededException,
+ThrottlingException, ValidationException}`, no `ResourceAlreadyExistsException` at
+all. `ErrAlreadyExists`/`ErrResourceNotFound` render as the wrong family's codes
+for these 7 ops. Also: CreateJobTemplate (`ErrAlreadyExists` -> needs
+`ConflictException`, not declared as `ResourceAlreadyExistsException`) and the
+AlreadyExists half of StartAuditMitigationActionsTask/
+StartDetectMitigationActionsTask (need `TaskAlreadyExistsException`, a type this
+service's `writeIoTError` has never rendered at all; their not-found halves were
+already correctly declared and untouched). Deferred because fixing any of these
+requires adding genuinely new wire-error-code paths (`ConflictException`,
+`ValidationException` as distinct from `InvalidRequestException`,
+`TaskAlreadyExistsException`) to `writeIoTError`, not just redirecting an existing
+sentinel to an existing code -- more invasive than this pass's remaining time
+allowed to do with the same fail-before/pass-after rigor as the fixes above.
+Recorded here with full reasoning rather than silently dropped.
+
+**Fabricated error codes**: `cmd/errcodeaudit` returned zero findings (confident or
+needs-review) for `services/iot/` directly (only `services/iotdataplane/handler.go:411`,
+out of scope). No further literal-code fabrications found by manual per-op
+cross-reference beyond the shape above (which is a *wrong-code-for-this-operation*
+class, not an *undefined-anywhere-in-the-SDK* class).
+
+**PARITY.md correction (typo, not substantive)**: the 2026-07-25 note above citing
+`serializers.go`'s `awsAwsjson11_serializeOpListAuditFindings` names the wrong
+protocol prefix -- the real symbol is `awsRestjson1_serializeOpListAuditFindings`
+(confirmed directly; this service has no awsjson1.1 operations at all). The
+route/field fix that note documents is unaffected; only the protocol-prefix string
+in the note was wrong.
+
+Gates: `go build ./services/iot/...` (clean), `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iot/...` (pass), `golangci-lint run
+./services/iot/...` (0 issues).
+
+## 2026-08-31 errtargetaudit re-sweep: 6 of the 9 recorded-deferred fabricated codes fixed
+
+`errtargetaudit -dir iot` (post-reachability-fix, post-sentinel-collision-fix)
+reports 11 class-A findings, all falling inside the prior pass's "9 more
+confirmed real bugs, found but NOT fixed" list above (Commands API +
+Software Package Catalog + CreateJobTemplate + Start*MitigationActionsTask).
+Re-verified every one directly against `iot@v1.77.4/deserializers.go`'s
+per-op `awsRestjson1_deserializeOpError<Op>` switch rather than trusting the
+prior pass's grouping.
+
+**6 fixed, real ConflictException/TaskAlreadyExistsException gaps**:
+`CreateCommand` (`commands.go:52`), `CreatePackage` (`packages.go:63`),
+`CreatePackageVersion` (`packages.go:200`), `CreateJobTemplate`
+(`jobs.go:856`) all declare `ConflictException` for the AlreadyExists case
+(confirmed: `CreatePackage`/`CreatePackageVersion`'s full declared set is
+`{ConflictException, InternalServerException, ServiceQuotaExceededException,
+ThrottlingException, ValidationException}`, `CreateJobTemplate`'s is
+`{ConflictException, InternalFailureException, InvalidRequestException,
+LimitExceededException, ResourceNotFoundException, ThrottlingException}`) --
+not `ResourceAlreadyExistsException`, the code `writeIoTError`'s shared
+`ErrAlreadyExists` case renders by default (correct for ~150 other Create
+ops in this service). `StartAuditMitigationActionsTask`
+(`device_defender.go:158`) and `StartDetectMitigationActionsTask`
+(`device_defender.go:477`) both declare `TaskAlreadyExistsException`
+instead (their not-found halves already correctly declare/render
+`ResourceNotFoundException` and are untouched). New per-call-site override
+`respondAsConflictCode(c, err, sentinel, code)` (`handler_helpers.go`, same
+pattern as the existing `respondAsInvalidRequest`) added rather than
+changing `writeIoTError`'s shared `ErrAlreadyExists` mapping, since that
+mapping is correct for every other caller. Proven fail-before/pass-after
+with a real `aws-sdk-go-v2` client (`errors.As` on the specific typed
+exception): `wire_error_code_already_exists_test.go`, 6 subtests, all
+confirmed failing (asserting `*types.GenericAPIError`
+`ResourceAlreadyExistsException` in the chain) against the pre-fix call
+sites, passing after.
+
+**CORRECTION to the prior pass's grouping**: the remaining 4 findings
+(`DeleteCommand` `commands.go:111`, `DeleteCommandExecution`
+`commands.go:254`, `DeletePackage` `packages.go:121`,
+`DeletePackageVersion` `packages.go:316`/`319`) were filed alongside the 6
+above as "needs new wire infrastructure" -- re-verified and that framing is
+wrong for these four specifically. `DeleteCommand`/`DeleteCommandExecution`'s
+full declared set is `{ConflictException, InternalServerException,
+ThrottlingException, ValidationException}`; `DeletePackage`/
+`DeletePackageVersion`'s is `{InternalServerException, ThrottlingException,
+ValidationException}`. None of the four declare *any* not-found-capable
+type, and no new infrastructure would help -- `ConflictException`/
+`ValidationException` don't fit "resource does not exist" semantically, and
+neither operation's own doc comment describes idempotent-delete behavior
+for an unknown ID (unlike some AWS delete ops). Reclassified as the same
+"operation's own model declares no type for this condition" refusal as
+the TopicRule family above, not an infrastructure gap. Left unchanged
+(still renders `ResourceAlreadyExistsException`-family's sibling
+`ResourceNotFoundException`, itself equally undeclared -- no available code
+is more correct).
+
+**Fixed by deletion**: `DeleteCommandExecution`'s `executionID == ""`
+pre-check (`commands.go:233-235`, now removed) returned `ErrValidation` ->
+`InvalidRequestException`, a code this operation also does not declare
+(`InvalidRequestException` is absent from its 4-member set above). The real
+SDK client's `validateOpDeleteCommandExecutionInput` only rejects a nil
+`*string`, not an empty string, so an empty-but-present `executionId`
+reached this check -- same empty-but-present-identifier shape as the prior
+pass's 8 deletions. Unlike those 8, the natural not-found fallback this
+check short-circuited is *also* undeclared (see correction above), so this
+deletion does not fully close the class-A gap -- it consolidates two
+distinct wrong emissions (`InvalidRequestException` for the empty case,
+`ResourceNotFoundException` for the not-found case) into one, removing the
+invented validation check rather than leaving it beside an equally-wrong
+neighbor. Regression: `TestDeleteCommandExecution_EmptyExecutionID`
+(`handler_commands_test.go`), confirms `ErrResourceNotFound` fires and
+`ErrValidation` does not.
+
+**Confirmed unchanged from the prior pass**: the "25 operations fixed" /
+"9 recorded refusals" history above still holds; this sweep only refined
+the refusal reasoning for 4 of those 9-10 items, it did not reopen any of
+the 25 fixed ones or the topic-rule/gopherstack-oc9v family's separate
+refusals.
+
+Gates: `go build ./services/iot/...` (clean), `go vet ./services/iot/...
+./services/workmail/...` (clean; a concurrent, out-of-scope edit to
+`services/codeconnections/handler_hosts.go` by another agent broke
+repo-wide `go vet ./...` at the time of this pass -- confirmed via `git
+status`/`git diff --stat` to be someone else's in-progress change, not
+caused by or related to this pass), `go test -race -count=1
+./services/iot/...` (pass), `golangci-lint run ./services/iot/...` (0
+issues; one `unparam` finding on the first-draft `respondAsCode(..., status
+int)` was fixed by dropping the always-409 `status` parameter and renaming
+to `respondAsConflictCode`, not suppressed).

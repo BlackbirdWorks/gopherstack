@@ -3,6 +3,7 @@ package shield_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -417,6 +418,38 @@ func TestHandler_ListProtectionsPagination(t *testing.T) {
 	nextToken, hasNext := resp["NextToken"]
 	assert.True(t, hasNext, "NextToken should be present when more results exist")
 	assert.NotEmpty(t, nextToken)
+}
+
+// TestHandler_ListProtectionsDefaultMaxResults verifies that omitting
+// MaxResults pages at the documented default of 20
+// (api_op_ListProtections.go: "The default setting is 20."), not at the
+// handler's internal cap.
+func TestHandler_ListProtectionsDefaultMaxResults(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+
+	const numProtections = 25
+	for i := range numProtections {
+		_, err := b.CreateProtection(
+			fmt.Sprintf("prot-%02d", i),
+			eipARN(fmt.Sprintf("%02d", i)),
+			nil,
+		)
+		require.NoError(t, err)
+	}
+
+	h := shield.NewHandler(b)
+	rec := doShieldRequest(t, h, "ListProtections", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	prots := resp["Protections"].([]any)
+	assert.Len(t, prots, 20, "omitted MaxResults must default to 20 per the documented default")
+	assert.NotEmpty(t, resp["NextToken"], "25 protections at a default page size of 20 must continue")
 }
 
 // TestAudit_Gap7_ListProtectionsNextPage verifies continuation token retrieves next page.

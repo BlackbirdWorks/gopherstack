@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 13 (12 ok, 1 deferred) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- data_source_attachments and migrations: List ops (ListDataSourceAttachments/ListMigrations) accept but ignore maxResults/nextToken, always returning the full (filtered) result set unpaginated.
 
 ### Deferred
 

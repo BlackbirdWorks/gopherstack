@@ -116,7 +116,7 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 
 	resp := describeDatastoreResponse{Datastore: detail}
 
-	if c.Request().URL.Query().Get("includeStatistics") == "true" {
+	if queryBool(c, "includeStatistics") {
 		resp.Statistics = &datastoreStatistics{
 			Size: &datastoreStatisticsSize{
 				EstimatedSizeInBytes: 0,
@@ -143,7 +143,7 @@ func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byt
 	}
 
 	err := h.Backend.UpdateDatastore(
-		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions,
+		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)

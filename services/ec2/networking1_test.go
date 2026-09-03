@@ -20,7 +20,7 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test"})
 	require.NoError(t, err)
 
-	vpc, err := bk.CreateVpc("10.0.0.0/16")
+	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, nil, nil)
@@ -62,7 +62,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
-	vpc, err := bk.CreateVpc("10.0.0.0/16")
+	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", nil)
@@ -98,7 +98,7 @@ func TestNetworking1_DhcpOptions(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
-	vpc, err := bk.CreateVpc("10.0.0.0/16")
+	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	opts, err := bk.CreateDhcpOptions(nil, nil)
@@ -654,7 +654,7 @@ func TestNetworking1HelperMethods(t *testing.T) {
 	assert.Len(t, ltsByName, 2)
 
 	// DescribeVpcEndpointsByVPC.
-	vpc, err := bk.CreateVpc("10.10.0.0/16")
+	vpc, err := bk.CreateVpc("10.10.0.0/16", "default")
 	require.NoError(t, err)
 	_ = bk.DescribeVpcEndpointsByVPC(vpc.ID)
 

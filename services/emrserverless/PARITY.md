@@ -316,3 +316,55 @@ ops=12/ops-with-required=7) is now the largest remaining candidate after
 sagemaker (still off-limits this batch -- `git status` showed uncommitted
 sagemaker changes both before and after this batch, from a concurrent
 agent's in-flight conversion).
+
+### 2026-08-29: independent re-sweep, GENUINELY CLEAN (gopherstack-6flj/21my)
+
+No code changes since `last_audit_commit`; `git log adb374d97..HEAD --
+services/emrserverless/` shows only the already-recorded 2026-08-20
+wrapper-key sweep, the r80d batch-20 required-output cut, and an unrelated
+IAM-enforcement test addition. Re-derived every struct's member list fresh
+from its own `awsRestjson1_deserializeDocument*` case list in
+`deserializers.go` rather than trusting the prior manifest's counts, and
+checked write-only state both directions:
+
+- **N of N member coverage, independently re-counted**: Application 25/25,
+  ApplicationSummary 10/10, JobRun 30/30, JobRunSummary 16/16,
+  JobRunAttemptSummary 15/15, Session 21/21, SessionSummary 11/11 -- every
+  member each deserializer recognises is either emitted by the
+  corresponding `*ToMap` builder or is a documented, disclosed omission
+  (resource-utilization/timing fields this backend does not simulate:
+  `attemptCreatedAt`/`attemptUpdatedAt`/`billedResourceUtilization`/
+  `endedAt`/`imageConfiguration`/`networkConfiguration`/
+  `queuedDurationMilliseconds`/`startedAt`/`totalExecutionDurationSeconds`/
+  `totalResourceUtilization`/`workerTypeSpecifications` on `JobRun`;
+  `billedResourceUtilization`/`idleSince`/`networkConfiguration`/
+  `totalExecutionDurationSeconds`/`totalResourceUtilization` on `Session`
+  -- all optional per the SDK, none required, matching the pattern already
+  disclosed for the session family).
+- **FORWARD (accept-and-drop)**: re-read every request body struct
+  (`createApplicationBody`/`updateApplicationBody`/`startJobRunBody`/
+  `startSessionBody`/`tagResourceBody`) against its real
+  `*Input` struct in `api_op_*.go` -- every accepted field is either stored
+  (directly or via the `applicationConfigFields` opaque-passthrough
+  allowlist, still 14/14) or is request-plumbing with no backend field to
+  drop (e.g. `clientToken`, consumed for idempotency). No new accept-and-
+  never-store field found.
+- **REVERSE (computable-but-unemitted)**: no stored field found without a
+  reader; `Application.ExtraConfig`, `JobRun.JobDriver`/
+  `ConfigurationOverrides`/`ExecutionIamPolicy`/`RetryPolicy`,
+  `Session.ConfigurationOverrides` are all read back by their op's map
+  builder.
+- **Route matcher / HTTP bindings**: re-walked `parseEMRPath` against every
+  op's `SplitURI`/method pair; unchanged and correct (verified 2026-08-20,
+  re-confirmed here).
+- **Enums**: `JobRunState`/`ApplicationState`/`SessionState` re-checked
+  against `types/enums.go`; no invented or missing values found beyond what
+  is already disclosed (`QUEUED` reachability gap, above).
+- Tools: `enumcheck` run repo-wide, zero findings for `services/emrserverless/`.
+  `go build`, `go vet ./...` (repo-wide), `go test -race -count=1
+  ./services/emrserverless/...`, `golangci-lint run
+  ./services/emrserverless/...` all clean, 0 issues.
+
+Verdict: no bugs found this pass. This is the second independent
+confirmation (after 2026-08-20's from-scratch re-derivation) that this
+service's wire shape is correct in both directions.

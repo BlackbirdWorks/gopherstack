@@ -757,6 +757,23 @@ type UserIndexCapacity struct {
 	TotalSpaceCapacityBytes int64
 }
 
+// UserIndexCapacityQuery bundles ListUsersIndexCapacity's optional filter
+// and sort parameters (quicksight@v1.123.1
+// api_op_ListUsersIndexCapacity.go's Filters/SortBy/SortOrder). At most one
+// of MinCapacityBytes/MaxCapacityBytes and Prefix is populated per the
+// real API's "only one filter is supported per request" -- both are
+// carried so a caller sending more than one (which real AWS would reject,
+// a validation concern this backend leaves unenforced like its sibling
+// filters) still gets every constraint applied rather than only the last
+// one parsed.
+type UserIndexCapacityQuery struct {
+	MinCapacityBytes *int64
+	MaxCapacityBytes *int64
+	Prefix           *string
+	SortByCapacity   bool
+	SortDescending   bool
+}
+
 // Space represents a QuickSight space: a named collection of resources
 // (topics, dashboards, knowledge bases, action connectors, datasets)
 // grouped together to scope agent/flow context.

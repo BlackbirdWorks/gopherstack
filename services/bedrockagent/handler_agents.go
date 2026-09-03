@@ -106,8 +106,8 @@ func (h *Handler) handleDeleteAgent(ctx context.Context, c *echo.Context, agentI
 	return c.JSON(http.StatusOK, map[string]any{keyAgentID: agentID, keyAgentStatus: statusDeleting})
 }
 
-func (h *Handler) handleListAgents(ctx context.Context, c *echo.Context) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+func (h *Handler) handleListAgents(ctx context.Context, c *echo.Context, body []byte) error {
+	maxResults, nextToken := bodyPageParams(body)
 
 	agents, outToken, err := h.Backend.ListAgents(ctx, maxResults, nextToken)
 	if err != nil {

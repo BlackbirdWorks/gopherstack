@@ -314,7 +314,12 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 		result = append(result, cj)
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].JobID < result[j].JobID })
+	// Real ListJobs sorts by job initiation time (CreationDate), ascending -- confirmed
+	// via the real API's ListJobs example responses, which show JobList entries in
+	// ascending CreationDate order. JobID (used previously) is a crypto/rand string with
+	// no relationship to creation order. CreationDate is a fixed-width ISO-8601 string
+	// (formatDate), so lexical string comparison is equivalent to chronological order.
+	sort.SliceStable(result, func(i, j int) bool { return result[i].CreationDate < result[j].CreationDate })
 
 	return result, nil
 }

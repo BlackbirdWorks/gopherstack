@@ -72,7 +72,7 @@ func (h *Handler) handleCreateFirewallRuleGroup(
 	in *createFirewallRuleGroupInput,
 ) (*createFirewallRuleGroupOutput, error) {
 	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrBatchValidation)
 	}
 
 	g, err := h.Backend.CreateFirewallRuleGroup(ctx, in.Name, in.CreatorRequestID)
@@ -130,11 +130,11 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 	in *associateFirewallRuleGroupInput,
 ) (*associateFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrBatchValidation)
 	}
 
 	if in.VpcID == "" {
-		return nil, fmt.Errorf("%w: VpcId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: VpcId is required", ErrBatchValidation)
 	}
 
 	assoc, err := h.Backend.AssociateFirewallRuleGroup(
@@ -176,7 +176,7 @@ func (h *Handler) handleDeleteFirewallRuleGroup(
 	in *deleteFirewallRuleGroupInput,
 ) (*deleteFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrBatchValidation)
 	}
 	g, err := h.Backend.DeleteFirewallRuleGroup(ctx, in.FirewallRuleGroupID)
 	if err != nil {
@@ -200,9 +200,12 @@ func (h *Handler) handleGetFirewallRuleGroup(
 	ctx context.Context,
 	in *getFirewallRuleGroupInput,
 ) (*getFirewallRuleGroupOutput, error) {
-	if in.FirewallRuleGroupID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
-	}
+	// GetFirewallRuleGroup's own deserializer models no ValidationException/
+	// InvalidRequestException at all (AccessDeniedException,
+	// InternalServiceErrorException, ResourceNotFoundException,
+	// ThrottlingException only) -- an empty FirewallRuleGroupId is left to the
+	// backend lookup, which reports ResourceNotFoundException, a type the op
+	// does declare, rather than inventing a code that fits no modeled type.
 	g, err := h.Backend.GetFirewallRuleGroup(ctx, in.FirewallRuleGroupID)
 	if err != nil {
 		return nil, err
@@ -253,7 +256,7 @@ func (h *Handler) handleGetFirewallRuleGroupPolicy(
 	in *getFirewallRuleGroupPolicyInput,
 ) (*getFirewallRuleGroupPolicyOutput, error) {
 	if in.Arn == "" {
-		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Arn is required", ErrBatchValidation)
 	}
 	policy := h.Backend.GetFirewallRuleGroupPolicy(ctx, in.Arn)
 
@@ -276,7 +279,7 @@ func (h *Handler) handlePutFirewallRuleGroupPolicy(
 	in *putFirewallRuleGroupPolicyInput,
 ) (*putFirewallRuleGroupPolicyOutput, error) {
 	if in.Arn == "" {
-		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Arn is required", ErrBatchValidation)
 	}
 	if err := h.Backend.PutFirewallRuleGroupPolicy(ctx, in.Arn, in.FirewallRuleGroupPolicy); err != nil {
 		return nil, err
@@ -299,9 +302,11 @@ func (h *Handler) handleGetFirewallRuleGroupAssociation(
 	ctx context.Context,
 	in *getFirewallRuleGroupAssociationInput,
 ) (*getFirewallRuleGroupAssociationOutput, error) {
-	if in.FirewallRuleGroupAssociationID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
-	}
+	// GetFirewallRuleGroupAssociation's own deserializer models no
+	// ValidationException/InvalidRequestException (AccessDeniedException,
+	// InternalServiceErrorException, ResourceNotFoundException,
+	// ThrottlingException only) -- an empty ID is left to the backend lookup,
+	// which reports ResourceNotFoundException, a type the op does declare.
 	assoc, err := h.Backend.GetFirewallRuleGroupAssociation(ctx, in.FirewallRuleGroupAssociationID)
 	if err != nil {
 		return nil, err
@@ -366,7 +371,7 @@ func (h *Handler) handleDisassociateFirewallRuleGroup(
 	in *disassociateFirewallRuleGroupInput,
 ) (*disassociateFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupAssociationID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrBatchValidation)
 	}
 	assoc, err := h.Backend.DisassociateFirewallRuleGroup(ctx, in.FirewallRuleGroupAssociationID)
 	if err != nil {
@@ -396,7 +401,7 @@ func (h *Handler) handleUpdateFirewallRuleGroupAssociation(
 	in *updateFirewallRuleGroupAssociationInput,
 ) (*updateFirewallRuleGroupAssociationOutput, error) {
 	if in.FirewallRuleGroupAssociationID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
+		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrBatchValidation)
 	}
 	assoc, err := h.Backend.UpdateFirewallRuleGroupAssociation(
 		ctx, in.FirewallRuleGroupAssociationID, in.Name, in.MutationProtection, in.Priority,

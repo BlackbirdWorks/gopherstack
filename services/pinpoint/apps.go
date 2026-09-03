@@ -83,7 +83,11 @@ func (b *InMemoryBackend) GetApps() ([]*App, error) {
 	}
 
 	sort.Slice(apps, func(i, j int) bool {
-		return apps[i].Name < apps[j].Name
+		if apps[i].Name != apps[j].Name {
+			return apps[i].Name < apps[j].Name
+		}
+
+		return apps[i].ID < apps[j].ID
 	})
 
 	return apps, nil

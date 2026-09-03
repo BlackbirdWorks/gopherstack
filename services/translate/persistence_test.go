@@ -131,7 +131,7 @@ func assertParallelDataRestored(t *testing.T, fresh *translate.InMemoryBackend, 
 func assertJobRestored(t *testing.T, fresh *translate.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	list, _ := fresh.ListTextTranslationJobs("", 0, "")
+	list, _ := fresh.ListTextTranslationJobs(translate.TextTranslationJobFilter{}, 0, "")
 	require.Len(t, list, 1)
 
 	gotJob := list[0]
@@ -172,7 +172,7 @@ func Test_RestoreVersionMismatch(t *testing.T) {
 			pdList, _ := b.ListParallelData(0, "")
 			assert.Empty(t, pdList)
 
-			jobList, _ := b.ListTextTranslationJobs("", 0, "")
+			jobList, _ := b.ListTextTranslationJobs(translate.TextTranslationJobFilter{}, 0, "")
 			assert.Empty(t, jobList)
 
 			_, err := b.GetTerminology(seed.terminology.Name)

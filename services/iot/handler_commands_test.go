@@ -82,6 +82,24 @@ func TestDeleteCommandExecution(t *testing.T) {
 	})
 }
 
+// TestDeleteCommandExecution_EmptyExecutionID proves the removed
+// executionID=="" pre-check (which returned ErrValidation, a code
+// DeleteCommandExecution's own deserializeOpError switch does not declare
+// either) is gone: an empty-but-present ExecutionId -- the real SDK client
+// only rejects a nil pointer, never an empty string -- now falls through to
+// the same not-found path a genuinely-unknown ID takes, rather than a
+// separate, differently-wrong invented check.
+func TestDeleteCommandExecution_EmptyExecutionID(t *testing.T) {
+	t.Parallel()
+
+	_, b := newRefHandler()
+
+	err := b.DeleteCommandExecution("", "")
+	require.Error(t, err)
+	require.ErrorIs(t, err, iot.ErrResourceNotFound)
+	require.NotErrorIs(t, err, iot.ErrValidation)
+}
+
 // TestListCommands_SummaryScoping proves handleListCommands stops leaking
 // payload/tags/description/namespace, none of which types.CommandSummary
 // (iot@v1.77.4 types.go:1504-1527) declares. An SDK-driven client cannot

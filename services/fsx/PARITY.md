@@ -7,8 +7,43 @@
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
 last_audit_commit: 8d4556e7938635cdf7c945d46cea23d9dbe03cb9
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # genuine wire-format + error-code bugs found and fixed
+                      # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
+                      # every Describe* op whose real Input struct declares a Filters member had NO field for it
+                      # at all in gopherstack's request struct -- bug class 1 ("never read"), not a wrong-key
+                      # miswire. 7 ops affected: DescribeBackups (file-system-id/backup-type/file-system-type;
+                      # volume-id left as a disclosed gap, see below), DescribeDataRepositoryAssociations
+                      # (file-system-id only -- the shared types.Filter/FilterName enum's other 6 values don't
+                      # apply to a DRA), DescribeDataRepositoryTasks (file-system-id/task-lifecycle;
+                      # data-repository-association-id/file-cache-id left as disclosed gaps),
+                      # DescribeSnapshots (file-system-id/volume-id; IncludeShared not modeled, see below),
+                      # DescribeVolumes (file-system-id/storage-virtual-machine-id, both supported),
+                      # DescribeStorageVirtualMachines (file-system-id, its only real filter name), and
+                      # DescribeS3AccessPointAttachments (file-system-id/volume-id/type, all supported).
+                      # DescribeFileCaches/DescribeFileSystems confirmed clean -- neither op's real Input
+                      # declares a Filters member at all (field-diffed against fsx@v1.68.4 api_op_*.go), so
+                      # there was nothing to miss. Every filter's semantics taken from its own SDK enum
+                      # (types.FilterName/SnapshotFilterName/VolumeFilterName/StorageVirtualMachineFilterName/
+                      # DataRepositoryTaskFilterName/S3AccessPointAttachmentsFilterName in types/enums.go), not
+                      # invented. Shared {Name,Values} decode + AND-across-filters/OR-within-filter matching
+                      # logic in filters.go (matchesFilters); an unrecognized filter Name for a given op is
+                      # treated as unsupported-and-ignored (matches everything), same as an unset filter --
+                      # never rejected, since AWS doesn't reject an unsupported filter name either. All 7
+                      # BackupIds/AssociationIds/TaskIds/SnapshotIds/VolumeIds/StorageVirtualMachineIds/Names
+                      # ID-list params continue to override Filters entirely when both are set, per each op's
+                      # own doc comment (pre-existing branch structure, unchanged). Every fix proven via
+                      # wire_field_fixes_test.go driving the real typed aws-sdk-go-v2/service/fsx client,
+                      # asserting a non-matching resource is excluded (not just that a matching one is
+                      # present) -- confirmed failing against unmodified code first. Disclosed, not fixed
+                      # (no honest tracked data to filter on -- see gaps): DescribeBackups' volume-id
+                      # (CreateBackup never accepts a VolumeId to back an ONTAP-volume backup, though real
+                      # CreateBackupInput has one -- an adjacent create-side gap, out of this filter-class
+                      # pass's scope, reported not fixed); DescribeDataRepositoryTasks'
+                      # data-repository-association-id/file-cache-id (CreateDataRepositoryTask has no field
+                      # for either); DescribeSnapshots' IncludeShared (this backend is single-account/
+                      # single-tenant, so every snapshot is definitionally "owned" -- no cross-account
+                      # snapshot exists to differ on, structurally unobservable, not merely unimplemented).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
@@ -18,19 +53,24 @@ families:
   DataRepositoryAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Tag storage + arnExists coverage fixed in a prior sweep. Fixed this pass: DeleteFileSystem now cascade-deletes DRAs belonging to the deleted file system (previously left as ghost rows; see leaks note)."}
   DataRepositoryTask: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Cancel/Create/Describe verified; Lifecycle EXECUTING/CANCELING matches real enum values. Intentionally NOT cascade-deleted on DeleteFileSystem: DataRepositoryTasks are historical execution records in real AWS, not live child resources. FIXED this pass (gopherstack-4ggy): Report (a required CreateDataRepositoryTaskInput member, api_op_CreateDataRepositoryTask.go:49-129, whose own Enabled member is required per validateCompletionReport) was dropped entirely -- the request read only FileSystemId/Type/Paths/Tags. Now required, validated, stored, and echoed back on DataRepositoryTask.Report (the real DescribeDataRepositoryTasks/CreateDataRepositoryTask response member); Format/Path/Scope accepted but not enforced, matching the SDK's own client-side validator (only Enabled is checked there, despite the doc comment saying the other three are 'required if Enabled is true')."}
   FileCache: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create/Delete/Describe/Update verified against FileCacheId/FileCacheType shapes. errValidation's wire code fixed this pass (see Misc/global note below) -- FileCache's own ErrValidation-based rejections (missing FileCacheType) now correctly return BadRequest instead of the non-existent 'ValidationError'. FIXED 2026-08-11 -- CreateFileCache's request/response StorageCapacity field was wire-tagged StorageCapacityGiB; the real CreateFileCacheRequest/FileCache field is StorageCapacity, so every real client's capacity value was silently discarded (created caches always got 0 GiB). UpdateFileCache's StorageCapacityGiB acceptance is untouched -- the real UpdateFileCacheRequest has no storage-capacity field at all (out of scope, pre-existing invented field, not a rename target). FIXED this pass (gopherstack-4ggy): FileCacheTypeVersion (named in the issue) AND SubnetIds (also a required CreateFileCacheInput member, api_op_CreateFileCache.go:48-124, equally absent -- floor confirmed) were both dropped entirely; StorageCapacity was wired but never required-checked (also fixed, same required set). All three now validated and echoed back on FileCache.FileCacheTypeVersion/SubnetIds (types.FileCacheCreating, types.go:2349). FIXED 2026-08-20 (wrapper-key sweep): a single FileCache Go type, WITH a Tags field, was reused for CreateFileCache/DescribeFileCaches/UpdateFileCache responses alike. Real AWS splits these into two distinct wire types -- types.FileCacheCreating (types/types.go:2349, HAS Tags; deserializers.go:9984 case \"Tags\") for CreateFileCacheOutput.FileCache only, vs types.FileCache (types/types.go:2264, NO Tags at all; deserializers.go:9818 has no case \"Tags\") for DescribeFileCachesOutput.FileCaches/UpdateFileCacheOutput.FileCache -- so gopherstack emitting a Tags key on Describe/Update responses was a fabricated member with no case in the live deserializer, silently dropped by a real client (harmlessly, since the real Go type has no field to hold it, but still wire-inaccurate). Split into FileCacheCreating (interfaces.go, Tags) and FileCache (interfaces.go, no Tags); CreateFileCache's backend method now returns *FileCacheCreating via toPublicCreating(), Describe/UpdateFileCache keep *FileCache via toPublic(). Proven by services/fsx/file_cache_wire_test.go (TestFileCache_TagsWireShape), hand-revert confirmed the exact predicted symptom (Tags key present on Describe/Update)."}
-  Snapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create/Delete/Describe/Update verified; CopySnapshotAndUpdateVolume and RestoreVolumeFromSnapshot correctly validate volume+snapshot existence before returning (real read+validate, not a disguised no-op). Fixed this pass: DeleteVolume and DeleteStorageVirtualMachine (transitively) now cascade-delete a volume's snapshots (previously left as ghost rows pointing at a deleted VolumeId; see leaks note). errValidation's wire code fixed this pass (see Misc/global note). FIXED 2026-08-20 (wrapper-key sweep, critical): CopySnapshotAndUpdateVolume's response was wrapped under a fabricated \"Volume\" key ({Volume: *Volume}). Real AWS's CopySnapshotAndUpdateVolumeOutput (api_op_CopySnapshotAndUpdateVolume.go:87) has NO Volume member at all -- it wraps under root-level \"Lifecycle\"/\"VolumeId\" plus \"AdministrativeActions\" (a list of the new AdministrativeAction type, TargetVolumeValues nested), confirmed via deserializers.go:15903's live per-op switch (no case \"Volume\"). A real client got a completely empty CopySnapshotAndUpdateVolumeOutput back (VolumeId/Lifecycle empty, AdministrativeActions nil) -- total data loss, not a dropped field. See Volume family for the paired RestoreVolumeFromSnapshot bug (identical pattern, shared fix). Proven by services/fsx/administrative_action_wire_test.go; two PRE-EXISTING tests that had encoded the wrong key as correct (handler_snapshots_test.go asserting out[\"Volume\"], handler_volumes_test.go same) were corrected to assert the real shape."}
+  Snapshot: {wire: ok, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create/Delete/Describe/Update verified; RestoreVolumeFromSnapshot correctly validates volume+snapshot existence before returning (real read+validate, not a disguised no-op). Fixed this pass: DeleteVolume and DeleteStorageVirtualMachine (transitively) now cascade-delete a volume's snapshots (previously left as ghost rows pointing at a deleted VolumeId; see leaks note). errValidation's wire code fixed this pass (see Misc/global note). FIXED 2026-08-20 (wrapper-key sweep, critical): CopySnapshotAndUpdateVolume's response was wrapped under a fabricated \"Volume\" key ({Volume: *Volume}). Real AWS's CopySnapshotAndUpdateVolumeOutput (api_op_CopySnapshotAndUpdateVolume.go:87) has NO Volume member at all -- it wraps under root-level \"Lifecycle\"/\"VolumeId\" plus \"AdministrativeActions\" (a list of the new AdministrativeAction type, TargetVolumeValues nested), confirmed via deserializers.go:15903's live per-op switch (no case \"Volume\"). A real client got a completely empty CopySnapshotAndUpdateVolumeOutput back (VolumeId/Lifecycle empty, AdministrativeActions nil) -- total data loss, not a dropped field. See Volume family for the paired RestoreVolumeFromSnapshot bug (identical pattern, shared fix). Proven by services/fsx/administrative_action_wire_test.go; two PRE-EXISTING tests that had encoded the wrong key as correct (handler_snapshots_test.go asserting out[\"Volume\"], handler_volumes_test.go same) were corrected to assert the real shape. FIXED 2026-08-29 (write-only-state sweep): the 08-20 note above claimed CopySnapshotAndUpdateVolume 'correctly validates volume+snapshot existence' -- this pass's write-only-state method (primary method: what's accepted from a request and never read?) found that claim was WRONG for the snapshot half. SourceSnapshotARN (a required real CopySnapshotAndUpdateVolumeInput member, api_op_CopySnapshotAndUpdateVolume.go) was decoded off the wire into copySnapshotAndUpdateVolumeInput.SourceSnapshotID but never referenced anywhere else in the package (grep-confirmed zero other reads) -- any ARN, including one naming a nonexistent or malformed snapshot, silently 'succeeded'. Fixed: extracts the snapshot ID from the ARN's trailing snapshot/<id> segment (matching the format snapshotARN itself builds) and existence-checks it, returning SnapshotNotFound like the sibling RestoreVolumeFromSnapshot op already correctly did for its own (non-ARN) SnapshotId parameter. Proven by wire_field_fixes_test.go's TestCopySnapshotAndUpdateVolume_SourceSnapshotARNValidated (real client, hand-reverted, confirmed failing pre-fix, restored md5sum-identical)."}
   StorageVirtualMachine: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create requires FileSystemId (matches real required-parameter behavior); Subtype/RootVolumeSecurityStyle round-trip. Fixed this pass: DeleteStorageVirtualMachine now cascade-deletes the volumes hosted on that SVM (and, transitively, those volumes' snapshots); DeleteFileSystem now cascade-deletes SVMs belonging to the deleted file system. errValidation's wire code fixed this pass (see Misc/global note). ActiveDirectoryConfiguration/Endpoints (SvmEndpoints/SvmEndpoint) are genuine real SDK members never emitted at all (types/types.go, deserializers.go:14651 case list confirmed) -- Layer 3 gap, out of scope this pass (not hunted, not fixed)."}
-  Volume: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create/CreateFromBackup/Delete/Describe/Update verified. CreateVolumeFromBackup's VolumeType input field is a local convenience (defaults to ONTAP) -- harmless since the real CreateVolumeFromBackup wire shape has no VolumeType member at all (ONTAP-only operation), so no real client ever sends it. Fixed this pass: DeleteVolume now cascade-deletes that volume's snapshots; DeleteFileSystem/DeleteStorageVirtualMachine now cascade-delete volumes belonging to the deleted file system/SVM. errValidation's wire code fixed this pass (see Misc/global note). FIXED 2026-08-20 (wrapper-key sweep, critical): RestoreVolumeFromSnapshot's response was wrapped under a fabricated \"Volume\" key, exactly mirroring CopySnapshotAndUpdateVolume's bug (see Snapshot family for full citation) -- real RestoreVolumeFromSnapshotOutput (api_op_RestoreVolumeFromSnapshot.go) also has no Volume member, only root-level Lifecycle/VolumeId + AdministrativeActions (deserializers.go:17381 live switch, no case \"Volume\"). Added AdministrativeAction (interfaces.go) reusing the existing Volume type for TargetVolumeValues (matches real types.AdministrativeAction.TargetVolumeValues *Volume, types/types.go:185) so no backend logic changed, only the handler's response wrapping. AdministrativeActionType values used (VOLUME_RESTORE for Restore, VOLUME_UPDATE_WITH_SNAPSHOT for Copy) are exact matches against types/enums.go, Status COMPLETED likewise. OntapVolumeConfiguration/OpenZFSVolumeConfiguration/TieringPolicy/SnaplockConfiguration/AutocommitPeriod/RetentionPeriod are genuine real SDK members never emitted at all on Volume (Layer 3 gap, out of scope this pass). FIXED 2026-08-23 (gopherstack batch8, request-side): CreateVolume's INPUT was reading gopherstack-invented top-level FileSystemId/StorageVirtualMachineId fields real CreateVolumeInput has never had at all (api_op_CreateVolume.go) -- a real client's SVM/parent-volume reference was silently ignored, producing a volume with an empty FileSystemId and no real StorageVirtualMachine association, no error either way. Now reads the real nested OntapConfiguration.StorageVirtualMachineId (ONTAP, existence-checked, FileSystemId derived from the resolved SVM) / OpenZFSConfiguration.ParentVolumeId (OPENZFS, existence-checked, FileSystemId derived from the resolved parent volume), and rejects a VolumeType=ONTAP/OPENZFS request with no matching config block as MissingVolumeConfiguration (types.MissingVolumeConfiguration, real wire code, fsx@v1.68.4 types/errors.go) -- mirrors CreateFileSystem's already-established per-type-config-block-required pattern (see FileSystem family). See Notes for proof/hand-revert."}
+  Volume: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. Create/CreateFromBackup/Delete/Describe/Update verified. Fixed this pass: DeleteVolume now cascade-deletes that volume's snapshots; DeleteFileSystem/DeleteStorageVirtualMachine now cascade-delete volumes belonging to the deleted file system/SVM. errValidation's wire code fixed this pass (see Misc/global note). FIXED 2026-08-20 (wrapper-key sweep, critical): RestoreVolumeFromSnapshot's response was wrapped under a fabricated \"Volume\" key, exactly mirroring CopySnapshotAndUpdateVolume's bug (see Snapshot family for full citation) -- real RestoreVolumeFromSnapshotOutput (api_op_RestoreVolumeFromSnapshot.go) also has no Volume member, only root-level Lifecycle/VolumeId + AdministrativeActions (deserializers.go:17381 live switch, no case \"Volume\"). Added AdministrativeAction (interfaces.go) reusing the existing Volume type for TargetVolumeValues (matches real types.AdministrativeAction.TargetVolumeValues *Volume, types/types.go:185) so no backend logic changed, only the handler's response wrapping. AdministrativeActionType values used (VOLUME_RESTORE for Restore, VOLUME_UPDATE_WITH_SNAPSHOT for Copy) are exact matches against types/enums.go, Status COMPLETED likewise. FIXED 2026-08-23 (gopherstack batch8, request-side): CreateVolume's INPUT was reading gopherstack-invented top-level FileSystemId/StorageVirtualMachineId fields real CreateVolumeInput has never had at all (api_op_CreateVolume.go) -- a real client's SVM/parent-volume reference was silently ignored, producing a volume with an empty FileSystemId and no real StorageVirtualMachine association, no error either way. Now reads the real nested OntapConfiguration.StorageVirtualMachineId (ONTAP, existence-checked, FileSystemId derived from the resolved SVM) / OpenZFSConfiguration.ParentVolumeId (OPENZFS, existence-checked, FileSystemId derived from the resolved parent volume), and rejects a VolumeType=ONTAP/OPENZFS request with no matching config block as MissingVolumeConfiguration (types.MissingVolumeConfiguration, real wire code, fsx@v1.68.4 types/errors.go) -- mirrors CreateFileSystem's already-established per-type-config-block-required pattern (see FileSystem family). See Notes for proof/hand-revert. FIXED 2026-08-29 (write-only-state sweep, response-side): the 2026-08-20/08-23 passes both explicitly disclosed 'Volume has no OntapVolumeConfiguration at all' as a Layer-3 gap and left it there -- but re-reading the live deserializer (deserializers.go:15307's Volume case switch) this pass found gopherstack was NOT simply omitting the SVM: it was emitting StorageVirtualMachineId as a FABRICATED TOP-LEVEL key with no counterpart on real types.Volume at all (the real member is OntapConfiguration.StorageVirtualMachineId, deserializers.go:12447). A real typed client silently drops the top-level key and gets nil OntapConfiguration -- so even after 08-23 fixed CreateVolume's *request*-side SVM resolution, the resolved SVM remained completely unreadable through every op returning a Volume (CreateVolume, CreateVolumeFromBackup, DescribeVolumes, UpdateVolume, and the AdministrativeAction.TargetVolumeValues nested Volume on RestoreVolumeFromSnapshot/CopySnapshotAndUpdateVolume). Added OntapVolumeConfiguration{StorageVirtualMachineId} (interfaces.go, only this one real member modeled, matching this fix's scope); storedVolume.toPublic() now nests it under Volume.OntapConfiguration for ONTAP volumes (OpenZFS volumes correctly get no OntapConfiguration -- OpenZFS has no SVM concept). Also fixed CreateVolumeFromBackup (same sweep): its request struct had a flat top-level StorageVirtualMachineId, exactly the same accept-and-drop bug the 08-23 pass fixed on CreateVolume itself -- real CreateVolumeFromBackupInput (api_op_CreateVolumeFromBackup.go) has no top-level VolumeType or StorageVirtualMachineId at all, only nested OntapConfiguration.StorageVirtualMachineId (types.CreateOntapVolumeConfiguration); no real client's SVM assignment could ever have reached this backend. Now resolves the same createOntapVolumeConfigInput type CreateVolume already uses, existence-checks the SVM, derives FileSystemId from it, and rejects a request with no OntapConfiguration as MissingVolumeConfiguration. Proven by wire_field_fixes_test.go's TestVolume_StorageVirtualMachineIdWireShape and TestCreateVolumeFromBackup_StorageVirtualMachineIdRoundTrip (real aws-sdk-go-v2 client round trips); both hand-reverted (git checkout -- the touched files, confirmed all four new round-trip tests fail with the predicted symptom, restored, md5sum byte-identical)."}
   S3AccessPoint: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "CreationTime wire bug fixed in a prior pass. errValidation's wire code fixed this pass (see Misc/global note). FIXED 2026-08-20 (wrapper-key sweep, most severe bug this pass): the ENTIRE S3AccessPoint feature modeled the wrong AWS type on both request and response. gopherstack's old flat S3AccessPoint{Name,FileSystemID,VolumeID,Lifecycle,ResourceARN,Tags,CreationTime} does not correspond to any real FSx wire shape -- CreateAndAttachS3AccessPointOutput/DescribeS3AccessPointAttachmentsOutput actually wrap under \"S3AccessPointAttachment\"/\"S3AccessPointAttachments\" (types.S3AccessPointAttachment, types/types.go:3898; deserializers.go:15957/16995 live switches confirm no case \"S3AccessPoint\"/\"S3AccessPoints\" exists), whose real case list is CreationTime/Lifecycle/LifecycleTransitionReason/Name/OntapConfiguration/OpenZFSConfiguration/S3AccessPoint/Type -- NO top-level FileSystemId, VolumeId, ResourceARN, or Tags at all. The attached VolumeId lives nested under whichever of OntapConfiguration/OpenZFSConfiguration (types/types.go:3956/3970) matches Type, and ResourceARN/Alias live under a DIFFERENT nested type, types.S3AccessPoint (deserializers.go:13775, case list Alias/ResourceARN/VpcConfiguration only). The real request side is equally different: CreateAndAttachS3AccessPointInput has no FileSystemId member at all (api_op_CreateAndAttachS3AccessPoint.go:52) -- Name+Type+OntapConfiguration.VolumeId|OpenZFSConfiguration.VolumeId is the real contract -- and DetachAndDeleteS3AccessPointInput has no FileSystemId either (api_op_DetachAndDeleteS3AccessPoint.go:36, Name alone). Before this fix a real typed SDK client's CreateAndAttachS3AccessPoint call sent the real (Name/Type/OntapConfiguration) shape and gopherstack's old handler, which required FileSystemId, rejected it outright with 400 BadRequest -- the op was non-functional against a real client. Rebuilt: S3AccessPointAttachment/S3AccessPointOntapConfiguration/S3AccessPointOpenZFSConfiguration/S3AccessPoint (interfaces.go), createAndAttachS3AccessPointInput now parses Type+nested VolumeId (s3_access_points.go), DetachAndDeleteS3AccessPoint(name string) dropped the fileSystemID parameter, Tags support removed from Create input (real AWS has none there -- also independently confirmed by the pre-existing exclusion note in handler_create_tags_test.go). A synthetic Alias is generated (generateS3AccessPointAlias) since AWS's real alias-hashing algorithm is undocumented -- a plausible stand-in, not a byte-exact reproduction. Proven by services/fsx/s3_access_point_wire_test.go via a real typed SDK client round-trip; hand-revert reproduced a nil S3AccessPointAttachment. Three PRE-EXISTING tests that had encoded the wrong contract as correct (handler_s3_access_points_test.go x2, handler_test.go's Test_CreationTime_IsEpochSecondsNumber/S3AccessPoint case, persistence_test.go's createS3AP helper) were corrected."}
   SharedVpcConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "Describe/Update verified; single scalar field, not a collection, so untouched by the store.Table refactor per store_setup.go."}
   Misc: {wire: ok, errors: ok, state: ok, persist: n/a, note: "ReleaseFileSystemNfsV3Locks and StartMisconfiguredStateRecovery both validate FileSystemId existence against real state (not disguised no-ops) and echo the file system back; neither op has persisted side effects in real AWS beyond a transient Lifecycle flicker, which this synchronous emulator does not model (consistent with the immediate-AVAILABLE pattern used for every other resource in this service). GLOBAL FIX this pass: errValidation's wire code was 'ValidationError', which is not a real FSx exception (field-diffed against types/errors.go -- FSx's generic client-error type is BadRequest; there is no ValidationError type at all). Every op across every family that returns ErrValidation (CreateFileSystem, CreateSnapshot, CreateStorageVirtualMachine, CreateVolume, CreateAndAttachS3AccessPoint, CreateFileCache) now correctly returns BadRequest. Added ErrMissingFileSystemConfiguration (wire code MissingFileSystemConfiguration) for CreateFileSystem's new required-config-block validation."}
   Tags: {wire: ok, errors: ok, state: ok, persist: ok, note: "TagResource/UntagResource/ListTagsForResource error code fixed in a prior pass: unrecognized ARNs return the generic ResourceNotFound exception. ListTagsForResource already returned [] not null for empty tag sets."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "DescribeBackups' documented volume-id filter (real DescribeBackupsInput.Filters, backup-type ONTAP/OpenZFS volume backups) has no honest value to filter on: CreateBackup never accepts a VolumeId at all, even though real CreateBackupInput has one (api_op_CreateBackup.go) -- an adjacent create-side accept-and-drop gap, out of the 2026-08-29 constraint-not-honoured pass's filter-only scope. A request setting this filter matches every backup rather than excluding any, same as AWS treating an unset filter."
+  - "DescribeDataRepositoryTasks' documented data-repository-association-id/file-cache-id filters have no honest value to filter on: CreateDataRepositoryTaskInput accepts neither an association nor a file-cache reference to track (only FileSystemId), even though the real DataRepositoryTaskFilterName enum documents both. Both filters match everything rather than excluding, same as AWS treating an unset filter."
+  - "DescribeSnapshots' IncludeShared (real DescribeSnapshotsInput member) is not modeled: this backend is single-account/single-tenant, so every snapshot is definitionally \"owned\" by the caller regardless of that flag -- there is no cross-account snapshot for it to differ on, a structural gap rather than an unimplemented one."
+  - "FIXED 2026-08-29 (write-only-state sweep): CreateFileSystemFromBackup had no SubnetIds field at all -- SubnetIds is a required real CreateFileSystemFromBackupInput member (api_op_CreateFileSystemFromBackup.go) that every real client's SDK-side validator forces it to send, and it round-trips onto FileSystem.SubnetIds on every other file-system create path (CreateFileSystem already accepts/echoes it). It was being silently discarded: the restored file system always came back with empty SubnetIds/NetworkInterfaceIds regardless of what was requested. Fixed: accepted, format-validated (same subnet-[0-9a-f]{8,} pattern as CreateFileSystem), stored, and echoed, plus SecurityGroupIds accepted-and-validated for consistency (matches real AWS: 'This value isn't returned in later DescribeFileSystem requests', so, like CreateFileSystem, intentionally not stored/echoed). Not made required-and-rejecting-when-absent, matching the existing precedent immediately below (CreateFileSystem's own SubnetIds gap) and to avoid breaking the existing test fixtures that predate SubnetIds support on this op. Proven by wire_field_fixes_test.go's TestCreateFileSystemFromBackup_SubnetIdsRoundTrip (real client, hand-reverted, confirmed failing pre-fix, restored md5sum-identical)."
   - "Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass (gopherstack-wjjl was scoped to idempotency + network validation, not this)."
   - "CreateFileSystem still does not REQUIRE SubnetIds (real AWS: Required: Yes, and exactly two for Windows/ONTAP MULTI_AZ_1 deployments). Re-confirmed this pass (gopherstack-wjjl) against the live API reference (docs.aws.amazon.com/fsx/latest/APIReference/API_CreateFileSystem.html): SubnetIds is genuinely required. Still not enforced: grep confirms zero test fixtures across the entire fsx package (5 test files, 28+ CreateFileSystem call sites) ever populate SubnetIds, so flipping it to required would be a wholesale fixture migration, not a small fix, and this emulator still does not model Availability Zone topology needed for the exactly-one-vs-exactly-two-subnets MULTI_AZ_1 rule. What WAS fixed this pass: SubnetIds/SecurityGroupIds, when supplied, are now format-validated against the real ID patterns (subnet-[0-9a-f]{8,} / sg-[0-9a-f]{8,}) and rejected with InvalidNetworkSettings if malformed -- see families note below."
   - "ActiveDirectoryError (AD-join failures for WINDOWS/ONTAP file systems joining a directory) is not modeled: ActiveDirectoryId is accepted and echoed back but never validated against a real Directory Service resource (gopherstack's ds package). Not fixed this pass -- cross-service validation, out of scope for a single-service parity pass."
   - "CreateFileSystem (the non-backup create path) does not accept FileSystemTypeVersion, unlike CreateFileSystemFromBackup which gained it this pass (gopherstack-cgq3). Real CreateFileSystemInput has this field too (api_op_CreateFileSystem.go:118), so a Lustre file system created directly (not restored from a backup) can never have a non-empty FileSystemTypeVersion in this emulator, and CreateFileSystemFromBackup's own \"inherit from source file system\" fallback is therefore currently always empty in practice unless the caller supplies an explicit override. Not fixed this pass -- out of the single-op scope that found it."
   - "FIXED 2026-08-23: CreateVolume's input-shape gap (see the Volume family note and Notes section) -- real CreateVolumeInput has no top-level FileSystemId/StorageVirtualMachineId; the anchor is OntapConfiguration.StorageVirtualMachineId (ONTAP) / OpenZFSConfiguration.ParentVolumeId (OPENZFS). Response-side OntapVolumeConfiguration/OpenZFSVolumeConfiguration on Volume remain unmodeled (Layer 3, unchanged, see the Volume family note above)."
+  - "2026-08-31 (value-semantics sweep, gopherstack-uox6): CreateDataRepositoryAssociationInput.BatchImportMetaDataOnCreate (bool, real field, api_op_CreateDataRepositoryAssociation.go, 'Default is false') and DeleteDataRepositoryAssociationInput.DeleteDataInFileSystem (bool, api_op_DeleteDataRepositoryAssociation.go) are not declared anywhere in gopherstack's request/backend structs at all -- the never-declared axis, not this pass's value-semantics axis, so recorded rather than fixed. Not at risk of the flattened-pointer-default shape found elsewhere this campaign: both real fields default to false, which is also Go's bool zero value, so there is no omitted-vs-explicit-false distinction to lose. Honouring BatchImportMetaDataOnCreate would mean auto-creating a real DataRepositoryTask as a side effect of CreateDataRepositoryAssociation, a feature addition rather than a value-semantics fix."
 deferred: []              # consciously not audited this pass (scope) — next pass targets
 leaks: {status: clean, note: "Single InMemoryBackend with no goroutines, timers, or janitors; Reset()/Snapshot()/Restore() all go through the coarse lockmetrics.RWMutex and store.Registry -- no ephemeral state outside the registered tables/maps. FIXED THIS PASS (previously leaky): DeleteFileSystem only removed the file system + its own tags, leaving ghost StorageVirtualMachine/Volume/Snapshot/DataRepositoryAssociation rows (and a stale aliases[fileSystemID] map entry) referencing a FileSystemId that no longer existed. DeleteVolume and DeleteStorageVirtualMachine had the same gap one level down (a deleted volume's snapshots, and a deleted SVM's volumes, were never cleaned up). All four Delete ops now cascade correctly (deleteVolumeLocked / deleteStorageVirtualMachineLocked / cascadeDeleteFileSystemChildrenLocked in file_systems.go, volumes.go, storage_virtual_machines.go), while intentionally leaving Backups and DataRepositoryTasks alone (real AWS retains both independently of the file system they reference). Regression tests added in cascade_delete_test.go."}
 ---
@@ -334,3 +374,169 @@ Gates: `go build ./...`, `go vet ./services/fsx/...`, `gofmt -l`/`golines -l`
 shape changed (`storedVolume`'s `StorageVirtualMachineID` field already
 existed; only how it's populated changed) — `fsxSnapshotVersion` correctly
 left unbumped.
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Bug found and fixed, Class B:** `paginate` (`store.go`), the single generic
+offset paginator behind all 7 `Describe*` list operations
+(`DescribeDataRepositoryAssociations`, `DescribeFileCaches`,
+`DescribeDataRepositoryTasks`, `DescribeStorageVirtualMachines`,
+`DescribeSnapshots`, `DescribeS3AccessPointAttachments`, `DescribeVolumes`),
+searched for the `nextToken`'s named item by exact equality and left `start`
+at its zero-value default on a miss. A token naming an item deleted between
+calls, or any hand-built/tampered token, reset pagination to the first page
+instead of resuming past it or terminating — a client following the cursor
+would see page one, forever.
+
+Every caller sorts its slice ascending by the same key `paginate`'s `keyFn`
+returns (confirmed per call site, not assumed), so the fix searches for the
+first surviving key `>= nextToken` instead of `==`, defaulting `start = n`
+(not `0`) when nothing matches. This can no longer resolve a miss to zero by
+construction, so a future edit that forgets to handle "not found" still gets
+the safe answer without a signature change.
+
+Proof: `TestPaginate_StaleCursor_DeletedItem` and
+`TestPaginate_TamperedCursor_NoMatch`
+(`pagination_arithmetic_internal_test.go`, unit, call `paginate` directly)
+both reproduce the bug pre-fix (returning the stale duplicate/full list
+instead of the correct remainder); `TestDescribeVolumes_SDKRoundTrip_StaleCursorResumesPastDeletedItem`
+(`pagination_sdk_roundtrip_test.go`) ties it to the real
+`aws-sdk-go-v2/service/fsx` client — deletes the volume the cursor names
+between calls, then asserts the resumed page holds neither the already-seen
+first item nor the deleted one.
+
+All seven checks (boundary walk, final page, single page, empty collection,
+exact division, cursor round trip, stale cursor) pass post-fix; no Class A
+(panic) or Class C shape found — `maxResults <= 0` is normalized to a
+positive default at every call site before reaching `paginate`, so a
+negative limit can't drive `end < start` either.
+
+Gates: `go build ./services/fsx/...`, `go vet ./services/fsx/...` and
+`go vet ./...` (repo-wide, clean — no signature changed),
+`go test -race -count=1 ./services/fsx/...`, `golangci-lint run
+./services/fsx/...` (0 issues).
+
+### 2026-08-31 pass (gopherstack-uox6, value-semantics class): re-derived clean, zero bugs, coverage strengthened
+
+Dispatched by targeting ("no `filter_default_semantics` covledger row"), but `covledger -service fsx`
+credits only `pagination_ordering` and `request_field_never_read` -- both from the 2026-08-29 filter/cursor
+passes (`e3a19f13e`, `39d671395`). The ledger's known blind spot (attribution rides the commit subject/body,
+so a value-semantics audit filed under a different bug-class label is invisible to it) applies here:
+`e3a19f13e`'s own PARITY note IS a value-semantics audit of every fsx filter -- enum membership per
+operation, the OR-within-values/AND-across-filters combining rule, and the unrecognized-name policy -- it
+was simply never tagged that way. Per this campaign's "twice already" precedent, re-derived rather than
+re-audited from scratch:
+
+1. **`matchesFilters` (filters.go) combining rule** -- read directly: `slices.Contains(f.Values, got)` ORs
+   every element of one filter's Values (not `Values[0]`), the loop ANDs across distinct filter Names.
+   HOLDS.
+2. **Per-operation filter-name coverage matches each operation's own SDK doc comment exactly** --
+   independently re-fetched `types/enums.go` for all six FilterName-family enums and every operation's own
+   `Filters` doc comment (not a sibling's): `DescribeBackupsInput` documents exactly file-system-id/
+   backup-type/file-system-type/volume-id (4), gopherstack implements 3 and discloses volume-id as a gap;
+   `DataRepositoryTaskFilterName` has 4 members, gopherstack implements file-system-id/task-lifecycle and
+   discloses the other 2; Snapshot(2/2), Volume(2/2), StorageVirtualMachine(1/1), S3AccessPointAttachments(3/3)
+   all fully implemented. HOLDS.
+3. **The three disclosed "no honest data" gaps are structurally real, not assumed** -- grepped
+   `createBackupInput`/`CreateDataRepositoryTaskInput` in gopherstack source: neither has ever had a
+   VolumeId/association/file-cache field to store, confirming the filter truly has nothing to compare
+   against (rather than an unread-but-present field, which would be a different, fixable bug). HOLDS.
+
+**No `SortBy`/`SortOrder` and no `default`/`if you omit`/`if not specified` language anywhere in fsx's
+pinned SDK doc comments** (swept every `api_op_*.go`) -- fsx genuinely lacks the sortOrder-default and
+narrowing-default-omitted sub-shapes this class has found repeatedly elsewhere; this is a structural absence
+of surface, confirmed rather than assumed, same as cloudfront/apigateway/cloudformation/elbv2 in this
+campaign. `maxResultsDefault = math.MaxInt32` (store.go) is consistent with this -- no operation documents a
+numeric MaxResults default to contradict.
+
+**Two never-declared-axis findings, recorded not fixed** (added to `gaps:` above):
+`CreateDataRepositoryAssociationInput.BatchImportMetaDataOnCreate` and
+`DeleteDataRepositoryAssociationInput.DeleteDataInFileSystem` are real fields nowhere in gopherstack's
+structs. Different axis from this pass's remit (a field never declared, not a value read wrongly); not
+at risk of the flattened-pointer-default shape since both real defaults are `false`, matching Go's zero
+value.
+
+**Coverage gap closed, not a bug**: every existing fsx filter test (`wire_field_fixes_test.go`) passes
+exactly one value in each filter's `Values` list, so none of them can distinguish "matched anywhere in
+Values" from "matched only `Values[0]`" -- the confirmed first-element-only shape (four sightings
+elsewhere this campaign). Added `TestDescribeVolumes_Filters_MultipleValuesInOneFilter`, a two-value
+filter that must match volumes on either value and exclude a third. Confirmed it can fail: temporarily
+changed `matchesFilters` to compare only `f.Values[0]`, watched the new test fail (extra/missing element
+diff on the expected two-volume result), restored `filters.go` byte-identical (md5sum verified). No
+existing test's assertions were touched or weakened; 3 new assertions added, 0 dropped.
+
+Gates: `go build ./services/fsx/... ./services/codebuild/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/fsx/...`, `golangci-lint run ./services/fsx/... ./services/codebuild/...`
+(0 issues).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir fsx` reported 6 class-A findings, all
+`mechanism=sentinel reference`. fsx's error matching is
+`awsAwsjson11_deserializeOpError<Op>` (a per-op switch in deserializers.go).
+Verified every finding against its op's own switch (fsx@v1.68.4
+deserializers.go). All 6 were real. False-positive rate: 0% (6/6).
+
+**CopySnapshotAndUpdateVolume (2 findings, `snapshots.go`)**: emitted
+`ErrVolumeNotFound`/`ErrSnapshotNotFound` on a missing volume/snapshot. Its
+own switch is exactly `[BadRequest, IncompatibleParameterError,
+InternalServerError, ServiceLimitExceeded]` — neither NotFound type is
+declared for this op, even though both are legitimately declared elsewhere
+(VolumeNotFound: CreateAndAttachS3AccessPoint, CreateBackup, CreateSnapshot,
+DeleteVolume, DescribeBackups, and others not touched by this pass;
+SnapshotNotFound: DeleteSnapshot, DescribeSnapshots, UpdateSnapshot).
+**Fixed**: both checks now use `ErrValidation` (`BadRequest`, "a generic
+error indicating a failure with a client request" per
+`aws-sdk-go-v2/service/fsx/types.BadRequest`'s doc comment) — this op's own
+declared generic-client-error type, already how the rest of this service
+answers validation-shaped conditions with no more specific declared type
+(see `errValidation`'s existing doc comment in errors.go).
+
+**RestoreVolumeFromSnapshot (1 finding, `volumes.go`)**: its own switch is
+`[BadRequest, InternalServerError, VolumeNotFound]` — the VolumeId check's
+`ErrVolumeNotFound` is correctly declared and untouched; only the SnapshotId
+check's `ErrSnapshotNotFound` was wrong (not declared here). **Fixed**: same
+`ErrValidation` substitution as above.
+
+**TagResource (1 finding, `tags.go`)**: the 50-tag-limit check emitted
+`ErrTagLimitExceeded` (`ServiceLimitExceeded`). TagResource's own switch is
+`[BadRequest, InternalServerError, NotServiceResourceError,
+ResourceDoesNotSupportTagging, ResourceNotFound]` — no
+ServiceLimitExceeded, even though it's legitimately declared by CopyBackup,
+CopySnapshotAndUpdateVolume, CreateBackup, CreateDataRepositoryAssociation,
+CreateDataRepositoryTask. Neither `NotServiceResourceError`
+("resource...not owned by Amazon FSx") nor `ResourceDoesNotSupportTagging`
+fit "too many tags" by their own doc comments, so `ErrValidation`
+(BadRequest) is the correct substitution, not an invented code. **Existing
+test corrected**: `handler_tags_test.go`'s `TestFSx_TagLimit` subtest
+"51st tag returns ServiceLimitExceeded" asserted the wrong wire type;
+renamed to "51st tag returns BadRequest" and its one assertion changed to
+match (assertion count unchanged: 1).
+
+**DescribeS3AccessPointAttachments + DetachAndDeleteS3AccessPoint (2
+findings, `s3_access_points.go`)**: both emitted `ErrS3AccessPointNotFound`
+(`InvalidRequest`) on an unknown attachment name. Their own switches both
+declare `S3AccessPointAttachmentNotFound`, not InvalidRequest — InvalidRequest
+only fits CreateAndAttachS3AccessPoint's declared set (`[..., InvalidAccessPoint,
+InvalidRequest, ...]`), and CreateAndAttachS3AccessPoint doesn't actually
+emit `ErrS3AccessPointNotFound` anywhere in the current code (it uses
+`ErrVolumeNotFound` for its own not-found case) — so this sentinel had zero
+correct callers before this fix. **Fixed**: added a new sentinel
+`ErrS3AccessPointAttachmentNotFound` (`S3AccessPointAttachmentNotFound`) and
+switched both call sites to it; `ErrS3AccessPointNotFound` (`InvalidRequest`)
+is left declared but currently unused by any code path, kept in case a
+future CreateAndAttachS3AccessPoint validation needs it — not deleted,
+since deleting a still-declared, still-potentially-correct sentinel would
+be a different kind of loss than deleting an always-wrong check.
+
+New real-SDK-client tests (`error_envelope_fixes_test.go`, 6 assertions
+across 4 test funcs / 4 subtests) drive `types.BadRequest` and
+`types.S3AccessPointAttachmentNotFound` via `errors.As`; all 6 confirmed
+failing against unmodified code (got `*smithy.GenericAPIError` for
+VolumeNotFound/SnapshotNotFound/ServiceLimitExceeded/InvalidRequest
+respectively).
+
+Re-run after fix: `errtargetaudit -dir fsx` now reports 0 class-A findings.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` — all clean (`./services/fsx/...`).

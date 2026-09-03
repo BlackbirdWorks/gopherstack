@@ -29,7 +29,7 @@ type Snapshottable interface {
 // all, so an old snapshot decodes with Version == 0, which is guaranteed to
 // mismatch iotanalyticsSnapshotVersion and is discarded the same way any
 // other incompatible snapshot is.
-const iotanalyticsSnapshotVersion = 1
+const iotanalyticsSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the IoT Analytics backend.
 //
@@ -44,7 +44,7 @@ const iotanalyticsSnapshotVersion = 1
 type backendSnapshot struct {
 	Tables          map[string]json.RawMessage   `json:"tables"`
 	Tags            map[string]map[string]string `json:"tags"`
-	ChannelMessages map[string][][]byte          `json:"channelMessages"`
+	ChannelMessages map[string][]ChannelMessage  `json:"channelMessages"`
 	DatasetContents map[string][]*DatasetContent `json:"datasetContents"`
 	LoggingOptions  *LoggingOptions              `json:"loggingOptions"`
 	Version         int                          `json:"version"`
@@ -103,7 +103,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string]string)
-		b.channelMessages = make(map[string][][]byte)
+		b.channelMessages = make(map[string][]ChannelMessage)
 		b.datasetContents = make(map[string][]*DatasetContent)
 		b.loggingOptions = nil
 
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if snap.ChannelMessages == nil {
-		snap.ChannelMessages = make(map[string][][]byte)
+		snap.ChannelMessages = make(map[string][]ChannelMessage)
 	}
 
 	if snap.DatasetContents == nil {

@@ -25,7 +25,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 	}
 
 	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
-		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
+		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcryptCost)
@@ -374,7 +374,7 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 	}
 
 	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
-		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
+		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
 	if tempPassword != "" {
@@ -465,7 +465,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 			return &cp, nil
 		}
 
-		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
+		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
 	if tempPassword != "" {

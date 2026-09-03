@@ -88,7 +88,11 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policyDocument string) 
 		return nil, fmt.Errorf("%w: resourceArn is not a valid Bedrock resource ARN", ErrValidation)
 	}
 	if !b.resourcePolicyTargetExists(resourceArn) {
-		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+		// Core bedrock's PutResourcePolicy declares no ResourceNotFoundException
+		// (bedrock@v1.66.4 deserializers.go) -- ErrValidation is the closest
+		// type it does declare. ConflictException is also declared here but
+		// describes a conflicting operation, not a missing target.
+		return nil, fmt.Errorf("%w: resource %s not found", ErrValidation, resourceArn)
 	}
 
 	rp := b.putResourcePolicyRecord(resourceArn, policyDocument)

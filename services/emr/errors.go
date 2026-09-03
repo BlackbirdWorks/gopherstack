@@ -26,3 +26,11 @@ var errSessionClusterNotReady = awserr.New(
 	"ValidationException: cluster is not in a state that can host a session",
 	awserr.ErrInvalidParameter,
 )
+
+// errSessionsNotEnabled is returned by StartSession when the target cluster
+// was not launched with SessionEnabled=true (the other half of real
+// StartSession's precondition alongside errSessionClusterNotReady).
+var errSessionsNotEnabled = awserr.New(
+	"ValidationException: cluster does not have sessions enabled",
+	awserr.ErrInvalidParameter,
+)

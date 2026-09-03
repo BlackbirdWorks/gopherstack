@@ -7,12 +7,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
+
+// testPEMPrivateKey is a syntactically valid PEM "PRIVATE KEY" block (arbitrary
+// base64 payload -- looksLikePEMPrivateKey only checks the PEM envelope, never
+// parses key material) used to get past UploadServerCertificate's PrivateKey
+// PEM-shape check in tests that are targeting a different field entirely.
+const testPEMPrivateKey = "-----BEGIN PRIVATE KEY-----\nVEVTVA==\n-----END PRIVATE KEY-----\n"
 
 // TestErrorSentinels_Distinctness verifies that each "not found" sentinel
 // has a unique error message, enabling message-based inspection to determine which
@@ -302,4 +311,189 @@ func TestHandler_NoSuchEntityCode(t *testing.T) {
 				"action %s must return NoSuchEntity error code", tt.action)
 		})
 	}
+}
+
+// TestUploadServerCertificate_EmptyCertificateBody_MalformedCertificate verifies
+// an empty CertificateBody is rejected with the real MalformedCertificateException.
+// iam@v1.58.1 deserializers.go's awsAwsquery_deserializeOpErrorUploadServerCertificate
+// switch models ConcurrentModification/EntityAlreadyExists/InvalidInput/
+// KeyPairMismatch/LimitExceeded/MalformedCertificate/ServiceFailure for this op --
+// no MalformedPolicyDocument case exists. server_certificates.go's
+// UploadServerCertificate previously returned ErrMalformedPolicyDocument (wire code
+// "MalformedPolicyDocument") for both an empty ServerCertificateName and an empty
+// CertificateBody, a code this op does not model at all: a real SDK client got an
+// untyped smithy.GenericAPIError instead of *types.MalformedCertificateException.
+func TestUploadServerCertificate_EmptyCertificateBody_MalformedCertificate(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	_, err := client.UploadServerCertificate(t.Context(), &iamsdk.UploadServerCertificateInput{
+		ServerCertificateName: aws.String("test-cert"),
+		PrivateKey:            aws.String(testPEMPrivateKey),
+		CertificateBody:       aws.String(""),
+	})
+	require.Error(t, err)
+
+	var malformedErr *iamtypes.MalformedCertificateException
+	require.ErrorAs(
+		t, err, &malformedErr,
+		"expected a real MalformedCertificateException from the SDK deserializer",
+	)
+}
+
+// TestUploadServerCertificate_EmptyName_InvalidInput verifies an empty (but
+// present) ServerCertificateName is rejected with InvalidInputException, the
+// code this op actually models for a bad input parameter -- not
+// MalformedPolicyDocument, which UploadServerCertificate's own error switch
+// does not declare at all (see the sibling test above).
+func TestUploadServerCertificate_EmptyName_InvalidInput(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	_, err := client.UploadServerCertificate(t.Context(), &iamsdk.UploadServerCertificateInput{
+		ServerCertificateName: aws.String(""),
+		PrivateKey:            aws.String(testPEMPrivateKey),
+		CertificateBody:       aws.String("dummy-cert-body"),
+	})
+	require.Error(t, err)
+
+	var invalidInputErr *iamtypes.InvalidInputException
+	require.ErrorAs(
+		t, err, &invalidInputErr,
+		"expected a real InvalidInputException from the SDK deserializer",
+	)
+}
+
+// TestUploadSigningCertificate_EmptyCertificateBody_MalformedCertificate mirrors
+// the UploadServerCertificate case above for UploadSigningCertificate. iam@v1.58.1
+// deserializers.go's awsAwsquery_deserializeOpErrorUploadSigningCertificate switch
+// models ConcurrentModification/DuplicateCertificate/EntityAlreadyExists/
+// InvalidCertificate/LimitExceeded/MalformedCertificate/NoSuchEntity/
+// ServiceFailure -- again no MalformedPolicyDocument case.
+func TestUploadSigningCertificate_EmptyCertificateBody_MalformedCertificate(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
+		UserName: aws.String("cert-user"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UploadSigningCertificate(t.Context(), &iamsdk.UploadSigningCertificateInput{
+		UserName:        aws.String("cert-user"),
+		CertificateBody: aws.String(""),
+	})
+	require.Error(t, err)
+
+	var malformedErr *iamtypes.MalformedCertificateException
+	require.ErrorAs(
+		t, err, &malformedErr,
+		"expected a real MalformedCertificateException from the SDK deserializer",
+	)
+}
+
+// TestDeleteAccountAlias_NotFound_NoSuchEntity verifies deleting a mismatched
+// account alias is rejected with the real NoSuchEntityException. iam@v1.58.1
+// deserializers.go's awsAwsquery_deserializeOpErrorDeleteAccountAlias switch
+// models ConcurrentModification/LimitExceeded/NoSuchEntity/ServiceFailure --
+// account.go's DeleteAccountAlias previously returned ErrInvalidAction (wire
+// code "InvalidAction"), a code this op does not model at all.
+func TestDeleteAccountAlias_NotFound_NoSuchEntity(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	_, err := client.CreateAccountAlias(t.Context(), &iamsdk.CreateAccountAliasInput{
+		AccountAlias: aws.String("real-alias"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteAccountAlias(t.Context(), &iamsdk.DeleteAccountAliasInput{
+		AccountAlias: aws.String("wrong-alias"),
+	})
+	require.Error(t, err)
+
+	var notFoundErr *iamtypes.NoSuchEntityException
+	require.ErrorAs(
+		t, err, &notFoundErr,
+		"expected a real NoSuchEntityException from the SDK deserializer",
+	)
+}
+
+// TestEnableMFADevice_AlreadyEnabled_EntityAlreadyExists verifies re-enabling
+// an already-enabled virtual MFA device is rejected with the real
+// EntityAlreadyExistsException. iam@v1.58.1 deserializers.go's
+// awsAwsquery_deserializeOpErrorEnableMFADevice switch models
+// ConcurrentModification/EntityAlreadyExists/EntityTemporarilyUnmodifiable/
+// InvalidAuthenticationCode/LimitExceeded/NoSuchEntity/ServiceFailure --
+// mfa.go's EnableMFADevice previously returned ErrInvalidAction for both this
+// case and a not-found device, neither of which this op models.
+func TestEnableMFADevice_AlreadyEnabled_EntityAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{UserName: aws.String("mfa-user")})
+	require.NoError(t, err)
+
+	dev, err := client.CreateVirtualMFADevice(t.Context(), &iamsdk.CreateVirtualMFADeviceInput{
+		VirtualMFADeviceName: aws.String("mfa-device"),
+	})
+	require.NoError(t, err)
+
+	serial := dev.VirtualMFADevice.SerialNumber
+
+	_, err = client.EnableMFADevice(t.Context(), &iamsdk.EnableMFADeviceInput{
+		UserName:            aws.String("mfa-user"),
+		SerialNumber:        serial,
+		AuthenticationCode1: aws.String("111111"),
+		AuthenticationCode2: aws.String("222222"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.EnableMFADevice(t.Context(), &iamsdk.EnableMFADeviceInput{
+		UserName:            aws.String("mfa-user"),
+		SerialNumber:        serial,
+		AuthenticationCode1: aws.String("333333"),
+		AuthenticationCode2: aws.String("444444"),
+	})
+	require.Error(t, err)
+
+	var alreadyExistsErr *iamtypes.EntityAlreadyExistsException
+	require.ErrorAs(
+		t, err, &alreadyExistsErr,
+		"expected a real EntityAlreadyExistsException from the SDK deserializer",
+	)
+}
+
+// TestRemoveClientIDFromOpenIDConnectProvider_UnknownClientID_Idempotent verifies
+// removing a client ID that was never registered succeeds rather than erroring.
+// iam@v1.58.1 api_op_RemoveClientIDFromOpenIDConnectProvider.go's doc comment:
+// "This operation is idempotent; it does not fail or return an error if you
+// try to remove a client ID that does not exist." providers.go previously
+// returned ErrInvalidAction for this case -- the reverse of this class of bug:
+// an operation modeled as always succeeding was made to fail instead.
+func TestRemoveClientIDFromOpenIDConnectProvider_UnknownClientID_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	client := newTestIAMClient(t, iam.NewHandler(iam.NewInMemoryBackend()))
+
+	created, err := client.CreateOpenIDConnectProvider(
+		t.Context(), &iamsdk.CreateOpenIDConnectProviderInput{
+			Url:            aws.String("https://oidc.example.com/remove-client-id-test"),
+			ThumbprintList: []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = client.RemoveClientIDFromOpenIDConnectProvider(
+		t.Context(), &iamsdk.RemoveClientIDFromOpenIDConnectProviderInput{
+			OpenIDConnectProviderArn: created.OpenIDConnectProviderArn,
+			ClientID:                 aws.String("never-registered-client-id"),
+		},
+	)
+	require.NoError(t, err, "removing an unregistered client ID must be a no-op success")
 }

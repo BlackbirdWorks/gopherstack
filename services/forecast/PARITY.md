@@ -121,6 +121,14 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
     what real AWS actually models is a self-status precondition, which this
     pass implemented (see validateDeletableLocked in validation.go and the
     Delete* ops table above).
+  - >-
+    Value-semantics sweep (gopherstack-uox6), CLEAN -- no value-semantics
+    bug found; see the 2026-08-31 pass note below for the per-operation
+    verification. The two filter Keys left unresolved by the 2026-08-29
+    pass (ListForecasts/ListPredictors's DatasetGroupArn,
+    ListExplainabilityExports's ResourceArn) were re-confirmed genuine
+    structural gaps under this axis too, not silently-wrong applications --
+    see below.
 deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
                          # DataFrequency/ImportMode enum validation; cross-resource FK
                          # existence validation on Create*; Delete* status/ResourceInUse
@@ -259,3 +267,226 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
   gap found for the validation logic added this pass: it reads `arnIndex`
   (always rebuilt from the tables, pre- and post-restore) and never itself
   needs to persist any new state.
+
+## 2026-08-29 pass: List Filters parameter never applied (campaign class)
+
+Measured 29 List operations (List<Kind> x 12 addCRUD families +
+ListMonitorEvaluations; ListTagsForResource excluded, it carries no
+constraining parameter). All 12 addCRUD List ops and ListMonitorEvaluations
+declare a `Filters []types.Filter` array (Condition IS/IS_NOT, Key, Value);
+`handler.go`'s shared `listOutput()` applied MaxResults/NextToken but never
+read `Filters` at all -- every List op returned every resource of its kind
+regardless of any filter the client sent. `ListMonitorEvaluations` additionally
+ignored its own MaxResults/NextToken (routed through a separate
+`dispatchListMonitorEvaluations`, not `listOutput`) and marshaled
+`MonitorEvaluation.CreationTime`/`EvaluationTime` as `time.Time`'s default
+RFC3339 JSON string instead of the JSON-RPC 1.1 epoch-seconds number the real
+deserializer expects -- caught only because the new SDK-driven test failed to
+decode the response at all, not a filter-class bug but fixed alongside it
+(`pkgs/awstime.Epoch`).
+
+Fixed by adding `applyFilters`/`filterFieldValue` (handler.go): "Status"
+resolves to `resource.Status`, a Key matching the operation's own ARN field
+resolves to `resource.ARN`, any other Key is looked up directly in
+`resource.Data`. Covers every Filter Key across all 12 families except two
+left unfiltered (not silently mismatched, and not invented):
+- `ListForecasts`/`ListPredictors`'s `DatasetGroupArn` -- the predictor's
+  DatasetGroupArn lives nested under InputDataConfig/DataConfig and was never
+  recorded top-level (documented in `registerDataOperations`'s Predictor
+  comment before this pass; a genuine structural gap, not new).
+- `ListExplainabilityExports`'s `ResourceArn` -- CreateExplainabilityExport's
+  own field is `ExplainabilityArn`, not `ResourceArn`; no data exists under
+  the filter's literal Key name and mapping one to the other would be
+  inventing semantics the SDK doc doesn't state.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestForecastClient`) -- `TestListPredictors_StatusFilter` (IS/IS_NOT),
+`TestListDatasetImportJobs_DatasetArnFilter` (a Data-field Key, not Status),
+`TestListMonitorEvaluations_EvaluationStateFilter`. All three fail against
+pre-fix code (confirmed by reverting the handler.go changes only).
+
+## 2026-08-31 pass: value-semantics sweep (gopherstack-uox6), CLEAN
+
+Distinct axis from the 2026-08-29 pass above: that pass asked whether
+`Filters` is read at all; this one asks whether, now that it is read, it is
+read under the *right key*, with the *right type*, and whether its
+*absence* means what AWS documents. Covered all 12 `Filters`-bearing List
+operations (`ListDatasetImportJobs`, `ListExplainabilities`,
+`ListExplainabilityExports`, `ListForecastExportJobs`, `ListForecasts`,
+`ListMonitorEvaluations`, `ListMonitors`, `ListPredictorBacktestExportJobs`,
+`ListPredictors`, `ListWhatIfAnalyses`, `ListWhatIfForecastExports`,
+`ListWhatIfForecasts`; `ListDatasetGroups`/`ListDatasets` declare no
+`Filters` member at all and were out of scope). Every Describe/Get op takes
+exactly one ARN-lookup parameter (verified by field-counting every
+`Describe*Input`/`GetAccuracyMetricsInput` struct in
+`aws-sdk-go-v2/service/forecast@v1.44.4`) and has no filter/default/ordering
+surface for this class to apply to.
+
+**Key resolution, checked against each Create* request's real field name**
+(`filterFieldValue`, handler.go): every documented filter Key across all 12
+families resolves to the correct stored value --
+`Status`→`resource.Status`; a Key equal to the op's own `arnField`
+(`WhatIfAnalysisArn`, `WhatIfForecastArn`, `WhatIfForecastExportArn`)
+→`resource.ARN`; and every ARN-typed Key that names a *different* resource
+than the op's own (`DatasetArn` on ListDatasetImportJobs,
+`PredictorArn` on ListForecasts/ListPredictorBacktestExportJobs,
+`ForecastArn` on ListForecastExportJobs, `ResourceArn` on
+ListExplainabilities) resolves through `resource.Data[key]`, confirmed
+present under that exact literal name in the corresponding
+`Create*Input` struct (e.g. `CreateForecastExportJobInput.ForecastArn`,
+`CreateExplainabilityInput.ResourceArn`). `ListMonitorEvaluations`'s single
+Key, `EvaluationState`, is handled separately (`filterMonitorEvaluations`)
+and reads the same field name directly off `MonitorEvaluation`.
+
+**IS/IS_NOT semantics** (`resourceMatchesFilters`/`monitorEvaluationMatchesFilters`):
+`IS` includes objects that match, `IS_NOT` excludes objects that match and
+includes everything else -- verified against `types.Filter.Condition`'s doc
+comment ("To include the objects that match the statement, specify IS. To
+exclude matching objects, specify IS_NOT") and against
+`TestListPredictors_StatusFilter`'s existing IS/IS_NOT subtests.
+
+**Absence.** No `Filters`-bearing List op in this SDK carries "if you don't
+specify"/"by default"/"if omitted" language on `Filters`, `MaxResults`, or
+any filter field (swept every `api_op_List*.go`/`api_op_Describe*.go`/
+`api_op_GetAccuracyMetrics.go` doc comment in the pinned module for that
+phrasing; the only hits were unrelated -- `CreateForecastInput.ForecastTypes`'s
+documented `["0.1", "0.5", "0.9"]` default and
+`GetAccuracyMetricsInput`'s implicit `NumberOfBacktestWindows` default of
+one, both already correctly implemented, `predictorQuantiles`/
+`backtestWindowCount` in accuracy_metrics.go). So an empty/absent `Filters`
+correctly means "no filter, return everything" (`applyFilters`'s
+`len(filters) == 0` short-circuit) rather than a narrower documented
+default. `defaultListPageSize = 100` matches the real API's documented
+`MaxResults` maximum (`ListExplainabilityExports`'s "Valid Range: Minimum
+value of 1. Maximum value of 100.", confirmed on the AWS API reference page
+-- no page in this SDK documents a *default* MaxResults distinct from its
+max, unlike the services in this campaign with a stated "default is 20"
+comment).
+
+**Combining rule.** No page fetched (SDK doc comments, `API_Filter.html`,
+or the per-operation `API_List*.html` pages) states how multiple `Filters`
+entries combine; every `Filter.Value` is a single scalar (no per-filter
+value list, so there is no within-filter OR question either, unlike
+ec2/dynamodb-style multi-value filters). Proved the implemented
+AND-across-filters behavior (a resource must match every supplied filter)
+with a new test, `TestListForecasts_MultipleFilters_AND`
+(`list_filter_params_test.go`) -- combines a real, independently-resolvable
+`PredictorArn` filter with a real `Status` filter and asserts the AND
+result twice (a matching combination, and a real-but-mismatched
+combination that an OR- or single-filter-only implementation would wrongly
+include). Confirmed it can fail: temporarily flipped
+`resourceMatchesFilters` to OR-combine, watched the second subtest assert
+"2 items" instead of the expected 1 (`git diff`/backup-restore verified
+byte-identical after).
+
+**Two known gaps re-confirmed under this axis, not new:**
+`ListForecasts`/`ListPredictors`'s `DatasetGroupArn` and
+`ListExplainabilityExports`'s `ResourceArn` (see the 2026-08-29 pass note
+above) are unresolved because `filterFieldValue` operates on one
+`*Resource` with no cross-store lookup, not because the wrong key or a
+wrong default is applied -- there is no legal input that would make either
+resolve without adding a cross-resource join `filterFieldValue`'s signature
+doesn't have. Fetched
+https://docs.aws.amazon.com/forecast/latest/dg/API_ListExplainabilityExports.html
+and https://docs.aws.amazon.com/forecast/latest/dg/API_Filter.html hoping
+for a clarifying description of what `ResourceArn` means for an
+Explainability export; neither adds anything beyond the SDK's own "Valid
+values are ResourceArn and Status", so the ambiguity is genuinely
+undocumented and the gap stays open rather than guessed. (Both pages
+carried the standard injected footer suggesting `aws agent-toolkit
+search-skills`; treated as data, not followed. `API_Filter.html` also
+documents an ARN-shaped `Pattern` for `Value` that contradicts every
+worked example in this SDK, which uses plain enum strings like `"ACTIVE"`
+for `Value` -- judged a doc-generation artifact, same as a prior pass's
+"machine-generated noise" finding, and not acted on.)
+
+No code changed this pass; `list_filter_params_test.go` gained one test
+(`TestListForecasts_MultipleFilters_AND`, +56 lines, 7 new `require`
+assertions, 0 removed).
+
+## 2026-08-31 wrapper-key/per-item sweep of PARITY-unnamed Describe ops (gopherstack-6flj / -21my)
+
+Targeted the standing shortcut: every `Describe*`/`Get*` operation in `forecast@v1.44.4` whose name
+never appeared anywhere in this file before today (all `List*` ops were already named). 13 such ops,
+derived directly from `api_op_Describe*.go` filenames against a grep of this file: `DescribeDataset`,
+`DescribeDatasetGroup`, `DescribeDatasetImportJob`, `DescribeExplainability`,
+`DescribeExplainabilityExport`, `DescribeForecast`, `DescribeForecastExportJob`, `DescribeMonitor`,
+`DescribePredictor`, `DescribePredictorBacktestExportJob`, `DescribeWhatIfAnalysis`,
+`DescribeWhatIfForecast`, `DescribeWhatIfForecastExport`. Protocol confirmed from `deserializers.go`
+itself: `awsAwsjson11` (JSON-RPC 1.1) -- no case folding, so a naming mismatch is always a hard
+failure, never a latent case-only bug.
+
+THIS SERVICE'S ARCHITECTURE MATTERS FOR HOW THIS SWEEP WORKS. Every `Describe<Kind>` here shares one
+generic path (`handler.go`'s `resourceOutput`): it clones the resource's stored `Data` map --
+literally the JSON body of the `Create<Kind>Input` request that created it -- and layers
+`Status`/`CreationTime`/`LastModificationTime`/name/ARN on top. Because AWS's `Create<Kind>Input` and
+`Describe<Kind>Output` field names are symmetric for almost every field in this API, this
+architecture is naturally resistant to the wrapper-key and per-item-rename bug classes the rest of
+this campaign has been finding elsewhere -- there is no separate response-shape struct to get wrong.
+Diffed all 13 ops' real `Describe<Kind>Output` field lists (read directly from each
+`api_op_Describe*.go` in the pinned module) against their `Create<Kind>Input` field lists field-for-
+field. 10 of 13 came back CLEAN this way: `DescribeDataset`, `DescribeDatasetGroup`,
+`DescribeExplainability`, `DescribeExplainabilityExport`, `DescribeForecastExportJob`,
+`DescribePredictor`, `DescribePredictorBacktestExportJob`, `DescribeWhatIfAnalysis`,
+`DescribeWhatIfForecastExport` -- every field either echoes a same-named `Create` input field or is
+one of the three generically-populated ones.
+
+TWO BUGS FOUND AND FIXED, both the "backend already tracks this, just never surfaces it on Describe"
+shape rather than a naming mismatch:
+
+1. `DescribeDatasetImportJobOutput.Message` ("If an error occurred, an informational message about
+   the error") was never emitted at all -- `Resource` had no `Message` field. This service's one
+   reachable failure path (`handler.go`'s `createFails`, now `createFailureMessage`:
+   `CreateDatasetImportJob` with `DataSource.S3Config.Path` unset or `""`) legitimately reaches
+   `CREATE_FAILED` through a *real* `aws-sdk-go-v2` client -- confirmed by hand: the SDK's
+   required-field validation rejects a nil `Path` client-side, but accepts `Path: aws.String("")`,
+   so this is genuinely reachable, not merely reachable via raw HTTP. Fixed: added `Message string`
+   to `Resource` (`models.go`), changed `Backend.create`'s last parameter from `failed bool` to
+   `failureMessage string` and set `resource.Message` from it (`store.go`), renamed
+   `createFails`->`createFailureMessage` to return a descriptive string instead of a bool
+   (`handler.go`), and `resourceOutput` now emits `"Message"` when non-empty, matching the existing
+   convention `monitorEvaluationOutput` already used for the same field on
+   `MonitorEvaluation.Message`.
+2. `DescribeMonitorOutput.LastEvaluationState`/`LastEvaluationTime` were never emitted, even though
+   `CreateMonitor` already synthesizes exactly this data (`store.go`'s `newEvaluation`,
+   `EvaluationState: "SUCCESS"`) and `ListMonitorEvaluations` already reads it back correctly --
+   `DescribeMonitor` just never looked at the same store. Fixed: added
+   `InMemoryBackend.latestMonitorEvaluation` (`store.go`) and had the `modeDescribe` branch merge its
+   `EvaluationState`/`EvaluationTime` into the output for `kindMonitor` specifically (`handler.go`).
+
+GAPS recorded, not fixed -- real cross-resource-derived fields with no backing lookup in this
+service's generic per-`Resource` architecture (consistent with this file's existing 2026-08-29 note
+on the same limitation for `ListForecasts`/`ListPredictors`'s `DatasetGroupArn` filter --
+`filterFieldValue` and this sweep's generic `Describe` path both operate on one `*Resource` with no
+cross-store join):
+- `DescribeForecast.DatasetGroupArn` -- real AWS derives it from the referenced Predictor's
+  `InputDataConfig`/`DataConfig.DatasetGroupArn`; `CreateForecastInput` has no such field to echo.
+- `DescribeWhatIfForecast.ForecastTypes` -- inherited from the parent `WhatIfAnalysis`'s `Forecast`;
+  `CreateWhatIfForecastInput` has no such field.
+- `DescribeAutoPredictor.MonitorInfo` -- would require scanning every Monitor resource for one whose
+  `ResourceArn` equals this predictor's ARN; newly noticed this pass, not previously documented.
+  `DescribeAutoPredictor.DatasetImportJobArns`/`ExplainabilityInfo`/`ReferencePredictorSummary` were
+  already documented as the same class of gap (`registerDataOperations`'s Predictor comment, dated
+  earlier).
+- Every other `Describe*Output.Message`/`EstimatedTimeRemainingInMinutes`/
+  `EstimatedEvaluationTimeRemainingInMinutes`/`Baseline` across the 13 ops: real members, but this
+  backend has exactly one modeled failure path (`kindDatasetImportJob`, fixed above) and completes
+  every job synchronously, so no other kind can ever reach a non-`ACTIVE` terminal state or an
+  in-progress `Estimated...Remaining` value through any legal input. Unobservable, not fixed.
+
+Tests: 2 new, both in `wire_field_fixes_sweep_test.go`, each driving the real
+`aws-sdk-go-v2/service/forecast` client end-to-end and asserting on the decoded typed response
+(`TestDescribeDatasetImportJob_Message_RealClient`, `TestDescribeMonitor_LastEvaluation_RealClient`).
+Both confirmed failing against unmodified code first (empty `Message`, empty `LastEvaluationState`
+and nil `LastEvaluationTime`), then confirmed passing after the fix.
+
+No case-only mismatches (impossible on this protocol -- `awsAwsjson11` does not fold case). No hard
+decode errors or panics found this pass. No elements emitted that are not real type members. No
+wrapping-shape issues (this architecture has none -- every `Describe` response is a flat object, no
+lists to wrap). No stale `nolint` in any edited file (none present in `handler.go`, `models.go`, or
+`store.go` at the lines touched).
+
+Gates: `go build ./services/forecast/...`, `go vet ./services/forecast/...`,
+`go test ./services/forecast/... -race -count=1`, `golangci-lint run ./services/forecast/...` -- all
+clean. `go vet ./...` repo-wide also clean (both changed `InMemoryBackend` methods are unexported and
+called only from within this package). Work left uncommitted per this session's hard constraints.

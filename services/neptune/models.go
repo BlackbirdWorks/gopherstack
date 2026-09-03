@@ -23,6 +23,7 @@ type DBClusterCreateOptions struct {
 	PreferredBackupWindow           string
 	MasterUsername                  string
 	NetworkType                     string
+	GlobalClusterIdentifier         string
 	PreferredMaintenanceWindow      string
 	AvailabilityZones               []string
 	VpcSecurityGroupIDs             []string
@@ -97,6 +98,7 @@ type DBCluster struct {
 	EngineMode                      string                            `json:"EngineMode"`
 	MasterUsername                  string                            `json:"MasterUsername"`
 	NetworkType                     string                            `json:"NetworkType,omitempty"`
+	GlobalClusterIdentifier         string                            `json:"GlobalClusterIdentifier,omitempty"`
 	AvailabilityZones               []string                          `json:"AvailabilityZones"`
 	VpcSecurityGroupIDs             []string                          `json:"VpcSecurityGroupIds"`
 	AssociatedRoles                 []string                          `json:"AssociatedRoles"`
@@ -317,9 +319,9 @@ type GlobalClusterMember struct {
 
 // DBClusterFilters holds filter values for DescribeDBClusters.
 type DBClusterFilters struct {
-	Engine        string
-	EngineVersion string
-	Status        string
+	Engine        []string
+	EngineVersion []string
+	Status        []string
 }
 
 // ParameterValue is a single persisted parameter override applied to a DB

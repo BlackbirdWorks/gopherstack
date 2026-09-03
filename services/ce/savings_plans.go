@@ -72,17 +72,17 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 				b.accountID,
 				"savingsplan/synthetic-sp-1",
 			),
-			Utilization: SavingsPlansUtilizationAgg{
+			Utilization: &SavingsPlansUtilizationAgg{
 				TotalCommitment:       fmt.Sprintf("%.4f", commitment),
 				UsedCommitment:        fmt.Sprintf("%.4f", used),
 				UnusedCommitment:      fmt.Sprintf("%.4f", commitment-used),
 				UtilizationPercentage: spUtilizationPct,
 			},
-			Savings: SavingsPlansSavings{
+			Savings: &SavingsPlansSavings{
 				NetSavings:             fmt.Sprintf("%.4f", total*spNetSavingsRatio),
 				OnDemandCostEquivalent: fmt.Sprintf("%.4f", total),
 			},
-			AmortizedCommitment: SavingsPlansAmortized{
+			AmortizedCommitment: &SavingsPlansAmortized{
 				AmortizedRecurringCommitment: fmt.Sprintf("%.4f", commitment),
 				AmortizedUpfrontCommitment:   zeroAmountStr,
 				TotalAmortizedCommitment:     fmt.Sprintf("%.4f", commitment),
@@ -118,8 +118,19 @@ func (b *InMemoryBackend) CreateSavingsPlansGeneration() *SavingsPlansGeneration
 }
 
 // ListSavingsPlansGenerations returns generation jobs, optionally filtered by
-// GenerationStatus, most recently started first.
-func (b *InMemoryBackend) ListSavingsPlansGenerations(status string) []*SavingsPlansGeneration {
+// GenerationStatus and/or recommendationIDs (RecommendationId allow-list),
+// most recently started first.
+//
+// Table.All() walks the table's backing map in unspecified order, and
+// GenerationStartedTime has only second precision, so two jobs started in the
+// same second tie under a plain sort.Slice: the tiebreak on RecommendationID
+// below makes the order fully deterministic across repeated calls instead of
+// depending on map iteration order, which matters once pagination cursors on
+// this same order (see handleListSavingsPlansPurchaseRecommendationGeneration).
+func (b *InMemoryBackend) ListSavingsPlansGenerations(
+	status string,
+	recommendationIDs []string,
+) []*SavingsPlansGeneration {
 	b.mu.RLock("ListSavingsPlansGenerations")
 	defer b.mu.RUnlock()
 
@@ -131,12 +142,20 @@ func (b *InMemoryBackend) ListSavingsPlansGenerations(status string) []*SavingsP
 			continue
 		}
 
+		if len(recommendationIDs) > 0 && !stringSliceContainsFold(recommendationIDs, g.RecommendationID) {
+			continue
+		}
+
 		cp := *g
 		result = append(result, &cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].GenerationStartedTime > result[j].GenerationStartedTime
+		if result[i].GenerationStartedTime != result[j].GenerationStartedTime {
+			return result[i].GenerationStartedTime > result[j].GenerationStartedTime
+		}
+
+		return result[i].RecommendationID < result[j].RecommendationID
 	})
 
 	return result

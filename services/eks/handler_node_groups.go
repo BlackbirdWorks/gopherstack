@@ -431,11 +431,12 @@ func (h *Handler) handleUpdateNodegroupConfig(
 
 	now := time.Now().UTC()
 	u := &Update{
-		ID:          uuid.NewString()[:8],
-		ClusterName: clusterName,
-		Status:      statusInProgress,
-		Type:        "ConfigUpdate",
-		CreatedAt:   now,
+		ID:            uuid.NewString()[:8],
+		ClusterName:   clusterName,
+		NodegroupName: nodegroupName,
+		Status:        statusInProgress,
+		Type:          "ConfigUpdate",
+		CreatedAt:     now,
 	}
 	h.Backend.StoreUpdate(u)
 	h.Backend.scheduleUpdateTransition(clusterName, u.ID)

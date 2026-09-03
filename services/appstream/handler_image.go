@@ -93,6 +93,7 @@ func (h *Handler) opDeleteImage(_ context.Context, body []byte) (any, error) {
 }
 
 type describeImagesInput struct {
+	Type  string   `json:"Type"`
 	Names []string `json:"Names"`
 	Arns  []string `json:"Arns"`
 }
@@ -110,7 +111,7 @@ func (h *Handler) opDescribeImages(_ context.Context, body []byte) (any, error) 
 		names = req.Arns
 	}
 
-	imgs, err := h.Backend.DescribeImages(names)
+	imgs, err := h.Backend.DescribeImages(names, req.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +171,8 @@ func (h *Handler) opDeleteImagePermissions(_ context.Context, body []byte) (any,
 }
 
 type describeImagePermissionsInput struct {
-	Name string `json:"Name"`
+	Name                string   `json:"Name"`
+	SharedAwsAccountIds []string `json:"SharedAwsAccountIds"` //nolint:revive // matches real SDK field name (Aws not AWS)
 }
 
 func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (any, error) {
@@ -179,7 +181,7 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	perms, err := h.Backend.DescribeImagePermissions(req.Name)
+	perms, err := h.Backend.DescribeImagePermissions(req.Name, req.SharedAwsAccountIds)
 	if err != nil {
 		return nil, err
 	}

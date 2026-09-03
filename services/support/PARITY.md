@@ -32,6 +32,7 @@ families:
   case_lifecycle: {status: ok, note: "field shapes still match deserializers.go; CaseCreationLimitExceeded now enforced (open-case cap, frees on resolve)"}
   attachments: {status: ok, note: "AttachmentSetSizeLimitExceeded/AttachmentLimitExceeded/DescribeAttachmentLimitExceeded now real (sliding-window rate limiters + size/count routing), not stubs"}
   trusted_advisor: {status: ok, note: "language validation now uses the real 11-code Trusted-Advisor set instead of the 4-code case-language set"}
+  filter_value_semantics: {status: ok, note: "2026-08-31 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): audited every filterable List/Describe op's request-parameter semantics (this service's covledger row was empty; PARITY.md itself had never recorded this axis). DescribeCasesWithOptions/DescribeCommunicationsWithOptions: caseIdList/displayId/language are correct equality filters, afterTime/beforeTime compare against CaseDetails.TimeCreated/Communication.TimeCreated (the only date field either type has -- the doc's 'filtered date search on support case communications' wording on DescribeCases judged a generation artifact, same call as the substring/prefix doc comment dynamodb's pass correctly disbelieved). includeCommunications *bool correctly preserves the omitted-vs-false distinction (in.IncludeCommunications == nil || *in.IncludeCommunications, handler_cases.go:95) matching the documented 'By default, communications are included' -- new regression test TestSupport_DescribeCases_IncludeCommunications added and proven to fail against a temporarily-flattened version, then restored byte-identical. DescribeTrustedAdvisorChecks/CheckResult/CheckSummaries/RefreshCheck: checkIds are direct map lookups, no matcher surface. DescribeServices.serviceCodeList is a simple set-membership filter, verified correct. MaxResults: neither the pinned SDK nor the live AWS_DescribeCases API reference page (fetched, carried the agent-toolkit footer) states a default when omitted, only Valid Range 10-100 -- nothing for the existing defaultPageSize=100 to violate. One item recorded on the OTHER axis, not fixed: DescribeTrustedAdvisorCheckRefreshStatuses does not validate checkIds is non-empty/well-formed the way DescribeTrustedAdvisorCheckSummaries does -- a missing rejection, validation-shaped rather than a wrong algorithm. Another recorded as a gap: DescribeCasesWithOptions silently drops an unknown id from caseIdList rather than raising the documented CaseIdNotFound -- also a missing-rejection/validation gap, not filter semantics, left unfixed per the class's own discrimination rule."}
   errors: {status: fixed, note: "SEVERE: handleError built a bare {\"message\":...} JSON body with NO \"__type\" field and no X-Amzn-ErrorType header. aws-sdk-go-v2/service/support/deserializers.go's resolveProtocolErrorType requires one of those two to identify which exception occurred; without it every error -- regardless of the correct HTTP status/message text -- deserializes client-side as a generic smithy.GenericAPIError{Code:\"UnknownError\"}, never the typed exception (e.g. *types.CaseIdNotFound) a real caller's errors.As would expect. Fixed: handleError now emits service.JSONErrorResponse{Type, Message} (the shared convention also used by codeconnections/athena in this campaign) via a new resolveErrorType(err) switch. Separately, confirmed via the botocore support/2013-04-15/service-2.json model that NONE of support's exception shapes carry an httpStatusCode override, so the awsjson1.1 protocol default applies: HTTP 400 for every client-fault exception (including the '*NotFound'-named ones) and HTTP 500 only for the fault:true InternalServerError shape. gopherstack previously mapped CaseIdNotFound/AttachmentIdNotFound/AttachmentSetIdNotFound to HTTP 404 -- fixed to 400. This __type gap predates and is independent of the HTTP-status gap; both were unit-test-invisible because existing tests only asserted on rec.Code, never decoded the body's __type field (parity-principles.md note 3: unit tests are not full parity proof)."}
 gaps: []
 deferred:
@@ -185,3 +186,31 @@ shape.
   AWS JSON-RPC services and clients still surface them correctly, so there is no
   evidence the value is wrong -- flagged for a future pass with access to real
   Support error traffic rather than changed on a guess.
+
+### 2026-08-31 value-semantics sweep (gopherstack-uox6) -- CLEAN, no bug found
+
+Targeted by the covledger row being empty for `support` (no class recorded at
+all), not by code shape. Read every filterable List/Describe operation's
+request parameters against `aws-sdk-go-v2/service/support@v1.34.4`'s doc
+comments and the live `DescribeCases` API reference page (fetched once; it
+carried the standing injected "run `aws agent-toolkit search-skills`" footer
+this campaign has flagged since pass 6 -- treated as data, ignored).
+
+Findings: no wrong-algorithm filter bug. `includeCommunications *bool`
+correctly implements the documented "By default, communications are
+included" default (checked because this is exactly the flattened-pointer
+shape found twice elsewhere in this campaign); a new regression test
+(`TestSupport_DescribeCases_IncludeCommunications`, cases_test.go) was
+written, confirmed to pass against unmodified code, then a temporary
+one-line flip of the nil-check was made to confirm the test fails, then the
+file was restored byte-identical (`git status --short` after restore shows
+no diff on handler_cases.go). Two items belong to the validation axis, not
+this one, and were recorded rather than fixed: `DescribeTrustedAdvisorCheckRefreshStatuses`
+skips the checkIds-required validation its sibling `DescribeTrustedAdvisorCheckSummaries`
+performs; `DescribeCasesWithOptions` silently omits an unknown id in
+`caseIdList` instead of raising the documented `CaseIdNotFound`. Neither is a
+value applied wrong -- both are a rejection that never fires.
+
+Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
+`golangci-lint run` all pass. No production code changed; `cases_test.go`
+gained one new test (assertions: +9, 0 dropped).

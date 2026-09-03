@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDeleteUsageProfile_NotFound verifies that DeleteUsageProfile
-// raises EntityNotFoundException when the profile does not exist.
+// TestDeleteUsageProfile_NotFound verifies that DeleteUsageProfile raises
+// InvalidInputException when the profile does not exist: its error switch
+// (glue@v1.152.0 deserializers.go) has no EntityNotFoundException case,
+// unlike GetUsageProfile/UpdateUsageProfile's.
 func TestDeleteUsageProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -22,11 +24,11 @@ func TestDeleteUsageProfile_NotFound(t *testing.T) {
 		create    bool
 	}{
 		{
-			name:      "delete_missing_profile_returns_entity_not_found",
+			name:      "delete_missing_profile_returns_invalid_input",
 			profName:  "ghost-profile",
 			create:    false,
 			wantCode:  http.StatusBadRequest,
-			wantError: "EntityNotFoundException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:     "delete_existing_profile_succeeds",

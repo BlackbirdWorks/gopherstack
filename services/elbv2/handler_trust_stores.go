@@ -150,6 +150,9 @@ func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, er
 		return nil, err
 	}
 
+	marker, pageSize := parsePagination(vals)
+	assocs, nextMarker := applyMarkerPage(assocs, marker, pageSize, func(resArn string) string { return resArn })
+
 	members := make([]xmlTrustStoreAssociation, 0, len(assocs))
 	for _, resArn := range assocs {
 		members = append(members, xmlTrustStoreAssociation{ResourceArn: resArn})
@@ -158,6 +161,7 @@ func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, er
 	return &describeTrustStoreAssociationsResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTrustStoreAssociationsResult{
+			NextMarker:             nextMarker,
 			TrustStoreAssociations: xmlTrustStoreAssociationList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts-assocs"},
@@ -173,6 +177,11 @@ func (h *Handler) handleDescribeTrustStores(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	marker, pageSize := parsePagination(vals)
+	stores, nextMarker := applyMarkerPage(stores, marker, pageSize, func(t TrustStore) string {
+		return t.TrustStoreArn
+	})
+
 	members := make([]xmlTrustStore, 0, len(stores))
 	for i := range stores {
 		members = append(members, toXMLTrustStore(&stores[i]))
@@ -181,6 +190,7 @@ func (h *Handler) handleDescribeTrustStores(vals url.Values) (any, error) {
 	return &describeTrustStoresResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTrustStoresResult{
+			NextMarker:  nextMarker,
 			TrustStores: xmlTrustStoreList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts"},
@@ -219,10 +229,21 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	revocations, err := h.Backend.DescribeTrustStoreRevocations(tsArn)
+	// A non-numeric RevocationId here just means "no such revocation exists" --
+	// unlike RemoveTrustStoreRevocations, DescribeTrustStoreRevocations has no
+	// documented validation-error case for a malformed ID, so an unparseable
+	// value is silently dropped from the filter rather than rejected.
+	revocationIDs, _ := parseRevocationIDs(vals, "RevocationIds.member")
+
+	revocations, err := h.Backend.DescribeTrustStoreRevocations(tsArn, revocationIDs)
 	if err != nil {
 		return nil, err
 	}
+
+	marker, pageSize := parsePagination(vals)
+	revocations, nextMarker := applyMarkerPage(revocations, marker, pageSize, func(r TrustStoreRevocation) string {
+		return strconv.FormatInt(r.RevocationID, 10)
+	})
 
 	members := make([]xmlRevocationContent, 0, len(revocations))
 	for _, r := range revocations {
@@ -237,6 +258,7 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 	return &describeTrustStoreRevocationsResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTrustStoreRevocationsResult{
+			NextMarker:            nextMarker,
 			TrustStoreRevocations: xmlRevocationContentList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts-revocations"},
@@ -405,6 +427,7 @@ type xmlTrustStoreAssociationList struct {
 }
 
 type describeTrustStoreAssociationsResult struct {
+	NextMarker             string                       `xml:"NextMarker,omitempty"`
 	TrustStoreAssociations xmlTrustStoreAssociationList `xml:"TrustStoreAssociations"`
 }
 
@@ -426,6 +449,7 @@ func toXMLTrustStore(ts *TrustStore) xmlTrustStore {
 }
 
 type describeTrustStoresResult struct {
+	NextMarker  string            `xml:"NextMarker,omitempty"`
 	TrustStores xmlTrustStoreList `xml:"TrustStores"`
 }
 
@@ -466,6 +490,7 @@ type xmlRevocationContentList struct {
 // wire (verified against aws-sdk-go-v2's deserializer) — NOT "RevocationContents", which
 // is only the request-side field name for AddTrustStoreRevocations.
 type describeTrustStoreRevocationsResult struct {
+	NextMarker            string                   `xml:"NextMarker,omitempty"`
 	TrustStoreRevocations xmlRevocationContentList `xml:"TrustStoreRevocations"`
 }
 

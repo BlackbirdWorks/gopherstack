@@ -27,7 +27,7 @@ func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, erro
 	// all-empty (and required-field-violating) response, project a flat series at the
 	// group's current DesiredCapacity so callers get well-shaped, non-empty,
 	// real-derived data. See PARITY.md for the documented simplification.
-	groups, err := h.Backend.DescribeAutoScalingGroups([]string{groupName})
+	groups, err := h.Backend.DescribeAutoScalingGroups([]string{groupName}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, erro
 func loadForecastsForPolicy(
 	b StorageBackend, groupName, policyName string, series xmlLoadForecast,
 ) []xmlLoadForecast {
-	policies, err := b.DescribePolicies(groupName, []string{policyName})
+	policies, err := b.DescribePolicies(groupName, []string{policyName}, nil)
 	if err != nil || len(policies) == 0 || policies[0].PredictiveScalingConfiguration == nil {
 		return []xmlLoadForecast{series}
 	}

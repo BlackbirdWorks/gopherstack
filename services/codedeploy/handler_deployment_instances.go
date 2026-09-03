@@ -126,7 +126,7 @@ func (h *Handler) handleBatchGetDeploymentInstances(
 	in *batchGetDeploymentInstancesInput,
 ) (*batchGetDeploymentInstancesOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	items, err := h.Backend.BatchGetDeploymentInstances(in.DeploymentID, in.InstanceIDs)
@@ -156,7 +156,7 @@ func (h *Handler) handleBatchGetDeploymentTargets(
 	in *batchGetDeploymentTargetsInput,
 ) (*batchGetDeploymentTargetsOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	items, err := h.Backend.BatchGetDeploymentTargets(in.DeploymentID, in.TargetIDs)
@@ -185,8 +185,12 @@ func (h *Handler) handleGetDeploymentInstance(
 	_ context.Context,
 	in *getDeploymentInstanceInput,
 ) (*getDeploymentInstanceOutput, error) {
-	if in.DeploymentID == "" || in.InstanceID == "" {
-		return nil, fmt.Errorf("%w: deploymentId and instanceId are required", errInvalidRequest)
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
+	}
+
+	if in.InstanceID == "" {
+		return nil, fmt.Errorf("%w: instanceId is required", ErrInstanceIDRequired)
 	}
 
 	t, err := h.Backend.GetDeploymentInstance(in.DeploymentID, in.InstanceID)
@@ -210,8 +214,12 @@ func (h *Handler) handleGetDeploymentTarget(
 	_ context.Context,
 	in *getDeploymentTargetInput,
 ) (*getDeploymentTargetOutput, error) {
-	if in.DeploymentID == "" || in.TargetID == "" {
-		return nil, fmt.Errorf("%w: deploymentId and targetId are required", errInvalidRequest)
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
+	}
+
+	if in.TargetID == "" {
+		return nil, fmt.Errorf("%w: targetId is required", ErrDeploymentTargetIDRequired)
 	}
 
 	t, err := h.Backend.GetDeploymentTarget(in.DeploymentID, in.TargetID)
@@ -235,7 +243,7 @@ func (h *Handler) handleListDeploymentInstances(
 	in *listDeploymentInstancesInput,
 ) (*listDeploymentInstancesOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	ids, err := h.Backend.ListDeploymentInstances(in.DeploymentID)
@@ -259,7 +267,7 @@ func (h *Handler) handleListDeploymentTargets(
 	in *listDeploymentTargetsInput,
 ) (*listDeploymentTargetsOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	ids, err := h.Backend.ListDeploymentTargets(in.DeploymentID)

@@ -196,7 +196,7 @@ func TestUpdateAccessKey_Backend(t *testing.T) {
 			userName:   "alice",
 			status:     "Suspended",
 			wantErr:    true,
-			wantErrMsg: "InvalidAction",
+			wantErrMsg: "InvalidInput",
 		},
 		{
 			name:       "key_not_found",

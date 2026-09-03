@@ -22,7 +22,7 @@ func (h *Handler) handleCreateApplication(
 	in *createApplicationInput,
 ) (*createApplicationOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	if in.ComputePlatform == "" {
@@ -57,7 +57,7 @@ func (h *Handler) handleGetApplication(
 	in *getApplicationInput,
 ) (*getApplicationOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	app, err := h.Backend.GetApplication(in.ApplicationName)
@@ -99,7 +99,7 @@ func (h *Handler) handleDeleteApplication(
 	in *deleteApplicationInput,
 ) (*deleteApplicationOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	if err := h.Backend.DeleteApplication(in.ApplicationName); err != nil {
@@ -121,7 +121,7 @@ func (h *Handler) handleUpdateApplication(
 	in *updateApplicationInput,
 ) (*updateApplicationOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	if err := h.Backend.UpdateApplication(in.ApplicationName, in.NewApplicationName); err != nil {
@@ -144,7 +144,7 @@ func (h *Handler) handleBatchGetApplications(
 	in *batchGetApplicationsInput,
 ) (*batchGetApplicationsOutput, error) {
 	if len(in.ApplicationNames) == 0 {
-		return nil, fmt.Errorf("%w: applicationNames is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationNames is required", ErrApplicationNameRequired)
 	}
 
 	apps := h.Backend.BatchGetApplications(in.ApplicationNames)

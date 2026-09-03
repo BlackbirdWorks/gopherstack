@@ -196,12 +196,15 @@ func (b *InMemoryBackend) GetAssetType(id string) (*AssetType, error) {
 // DeleteAssetType, unlike DeleteFormType/DeleteGlossary), so deleting an
 // asset type still referenced by existing assets is allowed -- matching real
 // AWS behavior rather than inventing an undocumented guard.
+// DeleteAssetType's error switch also has no EntityNotFoundException case,
+// unlike GetAssetType's, so an unknown Identifier surfaces as
+// InvalidInputException.
 func (b *InMemoryBackend) DeleteAssetType(id string) error {
 	b.mu.Lock("DeleteAssetType")
 	defer b.mu.Unlock()
 
 	if !b.assetTypes.Has(id) {
-		return fmt.Errorf("asset type %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("asset type %q not found: %w", id, ErrValidation)
 	}
 
 	b.assetTypes.Delete(id)
@@ -310,13 +313,15 @@ func (b *InMemoryBackend) UpdateAsset(id string, name, description *string) (*As
 
 // DeleteAsset deletes an asset and cascades to its iterable form items (their
 // only owner), matching the ownership rule that iterable form items cannot
-// outlive the asset they belong to.
+// outlive the asset they belong to. DeleteAsset's error switch has no
+// EntityNotFoundException case, unlike GetAsset's, so an unknown Identifier
+// surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteAsset(id string) error {
 	b.mu.Lock("DeleteAsset")
 	defer b.mu.Unlock()
 
 	if !b.assets.Has(id) {
-		return fmt.Errorf("asset %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("asset %q not found: %w", id, ErrValidation)
 	}
 
 	b.assets.Delete(id)
@@ -550,21 +555,34 @@ func (b *InMemoryBackend) SearchAssets(
 // in SearchSort.Attribute; an unrecognized or empty attr falls back to ID for
 // deterministic ordering.
 func sortAssets(assets []*Asset, attr string, desc bool) {
+	// None of Name/Description/AssetTypeId/CreatedAt/UpdatedAt is unique
+	// across assets, so each falls through to ID -- the real primary
+	// key -- as a final tiebreak, making the order total.
 	less := func(i, j int) bool {
 		switch attr {
 		case "Name":
-			return assets[i].Name < assets[j].Name
+			if assets[i].Name != assets[j].Name {
+				return assets[i].Name < assets[j].Name
+			}
 		case "Description":
-			return assets[i].Description < assets[j].Description
+			if assets[i].Description != assets[j].Description {
+				return assets[i].Description < assets[j].Description
+			}
 		case "AssetTypeId":
-			return assets[i].AssetTypeID < assets[j].AssetTypeID
+			if assets[i].AssetTypeID != assets[j].AssetTypeID {
+				return assets[i].AssetTypeID < assets[j].AssetTypeID
+			}
 		case "CreatedAt":
-			return assets[i].CreatedAt < assets[j].CreatedAt
+			if assets[i].CreatedAt != assets[j].CreatedAt {
+				return assets[i].CreatedAt < assets[j].CreatedAt
+			}
 		case "UpdatedAt":
-			return assets[i].UpdatedAt < assets[j].UpdatedAt
-		default:
-			return assets[i].ID < assets[j].ID
+			if assets[i].UpdatedAt != assets[j].UpdatedAt {
+				return assets[i].UpdatedAt < assets[j].UpdatedAt
+			}
 		}
+
+		return assets[i].ID < assets[j].ID
 	}
 
 	if desc {

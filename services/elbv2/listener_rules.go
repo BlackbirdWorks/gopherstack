@@ -68,6 +68,10 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		return nil, ErrListenerNotFound
 	}
 
+	if err := b.validateForwardTargetGroupsExist(input.Actions); err != nil {
+		return nil, err
+	}
+
 	// Validate and check for duplicate priority.
 	if input.Priority != "" && input.Priority != priorityDefault {
 		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
@@ -167,11 +171,19 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 
 // sortRulesByPriority sorts rules numerically by priority; "default" sorts last
 // (highest priority number). Non-numeric priorities fall back to string compare.
+//
+// Priority is only unique per-listener (CreateRule checks b.rulesByListener),
+// so a cross-listener DescribeRules call routinely sees ties. RuleArn breaks
+// them so the sort order is a stable total order across calls -- required
+// because DescribeRules pagination resumes by matching a RuleArn marker
+// against this sorted slice, and that scan silently drops rules if tied
+// entries can reorder between the call that issued the marker and the call
+// that consumes it (source rows come from a randomized map walk).
 func sortRulesByPriority(result []Rule) {
 	sort.Slice(result, func(i, j int) bool {
 		pi, pj := result[i].Priority, result[j].Priority
 		if pi == pj {
-			return false
+			return result[i].RuleArn < result[j].RuleArn
 		}
 
 		if pi == priorityDefault {
@@ -234,6 +246,10 @@ func (b *InMemoryBackend) ModifyRule(
 	}
 
 	if len(actions) > 0 {
+		if err := b.validateForwardTargetGroupsExist(actions); err != nil {
+			return nil, err
+		}
+
 		rule.Actions = actions
 	}
 

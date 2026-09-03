@@ -12,7 +12,6 @@ type StorageBackend interface {
 		tags map[string]string,
 		concurrentJobs int,
 		reservationPlan *ReservationPlan,
-		serviceOverrides map[string]any,
 		extras ...QueueCreateExtras,
 	) (*Queue, error)
 	GetQueue(name string) (*Queue, error)

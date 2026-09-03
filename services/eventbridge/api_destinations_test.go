@@ -44,7 +44,7 @@ func TestAPIDestination_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "PUT", updated.HTTPMethod)
 
-	dsts, _, err := b.ListAPIDestinations(context.Background(), "my-api-", "")
+	dsts, _, err := b.ListAPIDestinations(context.Background(), "my-api-", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, dsts, 1)
 
@@ -174,7 +174,7 @@ func TestAPIDestinationCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "desc updated", updated.Description)
 
-		dsts, _, err := b.ListAPIDestinations(context.Background(), "", "")
+		dsts, _, err := b.ListAPIDestinations(context.Background(), "", "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, dsts, 1)
 	})

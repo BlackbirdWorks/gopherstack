@@ -476,7 +476,7 @@ func TestCreateQueue_ReservationPlan(t *testing.T) {
 		RenewalType:   "AUTO_RENEW",
 	}
 
-	q, err := b.CreateQueueFull("rp-queue", "", "", "", nil, 0, rp, nil)
+	q, err := b.CreateQueueFull("rp-queue", "", "", "", nil, 0, rp)
 	require.NoError(t, err)
 	require.NotNil(t, q.ReservationPlan)
 	assert.Equal(t, 5, q.ReservationPlan.ReservedSlots)
@@ -532,22 +532,9 @@ func TestCreateQueue_ConcurrentJobs(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	q, err := b.CreateQueueFull("cj-queue", "", "", "", nil, 8, nil, nil)
+	q, err := b.CreateQueueFull("cj-queue", "", "", "", nil, 8, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 8, q.ConcurrentJobs)
-}
-
-// TestCreateQueue_ServiceOverrides verifies field stored at creation.
-func TestCreateQueue_ServiceOverrides(t *testing.T) {
-	t.Parallel()
-
-	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	overrides := map[string]any{"feature_x": true, "max_bitrate": 50000}
-
-	q, err := b.CreateQueueFull("so-queue", "", "", "", nil, 0, nil, overrides)
-	require.NoError(t, err)
-	assert.Equal(t, true, q.ServiceOverrides["feature_x"])
-	assert.Equal(t, 50000, q.ServiceOverrides["max_bitrate"])
 }
 
 // TestCreateQueue_ConcurrentJobsViaHTTP verifies JSON round-trip.
@@ -565,24 +552,6 @@ func TestCreateQueue_ConcurrentJobsViaHTTP(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	queueData := out["queue"].(map[string]any)
 	assert.InDelta(t, float64(4), queueData["concurrentJobs"], 0)
-}
-
-// TestCreateQueue_ServiceOverridesDeepCopy verifies mutations don't affect stored data.
-func TestCreateQueue_ServiceOverridesDeepCopy(t *testing.T) {
-	t.Parallel()
-
-	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	overrides := map[string]any{"key": "original"}
-
-	q, err := b.CreateQueueFull("dc-q", "", "", "", nil, 0, nil, overrides)
-	require.NoError(t, err)
-
-	// Mutate the returned copy.
-	q.ServiceOverrides["key"] = "mutated"
-
-	got, err := b.GetQueue("dc-q")
-	require.NoError(t, err)
-	assert.Equal(t, "original", got.ServiceOverrides["key"])
 }
 
 // TestCreateQueue_NilReservationPlanByDefault verifies nil is fine.

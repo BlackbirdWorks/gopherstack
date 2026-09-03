@@ -173,18 +173,15 @@ func (b *InMemoryBackend) DescribeDatastore(name string) (*Datastore, error) {
 }
 
 // UpdateDatastore updates a datastore's configuration and last update time.
+// Partitions are not accepted here: the real UpdateDatastoreInput has no
+// partitions member, so they can only be set at CreateDatastore.
 func (b *InMemoryBackend) UpdateDatastore(
 	name string,
 	storage *DatastoreStorage,
 	retention *RetentionPeriod,
 	fileFormat *FileFormatConfiguration,
-	partitions *DatastorePartitions,
 ) error {
 	if err := validateRetentionPeriod(retention); err != nil {
-		return err
-	}
-
-	if err := validateDatastorePartitions(partitions); err != nil {
 		return err
 	}
 
@@ -208,10 +205,6 @@ func (b *InMemoryBackend) UpdateDatastore(
 
 	if fileFormat != nil {
 		d.FileFormatConfiguration = cloneFileFormatConfiguration(fileFormat)
-	}
-
-	if partitions != nil {
-		d.Partitions = cloneDatastorePartitions(partitions)
 	}
 
 	return nil

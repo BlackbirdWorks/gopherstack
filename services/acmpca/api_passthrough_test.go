@@ -158,7 +158,7 @@ func TestACMPCAHandler_IssueCertificate_ApiPassthrough_IgnoredWithoutPassthrough
 // TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected
 // verifies that ApiPassthrough sub-fields gopherstack does not implement
 // (CertificatePolicies, exotic ASN1Subject RDNs, exotic GeneralName variants)
-// are rejected with a clear InvalidParameterException instead of being
+// are rejected with a clear InvalidArgsException instead of being
 // silently dropped -- per parity-principles.md's no-silent-gaps rule.
 func TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected(t *testing.T) {
 	t.Parallel()
@@ -218,7 +218,7 @@ func TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			resp := parseACMPCAResponse(t, rec)
-			assert.Equal(t, "InvalidParameterException", resp["__type"])
+			assert.Equal(t, "InvalidArgsException", resp["__type"])
 		})
 	}
 }

@@ -135,9 +135,14 @@ func (b *InMemoryBackend) ListWebAuthnCredentials(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].CredentialID < all[j].CredentialID })
 
+	// A miss (the credential the token named was deleted) defaults startIdx
+	// to the end of the collection: leaving it at 0 would resume a stale
+	// cursor at page one, forever.
 	startIdx := 0
 
 	if nextToken != "" {
+		startIdx = len(all)
+
 		for i, c := range all {
 			if c.CredentialID == nextToken {
 				startIdx = i

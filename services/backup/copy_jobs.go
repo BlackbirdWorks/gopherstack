@@ -65,7 +65,7 @@ func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(counts))
 	for state, count := range counts {
 		summaries = append(summaries, map[string]any{
-			"State":          state,
+			keyState:         state,
 			keySummaryCount:  count,
 			keySummaryRegion: b.region,
 		})
@@ -130,6 +130,7 @@ func (b *InMemoryBackend) StartCopyJob(
 	job := &CopyJob{
 		CopyJobID:                   copyJobID,
 		SourceBackupVaultArn:        sourceVault.BackupVaultArn,
+		SourceRecoveryPointArn:      recoveryPointArn,
 		DestinationBackupVaultArn:   destVaultArn,
 		DestinationRecoveryPointArn: destRPArn,
 		ResourceArn:                 resourceArn,
@@ -174,7 +175,7 @@ type ListCopyJobsFilter struct {
 	State                     string
 	ResourceArn               string
 	ResourceType              string
-	SourceBackupVaultArn      string
+	SourceRecoveryPointArn    string
 	DestinationBackupVaultArn string
 	AccountID                 string
 	NextToken                 string
@@ -184,7 +185,7 @@ type ListCopyJobsFilter struct {
 // copyJobMatchesFilter reports whether j satisfies all active fields in f.
 func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
 	// Vault-specific filters checked before the common time-range check.
-	if f.SourceBackupVaultArn != "" && j.SourceBackupVaultArn != f.SourceBackupVaultArn {
+	if f.SourceRecoveryPointArn != "" && j.SourceRecoveryPointArn != f.SourceRecoveryPointArn {
 		return false
 	}
 	if f.DestinationBackupVaultArn != "" && j.DestinationBackupVaultArn != f.DestinationBackupVaultArn {

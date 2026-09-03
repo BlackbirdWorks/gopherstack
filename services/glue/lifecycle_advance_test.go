@@ -203,7 +203,8 @@ func TestJobRunLiveState_RespectsLifecycleAdvance(t *testing.T) {
 
 			time.Sleep(500 * time.Millisecond)
 
-			errs := b.BatchStopJobRun("j", []string{run.ID})
+			successes, errs := b.BatchStopJobRun("j", []string{run.ID})
+			require.Empty(t, successes)
 			require.Len(t, errs, 1)
 			assert.Equal(t, "IllegalStateException", errs[0].ErrorDetail.ErrorCode)
 

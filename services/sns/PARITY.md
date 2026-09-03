@@ -23,7 +23,7 @@ ops:
   PublishBatch: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
   PublishToTargetArn (TargetArn publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "EndpointDisabled enforced"}
   PublishSMS (PhoneNumber publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "opt-out + sandbox-unverified enforced"}
-  CreatePlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (gopherstack-r3pr): duplicate-name/platform now returns InvalidParameter, not the invented PlatformApplicationAlreadyExists — CreatePlatformApplication's own deserializeOpError (sns@v1.42.4 deserializers.go:437-477) models only AuthorizationError/InternalError/InvalidParameter, no already-exists shape exists in the pinned module"}
   GetPlatformApplicationAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   SetPlatformApplicationAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPlatformApplications: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -35,20 +35,21 @@ ops:
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   AddPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on Topic.Permissions, travels with topic snapshot; fixed this pass: AuthorizationError now returns HTTP 403 (was 400 — handleBackendError had no 403 bucket at all)"}
   RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: AuthorizationError (label not found) now returns HTTP 403, see AddPermission"}
-  GetSMSSandboxAccountStatus/CreateSMSSandboxPhoneNumber/DeleteSMSSandboxPhoneNumber/ListSMSSandboxPhoneNumbers/VerifySMSSandboxPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetSMSSandboxAccountStatus/CreateSMSSandboxPhoneNumber/DeleteSMSSandboxPhoneNumber/ListSMSSandboxPhoneNumbers/VerifySMSSandboxPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (gopherstack-r3pr): CreateSMSSandboxPhoneNumber duplicate-phone now returns UserError, not the invented AlreadyExists — its own deserializeOpError (deserializers.go:676-726) models AuthorizationError/InternalError/InvalidParameter/OptedOut/Throttled/UserError, no already-exists shape. UserError ('a request parameter does not comply with the associated constraints') is the nearest modelled fit; UNCONFIRMED against AWS prose docs"}
   CheckIfPhoneNumberIsOptedOut/ListPhoneNumbersOptedOut/OptInPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: ErrOptedOut sentinel text was the unrelated copy-pasted string 'KMSOptInRequired'"}
   GetSMSAttributes/SetSMSAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDataProtectionPolicy/PutDataProtectionPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (bd gopherstack-4wtz): PutDataProtectionPolicy now enforces the documented 30,720-char max length (aws-sdk-go-v2/service/sns@v1.42.4 api_op_PutDataProtectionPolicy.go DataProtectionPolicy field doc) and the required top-level JSON keys Name/Version/Statement (docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-policies.html), both previously unenforced (any valid-JSON string was accepted); also fixed: DataProtectionPolicy no longer settable via SetTopicAttributes nor returned by GetTopicAttributes (confirmed absent from both operations' documented Attributes list — real AWS exposes it only through the dedicated Get/PutDataProtectionPolicy ops), previously it silently shared the generic topic-attributes bag; the deep data-identifier/statement grammar remains unimplemented, see deferred"}
   ListOriginationNumbers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AWS has no public create API; empty by default, SeedOriginationNumber for tests. FIXED 2026-08-14 (gopherstack-3tpf structural diff): XMLOriginationPhone (the domain model itself, not just a DTO) was entirely missing CreatedAt and Status, two real members of types.PhoneNumberInformation (types/types.go:82-103) confirmed present in the actual awsAwsquery_deserializeDocumentPhoneNumberInformation wire decoder (deserializers.go:7950) -- a real client always decoded a nil CreatedAt and empty Status regardless of what SeedOriginationNumber supplied. Added both fields (CreatedAt *time.Time xml:CreatedAt,omitempty; Status string xml:Status,omitempty, matching the cloudformation *time.Time-for-omitempty convention). Verified via TestListOriginationNumbers_CreatedAtAndStatusWireRoundTrip driving the real aws-sdk-go-v2 SNS client; hand-reverted the struct fields (test unchanged) and confirmed the revert does not just fail the assertion but fails to COMPILE (\"unknown field Status/CreatedAt in struct literal\"), the strongest possible confirmation the fields were structurally absent, not merely unwired."}
-  TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
+  TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed. VERIFIED CLEAN (wrapper-key sweep, 2026-08-29): checked for the stepfunctions-class bug (a Tags field typed as a Go map when the SDK sends an array, or vice versa). sns@v1.42.4 serializers.go:3862-3867/3893-3898 confirm TagResource.Tags serializes as Tags.member.N.Key/Value (awsAwsquery_serializeDocumentTagList, array element name 'member') and UntagResource.TagKeys as TagKeys.member.N (awsAwsquery_serializeDocumentTagKeyList) — handler_tags.go's parseSNSTagsFromForm/parseSNSTagKeysFromForm already parse exactly these wrapper names. Confirmed via TestTagResourceFamily_SDKRoundTrip (tag_resource_sdk_test.go) driving the real SDK client."}
 families:
   filter_policy_matching: {status: ok, note: "prefix/suffix/equals-ignore-case/anything-but(+nested)/exists/numeric(6 ops)/wildcard/cidr/$or, MessageBody vs MessageAttributes scope, String.Array expansion, 150-condition cap, 256KiB size cap, 5-key-per-policy cap (fixed this pass, was unenforced), FilterPolicyLimitExceeded 200/topic+10,000/account quota (fixed this pass, was unenforced and the error sentinel/code did not exist at all) — field-diffed against docs.aws.amazon.com/sns/latest/dg/subscription-filter-policy-constraints.html and API_Subscribe.html Errors table"}
   fifo_topics: {status: ok, note: "MessageGroupId required, ContentBasedDeduplication (SHA-256 body digest) vs explicit MessageDeduplicationId mutually exclusive, 5-min dedup window with bounded+swept map, 20-digit zero-padded monotonic SequenceNumber per topic, PublishBatch per-entry dedup"}
   delivery_lambda_firehose_sms_application: {status: ok, note: "fixed this pass: (1) Lambda envelope now carries the real per-publish Timestamp/Signature/SigningCertURL/UnsubscribeURL instead of a fabricated random-UUID signature and empty cert/unsub URLs; (2) Firehose now respects RawMessageDelivery (envelopes as JSON when false, matching AWS default, previously always sent the bare message); DLQ redrive on failure now forwards the same body that was attempted"}
   replay_policy_archive: {status: ok, note: "fans out through the same per-protocol delivery functions Publish uses (SQS via the emitter, Lambda/Firehose via their delivery functions). fixed this pass (bd: gopherstack-bz6), re-verified against docs.aws.amazon.com/sns/latest/dg/fifo-message-archiving-replay.html and message-archiving-and-replay-topic-owner.html ('Amazon SNS message archiving and replay is only available for application-to-application (A2A) FIFO topics'): ArchivePolicy is now rejected (InvalidParameter) on non-FIFO topics at both CreateTopic and SetTopicAttributes; ReplayPolicy is now rejected (InvalidParameter) unless the subscription's topic is FIFO and its protocol is sqs/lambda/firehose. Previously ArchivePolicy/ReplayPolicy were accepted on any topic and fanned out to any protocol (HTTP/email/sms/application), which is not real AWS behavior — standard topics have no archive/replay mechanism at all, and SMS/Application/HTTP/HTTPS are A2P protocols never eligible even on a FIFO topic"}
   http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert; SignatureVersion-aware signing (SHA1withRSA for the AWS default SignatureVersion=1, SHA256withRSA when a topic explicitly sets SignatureVersion=2), retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown; fixed this pass: delivery previously always signed with SHA-256 regardless of the topic's SignatureVersion attribute (and always declared SignatureVersion=2 in every envelope: HTTP/HTTPS, Lambda, Firehose, and the SQS delivery envelope built by services/sqs) — now resolveSignatureVersion/signWithVersion select SHA1 vs SHA256 per-topic and every envelope declares the version that actually produced its Signature"}
-  error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent)"}
+  error_codes: {status: ok, note: "NotFound/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent). CORRECTED this pass (gopherstack-r3pr, errcodeaudit no-near-miss sweep): the previous claim that TopicAlreadyExists/PlatformApplicationAlreadyExists mapped to correct AWS code strings was wrong. ErrTopicAlreadyExists is a DEAD sentinel — declared and matched in two switch statements but never raised at any call site (CreateTopic is real-AWS idempotent on name collision and raises nothing); left as-is, no wire path exercises it. ErrPlatformApplicationAlreadyExists and ErrSandboxPhoneAlreadyExists WERE live and emitted the invented codes PlatformApplicationAlreadyExists/AlreadyExists — fixed to InvalidParameter/UserError respectively (see CreatePlatformApplication and the SMS-sandbox row above)."}
 gaps:
+  - "gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): ListPhoneNumbersOptedOut's backend method (InMemoryBackend.ListPhoneNumbersOptedOut) accepts a maxResults int parameter, but the real ListPhoneNumbersOptedOutInput (api_op_ListPhoneNumbersOptedOut.go) has no MaxResults member at all -- only NextToken (itself serialized under the unusual lowercase 'nextToken' key for this one op, confirmed against awsAwsjson1_serializeOpDocumentListPhoneNumbersOptedOutInput -- verified NOT a bug, gopherstack's handler_sms.go already reads the matching lowercase form key). The extra backend parameter is inert (the handler always passes a form value that a real client never sends), not a wire defect -- noted here only because it looked suspicious at first read."
   - "2026-08-14 (gopherstack-3tpf): ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (aws-sdk-go-v2/service/sns@v1.42.4 api_op_ConfirmSubscription.go:14 doc comment: 'This call requires an AWS signature only when the AuthenticateOnUnsubscribe flag is set to \"true\"') is accepted by the real SDK request shape but has no field on gopherstack's ConfirmSubscriptionInput and is silently dropped. Structurally undeliverable without the caller-identity/SigV4-principal infrastructure gopherstack does not have (see gopherstack-cu4g, open): Unsubscribe (subscriptions.go:217) takes no caller identity at all today, so there is nothing to condition an 'unauthenticated unsubscribe' rejection on. Same class as sts's disclosed JWTPayloadSizeExceededException gap and secretsmanager's disclosed PutSecretValueInput.RotationToken gap. DISCLOSED, not fixed."
 deferred:
   - "PutDataProtectionPolicy: the policy statement grammar (DataIdentifier ARNs, Operation/Audit/De-identify/Deny shapes, Principal formats) is not validated — only the top-level document shape (JSON object, <=30,720 chars, Name/Version/Statement present). Amazon SNS message data protection is also no longer available to new customers as of 2026-04-30 per docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html (existing customers may continue using it); implementing the full grammar is disproportionate feature work for a frozen/legacy feature and was explicitly out of scope this pass (bd gopherstack-4wtz)."
@@ -57,6 +58,43 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw)
+
+New bug class for this campaign: a parameter that constrains a result (filter/sort/page
+limit) present in the real Input but not correctly honoured -- distinct from the wire-key
+bugs prior passes swept for. Read every collection-returning op's real `<Op>Input` in
+`sns@v1.42.4` (`ListEndpointsByPlatformApplication`, `ListOriginationNumbers`,
+`ListPhoneNumbersOptedOut`, `ListPlatformApplications`, `ListSMSSandboxPhoneNumbers`,
+`ListSubscriptions`, `ListSubscriptionsByTopic`, `ListTagsForResource`, `ListTopics`) --
+9 ops total. SNS's List surface turned out to be almost entirely pagination (`NextToken`,
+sometimes `MaxResults`) plus a required target-scoping ARN on 2 ops
+(`ListSubscriptionsByTopic.TopicArn`, `ListEndpointsByPlatformApplication.
+PlatformApplicationArn`) -- no filter/sort parameters exist on any SNS List op beyond
+that, which is a much smaller real surface than the campaign brief's rough estimate of
+~22 (confirmed overestimate, consistent with 8 other services this campaign).
+
+**0 bugs found.** Every op checked out: `NextToken` correctly read and threaded through
+(`pagination.go`'s shared `paginate`/`decodeToken`/`encodeToken`); the 3 ops with a real
+`MaxResults` member (`ListOriginationNumbers`, `ListSMSSandboxPhoneNumbers`, and --
+inertly, see gaps -- `ListPhoneNumbersOptedOut`) correctly resolve via `resolvePageSize`
+against per-op default/max constants matching each op's own doc comment;
+`ListSubscriptionsByTopic`/`ListEndpointsByPlatformApplication` correctly 404
+(`ErrTopicNotFound`/`ErrPlatformApplicationNotFound`) before filtering rather than
+silently returning empty for a nonexistent target, and correctly scope results to only
+that target's subscriptions/endpoints (`b.subscriptionsByTopic`/filtering by
+`PlatformApplicationArn`, verified not leaking cross-target results). One SNS-specific
+wire quirk re-confirmed while checking this class: `ListPhoneNumbersOptedOut`'s `NextToken`
+is genuinely serialized under a lowercase `nextToken` key by the real SDK (confirmed in
+`serializers.go`, not a case-insensitivity artifact) and `handler_sms.go` already matches
+it exactly -- correct, not a bug, but easy to mistake for one on a quick read.
+
+Test style: no new tests needed (0 bugs to regress-guard); existing pagination/filter
+tests (`pagination_test.go`, `platform_endpoints_test.go`, `subscriptions_test.go`) already
+assert on decoded response content for the cases that exist. Real SDK client not driven
+fresh for this pass -- the existing wrapper-key sweep entry above (`TagResource/
+UntagResource/ListTagsForResource`, `tag_resource_sdk_test.go`) and `ListOriginationNumbers`
+entry already have real-client round-trip coverage on this same code path.
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.
@@ -451,3 +489,187 @@ guard, plus the full `-race` suite confirms none of the `FormValue` call sites r
 Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race ./services/sns/...` (pass,
 ~21s), `golangci-lint run ./services/sns/...` (0 issues, 0 new nolints). No exported
 signature changed.
+
+**2026-08-30 (negative-continuation-token sweep)**: `pagination.go`'s `decodeToken` accepted
+a token that base64-decoded to a negative integer and returned it verbatim; `paginate`'s
+`offset >= len(items)` guard does not catch a negative offset, so `items[offset:end]`
+(the 8 call sites: `origination_numbers.go`, `platform_endpoints.go`,
+`platform_applications.go`, `sms.go` x2, `subscriptions.go` x2, `topics.go`) panicked with
+`slice bounds out of range [-5:]` given `LTU=` (base64 for `-5`) as `NextToken`. Fixed at the
+decode site: `decodeToken` now rejects a negative offset the same way it already rejects
+malformed base64 or a non-integer payload, so all 8 callers inherit the fix without change.
+`pagination_test.go`'s existing suite asserted page contents/token presence only — no test
+supplied a hostile token before this pass.
+
+Proof: `TestSNSPagination_NegativeToken` (`pagination_test.go`) confirmed panicking pre-fix,
+passes now. Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race
+-count=1 ./services/sns/...`, `golangci-lint run ./services/sns/...` (0 issues). Work left
+uncommitted per this pass's instructions.
+
+**2026-08-30 (wrapper-key-sweep cross-call pagination-reproducibility audit)**: audited every
+`sns` listing (`ListTopics`/`ListTopicsInRegion`, `ListPlatformApplications`,
+`ListEndpointsByPlatformApplication`, `ListSubscriptions`/`ListSubscriptionsByTopic`,
+`ListOriginationNumbers`, `ListSMSSandboxPhoneNumbers`, `ListPhoneNumbersOptedOut`) for
+whether the full sorted order is reproducible between two calls with nothing changed in
+between — the class described in `.claude/memories/parity-principles.md`'s wrapper-key
+sweep: a `store.Table.All()`/map walk feeding a sort whose key can tie drops or duplicates a
+record at a page boundary. Every one of these sorts by its own `store.Table` key (TopicArn,
+PlatformApplicationArn, EndpointArn, SubscriptionArn, PhoneNumber), or, for
+`ListPhoneNumbersOptedOut`, by the phone-number string that is itself the source map's own
+key — so no tie is possible regardless of the underlying walk order. `ListOriginationNumbers`
+sorts by `PhoneNumber` (not obviously unique) but its source is a direct per-region slice
+(`b.originationNumbers[b.region]`), not a map walk, so it is stable across calls independent
+of any tie. No pagination-reproducibility bug found; nothing changed. This confirms/extends
+(does not contradict) the negative-token pass above.
+
+**2026-08-30 (value-semantics audit, gopherstack-uox6)**: read `filter_match.go`/
+`filter_policy.go` (subscription `FilterPolicy` matching for both `MessageAttributes` and
+`MessageBody` scope) against their documented semantics. `FilterPolicy` is a freeform JSON
+string (`SubscribeInput.FilterPolicy` is `*string` in the pinned SDK, no typed matcher
+surface), so this was verified against SNS's own user-guide pages
+(`sns-subscription-filter-policies.html`, `numeric-value-matching.html`,
+`string-value-matching.html`) rather than SDK doc comments -- one exception:
+`MessageAttributeValue.DataType`'s own doc comment ("Amazon SNS supports the following
+logical data types: String, String.Array, Number, and Binary") is the authoritative type
+list, overriding a stray `"Number.Array"` example on the numeric-matching doc page that
+doesn't correspond to any type the SDK itself declares.
+
+Own count: 19 `match`/`Match`-prefixed functions in `filter_match.go`, all genuine filter
+predicates (no HTTP-routing false positives in this file -- `RouteMatcher`/`MatchPriority`
+live in `handler.go` and were excluded).
+
+Found and fixed one bug: `filter_policy.go`'s `validateNumericOperands` whitelisted `"<>"` as
+a sixth numeric operator, and `filter_match.go`'s `numericOpMatches` implemented a
+not-equal comparison for it. SNS's numeric-value-matching page documents exactly five
+operators -- `=`, `<`, `<=`, `>`, `>=` -- with no `"<>"` form anywhere on the page or its
+range-matching/anything-but sections; a `"<>"` operand should be rejected at Subscribe/
+SetSubscriptionAttributes time the same way `"??"` already is, not silently accepted and
+evaluated. `filter_policy_test.go`'s `TestNumericValidOperatorsAccepted` asserted `"<>"` as
+one of the valid, accepted operators -- the wrong-assertion-as-correct this audit class looks
+for. Fixed by removing `"<>"` from both the validation whitelist and the comparator switch;
+removed the `"<>"` entry from that test's table (6 -> 5 loop iterations, one assertion
+dropped -- it was asserting the bug) and added
+`TestNumericOperatorNotEqualRejectedAtSubscribeTime` asserting rejection in its place (1 new
+assertion), confirmed failing against unmodified code (subscribe succeeded with no error)
+before the fix. Net assertion count for the file is unchanged; the dropped assertion tested
+the wrong behavior and is replaced by a new one testing the correct behavior for the same
+input.
+
+Every other matcher in `filter_match.go` was checked against the same doc pages and is
+correct: `prefix`/`suffix`/`equals-ignore-case` (SNS does not document a nested
+`{"prefix": {"equals-ignore-case": ...}}` form the way EventBridge does, and this file
+correctly does not implement one), `wildcard` (only `*` is a metacharacter, matching the
+doc's single-character-wildcard-not-supported note already in this file's own comment --
+verified rather than trusted), `cidr` including the bare-host-IP case (doc's own wording
+"IP address or subnet" supports treating a bare IP as an implicit host route), `anything-but`
+in all its documented forms (scalar, list, and the three nested `prefix`/`suffix`/
+`equals-ignore-case`/`wildcard` forms -- correctly does NOT implement a nested `numeric`
+form, which SNS's `anything-but` docs also do not list), numeric range matching (multiple
+pairs AND, matching the range-matching example), and `String.Array`/`MessageBody`-array
+expansion (OR across elements, matching the doc's own "matches ... because it contains a
+value that isn't ..." examples for both `String.Array` attributes and JSON-array body
+values). `anything-but` combined with `"exists": false"` (documented as a supported
+combination) is not special-cased anywhere and needs none: it already falls out of
+`matchesConditions`' existing OR-across-conditions loop.
+
+Unrecognised filter keys: `parseFilterPolicy` already rejects any object-condition operator
+name outside `knownFilterPolicyOperators` at Subscribe/SetSubscriptionAttributes time
+(`validateConditionShapes`), so there is no silent-match-everything or silent-match-nothing
+path for this service -- confirmed by `TestSNS_FilterPolicyValidation/rejects_unknown_operator_name`
+already in the suite and unchanged by this pass.
+
+Tests: `filter_policy_test.go` gained one function (19 -> 20 `func Test...`);
+`TestNumericValidOperatorsAccepted` 6 -> 5 loop-driven assertions (1 dropped, see above, not
+a weakening); `TestNumericOperatorNotEqualRejectedAtSubscribeTime` added, 1 new assertion,
+confirmed failing pre-fix.
+
+Gates: `go build ./services/sns/...`, `go vet ./services/sns/...`, `go test -race -count=1
+./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues, no new
+nolints). No backend/exported signature changed, so no repo-wide `go vet` was required.
+
+## 2026-08-31 exact-case element check (gopherstack-21my)
+
+Re-verified byte-for-byte, not by folding comparison: every list, map and
+nested-item response shape checked against the exact string literals the pinned
+deserializer matches on. No hard mismatch, and no case-only mismatch either.
+
+The case-only class is the one worth naming here. This service is query
+protocol with XML responses, and smithy-go's XML decoder matches element names
+with EqualFold, so a name differing only in case decodes correctly and no
+round-trip test can see it. It is still wrong - it is not what AWS emits, and
+any consumer matching exactly would break. None was found.
+
+Every list in this service is member-wrapped rather than flattened, confirmed
+by there being no call site of an unwrapped-list deserializer variant.
+
+## 2026-08-31 Error-envelope sweep (gopherstack-uox6, errtargetaudit, post-reachability-fix)
+
+`errtargetaudit -dir sns` reported 4 class-A findings across 2 causes,
+verified against the pinned SDK's own per-op `awsAwsquery_deserializeOpError<Op>`
+switch (`aws-sdk-go-v2/service/sns@v1.42.4` deserializers.go -- the older
+`EqualFold` cascade shape, not the newer `rpc2` plain switch).
+
+**3 real, 2 distinct fixes:**
+
+- `DeleteSMSSandboxPhoneNumber` (`sms.go:96`) and `VerifySMSSandboxPhoneNumber`
+  (`sms.go:114`): both declare `ResourceNotFound` (not `NotFound`). Both
+  return `ErrPhoneNumberNotFound`, whose own sentinel text already reads
+  `"ResourceNotFound"` (`errors.go:16`) -- but `handler_errors.go`'s
+  `errorCode()` grouped it into the same `case` as
+  `ErrTopicNotFound`/`ErrSubscriptionNotFound`/
+  `ErrPlatformApplicationNotFound`/`ErrEndpointNotFound`, all of which
+  correctly return `"NotFound"`. Fixed by giving `ErrPhoneNumberNotFound`
+  its own case returning `"ResourceNotFound"`, matching its own message
+  text. `ErrPhoneNumberNotFound` has exactly these 2 call sites (both
+  fixed by the one switch change) -- not a call-site override of a shared
+  sentinel, a correction of the mapper's own grouping.
+- `DeletePlatformApplication` (`platform_applications.go`, was line 161):
+  declares only `AuthorizationError`/`InternalError`/`InvalidParameter` --
+  no not-found type at all, the same shape as this SDK's `DeleteEndpoint`
+  (documented `"This action is idempotent"`). `ErrPlatformApplicationNotFound`
+  has 4 other call sites (`GetPlatformApplicationAttributes`,
+  `SetPlatformApplicationAttributes`, `CreatePlatformEndpoint`,
+  `ListEndpointsByPlatformApplication`), all of which correctly declare
+  `"NotFound"` -- so the sentinel itself is untouched; only
+  `DeletePlatformApplication`'s own not-found check is removed, making
+  delete-of-a-missing-ARN a no-op (its own doc comment does not use the
+  word "idempotent" the way `DeleteEndpoint`/`DeleteTopic` do, so this is
+  an inference from the declared-error-set shape, not a direct doc
+  statement -- recorded as such, not overclaimed).
+
+**1 refusal:**
+
+- `Publish` (`publish.go`, was line 430, `OptedOut` for an opted-out SMS
+  destination): `Publish`'s own switch does not declare `OptedOut`
+  (`OptedOutException` exists in this SDK and is correctly declared by
+  `CreateSMSSandboxPhoneNumber`, but not by `Publish`). The two
+  closest-sounding declared types (`InvalidParameter`,
+  `ParameterValueInvalid`) share the identical generic doc comment
+  ("Indicates that a request parameter does not comply with the associated
+  constraints") -- neither describes an opted-out recipient, so neither was
+  substituted, per this campaign's standing near-miss caution. Not fixed;
+  `Publish` still sends an undecodable `OptedOut` code to a real typed
+  client for this one case.
+
+New SDK-driven test (`error_envelope_fixes_test.go`):
+`TestSMSSandboxPhoneNotFound_ResourceNotFound_RealClient` (2 subtests,
+`errors.As` against `*types.ResourceNotFoundException`) and
+`TestDeletePlatformApplication_MissingArn_Idempotent_RealClient`
+(asserts `require.NoError`) -- both confirmed failing pre-fix (the sandbox
+subtests got `*smithy.GenericAPIError` wrapping `NotFound`; the delete test
+got a 400 `NotFound` error instead of success).
+
+One existing test corrected: `platform_applications_test.go`'s
+`TestSNSHandler_DeletePlatformApplication`'s `"not_found"` case asserted
+`wantStatus: http.StatusBadRequest` (a status-only assertion, not a typed
+one) for deleting a nonexistent ARN -- renamed `"not_found_is_idempotent"`,
+now `wantStatus: http.StatusOK`, assertion count unchanged. No other
+existing test needed correction: the backend-level tests in
+`platform_applications_test.go`/`sms_test.go` assert against the Go
+sentinels (`sns.ErrPlatformApplicationNotFound`,
+`sns.ErrPhoneNumberNotFound`) directly, which are unchanged by this pass.
+
+Gates: `go build ./services/sns/...`, `go vet ./...` (repo-wide, clean --
+no exported signature changed), `go test -race -count=1 ./services/sns/...`
+(pass), `golangci-lint run ./services/sns/...` (0 issues, no `nolint` in
+any edited file).

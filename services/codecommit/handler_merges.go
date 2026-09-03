@@ -215,6 +215,17 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
+	if req.MergeOption == "" {
+		return nil, fmt.Errorf("%w: mergeOption is required", errInvalidRequest)
+	}
+
+	if !isValidMergeOption(req.MergeOption) {
+		return nil, fmt.Errorf(
+			"%w: mergeOption must be FAST_FORWARD_MERGE, SQUASH_MERGE, or THREE_WAY_MERGE",
+			ErrValidation,
+		)
+	}
+
 	commit, err := h.Backend.CreateUnreferencedMergeCommit(
 		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
 		req.AuthorName, req.Email, req.CommitMessage,
@@ -229,12 +240,15 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 	}, nil
 }
 
+// handleGetMergeCommit does not decode a mergeOption field: real
+// GetMergeCommitInput has no such member (codecommit@v1.36.4
+// api_op_GetMergeCommit.go / awsAwsjson11_serializeOpDocumentGetMergeCommitInput
+// in serializers.go), so a real client never sends one.
 func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 	var req struct {
 		RepositoryName             string `json:"repositoryName"`
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
-		MergeOption                string `json:"mergeOption"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err

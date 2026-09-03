@@ -32,11 +32,11 @@ func toResourceObject(a *ResourceShareAssociation) resourceObject {
 }
 
 type listResourcesRequest struct {
-	MaxResults       *int32 `json:"maxResults,omitempty"`
-	ResourceOwner    string `json:"resourceOwner"`
-	ResourceShareArn string `json:"resourceShareArn"`
-	ResourceType     string `json:"resourceType"`
-	NextToken        string `json:"nextToken"`
+	MaxResults        *int32   `json:"maxResults,omitempty"`
+	ResourceOwner     string   `json:"resourceOwner"`
+	ResourceType      string   `json:"resourceType"`
+	NextToken         string   `json:"nextToken"`
+	ResourceShareArns []string `json:"resourceShareArns"`
 }
 
 type listResourcesResponse struct {
@@ -54,7 +54,7 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: resourceOwner is required", errInvalidRequest)
 	}
 
-	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArn, req.ResourceType)
+	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArns, req.ResourceType)
 	objs := make([]resourceObject, 0, len(assocs))
 
 	for _, a := range assocs {

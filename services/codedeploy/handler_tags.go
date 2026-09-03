@@ -65,7 +65,7 @@ func (h *Handler) handleTagResource(
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
 	if in.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: resourceArn is required", ErrResourceArnRequired)
 	}
 
 	if err := h.Backend.TagResource(in.ResourceArn, tagEntriesToMap(in.Tags)); err != nil {
@@ -87,7 +87,7 @@ func (h *Handler) handleUntagResource(
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
 	if in.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: resourceArn is required", ErrResourceArnRequired)
 	}
 
 	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
@@ -110,7 +110,7 @@ func (h *Handler) handleListTagsForResource(
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
 	if in.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: resourceArn is required", ErrResourceArnRequired)
 	}
 
 	kv, err := h.Backend.ListTagsForResource(in.ResourceArn)

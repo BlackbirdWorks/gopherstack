@@ -825,10 +825,12 @@ func TestGlue_ErrorCases(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			// DeleteJob on an unknown JobName is documented as a no-op, not an
+			// error (api_op_DeleteJob.go).
 			name:       "delete_nonexistent_job",
 			action:     "DeleteJob",
 			body:       map[string]any{"JobName": "no-job"},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

@@ -10,9 +10,42 @@ import (
 
 // --- PutEventSelectors ---
 
+// eventSelectorWire is the wire-decode shape for a basic EventSelector.
+// IncludeManagementEvents is *bool on the real SDK type (own doc comment:
+// "By default, the value is true"), so an omitted key must be
+// distinguishable from an explicit false -- a plain bool here would lose
+// that and default to the Go zero value (false) instead.
+type eventSelectorWire struct {
+	IncludeManagementEvents *bool          `json:"IncludeManagementEvents"`
+	ReadWriteType           string         `json:"ReadWriteType"`
+	DataResources           []DataResource `json:"DataResources"`
+}
+
+// toEventSelector resolves eventSelectorWire's two documented defaults:
+// IncludeManagementEvents defaults to true, ReadWriteType defaults to "All"
+// ("" is not itself a valid ReadWriteType, so it is safe to treat as
+// omitted).
+func (w eventSelectorWire) toEventSelector() EventSelector {
+	includeManagementEvents := true
+	if w.IncludeManagementEvents != nil {
+		includeManagementEvents = *w.IncludeManagementEvents
+	}
+
+	readWriteType := w.ReadWriteType
+	if readWriteType == "" {
+		readWriteType = "All"
+	}
+
+	return EventSelector{
+		ReadWriteType:           readWriteType,
+		DataResources:           w.DataResources,
+		IncludeManagementEvents: includeManagementEvents,
+	}
+}
+
 type putEventSelectorsBody struct {
 	TrailName              string                  `json:"TrailName"`
-	EventSelectors         []EventSelector         `json:"EventSelectors"`
+	EventSelectors         []eventSelectorWire     `json:"EventSelectors"`
 	AdvancedEventSelectors []AdvancedEventSelector `json:"AdvancedEventSelectors"`
 }
 
@@ -26,7 +59,12 @@ func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "TrailName is required"))
 	}
 
-	t, err := h.Backend.PutEventSelectors(in.TrailName, in.EventSelectors, in.AdvancedEventSelectors)
+	selectors := make([]EventSelector, len(in.EventSelectors))
+	for i, w := range in.EventSelectors {
+		selectors[i] = w.toEventSelector()
+	}
+
+	t, err := h.Backend.PutEventSelectors(in.TrailName, selectors, in.AdvancedEventSelectors)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -37,11 +75,11 @@ func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 	if len(t.AdvancedEventSelectors) > 0 {
 		resp["AdvancedEventSelectors"] = t.AdvancedEventSelectors
 	} else {
-		selectors := t.EventSelectors
-		if selectors == nil {
-			selectors = []EventSelector{}
+		stored := t.EventSelectors
+		if stored == nil {
+			stored = []EventSelector{}
 		}
-		resp["EventSelectors"] = selectors
+		resp["EventSelectors"] = stored
 	}
 
 	return c.JSON(http.StatusOK, resp)

@@ -178,8 +178,12 @@ func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string
 // handleDescribeSpotPriceHistory returns deterministic spot price history.
 func (h *Handler) handleDescribeSpotPriceHistory(vals url.Values, reqID string) (any, error) {
 	instanceTypes := parseMemberList(vals, "InstanceType")
-	azs := parseMemberList(vals, "AvailabilityZone")
 	products := parseMemberList(vals, "ProductDescription")
+
+	var azs []string
+	if az := vals.Get("AvailabilityZone"); az != "" {
+		azs = []string{az}
+	}
 
 	var startTime time.Time
 	if v := vals.Get("StartTime"); v != "" {

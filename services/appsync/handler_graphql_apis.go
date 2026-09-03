@@ -29,6 +29,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		APIType                           string                             `json:"apiType"`
 		Visibility                        string                             `json:"visibility"`
 		IntrospectionConfig               string                             `json:"introspectionConfig"`
+		OwnerContact                      string                             `json:"ownerContact"`
 		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders"`
 		QueryDepthLimit                   int32                              `json:"queryDepthLimit"`
 		ResolverCountLimit                int32                              `json:"resolverCountLimit"`
@@ -54,6 +55,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
 		LogConfig:              input.LogConfig,
 		IntrospectionConfig:    input.IntrospectionConfig,
+		OwnerContact:           input.OwnerContact,
 		QueryDepthLimit:        input.QueryDepthLimit,
 		ResolverCountLimit:     input.ResolverCountLimit,
 	}
@@ -81,10 +83,17 @@ func (h *Handler) listGraphqlAPIs(ctx context.Context, c *echo.Context) error {
 	apiType := q.Get("apiType")
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	owner := q.Get("owner")
 
 	apis, err := h.Backend.ListGraphqlAPIs(apiType)
 	if err != nil {
 		return h.handleError(ctx, c, "ListGraphqlApis", err)
+	}
+
+	// gopherstack simulates a single AWS account, so every API is
+	// CURRENT_ACCOUNT; OTHER_ACCOUNTS never matches anything.
+	if owner == "OTHER_ACCOUNTS" {
+		apis = nil
 	}
 
 	page, tok := appsyncPaginate(apis, nextToken, maxResults)
@@ -160,6 +169,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		AuthenticationType                string                             `json:"authenticationType"`
 		Visibility                        string                             `json:"visibility"`
 		IntrospectionConfig               string                             `json:"introspectionConfig"`
+		OwnerContact                      string                             `json:"ownerContact"`
 		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders"`
 		QueryDepthLimit                   int32                              `json:"queryDepthLimit"`
 		ResolverCountLimit                int32                              `json:"resolverCountLimit"`
@@ -175,6 +185,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
 		LogConfig:              input.LogConfig,
 		IntrospectionConfig:    input.IntrospectionConfig,
+		OwnerContact:           input.OwnerContact,
 		QueryDepthLimit:        input.QueryDepthLimit,
 		ResolverCountLimit:     input.ResolverCountLimit,
 	}

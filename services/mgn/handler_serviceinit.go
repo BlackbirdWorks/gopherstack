@@ -17,15 +17,15 @@ func (h *Handler) handleListManagedAccounts(_ context.Context, _ *http.Request, 
 		return nil, err
 	}
 
-	accounts, err := h.Backend.ListManagedAccounts()
+	pg, err := h.Backend.ListManagedAccounts(req.NextToken, int(req.MaxResults))
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]managedAccountWire, len(accounts))
-	for i, a := range accounts {
+	items := make([]managedAccountWire, len(pg.Data))
+	for i, a := range pg.Data {
 		items[i] = managedAccountWire(a)
 	}
 
-	return marshalResponse(listManagedAccountsResponse{Items: items})
+	return marshalResponse(listManagedAccountsResponse{Items: items, NextToken: pg.Next})
 }

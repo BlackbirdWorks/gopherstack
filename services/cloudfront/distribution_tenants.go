@@ -101,6 +101,11 @@ func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID, excludeDi
 		}
 	}
 
+	// ResourceID is the pagination cursor key (handleListDomainConflicts); it must be
+	// sorted ascending across both resource types, not just within the distribution
+	// half built above.
+	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].ResourceID < conflicts[j].ResourceID })
+
 	return conflicts
 }
 
@@ -126,7 +131,7 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 		if conflicts := b.findDomainConflicts(d, "", ""); len(conflicts) > 0 {
 			return nil, fmt.Errorf(
 				"%w: domain %q is already associated with %s %s",
-				ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+				ErrCNAMEAlreadyExists, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
 			)
 		}
 	}
@@ -211,7 +216,7 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 			if conflicts := b.findDomainConflicts(d, id, ""); len(conflicts) > 0 {
 				return nil, fmt.Errorf(
 					"%w: domain %q is already associated with %s %s",
-					ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+					ErrCNAMEAlreadyExists, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
 				)
 			}
 		}
@@ -359,7 +364,7 @@ func (b *InMemoryBackend) ListDomainConflicts(
 // UpdateDomainAssociation moves a domain's association to the given target distribution tenant
 // or distribution. Exactly one of targetTenantID / targetDistID must be set. The domain is
 // removed from its previous owner (if any) and attached to the target; a conflict with a
-// *different* existing owner returns ErrDomainConflict.
+// *different* existing owner returns ErrValidation.
 func (b *InMemoryBackend) UpdateDomainAssociation(
 	domain, targetTenantID, targetDistID string,
 ) (*DomainAssociationResult, error) {
@@ -392,9 +397,12 @@ func (b *InMemoryBackend) updateDomainAssociationToTenant(
 	}
 
 	if conflicts := b.findDomainConflicts(domain, targetTenantID, ""); len(conflicts) > 0 {
+		// UpdateDomainAssociation's own deserializer (cloudfront@v1.67.4
+		// deserializers.go) models no conflict-shaped exception at all --
+		// ErrValidation (InvalidArgument) is the only client-fault code it has.
 		return nil, fmt.Errorf(
 			"%w: domain %q is already associated with %s %s",
-			ErrDomainConflict, domain, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+			ErrValidation, domain, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
 		)
 	}
 
@@ -422,9 +430,10 @@ func (b *InMemoryBackend) updateDomainAssociationToDistribution(
 	if conflicts := b.findDomainConflicts(domain, "", ""); len(conflicts) > 0 {
 		for _, c := range conflicts {
 			if c.ResourceType != "DISTRIBUTION" || c.ResourceID != targetDistID {
+				// See updateDomainAssociationToTenant's ErrValidation note above.
 				return nil, fmt.Errorf(
 					"%w: domain %q is already associated with %s %s",
-					ErrDomainConflict, domain, strings.ToLower(c.ResourceType), c.ResourceID,
+					ErrValidation, domain, strings.ToLower(c.ResourceType), c.ResourceID,
 				)
 			}
 		}

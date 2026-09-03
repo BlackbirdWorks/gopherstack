@@ -22,11 +22,11 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	// Exactly one of TopicArn, TargetArn, or PhoneNumber must be specified.
 	if message == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Message is required")
+		return h.writeError(c, http.StatusBadRequest, errCodeInvalidParameter, "Message is required")
 	}
 
 	if topicArn == "" && targetArn == "" && phoneNumber == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+		return h.writeError(c, http.StatusBadRequest, errCodeInvalidParameter,
 			"TopicArn, TargetArn, or PhoneNumber is required")
 	}
 
@@ -76,7 +76,7 @@ func (h *Handler) publishFIFOTopic(
 	attrs map[string]MessageAttribute,
 ) error {
 	if c.Request().FormValue("MessageGroupId") == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+		return h.writeError(c, http.StatusBadRequest, errCodeInvalidParameter,
 			"MessageGroupId is required for FIFO topics")
 	}
 
@@ -159,7 +159,7 @@ func (h *Handler) resolveFIFODedupID(topicArn, explicitDedupID, message string) 
 func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	topicArn := c.Request().FormValue("TopicArn")
 	if topicArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+		return h.writeError(c, http.StatusBadRequest, errCodeInvalidParameter, "TopicArn is required")
 	}
 
 	entries := extractBatchEntries(c.Request().Form)
@@ -168,7 +168,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
-			"InvalidParameter",
+			errCodeInvalidParameter,
 			"PublishBatchRequestEntries is required",
 		)
 	}
@@ -260,7 +260,7 @@ func (h *Handler) processBatchEntry(
 	if isFIFO && entry.messageGroupID == "" {
 		return nil, &XMLPublishBatchFailEntry{
 			ID:          entry.id,
-			Code:        "InvalidParameter",
+			Code:        errCodeInvalidParameter,
 			Message:     "MessageGroupId is required for FIFO topics",
 			SenderFault: true,
 		}

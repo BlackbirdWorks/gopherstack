@@ -6,15 +6,29 @@ last_audit_date: 2026-08-23  # manifest-harvest pass: fixed Dataset.RetentionPer
   # accept-and-drop gap (CreateDataset/DescribeDataset) -- see CreateDataset/
   # DescribeDataset ops entries above.
 overall: A            # wrapper-key/nested-shape sweep: fixed DescribeChannel/DescribeDatastore statistics sibling-key nesting, CreateDatastore/DescribeDatastore datastorePartitions wire key, 4 fabricated summary ARNs, fabricated GetDatasetContent versionId, fabricated IotSiteWise roleArn -- zero remaining wrapper-key bugs found
+                       # ---- query/header-to-non-string-field sweep (2026-08-29) ----
+                       # Hunted for query/header/path values fed into a non-string Go field
+                       # without conversion. No merging-into-JSON-body pattern (query values are
+                       # read individually, not merged into the JSON body then unmarshaled).
+                       # Inventoried every non-string query member across all 34 ops:
+                       # maxResults/*int32 (5 List ops, correct via parsePagination),
+                       # maxMessages/*int32 and includeStatistics/bool (correct),
+                       # scheduledBefore/scheduledOnOrAfter (*time.Time, correct via
+                       # parseQueryDateTime). Found and fixed one SILENT (inert) bug:
+                       # SampleChannelData's StartTime/EndTime (*time.Time) were declared but
+                       # never read -- see SampleChannelData row. Also hardened
+                       # DescribeChannel/DescribeDatastore's includeStatistics from a naive =="true"
+                       # (correct only by accident, since the real SDK always emits lowercase) to
+                       # strconv.ParseBool -- see those rows. No hard-fail (500) bugs found.
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags (key/value charset, aws: prefix, max 50) before create, matching TagResource"}
-  DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the channel object; AWS returns it as a sibling top-level member (deserializers.go:1851 awsRestjson1_deserializeOpDocumentDescribeChannelOutput has separate channel/statistics cases; awsRestjson1_deserializeDocumentChannel has no statistics case at all)"}
+  DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the channel object; AWS returns it as a sibling top-level member (deserializers.go:1851 awsRestjson1_deserializeOpDocumentDescribeChannelOutput has separate channel/statistics cases; awsRestjson1_deserializeDocumentChannel has no statistics case at all). Hardened 2026-08-29: includeStatistics (real bool query param, api_op_DescribeChannel.go:46) was compared with a naive == \"true\", correct only because the real SDK's Boolean() query encoder always emits lowercase (smithy-go@v1.27.6 httpbinding/query.go:43-45) -- correct by accident, not construction. Now strconv.ParseBool via queryBool (handler.go), so a non-Go caller sending \"TRUE\"/\"1\" also works."}
   UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "cursor pagination correct: Snapshot() is Name-ascending, cursor thresholds on Name. FIXED 2026-08-20: channelSummary fabricated a channelArn member ChannelSummary doesn't have (deserializers.go:5795 awsRestjson1_deserializeDocumentChannelSummary has no arn case) -- removed"}
-  SampleChannelData: {wire: ok, errors: ok, state: ok, persist: ok}
+  SampleChannelData: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29 (query/header-to-non-string-field sweep): StartTime/EndTime (real *time.Time query params, api_op_SampleChannelData.go:45,56, serializers.go:2184-2192) were never read at all -- messages carried no arrival timestamp, so every stored message always came back regardless of the time window a client asked for. Backend now records each message's arrival time (ChannelMessage.ArrivedAt, whole-second resolution matching every other stored timestamp in this backend) and SampleChannelData filters by [startTime, endTime] when set. Snapshot version bumped 1->2 (channelMessages value shape changed [][]byte -> []ChannelMessage). Proven by TestSampleChannelData_StartTimeExcludesEarlierMessages (wire_field_fixes_test.go), driven through the real SDK client."}
   CreateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). FIXED 2026-08-20: request read the partitions member under the wrong wire key 'partitions'; AWS's key is 'datastorePartitions' (serializers.go:583 awsRestjson1_serializeOpDocumentCreateDatastoreInput) -- a real client's DatastorePartitions was silently dropped on create"}
-  DescribeDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the datastore object; AWS returns it as a sibling top-level member (deserializers.go:2184 awsRestjson1_deserializeOpDocumentDescribeDatastoreOutput has separate datastore/statistics cases). FIXED 2026-08-20: datastoreDetail also emitted partitions under 'partitions' instead of AWS's 'datastorePartitions' (deserializers.go:7177 awsRestjson1_deserializeDocumentDatastore) -- a real client's Datastore.DatastorePartitions stayed nil even when the backend had partitions stored"}
+  DescribeDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the datastore object; AWS returns it as a sibling top-level member (deserializers.go:2184 awsRestjson1_deserializeOpDocumentDescribeDatastoreOutput has separate datastore/statistics cases). FIXED 2026-08-20: datastoreDetail also emitted partitions under 'partitions' instead of AWS's 'datastorePartitions' (deserializers.go:7177 awsRestjson1_deserializeDocumentDatastore) -- a real client's Datastore.DatastorePartitions stayed nil even when the backend had partitions stored. Hardened 2026-08-29: same includeStatistics accident-correct-boolean fix as DescribeChannel -- see that row."}
   UpdateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "updateDatastoreRequest still accepts a 'partitions' body field UpdateDatastoreInput has no real counterpart for (api_op_UpdateDatastore.go:32 UpdateDatastoreInput: DatastoreStorage/FileFormatConfiguration/RetentionPeriod only, no partitions member) -- disclosed, not fixed, see Notes"}
   DeleteDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datastoreSummary fabricated a datastoreArn member DatastoreSummary doesn't have (deserializers.go:7677 awsRestjson1_deserializeDocumentDatastoreSummary has no arn case) -- removed. FIXED 2026-08-23: datastoreSummary was also missing DatastoreSummary's real datastorePartitions/fileFormatType members (types.go:952). Confirmed against the real *DatastoreSummary type (not the Datastore detail type, which has no fileFormatType member at all -- types.go:707) before adding: datastorePartitions now round-trips from Datastore.Partitions, fileFormatType is derived from FileFormatConfiguration (defaulting to JSON, matching 'The default file format is JSON' in api_op_CreateDatastore.go's doc comment, since gopherstack never persisted a resolved format type before). See TestListDatastores_SummaryCarriesPartitionsAndFileFormatType (list_summaries_missing_members_test.go)."}
@@ -335,3 +349,39 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
   present and wired correctly, nothing to fix.
 - `TestSDKCompleteness` (sdk_completeness_test.go) confirms all 34 SDK ops are handled with
   zero entries in the `notImplemented` acknowledgement list.
+
+## 2026-08-28 — wrapper-key-sweep: UpdateDatastore accepted a phantom partitions field (acceptguard)
+
+acceptguard flagged `updateDatastoreRequest.Partitions` (`models.go:146`, read in
+`handleUpdateDatastore`) as matching no member of any real Input in the module. Confirmed
+against iotanalytics@v1.32.0's `UpdateDatastoreInput` (`api_op_UpdateDatastore.go`):
+`DatastoreName`/`DatastoreStorage`/`FileFormatConfiguration`/`RetentionPeriod` only — no
+partitions member at all. `CreateDatastoreInput` has `DatastorePartitions`; partitions are
+settable only at creation and are immutable afterward, matching real AWS's documented
+behavior for this field.
+
+Fixed by removing `Partitions` from `updateDatastoreRequest` (`models.go`), the corresponding
+parameter from `Backend.UpdateDatastore` (`datastores.go`, `interfaces.go`), and its call site
+(`handler_datastores.go`); the now-dead `partitions != nil` clone/validate branches were
+removed with it. `validateDatastorePartitions` remains, still used by `CreateDatastore`.
+
+A typed-client fail-before test isn't constructible here — `UpdateDatastoreInput`'s Go struct
+never had a partitions field to send incorrectly, so a real client's request is identical
+before and after. Proof is a raw-body test instead
+(`TestUpdateDatastore_RawPartitionsFieldIgnored`, `wire_field_fixes_test.go`, new file):
+sending `{"partitions": {...}}` directly to `PUT /datastores/{name}` must not affect the stored
+datastore. Hand-reverted `datastores.go`/`handler_datastores.go`/`interfaces.go`/`models.go`,
+confirmed this test fails (the raw partitions key mutated the datastore), restored. A companion
+real-SDK test (`TestUpdateDatastore_PartitionsImmutable`) proves the correct behavior a typed
+client actually observes: partitions set at `CreateDatastore` survive an `UpdateDatastore` call
+that changes an unrelated field.
+
+**Test judgement**: `datastores_test.go`'s `TestInMemoryBackend_DatastorePartitionsValidation`
+previously called `b.UpdateDatastore(..., tt.partitions)` for every non-error case, asserting
+partitions could be set via update — this was itself testing the bug as correct behavior. The
+call is removed; the test now only validates `CreateDatastore`'s partition-shape checks, and its
+doc comment was corrected to say `UpdateDatastore` doesn't take partitions at all rather than
+"validates" them.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/iotanalytics/...`).

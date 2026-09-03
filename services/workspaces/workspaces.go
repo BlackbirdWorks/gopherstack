@@ -11,7 +11,16 @@ import (
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// connectionStatusPageSize is this backend's internal page size for the
+// unfiltered (WorkspaceIds omitted) path of DescribeWorkspacesConnectionStatus.
+// The real DescribeWorkspacesConnectionStatusInput has no MaxResults field
+// (only NextToken), so the page size is entirely server-chosen, matching the
+// pattern already used by DescribeAccountModifications/
+// ListAvailableManagementCidrRanges (account.go).
+const connectionStatusPageSize = 100
 
 const (
 	workspaceIDPrefix = "ws-"
@@ -289,8 +298,8 @@ func resolvePageSize(limit int32) int {
 // report DISCONNECTED (not yet connected in this emulator); STOPPED workspaces
 // report NOT_CONNECTED, matching real AWS behaviour for offline workspaces.
 func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
-	workspaceIDs []string,
-) ([]*WorkspaceConnectionStatus, error) {
+	workspaceIDs []string, nextToken string,
+) ([]*WorkspaceConnectionStatus, string, error) {
 	b.mu.RLock("GetWorkspacesConnectionStatus")
 	defer b.mu.RUnlock()
 
@@ -309,9 +318,18 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 	checkedAt := time.Now().UTC()
 
 	if len(workspaceIDs) == 0 {
-		result := make([]*WorkspaceConnectionStatus, 0, b.workspaces.Len())
+		all := b.workspaces.All()
 
-		for _, w := range b.workspaces.All() {
+		// Real AWS's DescribeWorkspacesConnectionStatusInput/Output both
+		// declare NextToken (unlike WorkspaceIds, which is capped at 25 by
+		// the real doc comment), so the no-filter path genuinely paginates
+		// and must be sorted -- All() is unspecified map order.
+		sort.Slice(all, func(i, j int) bool { return all[i].WorkspaceID < all[j].WorkspaceID })
+
+		pg := page.New(all, nextToken, 0, connectionStatusPageSize)
+
+		result := make([]*WorkspaceConnectionStatus, 0, len(pg.Data))
+		for _, w := range pg.Data {
 			result = append(result, &WorkspaceConnectionStatus{
 				WorkspaceID:                   w.WorkspaceID,
 				ConnectionState:               connectionStateFor(w.State),
@@ -319,7 +337,7 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 			})
 		}
 
-		return result, nil
+		return result, pg.Next, nil
 	}
 
 	result := make([]*WorkspaceConnectionStatus, 0, len(workspaceIDs))
@@ -337,7 +355,7 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 		})
 	}
 
-	return result, nil
+	return result, "", nil
 }
 
 // ModifyWorkspaceProperties updates and persists mutable properties of a WorkSpace.

@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateQueue(
 	name, description, pricingPlan, status string,
 	tags map[string]string,
 ) (*Queue, error) {
-	return b.CreateQueueFull(name, description, pricingPlan, status, tags, 0, nil, nil)
+	return b.CreateQueueFull(name, description, pricingPlan, status, tags, 0, nil)
 }
 
 // QueueCreateExtras carries newer optional CreateQueue fields
@@ -40,7 +40,6 @@ func (b *InMemoryBackend) CreateQueueFull(
 	tags map[string]string,
 	concurrentJobs int,
 	reservationPlan *ReservationPlan,
-	serviceOverrides map[string]any,
 	extras ...QueueCreateExtras,
 ) (*Queue, error) {
 	b.mu.Lock("CreateQueue")
@@ -84,7 +83,6 @@ func (b *InMemoryBackend) CreateQueueFull(
 		LastUpdated:            now,
 		ConcurrentJobs:         concurrentJobs,
 		ReservationPlan:        cloneReservationPlan(reservationPlan),
-		ServiceOverrides:       deepCloneMap(serviceOverrides),
 		MaximumConcurrentFeeds: cloneIntPtr(extra.MaximumConcurrentFeeds),
 	}
 	b.queues.Put(q)
@@ -267,10 +265,6 @@ func cloneQueue(q *Queue) *Queue {
 	if q.ReservationPlan != nil {
 		rp := *q.ReservationPlan
 		cp.ReservationPlan = &rp
-	}
-
-	if q.ServiceOverrides != nil {
-		cp.ServiceOverrides = deepCloneMap(q.ServiceOverrides)
 	}
 
 	return &cp

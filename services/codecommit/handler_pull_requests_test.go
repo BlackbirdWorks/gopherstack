@@ -253,6 +253,45 @@ func TestHandler_ListPullRequests_StatusFilter(t *testing.T) {
 	}
 }
 
+// TestHandler_ListPullRequests_ClosedFilterIncludesMerged verifies that a
+// merged pull request is returned by a pullRequestStatus=CLOSED filter.
+// aws-sdk-go-v2/service/codecommit@v1.36.4's types.PullRequestStatusEnum has
+// exactly two members, OPEN and CLOSED -- there is no MERGED status on the
+// wire (UpdatePullRequestStatusInput's own doc comment: "The only valid
+// operations are to update the status from OPEN to OPEN, OPEN to CLOSED or
+// from CLOSED to CLOSED"). A merge is a terminal CLOSED, distinguished from
+// an explicit close only via PullRequestTarget.MergeMetadata (types.go:936),
+// not via a distinct status value a real client could ever request.
+func TestHandler_ListPullRequests_ClosedFilterIncludesMerged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	prID := setupPR(t, h, "merge-filter-repo")
+
+	rec := doRequest(t, h, "MergePullRequestByFastForward", map[string]any{"pullRequestId": prID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var mergeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mergeResp))
+	mergedPR := mergeResp["pullRequest"].(map[string]any)
+	assert.Equal(
+		t, "CLOSED", mergedPR["pullRequestStatus"],
+		"a merged PR's status must be the real CLOSED enum value, not a fabricated MERGED one",
+	)
+
+	rec = doRequest(t, h, "ListPullRequests", map[string]any{
+		"repositoryName":    "merge-filter-repo",
+		"pullRequestStatus": "CLOSED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	ids := listResp["pullRequestIds"].([]any)
+	require.Len(t, ids, 1)
+	assert.Equal(t, prID, ids[0])
+}
+
 func TestHandler_ListPullRequests_NumericDescendingOrder(t *testing.T) {
 	t.Parallel()
 
@@ -334,7 +373,7 @@ func TestHandler_MergePullRequest_AlreadyMerged(t *testing.T) {
 	}
 }
 
-func TestHandler_MergePullRequest_StatusBecomesmerged(t *testing.T) {
+func TestHandler_MergePullRequest_StatusBecomesClosed(t *testing.T) {
 	t.Parallel()
 
 	strategies := []string{
@@ -367,7 +406,7 @@ func TestHandler_MergePullRequest_StatusBecomesmerged(t *testing.T) {
 
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			mergedPR := resp["pullRequest"].(map[string]any)
-			assert.Equal(t, "MERGED", mergedPR["pullRequestStatus"])
+			assert.Equal(t, "CLOSED", mergedPR["pullRequestStatus"])
 		})
 	}
 }

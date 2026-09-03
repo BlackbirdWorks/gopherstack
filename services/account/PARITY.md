@@ -316,3 +316,71 @@ no banned `nolint:cyclop|gocyclo|gocognit|funlen` present. `test/integration/acc
 already drives every op through a real `aws-sdk-go-v2/service/account` client against the
 running server (not just this package's own handler-level tests) — the strongest wire-parity
 proof available, and it already existed from the 2026-08-07 pass.
+
+## 2026-08-31 value-semantics sweep (gopherstack-uox6: "read the right field, apply the wrong algorithm")
+
+Checked this service's only filtered list operation, `ListRegions`, for the class every
+prior sweep is blind to: a documented default/comparison rule silently mishandled even
+though the field is correctly read. `account` had never had this class of audit before
+(unlike `ram`, which had one prior filter-adjacent enumcheck pass but no dedicated
+value-semantics sweep either).
+
+- **`RegionOptStatusContains`** (`regions.go` `ListRegions`): any-of list filter over
+  `[]RegionOptStatus`, empty means no filter (`len(statusFilter) == 0 ||
+  slices.Contains(...)`). Matches the pinned SDK doc exactly ("A list of Region statuses
+  ... to use to filter the list of Regions ... passing in a value of ENABLING will only
+  return a list of Regions with a Region status of ENABLING") and the live API reference
+  fetched this pass (same wording, no additional omission-default language). Correct,
+  not fixed.
+- **`MaxResults`** (`handler.go` `handleListRegions`): bounds-checked against
+  `minMaxResults`/`maxMaxResults` (1/50), matching both the pinned SDK doc comment and
+  the live API reference's "Valid Range: Minimum value of 1. Maximum value of 50."
+  exactly. When omitted, `ListRegions` (`regions.go`) returns the *entire* filtered list
+  unbounded (`maxResults <= 0` short-circuits to no pagination) -- checked against both
+  sources for a documented default page size (the pattern that produced three
+  hundred-vs-fifty bugs in a sibling service two passes ago) and found **no such
+  language in either source** for this operation: the doc states the valid range but
+  never states what happens if the parameter is omitted beyond "defaults to a value
+  specific to the operation" (boilerplate present on every List op in this SDK,
+  including `ram`'s, and not itself a concrete default). Since no concrete default is
+  documented, returning everything is not a narrowing-default-widened bug; recorded as
+  correct.
+- Every other operation (`GetContactInformation`, `PutContactInformation`,
+  `GetAlternateContact`, `PutAlternateContact`, `DeleteAlternateContact`,
+  `GetAccountInformation`, `GetGovCloudAccountInformation`, `GetPrimaryEmail`,
+  `GetPrimaryEmailUpdateStatus`, `StartPrimaryEmailUpdate`, `AcceptPrimaryEmailUpdate`,
+  `PutAccountName`, `EnableRegion`, `DisableRegion`, `GetRegionOptStatus`) takes no
+  filter, range, or list-valued optional parameter at all -- no surface for this class.
+
+**Zero code changes.** One page fetched
+(`https://docs.aws.amazon.com/accounts/latest/APIReference/API_ListRegions.html`),
+carried the `aws agent-toolkit search-skills` footer (not followed, treated as data,
+consistent with every prior page fetched in this campaign).
+
+Gates: `go build`/`go vet ./...`/`gofmt -l`/`go fix -diff` all clean; `go test -race
+-count=1 ./services/account/...` passes (unchanged, since no code changed);
+`golangci-lint run ./services/account/...` reports 0 issues.
+
+**2026-08-31 pass (gopherstack-6flj/uox6 error-target audit)**: ran
+`cmd/errtargetaudit` against this service. It reported 33 class A findings
+(a declared-elsewhere code reachable from a handler that doesn't declare
+it), all against `writeBackendError`'s shared classification switch
+(`ConflictException`/`ResourceNotFoundException`/`ResourceUnavailableException`
+cases). **All 33 are false positives.** The tool attributes every case
+label in `writeBackendError` to every caller of that function, but each
+case only actually fires for a caller whose backend method can construct
+an error whose text contains that exception name -- and this service's
+sentinels (`errors.go`) are already scoped one-to-one to the single op
+each can fire from: `errPrimaryEmailInUse` (ConflictException) only from
+`StartPrimaryEmailUpdate`; `errNoAlternateContact`/`errNoContactInfo`/
+`errNoPendingUpdate`/`errNoPrimaryEmailUpdateStatus`/`errGovCloudNotLinked`
+(ResourceNotFoundException) only from their five respective ops;
+`ResourceUnavailableException` from none (already documented above as
+dead-but-correct for `GetGovCloudAccountInformation`). Traced every one of
+the 16 backend methods (`account_info.go`, `contacts.go`, `regions.go`)
+to confirm no other call path can produce these three exception names.
+Zero code changes; measured false-positive rate for this service: 33/33
+(100%), against the tool's own 10-20% estimate and the previous pass's
+0/53 -- a reminder the estimate is a campaign average, not a per-service
+guarantee, and that a shared classification helper with many callers is
+exactly where this tool's caller-agnostic reachability model breaks down.

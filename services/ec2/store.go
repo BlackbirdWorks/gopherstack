@@ -79,15 +79,16 @@ const (
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
 
-	stateInUse              = "in-use"
-	stateCancelled          = "cancelled"
-	resourceTypeVPC         = "vpc"
-	resourceTypeSnapshot    = "snapshot"
-	resourceTypeENI         = "network-interface"
-	vpcDefaultName          = "vpc-default"
-	archX8664               = "x86_64"
-	resourceTypeFISInstance = "aws:ec2:instance"
-	ec2BooleanFalse         = "false"
+	stateInUse               = "in-use"
+	stateCancelled           = "cancelled"
+	vpcEndpointTypeInterface = "Interface"
+	resourceTypeVPC          = "vpc"
+	resourceTypeSnapshot     = "snapshot"
+	resourceTypeENI          = "network-interface"
+	vpcDefaultName           = "vpc-default"
+	archX8664                = "x86_64"
+	resourceTypeFISInstance  = "aws:ec2:instance"
+	ec2BooleanFalse          = "false"
 
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
@@ -188,13 +189,6 @@ type LaunchTemplate struct {
 	CreatedBy            string    `json:"createdBy,omitempty"`
 	DefaultVersionNumber int64     `json:"defaultVersionNumber"`
 	LatestVersionNumber  int64     `json:"latestVersionNumber"`
-}
-
-// ImageUsageReport represents a synthetic AMI usage report entry.
-type ImageUsageReport struct {
-	GenerationDate string `json:"generationDate,omitempty"`
-	ImageID        string `json:"imageID,omitempty"`
-	State          string `json:"state,omitempty"`
 }
 
 // VpcEndpoint represents an EC2 VPC endpoint.
@@ -316,7 +310,6 @@ type InMemoryBackend struct {
 	spotRequests                   *store.Table[SpotInstanceRequest]
 	instances                      *store.Table[Instance]
 	images                         *store.Table[AMIStub]
-	imageUsageReports              *store.Table[ImageUsageReport]
 	launchTemplates                *store.Table[LaunchTemplate]
 	vpcEndpoints                   *store.Table[VpcEndpoint]
 	tags                           map[string]map[string]string
@@ -414,7 +407,7 @@ type InMemoryBackend struct {
 	recycleBinImages         *store.Table[RecycleBinImage]
 	recycleBinSnapshots      *store.Table[Snapshot]
 	recycleBinVolumes        *store.Table[RecycleBinVolume]
-	fastLaunchImages         map[string]bool
+	fastLaunchImages         map[string]*FastLaunchImageItem
 	fastSnapshotRestores     map[string]bool
 	vpnConnectionRoutes      *store.Table[VpnConnectionRoute]
 	spotDatafeed             *SpotDatafeed
@@ -424,6 +417,7 @@ type InMemoryBackend struct {
 	trafficMirrorSessions              *store.Table[TrafficMirrorSession]
 	trafficMirrorTargets               *store.Table[TrafficMirrorTarget]
 	fleets                             *store.Table[Fleet]
+	fleetHistory                       map[string][]FleetHistoryRecord
 	networkInsightsPaths               *store.Table[NetworkInsightsPath]
 	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
 	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
@@ -609,6 +603,7 @@ func initVerifiedAccessExtMaps(b *InMemoryBackend) {
 // maps (split out to keep newInMemoryBackendMaps under the funlen limit).
 func initCoreExtraMaps(b *InMemoryBackend) {
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
+	b.fleetHistory = make(map[string][]FleetHistoryRecord)
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)
@@ -654,7 +649,7 @@ func initVpcConfigMaps(b *InMemoryBackend) {
 // fast-launch and VPN-route maps (split out to keep newInMemoryBackendMaps
 // under the funlen limit).
 func initBatch6Maps(b *InMemoryBackend) {
-	b.fastLaunchImages = make(map[string]bool)
+	b.fastLaunchImages = make(map[string]*FastLaunchImageItem)
 	b.fastSnapshotRestores = make(map[string]bool)
 }
 

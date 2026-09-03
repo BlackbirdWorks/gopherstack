@@ -528,6 +528,8 @@ type importImageTaskItem struct {
 	Architecture string `xml:"architecture,omitempty"`
 	Platform     string `xml:"platform,omitempty"`
 	Status       string `xml:"status"`
+	KmsKeyID     string `xml:"kmsKeyId,omitempty"`
+	Encrypted    bool   `xml:"encrypted"`
 }
 
 func (h *Handler) handleCreateSpotDatafeedSubscription(vals url.Values, reqID string) (any, error) {

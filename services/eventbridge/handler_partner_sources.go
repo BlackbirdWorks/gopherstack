@@ -68,11 +68,17 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
+				Limit      int32  `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			srcs, next, err := h.Backend.ListPartnerEventSources(ctx, input.NamePrefix, input.NextToken)
+			srcs, next, err := h.Backend.ListPartnerEventSources(
+				ctx,
+				input.NamePrefix,
+				input.NextToken,
+				int(input.Limit),
+			)
 			if err != nil {
 				return nil, err
 			}

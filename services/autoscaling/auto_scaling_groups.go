@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -204,13 +205,68 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 }
 
 // DescribeAutoScalingGroups returns Auto Scaling groups, optionally filtered by name.
-func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string) ([]AutoScalingGroup, error) {
+// DescribeAutoScalingGroups returns groups matching names (or every group
+// when empty), further restricted by filters -- api_op_DescribeAutoScalingGroups.go's
+// documented tag-based Filters. The API reference's own examples are the
+// only place the Filter.Name enum is spelled out (the Filter type itself is
+// untyped Name/Values): "tag-key", "tag-value", and "tag:<key>" -- combining
+// multiple filters ANDs them, each individually satisfied by any one tag on
+// the group (API_DescribeAutoScalingGroups.html Examples 2-3).
+func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string, filters []TagFilter) ([]AutoScalingGroup, error) {
 	b.mu.RLock("DescribeAutoScalingGroups")
 	defer b.mu.RUnlock()
 
-	return describeByNames(b.groups, names, ErrGroupNotFound, func(a, c *AutoScalingGroup) bool {
+	groups, err := describeByNames(b.groups, names, ErrGroupNotFound, func(a, c *AutoScalingGroup) bool {
 		return a.AutoScalingGroupName < c.AutoScalingGroupName
 	})
+	if err != nil || len(filters) == 0 {
+		return groups, err
+	}
+
+	result := make([]AutoScalingGroup, 0, len(groups))
+
+	for _, g := range groups {
+		if autoScalingGroupMatchesFilters(&g, filters) {
+			result = append(result, g)
+		}
+	}
+
+	return result, nil
+}
+
+// autoScalingGroupMatchesFilters reports whether g satisfies every filter
+// (AND across filters); see DescribeAutoScalingGroups for the Filter.Name
+// forms this recognizes.
+func autoScalingGroupMatchesFilters(g *AutoScalingGroup, filters []TagFilter) bool {
+	for _, f := range filters {
+		if !groupHasTagMatchingFilter(g, f) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func groupHasTagMatchingFilter(g *AutoScalingGroup, f TagFilter) bool {
+	values := make(map[string]bool, len(f.Values))
+	for _, v := range f.Values {
+		values[v] = true
+	}
+
+	key, isTagKeyFilter := strings.CutPrefix(f.Name, "tag:")
+
+	for _, t := range g.Tags {
+		switch {
+		case f.Name == "tag-key" && values[t.Key]:
+			return true
+		case f.Name == "tag-value" && values[t.Value]:
+			return true
+		case isTagKeyFilter && t.Key == key && values[t.Value]:
+			return true
+		}
+	}
+
+	return false
 }
 
 // healthCheckTypeEC2 is the default HealthCheckType used when a
@@ -367,8 +423,8 @@ func applyUpdatePlacementFields(g *AutoScalingGroup, input UpdateAutoScalingGrou
 		g.VPCZoneIdentifier = input.VPCZoneIdentifier
 	}
 
-	if input.PlacementGroup != "" {
-		g.PlacementGroup = input.PlacementGroup
+	if input.PlacementGroup != nil {
+		g.PlacementGroup = *input.PlacementGroup
 	}
 
 	if input.Context != "" {

@@ -218,13 +218,16 @@ func (b *InMemoryBackend) UpdateSourceControlFromJob(jobName string, details Sou
 	return nil
 }
 
-// DeleteJob deletes a Glue job by name, also removing all job runs and bookmarks.
+// DeleteJob deletes a Glue job by name, also removing all job runs and
+// bookmarks. Per AWS's documented behavior (api_op_DeleteJob.go: "If the job
+// definition is not found, no exception is thrown"), deleting an unknown
+// name is a no-op, not an error.
 func (b *InMemoryBackend) DeleteJob(name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
 	if !b.jobs.Has(name) {
-		return ErrNotFound
+		return nil
 	}
 
 	b.jobs.Delete(name)
@@ -445,12 +448,16 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 
 // BatchStopJobRun stops multiple job runs by setting their state to STOPPING.
 // Only RUNNING or STARTING runs can be stopped.
-func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError {
+func (b *InMemoryBackend) BatchStopJobRun(
+	jobName string,
+	runIDs []string,
+) ([]BatchStopJobRunSuccessfulSubmission, []BatchStopJobRunError) {
 	b.advanceStates(time.Now())
 
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
 
+	successes := make([]BatchStopJobRunSuccessfulSubmission, 0, len(runIDs))
 	errs := make([]BatchStopJobRunError, 0, len(runIDs))
 
 	for _, id := range runIDs {
@@ -471,6 +478,10 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 				})
 			} else {
 				run.JobRunState = stateStopping
+				successes = append(successes, BatchStopJobRunSuccessfulSubmission{
+					JobName:  jobName,
+					JobRunID: id,
+				})
 			}
 
 			break
@@ -487,7 +498,7 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 		}
 	}
 
-	return errs
+	return successes, errs
 }
 
 // GetJobBookmark returns the bookmark for a job.

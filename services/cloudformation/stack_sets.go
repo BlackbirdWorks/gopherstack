@@ -179,11 +179,15 @@ func (b *InMemoryBackend) StackSetRegions(name string) []string {
 	return regions
 }
 
-func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSummary], error) {
+func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
 	result := make([]StackSetSummary, 0, b.stackSets.Len())
 	for _, ss := range b.stackSets.All() {
+		if status != "" && ss.Status != status {
+			continue
+		}
+
 		result = append(result, StackSetSummary{
 			StackSetID:   ss.StackSetID,
 			StackSetName: ss.StackSetName,
@@ -303,7 +307,11 @@ func (b *InMemoryBackend) ListStackSetOperations(
 		sorted = append(sorted, op)
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+		if !sorted[i].CreatedAt.Equal(sorted[j].CreatedAt) {
+			return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+		}
+
+		return sorted[i].OperationID < sorted[j].OperationID
 	})
 	summaries := make([]StackSetOperationSummary, 0, len(sorted))
 	for _, op := range sorted {
@@ -391,14 +399,13 @@ func (b *InMemoryBackend) ListStackSetOperationResults(
 ) ([]StackSetOperationResult, error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
-	opResults, ok := b.stackSetOpResults[stackSetName]
-	if !ok {
-		return []StackSetOperationResult{}, nil
+	if !b.stackSets.Has(stackSetName) {
+		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
 	}
-	results, ok := opResults[operationID]
-	if !ok {
-		return []StackSetOperationResult{}, nil
+	if _, ok := b.stackSetOperations[stackSetName][operationID]; !ok {
+		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
+	results := b.stackSetOpResults[stackSetName][operationID]
 	out := make([]StackSetOperationResult, len(results))
 	copy(out, results)
 

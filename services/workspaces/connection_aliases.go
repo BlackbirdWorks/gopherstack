@@ -1,6 +1,22 @@
 package workspaces
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// connectionAliasesPageSize and connectionAliasPermissionsPageSize are this
+// backend's default page sizes; real AWS doesn't document exact defaults for
+// either operation, so these are chosen generously (larger than any
+// realistic per-account alias or per-alias shared-account count) so
+// pagination only activates when a caller explicitly requests a smaller
+// MaxResults/Limit.
+const (
+	connectionAliasesPageSize          = 100
+	connectionAliasPermissionsPageSize = 100
+)
 
 // CreateConnectionAlias creates a new connection alias.
 func (b *InMemoryBackend) CreateConnectionAlias(
@@ -25,15 +41,19 @@ func (b *InMemoryBackend) CreateConnectionAlias(
 
 // DescribeConnectionAliases returns connection aliases filtered by IDs or resource.
 func (b *InMemoryBackend) DescribeConnectionAliases(
-	aliasIDs []string, resourceID string, _ int32, _ string,
+	aliasIDs []string, resourceID string, limit int32, nextToken string,
 ) ([]*storedConnAlias, string, error) {
 	b.mu.RLock("DescribeConnectionAliases")
 	defer b.mu.RUnlock()
 
 	filter := buildFilter(aliasIDs)
-	var result []*storedConnAlias
+	all := b.connAliases.All()
 
-	for _, a := range b.connAliases.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].AliasID < all[j].AliasID })
+
+	result := make([]*storedConnAlias, 0, len(all))
+
+	for _, a := range all {
 		if !matchesFilter(filter, a.AliasID) {
 			continue
 		}
@@ -46,11 +66,9 @@ func (b *InMemoryBackend) DescribeConnectionAliases(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedConnAlias{}
-	}
+	pg := page.New(result, nextToken, int(limit), connectionAliasesPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // DeleteConnectionAlias removes a connection alias.
@@ -99,9 +117,10 @@ func (b *InMemoryBackend) DisassociateConnectionAlias(aliasID string) error {
 	return nil
 }
 
-// DescribeConnectionAliasPermissions returns shared-account permissions for an alias.
+// DescribeConnectionAliasPermissions returns a page of shared-account
+// permissions for an alias, in the order they were granted.
 func (b *InMemoryBackend) DescribeConnectionAliasPermissions(
-	aliasID string, _ int32, _ string,
+	aliasID string, maxResults int32, nextToken string,
 ) (string, []connAliasPermission, string, error) {
 	b.mu.RLock("DescribeConnectionAliasPermissions")
 	defer b.mu.RUnlock()
@@ -111,10 +130,12 @@ func (b *InMemoryBackend) DescribeConnectionAliasPermissions(
 		return "", nil, "", errConnAliasNotFound
 	}
 
-	perms := make([]connAliasPermission, len(a.SharedAccounts))
-	copy(perms, a.SharedAccounts)
+	all := make([]connAliasPermission, len(a.SharedAccounts))
+	copy(all, a.SharedAccounts)
 
-	return aliasID, perms, "", nil
+	pg := page.New(all, nextToken, int(maxResults), connectionAliasPermissionsPageSize)
+
+	return aliasID, pg.Data, pg.Next, nil
 }
 
 // UpdateConnectionAliasPermission sets the shared-account permission for an alias.

@@ -203,9 +203,9 @@ families:
   read_replicas: {status: ok, note: "source linkage bidirectional (ReplicaSourceDBInstanceIdentifier / ReadReplicaIdentifiers), promote clears linkage, cross-region replica path uses defaults when source not locally resolvable"}
   events_and_subscriptions: {status: ok, note: "ring-buffered Events (maxEvents cap prevents unbounded growth); EventSubscription CRUD + source-identifier add/remove real"}
   engine_versions_and_orderable_options: {status: ok, note: "DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions/DescribeDBMajorEngineVersions all backed by real (small, static) catalogs — not a stub since callers get consistent, well-shaped data; no engine-name validation on Create (see gaps). UPDATED (parity-5/phantom-triage, 2026-07-31): DescribeDBEngineVersions now also merges in custom engine versions (previously only reachable via the fabricated DescribeCustomDBEngineVersions action) — see custom_db_engine_versions family and overall: header."}
-  tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource use pkgs/tags-style per-ARN map, cleaned up on every delete path (instance, cluster, snapshot, option group, param group, cluster endpoint — verified via TestRDSBackend_TagsCleanedUpOnDelete table)"}
+  tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource use pkgs/tags-style per-ARN map, cleaned up on every delete path (instance, cluster, snapshot, option group, param group, cluster endpoint — verified via TestRDSBackend_TagsCleanedUpOnDelete table). VERIFIED CLEAN (wrapper-key sweep, 2026-08-29): checked for the stepfunctions-class bug (a Tags field typed as a Go map when the SDK sends an array, or vice versa). rds@v1.124.1 serializers.go:12403-12408/17967-17972 confirm AddTagsToResource.Tags serializes as Tags.Tag.N.Key/Value (awsAwsquery_serializeDocumentTagList, array element name 'Tag') and RemoveTagsFromResource.TagKeys as TagKeys.member.N (awsAwsquery_serializeDocumentKeyList, array element name 'member') — handler_tags.go's parseTagEntries/parseTagKeyMembers already parse exactly these wrapper names. Confirmed via TestTagResourceFamily_SDKRoundTrip (tag_resource_sdk_test.go) driving the real SDK client through AddTagsToResource/RemoveTagsFromResource/ListTagsForResource."}
   pagination: {status: ok, note: "Marker/MaxRecords via pkgs/page.Page[T] (paginateDescribe) — consistent across all Describe* ops; DescribeDBClusterSnapshots and DescribeEvents were missing pagination entirely (returned every row regardless of MaxRecords) — FIXED this pass, see Notes"}
-  describe_filters: {status: ok, note: "DescribeDBInstances Filters (db-cluster-id/db-instance-id/dbi-resource-id/domain/engine) added prior pass; DescribeDBClusters (clone-group-id/db-cluster-id/db-cluster-resource-id/domain/engine), DescribeDBSnapshots (db-instance-id/db-snapshot-id/dbi-resource-id/snapshot-type/engine), and DescribeDBClusterSnapshots (db-cluster-id/db-cluster-snapshot-id/snapshot-type/engine) Filters added THIS pass. DescribeEvents Filters intentionally left unimplemented: the real aws-sdk-go-v2 DescribeEventsInput.Filters doc comment reads literally 'This parameter isn't currently supported' — the emulator already matches real AWS by accepting-but-ignoring it, which is NOT a gap (prior ledger incorrectly listed it as one)"}
+  describe_filters: {status: ok, note: "DescribeDBInstances Filters (db-cluster-id/db-instance-id/dbi-resource-id/domain/engine) added prior pass; DescribeDBClusters (clone-group-id/db-cluster-id/db-cluster-resource-id/domain/engine), DescribeDBSnapshots (db-instance-id/db-snapshot-id/dbi-resource-id/snapshot-type/engine), and DescribeDBClusterSnapshots (db-cluster-id/db-cluster-snapshot-id/snapshot-type/engine) Filters added a prior pass. DescribeEvents Filters intentionally left unimplemented: the real aws-sdk-go-v2 DescribeEventsInput.Filters doc comment reads literally 'This parameter isn't currently supported' — the emulator already matches real AWS by accepting-but-ignoring it, which is NOT a gap (prior ledger incorrectly listed it as one). FIXED THIS PASS (wrapper-key sweep, 2026-08-29): the shared parseDescribeFilters (handler_db_instances.go, request-direction, all 4 filtered ops) read Filters.Filter.N.Values.member.M — rds@v1.124.1 serializers.go:11730 awsAwsquery_serializeDocumentFilterValueList's array element name is 'Value', never 'member', so a real client's Filters values never reached the parser and every filtered Describe call silently returned an unfiltered (in this parser's specific empty-values-list case, actually an OVER-filtered/empty) result. Corrected to Values.Value.M; see Notes."}
   global_clusters: {status: ok, note: "Create/Modify/Delete/Describe + Remove/Failover/SwitchoverGlobalCluster real"}
   blue_green_deployments: {status: ok, note: "Create/Describe/Delete/Switchover real (refinement1)"}
   db_proxies: {status: ok, note: "proxy/proxy-target/proxy-target-group/proxy-endpoint CRUD real (refinement3)"}
@@ -671,3 +671,383 @@ caller's fault. Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
 `UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/rds/...` (pass), `golangci-lint run ./services/rds/...` (0 issues).
+
+**2026-08-29 (wrapper-key sweep, gopherstack-101r family) -- DescribeDBInstances/DescribeDBClusters/
+DescribeDBSnapshots/DescribeDBClusterSnapshots Filters silently discarded a real client's filter
+values (REQUEST direction)**: the shared `parseDescribeFilters` (`handler_db_instances.go`) parsed
+`Filters.Filter.N.Name` correctly but read values from `Filters.Filter.N.Values.member.M`. Confirmed
+against `rds@v1.124.1` `serializers.go:11730` `awsAwsquery_serializeDocumentFilterValueList` --
+`array := value.Array("Value")` -- the real aws-sdk-go-v2 client always sends
+`Filters.Filter.N.Values.Value.M`; `member` never appears on the wire for this shape (same bug class
+already fixed in `services/docdb/filters.go`, `6160e4dad`). Every one of the 4 ops sharing this parser
+was affected identically; all 4 already implemented exactly the AWS-documented filter names (verified
+per-op against each op's own `DescribeXxxInput.Filters` doc comment in `api_op_DescribeXxx.go`) via
+`isKnownDBXxxFilterName`/`matchesAllDBXxxFilters`, so no filter-name coverage changed, only the value
+parsing key.
+
+Triage of every other rds SDK operation carrying a `Filters []types.Filter` member (43 total,
+`api_op_*.go` doc comments read individually): 22 are "This parameter isn't currently supported" per
+AWS's own doc comment (correctly left unimplemented, matching real AWS's accept-but-ignore behavior)
+and 21 document real supported filter names. Of those 21, only the 4 above have any filter-matching
+logic implemented in this backend at all; the other 17 (DescribeBlueGreenDeployments,
+DescribeDBClusterAutomatedBackups, DescribeDBClusterBacktracks, DescribeDBClusterEndpoints,
+DescribeDBClusterParameters, DescribeDBEngineVersions, DescribeDBInstanceAutomatedBackups,
+DescribeDBParameters, DescribeDBRecommendations, DescribeDBShardGroups,
+DescribeDBSnapshotTenantDatabases, DescribeEngineDefaultParameters, DescribeExportTasks,
+DescribeGlobalClusters, DescribeIntegrations, DescribePendingMaintenanceActions,
+DescribeTenantDatabases) silently ignore the `Filters` parameter entirely -- a real, pre-existing gap,
+but a "Filters not implemented" feature gap distinct from this pass's "Filters implemented with the
+wrong wire key" bug; left alone rather than inventing 17 new filter behaviors under this fix's scope.
+
+Repo-wide sweep for the same idiom (`Values.member` / `Filters.Filter.N` and, more broadly, any
+query-protocol filter parser reading an indexed `Values`-shaped array) verified each hit against that
+service's own pinned SDK serializer rather than assuming: `elbv2` (`handler_listener_rules.go`),
+`elasticbeanstalk` (`handler_platforms.go`), `iam` (`handler.go`, `handler_account.go`),
+`autoscaling` (`handler_tags.go`), and `ec2` (`handler_filters.go`, `handler_tags.go`,
+`handler_local_gateway.go`) all correctly use their own service's real array element name (`member`
+for the AWS-query-protocol services above, confirmed against each one's own
+`awsAwsquery_serializeDocument*` array-encoding call; the EC2-query-protocol flat `Filter.N.Value.M`
+for ec2, confirmed against `awsEc2query_serializeDocumentFilter`'s `object.FlatKey("Value")`) --
+none of these needed a fix. `redshift/handler_advisor.go`'s `nodeConfigFilterValue` scans for any key
+prefixed `.Values.` rather than hardcoding a spelling, so it isn't vulnerable to this bug class either
+way. `services/neptune/handler.go` already uses the correct `Filters.Filter.N.Values.Value.1` spelling
+(off-limits this session -- another agent editing it concurrently -- but nothing to report there for
+this bug). `services/kafka/` has no `Filters.Filter`/`Values.member` idiom at all (off-limits, nothing
+found). `services/docdb/filters.go` is the reference implementation (off-limits, already correct).
+
+Existing tests asserting the wrong spelling as correct (fixed this pass, all raw-`url.Values` tests
+that bypass the real SDK serializer so they'd silently "pass" against either spelling as long as the
+handler's own parser matched): `Test_DescribeDBInstances_Filters` (`db_instances_test.go`) and
+`TestDescribeDBClusters_Filters`/`TestDescribeDBSnapshots_Filters`/
+`TestDescribeDBClusterSnapshots_Filters` (`describe_filters_test.go`) all built
+`Filters.Filter.N.Values.member.M` query strings by hand; updated to `Values.Value.M`. Added
+`TestDescribeDBInstances_Filters_RealClient` (`wire_field_fixes_rdssweep2_test.go`), which drives
+`DescribeDBInstances` through the real `aws-sdk-go-v2` client with an `engine=mysql` filter against
+one matching and one excluded instance -- confirmed failing against the unmodified parser (returned
+zero instances, not just failing to exclude the postgres one) before the fix, passing after.
+
+Gates: `go build ./services/rds/...`, `go build ./...` (repo-wide, no signature changes but checked
+per this session's constraints), `go vet ./services/rds/...`, `go test -race -count=1
+./services/rds/...` (pass), `golangci-lint run --fix ./services/rds/...` (0 issues).
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 18 `errors.go` sentinel literals (`DBSubnetGroupNotFound`,
+  `OptionGroupNotFound`, `OptionGroupAlreadyExists`, `DBClusterNotFound`,
+  `DBClusterAlreadyExists`, `DBClusterSnapshotNotFound`, `DBClusterSnapshotAlreadyExists`,
+  `DBClusterEndpointNotFound`, `DBClusterEndpointAlreadyExists`, `GlobalClusterNotFound`,
+  `GlobalClusterAlreadyExists`, `BlueGreenDeploymentNotFound`,
+  `BlueGreenDeploymentAlreadyExists`, `IntegrationNotFound`, `IntegrationAlreadyExists`,
+  `DBClusterAutomatedBackupNotFound`, `DBProxyAlreadyExists`, `DBProxyEndpointAlreadyExists`)
+  as absent from rds's real type/deserializer set. All are **tool false positives** against
+  current code: every backend error routes through the single
+  `handleOpError`→`rdsErrorCode()` mapping table in handler_dispatch.go, which already
+  carries the correct code for each of these 18 sentinels — most were the specific
+  missing-`Fault`-suffix bug the mapping table's earlier fix pass found and fixed,
+  `DBProxyAlreadyExists`/`DBProxyEndpointAlreadyExists` were the separate missing-table-entry
+  bug that same pass fixed — see this file's earlier `error_codes` entry ("FIXED this pass:
+  field-diffed the whole mapping table...").
+  The `errors.go` literal (the tool's extraction target) is only ever used for `errors.Is`
+  identity, never reaches the wire. No new fix needed.
+
+## 2026-08-30 -- filter VALUE-SEMANTICS sweep (gopherstack-uox6 class: a filter field that is
+read, applied, and wrong -- distinct from the wrapper-key/wire-completeness axis swept above).
+Two real bugs found and fixed in the four filter matchers this service already implements
+(DescribeDBInstances/DescribeDBClusters/DescribeDBSnapshots/DescribeDBClusterSnapshots); no
+other filter-bearing surface in rds was touched (see the still-current "17 ops silently ignore
+Filters entirely" note above -- unchanged, out of this class, not re-investigated this pass).
+
+1. **db-cluster-id and db-instance-id filters rejected ARN-form values.** Each op's own
+   `Filters` doc comment in `aws-sdk-go-v2/service/rds@v1.124.1` says these two filter names
+   accept "identifiers and ... Amazon Resource Names (ARNs)" -- confirmed individually for
+   `DescribeDBInstances` (`db-cluster-id`, `db-instance-id`), `DescribeDBClusters`
+   (`db-cluster-id`), `DescribeDBSnapshots` (`db-instance-id`), and
+   `DescribeDBClusterSnapshots` (`db-cluster-id`). The other filter names on these same four
+   ops (`db-snapshot-id`, `db-cluster-snapshot-id`, `dbi-resource-id`, `db-cluster-resource-id`,
+   `engine`, `domain`, `clone-group-id`) each document "Accepts ... identifiers" only, with no
+   ARN wording -- confirmed by reading each name's own doc line individually, not assumed from
+   the two that do. `matchesAllDBInstanceFilters`/`matchesAllDBClusterFilters`/
+   `matchesAllDBSnapshotFilters`/`matchesAllDBClusterSnapshotFilters` compared every filter
+   value with a bare-identifier `containsFold`, so a real client passing an ARN (e.g. copied
+   from another API response's `DBInstanceArn`/`DBClusterArn` field) matched nothing even
+   though the identified resource existed -- under-matching. Fixed by adding
+   `containsFoldIDOrARN` (`shared.go`), which normalizes each candidate value through the
+   existing `rdsIDFromARN` helper (already used for this exact ID-or-ARN idiom at
+   `handler_db_clusters.go:777`, `handler_fault_injection.go:51`, `maintenance.go:52`) before
+   the fold-compare, and switching only the `db-cluster-id`/`db-instance-id` match arms in the
+   four `matchesAll*Filters` functions to call it. The other filter names in the same switches
+   are untouched -- ARN acceptance was added only where each op's own doc comment states it.
+   Tests: added an "accepts ARN form" case per op (`db_instances_test.go`,
+   `describe_filters_test.go` x3), each confirmed failing against unmodified code first (empty
+   result where the ARN's identified resource should have matched) and passing after the fix.
+   `Test_DescribeDBInstances_Filters` also gained a `db-cluster-id`-with-plain-identifier case,
+   since the prior suite's own doc comment claimed db-cluster-id/dbi-resource-id coverage that
+   the case table never actually exercised.
+
+2. **DescribeDBLogFiles' FileSize filter was off-by-one at the boundary.** The op's own doc
+   comment: "Filters the available log files for files larger than the specified size" --
+   strictly greater than. `LogFileFilter.FileSize`'s matcher (`log_files.go`) excluded only
+   `f.Size < filter.FileSize`, i.e. kept files `>= FileSize` ("at least", not "larger than"), so
+   a log file whose size exactly equalled the filter value was wrongly included. Fixed the
+   comparison to `f.Size <= filter.FileSize` (exclude). This is a self-contained doc/code
+   mismatch, not a shared-matcher question: `FileLastWritten`'s own doc ("written since the
+   specified date") is inclusive-since and was already correct, left alone. New test
+   `TestDescribeDBLogFiles_FileSizeFilterIsStrictlyGreaterThan` (`log_files_test.go`, new file)
+   drives the real seeded log files through the handler, reads back an actual file size, then
+   filters on that exact value and asserts no returned file has that size -- confirmed failing
+   against unmodified code (the boundary file was returned) before the fix.
+
+Both bugs are UNDER-MATCHING (direction 1 of the four: a documented modifier/value form
+honoured too narrowly, so records the real service would return are excluded).
+
+**Filter axes checked and found already correct, not just skipped**: within the same four
+matchers, the AND-across-filters / OR-within-a-filter's-Values combining rule (verified across
+all filter names in all four switches), case-insensitive identifier matching via
+`containsFold`/`strs`, and the `isKnown*FilterName` unrecognized-name rejection (all four
+return `InvalidParameterValue`, matching AWS) were all read against each op's own doc comment
+and are correct -- no change made to any of them.
+
+**Gaps considered and left alone, not fabricated**: `domain` (DescribeDBInstances/
+DescribeDBClusters) and `clone-group-id` (DescribeDBClusters) remain accepted-but-vacuous, as
+already documented above -- no Directory Service/clone-group state exists in this backend to
+match against, and inventing one would be exactly the fabrication this class warns against.
+
+**Web pages fetched this pass**: none. Every filter semantic checked (ARN-vs-identifier
+wording, FileSize/FileLastWritten comparison direction) was resolved from the pinned
+`aws-sdk-go-v2/service/rds@v1.124.1` Go doc comments in the module cache, per this class's own
+"where the documentation lives" guidance.
+
+**Services also considered this pass, found already correct on this exact axis (docdb) or
+already exhaustively covered by prior passes (identitystore), so left untouched**:
+- `docdb`: `filters.go`'s `matchesIdentifierOrARN` already normalizes ARN-form
+  `db-cluster-id`/`db-instance-id` filter values via `identifierFromARN` before comparing --
+  confirmed against `DescribeDBClusters`/`DescribeDBInstances`/`DescribeGlobalClusters`/
+  `DescribePendingMaintenanceActions`'s own doc comments in `docdb@v1.51.4`, all four of which
+  document ARN acceptance for these two filter names and are handled correctly. `events_log.go`'s
+  `eventMatches` time-window comparison (`e.Date` vs `filter.StartTime`/`EndTime`, both
+  `time.RFC3339`) was checked for the self-inconsistency sub-shape found elsewhere in this
+  campaign (nanoseconds-vs-seconds, ISO8601-vs-epoch) and is consistent: the wire always emits
+  and accepts `smithytime.FormatDateTime` (RFC3339 with optional fractional seconds), and Go's
+  `time.Parse(time.RFC3339, ...)` accepts that fractional form. No bug found; no code changed in
+  docdb this pass.
+- `identitystore`: `users.go`/`groups.go`'s filter matchers (`matchUserSingleValueFilter`,
+  `matchUserMultiValueFilter`, `groupMatchesFilter`) already carry this exact class's
+  no-default-matches-everything fix from the 2026-07-25 pass (see that entry above), and were
+  re-verified exhaustively against botocore's current model that same pass. Not re-audited line
+  by line this session beyond confirming no new filter surface exists (`GetUserId`/`GetGroupId`
+  use direct O(1) index lookups, not a filter matcher, so they're outside this class).
+
+Gates: `go build`/`go vet` (rds, docdb, identitystore — clean; repo-wide `go vet ./...` clean,
+no cross-service callers touched, no signature changes), `go test -race -count=1
+./services/rds/...` and `./services/docdb/... ./services/identitystore/...` (all pass),
+`golangci-lint run ./services/rds/...` (0 issues, no `--fix` needed).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 580 findings in every one of the 5 old runs and at
+HEAD, op.field key sets identical. ZERO DAMAGE -- notable since rds is
+query-protocol, the shape family carrying most of this campaign's true
+findings elsewhere.
+
+## reqfielddiff suppressed-findings validation pass (2026-08-31, gopherstack-uox6 method, `4daec002d`)
+
+`4daec002d` fixed `cmd/reqfielddiff` counting a backend method's *response*
+struct as declaring *request* fields, which had been silently cancelling real
+findings repo-wide. rds's tier-1 count moved 143 -> 149. Diffed `-dir rds`
+output at HEAD against the same command built from `4daec002d~1` (worktree,
+removed after) to isolate exactly the 6 newly surfaced tier-1 findings (all
+"documented default; a sibling operation in this service declares the same
+field"):
+
+- `CreateDBInstanceReadReplica.DBParameterGroupName` / `.OptionGroupName`
+- `RestoreDBInstanceFromDBSnapshot.DBParameterGroupName`
+- `RestoreDBInstanceFromS3.DBParameterGroupName` / `.OptionGroupName`
+- `RestoreDBInstanceToPointInTime.DBParameterGroupName`
+
+**Precision on this newly surfaced set: 6/6 real (100%).** All six were
+confirmed by reading the handler: none of the four handlers read
+`DBParameterGroupName`/`OptionGroupName` from `url.Values` at all, while
+their sibling `CreateDBInstance`/`ModifyDBInstance` both do (checked, per
+this class's "check the sibling operations" rule). No false positives, so no
+blind-spot shape applies -- this batch is higher precision than the 85%
+(34/40) measured on the old, narrower reqfielddiff set, though a sample of 6
+is too small to read much into the gap.
+
+**Two adjacent tier-3 findings fixed opportunistically**, found while reading
+the same handlers for the confirmed set (not part of the tier-1 diff, so not
+counted in the precision figure above): `RestoreDBInstanceFromDBSnapshot.
+OptionGroupName` and `RestoreDBInstanceToPointInTime.OptionGroupName` were
+equally unread, in the exact same functions already being edited.
+
+**A response wire-shape bug was found and fixed en route, load-bearing for
+all of the above**: `xmlDBParamGroupsWrapper` wrapped a single
+`DBParameterGroupStatus` element instead of a repeated `DBParameterGroup`
+list (confirmed against `awsAwsquery_deserializeDocumentDBParameterGroupStatusList`,
+`deserializers.go:37336`, in `rds@v1.124.1`). `DBInstance.DBParameterGroups`
+was therefore *always* empty to a real client on every RDS operation, not
+just the four fixed here -- a correctly-populated backend field with no path
+to the wire. Fixed by changing the wrapper to a list keyed `DBParameterGroup`
+and adding `ParameterApplyStatus="in-sync"` (matching the existing
+`OptionGroupMembership` "always applied immediately" convention). Confirmed
+via a real-SDK-client repro test before the fix (`DBParameterGroups`
+decoded to `[]` for a plain `CreateDBInstance` call with an explicit
+`DBParameterGroupName`) and after (decodes correctly); the throwaway repro
+test was not committed.
+
+**Defaults implemented vs. declared-only, and why**:
+- `RestoreDBInstanceFromDBSnapshot.DBParameterGroupName` and
+  `RestoreDBInstanceFromS3.DBParameterGroupName`: doc states a simple,
+  non-contingent default ("the default DBParameterGroup for the specified DB
+  engine") that matches a convention already established in this codebase
+  (`db_clusters.go:34`, `"default." + engine`) -- implemented as
+  `"default." + engine`, applied beneath the handler in the backend.
+- `CreateDBInstanceReadReplica.DBParameterGroupName`: doc's default is
+  explicitly *contingent* (same-Region replica -> source's group;
+  cross-Region -> engine default) -- per this class's own guard rail
+  ("declare the field and invent no default" for contingent defaults), only
+  the explicit-value path was wired; the absent case is unchanged (empty).
+- `CreateDBInstanceReadReplica.OptionGroupName`,
+  `RestoreDBInstanceFromS3.OptionGroupName`,
+  `RestoreDBInstanceFromDBSnapshot.OptionGroupName`,
+  `RestoreDBInstanceToPointInTime.OptionGroupName`: no established
+  "default option group" convention exists anywhere in this codebase, and
+  `CreateDBInstance` itself -- the sibling that already reads
+  `OptionGroupName` -- implements no default for it either. Declaring one
+  here would be *more* than the primary Create operation does. Left
+  declared-only (explicit value honored, absent case stays empty).
+- `RestoreDBInstanceToPointInTime.DBParameterGroupName`: pre-existing code
+  already defaulted unconditionally to the source instance's group (the bug
+  was that an explicit override could never take effect). The current SDK
+  doc text for this field actually says "the default DBParameterGroup for
+  the specified DB engine," not "the source's" -- a discrepancy from the
+  pre-existing default, left unchanged. Correcting it is a value-semantics
+  question (gopherstack-uox6's separate axis, not "field never declared")
+  and out of this pass's scope; recorded here rather than silently reached
+  for.
+
+**Tests**: new file `restore_param_option_group_test.go`, 34
+`require`/`assert` calls across 4 top-level tests (8 subtests), driving the
+real `aws-sdk-go-v2` client and asserting on the decoded
+`DBParameterGroups[0].DBParameterGroupName` /
+`OptionGroupMemberships[0].OptionGroupName` response fields. Every subtest
+confirmed failing against unmodified code first (the wire-shape fix and the
+field-wiring fixes were both required for any of them to pass). The two
+"omitted field defaults" subtests (`RestoreDBInstanceFromDBSnapshot`,
+`RestoreDBInstanceFromS3`) never set `DBParameterGroupName` in the request at
+all. Two existing test files (`db_instances_fields_test.go`,
+`db_instances_operations_test.go`) were touched only to add `"", ""` at call
+sites for the two backend signature changes below -- zero assertions added,
+changed, or dropped in either (diff is call-site-only).
+
+**Signature changes** (services/rds-internal only; `go vet ./...` repo-wide
+confirmed no external callers): `CreateDBInstanceReadReplica` gained
+`paramGroupName, optionGroupName string`; `RestoreDBInstanceFromS3` gained
+`paramGroupName, optionGroupName string`. `RestoreDBInstanceFromDBSnapshot`
+and `RestoreDBInstanceToPointInTime` needed no signature change --
+`DBInstanceOptions` already carried both fields; only the handlers and
+backend logic were wired up.
+
+Gates: `go build ./services/rds/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/rds/...` (pass), `golangci-lint run
+./services/rds/...` (0 issues, no `--fix` needed). No `nolint` directives in
+any file touched this pass.
+
+## Wrapper-key/per-item sweep, ops absent from this file (2026-08-31, gopherstack-6flj/21my)
+
+Targeted the 19 List*/Describe* operations in rds@v1.124.1 whose names never
+appeared anywhere in this file before today -- the standing shortcut for
+finding where a dated sweep never reached: DescribeAccountAttributes,
+DescribeCertificates, DescribeDBClusterParameterGroups,
+DescribeDBClusterSnapshotAttributes, DescribeDBParameterGroups,
+DescribeDBProxies, DescribeDBProxyEndpoints, DescribeDBProxyTargetGroups,
+DescribeDBProxyTargets, DescribeDBSecurityGroups, DescribeDBSubnetGroups,
+DescribeEngineDefaultClusterParameters, DescribeEventCategories,
+DescribeEventSubscriptions, DescribeOptionGroupOptions,
+DescribeOptionGroups, DescribeReservedDBInstances,
+DescribeReservedDBInstancesOfferings, DescribeValidDBInstanceModifications.
+
+Protocol confirmed from rds@v1.124.1's own deserializers.go: `awsAwsquery_`
+prefix throughout (query/XML), so smithyxml's `strings.EqualFold` applies --
+a wire-tag differing only in case would decode correctly and could not be
+caught by this method. No case-only mismatches were found or would apply.
+
+**Bug found and fixed**: `xmlAccountAttribute`
+(handler_reference_data.go) had its two non-Max tags swapped. The real
+`AccountQuota` member is `AccountQuotaName` (rds@v1.124.1 deserializers.go's
+`awsAwsquery_deserializeDocumentAccountQuota`), but the Go field holding the
+attribute name string was tagged `xml:"AttributeName"` -- a tag the real
+deserializer never matches -- while the Go field holding the numeric `Used`
+count was tagged `xml:"AccountQuotaName"`. Pre-fix, a real client's
+`AccountQuotaName` decoded a stringified count (e.g. `"40"`) instead of the
+attribute's name, and `Used` was permanently nil since nothing was ever
+emitted under the real `Used` tag. `Max` was already correct. Fixed by
+swapping the two tags to `AccountQuotaName`/`Used`. Test:
+`TestDescribeAccountAttributes_QuotaFields_RealClient`
+(wire_field_fixes_test.go), drives the real SDK client and asserts
+`AccountQuotaName`/`Used`/`Max` all round-trip for the `DBInstances` quota.
+Confirmed failing against unmodified code first.
+
+Proxies family (DescribeDBProxies/Endpoints/TargetGroups/Targets),
+DBParameterGroups/DBClusterParameterGroups/DBClusterParameters/
+EngineDefault(Cluster)Parameters, DBSecurityGroups, DBSubnetGroups,
+EventCategories/EventSubscriptions, OptionGroups, ReservedDBInstances(Offerings),
+and ValidDBInstanceModifications were all field-diffed per-op against their
+own real deserializer (wrapper key, member-wrap shape, and every emitted
+item field) and came back clean for what they emit -- the earlier session's
+DBProxyTarget.TargetHealth fix (already committed, `7a9a557d8`) was
+independently re-verified against the current deserializer and still holds.
+No wrapper-key mismatch, no member-wrap-shape mismatch, and no case-only
+mismatch found in any of the 19 (beyond the one field-swap above). No hard
+decode errors or panics found -- every mismatch in this batch was the
+silent-empty/silent-wrong-value shape.
+
+**Real members genuinely absent from this backend's domain model** (checked
+against the SDK type, not fabricated): `Certificate.CertificateArn` and
+`.CustomerOverrideValidTill` (models.Certificate has no ARN or override-date
+field, and no confirmed real ARN format was found in the pinned module
+cache's doc comments to synthesize safely); `AccountQuota` has none extra.
+`DBSecurityGroup.EC2SecurityGroups`/`.OwnerId`/`.VpcId` (EC2-Classic legacy
+fields, not modelled at all -- this backend's `DBSecurityGroup` has no VPC
+concept). `Subnet.SubnetAvailabilityZone`/`.SubnetStatus`/`.SubnetOutpost`
+(models.DBSubnetGroup stores subnet IDs as bare strings, no per-subnet AZ/
+status/outpost data). `DBProxy.DefaultAuthScheme`/`.EndpointNetworkType`/
+`.TargetConnectionNetworkType`/`.VpcId`, `UserAuthConfigInfo.ClientPasswordAuthType`
+(none tracked by the domain model). `DBProxyEndpoint.VpcId` is declared on
+the domain struct (`proxies.go`) but never populated by any code path --
+always the zero value, so emitting it would add nothing; left unemitted
+rather than wiring a field that can only ever be empty. `Parameter.AllowedValues`/
+`.MinimumEngineVersion`/`.SupportedEngineModes` (models.DBParameter tracks
+only Name/Value/Description/ApplyType/DataType/Source/ApplyMethod/
+IsModifiable). `OptionGroup.Option.DBSecurityGroupMemberships`/
+`.OptionSettings`/`.Permanent`/`.Persistent`/`.Port`/`.VpcSecurityGroupMemberships`
+(models.OptionGroupOption tracks only OptionName/OptionVersion).
+`ReservedDBInstance.LeaseId`/`.RecurringCharges`/`.ReservedDBInstanceArn` and
+`ReservedDBInstancesOffering.RecurringCharges` (not modelled; no confirmed
+ARN format found to synthesize the Arn field safely).
+`ValidDBInstanceModificationsMessage.Storage`/`.AdditionalStorage`/
+`.SupportsDedicatedLogVolume` (would need a per-instance-class storage-type
+catalog this backend does not have; only `ValidProcessorFeatures` is
+modelled and it is correct). `EventSubscription.SubscriptionCreationTime`
+(not modelled). These are real, verified-against-the-SDK gaps, not
+fabricated ones -- recorded here rather than filled with guessed values.
+
+**Structural gap, not fixed**: `DescribeOptionGroupOptions` is a full stub
+(`handleDescribeOptionGroupOptions` in handler_option_groups.go always
+returns an empty response with no `OptionGroupOptions` field at all --
+confirmed against rds@v1.124.1's real `DescribeOptionGroupOptionsOutput`,
+which wraps `[]types.OptionGroupOption`, a static per-engine catalog type
+distinct from the per-group `Option` type used elsewhere in this file).
+Real AWS returns this catalog unconditionally for any known engine; this
+backend has no such catalog data (hundreds of option definitions across
+engines) and none was fabricated. Filed as a gap, not a wrapper-key bug,
+since there is no wrapper key present to be wrong.
+
+Gates: `go build ./services/rds/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/rds/...` (pass), `golangci-lint run
+./services/rds/...` (0 issues). No `nolint` directives in either file
+touched this pass (handler_reference_data.go, wire_field_fixes_test.go).

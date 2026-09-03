@@ -41,8 +41,6 @@ func (f *fakeClock) now() time.Time {
 // pass 2*delay (safely past a transition's deadline), but the parameter is
 // kept general -- this is a shared test helper, not a single-use function --
 // rather than hardcoding one test's margin into it.
-//
-//nolint:unparam // general-purpose test helper API; see comment above
 func (f *fakeClock) advance(d time.Duration) {
 	f.mu.Lock()
 	f.t = f.t.Add(d)

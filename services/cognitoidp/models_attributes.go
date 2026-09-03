@@ -82,14 +82,6 @@ type deleteUserAttributesInput struct {
 
 type deleteUserAttributesOutput struct{}
 
-type verifyUserAttributeInput struct {
-	AccessToken   string `json:"AccessToken,omitempty"`
-	AttributeName string `json:"AttributeName,omitempty"`
-	Code          string `json:"Code,omitempty"`
-}
-
-type verifyUserAttributeOutput struct{}
-
 type getUserAttributeVerifCodeFullInput struct {
 	AccessToken   string `json:"AccessToken,omitempty"`
 	AttributeName string `json:"AttributeName,omitempty"`
@@ -106,12 +98,3 @@ type verifyUserAttributeFullInput struct {
 }
 
 type verifyUserAttributeFullOutput struct{}
-
-type getUserAttributeVerificationCodeInput struct {
-	AccessToken   string `json:"AccessToken,omitempty"`
-	AttributeName string `json:"AttributeName,omitempty"`
-}
-
-type getUserAttributeVerificationCodeOutput struct {
-	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-}

@@ -413,7 +413,7 @@ func paginate[T any](list []*T, maxResults int, nextToken string) ([]*T, string)
 
 	startIdx := 0
 	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil {
+		if n, err := strconv.Atoi(nextToken); err == nil && n >= 0 {
 			startIdx = n
 		}
 	}

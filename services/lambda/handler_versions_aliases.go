@@ -232,6 +232,11 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 				"Alias not found: "+aliasName)
 		}
 
+		if errors.Is(updateErr, ErrVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Version not found: "+input.FunctionVersion)
+		}
+
 		if errors.Is(updateErr, ErrPreconditionFailed) {
 			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
 				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+

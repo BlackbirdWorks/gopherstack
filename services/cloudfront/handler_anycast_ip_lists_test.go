@@ -469,3 +469,62 @@ func TestAnycastIPList_IPCountValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestListAnycastIPLists_ItemShape_RealClient is a regression test for gopherstack-21my:
+// ListAnycastIpLists' item struct (ailSummary, handler_anycast_ip_lists.go) omitted ETag and
+// IpamConfig entirely, even though the real AnycastIpListSummary deserializer
+// (awsRestxml_deserializeDocumentAnycastIpListSummary) reads both and the sibling
+// GetAnycastIpList (anycastIPListXML) already emits IpamConfig correctly from the same
+// backing AnycastIPList.IpamCidrConfigs field -- the "Get right, List wrong" trap. Seeds
+// two lists with distinguishable IPAM CIDR configs and asserts both round-trip.
+func TestListAnycastIPLists_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(name, cidr, poolARN string) *cfsdk.CreateAnycastIpListOutput {
+		out, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+			Name:    aws.String(name),
+			IpCount: aws.Int32(2),
+			IpamCidrConfigs: []types.IpamCidrConfig{
+				{Cidr: aws.String(cidr), IpamPoolArn: aws.String(poolARN)},
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("list-shape-ail-1", "10.0.0.0/24", "arn:aws:ec2::123456789012:ipam-pool/pool-1")
+	second := mk("list-shape-ail-2", "10.0.1.0/24", "arn:aws:ec2::123456789012:ipam-pool/pool-2")
+
+	listed, err := client.ListAnycastIpLists(t.Context(), &cfsdk.ListAnycastIpListsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.AnycastIpLists)
+	require.Len(t, listed.AnycastIpLists.Items, 2)
+
+	byID := make(map[string]types.AnycastIpListSummary, 2)
+	for _, item := range listed.AnycastIpLists.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.AnycastIpList.Id]
+	require.True(t, ok)
+	assert.NotEmpty(t, aws.ToString(item1.ETag), "ETag must round-trip, not decode empty")
+	require.NotNil(t, item1.IpamConfig)
+	require.Len(t, item1.IpamConfig.IpamCidrConfigs, 1)
+	assert.Equal(t, "10.0.0.0/24", aws.ToString(item1.IpamConfig.IpamCidrConfigs[0].Cidr))
+	assert.Equal(
+		t,
+		"arn:aws:ec2::123456789012:ipam-pool/pool-1",
+		aws.ToString(item1.IpamConfig.IpamCidrConfigs[0].IpamPoolArn),
+	)
+
+	item2, ok := byID[*second.AnycastIpList.Id]
+	require.True(t, ok)
+	require.NotNil(t, item2.IpamConfig)
+	require.Len(t, item2.IpamConfig.IpamCidrConfigs, 1)
+	assert.Equal(t, "10.0.1.0/24", aws.ToString(item2.IpamConfig.IpamCidrConfigs[0].Cidr))
+}

@@ -14,7 +14,7 @@ func TestPublicIP_SubnetMapPublicIpOnLaunch(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.1.0.0/16")
+	vpc, err := b.CreateVpc("10.1.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.1.1.0/24", "us-east-1a")
@@ -53,7 +53,7 @@ func TestModifySubnetAttribute_PersistsValue(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.2.0.0/16")
+	vpc, err := b.CreateVpc("10.2.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.2.1.0/24", "us-east-1a")
@@ -104,7 +104,7 @@ func TestCreateSubnet_CIDRConflict(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.3.0.0/16")
+	vpc, err := b.CreateVpc("10.3.0.0/16", "default")
 	require.NoError(t, err)
 
 	_, err = b.CreateSubnet(vpc.ID, "10.3.1.0/24", "us-east-1a")
@@ -121,7 +121,7 @@ func TestCreateSubnet_NotInVPC(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.4.0.0/16")
+	vpc, err := b.CreateVpc("10.4.0.0/16", "default")
 	require.NoError(t, err)
 
 	// Subnet outside VPC CIDR should fail.

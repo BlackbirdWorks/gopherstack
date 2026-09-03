@@ -7,19 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-)
-
-// ErrExpressGatewayServiceNotFound is returned when an express gateway service does not exist.
-var ErrExpressGatewayServiceNotFound = awserr.New(
-	"ExpressGatewayServiceNotFoundException",
-	awserr.ErrNotFound,
-)
-
-// ErrExpressGatewayServiceAlreadyExists is returned when an express gateway service already exists.
-var ErrExpressGatewayServiceAlreadyExists = awserr.New(
-	"ExpressGatewayServiceAlreadyExistsException", awserr.ErrAlreadyExists,
 )
 
 // Defaults applied to an Express service revision's compute configuration
@@ -132,7 +119,7 @@ func (b *InMemoryBackend) UpdateExpressGatewayService(
 
 	svc, ok := b.expressGatewayServices.Get(input.ServiceArn)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, input.ServiceArn)
+		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.ServiceArn)
 	}
 
 	if input.InfrastructureRoleArn != "" {
@@ -200,7 +187,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 	)
 
 	if b.expressGatewayServices.Has(serviceArn) {
-		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceAlreadyExists, serviceName)
+		return nil, fmt.Errorf("%w: express gateway service %s already exists", ErrInvalidParameter, serviceName)
 	}
 
 	now := time.Now()
@@ -259,7 +246,7 @@ func (b *InMemoryBackend) DeleteExpressGatewayService(
 
 	svc, ok := b.expressGatewayServices.Get(serviceArn)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, serviceArn)
+		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, serviceArn)
 	}
 
 	tags := copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
@@ -286,7 +273,7 @@ func (b *InMemoryBackend) DescribeExpressGatewayService(
 
 	svc, ok := b.expressGatewayServices.Get(serviceArn)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, serviceArn)
+		return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, serviceArn)
 	}
 
 	out := *svc

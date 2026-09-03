@@ -15,7 +15,7 @@ func TestVpcEncryptionControl_CRUD(t *testing.T) { //nolint:paralleltest // exis
 	var vpc *ec2.VPC
 
 	{
-		v, err := b.CreateVpc("10.90.0.0/16")
+		v, err := b.CreateVpc("10.90.0.0/16", "default")
 		require.NoError(t, err)
 
 		vpc = v

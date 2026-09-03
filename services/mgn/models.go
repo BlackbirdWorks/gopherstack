@@ -519,6 +519,11 @@ type LaunchTemplateDiskConf struct {
 }
 
 // LaunchConfigurationTemplate mirrors types.LaunchConfigurationTemplate.
+// Ec2LaunchTemplateID is Output-only on Create/UpdateLaunchConfigurationTemplate
+// (aws-sdk-go-v2/service/mgn@v1.48.4 api_op_CreateLaunchConfigurationTemplate.go:104,
+// api_op_UpdateLaunchConfigurationTemplate.go:106 -- absent from both Inputs) and
+// always empty here: this backend has no imageID to hand a companion EC2 launch
+// template at template-creation time, so deriving one would mean fabricating it.
 type LaunchConfigurationTemplate struct {
 	Tags                                *tags.Tags
 	Licensing                           *Licensing
@@ -1204,20 +1209,24 @@ func (e *NetworkMigrationExecution) clone() *NetworkMigrationExecution {
 
 // NetworkMigrationJob is this backend's single generic bookkeeping record
 // backing StartNetworkMigrationMapping/MappingUpdate/Analysis/CodeGeneration/
-// Deployment -- all five real SDK job-details types share an IDENTICAL
+// Deployment -- all five real SDK job-details types share a
 // {CreatedAt, EndedAt, JobID, NetworkMigrationDefinitionID,
 // NetworkMigrationExecutionID, Status, StatusDetails} shape (confirmed by direct
 // read of types.go), differing only in which List* op reads them back -- so one
-// table discriminated by Activity, not five duplicates. See networkmigrationjobs.go.
+// table discriminated by Activity, not five duplicates. CodeGeneration is the
+// one exception: its job-details type also carries
+// CodeGenerationOutputFormatStatusDetailsMap, keyed by
+// CodeGenerationOutputFormatTypes below. See networkmigrationjobs.go.
 type NetworkMigrationJob struct {
-	CreatedAt                    time.Time
-	EndedAt                      time.Time
-	JobID                        string
-	NetworkMigrationDefinitionID string
-	NetworkMigrationExecutionID  string
-	Activity                     string
-	Status                       string
-	StatusDetails                string
+	CreatedAt                       time.Time
+	EndedAt                         time.Time
+	JobID                           string
+	NetworkMigrationDefinitionID    string
+	NetworkMigrationExecutionID     string
+	Activity                        string
+	Status                          string
+	StatusDetails                   string
+	CodeGenerationOutputFormatTypes []string
 }
 
 func (j *NetworkMigrationJob) clone() *NetworkMigrationJob {
@@ -1226,6 +1235,7 @@ func (j *NetworkMigrationJob) clone() *NetworkMigrationJob {
 	}
 
 	cp := *j
+	cp.CodeGenerationOutputFormatTypes = append([]string(nil), j.CodeGenerationOutputFormatTypes...)
 
 	return &cp
 }

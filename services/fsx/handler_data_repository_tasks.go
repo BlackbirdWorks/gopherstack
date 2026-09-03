@@ -45,9 +45,10 @@ func (h *Handler) handleCreateDataRepositoryTask(
 // --- DescribeDataRepositoryTasks ---
 
 type describeDataRepositoryTasksInput struct {
-	NextToken  string   `json:"NextToken,omitempty"`
-	TaskIDs    []string `json:"TaskIds,omitempty"`
-	MaxResults int32    `json:"MaxResults,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
+	TaskIDs    []string     `json:"TaskIds,omitempty"`
+	Filters    []wireFilter `json:"Filters,omitempty"`
+	MaxResults int32        `json:"MaxResults,omitempty"`
 }
 
 type describeDataRepositoryTasksOutput struct {
@@ -59,7 +60,7 @@ func (h *Handler) handleDescribeDataRepositoryTasks(
 	_ context.Context,
 	in *describeDataRepositoryTasksInput,
 ) (*describeDataRepositoryTasksOutput, error) {
-	tasks, next, err := h.Backend.DescribeDataRepositoryTasks(in.TaskIDs, in.MaxResults, in.NextToken)
+	tasks, next, err := h.Backend.DescribeDataRepositoryTasks(in.TaskIDs, in.Filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

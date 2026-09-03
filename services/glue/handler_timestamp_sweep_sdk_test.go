@@ -278,6 +278,40 @@ func TestSDKRoundTrip_SchemaRegistryTimestamps(t *testing.T) {
 	}
 }
 
+// TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId proves GetSchemaVersion
+// honors a lookup by SchemaVersionId alone: "Either this or the SchemaId
+// wrapper has to be provided" (glue@v1.152.0 api_op_GetSchemaVersion.go) --
+// before the fix, SchemaVersionId was declared on the input but never read,
+// so a client fetching a schema version purely by the opaque ID a prior
+// RegisterSchemaVersion call returned (with no SchemaId in hand at all) fell
+// through to the SchemaId path and always got version 1 of whatever schema
+// SchemaId (nil here) resolved to -- silently the wrong version, or a
+// not-found, never the requested one.
+func TestSDKRoundTrip_GetSchemaVersion_BySchemaVersionId(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+
+	_, err := backend.CreateRegistry("reg1", "", nil)
+	require.NoError(t, err)
+	_, _, err = backend.CreateSchema("reg1", "sch1", "AVRO", "NONE", "",
+		`{"type":"record","name":"V1","fields":[]}`, nil)
+	require.NoError(t, err)
+
+	v2, err := backend.RegisterSchemaVersion("reg1", "sch1", `{"type":"record","name":"V2","fields":[]}`)
+	require.NoError(t, err)
+
+	out, err := client.GetSchemaVersion(t.Context(), &gluesdk.GetSchemaVersionInput{
+		SchemaVersionId: aws.String(v2.SchemaVersionID),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, v2.SchemaVersionID, aws.ToString(out.SchemaVersionId))
+	assert.Equal(t, int64(2), aws.ToInt64(out.VersionNumber))
+	assert.JSONEq(t, `{"type":"record","name":"V2","fields":[]}`, aws.ToString(out.SchemaDefinition))
+}
+
 // assertRFC3339 fails the test unless s parses as the RFC3339 timestamp
 // string the real Schema Registry wire shape requires.
 func assertRFC3339(t *testing.T, s string) {

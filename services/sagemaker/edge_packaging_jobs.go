@@ -18,7 +18,7 @@ import (
 
 var (
 	// ErrEdgePackagingJobNotFound is returned when an edge packaging job does not exist.
-	ErrEdgePackagingJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrEdgePackagingJobNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrEdgePackagingJobAlreadyExists is returned when an edge packaging job already exists.
 	ErrEdgePackagingJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )

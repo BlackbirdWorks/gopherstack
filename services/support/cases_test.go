@@ -385,6 +385,51 @@ func TestSupport_DescribeCases_IncludeResolved(t *testing.T) {
 	assert.Len(t, cases4, 1)
 }
 
+// TestSupport_DescribeCases_IncludeCommunications verifies the documented
+// "By default, communications are included" default: omitting
+// includeCommunications must behave like true, and it must still be
+// possible to turn it off with an explicit false (the omitted-vs-false
+// distinction DescribeCasesInput.IncludeCommunications's *bool is typed to
+// preserve).
+func TestSupport_DescribeCases_IncludeCommunications(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+
+	rec := doSupportRequest(t, h, "CreateCase", map[string]any{"subject": "Comms", "communicationBody": "Initial"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Omitted entirely: defaults to true, so recentCommunications is present.
+	recOmitted := doSupportRequest(t, h, "DescribeCases", map[string]any{})
+	require.Equal(t, http.StatusOK, recOmitted.Code)
+
+	respOmitted := decodeSupportResponse(t, recOmitted)
+	casesOmitted := respOmitted["cases"].([]any)
+	require.Len(t, casesOmitted, 1)
+	_, hasComms := casesOmitted[0].(map[string]any)["recentCommunications"]
+	assert.True(t, hasComms, "includeCommunications omitted must default to true")
+
+	// Explicit false: recentCommunications must be absent.
+	recFalse := doSupportRequest(t, h, "DescribeCases", map[string]any{"includeCommunications": false})
+	require.Equal(t, http.StatusOK, recFalse.Code)
+
+	respFalse := decodeSupportResponse(t, recFalse)
+	casesFalse := respFalse["cases"].([]any)
+	require.Len(t, casesFalse, 1)
+	_, hasCommsFalse := casesFalse[0].(map[string]any)["recentCommunications"]
+	assert.False(t, hasCommsFalse, "includeCommunications: false must omit recentCommunications")
+
+	// Explicit true: recentCommunications must be present.
+	recTrue := doSupportRequest(t, h, "DescribeCases", map[string]any{"includeCommunications": true})
+	require.Equal(t, http.StatusOK, recTrue.Code)
+
+	respTrue := decodeSupportResponse(t, recTrue)
+	casesTrue := respTrue["cases"].([]any)
+	require.Len(t, casesTrue, 1)
+	_, hasCommsTrue := casesTrue[0].(map[string]any)["recentCommunications"]
+	assert.True(t, hasCommsTrue, "includeCommunications: true must include recentCommunications")
+}
+
 // TestSupport_DescribeCases_ReturnsTimestamps verifies timeCreated is populated.
 func TestSupport_DescribeCases_ReturnsTimestamps(t *testing.T) {
 	t.Parallel()

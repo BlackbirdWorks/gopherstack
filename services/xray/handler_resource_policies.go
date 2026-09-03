@@ -88,10 +88,6 @@ func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: PolicyName is required", errInvalidRequest)
 	}
 
-	if in.PolicyDocument == "" {
-		return nil, fmt.Errorf("%w: PolicyDocument is required", errInvalidRequest)
-	}
-
 	p, err := h.Backend.PutResourcePolicy(in.PolicyName, in.PolicyDocument, in.PolicyRevisionID)
 	if err != nil {
 		return nil, err

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 const (
 	keyPosition       = "position"
+	keyLimit          = "limit"
 	litTrue           = "true"
 	headerContentType = "Content-Type"
 	// modeImport is the "mode" query parameter value that distinguishes
@@ -613,6 +615,11 @@ func detectImportRESTAPI(
 }
 
 // injectJSONFieldAPIGW merges a key/value string pair into a JSON object body.
+// "limit" is the sole Integer-typed apigateway query parameter (every list op
+// binds it via encoder.SetQuery("limit").Integer(...), e.g. apigateway@v1.42.4
+// serializers.go:4110); every handler input struct types it as Go int, so it
+// must be injected as a bare JSON number, not a quoted string, or a real
+// client's Limit always 500s on json.Unmarshal.
 func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 	var m map[string]json.RawMessage
 	if len(body) > 0 {
@@ -621,6 +628,15 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 		}
 	} else {
 		m = make(map[string]json.RawMessage)
+	}
+
+	if key == keyLimit {
+		if n, err := strconv.Atoi(value); err == nil {
+			m[key] = json.RawMessage(strconv.Itoa(n))
+			result, _ := json.Marshal(m)
+
+			return result
+		}
 	}
 
 	quoted, _ := json.Marshal(value)

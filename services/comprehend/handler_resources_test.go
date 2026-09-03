@@ -88,7 +88,7 @@ func TestEndpointUpdateAndStatus(t *testing.T) {
 
 	described := request(t, h, "DescribeEndpoint", map[string]any{"EndpointArn": arn})
 	props := described["EndpointProperties"].(map[string]any)
-	assert.Equal(t, "ACTIVE", props["Status"], "new endpoint must be ACTIVE")
+	assert.Equal(t, "IN_SERVICE", props["Status"], "new endpoint must be IN_SERVICE")
 
 	request(t, h, "UpdateEndpoint", map[string]any{"EndpointArn": arn, "DesiredInferenceUnits": 4})
 }

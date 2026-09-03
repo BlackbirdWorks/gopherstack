@@ -197,8 +197,13 @@ func TestGetProvisionedConcurrencyConfig(t *testing.T) {
 					ImageURI:     "test:latest",
 				}))
 			},
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
+			wantCode: http.StatusNotFound,
+			// GetProvisionedConcurrencyConfig's own deserializer models
+			// ProvisionedConcurrencyConfigNotFoundException as a distinct
+			// shape from ResourceNotFoundException (lambda@v1.101.2
+			// deserializers.go); real AWS uses it once the function itself
+			// is known to exist.
+			wantErrType: "ProvisionedConcurrencyConfigNotFoundException",
 		},
 	}
 

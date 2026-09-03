@@ -94,7 +94,7 @@ func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name str
 
 // ListPartnerEventSources returns partner event sources optionally filtered by name prefix.
 func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
-	namePrefix, nextToken string,
+	namePrefix, nextToken string, limit int,
 ) ([]PartnerEventSource, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -111,7 +111,7 @@ func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

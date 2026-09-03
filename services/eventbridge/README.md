@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 61 (57 ok, 4 partial) |
+| PARITY entries audited | 62 (58 ok, 4 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 1 |
 | Deferred items | 2 |
@@ -19,7 +19,7 @@
 
 ### Deferred
 
-- Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check.
+- Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check. UPDATE 2026-08-29: the pagination slice of that still-undone audit is now done -- ListRegistries/ListSchemas/SearchSchemas/ListSchemaVersions all declare real Limit/NextToken (schemas@v1.37.4) that were completely unconsulted on both the JSON-RPC (handler_schemas.go/handler_registries.go, dead for a real client but still fixed for consistency) and REST-JSON1 (handler_schemas_rest.go, the actually-reachable path) dispatch paths -- every call returned every stored item in one unbounded page regardless of Limit or the query's `limit` param. Fixed via the existing paginateSlice-equivalent (backend methods gained a `limit int` parameter, wired to paginateN); REST handlers gained schemasRESTLimit(q) to parse the `limit` query param. Field-level wire/errors/state audit for the rest of these 17+5 ops is still open. UPDATE (wrapper-key sweep): PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource now field-verified too -- see their own ops: entry (a real SchemaVersion-scoping bug found and fixed).
 - PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix.
 
 ## More

@@ -77,6 +77,8 @@ type describeCustomDomainAssociationsResponse struct {
 }
 
 func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, error) {
+	certificateArn := vals.Get("CustomDomainCertificateArn")
+
 	assocs, err := h.Backend.DescribeCustomDomainAssociations(
 		vals.Get("ClusterIdentifier"),
 		vals.Get("CustomDomainName"),
@@ -88,6 +90,10 @@ func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, 
 	members := make([]customDomainAssociation, 0, len(assocs))
 
 	for _, a := range assocs {
+		if certificateArn != "" && a.CustomDomainCertificateArn != certificateArn {
+			continue
+		}
+
 		members = append(members, customDomainAssociation{
 			ClusterIdentifier:          a.ClusterIdentifier,
 			CustomDomainName:           a.CustomDomainName,

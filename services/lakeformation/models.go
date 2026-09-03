@@ -354,10 +354,19 @@ type describeResourceOutput struct {
 	ResourceInfo *resourceInfoWire `json:"ResourceInfo"`
 }
 
+// filterConditionInput is one element of ListResources'
+// FilterConditionList (api_op_ListResources.go, lakeformation@v1.50.4).
+type filterConditionInput struct {
+	Field              string   `json:"Field,omitempty"`
+	ComparisonOperator string   `json:"ComparisonOperator,omitempty"`
+	StringValueList    []string `json:"StringValueList,omitempty"`
+}
+
 // listResourcesInput is the request body for ListResources.
 type listResourcesInput struct {
-	NextToken  string `json:"NextToken,omitempty"`
-	MaxResults int    `json:"MaxResults,omitempty"`
+	NextToken           string                 `json:"NextToken,omitempty"`
+	FilterConditionList []filterConditionInput `json:"FilterConditionList,omitempty"`
+	MaxResults          int                    `json:"MaxResults,omitempty"`
 }
 
 // listResourcesOutput is the response body for ListResources.
@@ -456,9 +465,10 @@ type updateLFTagOutput struct{}
 
 // listLFTagsInput is the request body for ListLFTags.
 type listLFTagsInput struct {
-	CatalogID  string `json:"CatalogId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
-	MaxResults int    `json:"MaxResults,omitempty"`
+	CatalogID         string `json:"CatalogId,omitempty"`
+	NextToken         string `json:"NextToken,omitempty"`
+	ResourceShareType string `json:"ResourceShareType,omitempty"`
+	MaxResults        int    `json:"MaxResults,omitempty"`
 }
 
 // listLFTagsOutput is the response body for ListLFTags.

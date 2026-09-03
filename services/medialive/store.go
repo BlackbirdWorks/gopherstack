@@ -126,6 +126,7 @@ func seedOfferings(region string) []*Offering {
 	hd := OfferingResourceSpecification{
 		ResourceType: "OUTPUT", VideoQuality: offeringVideoQualityStandard, Resolution: "HD",
 		MaximumBitrate: "MAX_20_MBPS", MaximumFramerate: "MAX_30_FPS", Codec: "AVC",
+		SpecialFeature: "AUDIO_NORMALIZATION",
 	}
 	uhd := OfferingResourceSpecification{
 		ResourceType: "OUTPUT", VideoQuality: offeringVideoQualityStandard, Resolution: "UHD",

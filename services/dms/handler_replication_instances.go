@@ -23,6 +23,8 @@ type createReplicationInstanceInput struct {
 	DNSNameServers                *string    `json:"DnsNameServers"`
 	NetworkType                   *string    `json:"NetworkType"`
 	PreferredMaintenanceWindow    *string    `json:"PreferredMaintenanceWindow"`
+	ReplicationSubnetGroupID      *string    `json:"ReplicationSubnetGroupIdentifier"`
+	VpcSecurityGroupIDs           []string   `json:"VpcSecurityGroupIds"`
 	Tags                          []tagEntry `json:"Tags"`
 }
 
@@ -60,6 +62,8 @@ func (h *Handler) handleCreateReplicationInstance(
 			DNSNameServers:             ptrconv.String(in.DNSNameServers),
 			NetworkType:                ptrconv.String(in.NetworkType),
 			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
+			ReplicationSubnetGroupID:   ptrconv.String(in.ReplicationSubnetGroupID),
+			VpcSecurityGroupIDs:        in.VpcSecurityGroupIDs,
 		},
 	)
 	if err != nil {
@@ -150,40 +154,64 @@ func (h *Handler) handleDeleteReplicationInstance(
 	return &deleteReplicationInstanceOutput{ReplicationInstance: riToJSON(instances[0])}, nil
 }
 
-type replicationInstanceJSON struct {
-	ReplicationSubnetGroup                replicationSubnetGroupJSON `json:"ReplicationSubnetGroup"`
-	DNSNameServers                        string                     `json:"DnsNameServers,omitempty"`
-	KmsKeyID                              string                     `json:"KmsKeyId,omitempty"`
-	ReplicationInstanceClass              string                     `json:"ReplicationInstanceClass"`
-	EngineVersion                         string                     `json:"EngineVersion"`
-	AvailabilityZone                      string                     `json:"AvailabilityZone"`
-	ReplicationInstanceStatus             string                     `json:"ReplicationInstanceStatus"`
-	PreferredMaintenanceWindow            string                     `json:"PreferredMaintenanceWindow,omitempty"`
-	NetworkType                           string                     `json:"NetworkType,omitempty"`
-	ReplicationInstanceArn                string                     `json:"ReplicationInstanceArn"`
-	ReplicationInstanceIdentifier         string                     `json:"ReplicationInstanceIdentifier"`
-	VpcSecurityGroups                     []any                      `json:"VpcSecurityGroups"`
-	ReplicationInstancePublicIPAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
-	ReplicationInstancePrivateIPAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
-	InstanceCreateTime                    float64                    `json:"InstanceCreateTime,omitempty"`
-	AllocatedStorage                      int32                      `json:"AllocatedStorage"`
-	MultiAZ                               bool                       `json:"MultiAZ"`
-	AutoMinorVersionUpgrade               bool                       `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible                    bool                       `json:"PubliclyAccessible"`
+// vpcSecurityGroupMembershipJSON mirrors types.VpcSecurityGroupMembership
+// (databasemigrationservice@v1.66.4 types/types.go): Status/VpcSecurityGroupId.
+type vpcSecurityGroupMembershipJSON struct {
+	Status             string `json:"Status,omitempty"`
+	VpcSecurityGroupID string `json:"VpcSecurityGroupId,omitempty"`
 }
 
+type replicationInstanceJSON struct {
+	ReplicationSubnetGroup                replicationSubnetGroupJSON       `json:"ReplicationSubnetGroup"`
+	DNSNameServers                        string                           `json:"DnsNameServers,omitempty"`
+	KmsKeyID                              string                           `json:"KmsKeyId,omitempty"`
+	ReplicationInstanceClass              string                           `json:"ReplicationInstanceClass"`
+	EngineVersion                         string                           `json:"EngineVersion"`
+	AvailabilityZone                      string                           `json:"AvailabilityZone"`
+	ReplicationInstanceStatus             string                           `json:"ReplicationInstanceStatus"`
+	PreferredMaintenanceWindow            string                           `json:"PreferredMaintenanceWindow,omitempty"`
+	NetworkType                           string                           `json:"NetworkType,omitempty"`
+	ReplicationInstanceArn                string                           `json:"ReplicationInstanceArn"`
+	ReplicationInstanceIdentifier         string                           `json:"ReplicationInstanceIdentifier"`
+	VpcSecurityGroups                     []vpcSecurityGroupMembershipJSON `json:"VpcSecurityGroups"`
+	ReplicationInstancePublicIPAddresses  []string                         `json:"ReplicationInstancePublicIpAddresses"`
+	ReplicationInstancePrivateIPAddresses []string                         `json:"ReplicationInstancePrivateIpAddresses"`
+	InstanceCreateTime                    float64                          `json:"InstanceCreateTime,omitempty"`
+	AllocatedStorage                      int32                            `json:"AllocatedStorage"`
+	MultiAZ                               bool                             `json:"MultiAZ"`
+	AutoMinorVersionUpgrade               bool                             `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible                    bool                             `json:"PubliclyAccessible"`
+}
+
+// riToJSON renders ri's wire shape. ReplicationSubnetGroup is always
+// present with a non-nil Identifier (the Terraform AWS provider accesses
+// ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier directly, no nil
+// check, so a nil pointer causes a panic) -- real
+// CreateReplicationInstanceInput.ReplicationSubnetGroupIdentifier
+// (api_op_CreateReplicationInstance.go) was previously not accepted at all,
+// so this was always a hardcoded empty placeholder regardless of what a real
+// client requested; it's now the caller's resolved, existence-checked value
+// when one was supplied at create time. VpcSecurityGroups mirrors the real
+// []types.VpcSecurityGroupMembership shape from whatever VpcSecurityGroupIds
+// were supplied to Create/ModifyReplicationInstance (also previously
+// unaccepted and hardcoded empty).
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
-	emptyID := ""
+	subnetGroupID := ri.ReplicationSubnetGroupID
 
 	privateIPs := []string{ri.PrivateIPAddress}
 	publicIPs := []string{}
 
+	vpcSecurityGroups := make([]vpcSecurityGroupMembershipJSON, 0, len(ri.VpcSecurityGroupIDs))
+	for _, id := range ri.VpcSecurityGroupIDs {
+		vpcSecurityGroups = append(vpcSecurityGroups, vpcSecurityGroupMembershipJSON{
+			VpcSecurityGroupID: id,
+			Status:             statusActive,
+		})
+	}
+
 	return replicationInstanceJSON{
-		// ReplicationSubnetGroup must always be present with a non-nil Identifier.
-		// The Terraform AWS provider accesses ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier
-		// directly (no nil check), so a nil pointer causes a panic.
 		ReplicationSubnetGroup: replicationSubnetGroupJSON{
-			ReplicationSubnetGroupIdentifier: &emptyID,
+			ReplicationSubnetGroupIdentifier: &subnetGroupID,
 		},
 		ReplicationInstanceIdentifier:         ri.ReplicationInstanceIdentifier,
 		ReplicationInstanceArn:                ri.ReplicationInstanceArn,
@@ -193,7 +221,7 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		ReplicationInstanceStatus:             ri.ReplicationInstanceStatus,
 		ReplicationInstancePrivateIPAddresses: privateIPs,
 		ReplicationInstancePublicIPAddresses:  publicIPs,
-		VpcSecurityGroups:                     []any{},
+		VpcSecurityGroups:                     vpcSecurityGroups,
 		InstanceCreateTime:                    awstime.Epoch(ri.CreationTime),
 		KmsKeyID:                              ri.KmsKeyID,
 		DNSNameServers:                        ri.DNSNameServers,
@@ -359,14 +387,15 @@ func (h *Handler) handleDescribeReplicationInstanceTaskLogs(
 }
 
 type modifyReplicationInstanceInput struct {
-	ReplicationInstanceArn     *string `json:"ReplicationInstanceArn"`
-	ReplicationInstanceClass   *string `json:"ReplicationInstanceClass"`
-	EngineVersion              *string `json:"EngineVersion"`
-	MultiAZ                    *bool   `json:"MultiAZ"`
-	AutoMinorVersionUpgrade    *bool   `json:"AutoMinorVersionUpgrade"`
-	AllocatedStorage           *int32  `json:"AllocatedStorage"`
-	NetworkType                *string `json:"NetworkType"`
-	PreferredMaintenanceWindow *string `json:"PreferredMaintenanceWindow"`
+	ReplicationInstanceArn     *string  `json:"ReplicationInstanceArn"`
+	ReplicationInstanceClass   *string  `json:"ReplicationInstanceClass"`
+	EngineVersion              *string  `json:"EngineVersion"`
+	MultiAZ                    *bool    `json:"MultiAZ"`
+	AutoMinorVersionUpgrade    *bool    `json:"AutoMinorVersionUpgrade"`
+	AllocatedStorage           *int32   `json:"AllocatedStorage"`
+	NetworkType                *string  `json:"NetworkType"`
+	PreferredMaintenanceWindow *string  `json:"PreferredMaintenanceWindow"`
+	VpcSecurityGroupIDs        []string `json:"VpcSecurityGroupIds"`
 }
 
 type modifyReplicationInstanceOutput struct {
@@ -387,6 +416,7 @@ func (h *Handler) handleModifyReplicationInstance(
 		ReplicationInstanceSettings{
 			NetworkType:                ptrconv.String(in.NetworkType),
 			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
+			VpcSecurityGroupIDs:        in.VpcSecurityGroupIDs,
 		},
 	)
 	if err != nil {
@@ -409,6 +439,13 @@ type rebootReplicationInstanceOutput struct {
 func (h *Handler) handleRebootReplicationInstance(
 	ctx context.Context, in *rebootReplicationInstanceInput,
 ) (*rebootReplicationInstanceOutput, error) {
+	if ptrconv.Bool(in.ForceFailover) && ptrconv.Bool(in.ForcePlannedFailover) {
+		return nil, fmt.Errorf(
+			"%w: ForceFailover and ForcePlannedFailover can't both be set to true",
+			ErrValidation,
+		)
+	}
+
 	ri, err := h.Backend.RebootReplicationInstance(ctx, ptrconv.String(in.ReplicationInstanceArn))
 	if err != nil {
 		return nil, err

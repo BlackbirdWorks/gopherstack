@@ -99,6 +99,10 @@ func (h *Handler) handleUpdateActionTarget(c *echo.Context, actionTargetArn stri
 	description, _ := body["Description"].(string)
 
 	if err := h.Backend.UpdateActionTarget(actionTargetArn, name, description); err != nil {
+		if errors.Is(err, ErrHubNotEnabled) {
+			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+		}
+
 		if errors.Is(err, ErrNotFound) {
 			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "ActionTarget not found")
 		}
@@ -112,6 +116,10 @@ func (h *Handler) handleUpdateActionTarget(c *echo.Context, actionTargetArn stri
 func (h *Handler) handleDeleteActionTarget(c *echo.Context, actionTargetArn string) error {
 	deletedArn, err := h.Backend.DeleteActionTarget(actionTargetArn)
 	if err != nil {
+		if errors.Is(err, ErrHubNotEnabled) {
+			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+		}
+
 		if errors.Is(err, ErrNotFound) {
 			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "ActionTarget not found")
 		}

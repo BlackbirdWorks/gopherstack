@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // cloneReceiptRuleSet returns a deep copy of a ReceiptRuleSet.
@@ -99,8 +101,11 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 	return nil
 }
 
-// ListReceiptRuleSets returns a sorted slice of all receipt rule sets (name + createdAt only).
-func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
+// ListReceiptRuleSets returns a page of receipt rule sets (name + createdAt
+// only) sorted by name. Real ListReceiptRuleSets has no MaxItems request
+// field -- AWS hardcodes the page size at 100 (see ListReceiptRuleSetsOutput's
+// NextToken doc comment).
+func (b *InMemoryBackend) ListReceiptRuleSets(nextToken string) page.Page[ReceiptRuleSet] {
 	b.mu.RLock("ListReceiptRuleSets")
 	defer b.mu.RUnlock()
 
@@ -110,7 +115,7 @@ func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	return page.New(out, nextToken, 0, sesDefaultMaxItems)
 }
 
 // DescribeReceiptRuleSet returns a deep copy of the named rule set.
@@ -134,16 +139,15 @@ func (b *InMemoryBackend) DescribeReceiptRuleSet(name string) (ReceiptRuleSet, e
 // ErrReceiptRuleSetActive (wire code CannotDelete) rather than silently
 // clearing the active pointer; the caller must first call
 // SetActiveReceiptRuleSet with a different name (or "") before the delete
-// will succeed.
+// will succeed. A missing rule set is idempotent: this op's own
+// deserializer (ses@v1.37.4 deserializers.go) declares only CannotDelete,
+// not RuleSetDoesNotExist, unlike Describe on the same resource.
 func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
 	}
 	b.mu.Lock("DeleteReceiptRuleSet")
 	defer b.mu.Unlock()
-	if !b.receiptRuleSets.Has(name) {
-		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
-	}
 	if b.activeRuleSet == name {
 		return fmt.Errorf("%w: %s is the currently active rule set", ErrReceiptRuleSetActive, name)
 	}

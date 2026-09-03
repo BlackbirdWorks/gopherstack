@@ -122,7 +122,7 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	fresh := cloudformation.NewInMemoryBackend()
 	require.NoError(t, fresh.Restore(ctx, snap))
 
-	instances, err := fresh.ListStackInstances("test-set", "")
+	instances, err := fresh.ListStackInstances("test-set", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "111111111111", instances.Data[0].Account)

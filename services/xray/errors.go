@@ -8,11 +8,21 @@ var (
 	// ErrGroupNotFound is returned when an X-Ray group is not found.
 	ErrGroupNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrGroupAlreadyExists is returned when an X-Ray group already exists.
-	ErrGroupAlreadyExists = awserr.New("GroupAlreadyExistsException", awserr.ErrConflict)
+	// CreateGroup's own error model (xray@v1.39.4 deserializers.go
+	// awsRestjson1_deserializeOpErrorCreateGroup) defines no AlreadyExists-shaped
+	// exception at all -- it models only InvalidRequestException and
+	// ThrottledException -- so InvalidRequestException is the correct code
+	// (gopherstack-101r; was the fabricated GroupAlreadyExistsException, which
+	// names no type anywhere in this SDK).
+	ErrGroupAlreadyExists = awserr.New("InvalidRequestException", awserr.ErrConflict)
 	// ErrSamplingRuleNotFound is returned when a sampling rule is not found.
 	ErrSamplingRuleNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrSamplingRuleAlreadyExists is returned when a sampling rule already exists.
-	ErrSamplingRuleAlreadyExists = awserr.New("RuleAlreadyExistsException", awserr.ErrConflict)
+	// CreateSamplingRule's own error model defines InvalidRequestException,
+	// RuleLimitExceededException, and ThrottledException -- no AlreadyExists-shaped
+	// exception -- so InvalidRequestException is the correct code (gopherstack-101r;
+	// was the fabricated RuleAlreadyExistsException, absent from this SDK entirely).
+	ErrSamplingRuleAlreadyExists = awserr.New("InvalidRequestException", awserr.ErrConflict)
 	// ErrInsightNotFound is returned when an X-Ray insight is not found.
 	ErrInsightNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrResourcePolicyNotFound is returned when a resource policy is not found.
@@ -23,8 +33,12 @@ var (
 	ErrIndexingRuleNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrValidation is returned when a request fails field-level validation.
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
-	// ErrInvalidSamplingRule is returned when sampling rule fields fail validation.
-	ErrInvalidSamplingRule = awserr.New("InvalidSamplingRuleException", awserr.ErrInvalidParameter)
+	// ErrInvalidSamplingRule is returned when sampling rule fields fail
+	// validation (CreateSamplingRule's own ValidateSamplingRule caller).
+	// CreateSamplingRule's own error model defines no InvalidSamplingRuleException
+	// type -- InvalidRequestException is the correct code (gopherstack-101r; was
+	// the fabricated InvalidSamplingRuleException, absent from this SDK entirely).
+	ErrInvalidSamplingRule = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 	// ErrInvalidPolicyRevisionID is returned when a policy revision ID does not match.
 	ErrInvalidPolicyRevisionID = awserr.New("InvalidPolicyRevisionIdException", awserr.ErrConflict)
 	// ErrMalformedPolicyDocument is returned when a policy document is not valid JSON.

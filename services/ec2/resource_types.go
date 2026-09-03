@@ -210,7 +210,7 @@ func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
 // their import/export tasks.
 func (b *InMemoryBackend) resourceExistsImagesLocked(id string) bool {
 	ok := b.images.Has(id)
-	ok = ok || b.imageUsageReports.Has(id)
+	ok = ok || b.usageReports.Has(id)
 	ok = ok || b.snapshots.Has(id)
 	ok = ok || b.recycleBinSnapshots.Has(id)
 	ok = ok || b.launchTemplates.Has(id)

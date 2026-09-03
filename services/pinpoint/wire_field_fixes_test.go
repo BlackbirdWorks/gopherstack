@@ -1,6 +1,8 @@
 package pinpoint_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
@@ -186,4 +188,79 @@ func TestApplicationSettings_JourneyLimits(t *testing.T) {
 	require.NotNil(t, getOut.ApplicationSettingsResource.JourneyLimits)
 	assert.Equal(t, int32(42), aws.ToInt32(getOut.ApplicationSettingsResource.JourneyLimits.DailyCap))
 	assert.Equal(t, int32(100), aws.ToInt32(getOut.ApplicationSettingsResource.JourneyLimits.TotalCap))
+}
+
+// TestCreateSegment_RawImportDefinitionFieldIgnored covers
+// gopherstack-wksweep-pp-1: the real WriteSegmentRequest (pinpoint@v1.42.4
+// types/types.go:7240, used by both CreateSegment and UpdateSegment) has no
+// ImportDefinition member -- it's only ever derived from CreateImportJob
+// (see TestSegment_ImportType in segments_test.go for that real path). A
+// typed client can't even construct a WriteSegmentRequest with the field, so
+// this is the raw-body fail-before/pass-after proof: before the fix,
+// gopherstack's createSegmentRequest read an "ImportDefinition" key no real
+// client can send. Sending it directly must have no effect.
+func TestCreateSegment_RawImportDefinitionFieldIgnored(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "wire-fix-import-def-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments", map[string]any{
+		"Name": "wire-fix-import-def-seg",
+		"ImportDefinition": map[string]any{
+			"S3Url":   "s3://bucket/should-not-apply.csv",
+			"RoleArn": "arn:aws:iam::123456789012:role/R",
+			"Format":  "CSV",
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "DIMENSIONAL", out["SegmentType"],
+		"CreateSegment must not accept ImportDefinition; the real WriteSegmentRequest has no such member")
+	assert.Nil(t, out["ImportDefinition"])
+}
+
+// TestCreateJourney_RawTagsFieldIgnored covers gopherstack-wksweep-pp-2: the
+// real WriteJourneyRequest and JourneyResponse (pinpoint@v1.42.4
+// types/types.go:7118, 4227) have no Tags member at all -- journeys are
+// taggable only through the generic TagResource/ListTagsForResource ARN-based
+// API, not via CreateJourney. A typed client can't construct a
+// WriteJourneyRequest with Tags, so this is the raw-body fail-before/
+// pass-after proof: before the fix, gopherstack's createJourneyRequest read
+// a "tags" key no real client can send, and echoed it back in
+// journeyResponse too. Sending it directly must have no effect on either
+// side, and the real TagResource path must still work.
+func TestCreateJourney_RawTagsFieldIgnored(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "wire-fix-journey-tags-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys", map[string]any{
+		"Name": "wire-fix-journey-tags",
+		"tags": map[string]string{"env": "shouldNotApply"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Nil(t, out["tags"],
+		"CreateJourney must not accept or echo tags; the real WriteJourneyRequest/JourneyResponse have no such member")
+
+	journeyARN := out["Arn"].(string)
+
+	client := newTestPinpointClient(t, h)
+	_, err := client.TagResource(t.Context(), &pinpointsdk.TagResourceInput{
+		ResourceArn: aws.String(journeyARN),
+		TagsModel:   &types.TagsModel{Tags: map[string]string{"env": "prod"}},
+	})
+	require.NoError(t, err)
+
+	tagsOut, err := client.ListTagsForResource(t.Context(), &pinpointsdk.ListTagsForResourceInput{
+		ResourceArn: aws.String(journeyARN),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "prod", tagsOut.TagsModel.Tags["env"])
 }

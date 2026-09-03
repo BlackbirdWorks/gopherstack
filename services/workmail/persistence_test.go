@@ -175,7 +175,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			// conflict post-restore -- proof orgsByAlias round-tripped.
 			_, err := fresh.CreateOrganization(ctx, "acme", nil, false)
 			require.Error(t, err)
-			assert.ErrorIs(t, err, workmail.ErrConflict)
+			assert.ErrorIs(t, err, workmail.ErrNameUnavailable)
 		}},
 		{name: "users table and mailboxQuotas raw map", run: func(t *testing.T) {
 			t.Helper()
@@ -195,7 +195,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			// conflict -- proof usersByEmail/globalAliases round-tripped.
 			err := fresh.RegisterToWorkMail(ids.orgID, ids.userID, "alice@acme.com")
 			require.Error(t, err)
-			assert.ErrorIs(t, err, workmail.ErrConflict)
+			assert.ErrorIs(t, err, workmail.ErrEmailInUse)
 		}},
 		{name: "aliases raw map", run: func(t *testing.T) {
 			t.Helper()

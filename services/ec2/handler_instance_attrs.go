@@ -153,6 +153,19 @@ type modifyInstanceCPUOptionsResponse struct {
 	ThreadsPerCore       int32    `xml:"threadsPerCore,omitempty"`
 }
 
+// parseOptionalString distinguishes an omitted form value (nil, "unchanged")
+// from one explicitly sent empty (pointer to "", a real clear) -- vals.Get
+// alone returns "" for both cases.
+func parseOptionalString(vals url.Values, key string) *string {
+	if !vals.Has(key) {
+		return nil
+	}
+
+	v := vals.Get(key)
+
+	return &v
+}
+
 func parseOptionalInt32(vals url.Values, key string) *int32 {
 	v := vals.Get(key)
 	if v == "" {
@@ -286,7 +299,7 @@ func (h *Handler) handleModifyInstancePlacement(vals url.Values, reqID string) (
 		InstanceID:           vals.Get("InstanceId"),
 		Affinity:             vals.Get("Affinity"),
 		GroupID:              vals.Get("GroupId"),
-		GroupName:            vals.Get("GroupName"),
+		GroupName:            parseOptionalString(vals, "GroupName"),
 		HostID:               vals.Get("HostId"),
 		HostResourceGroupArn: vals.Get("HostResourceGroupArn"),
 		Tenancy:              vals.Get("Tenancy"),

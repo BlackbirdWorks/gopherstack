@@ -107,6 +107,7 @@ type listMonitoringAlertHistoryRequest struct {
 	MonitoringScheduleName string   `json:"MonitoringScheduleName,omitempty"`
 	MonitoringAlertName    string   `json:"MonitoringAlertName,omitempty"`
 	StatusEquals           string   `json:"StatusEquals,omitempty"`
+	SortBy                 string   `json:"SortBy,omitempty"`
 	SortOrder              string   `json:"SortOrder,omitempty"`
 	NextToken              string   `json:"NextToken,omitempty"`
 	MaxResults             int32    `json:"MaxResults,omitempty"`
@@ -125,6 +126,7 @@ func (h *Handler) handleListMonitoringAlertHistory(ctx context.Context, body []b
 		MonitoringScheduleName: req.MonitoringScheduleName,
 		MonitoringAlertName:    req.MonitoringAlertName,
 		StatusEquals:           req.StatusEquals,
+		SortBy:                 req.SortBy,
 		SortOrder:              req.SortOrder,
 		MaxResults:             req.MaxResults,
 	}

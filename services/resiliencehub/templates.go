@@ -1,6 +1,7 @@
 package resiliencehub
 
 import (
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -156,11 +157,17 @@ func (b *InMemoryBackend) ListRecommendationTemplates(
 		}
 	}
 
-	if f.reverseOrder {
-		for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
-			filtered[i], filtered[j] = filtered[j], filtered[i]
+	// ListRecommendationTemplatesInput.ReverseOrder: "The default is to sort
+	// by ascending startTime" (api_op_ListRecommendationTemplates.go,
+	// resiliencehub@v1.38.3) -- sort by StartTime explicitly rather than
+	// relying on b.templates.Snapshot()'s key order.
+	sort.Slice(filtered, func(i, j int) bool {
+		if f.reverseOrder {
+			return filtered[i].StartTime.After(filtered[j].StartTime)
 		}
-	}
+
+		return filtered[i].StartTime.Before(filtered[j].StartTime)
+	})
 
 	return page.New(filtered, token, limit, defaultPageLimit)
 }

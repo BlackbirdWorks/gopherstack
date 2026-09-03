@@ -345,7 +345,6 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	maps.Copy(table, h.userPoolClientsOpsA())
 	maps.Copy(table, h.userPoolsOpsA())
 	maps.Copy(table, h.usersOpsA())
-	maps.Copy(table, h.attributesOpsB())
 	maps.Copy(table, h.authEventsOps())
 	maps.Copy(table, h.authTokensOpsB())
 	maps.Copy(table, h.brandingOpsA())
@@ -353,7 +352,6 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	maps.Copy(table, h.domainsOpsA())
 	maps.Copy(table, h.identityProvidersOpsB())
 	maps.Copy(table, h.mfaOpsA())
-	maps.Copy(table, h.resourceServersOpsA())
 	maps.Copy(table, h.securityConfigOpsA())
 	maps.Copy(table, h.tagsOps())
 	maps.Copy(table, h.termsOps())
@@ -416,9 +414,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrClientNotFound, ErrClientNotFound.Error()},
 	{ErrExpiredCode, ErrExpiredCode.Error()},
 	{ErrUsernameExists, ErrUsernameExists.Error()},
-	{ErrUserAlreadyExists, ErrUserAlreadyExists.Error()},
-	{ErrUserPoolAlreadyExists, ErrUserPoolAlreadyExists.Error()},
 	{ErrNotAuthorized, ErrNotAuthorized.Error()},
+	{ErrTokenUnauthorized, ErrTokenUnauthorized.Error()},
 	{ErrInvalidPassword, ErrInvalidPassword.Error()},
 	{ErrUserNotConfirmed, ErrUserNotConfirmed.Error()},
 	{ErrPasswordResetRequired, ErrPasswordResetRequired.Error()},

@@ -104,6 +104,35 @@ func TestAgentsHandler_CreateActionGroup_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestAgentsHandler_UpdateActionGroup_RenamesActionGroup(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestAgentsHandler(t)
+	agent, err := b.CreateAgent("rename-ag-agent", "", "", "", nil)
+	require.NoError(t, err)
+
+	rec := doAgentRequest(t, h, http.MethodPost, "/agents/"+agent.AgentID+"/action-groups", map[string]any{
+		"actionGroupName": "original-name",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	agGroupID := createOut["agentActionGroup"].(map[string]any)["actionGroupId"].(string)
+
+	rec2 := doAgentRequest(
+		t, h, http.MethodPut,
+		fmt.Sprintf("/agents/%s/action-groups/DRAFT/%s", agent.AgentID, agGroupID),
+		map[string]any{"actionGroupName": "renamed"},
+	)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var updateOut map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &updateOut))
+	assert.Equal(t, "renamed", updateOut["agentActionGroup"].(map[string]any)["actionGroupName"],
+		"actionGroupName is a required field on UpdateAgentActionGroup and must be applied")
+}
+
 func TestAgentsHandler_UpdateActionGroup_NotFound(t *testing.T) {
 	t.Parallel()
 

@@ -3,7 +3,15 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// defaultLBMaxRecords is DescribeLoadBalancers's and DescribeLoadBalancerTargetGroups's
+// documented default/max page size (api_op_DescribeLoadBalancers.go /
+// api_op_DescribeLoadBalancerTargetGroups.go: "The default value is 100 and the maximum value
+// is 100" -- default equals max for both operations).
+const defaultLBMaxRecords = 100
 
 func (h *Handler) handleAttachLoadBalancerTargetGroups(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
@@ -47,6 +55,7 @@ type attachLoadBalancersResponse struct {
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
+//nolint:dupl // DescribeLoadBalancers and DescribeLoadBalancerTargetGroups share list-pagination structure
 func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 
@@ -55,20 +64,31 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlLoadBalancerState, 0, len(lbs))
-	for _, lb := range lbs {
+	maxRecords := defaultLBMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), defaultLBMaxRecords)
+		}
+	}
+
+	p := page.New(lbs, vals.Get("NextToken"), maxRecords, defaultLBMaxRecords)
+
+	members := make([]xmlLoadBalancerState, 0, len(p.Data))
+	for _, lb := range p.Data {
 		members = append(members, xmlLoadBalancerState(lb))
 	}
 
 	return &describeLoadBalancersResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeLoadBalancersResult{
+			NextToken:     p.Next,
 			LoadBalancers: xmlLoadBalancerStateList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-load-balancers"},
 	}, nil
 }
 
+//nolint:dupl // DescribeLoadBalancers and DescribeLoadBalancerTargetGroups share list-pagination structure
 func (h *Handler) handleDescribeLoadBalancerTargetGroups(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 
@@ -77,14 +97,24 @@ func (h *Handler) handleDescribeLoadBalancerTargetGroups(vals url.Values) (any, 
 		return nil, err
 	}
 
-	members := make([]xmlLoadBalancerTargetGroupState, 0, len(tgs))
-	for _, tg := range tgs {
+	maxRecords := defaultLBMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), defaultLBMaxRecords)
+		}
+	}
+
+	p := page.New(tgs, vals.Get("NextToken"), maxRecords, defaultLBMaxRecords)
+
+	members := make([]xmlLoadBalancerTargetGroupState, 0, len(p.Data))
+	for _, tg := range p.Data {
 		members = append(members, xmlLoadBalancerTargetGroupState(tg))
 	}
 
 	return &describeLoadBalancerTargetGroupsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeLoadBalancerTargetGroupsResult{
+			NextToken:                p.Next,
 			LoadBalancerTargetGroups: xmlLoadBalancerTargetGroupStateList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-lb-target-groups"},
@@ -129,6 +159,7 @@ type xmlLoadBalancerStateList struct {
 }
 
 type describeLoadBalancersResult struct {
+	NextToken     string                   `xml:"NextToken,omitempty"`
 	LoadBalancers xmlLoadBalancerStateList `xml:"LoadBalancers"`
 }
 
@@ -149,6 +180,7 @@ type xmlLoadBalancerTargetGroupStateList struct {
 }
 
 type describeLoadBalancerTargetGroupsResult struct {
+	NextToken                string                              `xml:"NextToken,omitempty"`
 	LoadBalancerTargetGroups xmlLoadBalancerTargetGroupStateList `xml:"LoadBalancerTargetGroups"`
 }
 

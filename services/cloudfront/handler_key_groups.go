@@ -74,32 +74,46 @@ func (h *Handler) handleGetPublicKey(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, publicKeyResponseXML(pk))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// handleListPublicKeys paginates via Marker/MaxItems (both query-bound, cloudfront@v1.67.4
+// serializers.go). Real PublicKeyList has no IsTruncated field -- NextMarker's presence
+// alone signals truncation (types/types.go:5126-5146).
 func (h *Handler) handleListPublicKeys(c *echo.Context) error {
 	items := h.Backend.ListPublicKeys()
 
+	page, pageSize, _, nextMarker := paginateByMarkerID(c, items, func(pk *PublicKey) string { return pk.ID })
+
 	type pkSummaryXML struct {
-		XMLName xml.Name `xml:"PublicKeySummary"`
-		ID      string   `xml:"Id"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
+		XMLName    xml.Name `xml:"PublicKeySummary"`
+		ID         string   `xml:"Id"`
+		Name       string   `xml:"Name"`
+		Comment    string   `xml:"Comment"`
+		EncodedKey string   `xml:"EncodedKey"`
 	}
 
 	type pkListXML struct {
-		XMLName     xml.Name       `xml:"PublicKeyList"`
-		XMLNS       string         `xml:"xmlns,attr"`
-		Items       []pkSummaryXML `xml:"Items>PublicKeySummary"`
-		MaxItems    int            `xml:"MaxItems"`
-		Quantity    int            `xml:"Quantity"`
-		IsTruncated bool           `xml:"IsTruncated"`
+		XMLName    xml.Name       `xml:"PublicKeyList"`
+		XMLNS      string         `xml:"xmlns,attr"`
+		NextMarker string         `xml:"NextMarker,omitempty"`
+		Items      []pkSummaryXML `xml:"Items>PublicKeySummary"`
+		MaxItems   int            `xml:"MaxItems"`
+		Quantity   int            `xml:"Quantity"`
 	}
 
-	summaries := make([]pkSummaryXML, 0, len(items))
-	for _, pk := range items {
-		summaries = append(summaries, pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment})
+	summaries := make([]pkSummaryXML, 0, len(page))
+	for _, pk := range page {
+		summaries = append(
+			summaries,
+			pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment, EncodedKey: pk.EncodedKey},
+		)
 	}
 
-	list := pkListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := pkListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
@@ -254,20 +268,25 @@ type kgSummaryXML struct {
 	KeyGroup kgXML    `xml:"KeyGroup"`
 }
 
+// handleListKeyGroups paginates via Marker/MaxItems (both query-bound, cloudfront@v1.67.4
+// serializers.go). Real KeyGroupList has no IsTruncated field -- NextMarker's presence
+// alone signals truncation (types/types.go:3823-3843).
 func (h *Handler) handleListKeyGroups(c *echo.Context) error {
 	items := h.Backend.ListKeyGroups()
 
+	page, pageSize, _, nextMarker := paginateByMarkerID(c, items, func(kg *KeyGroup) string { return kg.ID })
+
 	type kgListXML struct {
-		XMLName     xml.Name       `xml:"KeyGroupList"`
-		XMLNS       string         `xml:"xmlns,attr"`
-		Items       []kgSummaryXML `xml:"Items>KeyGroupSummary"`
-		MaxItems    int            `xml:"MaxItems"`
-		Quantity    int            `xml:"Quantity"`
-		IsTruncated bool           `xml:"IsTruncated"`
+		XMLName    xml.Name       `xml:"KeyGroupList"`
+		XMLNS      string         `xml:"xmlns,attr"`
+		NextMarker string         `xml:"NextMarker,omitempty"`
+		Items      []kgSummaryXML `xml:"Items>KeyGroupSummary"`
+		MaxItems   int            `xml:"MaxItems"`
+		Quantity   int            `xml:"Quantity"`
 	}
 
-	summaries := make([]kgSummaryXML, 0, len(items))
-	for _, kg := range items {
+	summaries := make([]kgSummaryXML, 0, len(page))
+	for _, kg := range page {
 		summaries = append(summaries, kgSummaryXML{
 			KeyGroup: kgXML{
 				ID:     kg.ID,
@@ -276,7 +295,13 @@ func (h *Handler) handleListKeyGroups(c *echo.Context) error {
 		})
 	}
 
-	list := kgListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := kgListXML{
+		XMLNS:      cfNS,
+		NextMarker: nextMarker,
+		MaxItems:   pageSize,
+		Quantity:   len(summaries),
+		Items:      summaries,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

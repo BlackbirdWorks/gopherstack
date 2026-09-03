@@ -26,9 +26,11 @@ type VirtualMFADevice struct {
 
 // VirtualMFADeviceXML is the XML representation of a virtual MFA device.
 type VirtualMFADeviceXML struct {
-	SerialNumber     string `xml:"SerialNumber"`
-	Base32StringSeed string `xml:"Base32StringSeed,omitempty"`
-	QRCodePNG        string `xml:"QRCodePNG,omitempty"`
+	User             *UserXML `xml:"User,omitempty"`
+	SerialNumber     string   `xml:"SerialNumber"`
+	Base32StringSeed string   `xml:"Base32StringSeed,omitempty"`
+	QRCodePNG        string   `xml:"QRCodePNG,omitempty"`
+	Tags             []TagXML `xml:"Tags>member,omitempty"`
 }
 
 // CreateVirtualMFADeviceResult wraps the created MFA device.
@@ -40,8 +42,8 @@ type CreateVirtualMFADeviceResult struct {
 type CreateVirtualMFADeviceResponse struct {
 	XMLName                      xml.Name                     `xml:"CreateVirtualMFADeviceResponse"`
 	Xmlns                        string                       `xml:"xmlns,attr"`
-	CreateVirtualMFADeviceResult CreateVirtualMFADeviceResult `xml:"CreateVirtualMFADeviceResult"`
 	ResponseMetadata             ResponseMetadata             `xml:"ResponseMetadata"`
+	CreateVirtualMFADeviceResult CreateVirtualMFADeviceResult `xml:"CreateVirtualMFADeviceResult"`
 }
 
 // ListVirtualMFADevicesResult contains the list of virtual MFA devices.

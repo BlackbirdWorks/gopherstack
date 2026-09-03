@@ -552,3 +552,99 @@ still the same `ReadBody`-failure branch, same fix.
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServerException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)
+
+**Two bugs found and fixed** in `paginateStrings` (`handler_databases.go` —
+`ListDatabases`, `ListSchemas`, 2 ops) and `paginateMaps`
+(`handler_tables.go` — `ListTables`, 1 op), both sharing identical logic:
+
+1. **A new off-by-one, not matching Class A/B/C** — found by the boundary
+   walk check itself, independent of any staleness: the encoder emits
+   `page[limit]`, the name of the **first item of the next page**, as the
+   token, but the decoder treated a match as "the last item already seen"
+   and resumed at `i + 1`. Every page boundary silently dropped exactly one
+   item, even on a plain, non-stale, back-to-back walk with nothing deleted
+   in between — the "silent truncation" shape this whole campaign started
+   from, not the stale-cursor shape its two later passes have mostly found.
+   `TestPaginateStrings_BoundaryWalk`/`TestPaginateMaps_BoundaryWalk`
+   (`pagination_arithmetic_internal_test.go`) fail pre-fix on this alone,
+   with no cursor tampering involved.
+2. **Class B** — a token naming no known item (a tampered/garbage
+   `NextToken`; both backing lists are hardcoded, never-shrinking demo data,
+   so a real deletion can't trigger this here, but a malformed client token
+   can) left `start` at its zero-value default, restarting at page one
+   instead of terminating.
+
+Both are one root cause read two ways: the resume index should be "the
+matched position, inclusive" (fixing #1), and the miss default should be
+`len(all)`, not `0` (fixing #2). Fixed both helpers identically: on a
+match, `start = i` (was `i + 1`); on a miss, `start` defaults to `len(all)`
+(was `0`).
+
+3 operations affected. Proven by unit tests against each helper directly,
+all failing pre-fix (boundary walk, exact division, and cursor round trip
+all failed due to the off-by-one; tampered-cursor failed separately), and
+by `TestListDatabases_SDKRoundTrip_BoundaryWalkNoDrop` /
+`_TamperedTokenTerminates` (`pagination_sdk_roundtrip_test.go`) through the
+real `aws-sdk-go-v2/service/redshiftdata` client. The existing
+`TestHandler_ListDatabases_NextToken_ResumesFromCursor` only asserted
+`page2[0] != page1[0]`, which is still true when an item is silently
+dropped in between — it would not have caught either bug.
+
+All seven checks pass post-fix. `statementPageStart`/`sessionPageStart`
+(`statements.go`/`sessions.go`) were also read as part of this census: both
+already return `(int, error)` and error on a cursor miss instead of
+defaulting to 0 — the found-flag-equivalent pattern this campaign
+recommends elsewhere — so no change needed there.
+
+Gates: `go build ./services/redshiftdata/...`,
+`go vet ./services/redshiftdata/...` and `go vet ./...` (repo-wide, clean —
+no signature changed), `go test -race -count=1
+./services/redshiftdata/...`, `golangci-lint run ./services/redshiftdata/...`
+(0 issues).
+
+## 2026-08-30 anonymous-struct-decode sweep (gopherstack-4a8v): re-verified clean, no code change
+
+`cmd/reqfieldscan`'s fifth dispatch shape (`service.JSONOpFunc` implemented
+directly with anonymous inline request structs, no `WrapOp`) made this
+service newly visible to that scanner and flagged 25 fields as unread.
+Dispatch coverage: 12/12 (100%), both coverage lines identical, no guard
+warning. The originating bd issue (gopherstack-4a8v) spot-checked
+`ListDatabases`/`ListTables`/`DescribeTable`'s `WorkgroupName`/
+`ClusterIdentifier`/`SecretArn`/`DBUser` fields and called them "genuine,
+not tool noise" — that verdict does NOT survive re-verification against
+this file's own 2026-08-21 audit (`last_audit_commit: ee8d5788f`): every
+one of the 25 flagged fields across `ListDatabases`/`ListSchemas`/
+`ListTables`/`DescribeTable` (`WorkgroupName`/`ClusterIdentifier`/
+`SecretArn`/`DBUser`/`ConnectedDatabase`/`Schema`) is already the
+documented `ops:` gap "accepted-but-unused... this mock's demo
+[list/schema/table/column data] is not per-database/cluster/workgroup,
+consistent with how ClusterIdentifier/WorkgroupName/DbUser/SecretArn are
+already accepted-but-unused identity/auth fields here" (see the
+`ListDatabases`/`ListSchemas`/`ListTables`/`DescribeTable` rows above).
+Confirmed structurally, not just by the comment: `store.go`'s
+`InMemoryBackend`/`regionStore` hold only `statements` (and, via
+`sessions.go`, sessions derived from them) — there is no per-cluster or
+per-workgroup database/schema/table registry to filter against at all, and
+this API family (unlike `ExecuteStatement`'s real `ClusterIdentifier`/
+`WorkgroupName` statement filtering in `statements.go:198,202`, which DOES
+use them) has no Create/Register operation for databases/schemas/tables in
+the real AWS API either — they're a live catalog query against a real
+cluster this mock doesn't have.
+
+The remaining flagged fields (`ListSessions`/`ListStatements.RoleLevel`,
+`ExecuteStatement`/`BatchExecuteStatement.SessionKeepAliveSeconds`,
+`GetStatementResultV2.NextToken`) are likewise pre-existing, already-dated
+`gaps:` entries (RoleLevel: no per-IAM-identity model to filter on;
+SessionKeepAliveSeconds: no session-expiry state machine; NextToken: this
+mock's result sets are always exactly one row, so pagination is a
+structural no-op, the same shape as `GetStatementResult`'s sibling gap).
+
+**No code or test changes made to this service this pass.** All 25 flagged
+fields are honest, already-documented structural limitations, not new
+bugs — restraint per this campaign's own instructions, not a fabricated
+clean bill. This service's earlier A-grade verdict holds.
+
+Gates: not re-run (no change); `go build`/`go vet ./...` confirmed clean as
+part of this session's repo-wide checks.

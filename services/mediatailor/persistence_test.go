@@ -153,7 +153,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ids.programName, prog.ProgramName)
 
-	schedule, _, err := fresh.GetChannelSchedule(ids.channelName, 0, "")
+	schedule, _, err := fresh.GetChannelSchedule(ids.channelName, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, schedule, 1)
 	assert.Equal(t, ids.programName, schedule[0].ProgramName)

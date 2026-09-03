@@ -67,7 +67,6 @@ func fpgaImagesKeyFn(v *FpgaImage) string                          { return v.Fp
 func hostReservationsKeyFn(v *HostReservation) string              { return v.HostReservationID }
 func iamAssociationsKeyFn(v *IamInstanceProfileAssociation) string { return v.AssociationID }
 func imageImportTasksKeyFn(v *ImageImportTask) string              { return v.ImportTaskID }
-func imageUsageReportsKeyFn(v *ImageUsageReport) string            { return v.ImageID }
 func imagesKeyFn(v *AMIStub) string                                { return v.ImageID }
 func instanceConnectEndpointsKeyFn(v *InstanceConnectEndpoint) string {
 	return v.InstanceConnectEndpointID
@@ -436,9 +435,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.imageImportTasks = store.Register(b.registry, "imageImportTasks", store.New(imageImportTasksKeyFn))
-	},
-	func(b *InMemoryBackend) {
-		b.imageUsageReports = store.Register(b.registry, "imageUsageReports", store.New(imageUsageReportsKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.images = store.Register(b.registry, "images", store.New(imagesKeyFn))

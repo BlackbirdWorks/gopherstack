@@ -82,7 +82,7 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 	var req struct {
 		DirectoryID string `json:"DirectoryId"`
 		NextToken   string `json:"NextToken"`
-		PageSize    int32  `json:"PageSize"`
+		Limit       int32  `json:"Limit"`
 	}
 
 	if len(body) > 0 {
@@ -98,7 +98,7 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 	certs, nextToken, listErr := h.Backend.ListCertificates(
 		h.contextWithRegion(c),
 		req.DirectoryID,
-		req.PageSize,
+		req.Limit,
 		req.NextToken,
 	)
 	if listErr != nil {

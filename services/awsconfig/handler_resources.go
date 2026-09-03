@@ -195,15 +195,16 @@ func (h *Handler) handleGetDiscoveredResourceCounts(
 }
 
 // GetAggregateDiscoveredResourceCounts request/response types and handler.
-// Real GetAggregateDiscoveredResourceCountsOutput also echoes the request's
-// GroupByKey and, only when GroupByKey was provided, a GroupedResourceCounts
-// breakdown ("If GroupByKey is not provided, the result will be empty" per
-// api_op_GetAggregateDiscoveredResourceCounts.go) -- GroupByKey is not read
-// from the request at all here, and GroupedResourceCounts is not modeled;
-// this backend has no per-group (account/region) resource-count breakdown
-// surface to source it from without new tracking, so it is disclosed as a
-// gap rather than fabricated. TotalDiscoveredResources ("This member is
-// required") is unaffected by that gap and already correctly cased/emitted.
+// GroupByKey is echoed back per api_op_GetAggregateDiscoveredResourceCounts.go
+// ("The key passed into the request object"), but the real
+// GroupedResourceCounts breakdown is not modeled: this backend has no
+// per-group (account/region) resource-count breakdown surface to source it
+// from without new tracking, so it is disclosed as a gap rather than
+// fabricated. TotalDiscoveredResources ("This member is required") is
+// unaffected by that gap and already correctly cased/emitted.
+// ConfigurationAggregatorName ("This member is required") is validated
+// against the store's aggregators (NoSuchConfigurationAggregatorException),
+// matching every other aggregate-* op.
 type getAggregateDiscoveredResourceCountsInput struct {
 	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
 	GroupByKey                  string `json:"GroupByKey,omitempty"`
@@ -216,9 +217,14 @@ type getAggregateDiscoveredResourceCountsOutput struct {
 func (h *Handler) handleGetAggregateDiscoveredResourceCounts(
 	_ context.Context, in *getAggregateDiscoveredResourceCountsInput,
 ) (*getAggregateDiscoveredResourceCountsOutput, error) {
+	count, err := h.Backend.GetAggregateDiscoveredResourceCounts(in.ConfigurationAggregatorName)
+	if err != nil {
+		return nil, err
+	}
+
 	return &getAggregateDiscoveredResourceCountsOutput{
 		GroupByKey:               in.GroupByKey,
-		TotalDiscoveredResources: h.Backend.GetAggregateDiscoveredResourceCounts(),
+		TotalDiscoveredResources: count,
 	}, nil
 }
 

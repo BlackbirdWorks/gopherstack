@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -42,8 +43,22 @@ func validLookupTableName(name string) bool {
 	return true
 }
 
-func (b *InMemoryBackend) lookupTableARN(name string) string {
-	return arn.Build("logs", b.region, b.accountID, "lookup-table:"+name)
+func (b *InMemoryBackend) lookupTableARN(region, name string) string {
+	return arn.Build("logs", region, b.accountID, "lookup-table:"+name)
+}
+
+// lookupTableARNRegion extracts the region segment (arn:partition:service:region:...)
+// from a lookup table ARN built by lookupTableARN. pkgs/arn has no parser (Build only),
+// so this is a local, minimal complement rather than a shared/generic ARN parser.
+const arnRegionSegment = 3
+
+func lookupTableARNRegion(lookupTableArn string) string {
+	parts := strings.Split(lookupTableArn, ":")
+	if len(parts) <= arnRegionSegment {
+		return ""
+	}
+
+	return parts[arnRegionSegment]
 }
 
 // parseLookupTableCSV parses a lookup table's CSV content into its header
@@ -168,6 +183,7 @@ func (b *InMemoryBackend) lookupTableBodyFromQuery(queryID string) (string, erro
 // comment in models.go for why this backend stores/parses TableBody directly
 // rather than referencing S3).
 func (b *InMemoryBackend) CreateLookupTable(
+	ctx context.Context,
 	name, tableBody, description, kmsKeyID, queryID string,
 ) (*LookupTable, error) {
 	if name == "" {
@@ -194,7 +210,8 @@ func (b *InMemoryBackend) CreateLookupTable(
 	b.mu.Lock("CreateLookupTable")
 	defer b.mu.Unlock()
 
-	tableArn := b.lookupTableARN(name)
+	region := getRegion(ctx, b.region)
+	tableArn := b.lookupTableARN(region, name)
 	if b.lookupTables.Has(tableArn) {
 		return nil, fmt.Errorf("%w: lookup table %s already exists", ErrLookupTableAlreadyExists, name)
 	}
@@ -309,14 +326,19 @@ func (b *InMemoryBackend) DeleteLookupTable(lookupTableArn string) error {
 // which has no such field), optionally filtered by name prefix, with
 // pagination.
 func (b *InMemoryBackend) DescribeLookupTables(
+	ctx context.Context,
 	namePrefix, nextToken string, limit int,
 ) ([]LookupTable, string) {
 	b.mu.RLock("DescribeLookupTables")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
 	all := make([]LookupTable, 0, b.lookupTables.Len())
 
 	for _, t := range b.lookupTables.All() {
+		if lookupTableARNRegion(t.LookupTableArn) != region {
+			continue
+		}
 		if namePrefix == "" || strings.HasPrefix(t.LookupTableName, namePrefix) {
 			all = append(all, *t)
 		}

@@ -568,6 +568,7 @@ func TestRestoreDBInstanceFromS3(t *testing.T) {
 			got, err := b.RestoreDBInstanceFromS3(
 				p.id, p.engine, p.dbInstanceClass, p.s3Bucket,
 				p.s3IngestionRoleArn, p.sourceEngine, p.sourceEngineVersion,
+				"", "",
 			)
 			if tt.wantErr {
 				require.Error(t, err)

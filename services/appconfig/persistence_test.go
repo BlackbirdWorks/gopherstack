@@ -117,7 +117,7 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	strategy, err := b.CreateDeploymentStrategy("strategy-1", "a strategy", 10, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
-	deployment, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "a deployment")
+	deployment, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "a deployment", nil, nil, nil)
 	require.NoError(t, err)
 
 	ext, err := b.CreateExtension("ext-1", "an extension", nil, nil, nil)
@@ -227,7 +227,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	require.NoError(t, err)
 	assert.Equal(t, seed.profile.Name, gotProfile.Name)
 
-	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", 0)
+	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, profileItems, 2, "seedFullState creates the freeform profile plus a feature-flag profile")
 }
@@ -309,6 +309,7 @@ func assertDeploymentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacke
 	// deploymentCounters survived: the next deployment must be number 2.
 	newDeployment, err := fresh.StartDeployment(
 		seed.app.ID, seed.env.ID, seed.profile.ID, seed.strategy.ID, "1", "second deployment",
+		nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, seed.deployment.DeploymentNumber+1, newDeployment.DeploymentNumber)
@@ -330,7 +331,7 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 	require.NoError(t, err)
 	assert.Equal(t, seed.assoc.ResourceArn, gotAssoc.ResourceArn)
 
-	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0)
+	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0, 0)
 	assert.Len(t, assocItems, 1)
 }
 

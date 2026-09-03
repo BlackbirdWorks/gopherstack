@@ -178,7 +178,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 // DescribeDBClusterParameters returns the parameters for a DB cluster parameter group.
 func (b *InMemoryBackend) DescribeDBClusterParameters(
 	ctx context.Context,
-	groupName string,
+	groupName, source string,
 ) ([]DBClusterParameter, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusterParameters")
@@ -200,6 +200,10 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 				p.ParameterValue = v
 				p.Source = "user"
 			}
+		}
+
+		if source != "" && p.Source != source {
+			continue
 		}
 
 		params = append(params, p)

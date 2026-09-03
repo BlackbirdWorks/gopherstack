@@ -185,7 +185,7 @@ func paginateParameters(all []*Parameter, maxResults int, nextToken string) ([]*
 	start := 0
 	if nextToken != "" {
 		idx, err := strconv.Atoi(nextToken)
-		if err == nil && idx >= 0 && idx < len(all) {
+		if err == nil && idx >= 0 {
 			start = idx
 		}
 	}

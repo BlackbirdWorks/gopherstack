@@ -24,6 +24,14 @@ func (b *InMemoryBackend) connectionHasReferenceToHostLocked(region, hostArn str
 }
 
 // CreateHost creates a new CodeStar host.
+//
+// The validation below (ErrValidation, wire InvalidInputException) has no
+// correct declared type to send: this op's own switch
+// (codestarconnections@v1.38.4 deserializers.go
+// deserializeOpErrorCreateHost) is exactly [LimitExceededException] -- no
+// InvalidInputException, and no ValidationException equivalent exists
+// anywhere in this SDK module. Recorded, not fixed (gopherstack-6flj/uox6
+// error-envelope sweep).
 func (b *InMemoryBackend) CreateHost(
 	ctx context.Context,
 	name, providerType, providerEndpoint string,
@@ -156,6 +164,14 @@ func (b *InMemoryBackend) UpdateHost(
 	hostArn, providerEndpoint string,
 	vpcConfig *VpcConfiguration,
 ) error {
+	// UpdateHost's own error switch (codestarconnections@v1.38.4
+	// deserializers.go) declares ConflictException/ResourceNotFoundException/
+	// ResourceUnavailableException/UnsupportedOperationException -- no
+	// InvalidInputException and no ValidationException equivalent exists
+	// anywhere in this SDK module. No correct code exists to send for a
+	// too-long ProviderEndpoint; ErrValidation (wrong for this op) is left
+	// rather than substituted with an equally-wrong declared code
+	// (gopherstack-6flj/uox6 error-envelope sweep).
 	if providerEndpoint != "" && len(providerEndpoint) > maxProviderEndpointLen {
 		return fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters", ErrValidation, maxProviderEndpointLen)
 	}

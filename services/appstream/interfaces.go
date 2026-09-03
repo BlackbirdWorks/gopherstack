@@ -109,10 +109,10 @@ type StorageBackend interface {
 	CreateImportedImage(name, description string, tags map[string]string) (*Image, error)
 	CreateUpdatedImage(imageName, newImageName, description string) (*Image, error)
 	DeleteImage(name string) (*Image, error)
-	DescribeImages(names []string) ([]*Image, error)
+	DescribeImages(names []string, visibilityType string) ([]*Image, error)
 	UpdateImagePermissions(imageName, accountID string, allowFleet, allowImageBuilder bool) error
 	DeleteImagePermissions(imageName, accountID string) error
-	DescribeImagePermissions(imageName string) ([]*SharedImagePermissions, error)
+	DescribeImagePermissions(imageName string, sharedAwsAccountIDs []string) ([]*SharedImagePermissions, error)
 
 	// ImageBuilders
 	CreateImageBuilder(name, description, platform, instanceType string, tags map[string]string) (*ImageBuilder, error)
@@ -137,7 +137,7 @@ type StorageBackend interface {
 	ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error)
 
 	// UsageReportSubscriptions
-	CreateUsageReportSubscription(schedule, s3Bucket string) (*UsageReportSubscription, error)
+	CreateUsageReportSubscription() (*UsageReportSubscription, error)
 	DeleteUsageReportSubscription() error
 	DescribeUsageReportSubscriptions() ([]*UsageReportSubscription, error)
 
@@ -153,7 +153,7 @@ type StorageBackend interface {
 	UpdateThemeForStack(stackName string, opts ThemeUpdateOptions) (*Theme, error)
 
 	// Users
-	CreateUser(userName, email, firstName, lastName, authType string) (*User, error)
+	CreateUser(userName, firstName, lastName, authType string) (*User, error)
 	DeleteUser(userName, authType string) error
 	DescribeUsers(authType string) ([]*User, error)
 	DisableUser(userName, authType string) error
@@ -165,7 +165,7 @@ type StorageBackend interface {
 	DescribeUserStackAssociations(stackName, userName, authType string) ([]*UserStackAssociation, error)
 
 	// Sessions
-	DescribeSessions(stackName, fleetName, userID string) ([]*Session, error)
+	DescribeSessions(stackName, fleetName, userID, authenticationType string) ([]*Session, error)
 	DrainSessionInstance(sessionID string) error
 	ExpireSession(sessionID string) error
 	CreateStreamingURL(stackName, fleetName, userID string, validitySeconds int64) (string, time.Time, error)
@@ -416,11 +416,15 @@ type ThemeUpdateOptions struct {
 }
 
 // User is an AppStream UserPool user.
+//
+// Real AppStream has no separate Email member on CreateUserInput or
+// types.User -- UserName IS the user's email address (aws-sdk-go-v2
+// appstream@v1.64.5 api_op_CreateUser.go's UserName doc: "The email address
+// of the user").
 type User struct {
 	CreatedTime        time.Time
 	UserName           string
 	Arn                string
-	Email              string
 	FirstName          string
 	LastName           string
 	AuthenticationType string
