@@ -6,18 +6,20 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 // azureBlobVersion is the x-ms-version value echoed on every response. It is
@@ -48,15 +50,27 @@ const (
 type Handler struct {
 	Backend  StorageBackend
 	Endpoint string // e.g. "http://127.0.0.1:10000" -- used to build ServiceEndpoint in list responses
-	Port     int
 
-	srvMu sync.Mutex
+	// Port is the TCP port StartWorker binds. Set from Settings at Init time
+	// (see provider.go); defaults to DefaultPort. Unlike a per-resource
+	// ephemeral allocation, this is a single fixed, protocol-conventional
+	// port (mirroring services/iot's MQTT broker) -- there is no fallback
+	// pool, so StartWorker fails fast if it's unavailable rather than
+	// silently binding a different port.
+	Port int
+
+	srvMu *lockmetrics.RWMutex
 	srv   *http.Server
 }
 
-// NewHandler creates a new Azure Blob Handler.
+// NewHandler creates a new Azure Blob Handler. Port defaults to DefaultPort;
+// callers (typically provider.go) override it from Settings.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend, Port: DefaultPort}
+	return &Handler{
+		Backend: backend,
+		Port:    DefaultPort,
+		srvMu:   lockmetrics.New("azureblob.server"),
+	}
 }
 
 var (
@@ -85,11 +99,12 @@ func (h *Handler) GetSupportedOperations() []string {
 // RouteMatcher exists only to satisfy service.Registerable's interface
 // contract: AzureBlob deliberately never matches on the shared AWS
 // single-port Router. It runs on its own dedicated listener started by
-// StartWorker (see provider.go for the full rationale). cli.go's service
-// registration list is not (yet) wired to this provider at all -- that is a
-// deferred integration step for a human to do once pkgs/azureauth also
-// lands, so this matcher is effectively dead code today, kept only so
-// *Handler satisfies service.Registerable.
+// StartWorker (see provider.go for the full rationale). AzureBlob's
+// Provider IS registered in cli.go's getMostRecentServiceProviders like
+// every other service -- startBackgroundWorkers calls StartWorker via the
+// service.BackgroundWorker interface regardless of routing, which is how
+// the dedicated listener comes up. Only RouteMatcher itself is inert, kept
+// so *Handler satisfies service.Registerable.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(*echo.Context) bool { return false }
 }
@@ -175,8 +190,8 @@ func (h *Handler) checkAuth(r *http.Request) {
 // response, success or error.
 func (h *Handler) setCommonHeaders(c *echo.Context) {
 	hdr := c.Response().Header()
-	hdr.Set("x-ms-version", azureBlobVersion)
-	hdr.Set("x-ms-request-id", newRequestID())
+	hdr.Set("X-Ms-Version", azureBlobVersion)
+	hdr.Set("X-Ms-Request-Id", newRequestID())
 	hdr.Set("Date", time.Now().UTC().Format(http.TimeFormat))
 }
 
@@ -273,7 +288,7 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 			Name: ci.Name,
 			Properties: containerProperties{
 				LastModified: ci.CreatedAt.Format(http.TimeFormat),
-				Etag:         computeETag([]byte(ci.Name + ci.CreatedAt.String())),
+				Etag:         computeContainerETag(ci.Name, ci.CreatedAt),
 			},
 		})
 	}
@@ -372,7 +387,7 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 	r := c.Request()
 
-	if r.Header.Get("x-ms-blob-type") != blockBlobType {
+	if r.Header.Get("X-Ms-Blob-Type") != blockBlobType {
 		return h.writeError(c, http.StatusBadRequest, "InvalidHeaderValue",
 			"The value for one of the HTTP headers is not in the correct format "+
 				"(x-ms-blob-type must be BlockBlob; only block blobs are supported).")
@@ -464,7 +479,7 @@ func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr.Set("ETag", info.ETag)
 	hdr.Set("Last-Modified", info.LastModified.Format(http.TimeFormat))
 	hdr.Set("Content-Length", strconv.FormatInt(info.ContentLength, 10))
-	hdr.Set("x-ms-blob-type", blockBlobType)
+	hdr.Set("X-Ms-Blob-Type", blockBlobType)
 	hdr.Set("Accept-Ranges", "bytes")
 
 	if info.ContentType != "" {
@@ -557,39 +572,80 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 	return h.writeXML(c, status, azureError{Code: code, Message: message})
 }
 
-// StartWorker starts the dedicated Blob listener on h.Port. See provider.go's
-// Provider doc comment for why AzureBlob needs its own listener instead of
-// registering into the shared AWS Router.
-func (h *Handler) StartWorker(ctx context.Context) error {
-	e := echo.New()
-	e.Any("/*", h.Handler())
+// Timeouts for the dedicated Blob http.Server. ReadHeaderTimeout alone only
+// bounds how long a client may take to send headers; without ReadTimeout and
+// IdleTimeout a slow-body client (e.g. a stalled PUT blob upload) or a client
+// that opens a connection and never closes it can hold a handler goroutine
+// and connection open indefinitely (a Slowloris-style resource exhaustion).
+// WriteTimeout is deliberately not set: it would bound the full
+// request-to-response-complete duration, which for a large GetBlob download
+// depends on the client's own read rate, not just server-side work.
+const (
+	azureBlobReadHeaderTimeout = 10 * time.Second
+	azureBlobReadTimeout       = 60 * time.Second
+	azureBlobIdleTimeout       = 120 * time.Second
+)
 
-	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", h.Port),
-		Handler:           e,
-		ReadHeaderTimeout: 10 * time.Second, //nolint:mnd // matches cli.go's defaultReadHeaderTimeout intent
+// StartWorker binds the dedicated Blob listener and starts serving on it.
+// See provider.go's Provider doc comment for why AzureBlob needs its own
+// listener instead of registering into the shared AWS Router.
+//
+// Binding is synchronous: net.Listen returns before StartWorker does, so a
+// bind failure is returned to the caller directly instead of only being
+// logged from the background goroutine after startup has already reported
+// success. This mirrors services/iot's MQTT broker (services/iot/broker.go),
+// gopherstack's existing precedent for a service with a fixed,
+// protocol-conventional default port: bind exactly the configured port
+// (h.Port, from Settings -- see settings.go/provider.go) and fail fast if
+// that's unavailable, rather than silently falling back into the shared
+// --port-range-start/--port-range-end PortAlloc pool used for on-demand
+// ephemeral resources elsewhere (Lambda function URLs, ElastiCache). A
+// fallback there would be just as surprising as picking a different default
+// port number outright: either way, an SDK relying on the well-known default
+// (UseDevelopmentStorage=true-style config) would silently end up talking to
+// the wrong port. Failing fast surfaces the conflict instead.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", h.Port))
+	if err != nil {
+		return fmt.Errorf("azureblob: bind port %d: %w", h.Port, err)
 	}
 
-	h.srvMu.Lock()
+	e := echo.New()
+	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
+	e.Any("/*", telemetry.WrapEchoHandler("AzureBlob", h.Handler(), h))
+
+	srv := &http.Server{
+		Handler:           e,
+		ReadHeaderTimeout: azureBlobReadHeaderTimeout,
+		ReadTimeout:       azureBlobReadTimeout,
+		IdleTimeout:       azureBlobIdleTimeout,
+	}
+
+	h.srvMu.Lock("StartWorker")
 	h.srv = srv
 	h.srvMu.Unlock()
 
-	log := logger.Load(ctx)
+	workerCtx := logger.WithWorker(ctx, "azureblob", "listener")
+	log := logger.Load(workerCtx)
+
+	log.InfoContext(workerCtx, "azureblob: starting dedicated listener", "port", h.Port)
 
 	go func() {
-		log.InfoContext(ctx, "azureblob: starting dedicated listener", "port", h.Port)
-
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.ErrorContext(ctx, "azureblob: listener stopped", "error", err)
+		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.ErrorContext(workerCtx, "azureblob: listener stopped", "error", serveErr)
 		}
 	}()
 
 	return nil
 }
 
-// Shutdown stops the dedicated Blob listener.
+// Shutdown stops the dedicated Blob listener. A graceful Shutdown error
+// (e.g. its context expiring before active connections finish) is logged
+// and followed by Close, which forcibly closes the listener and any
+// remaining idle/active connections; any Close error is logged too rather
+// than leaving the listener to leak silently.
 func (h *Handler) Shutdown(ctx context.Context) {
-	h.srvMu.Lock()
+	h.srvMu.Lock("Shutdown")
 	srv := h.srv
 	h.srv = nil
 	h.srvMu.Unlock()
@@ -598,5 +654,13 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		return
 	}
 
-	_ = srv.Shutdown(ctx)
+	log := logger.Load(ctx)
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.ErrorContext(ctx, "azureblob: graceful shutdown failed, forcing close", "error", err)
+
+		if closeErr := srv.Close(); closeErr != nil {
+			log.ErrorContext(ctx, "azureblob: forced close also failed", "error", closeErr)
+		}
+	}
 }
