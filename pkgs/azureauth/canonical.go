@@ -126,6 +126,23 @@ func CanonicalizedHeaders(r *http.Request) string {
 	return b.String()
 }
 
+// stripAccountPathSegment removes a leading "/<account>" path segment from
+// path, if present as a full segment (i.e. followed by "/" or end of
+// string). A path that merely starts with the account name as a substring
+// of a longer segment (e.g. account "acct" against path "/acctfoo") is left
+// untouched.
+func stripAccountPathSegment(path, account string) string {
+	prefix := "/" + account
+	if path == prefix {
+		return ""
+	}
+	if rest, ok := strings.CutPrefix(path, prefix+"/"); ok {
+		return "/" + rest
+	}
+
+	return path
+}
+
 // collapseWhitespace trims leading/trailing whitespace and collapses any
 // internal run of whitespace to a single space.
 func collapseWhitespace(s string) string {
@@ -136,12 +153,22 @@ func collapseWhitespace(s string) string {
 // request against account: "/<account><path>" followed by each query
 // parameter, lowercased and sorted by name, rendered as "\nname:value" with
 // repeated-parameter values comma-joined after sorting.
+//
+// gopherstack, like Azurite, serves path-style requests whose URL already
+// starts with "/<account>/..." (real Azure serves the account as a
+// subdomain instead, so the URL path never contains it). Real SDKs know
+// which style they're signing for and build the canonicalized resource as
+// "/<account>" plus the resource path with any such account segment
+// removed, so that a path-style request and an equivalent subdomain-style
+// request sign identically; this strips a leading "/<account>" path segment
+// before applying that formula so signatures computed here match what an
+// Azurite-targeting SDK actually sends.
 func CanonicalizedResource(account string, u *url.URL) string {
 	var b strings.Builder
 
 	b.WriteByte('/')
 	b.WriteString(account)
-	b.WriteString(u.EscapedPath())
+	b.WriteString(stripAccountPathSegment(u.EscapedPath(), account))
 
 	query := u.Query()
 	lowered := make(map[string][]string, len(query))
