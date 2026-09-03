@@ -25,6 +25,12 @@ func allowedWeakHashFiles() map[string]string {
 		// checksum echoed on the wire, never a credential. gopherstack-ziv9.
 		"services/ssm/document_hashes.go": "DocumentDescription.Sha1 parity, verified",
 
+		// Azure Blob's Content-MD5/ETag are MD5 by specification (same as S3's
+		// ETag, already allowlisted below) -- a content-integrity fingerprint
+		// echoed on the wire so azure-sdk-for-go's blob client can validate
+		// upload/download integrity, never a credential or security hash.
+		"services/azureblob/store.go": "Content-MD5/ETag generation, Azure Blob wire-protocol requirement, verified",
+
 		// Pre-existing at the time this guard was added, and NOT individually
 		// audited. Each is presumed an AWS-protocol requirement -- S3 ETags are
 		// MD5 by specification, TOTP is HMAC-SHA1 by RFC 6238, key-pair
