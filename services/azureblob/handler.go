@@ -51,6 +51,9 @@ type Handler struct {
 	Backend  StorageBackend
 	Endpoint string // e.g. "http://127.0.0.1:10000" -- used to build ServiceEndpoint in list responses
 
+	srvMu *lockmetrics.RWMutex
+	srv   *http.Server
+
 	// Port is the TCP port StartWorker binds. Set from Settings at Init time
 	// (see provider.go); defaults to DefaultPort. Unlike a per-resource
 	// ephemeral allocation, this is a single fixed, protocol-conventional
@@ -58,9 +61,6 @@ type Handler struct {
 	// pool, so StartWorker fails fast if it's unavailable rather than
 	// silently binding a different port.
 	Port int
-
-	srvMu *lockmetrics.RWMutex
-	srv   *http.Server
 }
 
 // NewHandler creates a new Azure Blob Handler. Port defaults to DefaultPort;
@@ -206,53 +206,105 @@ func newRequestID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16])
 }
 
+// maxPathSegments bounds splitPath's strings.SplitN call: account, container,
+// and everything else as blob (blob names may contain "/" themselves).
+const maxPathSegments = 3
+
+// blobSegmentIndex is the index (and, as a length check, the minimum part
+// count) at which a blob segment is present in splitPath's parts slice.
+const blobSegmentIndex = 2
+
 // splitPath splits an Azure Blob REST path ("/<account>/<container>/<blob>")
 // into its three components. blob may itself contain "/" (Azure blob names
 // may include virtual-directory separators), so it is never split further.
-func splitPath(p string) (account, container, blob string) {
+func splitPath(p string) (string, string, string) {
 	p = strings.TrimPrefix(p, "/")
 	if p == "" {
 		return "", "", ""
 	}
 
-	parts := strings.SplitN(p, "/", 3)
-	account = parts[0]
+	parts := strings.SplitN(p, "/", maxPathSegments)
+	account := parts[0]
+
+	var container, blob string
 
 	if len(parts) > 1 {
 		container = parts[1]
 	}
 
-	if len(parts) > 2 {
-		blob = parts[2]
+	if len(parts) > blobSegmentIndex {
+		blob = parts[blobSegmentIndex]
 	}
 
 	return account, container, blob
 }
 
+// Query-parameter names and values shared by operationFor and the actual
+// request handlers (handleAccountLevel/handleContainerLevel).
+const (
+	queryRestype = "restype"
+	queryComp    = "comp"
+
+	restypeContainer = "container"
+	compList         = "list"
+)
+
 // operationFor determines the Azure Blob operation name for a request, for
 // metrics labeling. Mirrors the dispatch logic in handleAccountLevel/
-// handleContainerLevel/handleBlobLevel without side effects.
+// handleContainerLevel/handleBlobLevel without side effects. Split into one
+// helper per path level (account/container/blob) to keep each branch small.
 func operationFor(r *http.Request) string {
 	_, container, blob := splitPath(r.URL.Path)
-	restype := r.URL.Query().Get("restype")
-	comp := r.URL.Query().Get("comp")
 
 	switch {
-	case container == "" && r.Method == http.MethodGet && comp == "list":
+	case blob != "":
+		return blobOperationFor(r.Method)
+	case container != "":
+		return containerOperationFor(r)
+	default:
+		return accountOperationFor(r)
+	}
+}
+
+// accountOperationFor covers the one account-level operation, List
+// Containers (GET /<account>?comp=list).
+func accountOperationFor(r *http.Request) string {
+	if r.Method == http.MethodGet && r.URL.Query().Get(queryComp) == compList {
 		return opListContainers
-	case blob == "" && r.Method == http.MethodPut && restype == "container":
+	}
+
+	return unknownOperation
+}
+
+// containerOperationFor covers the three container-scoped operations:
+// Create Container, Delete Container, and List Blobs.
+func containerOperationFor(r *http.Request) string {
+	restype := r.URL.Query().Get(queryRestype)
+	comp := r.URL.Query().Get(queryComp)
+
+	switch {
+	case r.Method == http.MethodPut && restype == restypeContainer:
 		return opCreateContainer
-	case blob == "" && r.Method == http.MethodDelete && restype == "container":
+	case r.Method == http.MethodDelete && restype == restypeContainer:
 		return opDeleteContainer
-	case blob == "" && r.Method == http.MethodGet && restype == "container" && comp == "list":
+	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
 		return opListBlobs
-	case blob != "" && r.Method == http.MethodPut:
+	default:
+		return unknownOperation
+	}
+}
+
+// blobOperationFor covers the four blob-scoped operations, dispatched purely
+// by HTTP method (mirrors handleBlobLevel).
+func blobOperationFor(method string) string {
+	switch method {
+	case http.MethodPut:
 		return opPutBlob
-	case blob != "" && r.Method == http.MethodGet:
+	case http.MethodGet:
 		return opGetBlob
-	case blob != "" && r.Method == http.MethodHead:
+	case http.MethodHead:
 		return opGetBlobProperties
-	case blob != "" && r.Method == http.MethodDelete:
+	case http.MethodDelete:
 		return opDeleteBlob
 	default:
 		return unknownOperation
@@ -272,7 +324,7 @@ func (h *Handler) serviceEndpoint() string {
 // handleAccountLevel serves GET /<account>?comp=list (List Containers).
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
-	if r.Method != http.MethodGet || c.QueryParam("comp") != "list" {
+	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")
 	}
@@ -300,15 +352,15 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 // Container, Delete Container, and List Blobs.
 func (h *Handler) handleContainerLevel(c *echo.Context, container string) error {
 	r := c.Request()
-	restype := c.QueryParam("restype")
-	comp := c.QueryParam("comp")
+	restype := c.QueryParam(queryRestype)
+	comp := c.QueryParam(queryComp)
 
 	switch {
-	case r.Method == http.MethodPut && restype == "container":
+	case r.Method == http.MethodPut && restype == restypeContainer:
 		return h.createContainer(c, container)
-	case r.Method == http.MethodDelete && restype == "container":
+	case r.Method == http.MethodDelete && restype == restypeContainer:
 		return h.deleteContainer(c, container)
-	case r.Method == http.MethodGet && restype == "container" && comp == "list":
+	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
 		return h.listBlobs(c, container)
 	default:
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
@@ -500,7 +552,7 @@ func contentTypeOrDefault(ct string) string {
 // resource of the given size. Only a single range is supported (Azure Get
 // Blob does not support multi-range requests). Returns ok=false if the
 // header is absent, malformed, or unsatisfiable for size.
-func parseRange(header string, size int64) (start, end int64, ok bool) {
+func parseRange(header string, size int64) (int64, int64, bool) {
 	const prefix = "bytes="
 
 	spec, found := strings.CutPrefix(header, prefix)
@@ -542,7 +594,7 @@ func parseRange(header string, size int64) (start, end int64, ok bool) {
 		return start, size - 1, true
 	}
 
-	end, err = strconv.ParseInt(after, 10, 64)
+	end, err := strconv.ParseInt(after, 10, 64)
 	if err != nil || end < start {
 		return 0, 0, false
 	}
@@ -605,7 +657,9 @@ const (
 // (UseDevelopmentStorage=true-style config) would silently end up talking to
 // the wrong port. Failing fast surfaces the conflict instead.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", h.Port))
+	var listenConfig net.ListenConfig
+
+	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
 	if err != nil {
 		return fmt.Errorf("azureblob: bind port %d: %w", h.Port, err)
 	}
