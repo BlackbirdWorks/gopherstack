@@ -1881,6 +1881,17 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	}
 }
 
+// setupPortAllocatorWithReservations builds the shared port allocator and
+// reserves any fixed ports services bind directly (see
+// reserveFixedServicePorts) before anything else can Acquire from it.
+// Extracted from run() to keep both steps as a single statement there.
+func setupPortAllocatorWithReservations(ctx context.Context, log *slog.Logger, cli CLI) *portalloc.Allocator {
+	alloc := setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
+	reserveFixedServicePorts(ctx, log, alloc, cli)
+
+	return alloc
+}
+
 // run starts the server with the given CLI configuration.
 // It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(ctx context.Context, cli CLI) error {
@@ -1904,8 +1915,7 @@ func run(ctx context.Context, cli CLI) error {
 	)
 
 	// --- Port allocator ---
-	cli.portAlloc = setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
-	reserveFixedServicePorts(ctx, log, cli.portAlloc, cli)
+	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
