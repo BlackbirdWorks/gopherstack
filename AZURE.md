@@ -1,6 +1,6 @@
 # Azure Support Implementation Plan for gopherstack
 
-Repo cloned and inspected at `/private/tmp/claude-503/-Users-jacob-hochstetler-Code/926630d2-46b5-4853-a931-b4ea837b9658/scratchpad/gopherstack` (module `github.com/blackbirdworks/gopherstack`, GitHub `jh125486/gopherstack`). Findings below are grounded in that source (paths cited); Azure/Azurite mechanics are standard public documentation.
+Findings below are grounded in this repository's own source (paths cited throughout are repo-relative); Azure/Azurite mechanics are standard public documentation.
 
 ## 1. How gopherstack is built today (relevant facts)
 
@@ -53,6 +53,8 @@ gopherstack's flagship pattern is single-port, priority-matcher multiplexing —
 
 **Recommendation: give each Azure service its own port, mirroring Azurite's own 10000/10001/10002 convention (and Cosmos its own port, mirroring the real emulator's fixed 8081 default).** This is *more* wire-compatible, not less, since SDKs' default connection strings/emulator constants already assume separate ports. gopherstack already has the machinery for this — `AppContext.PortAlloc *portalloc.Allocator` is used elsewhere (e.g. EC2-docker SSH port ranges) for per-resource port allocation, so per-service dedicated listeners are an established pattern, not a new one. Each Azure service's `Provider.Init` stands up its own `echo.Echo` (or shares Echo's engine but binds a second listener), independent of the AWS `Router`.
 
+**On the specific port-selection mechanism (raised in M0 review):** the right model to copy here isn't Azurite's own multi-port convention (10000/10001/10002) or an arbitrary "main port + 1" scheme — it's gopherstack's own existing precedent for a service with a fixed, protocol-conventional port: `services/iot`'s MQTT broker (`services/iot/broker.go`), which hardcodes MQTT's real default (`1883`) and, if that bind fails, simply fails fast rather than silently picking a different port. Azure Blob follows the same pattern: `Settings.Port` (default `10000`, Azurite's own Blob port, overridable via `--azure-blob-port`/`AZURE_BLOB_PORT`) is bound synchronously in `StartWorker`, with **no** fallback into the shared `--port-range-start`/`--port-range-end` `PortAlloc` pool that other resources (Lambda function URLs, ElastiCache) draw ephemeral ports from. A silent fallback would be just as surprising as inventing a different default number: either way, an SDK relying on the well-known default (`UseDevelopmentStorage=true`-style config, with zero further configuration) would end up silently talking to the wrong port. Failing fast with a clear "port already in use" error is simpler, matches the repo's own MQTT precedent, and — since `10000` is never drawn from the `PortAlloc` pool by this design — completely avoids the pool ever double-booking it, without needing any coordination between the two.
+
 ## 5. Auth/connection-string strategy per service
 
 - **Blob/Queue/Table**: default to the fixed Azurite account name/key pair (`devstoreaccount1` / the published emulator key) so `UseDevelopmentStorage=true` and unmodified Azurite-targeting SDK config work out of the box. `Authorization: SharedKey ...` headers are parsed structurally (account name extraction for routing/logging); cryptographic verification is opt-in via a `WithSharedKeyValidation` toggle — directly mirroring `services/s3`'s `PresignSecret`/`WithPresignValidation` opt-in pattern. Env var overrides (`AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_KEY`) for anyone who wants a non-default identity.
@@ -75,7 +77,7 @@ gopherstack's flagship pattern is single-port, priority-matcher multiplexing —
 
 ## 8. Milestones
 
-- **M0** — `pkgs/azureauth` (SharedKey canonicalization + fixed devstoreaccount1 constants); `services/azureblob` skeleton wired to its own port via `PortAlloc`; Create/Delete/List Container, Put/Get/Delete Blob, List Blobs; seeded `PARITY.md`; unit tests + one Go integration test.
+- **M0 (done)** — `pkgs/azureauth` (SharedKey canonicalization + fixed devstoreaccount1 constants); `services/azureblob` wired into `cli.go` and bound to its own fixed port (synchronous bind, fail-fast, no `PortAlloc` fallback — see section 4's port-selection note); Create/Delete/List Container, Put/Get/Delete Blob, List Blobs; `PARITY.md`; unit tests + Go integration tests using `azure-sdk-for-go`. See `services/azureblob/README.md`/`PARITY.md` for current status and known gaps.
 - **M1** — Blob completeness: properties/metadata, block-blob multipart (Put Block/Put Block List), conditional headers (`If-Match`/`If-None-Match`), error-mapping table (mirrors `services/sqs`'s `errorDetails` pattern).
 - **M2** — `services/azurequeue`: full CRUD + message lifecycle (put/get/peek/delete/update/clear), visibility timeout.
 - **M3** — `services/azuretable`: table CRUD, entity insert/get/query/update/merge/delete, `$filter` subset (eq/ne/lt/gt/and/or on partition/row key plus scalar properties), ETag-based optimistic concurrency.
@@ -84,11 +86,12 @@ gopherstack's flagship pattern is single-port, priority-matcher multiplexing —
 
 ## Key files referenced
 
-- `/private/tmp/.../gopherstack/pkgs/service/service.go`, `router.go`, `priorities.go` — routing/registration contracts
-- `/private/tmp/.../gopherstack/services/s3/provider.go`, `sigv4.go`, `persistence.go` — provider pattern, auth-opt-in pattern, snapshot pattern
-- `/private/tmp/.../gopherstack/services/sqs/handler.go`, `provider.go` — handler/dispatch pattern, error-table pattern
-- `/private/tmp/.../gopherstack/services/dynamodb/expr/` — expression-parser precedent for Table Storage's `$filter`
-- `/private/tmp/.../gopherstack/services/s3/select_sql_*.go` — SQL-parser precedent for Cosmos queries
-- `/private/tmp/.../gopherstack/cli.go` (`getServiceProviders`) — service registration list
-- `/private/tmp/.../gopherstack/test/integration/sqs_test.go` — integration test convention
-- `/private/tmp/.../gopherstack/services/sqs/PARITY.md`, `README.md` — parity-doc format
+- `pkgs/service/service.go`, `router.go`, `priorities.go` — routing/registration contracts
+- `services/s3/provider.go`, `sigv4.go`, `persistence.go` — provider pattern, auth-opt-in pattern, snapshot pattern
+- `services/sqs/handler.go`, `provider.go` — handler/dispatch pattern, error-table pattern
+- `services/dynamodb/expr/` — expression-parser precedent for Table Storage's `$filter`
+- `services/s3/select_sql_*.go` — SQL-parser precedent for Cosmos queries
+- `cli.go` (`getServiceProviders`) — service registration list
+- `test/integration/sqs_test.go` — integration test convention
+- `services/sqs/PARITY.md`, `README.md` — parity-doc format
+- `services/azureblob/` (implemented, M0) — see section 8's M0 entry and `services/azureblob/PARITY.md` for current status

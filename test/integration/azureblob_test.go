@@ -87,7 +87,8 @@ func TestIntegration_AzureBlob_ContainerAndBlobLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	body, err := io.ReadAll(downloadResp.Body)
-	_ = downloadResp.Body.Close()
+	closeErr := downloadResp.Body.Close()
+	require.NoError(t, closeErr, "closing the download stream should not error")
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(content, body), "downloaded blob content should match uploaded content")
 
