@@ -85,7 +85,10 @@ func TestExtractOperation(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{name: "list_containers", method: http.MethodGet, path: "/" + testAccount + "?comp=list", want: "ListContainers"},
+		{
+			name: "list_containers", method: http.MethodGet,
+			path: "/" + testAccount + "?comp=list", want: "ListContainers",
+		},
 		{
 			name: "create_container", method: http.MethodPut,
 			path: "/" + testAccount + "/c?restype=container", want: "CreateContainer",

@@ -255,7 +255,10 @@ func TestGetBlob_RangeHeaderPartialRead(t *testing.T) {
 		{name: "start_end", rangeValue: "bytes=2-5", wantStatus: http.StatusPartialContent, wantBody: "2345"},
 		{name: "open_ended", rangeValue: "bytes=7-", wantStatus: http.StatusPartialContent, wantBody: "789"},
 		{name: "suffix", rangeValue: "bytes=-3", wantStatus: http.StatusPartialContent, wantBody: "789"},
-		{name: "unsatisfiable", rangeValue: "bytes=100-200", wantStatus: http.StatusRequestedRangeNotSatisfiable, wantBody: ""},
+		{
+			name: "unsatisfiable", rangeValue: "bytes=100-200",
+			wantStatus: http.StatusRequestedRangeNotSatisfiable, wantBody: "",
+		},
 	}
 
 	for _, tt := range tests {
