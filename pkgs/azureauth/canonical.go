@@ -113,13 +113,20 @@ func CanonicalizedHeaders(r *http.Request) string {
 
 	var b strings.Builder
 	for _, name := range names {
+		// http.Header.Values returns the live slice backing r.Header, not a
+		// copy -- writing into it in place would silently rewrite the
+		// caller's request headers as a side effect of computing a
+		// signature. Copy into a fresh slice before normalizing.
 		vals := r.Header.Values(http.CanonicalHeaderKey(name))
+		normalized := make([]string, len(vals))
+
 		for i, v := range vals {
-			vals[i] = collapseWhitespace(v)
+			normalized[i] = collapseWhitespace(v)
 		}
+
 		b.WriteString(name)
 		b.WriteByte(':')
-		b.WriteString(strings.Join(vals, ","))
+		b.WriteString(strings.Join(normalized, ","))
 		b.WriteByte('\n')
 	}
 

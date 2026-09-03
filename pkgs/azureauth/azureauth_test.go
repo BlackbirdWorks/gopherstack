@@ -102,8 +102,8 @@ func TestVerifySharedKey(t *testing.T) {
 			"http://127.0.0.1:10000/devstoreaccount1/mycontainer?restype=container&comp=list",
 			nil,
 		)
-		r.Header.Set("x-ms-date", "Tue, 27 Aug 2024 12:00:00 GMT")
-		r.Header.Set("x-ms-version", "2021-08-06")
+		r.Header.Set("X-Ms-Date", "Tue, 27 Aug 2024 12:00:00 GMT")
+		r.Header.Set("X-Ms-Version", "2021-08-06")
 
 		sig, err := azureauth.SignSharedKey(r, azureauth.DefaultAccountName, azureauth.DefaultAccountKey)
 		require.NoError(t, err)
@@ -171,77 +171,124 @@ func TestVerifySharedKey(t *testing.T) {
 func TestVerifySharedKeyLite(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(
-		http.MethodGet,
-		"http://127.0.0.1:10002/devstoreaccount1/Tables",
-		nil,
-	)
-	r.Header.Set("x-ms-date", "Tue, 27 Aug 2024 12:00:00 GMT")
-	r.Header.Set("x-ms-version", "2021-08-06")
-	r.Header.Set("Content-Type", "application/json")
+	tests := []struct {
+		name    string
+		want    bool
+		wantErr bool
+	}{
+		{name: "valid SharedKeyLite round-trip", want: true},
+	}
 
-	sig, err := azureauth.SignSharedKeyLite(r, azureauth.DefaultAccountName, azureauth.DefaultAccountKey)
-	require.NoError(t, err)
-	r.Header.Set("Authorization", "SharedKeyLite "+azureauth.DefaultAccountName+":"+sig)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	valid, err := azureauth.VerifySharedKey(azureauth.DefaultAccountKey, r)
-	require.NoError(t, err)
-	assert.True(t, valid)
+			r := httptest.NewRequest(
+				http.MethodGet,
+				"http://127.0.0.1:10002/devstoreaccount1/Tables",
+				nil,
+			)
+			r.Header.Set("X-Ms-Date", "Tue, 27 Aug 2024 12:00:00 GMT")
+			r.Header.Set("X-Ms-Version", "2021-08-06")
+			r.Header.Set("Content-Type", "application/json")
+
+			sig, err := azureauth.SignSharedKeyLite(r, azureauth.DefaultAccountName, azureauth.DefaultAccountKey)
+			require.NoError(t, err)
+			r.Header.Set("Authorization", "SharedKeyLite "+azureauth.DefaultAccountName+":"+sig)
+
+			valid, err := azureauth.VerifySharedKey(azureauth.DefaultAccountKey, r)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, valid)
+		})
+	}
 }
 
 func TestStringToSign(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(
-		http.MethodPut,
-		"http://127.0.0.1:10000/devstoreaccount1/c/blob.txt?comp=block&blockid=AAAA",
-		nil,
-	)
-	r.Header.Set("Content-Type", "text/plain")
-	r.Header.Set("x-ms-date", "Tue, 27 Aug 2024 12:00:00 GMT")
-	r.Header.Set("x-ms-version", "2021-08-06")
-	r.Header.Set("x-ms-blob-type", "BlockBlob")
-	r.ContentLength = 11
+	tests := []struct {
+		name string
+		want string
+	}{
+		{
+			name: "PUT block with x-ms headers",
+			want: "PUT\n" + // verb
+				"\n" + // content-encoding
+				"\n" + // content-language
+				"11\n" + // content-length
+				"\n" + // content-md5
+				"text/plain\n" + // content-type
+				"\n" + // date
+				"\n" + // if-modified-since
+				"\n" + // if-match
+				"\n" + // if-none-match
+				"\n" + // if-unmodified-since
+				"\n" + // range
+				"x-ms-blob-type:BlockBlob\n" +
+				"x-ms-date:Tue, 27 Aug 2024 12:00:00 GMT\n" +
+				"x-ms-version:2021-08-06\n" +
+				"/devstoreaccount1/c/blob.txt\n" +
+				// (no doubled account segment: the request path already carries
+				// devstoreaccount1, matching Azurite's path-style addressing)
+				"blockid:AAAA\n" +
+				"comp:block",
+		},
+	}
 
-	want := "PUT\n" + // verb
-		"\n" + // content-encoding
-		"\n" + // content-language
-		"11\n" + // content-length
-		"\n" + // content-md5
-		"text/plain\n" + // content-type
-		"\n" + // date
-		"\n" + // if-modified-since
-		"\n" + // if-match
-		"\n" + // if-none-match
-		"\n" + // if-unmodified-since
-		"\n" + // range
-		"x-ms-blob-type:BlockBlob\n" +
-		"x-ms-date:Tue, 27 Aug 2024 12:00:00 GMT\n" +
-		"x-ms-version:2021-08-06\n" +
-		"/devstoreaccount1/c/blob.txt\n" +
-		// (no doubled account segment: the request path already carries
-		// devstoreaccount1, matching Azurite's path-style addressing)
-		"blockid:AAAA\n" +
-		"comp:block"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, want, azureauth.StringToSign(r, azureauth.DefaultAccountName))
+			r := httptest.NewRequest(
+				http.MethodPut,
+				"http://127.0.0.1:10000/devstoreaccount1/c/blob.txt?comp=block&blockid=AAAA",
+				nil,
+			)
+			r.Header.Set("Content-Type", "text/plain")
+			r.Header.Set("X-Ms-Date", "Tue, 27 Aug 2024 12:00:00 GMT")
+			r.Header.Set("X-Ms-Version", "2021-08-06")
+			r.Header.Set("X-Ms-Blob-Type", "BlockBlob")
+			r.ContentLength = 11
+
+			assert.Equal(t, tt.want, azureauth.StringToSign(r, azureauth.DefaultAccountName), tt.name)
+		})
+	}
 }
 
 func TestStringToSignLite(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:10002/devstoreaccount1/Tables", nil)
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("x-ms-date", "Tue, 27 Aug 2024 12:00:00 GMT")
+	tests := []struct {
+		name string
+		want string
+	}{
+		{
+			name: "GET Tables with x-ms-date",
+			want: "GET\n" +
+				"\n" + // content-md5
+				"application/json\n" +
+				"\n" + // date
+				"x-ms-date:Tue, 27 Aug 2024 12:00:00 GMT\n" +
+				"/devstoreaccount1/Tables",
+		},
+	}
 
-	want := "GET\n" +
-		"\n" + // content-md5
-		"application/json\n" +
-		"\n" + // date
-		"x-ms-date:Tue, 27 Aug 2024 12:00:00 GMT\n" +
-		"/devstoreaccount1/Tables"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, want, azureauth.StringToSignLite(r, azureauth.DefaultAccountName))
+			r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:10002/devstoreaccount1/Tables", nil)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("X-Ms-Date", "Tue, 27 Aug 2024 12:00:00 GMT")
+
+			assert.Equal(t, tt.want, azureauth.StringToSignLite(r, azureauth.DefaultAccountName), tt.name)
+		})
+	}
 }
 
 func TestCanonicalizedResource(t *testing.T) {
@@ -299,14 +346,53 @@ func TestCanonicalizedHeaders(t *testing.T) {
 	t.Parallel()
 
 	r := httptest.NewRequest(http.MethodGet, "http://host/a/b", nil)
-	r.Header.Set("x-ms-version", "2021-08-06")
-	r.Header.Set("x-ms-date", "Tue, 27 Aug 2024 12:00:00 GMT")
+	r.Header.Set("X-Ms-Version", "2021-08-06")
+	r.Header.Set("X-Ms-Date", "Tue, 27 Aug 2024 12:00:00 GMT")
 	r.Header.Set("Content-Type", "text/plain") // not x-ms-*, must be excluded
-	r.Header.Set("x-ms-meta-foo", "  a   b  ") // whitespace collapsed/trimmed
+	r.Header.Set("X-Ms-Meta-Foo", "  a   b  ") // whitespace collapsed/trimmed
 
 	want := "x-ms-date:Tue, 27 Aug 2024 12:00:00 GMT\n" +
 		"x-ms-meta-foo:a b\n" +
 		"x-ms-version:2021-08-06\n"
 
 	assert.Equal(t, want, azureauth.CanonicalizedHeaders(r))
+}
+
+// TestSigning_DoesNotMutateHeaders is a regression test: http.Header.Values
+// returns the live slice backing r.Header, so an earlier version of
+// CanonicalizedHeaders normalized whitespace in place, silently rewriting
+// the caller's request headers as a side effect of computing a signature.
+// SignSharedKey/SignSharedKeyLite are documented as not modifying r; this
+// pins that contract for a header value that needs whitespace collapsing.
+func TestSigning_DoesNotMutateHeaders(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		sign func(r *http.Request, account, key string) (string, error)
+	}{
+		{name: "SharedKey", sign: azureauth.SignSharedKey},
+		{name: "SharedKeyLite", sign: azureauth.SignSharedKeyLite},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := httptest.NewRequest(http.MethodGet, "http://host/devstoreaccount1/c", nil)
+			const rawHeaderValue = "  a   b  "
+			r.Header.Set("X-Ms-Meta-Foo", rawHeaderValue)
+
+			before := r.Header.Values("X-Ms-Meta-Foo")
+			wantBefore := append([]string(nil), before...)
+
+			_, err := tt.sign(r, azureauth.DefaultAccountName, azureauth.DefaultAccountKey)
+			require.NoError(t, err)
+
+			assert.Equal(t, wantBefore, r.Header.Values("X-Ms-Meta-Foo"),
+				"signing must not mutate the request's header values")
+			assert.Equal(t, rawHeaderValue, r.Header.Get("X-Ms-Meta-Foo"),
+				"signing must not mutate the request's header values")
+		})
+	}
 }
