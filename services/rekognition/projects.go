@@ -60,13 +60,31 @@ func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams)
 	return p.toProject(), nil
 }
 
-// DeleteProject deletes a project.
+// DeleteProject deletes a project. DeleteProjectInput's own doc comment
+// (api_op_DeleteProject.go): "To delete a project you must first delete all
+// models or adapters associated with the project.".
 func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
 	if !b.projects.Has(projectARN) {
 		return ErrProjectNotFound
+	}
+
+	var hasVersions bool
+
+	b.projectVersions.Range(func(v *storedProjectVersion) bool {
+		if v.ProjectARN == projectARN {
+			hasVersions = true
+
+			return false
+		}
+
+		return true
+	})
+
+	if hasVersions {
+		return ErrProjectHasVersions
 	}
 
 	b.projects.Delete(projectARN)
