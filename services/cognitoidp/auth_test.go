@@ -2,6 +2,8 @@ package cognitoidp_test
 
 import (
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,6 +98,40 @@ func TestAdminCreateUser_ForceChangePassword(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "NEW_PASSWORD_REQUIRED", result.ChallengeName)
 	assert.NotEmpty(t, result.MFASession)
+}
+
+func TestForceChangePassword_TemporaryPasswordExpires(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend()
+		pool, err := b.CreateUserPoolWithOpts("temp-pwd-pool", cognitoidp.UserPoolOptions{
+			PasswordPolicy: &cognitoidp.PasswordPolicy{
+				TemporaryPasswordValidityDays: 1,
+			},
+		})
+		require.NoError(t, err)
+
+		client, err := b.CreateUserPoolClient(pool.ID, "temp-pwd-client")
+		require.NoError(t, err)
+
+		_, err = b.AdminCreateUser(pool.ID, "ivy", "Temp1234!", nil)
+		require.NoError(t, err)
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "ivy", "Temp1234!")
+		require.NoError(t, err)
+		assert.Equal(t, "NEW_PASSWORD_REQUIRED", result.ChallengeName,
+			"temp password within the validity window must still work")
+
+		time.Sleep(25 * time.Hour)
+		synctest.Wait()
+
+		_, err = b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "ivy", "Temp1234!")
+		require.Error(t, err)
+		require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized,
+			"an expired temporary password must be rejected, not challenged")
+		assert.Contains(t, err.Error(), "expired")
+	})
 }
 
 func TestSignUpWithValidation_PasswordPolicyEnforced(t *testing.T) {

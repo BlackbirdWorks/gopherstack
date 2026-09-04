@@ -39,7 +39,7 @@ func (b *InMemoryBackend) GenerateMac(
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "GenerateMac"); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) VerifyMac(
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "VerifyMac"); err != nil {
 		return nil, err
 	}
 

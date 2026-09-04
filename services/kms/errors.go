@@ -54,4 +54,7 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceededException")
 	// ErrInvalidAlgorithm is returned when an algorithm is not valid for the key spec.
 	ErrInvalidAlgorithm = errors.New("InvalidAlgorithmException")
+	// ErrAccessDenied is returned when a grant token is valid but its Operations list
+	// does not authorize the operation being performed.
+	ErrAccessDenied = errors.New("AccessDeniedException")
 )

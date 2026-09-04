@@ -355,6 +355,7 @@ type InMemoryBackend struct {
 	currentPassword            string
 	globalEndpointTokenVersion string
 	accountAliases             []string
+	currentPasswordHistory     []string
 	sortedUserNames            []string
 	sortedRoleNames            []string
 	sortedPolicyNames          []string

@@ -3,6 +3,7 @@ package kms
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,12 +202,18 @@ func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
 	return nil
 }
 
-// validateGrantTokenConstraints checks that, if a grant token is provided, the encryption
-// context satisfies the grant's constraints. No-op when grantTokens is empty.
-// Must be called with at least a read lock held.
+// grantPermitsOperation reports whether the grant's Operations list authorizes operation.
+func grantPermitsOperation(grant *Grant, operation string) bool {
+	return slices.Contains(grant.Operations, operation)
+}
+
+// validateGrantTokenConstraints checks that, if a grant token is provided, it authorizes
+// operation and the encryption context satisfies the grant's constraints. No-op when
+// grantTokens is empty. Must be called with at least a read lock held.
 func (b *InMemoryBackend) validateGrantTokenConstraints(
 	_ context.Context,
 	grantTokens []string,
+	operation string,
 	encCtx map[string]string,
 ) error {
 	if len(grantTokens) == 0 {
@@ -223,6 +230,13 @@ func (b *InMemoryBackend) validateGrantTokenConstraints(
 		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
 	}
 
+	if !grantPermitsOperation(grant, operation) {
+		return fmt.Errorf(
+			"%w: grant %q does not permit operation %q",
+			ErrAccessDenied, grant.GrantID, operation,
+		)
+	}
+
 	if !grantConstraintsSatisfied(grant.Constraints, encCtx) {
 		return fmt.Errorf(
 			"%w: encryption context does not satisfy grant constraints",
@@ -234,13 +248,14 @@ func (b *InMemoryBackend) validateGrantTokenConstraints(
 }
 
 // validateGrantTokenPresence checks that, if grant tokens are provided, at least one
-// resolves to an existing, non-expired grant. Unlike validateGrantTokenConstraints,
-// it does not evaluate EncryptionContext-based grant constraints: per AWS KMS docs,
-// EncryptionContextEquals/EncryptionContextSubset constraints apply only to operations
-// that support an encryption context. Sign, Verify, GetPublicKey, GenerateMac, VerifyMac,
-// and DeriveSharedSecret do not, so only grant-token validity (existence + TTL) is checked.
-// Must be called with at least a read lock held.
-func (b *InMemoryBackend) validateGrantTokenPresence(grantTokens []string) error {
+// resolves to an existing, non-expired grant that authorizes operation. Unlike
+// validateGrantTokenConstraints, it does not evaluate EncryptionContext-based grant
+// constraints: per AWS KMS docs, EncryptionContextEquals/EncryptionContextSubset
+// constraints apply only to operations that support an encryption context. Sign, Verify,
+// GetPublicKey, GenerateMac, VerifyMac, and DeriveSharedSecret do not, so only grant-token
+// validity (existence + TTL + Operations) is checked. Must be called with at least a read
+// lock held.
+func (b *InMemoryBackend) validateGrantTokenPresence(grantTokens []string, operation string) error {
 	if len(grantTokens) == 0 {
 		return nil
 	}
@@ -252,6 +267,13 @@ func (b *InMemoryBackend) validateGrantTokenPresence(grantTokens []string) error
 
 	if !grant.TokenIssuedAt.IsZero() && time.Since(grant.TokenIssuedAt) > grantTokenTTL {
 		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
+	}
+
+	if !grantPermitsOperation(grant, operation) {
+		return fmt.Errorf(
+			"%w: grant %q does not permit operation %q",
+			ErrAccessDenied, grant.GrantID, operation,
+		)
 	}
 
 	return nil

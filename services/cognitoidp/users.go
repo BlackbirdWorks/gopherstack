@@ -425,18 +425,20 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 		return nil, err
 	}
 
+	now := time.Now()
 	user := &User{
-		Sub:          uuid.New().String(),
-		Username:     username,
-		UserPoolID:   userPoolID,
-		PasswordHash: hash,
-		SRPSalt:      saltHex,
-		SRPVerifier:  verifierHex,
-		Status:       UserStatusForceChangePassword,
-		Attributes:   attrs,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		Enabled:      true,
+		Sub:                  uuid.New().String(),
+		Username:             username,
+		UserPoolID:           userPoolID,
+		PasswordHash:         hash,
+		SRPSalt:              saltHex,
+		SRPVerifier:          verifierHex,
+		Status:               UserStatusForceChangePassword,
+		Attributes:           attrs,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		TempPasswordIssuedAt: now,
+		Enabled:              true,
 	}
 
 	b.users.Put(user)
@@ -610,6 +612,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 		user.Status = UserStatusConfirmed
 	} else {
 		user.Status = UserStatusForceChangePassword
+		user.TempPasswordIssuedAt = user.UpdatedAt
 		user.Attributes["custom:temporaryPassword"] = password
 	}
 

@@ -82,7 +82,7 @@ func (b *InMemoryBackend) Encrypt(
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, "Encrypt", input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) Decrypt(
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, "Decrypt", input.EncryptionContext); err != nil {
 		return nil, err
 	}
 

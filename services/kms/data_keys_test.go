@@ -541,7 +541,7 @@ func TestGenerateDataKeyWithoutPlaintext_GrantTokens_Accepted(t *testing.T) {
 	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
-		Operations:       []string{"GenerateDataKey"},
+		Operations:       []string{"GenerateDataKeyWithoutPlaintext"},
 	})
 	require.NoError(t, err)
 

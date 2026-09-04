@@ -42,7 +42,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		)
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "DeriveSharedSecret"); err != nil {
 		return nil, err
 	}
 

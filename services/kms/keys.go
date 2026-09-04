@@ -217,7 +217,7 @@ func (b *InMemoryBackend) DescribeKey(
 	// grant-token presence only (existence + TTL) -- consistent with Sign/Verify/
 	// GetPublicKey/DeriveSharedSecret. Empty GrantTokens is a no-op, which is the
 	// only case Terraform ever exercises.
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "DescribeKey"); err != nil {
 		return nil, err
 	}
 

@@ -46,7 +46,7 @@ func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutp
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "Sign"); err != nil {
 		return nil, err
 	}
 
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*Veri
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "Verify"); err != nil {
 		return nil, err
 	}
 
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) GetPublicKey(
 		)
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "GetPublicKey"); err != nil {
 		return nil, err
 	}
 

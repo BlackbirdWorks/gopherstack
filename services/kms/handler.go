@@ -337,6 +337,7 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrValidation, awsType: awsErrValidation},
 		{sentinel: ErrInvalidDataKeySize, awsType: awsErrValidation},
 		{sentinel: ErrInvalidGrantToken, awsType: "InvalidGrantTokenException"},
+		{sentinel: ErrAccessDenied, awsType: "AccessDeniedException"},
 		{sentinel: ErrLimitExceeded, awsType: "LimitExceededException"},
 		{sentinel: ErrInvalidAlgorithm, awsType: "InvalidAlgorithmException"},
 		{sentinel: ErrUnknownOperation, awsType: "UnknownOperationException"},
