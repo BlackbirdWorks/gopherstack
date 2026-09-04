@@ -44,6 +44,7 @@ const (
 	authorizationTypeAWSIAM = "AWS_IAM"
 	protocolTypeHTTP        = "HTTP"
 	integrationTypeHTTP     = "HTTP"
+	integrationTypeMock     = "MOCK"
 	// httpMethodAny is the HTTP route-key method wildcard ("ANY /path")
 	// matching every HTTP method, also used as the default IntegrationMethod
 	// for the integration CreateApi's quick-create shortcut auto-provisions.

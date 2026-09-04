@@ -40,6 +40,23 @@ func (m *mockLambdaInvoker) InvokeFunction(
 	return b, 200, nil
 }
 
+// ensureDefaultStage creates the API's $default stage if it doesn't already
+// exist. The data plane requires a deployed Stage before it will route a
+// request (see the stage-gating fix in proxy.go's handleProxy), so every test
+// that hits the proxy endpoint needs one; a 409 from a stage created earlier
+// in the same test (e.g. via quick create) is expected, not a failure.
+func ensureDefaultStage(t *testing.T, h *apigatewayv2.Handler, apiID string) {
+	t.Helper()
+
+	rr := doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/stages", map[string]any{
+		"stageName":  "$default",
+		"autoDeploy": true,
+	})
+	if rr.Code != http.StatusCreated && rr.Code != http.StatusConflict {
+		t.Fatalf("ensureDefaultStage: unexpected status %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 // doProxyRequest sends an HTTP request to the v2proxy data plane.
 func doProxyRequest(
 	t *testing.T,
@@ -48,6 +65,8 @@ func doProxyRequest(
 	headers map[string]string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
+
+	ensureDefaultStage(t, h, apiID)
 
 	proxyPath := fmt.Sprintf("/v2proxy/%s/$default%s", apiID, path)
 	req := httptest.NewRequest(method, proxyPath, strings.NewReader(""))
@@ -230,6 +249,42 @@ func TestHTTPAPIProxy_RouteMatching(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHTTPAPIProxy_NonexistentStage_NotFound proves the data plane requires a
+// deployed Stage before it will route a request. Before this fix,
+// handleProxy never checked stageName against the backend at all -- any
+// string in the URL's stage-name slot, including one that was never created
+// via CreateStage, still routed through to the live route/integration.
+func TestHTTPAPIProxy_NonexistentStage_NotFound(t *testing.T) {
+	t.Parallel()
+
+	const lambdaURI = "arn:aws:lambda:us-east-1:123456789012:function:undeployed-fn/invocations"
+
+	h := newTestHandler()
+
+	lambdaCalled := false
+	h.SetLambdaInvoker(&mockLambdaInvoker{
+		fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+			lambdaCalled = true
+
+			return nil, 0, errShouldNotBeCalled
+		},
+	})
+
+	// Deliberately skip doProxyRequest/ensureDefaultStage: the API has a
+	// route and integration but no $default stage was ever created.
+	apiID := buildHTTPAPIWithLambda(t, h, "GET /hello", lambdaURI)
+
+	req := httptest.NewRequest(http.MethodGet, "/v2proxy/"+apiID+"/$default/hello", strings.NewReader(""))
+	rr := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rr)
+
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.False(t, lambdaCalled, "an undeployed stage must not reach the integration")
 }
 
 // TestHTTPAPIProxy_PayloadFormat verifies both format 1.0 and 2.0 payloads are built correctly.
