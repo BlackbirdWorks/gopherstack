@@ -110,6 +110,14 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	d.Tags.Close()
 	delete(b.arnIndexStore(region), d.ARN)
 	delete(b.vpcAccessStore(region), name)
+
+	assocs := b.packageAssociationsStore(region)
+	for packageID, domains := range assocs {
+		if idx := slices.Index(domains, name); idx >= 0 {
+			assocs[packageID] = slices.Delete(domains, idx, idx+1)
+		}
+	}
+
 	b.domainDelete(region, name)
 
 	if b.dnsRegistrar != nil {
