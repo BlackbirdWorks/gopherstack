@@ -3285,6 +3285,11 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 // SecretsManager's Lambda rotation invoker and KMS encryption, and IoT rule
 // action dispatch.
 func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
+	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
+	// delivery stream actually receives matched metric data instead of
+	// accepting the stream and never delivering anything (gopherstack-vjmc).
+	wireCloudWatchFirehose(byName["CloudWatch"], byName["Firehose"])
+
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
@@ -3293,9 +3298,19 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// delivering anything (gopherstack-o4ny).
 	wireFirehoseKinesisSource(byName["Firehose"], byName["Kinesis"])
 
+	// Wire Firehose → Redshift Data so a Redshift destination's COPY command
+	// actually executes after S3 staging instead of logging a WARN and never
+	// running it (gopherstack-lgwb).
+	wireFirehoseRedshift(byName["Firehose"], byName["RedshiftData"])
+
 	// Wire DynamoDB → S3 so ImportTable reads source objects and
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
+
+	// Wire DynamoDB → Kinesis so EnableKinesisStreamingDestination's stream
+	// actually receives forwarded table mutations instead of accepting the
+	// destination and never delivering anything (gopherstack-eouu).
+	wireDynamoDBKinesis(byName["DynamoDB"], byName["Kinesis"])
 
 	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
 	// actually creates SourceServers.
@@ -11421,6 +11436,34 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 	}
 }
 
+// wireCloudWatchFirehose connects the CloudWatch backend to Firehose so that a
+// metric stream's matched data is actually delivered to its configured
+// delivery stream. firehose.InMemoryBackend satisfies cloudwatch.FirehosePutter
+// directly, so no adapter is needed.
+func wireCloudWatchFirehose(cwReg, firehoseReg service.Registerable) {
+	cwH, ok := cwReg.(*cwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk, ok := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	cwBk.SetFirehosePutter(fhBk)
+}
+
 // wireFirehoseDelivery connects the Firehose backend to S3 and Lambda so that
 // buffered records are delivered to the configured S3 bucket, and optionally
 // transformed by a Lambda function before delivery.
@@ -11475,6 +11518,52 @@ func wireFirehoseKinesisSource(firehoseReg, kinesisReg service.Registerable) {
 	fhBk.SetKinesisBackend(&kinesisStreamReaderAdapter{backend: kinesisBk})
 }
 
+// wireFirehoseRedshift connects the Firehose backend to Redshift Data so that
+// a Redshift destination's COPY command, built after S3 staging, actually
+// executes via the real Redshift Data API instead of logging a WARN and
+// never running it.
+func wireFirehoseRedshift(firehoseReg, redshiftdataReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk, ok := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	redshiftdataH, ok := redshiftdataReg.(*redshiftdatabackend.Handler)
+	if !ok {
+		return
+	}
+
+	redshiftdataBk, ok := redshiftdataH.Backend.(*redshiftdatabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	fhBk.SetRedshiftDataBackend(&firehoseRedshiftDataExecutorAdapter{backend: redshiftdataBk})
+}
+
+// firehoseRedshiftDataExecutorAdapter adapts the Redshift Data backend's
+// full ExecuteStatement (cluster/workgroup/secret/session-shaped) to
+// firehose.RedshiftDataExecutor's narrow (sql, clusterIdentifier, database,
+// dbUser) shape.
+type firehoseRedshiftDataExecutorAdapter struct {
+	backend *redshiftdatabackend.InMemoryBackend
+}
+
+func (a *firehoseRedshiftDataExecutorAdapter) ExecuteStatement(
+	ctx context.Context, sql, clusterIdentifier, database, dbUser string,
+) error {
+	_, err := a.backend.ExecuteStatement(
+		ctx, sql, clusterIdentifier, "", database, dbUser, "", "", false, "", nil, "",
+	)
+
+	return err
+}
+
 // wireDynamoDBS3 connects the DynamoDB backend to the S3 backend so that
 // ImportTable can read source objects and ExportTableToPointInTime can write
 // export data to S3.
@@ -11497,6 +11586,34 @@ func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
 	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
 		ddbBk.SetS3Backend(s3Bk)
 	}
+}
+
+// wireDynamoDBKinesis connects the DynamoDB backend to Kinesis so a table's
+// EnableKinesisStreamingDestination destination actually receives forwarded
+// mutation records instead of accepting the destination and never delivering
+// anything.
+func wireDynamoDBKinesis(ddbReg, kinesisReg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	ddbBk, ok := ddbH.Backend.(*ddbbackend.InMemoryDB)
+	if !ok {
+		return
+	}
+
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ddbBk.SetKinesisEmitter(&ddbKinesisEmitterAdapter{backend: kinesisBk})
 }
 
 // wireMGNS3 connects the MGN backend to the S3 backend so StartImport can
@@ -11648,6 +11765,78 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerabl
 
 	iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
 	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
+}
+
+// ddbKinesisStreamRecordData mirrors the "dynamodb" node of the JSON payload
+// AWS's DynamoDB Kinesis streaming destination writes per record.
+type ddbKinesisStreamRecordData struct {
+	Keys                        map[string]any `json:"Keys,omitempty"`
+	NewImage                    map[string]any `json:"NewImage,omitempty"`
+	OldImage                    map[string]any `json:"OldImage,omitempty"`
+	SequenceNumber              string         `json:"SequenceNumber,omitempty"`
+	StreamViewType              string         `json:"StreamViewType,omitempty"`
+	ApproximateCreationDateTime int64          `json:"ApproximateCreationDateTime,omitempty"`
+	SizeBytes                   int64          `json:"SizeBytes,omitempty"`
+}
+
+// ddbKinesisStreamRecord mirrors the top-level JSON payload AWS's DynamoDB
+// Kinesis streaming destination writes per record.
+type ddbKinesisStreamRecord struct {
+	EventID      string                     `json:"eventID,omitempty"`
+	EventName    string                     `json:"eventName,omitempty"`
+	EventSource  string                     `json:"eventSource,omitempty"`
+	RecordFormat string                     `json:"recordFormat,omitempty"`
+	TableName    string                     `json:"tableName,omitempty"`
+	Dynamodb     ddbKinesisStreamRecordData `json:"dynamodb"`
+}
+
+// ddbKinesisEmitterAdapter adapts the Kinesis backend to DynamoDB's
+// KinesisEmitter interface so a table's EnableKinesisStreamingDestination
+// destination actually receives forwarded mutation records.
+// EmitDynamoDBStreamRecord must return promptly (it may be called while the
+// caller holds table locks), so the PutRecord call runs in a goroutine.
+type ddbKinesisEmitterAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
+	streamARN, tableName string, record ddbmodels.StreamRecord,
+) {
+	parts := strings.Split(streamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	partitionKey := tableName
+	if keys, err := json.Marshal(record.Keys); err == nil {
+		partitionKey = string(keys)
+	}
+
+	go func() {
+		data, err := json.Marshal(ddbKinesisStreamRecord{
+			EventID:      record.EventID,
+			EventName:    record.EventName,
+			EventSource:  "aws:dynamodb",
+			RecordFormat: "application/json",
+			TableName:    tableName,
+			Dynamodb: ddbKinesisStreamRecordData{
+				Keys:                        record.Keys,
+				NewImage:                    record.NewImage,
+				OldImage:                    record.OldImage,
+				SequenceNumber:              record.SequenceNumber,
+				StreamViewType:              record.StreamViewType,
+				ApproximateCreationDateTime: record.ApproximateCreationDateTime,
+				SizeBytes:                   record.SizeBytes,
+			},
+		})
+		if err != nil {
+			return
+		}
+
+		_, _ = a.backend.PutRecord(context.Background(), &kinesisbackend.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: partitionKey,
+			Data:         data,
+		})
+	}()
 }
 
 // kinesisStreamReaderAdapter adapts the Kinesis backend's real
