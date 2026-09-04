@@ -130,6 +130,7 @@ func (b *InMemoryBackend) DeleteDBParameterGroup(ctx context.Context, name strin
 		}
 	}
 	b.parameterGroupDelete(region, name)
+	delete(b.tagsStore(region), b.parameterGroupARN(region, name))
 	delete(b.parameterOverrides, regionKey(region, name))
 
 	return nil

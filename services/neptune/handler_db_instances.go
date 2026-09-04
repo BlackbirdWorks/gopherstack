@@ -49,6 +49,7 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 		CopyTagsToSnapshot:              vals.Get("CopyTagsToSnapshot") == formTrue,
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
+		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
 		PromotionTier:                   promotionTier,
 	}
 	tags := parseTagEntries(vals)
@@ -112,6 +113,7 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 	rawAuto := vals.Get("AutoMinorVersionUpgrade")
 	rawCopy := vals.Get("CopyTagsToSnapshot")
 	rawIam := vals.Get("EnableIAMDatabaseAuthentication")
+	rawDel := vals.Get("DeletionProtection")
 	promotionTier := 0
 	promotionTierSet := false
 	if pt := vals.Get("PromotionTier"); pt != "" {
@@ -138,6 +140,8 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 		IamAuthSet:                      rawIam != "",
 		PromotionTier:                   promotionTier,
 		PromotionTierSet:                promotionTierSet,
+		DeletionProtection:              rawDel == formTrue,
+		DeletionProtectionSet:           rawDel != "",
 	}
 	inst, err := h.Backend.ModifyDBInstance(ctx, id, instanceClass, opts)
 	if err != nil {
@@ -373,6 +377,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		CopyTagsToSnapshot:              inst.CopyTagsToSnapshot,
 		EnableIAMDatabaseAuthentication: inst.EnableIAMDatabaseAuthentication,
 		PromotionTier:                   inst.PromotionTier,
+		DeletionProtection:              inst.DeletionProtection,
 	}
 }
 
@@ -401,6 +406,7 @@ type xmlDBInstance struct {
 	EnableIAMDatabaseAuthentication bool   `xml:"IAMDatabaseAuthenticationEnabled"`
 	MultiAZ                         bool   `xml:"MultiAZ"`
 	PubliclyAccessible              bool   `xml:"PubliclyAccessible"`
+	DeletionProtection              bool   `xml:"DeletionProtection"`
 }
 
 type xmlDBInstanceList struct {

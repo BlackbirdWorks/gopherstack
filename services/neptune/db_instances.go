@@ -99,6 +99,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		EnableIAMDatabaseAuthentication: opts.EnableIAMDatabaseAuthentication,
 		PromotionTier:                   opts.PromotionTier,
 		StorageEncrypted:                opts.StorageEncrypted,
+		DeletionProtection:              opts.DeletionProtection,
 	}
 	if opts.AutoMinorVersionUpgrade {
 		inst.AutoMinorVersionUpgrade = opts.AutoMinorVersionUpgrade
@@ -170,6 +171,12 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBI
 			)
 		}
 	}
+	if inst.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: instance %s cannot be deleted because deletion protection is enabled",
+			ErrInvalidDBInstanceStateFault, id,
+		)
+	}
 	cp := *inst
 	b.instanceDelete(region, id)
 	delete(b.tagsStore(region), b.instanceARN(region, id))
@@ -225,6 +232,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	}
 	if opts.PromotionTierSet {
 		inst.PromotionTier = opts.PromotionTier
+	}
+	if opts.DeletionProtectionSet {
+		inst.DeletionProtection = opts.DeletionProtection
 	}
 	cp := *inst
 
