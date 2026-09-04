@@ -56,7 +56,12 @@ func TestErrCode_ACLInUse(t *testing.T) {
 	assert.Equal(t, "InvalidACLStateFault", responseType(t, rec.Body.Bytes()))
 }
 
-func TestErrCode_UserInUse(t *testing.T) {
+// TestDeleteUser_CascadesFromACL verifies DeleteUser succeeds for a user that
+// is a member of an ACL and removes it from that ACL's membership, per
+// api_op_DeleteUser.go: "The user will be removed from all ACLs and in turn
+// removed from all clusters." DeleteUser must not refuse the operation the
+// way DeleteACL/DeleteSubnetGroup correctly do for their own in-use faults.
+func TestDeleteUser_CascadesFromACL(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -71,8 +76,19 @@ func TestErrCode_UserInUse(t *testing.T) {
 	})
 
 	rec := doRequest(t, h, "DeleteUser", map[string]any{"UserName": "in-use-user"})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Equal(t, "InvalidUserStateFault", responseType(t, rec.Body.Bytes()))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, "DescribeACLs", map[string]any{"ACLName": "user-holder-acl"})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var resp struct {
+		ACLs []struct {
+			UserNames []string `json:"UserNames"`
+		} `json:"ACLs"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.Len(t, resp.ACLs, 1)
+	assert.NotContains(t, resp.ACLs[0].UserNames, "in-use-user")
 }
 
 // TestErrCode_SubnetGroupInUse also covers a state-correctness gap: previously

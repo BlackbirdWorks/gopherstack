@@ -445,7 +445,6 @@ var errCodeLookup = []struct {
 	{ErrSubnetGroupInUse, "SubnetGroupInUseFault", http.StatusBadRequest},
 	{ErrSubnetGroupNotFound, "SubnetGroupNotFoundFault", http.StatusBadRequest},
 	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault", http.StatusBadRequest},
-	{ErrUserInUse, "InvalidUserStateFault", http.StatusBadRequest},
 	{ErrUserNotFound, "UserNotFoundFault", http.StatusBadRequest},
 	{ErrUserAlreadyExists, "UserAlreadyExistsFault", http.StatusBadRequest},
 	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault", http.StatusBadRequest},

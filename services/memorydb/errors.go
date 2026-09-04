@@ -69,12 +69,6 @@ var (
 		"InvalidACLStateFault: ACL is currently associated with a cluster",
 		awserr.ErrConflict,
 	)
-	// ErrUserInUse is returned when a user cannot be deleted because it is a member of
-	// an ACL (real AWS fault: InvalidUserStateFault).
-	ErrUserInUse = awserr.New(
-		"InvalidUserStateFault: user is currently a member of an ACL",
-		awserr.ErrConflict,
-	)
 	// ErrParameterGroupInUse is returned when a parameter group cannot be deleted
 	// because it is assigned to a cluster (real AWS fault: InvalidParameterGroupStateFault).
 	ErrParameterGroupInUse = awserr.New(
