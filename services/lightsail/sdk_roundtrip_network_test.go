@@ -221,6 +221,68 @@ func TestDomainAndCertificateAndDistributionRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestDeleteDistribution_ClearsCacheResets verifies that DeleteDistribution
+// clears the distribution's cache-reset record. Otherwise a new distribution
+// created with the same (user-chosen, reusable) name -- names are explicitly
+// released for reuse by DeleteDistribution -- inherits the deleted
+// distribution's stale ResetDistributionCache history.
+func TestDeleteDistribution_ClearsCacheResets(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateBucket(ctx, &lightsailsdk.CreateBucketInput{
+		BucketName: aws.String("cache-reset-origin"),
+		BundleId:   aws.String("small_1_0"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDistribution(ctx, &lightsailsdk.CreateDistributionInput{
+		DistributionName:     aws.String("reused-dist"),
+		BundleId:             aws.String("small_1_0"),
+		Origin:               &lightsailtypes.InputOrigin{Name: aws.String("cache-reset-origin")},
+		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnum("cache")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ResetDistributionCache(
+		ctx,
+		&lightsailsdk.ResetDistributionCacheInput{DistributionName: aws.String("reused-dist")},
+	)
+	require.NoError(t, err)
+
+	_, err = client.GetDistributionLatestCacheReset(
+		ctx,
+		&lightsailsdk.GetDistributionLatestCacheResetInput{DistributionName: aws.String("reused-dist")},
+	)
+	require.NoError(t, err, "cache reset record should exist right after ResetDistributionCache")
+
+	_, err = client.DeleteDistribution(
+		ctx,
+		&lightsailsdk.DeleteDistributionInput{DistributionName: aws.String("reused-dist")},
+	)
+	require.NoError(t, err)
+
+	_, err = client.CreateDistribution(ctx, &lightsailsdk.CreateDistributionInput{
+		DistributionName:     aws.String("reused-dist"),
+		BundleId:             aws.String("small_1_0"),
+		Origin:               &lightsailtypes.InputOrigin{Name: aws.String("cache-reset-origin")},
+		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnum("cache")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetDistributionLatestCacheReset(
+		ctx,
+		&lightsailsdk.GetDistributionLatestCacheResetInput{DistributionName: aws.String("reused-dist")},
+	)
+	require.Error(t, err,
+		"recreated distribution must not inherit the deleted distribution's cache reset record")
+
+	var notFound *lightsailtypes.NotFoundException
+	require.ErrorAs(t, err, &notFound, "expected *types.NotFoundException, got %T: %v", err, err)
+}
+
 // TestCreateDistribution_RequiresDefaultCacheBehavior proves the server
 // rejects a CreateDistribution call missing DefaultCacheBehavior, matching
 // the real SDK's own client-side validateOpCreateDistributionInput

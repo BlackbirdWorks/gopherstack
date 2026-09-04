@@ -276,6 +276,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 
 	cp := cloneCluster(cluster)
 	delete(b.clusterTransitions, id)
+	delete(b.loggingStatuses, id)
 	cluster.Tags.Close()
 	b.clusters.Delete(id)
 

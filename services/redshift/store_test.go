@@ -84,6 +84,35 @@ func TestRedshiftDeleteCluster(t *testing.T) {
 	assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
 }
 
+// TestRedshiftDeleteCluster_ClearsLoggingStatuses verifies that the
+// synchronous DeleteCluster path (no activation delay configured) clears
+// loggingStatuses for the deleted cluster. Otherwise a new cluster created
+// with the same (user-chosen, reusable) ClusterIdentifier inherits the
+// deleted cluster's stale logging status.
+func TestRedshiftDeleteCluster_ClearsLoggingStatuses(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateCluster("reused-cluster", "", "", "")
+	require.NoError(t, err)
+
+	_, err = b.EnableLogging("reused-cluster", "my-bucket", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, redshift.LoggingStatusCount(b))
+
+	_, err = b.DeleteCluster("reused-cluster")
+	require.NoError(t, err)
+
+	_, err = b.CreateCluster("reused-cluster", "", "", "")
+	require.NoError(t, err)
+
+	status, err := b.GetLoggingStatus("reused-cluster")
+	require.NoError(t, err)
+	assert.False(t, status.LoggingEnabled,
+		"recreated cluster must not inherit the deleted cluster's logging status")
+	assert.Empty(t, status.BucketName)
+}
+
 func TestRedshiftDescribeClusters(t *testing.T) {
 	t.Parallel()
 

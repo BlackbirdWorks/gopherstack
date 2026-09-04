@@ -62,6 +62,31 @@ func TestDeleteDomain_Cascade(t *testing.T) {
 	assert.Equal(t, 0, opensearch.ARNIndexSize(b))
 }
 
+// TestDeleteDomain_ClearsScheduledActions verifies that DeleteDomain clears
+// scheduledActions for the deleted domain name. Otherwise a new domain
+// created with the same (user-chosen, reusable) name inherits the deleted
+// domain's stale scheduled actions.
+func TestDeleteDomain_ClearsScheduledActions(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	b.AddDomainInternal("reused-domain", "")
+
+	opensearch.AddScheduledActionInternal(b, "reused-domain", &opensearch.ScheduledAction{
+		ID:   "ghost-action",
+		Type: "SERVICE_SOFTWARE_UPDATE",
+	})
+	require.NotEmpty(t, b.ListScheduledActions("reused-domain"))
+
+	_, err := b.DeleteDomain("reused-domain")
+	require.NoError(t, err)
+
+	b.AddDomainInternal("reused-domain", "")
+
+	assert.Empty(t, b.ListScheduledActions("reused-domain"),
+		"recreated domain must not inherit the deleted domain's scheduled actions")
+}
+
 func TestListDomainNames_Sorted(t *testing.T) {
 	t.Parallel()
 

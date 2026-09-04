@@ -104,6 +104,7 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	delete(b.domainPackages, name)
 
 	delete(b.domainMaintenances, name)
+	delete(b.scheduledActions, name)
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
 	b.autoTunes.Delete(autoTuneKey(name))
 	b.dryRuns.Delete(name)

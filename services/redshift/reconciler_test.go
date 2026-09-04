@@ -174,6 +174,39 @@ func TestReconciler_DeleteCancelsPendingCreate(t *testing.T) {
 		"no dangling transitions should remain")
 }
 
+// TestReconciler_AsyncDelete_ClearsLoggingStatuses verifies that the delayed
+// (async) DeleteCluster path also clears loggingStatuses for the deleted
+// cluster, matching the synchronous path. Otherwise a new cluster created
+// with the same (user-chosen, reusable) ClusterIdentifier inherits the
+// deleted cluster's stale logging status.
+func TestReconciler_AsyncDelete_ClearsLoggingStatuses(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetClusterActivationDelay(b, 5*time.Millisecond)
+
+	_, err := b.CreateCluster("reused-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = b.EnableLogging("reused-cluster", "my-bucket", "")
+	require.NoError(t, err)
+
+	_, err = b.DeleteCluster("reused-cluster")
+	require.NoError(t, err)
+
+	require.True(t, waitFor(t, time.Second, func() bool {
+		return describeCount(t, b) == 0
+	}), "cluster not removed after async delete")
+
+	_, err = b.CreateCluster("reused-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	status, err := b.GetLoggingStatus("reused-cluster")
+	require.NoError(t, err)
+	assert.False(t, status.LoggingEnabled,
+		"recreated cluster must not inherit the deleted cluster's logging status")
+}
+
 // TestReconciler_ResetClearsTransitions verifies Reset cancels pending
 // transitions and clears state without leaking work.
 func TestReconciler_ResetClearsTransitions(t *testing.T) {

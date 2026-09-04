@@ -132,6 +132,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 		cp := *ep
 		ep.Tags.Close()
 		b.endpoints.Delete(regionKey(region, id))
+		delete(b.endpointSchemasStore(region), ep.EndpointArn)
 		b.appendEvent(
 			region, ep.EndpointArn, "replication-instance",
 			"Endpoint "+id+" deleted", []string{eventCategoryDeletion},

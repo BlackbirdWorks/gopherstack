@@ -304,6 +304,7 @@ func (b *InMemoryBackend) DeleteDistribution(name string) (*Operation, error) {
 
 	b.distributions.Delete(name)
 	b.unregisterNameLocked(name)
+	delete(b.distributionCacheResets, name)
 
 	ops := b.newOperationsLocked(opTypeDeleteDistribution, ResourceTypeDistribution, []string{name})
 

@@ -109,6 +109,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	cp := domainCopy(d)
 	d.Tags.Close()
 	delete(b.arnIndexStore(region), d.ARN)
+	delete(b.vpcAccessStore(region), name)
 	b.domainDelete(region, name)
 
 	if b.dnsRegistrar != nil {

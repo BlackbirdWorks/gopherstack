@@ -352,6 +352,7 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 	env.Status = "Terminated"
 	out := cloneEnvironment(env)
 	b.environmentDeleteKey(region, appName, envName)
+	delete(b.managedActionHistory[region], envName)
 
 	b.appendEvent(region, env, "terminateEnvironment completed successfully.", eventSeverityInfo)
 

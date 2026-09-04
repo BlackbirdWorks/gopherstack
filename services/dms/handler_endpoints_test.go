@@ -353,6 +353,44 @@ func TestDescribeSchemas(t *testing.T) {
 	assert.Contains(t, schemas, "public")
 }
 
+// TestDeleteEndpoint_ClearsSchemas verifies that DeleteEndpoint removes the
+// deleted endpoint's entry from the backend's endpointSchemas side map (keyed
+// by EndpointArn). Left behind, that entry is an unbounded, permanently
+// orphaned leak: DescribeSchemas performs no existence check against the live
+// endpoint table, so it would keep serving the stale schema list for that ARN
+// forever, even though the endpoint that owned it is gone.
+func TestDeleteEndpoint_ClearsSchemas(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "pg-src",
+		"EndpointType":       "source",
+		"EngineName":         "postgres",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	epARN := parseJSON(t, rec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	rec = doDMS(t, h, "RefreshSchemas", map[string]any{
+		"EndpointArn":            epARN,
+		"ReplicationInstanceArn": "arn:fake",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doDMS(t, h, "DescribeSchemas", map[string]any{"EndpointArn": epARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotEmpty(t, parseJSON(t, rec)["Schemas"])
+
+	rec = doDMS(t, h, "DeleteEndpoint", map[string]any{"EndpointArn": epARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doDMS(t, h, "DescribeSchemas", map[string]any{"EndpointArn": epARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, parseJSON(t, rec)["Schemas"],
+		"DeleteEndpoint must clear the schema entry for the deleted endpoint's ARN")
+}
+
 // TestRefreshSchemas_ReplicationInstanceArnRequired covers gopherstack-4shm's
 // class: RefreshSchemasInput.ReplicationInstanceArn is "This member is
 // required" (databasemigrationservice@v1.66.4 api_op_RefreshSchemas.go) but
