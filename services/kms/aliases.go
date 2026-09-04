@@ -118,6 +118,7 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 	alias.TargetKeyID = targetID
 	alias.LastUpdatedDate = UnixTimeFloat(time.Now())
 	b.keyIDResolutionCache.Delete(input.AliasName)
+	b.keyIDResolutionCache.Delete(alias.AliasArn)
 
 	return nil
 }
@@ -149,6 +150,7 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 
 	b.aliasesStore(region).Delete(input.AliasName)
 	b.keyIDResolutionCache.Delete(input.AliasName)
+	b.keyIDResolutionCache.Delete(alias.AliasArn)
 
 	return nil
 }
