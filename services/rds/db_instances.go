@@ -150,6 +150,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if err := validateDBInstanceEngine(engine); err != nil {
 		return nil, err
 	}
+	if err := ValidateEngineLifecycleSupport(opts.EngineLifecycleSupport); err != nil {
+		return nil, err
+	}
 
 	result, err := b.createDBInstanceLocked(
 		id, engine, instanceClass, dbName, masterUser, paramGroupName, allocatedStorage, opts,

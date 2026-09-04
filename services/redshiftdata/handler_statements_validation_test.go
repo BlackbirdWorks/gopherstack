@@ -134,39 +134,60 @@ func TestHandler_BatchExecuteStatement_EmptySqlItem_Returns400(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
-func TestHandler_ExecuteStatement_AllowsBothClusterAndWorkgroup(t *testing.T) {
+func TestHandler_ExecuteAndBatchExecuteStatement_RejectInvalidConnectionTarget(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
-		"Sql":               "SELECT 1",
-		"Database":          "dev",
-		"ClusterIdentifier": "my-cluster",
-		"WorkgroupName":     "my-workgroup",
+	t.Run("execute_rejects_both_cluster_and_workgroup", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
+			"Sql":               "SELECT 1",
+			"Database":          "dev",
+			"ClusterIdentifier": "my-cluster",
+			"WorkgroupName":     "my-workgroup",
+		})
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
 	})
 
-	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept both ClusterIdentifier and WorkgroupName")
-}
+	t.Run("execute_rejects_neither_cluster_nor_workgroup", func(t *testing.T) {
+		t.Parallel()
 
-func TestHandler_ExecuteStatement_AllowsNeitherClusterNorWorkgroup(t *testing.T) {
-	t.Parallel()
+		rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
+			"Sql":      "SELECT 1",
+			"Database": "dev",
+		})
 
-	rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
-		"Sql":      "SELECT 1",
-		"Database": "dev",
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
 	})
 
-	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept request without ClusterIdentifier or WorkgroupName")
-}
+	t.Run("batch_execute_rejects_neither_cluster_nor_workgroup", func(t *testing.T) {
+		t.Parallel()
 
-func TestHandler_BatchExecuteStatement_AllowsNeitherClusterNorWorkgroup(t *testing.T) {
-	t.Parallel()
+		rec := doRequest(t, newTestHandler(t), "BatchExecuteStatement", map[string]any{
+			"Sqls":     []string{"SELECT 1", "SELECT 2"},
+			"Database": "dev",
+		})
 
-	rec := doRequest(t, newTestHandler(t), "BatchExecuteStatement", map[string]any{
-		"Sqls":     []string{"SELECT 1", "SELECT 2"},
-		"Database": "dev",
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
 	})
 
-	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept batch without ClusterIdentifier or WorkgroupName")
+	t.Run("batch_execute_rejects_both_cluster_and_workgroup", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, newTestHandler(t), "BatchExecuteStatement", map[string]any{
+			"Sqls":              []string{"SELECT 1", "SELECT 2"},
+			"Database":          "dev",
+			"ClusterIdentifier": "my-cluster",
+			"WorkgroupName":     "my-workgroup",
+		})
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
+	})
 }
 
 func TestHandler_ListStatements_MaxResults_Paginates(t *testing.T) {
@@ -239,7 +260,8 @@ func TestExecuteStatement_DatabaseOptional(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql": "SELECT 1",
+		"Sql":               "SELECT 1",
+		"ClusterIdentifier": "my-cluster",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code, "Database is conditionally, not unconditionally, required")
 }
@@ -253,7 +275,8 @@ func TestBatchExecuteStatement_DatabaseOptional(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
-		"Sqls": []string{"SELECT 1", "SELECT 2"},
+		"Sqls":              []string{"SELECT 1", "SELECT 2"},
+		"ClusterIdentifier": "my-cluster",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code, "Database is conditionally, not unconditionally, required")
 }
@@ -266,8 +289,9 @@ func TestGetStatementResult_NoResultSet(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
-		"Sqls":     []string{"INSERT INTO t VALUES (1)"},
-		"Database": "testdb",
+		"Sqls":              []string{"INSERT INTO t VALUES (1)"},
+		"Database":          "testdb",
+		"ClusterIdentifier": "my-cluster",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -291,8 +315,9 @@ func TestGetStatementResultV2_NoResultSet(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
-		"Sqls":     []string{"INSERT INTO t VALUES (1)"},
-		"Database": "testdb",
+		"Sqls":              []string{"INSERT INTO t VALUES (1)"},
+		"Database":          "testdb",
+		"ClusterIdentifier": "my-cluster",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -316,9 +341,10 @@ func TestGetStatementResultV2_ResultFormat(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":          "SELECT 1",
-		"Database":     "testdb",
-		"ResultFormat": "CSV",
+		"Sql":               "SELECT 1",
+		"Database":          "testdb",
+		"ResultFormat":      "CSV",
+		"ClusterIdentifier": "my-cluster",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -382,9 +408,10 @@ func TestListStatements_SortedNewestFirst(t *testing.T) {
 
 	for i := range 3 {
 		doRequest(t, h, "ExecuteStatement", map[string]any{
-			"Sql":           fmt.Sprintf("SELECT %d", i+1),
-			"Database":      "testdb",
-			"StatementName": fmt.Sprintf("stmt-%d", i),
+			"Sql":               fmt.Sprintf("SELECT %d", i+1),
+			"Database":          "testdb",
+			"StatementName":     fmt.Sprintf("stmt-%d", i),
+			"ClusterIdentifier": "my-cluster",
 		})
 	}
 
@@ -413,8 +440,9 @@ func TestExecuteStatement_HasResultSet(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":      "SELECT 1",
-		"Database": "testdb",
+		"Sql":               "SELECT 1",
+		"Database":          "testdb",
+		"ClusterIdentifier": "my-cluster",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -438,8 +466,9 @@ func TestBatchExecuteStatement_HasNoResultSet(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
-		"Sqls":     []string{"SELECT 1"},
-		"Database": "testdb",
+		"Sqls":              []string{"SELECT 1"},
+		"Database":          "testdb",
+		"ClusterIdentifier": "my-cluster",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

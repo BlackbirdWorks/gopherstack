@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -230,13 +229,12 @@ func drainDeletingTablesLocked(db *InMemoryDB) ([]*Table, int) {
 func (j *Janitor) sweepTTL(ctx context.Context) {
 	db := j.Backend
 	tables := db.ListAllTables()
-	now := float64(time.Now().Unix())
 	totalEvicted := 0
 
 	replicationQueue := make([]ttlReplicationEntry, 0, len(tables))
 
 	for _, table := range tables {
-		count, pending := j.sweepTableTTL(ctx, db, table, now)
+		count, pending := j.sweepTableTTL(ctx, db, table)
 		totalEvicted += count
 		replicationQueue = append(replicationQueue, pending...)
 	}
@@ -276,7 +274,6 @@ func (j *Janitor) sweepTableTTL(
 	ctx context.Context,
 	db *InMemoryDB,
 	table *Table,
-	now float64,
 ) (int, []ttlReplicationEntry) {
 	ttlAttr, gtName, tableARN := ttlSweepMetaRLocked(table)
 
@@ -299,7 +296,7 @@ func (j *Janitor) sweepTableTTL(
 		var batchEvicted int
 		var batchPending []ttlReplicationEntry
 
-		i, batchEvicted, batchPending = j.sweepTTLBatchLocked(db, table, ttlAttr, gtName, region, now, i)
+		i, batchEvicted, batchPending = j.sweepTTLBatchLocked(db, table, ttlAttr, gtName, region, i)
 		pending = append(pending, batchPending...)
 		totalEvicted += batchEvicted
 
@@ -338,7 +335,6 @@ func (j *Janitor) sweepTTLBatchLocked(
 	db *InMemoryDB,
 	table *Table,
 	ttlAttr, gtName, region string,
-	now float64,
 	i int,
 ) (int, int, []ttlReplicationEntry) {
 	table.mu.Lock("TTLSweep")
@@ -365,8 +361,7 @@ func (j *Janitor) sweepTTLBatchLocked(
 	for ; i > batchEnd; i-- {
 		item := table.Items[i]
 
-		ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
-		if !ok || ttlVal >= now {
+		if !isItemExpiredWithGrace(item, ttlAttr, TTLGracePeriod) {
 			continue
 		}
 

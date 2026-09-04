@@ -22,6 +22,12 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if err := validateDBClusterEngine(engine); err != nil {
 		return nil, err
 	}
+	if err := ValidateStorageTypeForCluster(opts.StorageType); err != nil {
+		return nil, err
+	}
+	if err := ValidateEngineLifecycleSupport(opts.EngineLifecycleSupport); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {

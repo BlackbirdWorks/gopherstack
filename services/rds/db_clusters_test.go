@@ -85,6 +85,26 @@ func TestDBCluster_RebootTransitions(t *testing.T) {
 	assert.Equal(t, "reboot-cluster", result.DBClusterIdentifier)
 }
 
+func TestCreateDBCluster_RejectsInvalidStorageType(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch2Backend()
+	_, err := b.CreateDBCluster(
+		"bad-storage-cluster",
+		"aurora-postgresql",
+		"admin",
+		"",
+		"",
+		5432,
+		nil,
+		rds.DBClusterOptions{StorageType: "gp3"},
+	)
+	require.ErrorIs(t, err, rds.ErrInvalidParameter)
+
+	_, descErr := b.DescribeDBClusters("bad-storage-cluster")
+	assert.Error(t, descErr)
+}
+
 func TestDBCluster_HTTP_Modify(t *testing.T) {
 	t.Parallel()
 
