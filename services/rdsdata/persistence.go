@@ -16,7 +16,11 @@ import (
 // reset to empty, not a partial decode) any mismatch -- including a
 // pre-Phase-3.3 snapshot, which has no version field and so decodes as 0 --
 // see Restore below.
-const rdsdataSnapshotVersion = 1
+//
+// Bumped to 2 when Transaction gained CreatedAt/LastActivityAt (janitor.go):
+// a v1 snapshot decoded as v2 would zero-value both fields, and the Janitor
+// would immediately expire every restored transaction as 24-hour-stale.
+const rdsdataSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the RDS Data backend.
 //
