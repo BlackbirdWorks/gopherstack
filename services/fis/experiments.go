@@ -3,7 +3,9 @@ package fis
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -826,6 +828,48 @@ func (b *InMemoryBackend) setActionStatus(expID, actionName, status string) {
 	}
 }
 
+// applySelectionMode scopes resolved target ARNs to the count or percentage
+// requested by mode. ExperimentTemplateTarget.SelectionMode says COUNT(n) and
+// PERCENT(n) are "chosen from the identified targets at random"; gopherstack
+// takes the first N in stored order instead, so a run is reproducible. Only
+// the count is observable to a caller, which this preserves.
+func applySelectionMode(arns []string, mode string) []string {
+	if len(arns) == 0 {
+		return arns
+	}
+
+	var n int
+
+	switch {
+	case strings.HasPrefix(mode, "COUNT("):
+		v, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(mode, "COUNT("), ")"))
+		if err != nil {
+			return arns
+		}
+
+		n = v
+	case strings.HasPrefix(mode, "PERCENT("):
+		v, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(mode, "PERCENT("), ")"), 64)
+		if err != nil {
+			return arns
+		}
+
+		n = int(math.Ceil(float64(len(arns)) * v / percentageDivisor))
+	default:
+		return arns
+	}
+
+	if n > len(arns) {
+		n = len(arns)
+	}
+
+	if n < 0 {
+		n = 0
+	}
+
+	return arns[:n]
+}
+
 // externalAction carries the data needed to call an external FISActionProvider.
 type externalAction struct {
 	params     map[string]string
@@ -847,9 +891,9 @@ func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea external
 
 	for targetKey, targetName := range ea.targets {
 		if tgt, ok := ea.tplTargets[targetKey]; ok {
-			targetARNs = append(targetARNs, tgt.ResourceArns...)
+			targetARNs = append(targetARNs, applySelectionMode(tgt.ResourceArns, tgt.SelectionMode)...)
 		} else if tgtByName, ok2 := ea.tplTargets[targetName]; ok2 {
-			targetARNs = append(targetARNs, tgtByName.ResourceArns...)
+			targetARNs = append(targetARNs, applySelectionMode(tgtByName.ResourceArns, tgtByName.SelectionMode)...)
 		}
 	}
 
