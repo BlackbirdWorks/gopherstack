@@ -115,3 +115,26 @@ func ForceClusterState(b *InMemoryBackend, clusterID, state string) {
 		c.State = state
 	}
 }
+
+// ForceReservationEnd sets a reservation's term end, so a test can make it
+// still-active. State is derived from the term (see effectiveState).
+func ForceReservationEnd(b *InMemoryBackend, reservationID, end string) {
+	b.mu.Lock("ForceReservationEnd")
+	defer b.mu.Unlock()
+
+	if r, ok := b.reservations.Get(reservationID); ok {
+		r.End = end
+	}
+}
+
+// ForceSdiSourceInputs sets the Inputs attachment list of an SdiSource
+// directly, for testing purposes -- CreateInput/UpdateInput don't yet wire
+// the real SdiSources request field, so this is otherwise unreachable.
+func ForceSdiSourceInputs(b *InMemoryBackend, sdiSourceID string, inputIDs []string) {
+	b.mu.Lock("ForceSdiSourceInputs")
+	defer b.mu.Unlock()
+
+	if s, ok := b.sdiSources.Get(sdiSourceID); ok {
+		s.Inputs = inputIDs
+	}
+}
