@@ -119,26 +119,32 @@ func TestHandler_StubOperations(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 			wantBody:   "",
 		},
+		// "mybucket" is never created against this fresh handler; Get/Put/
+		// DeleteBucketReplication now require the bucket to exist (matching
+		// every other bucket sub-resource op), so all three 404 with
+		// NoSuchBucket instead of the pre-fix behavior (200/204, or a
+		// misleading "config missing" 404 that ignored the bucket itself
+		// not existing).
 		{
 			name:       "get_bucket_replication",
 			method:     http.MethodGet,
 			path:       "/v20180820/bucket/mybucket/replication",
 			wantStatus: http.StatusNotFound,
-			wantBody:   "ReplicationConfigurationNotFoundError",
+			wantBody:   "NoSuchBucket",
 		},
 		{
 			name:       "put_bucket_replication",
 			method:     http.MethodPut,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusOK,
-			wantBody:   "",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
 		},
 		{
 			name:       "delete_bucket_replication",
 			method:     http.MethodDelete,
 			path:       "/v20180820/bucket/mybucket/replication",
-			wantStatus: http.StatusNoContent,
-			wantBody:   "",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
 		},
 		{
 			name:       "get_storage_lens_config",
