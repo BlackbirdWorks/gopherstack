@@ -20,6 +20,12 @@ var (
 	ErrAlreadyExists = awserr.New("FileSystemAlreadyExists", awserr.ErrConflict)
 	// ErrCreationTokenExists is returned when the same creation token with identical args is reused.
 	ErrCreationTokenExists = awserr.New("FileSystemAlreadyExists", errTokenIdentical)
+	// ErrReplicationConfigExists is returned by CreateReplicationConfiguration when a
+	// replication configuration already exists for the source file system.
+	// CreateReplicationConfiguration's own deserializeOpError (efs@v1.44.4
+	// deserializers.go) has no FileSystemAlreadyExists case -- unlike CreateFileSystem,
+	// it has ConflictException instead.
+	ErrReplicationConfigExists = awserr.New("ConflictException", awserr.ErrConflict)
 	// ErrMountTargetNotFound is returned when a requested mount target does not exist.
 	ErrMountTargetNotFound = awserr.New("MountTargetNotFound", awserr.ErrNotFound)
 	// ErrAccessPointNotFound is returned when a requested access point does not exist.

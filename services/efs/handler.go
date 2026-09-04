@@ -628,6 +628,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
 
 		return c.JSON(http.StatusConflict, errResp("FileSystemAlreadyExists", err.Error()))
+	case errors.Is(err, ErrReplicationConfigExists):
+		c.Response().Header().Set("x-amzn-ErrorType", "ConflictException")
+
+		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
 	case errors.Is(err, ErrPolicyNotFound):
 		c.Response().Header().Set("x-amzn-ErrorType", "PolicyNotFound")
 

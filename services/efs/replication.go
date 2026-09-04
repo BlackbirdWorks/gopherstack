@@ -39,7 +39,7 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	if _, exists := b.replicationConfigs.Get(regionKey(region, sourceFileSystemID)); exists {
 		return nil, fmt.Errorf(
 			"%w: replication configuration already exists for file system %s",
-			ErrAlreadyExists,
+			ErrReplicationConfigExists,
 			sourceFileSystemID,
 		)
 	}

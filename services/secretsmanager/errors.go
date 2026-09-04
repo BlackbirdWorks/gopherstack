@@ -37,4 +37,13 @@ var (
 	// doesn't already have a Lambda function ARN configured, and didn't include one as a
 	// parameter in this call.
 	ErrRotationStrategyRequired = errors.New("InvalidRequestException")
+	// ErrReplicaAlreadyExists is returned by ReplicateSecretToRegions when a replica
+	// already exists in a requested region and ForceOverwriteReplicaSecret is not set.
+	// Deliberately distinct from ErrSecretAlreadyExists/ResourceExistsException:
+	// ReplicateSecretToRegions's own deserializeOpError (secretsmanager@v1.44.4
+	// deserializers.go) recognizes InternalServiceError, InvalidParameterException,
+	// InvalidRequestException and ResourceNotFoundException, but no
+	// ResourceExistsException case -- unlike CreateSecret/PutSecretValue/UpdateSecret,
+	// which do.
+	ErrReplicaAlreadyExists = errors.New("InvalidRequestException")
 )

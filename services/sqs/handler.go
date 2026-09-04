@@ -570,7 +570,6 @@ func sqsPermErrorDetails(err error) (errorEntry, bool) {
 	}
 
 	const badReq = http.StatusBadRequest
-	const conflict = "com.amazonaws.sqs#ResourceInConflict"
 	const ipv = errTypeInvalidParameterValue
 
 	rows := [...]errRow{
@@ -600,13 +599,20 @@ func sqsPermErrorDetails(err error) (errorEntry, bool) {
 			"The value for 'MaxNumberOfMessagesPerSecond' is not valid. Reason: must be >= 0.",
 			badReq,
 		}},
+		// "com.amazonaws.sqs#ResourceInConflict" doesn't name any real type in
+		// this SDK (sqs@v1.46.4 types/errors.go has no Conflict-named
+		// exception at all), so neither StartMessageMoveTask's nor
+		// CancelMessageMoveTask's own deserializeOpError could ever recognize
+		// it. ipv is the same fallback this table already uses for every
+		// other move-task condition none of these ops model as a typed
+		// exception (see ErrTaskHandleInvalid above).
 		{ErrMoveTaskAlreadyRunning, errorEntry{
-			conflict,
+			ipv,
 			"A message move task already exists for the specified source queue.",
 			badReq,
 		}},
 		{ErrMoveTaskNotRunning, errorEntry{
-			conflict,
+			ipv,
 			"A message move task with the specified task handle is not running.",
 			badReq,
 		}},

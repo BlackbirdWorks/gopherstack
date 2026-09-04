@@ -46,7 +46,7 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 		if _, found := existingByRegion[replica.Region]; found && !input.ForceOverwriteReplicaSecret {
 			return nil, fmt.Errorf(
 				"%w: a replica already exists in region %s; use ForceOverwriteReplicaSecret to overwrite",
-				ErrSecretAlreadyExists, replica.Region,
+				ErrReplicaAlreadyExists, replica.Region,
 			)
 		}
 

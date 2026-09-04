@@ -328,6 +328,7 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrKeyInvalidState, awsType: "KMSInvalidStateException"},
 		{sentinel: ErrInvalidKeyUsage, awsType: "InvalidKeyUsageException"},
 		{sentinel: ErrAliasAlreadyExists, awsType: "AlreadyExistsException"},
+		{sentinel: ErrInvalidAliasName, awsType: "InvalidAliasNameException"},
 		{sentinel: ErrCustomKeyStoreAlreadyExists, awsType: "CustomKeyStoreNameInUseException"},
 		{sentinel: ErrIncorrectKey, awsType: "IncorrectKeyException"},
 		{sentinel: ErrInvalidCiphertext, awsType: awsErrInvalidCiphertext},

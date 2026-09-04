@@ -402,8 +402,16 @@ func TestReplication_BackendEdgeCases(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestReplicateSecretToRegions_ExistingRegionRejectedWithoutForce verifies that
-// replicating to a region that already has a replica returns ResourceExistsException
-// when ForceOverwriteReplicaSecret is false. Real AWS behavior.
+// replicating to a region that already has a replica is rejected when
+// ForceOverwriteReplicaSecret is false.
+//
+// ReplicateSecretToRegions's own deserializeOpError (aws-sdk-go-v2/service/
+// secretsmanager@v1.44.4 deserializers.go) recognizes InternalServiceError,
+// InvalidParameterException, InvalidRequestException and
+// ResourceNotFoundException -- no ResourceExistsException case, unlike
+// CreateSecret/PutSecretValue/UpdateSecret. InvalidRequestException is the
+// existing in-service precedent for "operation invalid given the resource's
+// current state" (ErrSecretDeleted, ErrRotationStrategyRequired).
 func TestReplicateSecretToRegions_ExistingRegionRejectedWithoutForce(t *testing.T) {
 	t.Parallel()
 
@@ -428,9 +436,38 @@ func TestReplicateSecretToRegions_ExistingRegionRejectedWithoutForce(t *testing.
 		SecretID:          "replicated-secret",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-east-2"}},
 	})
-	assert.ErrorIs(t, err, secretsmanager.ErrSecretAlreadyExists,
-		"real AWS: replicating to existing region without ForceOverwriteReplicaSecret"+
-			" must return ResourceExistsException")
+	assert.ErrorIs(t, err, secretsmanager.ErrReplicaAlreadyExists,
+		"replicating to existing region without ForceOverwriteReplicaSecret"+
+			" must return an error ReplicateSecretToRegions's own deserializer recognizes")
+}
+
+// TestReplicateSecretToRegions_ExistingRegionErrorType_WireCode verifies the
+// wire __type/X-Amzn-Errortype for the same condition is InvalidRequestException,
+// not ResourceExistsException -- see the ErrorIs test above for why.
+func TestReplicateSecretToRegions_ExistingRegionErrorType_WireCode(t *testing.T) {
+	t.Parallel()
+
+	h := newSMHandler()
+
+	create := doSMRequest(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"wire-replicated-secret","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, create.Code)
+
+	first := doSMRequest(t, h, "secretsmanager.ReplicateSecretToRegions",
+		`{"SecretId":"wire-replicated-secret","AddReplicaRegions":[{"Region":"us-east-2"}]}`)
+	require.Equal(t, http.StatusOK, first.Code)
+
+	second := doSMRequest(t, h, "secretsmanager.ReplicateSecretToRegions",
+		`{"SecretId":"wire-replicated-secret","AddReplicaRegions":[{"Region":"us-east-2"}]}`)
+	require.Equal(t, http.StatusBadRequest, second.Code)
+	assert.Equal(t, "InvalidRequestException", second.Header().Get("X-Amzn-Errortype"))
+
+	var body struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &body))
+	assert.Equal(t, "InvalidRequestException", body.Type)
+	assert.NotEqual(t, "ResourceExistsException", body.Type)
 }
 
 // TestReplicateSecretToRegions_ForceOverwriteAllowed verifies that

@@ -28,20 +28,20 @@ func isValidAliasName(name string) bool {
 // CreateAlias creates an alias pointing to a key.
 func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInput) error {
 	if !strings.HasPrefix(input.AliasName, "alias/") {
-		return fmt.Errorf("%w: alias name must start with alias/", ErrValidation)
+		return fmt.Errorf("%w: alias name must start with alias/", ErrInvalidAliasName)
 	}
 
 	if strings.HasPrefix(input.AliasName, "alias/aws/") {
 		return fmt.Errorf(
 			"%w: alias names that begin with alias/aws/ are reserved for AWS managed keys",
-			ErrValidation,
+			ErrInvalidAliasName,
 		)
 	}
 
 	if len(input.AliasName) > maxAliasNameLength {
 		return fmt.Errorf(
 			"%w: alias name exceeds maximum length of %d characters",
-			ErrValidation, maxAliasNameLength,
+			ErrInvalidAliasName, maxAliasNameLength,
 		)
 	}
 
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 		return fmt.Errorf(
 			"%w: alias name %q contains invalid characters; "+
 				"allowed: letters, numbers, colons, forward slashes, underscores, and hyphens",
-			ErrValidation, input.AliasName,
+			ErrInvalidAliasName, input.AliasName,
 		)
 	}
 

@@ -508,6 +508,11 @@ func (h *Handler) classifyError(err error) (int, string) {
 		// than a shared fallback string.
 		{ErrPullThroughCacheRuleNotFound, "PullThroughCacheRuleNotFoundException", http.StatusNotFound},
 		{ErrLifecyclePolicyNotFound, "LifecyclePolicyNotFoundException", http.StatusNotFound},
+		{
+			ErrLifecyclePolicyPreviewNotFound,
+			"LifecyclePolicyPreviewNotFoundException",
+			http.StatusNotFound,
+		},
 		{ErrRepositoryCreationTemplateNotFound, "TemplateNotFoundException", http.StatusNotFound},
 		{ErrRegistryPolicyNotFound, "RegistryPolicyNotFoundException", http.StatusNotFound},
 	}
