@@ -32,11 +32,16 @@ func findAction(stage *Stage, actionName string) *Action {
 
 // runPipelineActions advances exec from wherever its existing action-execution
 // records leave off, executing every action in declaration order,
-// synchronously and instantaneously, with one exception: the first
-// unresolved Approval-category action gates the run. It is recorded
+// synchronously and instantaneously, with two exceptions: a stage whose
+// inbound transition is disabled (DisableStageTransition, pipeline_state.go)
+// is not entered, and a stage whose outbound transition is disabled blocks
+// once its own actions have all succeeded, before the next stage starts --
+// both mirroring the transient wait a real AWS client observes until
+// EnableStageTransition resumes the run (see EnableStageTransition,
+// pipeline_state.go). The other exception is the first unresolved
+// Approval-category action, which gates the run the same way: it is recorded
 // InProgress with a freshly generated approval token and processing stops
-// there -- mirroring the transient wait a real AWS client observes while a
-// reviewer decides, via PutApprovalResult (approvals.go). RetryStageExecution
+// there, resumed via PutApprovalResult (approvals.go). RetryStageExecution
 // and RollbackStage (pipeline_state.go) also call this after resetting the
 // action-execution records they mutate, so a resumed run picks up exactly
 // where the reset left it.
@@ -51,7 +56,14 @@ func (b *InMemoryBackend) runPipelineActions(region string, p *Pipeline, exec *P
 	actionExecs := b.actionExecutionsStore(region)
 	byKey := indexActionExecutions(actionExecs[p.Declaration.Name], exec.PipelineExecutionID)
 
-	for _, stage := range p.Declaration.Stages {
+	for i, stage := range p.Declaration.Stages {
+		if !stageStarted(byKey, stage) &&
+			b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeInbound) {
+			exec.Status = statusInProgress
+
+			return
+		}
+
 		for _, action := range stage.Actions {
 			resolved, done := resolvedActionStatus(byKey, stage.Name, action.Name)
 			if done {
@@ -80,9 +92,35 @@ func (b *InMemoryBackend) runPipelineActions(region string, p *Pipeline, exec *P
 				return
 			}
 		}
+
+		// Only a non-final stage's outbound transition can meaningfully
+		// gate anything -- there is no "next stage" for the last one to
+		// block artifacts from reaching, so a disabled outbound transition
+		// there has nothing left to prevent.
+		if i < len(p.Declaration.Stages)-1 &&
+			b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeOutbound) {
+			exec.Status = statusInProgress
+
+			return
+		}
 	}
 
 	exec.Status = statusSucceeded
+}
+
+// stageStarted reports whether any action in stage already has a recorded
+// action execution for this run, i.e. whether the run has already entered
+// the stage. Used to scope the inbound-transition gate to stages not yet
+// entered -- disabling a transition does not retroactively interrupt a stage
+// already in progress, matching real AWS.
+func stageStarted(byKey map[string]*ActionExecution, stage Stage) bool {
+	for _, action := range stage.Actions {
+		if _, ok := byKey[stage.Name+"/"+action.Name]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // indexActionExecutions builds a "stageName/actionName" lookup of the action
