@@ -246,7 +246,8 @@ func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {
 
 func (h *Handler) handleDeleteSecurityProfile(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
-	if err := h.Backend.DeleteSecurityProfile(name); err != nil {
+	expectedVersion := parseExpectedVersionQueryParam(c)
+	if err := h.Backend.DeleteSecurityProfile(name, expectedVersion); err != nil {
 		// DeleteSecurityProfile's own deserializeOpError switch declares no
 		// ResourceNotFoundException case.
 		return respondAsInvalidRequest(c, err, ErrResourceNotFound)

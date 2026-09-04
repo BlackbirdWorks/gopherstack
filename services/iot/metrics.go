@@ -168,12 +168,18 @@ func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetri
 	return nil
 }
 
-func (b *InMemoryBackend) DeleteFleetMetric(name string) error {
+func (b *InMemoryBackend) DeleteFleetMetric(name string, expectedVersion int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.fleetMetrics.Has(name) {
+	fm, ok := b.fleetMetrics.Get(name)
+	if !ok {
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
+	}
+
+	if expectedVersion != 0 && expectedVersion != fm.Version {
+		return fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, fm.Version)
 	}
 	b.fleetMetrics.Delete(name)
 

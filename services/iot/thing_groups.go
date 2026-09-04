@@ -148,12 +148,18 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 }
 
 // DeleteThingGroup deletes a thing group by name.
-func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string) error {
+func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersion int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.thingGroups.Has(thingGroupName) {
+	tg, ok := b.thingGroups.Get(thingGroupName)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
+	}
+
+	if expectedVersion != 0 && expectedVersion != tg.Version {
+		return fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, tg.Version)
 	}
 
 	b.thingGroups.Delete(thingGroupName)
@@ -275,12 +281,18 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 }
 
 // DeleteDynamicThingGroup deletes a dynamic thing group.
-func (b *InMemoryBackend) DeleteDynamicThingGroup(name string) error {
+func (b *InMemoryBackend) DeleteDynamicThingGroup(name string, expectedVersion int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.thingGroups.Has(name) {
+	tg, ok := b.thingGroups.Get(name)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, name)
+	}
+
+	if expectedVersion != 0 && expectedVersion != tg.Version {
+		return fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, tg.Version)
 	}
 	b.thingGroups.Delete(name)
 	delete(b.thingGroupMembers, name)

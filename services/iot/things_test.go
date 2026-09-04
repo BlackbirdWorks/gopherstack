@@ -98,7 +98,7 @@ func TestBackend_DeleteThing(t *testing.T) {
 				tt.setup(b)
 			}
 
-			err := b.DeleteThing(tt.thingName)
+			err := b.DeleteThing(tt.thingName, 0)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -131,7 +131,7 @@ func TestDeleteThing_ClearsGhostStateOnRecreate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "old-group", described.BillingGroupName)
 
-	require.NoError(t, b.DeleteThing("reused-thing"))
+	require.NoError(t, b.DeleteThing("reused-thing", 0))
 
 	recreated, err := b.CreateThing(&iot.CreateThingInput{ThingName: "reused-thing"})
 	require.NoError(t, err)
@@ -512,7 +512,41 @@ func TestDeleteThing_NotFound_Error(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	err := b.DeleteThing("ghost-thing")
+	err := b.DeleteThing("ghost-thing", 0)
+	require.ErrorIs(t, err, iot.ErrThingNotFound)
+}
+
+// DeleteThingInput.ExpectedVersion (iot@v1.77.4/api_op_DeleteThing.go:40-43):
+// if the version of the record in the registry does not match the expected
+// version specified in the request, the DeleteThing request is rejected
+// with a VersionConflictException.
+func TestDeleteThing_VersionConflict_Rejected(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "del-ver-thing"})
+	require.NoError(t, err)
+
+	err = b.DeleteThing("del-ver-thing", 99)
+	require.ErrorIs(t, err, iot.ErrVersionConflict)
+
+	_, err = b.DescribeThing("del-ver-thing")
+	require.NoError(t, err, "thing must survive a rejected version-mismatched delete")
+}
+
+func TestDeleteThing_VersionMatch_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	_, b := newR3Handler()
+	_, err := b.CreateThing(&iot.CreateThingInput{ThingName: "del-ver-match-thing"})
+	require.NoError(t, err)
+
+	th, err := b.DescribeThing("del-ver-match-thing")
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteThing("del-ver-match-thing", th.Version))
+
+	_, err = b.DescribeThing("del-ver-match-thing")
 	require.ErrorIs(t, err, iot.ErrThingNotFound)
 }
 
@@ -701,7 +735,7 @@ func TestDeleteThing_WithPrincipals_Blocked(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err = b.DeleteThing("del-thing-" + tt.name)
+			err = b.DeleteThing("del-thing-"+tt.name, 0)
 			if tt.wantDeleteErr != nil {
 				require.ErrorIs(t, err, tt.wantDeleteErr)
 			} else {

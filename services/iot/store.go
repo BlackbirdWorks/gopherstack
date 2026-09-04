@@ -415,12 +415,18 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 // the other side of the same jobId/thingName key) so a deleted thing never
 // leaves a ghost JobExecution behind for DescribeJobExecution/
 // ListJobExecutionsForThing to keep returning.
-func (b *InMemoryBackend) DeleteThing(thingName string) error {
+func (b *InMemoryBackend) DeleteThing(thingName string, expectedVersion int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.things.Has(thingName) {
+	t, ok := b.things.Get(thingName)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	if expectedVersion != 0 && expectedVersion != t.Version {
+		return fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, t.Version)
 	}
 
 	if principals := b.thingPrincipals[thingName]; len(principals) > 0 {

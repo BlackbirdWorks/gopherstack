@@ -141,6 +141,7 @@ func (b *InMemoryBackend) ListBillingGroups() []*BillingGroup {
 func (b *InMemoryBackend) UpdateBillingGroup(
 	name string,
 	props BillingGroupProperties,
+	expectedVersion int64,
 ) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -149,18 +150,29 @@ func (b *InMemoryBackend) UpdateBillingGroup(
 	if !ok {
 		return 0, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
+
+	if expectedVersion != 0 && expectedVersion != bg.Version {
+		return 0, fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, bg.Version)
+	}
 	bg.BillingGroupProperties = props
 	bg.Version++
 
 	return bg.Version, nil
 }
 
-func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
+func (b *InMemoryBackend) DeleteBillingGroup(name string, expectedVersion int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.billingGroups.Has(name) {
+	bg, ok := b.billingGroups.Get(name)
+	if !ok {
 		return fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
+	}
+
+	if expectedVersion != 0 && expectedVersion != bg.Version {
+		return fmt.Errorf("%w: expected version %d, current version %d",
+			ErrVersionConflict, expectedVersion, bg.Version)
 	}
 	b.billingGroups.Delete(name)
 
