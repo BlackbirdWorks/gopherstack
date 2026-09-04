@@ -469,7 +469,7 @@ func (b *InMemoryBackend) resolveKeyID(
 func (b *InMemoryBackend) resolveARNKeyID(keyID string, malformedARNErr error) (string, string, error) {
 	parsed, parseErr := awsarn.Parse(keyID)
 	if parseErr != nil {
-		return "", "", fmt.Errorf("%w: invalid key ARN %q", ErrValidation, keyID)
+		return "", "", fmt.Errorf("%w: invalid key ARN %q", malformedARNErr, keyID)
 	}
 
 	if strings.HasPrefix(parsed.Resource, "alias/") {
@@ -485,7 +485,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string, malformedARNErr error) (
 		return after, parsed.Region, nil
 	}
 
-	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", ErrValidation, parsed.Resource)
+	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", malformedARNErr, parsed.Resource)
 }
 
 // isAliasKeyID reports whether keyID identifies a key via an alias -- either a
