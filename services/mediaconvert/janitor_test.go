@@ -228,6 +228,41 @@ func TestAdvanceJobPhase_CanceledJobIsTerminal(t *testing.T) {
 	assert.Equal(t, "CANCELED", got.Status)
 }
 
+// TestAdvanceJobPhase_PausedQueueBlocksSubmittedJob verifies a SUBMITTED job
+// assigned to a PAUSED queue does not begin processing. Queue.Status doc
+// (aws-sdk-go-v2 mediaconvert types.go, Queue.Status field) says: if you
+// pause a queue, the service won't begin processing jobs in that queue.
+func TestAdvanceJobPhase_PausedQueueBlocksSubmittedJob(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+	_, err := b.CreateQueueFull("paused-queue", "", "", "PAUSED", nil, 0, nil)
+	require.NoError(t, err)
+
+	j, err := b.CreateJob("arn:aws:iam::123:role/role", "paused-queue", "", nil, nil, nil, "")
+	require.NoError(t, err)
+	require.Equal(t, "SUBMITTED", j.Status)
+
+	advanced := b.AdvanceJobPhase()
+	assert.False(t, advanced)
+
+	got, err := b.GetJob(j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "SUBMITTED", got.Status, "job on a PAUSED queue must not begin processing")
+
+	// Reactivating the queue lets the job proceed on the next tick.
+	_, err = b.UpdateQueue("paused-queue", "", "ACTIVE", nil, nil, nil)
+	require.NoError(t, err)
+
+	advanced = b.AdvanceJobPhase()
+	assert.True(t, advanced)
+
+	got, err = b.GetJob(j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "PROGRESSING", got.Status)
+}
+
 // TestAdvanceJobPhase_ReturnsFalseWhenNoEligibleJobs verifies the return value.
 func TestAdvanceJobPhase_ReturnsFalseWhenNoEligibleJobs(t *testing.T) {
 	t.Parallel()
