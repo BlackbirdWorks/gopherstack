@@ -36,8 +36,9 @@ const maxQueryTop = 100000
 // --- Path/key-predicate parsing ---
 
 // unquoteODataString unquotes a single '...'-delimited OData string literal
-// (with ” as an escaped single quote), such as the table-name literal in
-// DELETE /<account>/Tables('foo'). Returns ("", false) for anything else
+// (escaped by doubling: a single quote written twice in a row means one
+// literal quote), such as the table-name literal in DELETE
+// /<account>/Tables('foo'). Returns ("", false) for anything else
 // (missing/mismatched quotes, an unescaped quote inside).
 func unquoteODataString(s string) (string, bool) {
 	if len(s) < 2 || s[0] != '\'' || s[len(s)-1] != '\'' {
@@ -76,8 +77,9 @@ func escapeODataKey(s string) string {
 
 // splitTopLevelCommas splits s on commas that are not inside a
 // single-quoted literal. Quote-parity tracking (not full escape-aware
-// parsing) is sufficient here: a doubled ” toggles parity twice, correctly
-// leaving the parser "still inside" the literal it started in.
+// parsing) is sufficient here: an escaped (doubled) quote toggles parity
+// twice, correctly leaving the parser "still inside" the literal it started
+// in.
 func splitTopLevelCommas(s string) []string {
 	var parts []string
 

@@ -448,6 +448,83 @@ func TestMergeEntity(t *testing.T) {
 		require.NoError(t, h.Handler()(c))
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 	})
+
+	t.Run("tunneled_via_x_http_method_override_on_post", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"mytable"}`))
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/mytable",
+			[]byte(`{"PartitionKey":"p","RowKey":"r","A":"x","B":"y"}`))
+
+		req := httptest.NewRequest(http.MethodPost,
+			"/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", strings.NewReader(`{"A":"z"}`))
+		req.Header.Set("X-Http-Method", "MERGE")
+		e := echo.New()
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h.Handler()(c))
+		require.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Merge semantics, not replace: B must survive.
+		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+		assert.Equal(t, "z", got["A"])
+		assert.Equal(t, "y", got["B"])
+
+		// The tunneled request must also report as MergeEntity for metrics.
+		assert.Equal(t, "MergeEntity", h.ExtractOperation(c))
+	})
+
+	t.Run("tunneled_via_x_http_method_override_on_put", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"mytable"}`))
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/mytable",
+			[]byte(`{"PartitionKey":"p","RowKey":"r","A":"x","B":"y"}`))
+
+		req := httptest.NewRequest(http.MethodPut,
+			"/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", strings.NewReader(`{"A":"z"}`))
+		req.Header.Set("X-Http-Method", "merge") // lower-case: comparison is case-insensitive
+		e := echo.New()
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h.Handler()(c))
+		require.Equal(t, http.StatusNoContent, rec.Code)
+
+		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+		assert.Equal(t, "z", got["A"])
+		assert.Equal(t, "y", got["B"], "merge semantics must apply, not PUT's own replace semantics")
+	})
+
+	t.Run("x_http_method_override_never_tunnels_delete", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"mytable"}`))
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/mytable",
+			[]byte(`{"PartitionKey":"p","RowKey":"r","A":"x"}`))
+
+		// A bogus X-Http-Method: DELETE on a GET must NOT be honored -- only
+		// POST/PUT/PATCH carrying an override naming MERGE is ever tunneled.
+		req := httptest.NewRequest(http.MethodGet,
+			"/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", http.NoBody)
+		req.Header.Set("X-Http-Method", "DELETE")
+		e := echo.New()
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h.Handler()(c))
+
+		// Still a plain GET: 200 with the entity, not a 204 delete.
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
+		assert.Equal(t, http.StatusOK, rec2.Code, "entity must not have been deleted")
+	})
 }
 
 func TestDeleteEntity(t *testing.T) {

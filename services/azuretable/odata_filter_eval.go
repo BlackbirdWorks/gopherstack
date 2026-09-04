@@ -105,15 +105,15 @@ func propertyOperand(p EntityProperty) operand {
 
 // compareOperands applies op to left/right if they fall in the same
 // comparable category (numeric, string, datetime, bool, guid, binary);
-// otherwise returns false. Numeric comparison spans Int32/Int64/Double
-// (compared as float64), matching real Table Storage's type-coercing
-// numeric comparisons.
+// otherwise returns false. Numeric comparison spans Int32/Int64/Double,
+// matching real Table Storage's type-coercing numeric comparisons -- but see
+// compareNumeric for why that coercion is NOT a blanket float64 conversion.
 //
 //nolint:cyclop // per-EDM-category dispatch; splitting would obscure it
 func compareOperands(left, right operand, op tokenType) bool {
 	switch {
 	case isNumericOperand(left) && isNumericOperand(right):
-		return applyCompare(cmpFloat(numericValue(left), numericValue(right)), op)
+		return applyCompare(compareNumeric(left, right), op)
 	case left.litType == tString && right.litType == tString:
 		return applyCompare(strings.Compare(left.strVal, right.strVal), op)
 	case left.litType == tDateTime && right.litType == tDateTime:
@@ -137,12 +137,40 @@ func isNumericOperand(o operand) bool {
 	return o.litType == tInt || o.litType == tInt64 || o.litType == tFloat
 }
 
+// compareNumeric compares two numeric operands. When BOTH are integer-typed
+// (Int32 or Int64 -- never Double), it compares their int64 values directly
+// rather than converting through float64: float64 has only a 53-bit
+// mantissa, so a blanket float64(intVal) conversion silently rounds any
+// Int64 magnitude beyond 2^53, which would make e.g.
+// "9007199254740993L eq 9007199254740992L" evaluate true. A comparison
+// involving a Double operand still goes through float64, since Double
+// itself is already an inexact 64-bit float and there is no wider common
+// type to compare it against exactly.
+func compareNumeric(left, right operand) int {
+	if left.litType != tFloat && right.litType != tFloat {
+		return cmpInt64(left.intVal, right.intVal)
+	}
+
+	return cmpFloat(numericValue(left), numericValue(right))
+}
+
 func numericValue(o operand) float64 {
 	switch o.litType {
 	case tInt, tInt64:
 		return float64(o.intVal)
 	case tFloat:
 		return o.floatVal
+	default:
+		return 0
+	}
+}
+
+func cmpInt64(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
 	default:
 		return 0
 	}

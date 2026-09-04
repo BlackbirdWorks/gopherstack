@@ -1,7 +1,6 @@
 package azuretable
 
 import (
-	"maps"
 	"net/url"
 	"sort"
 	"time"
@@ -56,11 +55,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) now() time.Time { return b.nowFunc().UTC() }
 
-func entityKey(partitionKey, rowKey string) string {
-	// NUL cannot appear in a JSON string property (partition/row keys arrive
-	// as JSON strings), so it's a safe, collision-free composite-key
-	// separator.
-	return partitionKey + "\x00" + rowKey
+// entityKey builds the comparable map key for a (partitionKey, rowKey) pair.
+// See entityCompositeKey's doc comment (models.go) for why this is a struct,
+// not a delimited string.
+func entityKey(partitionKey, rowKey string) entityCompositeKey {
+	return entityCompositeKey{PartitionKey: partitionKey, RowKey: rowKey}
 }
 
 // CreateTable creates a new, empty table. Returns ErrTableAlreadyExists if a
@@ -75,7 +74,7 @@ func (b *InMemoryBackend) CreateTable(name string) error {
 		return ErrTableAlreadyExists
 	}
 
-	b.tables[name] = &storedTable{Name: name, Entities: make(map[string]*storedEntity)}
+	b.tables[name] = &storedTable{Name: name, Entities: make(map[entityCompositeKey]*storedEntity)}
 
 	return nil
 }
@@ -310,7 +309,13 @@ func (b *InMemoryBackend) MergeEntity(
 		e.Properties = make(map[string]EntityProperty, len(props))
 	}
 
-	maps.Copy(e.Properties, props)
+	// Deep-copy each incoming property (not maps.Copy, which only copies the
+	// map's key/value pairs, not what an EdmBinary Value's []byte points at
+	// -- see cloneProp) so a caller mutating the []byte it passed in later
+	// can never silently corrupt stored state.
+	for name, prop := range props {
+		e.Properties[name] = cloneProp(prop)
+	}
 
 	return b.info(e), nil
 }
@@ -362,13 +367,34 @@ func (b *InMemoryBackend) info(e *storedEntity) EntityInfo {
 	}
 }
 
-// cloneProps returns a shallow copy of props, so callers can't mutate
-// backend state through a map reference handed back to them. Property
-// values themselves (e.g. []byte for EdmBinary) are not deep-copied,
-// mirroring services/azurequeue's identical shallow-copy tradeoff.
+// cloneProps returns a copy of props deep enough that mutating anything
+// reachable from the result can never affect backend state, or vice versa.
+// The map itself is always copied (so a caller can't add/remove entries
+// through a reference handed back to them, same as services/azurequeue), and
+// each EdmBinary property's []byte Value is copied too via cloneProp: a
+// map-only ("shallow") copy still shares the same backing array between the
+// caller's slice and the stored one, so mutating either through its own
+// reference -- with no Timestamp bump and no ETag change -- would silently
+// corrupt the other and defeat optimistic concurrency entirely.
 func cloneProps(props map[string]EntityProperty) map[string]EntityProperty {
 	out := make(map[string]EntityProperty, len(props))
-	maps.Copy(out, props)
+	for k, v := range props {
+		out[k] = cloneProp(v)
+	}
 
 	return out
+}
+
+// cloneProp returns p with its Value deep-copied if (and only if) that
+// Value is a []byte (EdmBinary); every other EDM type's Value is either an
+// immutable Go value (string/int32/int64/float64/bool) or time.Time (also
+// safe to copy by value), so only EdmBinary needs special handling here.
+func cloneProp(p EntityProperty) EntityProperty {
+	if p.Type == EdmBinary {
+		if b, ok := p.Value.([]byte); ok {
+			p.Value = append([]byte(nil), b...)
+		}
+	}
+
+	return p
 }

@@ -2536,14 +2536,16 @@
       "EntityProperty.Type EdmType",
       "EntityProperty.Value any",
       "backendSnapshot.Tables map[string]*storedTable `json:\"tables\"`",
+      "entityCompositeKey.PartitionKey string",
+      "entityCompositeKey.RowKey string",
       "storedEntity.PartitionKey string",
       "storedEntity.Properties map[string]EntityProperty",
       "storedEntity.RowKey string",
       "storedEntity.Timestamp time.Time",
-      "storedTable.Entities map[string]*storedEntity",
+      "storedTable.Entities map[entityCompositeKey]*storedEntity",
       "storedTable.Name string"
     ],
-    "version": 1
+    "version": 2
   },
   "backup": {
     "fields": [

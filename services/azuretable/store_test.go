@@ -319,3 +319,140 @@ func TestEtagFor(t *testing.T) {
 	assert.Contains(t, got, "datetime")
 	assert.Contains(t, got, "%3A") // url-encoded colon
 }
+
+// TestInMemoryBackend_EntityKeys_NoNULDelimiterCollision is a regression
+// test for a real bug: entityKey used to build its map key by concatenating
+// PartitionKey + "\x00" + RowKey, but JSON permits a literal NUL byte inside
+// a string property, so two different (PartitionKey, RowKey) pairs could
+// collide onto the same delimited string
+// (partitionKey="a\x00b",rowKey="c" vs. partitionKey="a",rowKey="b\x00c").
+// The map key is now a comparable struct (entityCompositeKey) instead, so
+// this must no longer collide: both entities must insert successfully and
+// remain independently addressable.
+func TestInMemoryBackend_EntityKeys_NoNULDelimiterCollision(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	require.NoError(t, b.CreateTable("t"))
+
+	_, err := b.InsertEntity("t", "a\x00b", "c", map[string]azuretable.EntityProperty{
+		"Which": {Type: azuretable.EdmString, Value: "first"},
+	})
+	require.NoError(t, err)
+
+	// If the two pairs collided, this second insert would incorrectly fail
+	// with ErrEntityAlreadyExists.
+	_, err = b.InsertEntity("t", "a", "b\x00c", map[string]azuretable.EntityProperty{
+		"Which": {Type: azuretable.EdmString, Value: "second"},
+	})
+	require.NoError(t, err)
+
+	first, err := b.GetEntity("t", "a\x00b", "c")
+	require.NoError(t, err)
+	assert.Equal(t, "first", first.Properties["Which"].Value)
+
+	second, err := b.GetEntity("t", "a", "b\x00c")
+	require.NoError(t, err)
+	assert.Equal(t, "second", second.Properties["Which"].Value)
+
+	infos, err := b.QueryEntities("t", nil, 0)
+	require.NoError(t, err)
+	assert.Len(t, infos, 2, "both entities must coexist, not collide into one")
+}
+
+// TestInMemoryBackend_EdmBinary_NoAliasing is a regression test for a real
+// data-corruption bug: cloneProps/MergeEntity's map copy was shallow, so the
+// []byte backing an EdmBinary property's Value was shared between the
+// caller and the stored entity (and again between the stored entity and
+// whatever GetEntity/QueryEntities hands back). Mutating any one of those
+// slices in place silently corrupted the "stored" value with no Timestamp
+// bump and no ETag change -- exactly the kind of change optimistic
+// concurrency exists to detect and can't if it never happens explicitly.
+func TestInMemoryBackend_EdmBinary_NoAliasing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mutating_the_inserted_slice_after_insert_does_not_corrupt_storage", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+		require.NoError(t, b.CreateTable("t"))
+
+		original := []byte("original")
+		_, err := b.InsertEntity("t", "p", "r", map[string]azuretable.EntityProperty{
+			"Blob": {Type: azuretable.EdmBinary, Value: original},
+		})
+		require.NoError(t, err)
+
+		original[0] = 'X' // mutate the caller's own slice after the call returns
+
+		info, err := b.GetEntity("t", "p", "r")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("original"), info.Properties["Blob"].Value)
+	})
+
+	t.Run("mutating_a_returned_slice_does_not_corrupt_storage", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+		require.NoError(t, b.CreateTable("t"))
+		_, err := b.InsertEntity("t", "p", "r", map[string]azuretable.EntityProperty{
+			"Blob": {Type: azuretable.EdmBinary, Value: []byte("stored")},
+		})
+		require.NoError(t, err)
+
+		info, err := b.GetEntity("t", "p", "r")
+		require.NoError(t, err)
+
+		returned, ok := info.Properties["Blob"].Value.([]byte)
+		require.True(t, ok)
+		returned[0] = 'X' // mutate the slice the backend handed back
+
+		info2, err := b.GetEntity("t", "p", "r")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("stored"), info2.Properties["Blob"].Value)
+	})
+
+	t.Run("merge_deep_copies_incoming_binary_values_too", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+		require.NoError(t, b.CreateTable("t"))
+		_, err := b.InsertEntity("t", "p", "r", nil)
+		require.NoError(t, err)
+
+		merged := []byte("merged")
+		_, err = b.MergeEntity("t", "p", "r", map[string]azuretable.EntityProperty{
+			"Blob": {Type: azuretable.EdmBinary, Value: merged},
+		}, azuretable.IfMatchAny)
+		require.NoError(t, err)
+
+		merged[0] = 'X' // mutate the caller's own slice after the call returns
+
+		info, err := b.GetEntity("t", "p", "r")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("merged"), info.Properties["Blob"].Value)
+	})
+
+	t.Run("query_results_do_not_alias_storage", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+		require.NoError(t, b.CreateTable("t"))
+		_, err := b.InsertEntity("t", "p", "r", map[string]azuretable.EntityProperty{
+			"Blob": {Type: azuretable.EdmBinary, Value: []byte("queried")},
+		})
+		require.NoError(t, err)
+
+		infos, err := b.QueryEntities("t", nil, 0)
+		require.NoError(t, err)
+		require.Len(t, infos, 1)
+
+		returned, ok := infos[0].Properties["Blob"].Value.([]byte)
+		require.True(t, ok)
+		returned[0] = 'X'
+
+		info2, err := b.GetEntity("t", "p", "r")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("queried"), info2.Properties["Blob"].Value)
+	})
+}

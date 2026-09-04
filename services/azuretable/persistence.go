@@ -13,7 +13,18 @@ import (
 // snapshot unsafe to decode as the current shape; Restore compares this
 // against the persisted value and discards (rather than partially decodes)
 // any mismatch, mirroring services/azurequeue and services/azureblob.
-const azureTableSnapshotVersion = 1
+//
+// Bumped from 1 to 2 for two incompatible shape changes made in the same
+// pass: (1) EntityProperty's Edm.Int64 wire value moved from a bare float64
+// JSON number (which silently lost precision above 2^53) to a decimal
+// string, and (2) storedTable.Entities' map key moved from a delimited
+// string ("partitionKey\x00rowKey") to entityCompositeKey (a struct,
+// persisted via its own MarshalText as a JSON string array) to close a
+// NUL-byte delimiter collision. Both changes decode a version-1 snapshot
+// incorrectly if not gated behind a version check -- pkgs/persistence's
+// TestSnapshotVersionGuard enforces exactly this: an incompatible retype
+// must pair with a version bump, purely additive field growth must not.
+const azureTableSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Azure Table
 // backend. Tables serialises directly (no DTO layer): storedTable/
@@ -84,7 +95,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // table's "Entities" map) holds a JSON null entry -- which decodes to a nil
 // pointer that would panic on first dereference if stored as-is -- or whose
 // map key disagrees with the entry's own Name field, mirroring
-// services/azurequeue's identical Restore validation.
+// services/azurequeue's identical Restore validation. It also initializes
+// any table whose own "Entities" map is JSON `null` (legal JSON, decodes to
+// a nil Go map, not a nil pointer -- so it isn't rejected above) to an empty
+// map: a nil map is safe to range over and read from, but assigning into
+// one (as InsertEntity/ReplaceEntity/MergeEntity all do) panics. Mirrors the
+// same nil-map init this function's caller already does for a nil top-level
+// "tables" map.
 func validateSnapshotTables(tables map[string]*storedTable) error {
 	for name, t := range tables {
 		if t == nil {
@@ -97,8 +114,12 @@ func validateSnapshotTables(tables map[string]*storedTable) error {
 
 		for key, e := range t.Entities {
 			if e == nil {
-				return fmt.Errorf("%w: key %q in table %q", ErrSnapshotEntityNull, key, name)
+				return fmt.Errorf("%w: key %v in table %q", ErrSnapshotEntityNull, key, name)
 			}
+		}
+
+		if t.Entities == nil {
+			t.Entities = make(map[entityCompositeKey]*storedEntity)
 		}
 	}
 

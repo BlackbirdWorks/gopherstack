@@ -113,10 +113,11 @@ func (l *lexer) skipSpace() {
 	}
 }
 
-// readQuotedContent consumes a '...'-delimited literal (with ” as an
-// escaped single quote) starting at l.pos, which must point at the opening
-// quote. Returns the unescaped content and true, or ("", false) if the
-// input ends before a closing quote is found.
+// readQuotedContent consumes a '...'-delimited literal (escaped by doubling:
+// a single quote written twice in a row means one literal quote) starting at
+// l.pos, which must point at the opening quote. Returns the unescaped
+// content and true, or ("", false) if the input ends before a closing quote
+// is found.
 func (l *lexer) readQuotedContent() (string, bool) {
 	if l.pos >= len(l.input) || l.input[l.pos] != '\'' {
 		return "", false
@@ -373,12 +374,27 @@ func checkDepth(depth int) error {
 	return nil
 }
 
+// parseOr, parseAnd, parseUnary, and parsePrimary form one precedence-
+// climbing layer of recursive descent per grammar rule (see this file's top
+// doc comment), not one nesting level each: "Age eq 1" with no parentheses
+// or "not" anywhere still passes through all four on its way to
+// parseComparison. depth must therefore be threaded through UNCHANGED across
+// these routine same-level calls, and incremented ONLY at the two places
+// genuine nesting actually happens -- parseUnary's "not" branch and
+// parsePrimary's "(...)" branch, both of which recurse back into a
+// lower-precedence rule. Incrementing depth on every layer instead (this
+// package's original implementation) meant maxFilterDepth=100 was actually
+// reached by roughly 25 nested parentheses, not 100 -- a bound that doesn't
+// mean what its name says is barely better than no bound at all. See
+// TestParseFilter_DeepNestingBounded and
+// TestParseFilter_ModeratelyNestedParensAccepted for the regression
+// coverage on both sides of this off-by-a-lot.
 func (p *Parser) parseOr(depth int) (Node, error) {
 	if err := checkDepth(depth); err != nil {
 		return nil, err
 	}
 
-	left, err := p.parseAnd(depth + 1)
+	left, err := p.parseAnd(depth)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +402,7 @@ func (p *Parser) parseOr(depth int) (Node, error) {
 	for p.cur.typ == tOr {
 		p.advance()
 
-		right, andErr := p.parseAnd(depth + 1)
+		right, andErr := p.parseAnd(depth)
 		if andErr != nil {
 			return nil, andErr
 		}
@@ -402,7 +418,7 @@ func (p *Parser) parseAnd(depth int) (Node, error) {
 		return nil, err
 	}
 
-	left, err := p.parseUnary(depth + 1)
+	left, err := p.parseUnary(depth)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +426,7 @@ func (p *Parser) parseAnd(depth int) (Node, error) {
 	for p.cur.typ == tAnd {
 		p.advance()
 
-		right, unaryErr := p.parseUnary(depth + 1)
+		right, unaryErr := p.parseUnary(depth)
 		if unaryErr != nil {
 			return nil, unaryErr
 		}
@@ -429,6 +445,8 @@ func (p *Parser) parseUnary(depth int) (Node, error) {
 	if p.cur.typ == tNot {
 		p.advance()
 
+		// Genuine recursion: "not" wraps another full unary expression, so
+		// this is one real nesting level deeper.
 		inner, err := p.parseUnary(depth + 1)
 		if err != nil {
 			return nil, err
@@ -437,7 +455,7 @@ func (p *Parser) parseUnary(depth int) (Node, error) {
 		return &notNode{expr: inner}, nil
 	}
 
-	return p.parsePrimary(depth + 1)
+	return p.parsePrimary(depth)
 }
 
 func (p *Parser) parsePrimary(depth int) (Node, error) {
@@ -448,6 +466,9 @@ func (p *Parser) parsePrimary(depth int) (Node, error) {
 	if p.cur.typ == tLParen {
 		p.advance()
 
+		// Genuine recursion: entering "(...)" starts a whole new
+		// lowest-precedence sub-expression, so this is one real nesting
+		// level deeper -- see the doc comment above parseOr.
 		node, err := p.parseOr(depth + 1)
 		if err != nil {
 			return nil, err

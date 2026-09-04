@@ -58,6 +58,18 @@ const tablesResourceName = "Tables"
 // handleBatch.
 const batchResourceName = "$batch"
 
+// mergeMethod is the literal, non-standard HTTP method aztables' generated
+// client actually sends for a Merge Entity request as of some historical
+// client/proxy versions (net/http's http.Method* constants don't include it
+// since it isn't a registered standard method). Echo's e.Any("/*", ...)
+// route in StartWorker matches it like any other method.
+const mergeMethod = "MERGE"
+
+// xHTTPMethodOverrideHeader is the method-tunneling header some older .NET
+// clients and HTTP proxies send instead of (or alongside) a literal MERGE
+// method -- see resolveTunneledMergeMethod.
+const xHTTPMethodOverrideHeader = "X-Http-Method"
+
 // OData metadata level names, negotiated via the request's Accept header
 // (odataLevelFromAccept) and used throughout table_ops.go/entity_ops.go to
 // vary response shape.
@@ -166,6 +178,7 @@ func (h *Handler) Reset() {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+		resolveTunneledMergeMethod(r)
 
 		h.setCommonHeaders(c)
 		h.checkAuth(r)
@@ -302,6 +315,35 @@ func parseResource(resource string) (resourceKind, string, string) {
 	return resourceEntityItem, name, inner
 }
 
+// resolveTunneledMergeMethod rewrites r.Method in place to mergeMethod when
+// the request carries an X-Http-Method: MERGE override header -- the
+// method-tunneling convention some older .NET clients and HTTP proxies use
+// instead of (or alongside) sending a literal MERGE method, which
+// entityItemOperationFor/handleEntityItem already handle directly. The
+// override is honored ONLY when the actual method is POST, PUT, or PATCH:
+// tunneling is never allowed to turn a GET or DELETE into something else,
+// which would otherwise be an auth-bypass-shaped footgun (e.g. a client or
+// intermediary smuggling a mutating MERGE past something that only
+// authorizes GET). The header value is compared case-insensitively since
+// HTTP header values for this convention are not reliably cased.
+//
+// Called once at the very top of Handler()'s returned func, before
+// dispatch, so every downstream consumer of r.Method -- the dispatch
+// switches in handleEntityItem/entityItemOperationFor, and
+// ExtractOperation's metrics labeling via operationFor -- sees the resolved
+// method uniformly without duplicating this check.
+func resolveTunneledMergeMethod(r *http.Request) {
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+	default:
+		return
+	}
+
+	if strings.EqualFold(r.Header.Get(xHTTPMethodOverrideHeader), mergeMethod) {
+		r.Method = mergeMethod
+	}
+}
+
 // operationFor determines the Azure Table operation name for a request, for
 // metrics labeling. Mirrors the dispatch logic in Handler() without side
 // effects.
@@ -357,7 +399,7 @@ func entityItemOperationFor(method string) string {
 		return opGetEntity
 	case http.MethodPut:
 		return opReplaceEntity
-	case http.MethodPatch, "MERGE":
+	case http.MethodPatch, mergeMethod:
 		return opMergeEntity
 	case http.MethodDelete:
 		return opDeleteEntity
@@ -421,7 +463,7 @@ func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) 
 		return h.getEntity(c, table, partitionKey, rowKey)
 	case http.MethodPut:
 		return h.replaceEntity(c, table, partitionKey, rowKey)
-	case http.MethodPatch, "MERGE":
+	case http.MethodPatch, mergeMethod:
 		return h.mergeEntity(c, table, partitionKey, rowKey)
 	case http.MethodDelete:
 		return h.deleteEntity(c, table, partitionKey, rowKey)

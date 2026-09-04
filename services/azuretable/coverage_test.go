@@ -62,6 +62,13 @@ func TestStartWorker_BindsAndServes(t *testing.T) {
 	require.NoError(t, h.StartWorker(ctx))
 
 	t.Cleanup(func() {
+		// t.Context() is already canceled by the time a Cleanup-registered
+		// function runs (see testing.T.Context's doc comment), so it cannot
+		// serve as this timeout's parent -- an already-done parent would
+		// make shutdownCtx expire immediately, always forcing Shutdown's
+		// srv.Close() fallback instead of exercising its graceful path.
+		// context.Background() bounded by an explicit short timeout is the
+		// correct (not merely tolerated) choice here.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		h.Shutdown(shutdownCtx)
@@ -124,7 +131,7 @@ func TestShutdown_ForcesCloseOnGracefulTimeout(t *testing.T) {
 
 	require.NoError(t, h.StartWorker(t.Context()))
 
-	expiredCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	expiredCtx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
 
 	assert.NotPanics(t, func() {

@@ -176,6 +176,26 @@ func TestParseFilter_DeepNestingBounded(t *testing.T) {
 	})
 }
 
+// TestParseFilter_ModeratelyNestedParensAccepted is a regression test for a
+// real off-by-a-lot bug: the parser used to increment its depth counter on
+// every precedence-climbing layer (parseOr -> parseAnd -> parseUnary ->
+// parsePrimary), not just on genuine nesting ("(" and "not"), so
+// maxFilterDepth=100 was actually exhausted by roughly 25 nested
+// parentheses rather than 100 -- a perfectly reasonable, non-adversarial
+// filter could be rejected as "too deep". 50 levels of real parenthesis
+// nesting must be accepted; TestParseFilter_DeepNestingBounded (500 levels)
+// covers the rejection side of the same bound.
+func TestParseFilter_ModeratelyNestedParensAccepted(t *testing.T) {
+	t.Parallel()
+
+	const nestingLevels = 50
+
+	moderatelyDeep := strings.Repeat("(", nestingLevels) + "Age eq 1" + strings.Repeat(")", nestingLevels)
+
+	_, err := azuretable.ParseFilter(moderatelyDeep)
+	require.NoError(t, err)
+}
+
 func TestEvaluateFilter_TypeMismatchIsFalse(t *testing.T) {
 	t.Parallel()
 
@@ -196,4 +216,37 @@ func TestEvaluateFilter_BoolOnlySupportsEqNe(t *testing.T) {
 
 	assert.False(t, evalFilter(t, "Active gt false", entity))
 	assert.True(t, evalFilter(t, "Active ne false", entity))
+}
+
+// TestEvaluateFilter_Int64PrecisionNotLostInComparison is a regression test
+// for a real bug: comparing two Int64 operands by blanket-converting both
+// through float64 silently rounds any magnitude beyond 2^53 (float64's
+// mantissa width), making two genuinely DIFFERENT Int64 values compare
+// equal. 9007199254740993 (2^53+1) and 9007199254740992 (2^53) are the
+// smallest pair this can happen to.
+func TestEvaluateFilter_Int64PrecisionNotLostInComparison(t *testing.T) {
+	t.Parallel()
+
+	entity := entityWith(map[string]azuretable.EntityProperty{
+		"Big": {Type: azuretable.EdmInt64, Value: int64(1<<53 + 1)}, // 9007199254740993
+	})
+
+	assert.False(t, evalFilter(t, "Big eq 9007199254740992L", entity),
+		"2^53+1 must not compare equal to 2^53 -- that's exactly the float64-rounding bug")
+	assert.True(t, evalFilter(t, "Big eq 9007199254740993L", entity))
+	assert.True(t, evalFilter(t, "Big gt 9007199254740992L", entity))
+	assert.True(t, evalFilter(t, "Big ne 9007199254740992L", entity))
+
+	// Int32-vs-Int64 comparison must still work (both fit exactly in int64).
+	entityMixed := entityWith(map[string]azuretable.EntityProperty{
+		"Small": {Type: azuretable.EdmInt32, Value: int32(42)},
+	})
+	assert.True(t, evalFilter(t, "Small eq 42L", entityMixed))
+
+	// A Double operand still legitimately compares approximately via
+	// float64 -- there is no wider exact common type to use instead.
+	entityDouble := entityWith(map[string]azuretable.EntityProperty{
+		"Score": {Type: azuretable.EdmDouble, Value: 42.0},
+	})
+	assert.True(t, evalFilter(t, "Score eq 42", entityDouble))
 }
