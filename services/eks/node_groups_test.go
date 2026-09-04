@@ -326,6 +326,35 @@ func TestNodegroupDiskSize_Boundary_Max_OK(t *testing.T) {
 	assert.Equal(t, int32(16384), ng.DiskSize)
 }
 
+// TestCreateNodegroup_Version_MismatchRejected guards api_op_CreateNodegroup.go's
+// Version field doc: "By default, the Kubernetes version of the cluster is
+// used, and this is the only accepted specified value" for its cluster.
+func TestCreateNodegroup_Version_MismatchRejected(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "1.31", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
+	require.ErrorIs(t, err, eks.ErrValidation, "a nodegroup version that does not match the cluster's must be rejected")
+}
+
+// TestCreateNodegroup_Version_DefaultsToClusterVersion guards the same doc
+// sentence's default case: an omitted version must resolve to (and be
+// echoed back as) the cluster's own Kubernetes version, not stay empty.
+func TestCreateNodegroup_Version_DefaultsToClusterVersion(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ng, err := b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "1.32", ng.Version, "an omitted nodegroup version must default to the cluster's Kubernetes version")
+}
+
 func TestNodegroupDiskSize_Zero_Omitted(t *testing.T) {
 	t.Parallel()
 

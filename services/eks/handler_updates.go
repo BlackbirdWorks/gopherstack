@@ -184,12 +184,11 @@ func buildClusterConfigUpdate(in updateClusterConfigBody) ClusterConfigUpdate {
 		cfgUpd.SubnetIDs = in.ResourcesVpcConfig.SubnetIDs
 	}
 
+	// types.UpdateAccessConfigRequest carries only AuthenticationMode --
+	// BootstrapClusterCreatorAdminPermissions is create-only and not part of
+	// this op's wire shape, so it is deliberately not read here.
 	if in.AccessConfig != nil {
-		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
-		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
-			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
-		}
-		cfgUpd.AccessConfig = ac
+		cfgUpd.AccessConfig = &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
 	}
 
 	if in.ComputeConfig != nil {

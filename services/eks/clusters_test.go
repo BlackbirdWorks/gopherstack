@@ -8,12 +8,41 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
+
+// countLockSeries counts Prometheus metric series whose "lock" label equals
+// name, mirroring pkgs/lockmetrics's own TestRWMutex_CloseRemovesLabelValues
+// technique. This package's tests run heavily t.Parallel() and many reuse
+// generic fixture names (e.g. "c1") without ever closing them, so unrelated
+// concurrent tests can make the global gatherer report a MultiError for
+// *other* lock names; Gather still returns every non-conflicting family
+// (including this test's own uniquely-named series), so the error itself is
+// deliberately not asserted on here.
+func countLockSeries(t *testing.T, name string) int {
+	t.Helper()
+
+	mfs, _ := prometheus.DefaultGatherer.Gather()
+
+	count := 0
+
+	for _, mf := range mfs {
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "lock" && lp.GetValue() == name {
+					count++
+				}
+			}
+		}
+	}
+
+	return count
+}
 
 func TestEKS_RegisterDeregisterCluster(t *testing.T) {
 	t.Parallel()
@@ -1092,4 +1121,38 @@ func TestDescribeClusterVpcConfigRace(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+// TestDeleteCluster_ClosesAddonTags guards against a resource leak:
+// DeleteCluster bulk-removes a cluster's addons from the addons map but must
+// also close each addon's *tags.Tags, which owns a lockmetrics.RWMutex
+// registered with the global Prometheus collector (pkgs/tags: "It should be
+// called when the Tags instance is no longer needed to prevent unbounded
+// growth of the global collector."). Every sibling cascade in DeleteCluster
+// (capabilities, access entries, identity provider configs, pod identity
+// associations) already closes tags; addons previously did not.
+func TestDeleteCluster_ClosesAddonTags(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+
+	const clusterName = "leak-addon-cluster"
+	const addonName = "leak-addon"
+
+	_, err := b.CreateCluster(clusterName, "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAddon(clusterName, addonName, "", "", "", "", map[string]string{"env": "prod"})
+	require.NoError(t, err)
+
+	lockName := "eks.addon." + clusterName + "." + addonName + ".tags"
+
+	before := countLockSeries(t, lockName)
+	require.Positive(t, before, "expected at least one lock series before DeleteCluster")
+
+	_, err = b.DeleteCluster(clusterName)
+	require.NoError(t, err)
+
+	after := countLockSeries(t, lockName)
+	assert.Equal(t, 0, after, "DeleteCluster must close addon Tags, removing its lock series from the collector")
 }

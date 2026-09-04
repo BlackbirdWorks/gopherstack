@@ -305,10 +305,11 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 
 	delete(b.encryptionConfigs, name)
 
-	// Matches the pre-conversion behavior exactly: addons are bulk-removed
-	// WITHOUT closing their Tags (a pre-existing quirk of the map-based
-	// implementation this preserves byte-for-byte rather than fixes).
 	for _, a := range slices.Clone(b.addonsByCluster.Get(name)) {
+		if a.Tags != nil {
+			a.Tags.Close()
+		}
+
 		b.addons.Delete(addonKey(a.ClusterName, a.AddonName))
 	}
 
