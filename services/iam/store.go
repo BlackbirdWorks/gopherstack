@@ -185,7 +185,7 @@ type StorageBackend interface {
 	ResyncMFADevice(userName, serialNumber, authCode1, authCode2 string) error
 	GetMFADeviceOwner(serialNumber string) string
 	GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error)
-	ListMFADevicesForUser(userName string) ([]VirtualMFADevice, error)
+	ListMFADevicesForUser(userName, marker string, maxItems int) (page.Page[VirtualMFADevice], error)
 
 	// SSH Public Keys
 	UploadSSHPublicKey(userName, body string) (*SSHPublicKey, error)

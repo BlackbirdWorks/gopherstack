@@ -92,12 +92,15 @@ func (b *InMemoryBackend) GetMFADeviceOwner(serialNumber string) string {
 }
 
 // ListMFADevicesForUser returns all MFA devices assigned to a user.
-func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADevice, error) {
+func (b *InMemoryBackend) ListMFADevicesForUser(
+	userName, marker string,
+	maxItems int,
+) (page.Page[VirtualMFADevice], error) {
 	b.mu.RLock("ListMFADevicesForUser")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users.Get(userName); !exists {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return page.Page[VirtualMFADevice]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	c := b.comp()
@@ -114,7 +117,7 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 
 	sort.Slice(devices, func(i, j int) bool { return devices[i].SerialNumber < devices[j].SerialNumber })
 
-	return devices, nil
+	return page.New(devices, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // GetVirtualMFADevice returns the virtual MFA device with the given serial number
