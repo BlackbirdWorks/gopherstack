@@ -256,7 +256,9 @@ func (b *InMemoryBackend) UpdateMessage(
 		return MessageInfo{}, ErrQueueNotFound
 	}
 
-	_, msg, err := findMessageLocked(q, messageID, b.now())
+	now := b.now()
+
+	_, msg, err := findMessageLocked(q, messageID, now)
 	if err != nil {
 		return MessageInfo{}, err
 	}
@@ -265,7 +267,7 @@ func (b *InMemoryBackend) UpdateMessage(
 		return MessageInfo{}, ErrPopReceiptMismatch
 	}
 
-	msg.NextVisibleTime = b.now().Add(visibilityTimeout)
+	msg.NextVisibleTime = now.Add(visibilityTimeout)
 	msg.PopReceipt = b.idFunc()
 
 	if text != nil {
