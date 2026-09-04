@@ -3715,3 +3715,105 @@ written and removed before finishing, never left in the tree). Gates:
 (clean), `go test -race -count=1 ./services/ec2/...` (pass, unchanged).
 `golangci-lint run`/snapshot-version-guard not applicable (no `.go` files
 touched). Did NOT commit, push, or run any `bd` write command.
+
+## 2026-09-03/04 -- IAM instance profile launch-time integration (gopherstack-1a5)
+
+Five-dimension audit (AWS behavior compliance, LocalStack parity, cross-
+service integration, performance, resource leaks) per gopherstack-1a5. This
+campaign's wire-shape (Describe/List filters, pagination, wrapper-key)
+surface is, by this point, extensively re-audited and largely exhausted
+(see the many passes above); went deep instead on the IAM instance profile
+association lifecycle -- named by the task's own "cross-service integration"
+dimension and never mentioned anywhere in this file before now.
+
+FOUND AND FIXED, real client-observable bug: `handleRunInstances`
+(`handler_instances_lifecycle.go`) never read `IamInstanceProfile.Arn`/
+`IamInstanceProfile.Name` at all, even though `RunInstancesInput` declares
+it (confirmed against `serializers.go:91938`,
+`awsEc2query_serializeDocumentIamInstanceProfileSpecification`) and the
+backend already has a working `AssociateIamInstanceProfile` for the
+separate post-launch call. A real client launching an instance with
+`--iam-instance-profile Name=...`/`Arn=...` -- the common launch-time path,
+distinct from the two-call Associate flow -- silently got no instance
+profile at all, no error, and no association ever created. Separately,
+`instanceItem` (both `RunInstances` and `DescribeInstances` responses)
+never rendered `iamInstanceProfile` at all, so even an instance profile
+attached via the pre-existing `AssociateIamInstanceProfile` call never
+showed up on the instance's own Describe output (confirmed against
+`types.Instance.IamInstanceProfile`, `deserializers.go:110585`, element
+`iamInstanceProfile` with sub-elements `arn`/`id` -- reused the existing
+`iamProfileSpec` wire type already used by the Associate/Disassociate/
+Replace handlers). Fixed: `handleRunInstances` now associates the launch-
+time profile with each newly created instance via the existing
+`Backend.AssociateIamInstanceProfile`; both `RunInstances` and
+`DescribeInstances` now render the instance's current "associated"
+association as `iamInstanceProfile`. New test:
+`TestRunInstances_IamInstanceProfile_RealClient`
+(`wire_field_fixes_ec2sweep44_test.go`), real `aws-sdk-go-v2` client,
+confirmed to fail pre-fix (`cp`/`git show HEAD:` revert-and-restore, not
+asserted without running) with "RunInstances response never rendered the
+launch-time instance profile". No `Backend` interface signature changed;
+no persisted struct field/type changed (XML-only response field), so no
+`ec2SnapshotVersion` bump.
+
+NOTED, NOT FIXED (real, out of scope for this pass): (1)
+`AssociateIamInstanceProfile` has no check for an instance that already has
+an active association -- real AWS's documented constraint ("You cannot
+associate more than one IAM instance profile with an instance",
+`api_op_AssociateIamInstanceProfile.go`) is entirely unenforced, so calling
+it twice on the same instance silently creates two simultaneous
+`state=associated` associations, a state real AWS cannot produce. Not
+fixed: the real error code for this case was not independently confirmed
+against the SDK (only the prose constraint is confirmed), and fabricating
+a wire error code would violate this file's own no-fabrication rule. (2)
+`TerminateInstances` never disassociates/cleans up a terminated instance's
+`IamInstanceProfileAssociation` -- the association is left in state
+`associated` forever, pointing at an instance that no longer accepts new
+associations. Not the same shape as the `tag_cleanup` leak class fixed
+earlier in this file (instance IDs are UUID-based and never reused here,
+and the instance record itself is never deleted either, only marked
+terminated -- so this doesn't cause unbounded growth via reuse), but it is
+a real, unverified divergence from AWS's actual post-termination
+association state machine (`associating`/`associated`/`disassociating`/
+`disassociated`) that this pass did not have high enough confidence in to
+fix without risking inventing behavior.
+
+RunInstances also still ignores the real `SecurityGroup.N` (group *name*,
+as opposed to `SecurityGroupId.N`) parameter entirely (confirmed on the
+wire, `serializers.go:92093`,
+`awsEc2query_serializeDocumentSecurityGroupStringList`) -- only
+`validateSecurityGroupIDs` (`handler_filters.go`) is wired, which reads
+`SecurityGroupId.N` only. Real AWS accepts group names for EC2-Classic and
+default-VPC launches. Not fixed this pass (separate bug, not IAM-related,
+and this mock has no EC2-Classic/default-VPC-name-resolution concept to
+verify the right semantics against without risking a fabricated
+implementation) -- flagged for a future pass.
+
+Dimension coverage this pass:
+1. AWS behavior compliance -- BUGS FOUND (RunInstances/IamInstanceProfile,
+   above) in the narrow IAM-instance-profile-at-launch slice; the rest of
+   the wire-protocol surface (filters/pagination/wrapper-keys/error codes)
+   is NOT RE-CHECKED this pass, relying on the extensive prior audits
+   above.
+2. LocalStack parity -- NOT CHECKED (no LocalStack instance available this
+   pass).
+3. Cross-service integration -- BUGS FOUND for the IAM instance profile
+   association lifecycle specifically (the slice this pass targeted).
+   Broader cross-service surface (security-group/VPC reference validation
+   beyond what's already fixed elsewhere in this file, ASG/ELB references,
+   S3-backed AMI/snapshot storage) is NOT CHECKED -- no ASG/ELB/S3
+   cross-service wiring was found anywhere in `services/ec2` at all
+   (grepped; only `services/outposts` is wired via `cross_service.go`), so
+   there is nothing to audit there beyond confirming its absence.
+4. Performance -- NOT CHECKED this pass.
+5. Resource leaks -- re-confirmed the existing `leaks:` entry above
+   (goroutines/tag-map) still holds; found the IAM-association-on-terminate
+   gap noted above but did not fix it (insufficient confidence in the
+   correct real-AWS post-termination state, not a growth/goroutine leak).
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/ec2/...`
+(pass, full suite including the new test), `gofmt -l services/ec2/` (clean),
+`GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/ec2/...` (0 issues,
+after `golines`-wrapping two over-length call sites). No banned `//nolint`s
+introduced. Did NOT commit, push, or run any `bd` write command.
