@@ -141,7 +141,7 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 				_, _ = b.CreateApplication(context.Background(), "del-app", "", nil)
 			}
 
-			err := b.DeleteApplication(context.Background(), tt.appName)
+			err := b.DeleteApplication(context.Background(), tt.appName, false)
 
 			if tt.wantErr {
 				require.Error(t, err)

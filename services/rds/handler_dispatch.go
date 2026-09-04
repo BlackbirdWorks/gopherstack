@@ -542,6 +542,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
 		{ErrDBSecurityGroupNotFound, "DBSecurityGroupNotFound"},
 		{ErrDBSecurityGroupAlreadyExists, "DBSecurityGroupAlreadyExists"},
+		{ErrDBSecurityGroupInvalidState, "InvalidDBSecurityGroupState"},
 		{ErrBlueGreenDeploymentNotFound, "BlueGreenDeploymentNotFoundFault"},
 		{ErrBlueGreenDeploymentAlreadyExists, "BlueGreenDeploymentAlreadyExistsFault"},
 		{ErrDBShardGroupNotFound, "DBShardGroupNotFound"},

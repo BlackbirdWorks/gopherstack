@@ -107,4 +107,18 @@ var (
 	// Serverless namespace/workgroup (ErrorCode() "InvalidNamespaceFault",
 	// verified against InvalidNamespaceFault in types/errors.go).
 	ErrInvalidNamespace = errors.New("InvalidNamespaceFault")
+	// ErrSecurityGroupInvalidState is returned by DeleteClusterSecurityGroup
+	// when the target is the default security group (ErrorCode()
+	// "InvalidClusterSecurityGroupState", verified against
+	// InvalidClusterSecurityGroupStateFault in types/errors.go and this op's
+	// own declared error switch, awsAwsquery_deserializeOpErrorDeleteClusterSecurityGroup
+	// in deserializers.go).
+	ErrSecurityGroupInvalidState = errors.New("InvalidClusterSecurityGroupState")
+	// ErrParameterGroupInvalidState is returned by DeleteClusterParameterGroup
+	// when the target is a default parameter group (ErrorCode()
+	// "InvalidClusterParameterGroupState", verified against
+	// InvalidClusterParameterGroupStateFault in types/errors.go and this op's
+	// own declared error switch, awsAwsquery_deserializeOpErrorDeleteClusterParameterGroup
+	// in deserializers.go).
+	ErrParameterGroupInvalidState = errors.New("InvalidClusterParameterGroupState")
 )

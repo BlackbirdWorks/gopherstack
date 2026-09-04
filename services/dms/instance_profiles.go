@@ -94,7 +94,9 @@ func (b *InMemoryBackend) AddInstanceProfileInternal(name string) {
 	b.instanceProfiles.Put(ip)
 }
 
-// DeleteInstanceProfile deletes an instance profile by name or ARN.
+// DeleteInstanceProfile deletes an instance profile by name or ARN. Real
+// AWS: "All migration projects associated with the instance profile must be
+// deleted or modified before you can delete the instance profile".
 func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn string) error {
 	b.mu.Lock("DeleteInstanceProfile")
 	defer b.mu.Unlock()
@@ -102,6 +104,10 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 	region := getRegion(ctx, b.region)
 
 	if ip, ok := b.instanceProfiles.Get(regionKey(region, nameOrArn)); ok {
+		if b.migrationProjectUsesInstanceProfileLocked(region, ip.InstanceProfileArn) {
+			return fmt.Errorf("%w: instance profile %s has associated migration projects", ErrInvalidState, nameOrArn)
+		}
+
 		ip.Tags.Close()
 		b.instanceProfiles.Delete(regionKey(region, nameOrArn))
 
@@ -109,6 +115,10 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 	}
 
 	if ip, ok := lookupUnique(b.instanceProfilesByARN, regionKey(region, nameOrArn)); ok {
+		if b.migrationProjectUsesInstanceProfileLocked(region, ip.InstanceProfileArn) {
+			return fmt.Errorf("%w: instance profile %s has associated migration projects", ErrInvalidState, nameOrArn)
+		}
+
 		ip.Tags.Close()
 		b.instanceProfiles.Delete(regionKey(region, ip.InstanceProfileName))
 
@@ -116,6 +126,18 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 	}
 
 	return fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
+}
+
+// migrationProjectUsesInstanceProfileLocked reports whether any migration
+// project in region references instanceProfileArn. Caller must hold b.mu.
+func (b *InMemoryBackend) migrationProjectUsesInstanceProfileLocked(region, instanceProfileArn string) bool {
+	for _, mp := range b.migrationProjectsByRegion.Get(region) {
+		if mp.InstanceProfileArn == instanceProfileArn {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ModifyInstanceProfile updates an instance profile.

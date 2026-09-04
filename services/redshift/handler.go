@@ -818,6 +818,8 @@ var errCodeSentinels = []error{
 	ErrSnapshotAccessNotFound,
 	ErrSecurityGroupIngressNotFound,
 	ErrAuthorizationAlreadyExists,
+	ErrSecurityGroupInvalidState,
+	ErrParameterGroupInvalidState,
 }
 
 func resolveErrCode(opErr error) (string, int) {

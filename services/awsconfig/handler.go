@@ -294,6 +294,7 @@ var errorWireMappings = []errorWireMapping{
 	{ErrConflict, "ConflictException", http.StatusBadRequest},
 	{ErrValidation, "ValidationException", http.StatusBadRequest},
 	{ErrInvalidParameterValue, "InvalidParameterValueException", http.StatusBadRequest},
+	{ErrLastDeliveryChannelDeleteFailed, "LastDeliveryChannelDeleteFailedException", http.StatusBadRequest},
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {

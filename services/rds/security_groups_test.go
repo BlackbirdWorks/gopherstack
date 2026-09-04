@@ -238,6 +238,23 @@ func TestDescribeDBSecurityGroups(t *testing.T) {
 	}
 }
 
+// TestDeleteDBSecurityGroup_RejectsDefault locks real AWS's
+// DeleteDBSecurityGroupInput.DBSecurityGroupName doc comment: "You can't
+// delete the default DB security group" ("Must not be \"Default\"").
+func TestDeleteDBSecurityGroup_RejectsDefault(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	b.AddSecurityGroupInternal("Default", "default security group")
+
+	err := b.DeleteDBSecurityGroup("Default")
+	require.ErrorIs(t, err, rds.ErrDBSecurityGroupInvalidState)
+
+	groups, descErr := b.DescribeDBSecurityGroups("Default")
+	require.NoError(t, descErr)
+	require.Len(t, groups, 1, "default security group must survive the rejected delete")
+}
+
 func TestDeleteDBSecurityGroup(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

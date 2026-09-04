@@ -28,10 +28,21 @@ func (b *InMemoryBackend) CreateClusterSecurityGroup(name, description string) (
 	return cloneSecurityGroup(sg), nil
 }
 
-// DeleteClusterSecurityGroup removes a cluster security group.
+// defaultClusterSecurityGroupName is the name of the security group every
+// account has provisioned by default. Real AWS: DeleteClusterSecurityGroup's
+// own doc comment, "You cannot delete the default security group".
+const defaultClusterSecurityGroupName = "default"
+
+// DeleteClusterSecurityGroup removes a cluster security group. Real AWS:
+// "You cannot delete a security group that is associated with any
+// clusters. You cannot delete the default security group".
 func (b *InMemoryBackend) DeleteClusterSecurityGroup(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: ClusterSecurityGroupName is required", ErrInvalidParameter)
+	}
+
+	if name == defaultClusterSecurityGroupName {
+		return fmt.Errorf("%w: cannot delete the default security group", ErrSecurityGroupInvalidState)
 	}
 
 	b.mu.Lock("DeleteClusterSecurityGroup")

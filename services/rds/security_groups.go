@@ -69,11 +69,22 @@ func (b *InMemoryBackend) DescribeDBSecurityGroups(name string) ([]DBSecurityGro
 	return result, nil
 }
 
+// defaultDBSecurityGroupName is the reserved name of the DB security group
+// every account has by default. Real AWS: DeleteDBSecurityGroupInput.
+// DBSecurityGroupName's own doc comment, "You can't delete the default DB
+// security group".
+const defaultDBSecurityGroupName = "Default"
+
 // DeleteDBSecurityGroup removes the named security group.
 func (b *InMemoryBackend) DeleteDBSecurityGroup(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: DBSecurityGroupName is required", ErrInvalidParameter)
 	}
+
+	if name == defaultDBSecurityGroupName {
+		return fmt.Errorf("%w: cannot delete the default DB security group", ErrDBSecurityGroupInvalidState)
+	}
+
 	b.mu.Lock("DeleteDBSecurityGroup")
 	defer b.mu.Unlock()
 	if _, exists := b.dbSecurityGroups.Get(name); !exists {

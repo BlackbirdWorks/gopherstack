@@ -72,6 +72,11 @@ var (
 	ErrDBSecurityGroupNotFound = awserr.New("DBSecurityGroupNotFound", awserr.ErrNotFound)
 	// ErrDBSecurityGroupAlreadyExists is returned when a DB security group already exists.
 	ErrDBSecurityGroupAlreadyExists = awserr.New("DBSecurityGroupAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrDBSecurityGroupInvalidState is returned by DeleteDBSecurityGroup for
+	// the default DB security group. Real AWS: DeleteDBSecurityGroupInput.
+	// DBSecurityGroupName's own doc comment, "You can't delete the default
+	// DB security group" ("Must not be \"Default\"").
+	ErrDBSecurityGroupInvalidState = awserr.New("InvalidDBSecurityGroupState", awserr.ErrConflict)
 	// ErrBlueGreenDeploymentNotFound is returned when a Blue/Green Deployment does not exist.
 	ErrBlueGreenDeploymentNotFound = awserr.New("BlueGreenDeploymentNotFound", awserr.ErrNotFound)
 	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.

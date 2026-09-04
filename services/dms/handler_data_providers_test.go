@@ -2,6 +2,7 @@ package dms_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -22,6 +23,42 @@ func TestDeleteDataProvider(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 0, h.Backend.DataProviderCount())
+}
+
+// TestDeleteDataProvider_RejectedWithMigrationProject locks real AWS's
+// DeleteDataProvider doc comment: "All migration projects associated with
+// the data provider must be deleted or modified before you can delete the
+// data provider".
+func TestDeleteDataProvider_RejectedWithMigrationProject(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	deps := migrationProjectDeps(t, h)
+
+	createBody := map[string]any{"MigrationProjectName": "dp-guard-proj"}
+	maps.Copy(createBody, deps)
+
+	createRec := doDMS(t, h, "CreateMigrationProject", createBody)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	srcDescriptor := deps["SourceDataProviderDescriptors"].([]map[string]any)[0]
+	srcProviderID := srcDescriptor["DataProviderIdentifier"].(string)
+
+	rec := doDMS(t, h, "DeleteDataProvider", map[string]any{
+		"DataProviderIdentifier": srcProviderID,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, 2, h.Backend.DataProviderCount())
+
+	delProjRec := doDMS(t, h, "DeleteMigrationProject", map[string]any{
+		"MigrationProjectIdentifier": "dp-guard-proj",
+	})
+	require.Equal(t, http.StatusOK, delProjRec.Code)
+
+	rec2 := doDMS(t, h, "DeleteDataProvider", map[string]any{
+		"DataProviderIdentifier": srcProviderID,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
 func TestModifyDataProvider(t *testing.T) {

@@ -159,9 +159,12 @@ func TestFSx_DeleteVolume_CascadesToSnapshots(t *testing.T) {
 	assert.Equal(t, 0, fsx.SnapshotCount(b), "snapshot must be cascade-deleted")
 }
 
-// TestFSx_DeleteStorageVirtualMachine_CascadesToVolumes verifies that
-// DeleteStorageVirtualMachine removes every volume hosted on that SVM.
-func TestFSx_DeleteStorageVirtualMachine_CascadesToVolumes(t *testing.T) {
+// TestFSx_DeleteStorageVirtualMachine_RejectedWithVolumes verifies that
+// DeleteStorageVirtualMachine refuses while it still hosts a volume (real
+// AWS: "Prior to deleting an SVM, you must delete all non-root volumes in
+// the SVM, otherwise the operation will fail.") and succeeds once the
+// volume is removed.
+func TestFSx_DeleteStorageVirtualMachine_RejectedWithVolumes(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -181,10 +184,18 @@ func TestFSx_DeleteStorageVirtualMachine_CascadesToVolumes(t *testing.T) {
 		"OntapConfiguration": map[string]any{"StorageVirtualMachineId": svmID},
 	})
 	require.Equal(t, http.StatusOK, volRec.Code)
+	volID := decodeField(t, volRec, "Volume")["VolumeId"].(string)
 	require.Equal(t, 1, fsx.VolumeCount(b))
 
+	// Rejected while the volume exists.
 	delRec := doFSxRequest(t, h, "DeleteStorageVirtualMachine", map[string]any{"StorageVirtualMachineId": svmID})
-	require.Equal(t, http.StatusOK, delRec.Code)
+	require.Equal(t, http.StatusBadRequest, delRec.Code)
+	assert.Equal(t, 1, fsx.VolumeCount(b))
 
-	assert.Equal(t, 0, fsx.VolumeCount(b), "volume must be cascade-deleted")
+	delVolRec := doFSxRequest(t, h, "DeleteVolume", map[string]any{"VolumeId": volID})
+	require.Equal(t, http.StatusOK, delVolRec.Code)
+
+	// Succeeds once the volume is gone.
+	delRec = doFSxRequest(t, h, "DeleteStorageVirtualMachine", map[string]any{"StorageVirtualMachineId": svmID})
+	require.Equal(t, http.StatusOK, delRec.Code)
 }

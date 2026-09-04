@@ -96,4 +96,14 @@ var (
 	// declare ConflictException at HTTP status 400 -- not 409, unlike this
 	// package's other conflict-shaped errors).
 	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrLastDeliveryChannelDeleteFailed is returned by DeleteDeliveryChannel
+	// when the customer managed configuration recorder is still recording.
+	// Real AWS: "Before you can delete the delivery channel, you must stop
+	// the customer managed configuration recorder" (verified against
+	// aws-sdk-go-v2/service/configservice's DeleteDeliveryChannel
+	// deserializer, which declares LastDeliveryChannelDeleteFailedException).
+	ErrLastDeliveryChannelDeleteFailed = awserr.New(
+		"LastDeliveryChannelDeleteFailedException",
+		awserr.ErrConflict,
+	)
 )

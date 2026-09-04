@@ -49,6 +49,16 @@ var (
 		awserr.ErrNotFound,
 	)
 
+	// errIPGroupAssociatedWithDirectory is returned by DeleteIpGroup when the
+	// group is still associated with a directory. Real AWS: "You cannot
+	// delete an IP access control group that is associated with a
+	// directory." Real AWS's own deserializer declares ResourceAssociatedException
+	// for this case, but this package's generic error dispatch (handler.go's
+	// handleError) only distinguishes NotFound/InvalidParameter/AlreadyExists/
+	// Conflict, so this reuses errInvalidResourceState like every other
+	// still-in-use conflict in this package (e.g. errDirectoryHasWorkspaces).
+	errIPGroupAssociatedWithDirectory = awserr.New(errInvalidResourceState, awserr.ErrConflict)
+
 	errConnAliasNotFound   = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	errBundleNotFound      = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	errImageNotFound       = awserr.New(errResourceNotFound, awserr.ErrNotFound)

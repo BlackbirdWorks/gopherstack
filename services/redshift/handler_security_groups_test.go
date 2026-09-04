@@ -99,6 +99,13 @@ func TestRedshiftHandler_DeleteClusterSecurityGroup(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
+		{
+			// Real AWS: "You cannot delete the default security group."
+			name:         "default_security_group_rejected",
+			body:         "Action=DeleteClusterSecurityGroup&Version=2012-12-01&ClusterSecurityGroupName=default",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidClusterSecurityGroupState"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -64,13 +64,23 @@ func (b *InMemoryBackend) DescribeStateMachineVersion(
 // AWS: DeleteStateMachineVersion's own error switch models
 // ConflictException, InvalidArn, and ValidationException -- no
 // StateMachineVersionDoesNotExist type exists anywhere in this SDK -- so it
-// is idempotent on a missing version.
+// is idempotent on a missing version. Real AWS: "You can't delete a state
+// machine version currently referenced by one or more aliases. Before you
+// delete a version, you must either delete the aliases or update them....
 func (b *InMemoryBackend) DeleteStateMachineVersion(versionARN string) error {
 	b.mu.Lock("DeleteStateMachineVersion")
 	defer b.mu.Unlock()
 
 	if !b.versions.Has(versionARN) {
 		return nil
+	}
+
+	for _, alias := range b.aliases.All() {
+		for _, route := range alias.RoutingConfiguration {
+			if route.StateMachineVersionArn == versionARN {
+				return fmt.Errorf("%w: %s", ErrStateMachineVersionReferencedByAlias, versionARN)
+			}
+		}
 	}
 
 	// Delete also removes v from the versionsByStateMachine index, replacing
