@@ -1723,11 +1723,13 @@ func (rc *ResourceCreator) deleteNetworkSecurityResource(ctx context.Context, ph
 	case "AWS::WAFv2::IPSet":
 		return rc.deleteWAFv2IPSet(ctx, physicalID)
 	case "AWS::WAFv2::RuleGroup":
-		return rc.deleteWAFv2RuleGroup(physicalID)
+		return rc.deleteWAFv2RuleGroup(ctx, physicalID)
 	case "AWS::Backup::BackupVault":
 		return rc.deleteBackupVault(physicalID)
 	case "AWS::Backup::BackupPlan":
 		return rc.deleteBackupPlan(physicalID)
+	case "AWS::Backup::BackupSelection":
+		return rc.deleteBackupSelection(physicalID)
 	case "AWS::RDS::DBCluster":
 		return rc.deleteRDSDBCluster(physicalID)
 	case "AWS::RDS::DBClusterParameterGroup":
@@ -2436,10 +2438,10 @@ func (rc *ResourceCreator) createExtraResource(
 		return id, true, err
 	}
 
-	if id, ok := rc.createSecretsManagerSupplementalResource(
-		logicalID, resourceType, props, params, physicalIDs,
+	if id, ok, err := rc.createSecretsManagerSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
 	); ok {
-		return id, true, nil
+		return id, true, err
 	}
 
 	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
@@ -2494,8 +2496,8 @@ func (rc *ResourceCreator) deleteExtraResource(
 		return true, err
 	}
 
-	if rc.deleteDynamoDBSupplementalResource(resourceType, physicalID) {
-		return true, nil
+	if handled, err := rc.deleteDynamoDBSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
 	}
 
 	if handled, err := rc.deleteGlueSupplementalResource(resourceType, physicalID); handled {
