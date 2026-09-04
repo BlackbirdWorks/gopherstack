@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -254,6 +255,50 @@ func TestSweepTaskTokens_EvictsStaleTokens(t *testing.T) {
 			t.Fatal("InvokeActivity goroutine did not unblock after SweepTaskTokens")
 		}
 	}
+}
+
+// TestSweepTaskTokens_ReapsWaitForTaskTokenEntries verifies that a
+// .waitForTaskToken callback registered via WaitForTaskToken (not
+// InvokeActivity) is also bounded by the TaskTokenTTL janitor sweep, the
+// same as an activity task token, rather than leaking forever when no
+// SendTaskSuccess/SendTaskFailure ever arrives. Uses synctest so the TTL
+// wait is real elapsed (fake) time, not a manually backdated createdAt --
+// AgeTaskTokensForTest's unconditional Add(-d) would mask a bug where
+// createdAt was never set to a real time in the first place.
+func TestSweepTaskTokens_ReapsWaitForTaskTokenEntries(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		b := sfn.NewInMemoryBackendWithContext(ctx, "123456789012", "us-east-1")
+		b.SetSettings(sfn.Settings{TaskTokenTTL: 10 * time.Millisecond})
+
+		done := make(chan error, 1)
+		go func() {
+			_, waitErr := b.WaitForTaskToken(ctx, "orphan-token", 0)
+			done <- waitErr
+		}()
+
+		synctest.Wait()
+		require.Equal(t, 1, b.TaskTokenCount(), "WaitForTaskToken must register its token")
+
+		evicted := b.SweepTaskTokens()
+		require.Equal(t, 0, evicted, "fresh tokens must not be evicted")
+
+		time.Sleep(11 * time.Millisecond)
+		evicted = b.SweepTaskTokens()
+		require.Equal(t, 1, evicted, "a stale .waitForTaskToken entry must be evicted like an activity token")
+		require.Equal(t, 0, b.TaskTokenCount(), "tasksByToken must be empty after sweep")
+
+		synctest.Wait()
+
+		select {
+		case waitErr := <-done:
+			require.Error(t, waitErr, "WaitForTaskToken must return an error after token eviction")
+		default:
+			t.Fatal("WaitForTaskToken goroutine did not unblock after SweepTaskTokens")
+		}
+	})
 }
 
 // TestLeak_DeletedExecsTombstoneCleanup verifies that pruneExecutionsLocked

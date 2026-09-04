@@ -10,7 +10,8 @@ import (
 )
 
 // SweepTaskTokens evicts task tokens that have exceeded the TTL without a worker response,
-// signalling the blocked InvokeActivity goroutine so it is not leaked. Returns evicted count.
+// signalling the blocked InvokeActivity/WaitForTaskToken goroutine so it is not leaked.
+// Returns evicted count.
 func (b *InMemoryBackend) SweepTaskTokens() int {
 	ttl := b.settings.TaskTokenTTL
 	if ttl == 0 {
@@ -318,6 +319,7 @@ func (b *InMemoryBackend) WaitForTaskToken(
 	entry := &activityTaskEntry{
 		taskToken: taskToken,
 		resultCh:  make(chan activityTaskResult, 1),
+		createdAt: time.Now(),
 	}
 
 	if heartbeatSeconds > 0 {
