@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	stateActive         = "ACTIVE"
-	replayStateStarting = "STARTING"
+	stateActive           = "ACTIVE"
+	replayStateStarting   = "STARTING"
+	replayStateCancelling = "CANCELLING"
+	replayStateCancelled  = "CANCELLED"
+	replayStateCompleted  = "COMPLETED"
 )
 
 // regionContextKey is the context key for the per-request AWS region.
