@@ -111,6 +111,10 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
 
+	key := userStateKey(userPoolID, username)
+	delete(b.devices, key)
+	delete(b.authEvents, key)
+
 	return nil
 }
 
@@ -224,6 +228,10 @@ func (b *InMemoryBackend) DeleteUser(accessToken string) error {
 
 	b.users.Delete(userKey(poolID, username))
 	b.deleteRefreshTokensForUserLocked(poolID, username)
+
+	key := userStateKey(poolID, username)
+	delete(b.devices, key)
+	delete(b.authEvents, key)
 
 	return nil
 }

@@ -427,7 +427,11 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 		return fmt.Errorf("%w: thing %q has attached principals", ErrDeleteConflict, thingName)
 	}
 
+	thingARN := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", thingName))
+
 	b.things.Delete(thingName)
+	delete(b.resourceTags, thingARN)
+	delete(b.thingBillingGroups, thingName)
 
 	for _, exec := range b.jobExecutions.All() {
 		if exec.ThingName == thingName {

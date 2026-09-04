@@ -184,6 +184,25 @@ func TestBackend_RemoveAccountFromOrganization(t *testing.T) {
 	}
 }
 
+// TestBackend_RemoveAccountFromOrganization_FreesEmailForReuse verifies that
+// removing an account clears its email from the duplicate-email index, so a
+// new account can be created with the same email afterward. Previously the
+// stale index entry caused CreateAccount to wrongly reject the same email
+// with ErrInvalidInput even though no account was using it any more.
+func TestBackend_RemoveAccountFromOrganization_FreesEmailForReuse(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	status, err := b.CreateAccount("reused-account", "reused@example.com", "", "", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.RemoveAccountFromOrganization(status.AccountID))
+
+	_, err = b.CreateAccount("reused-account-2", "reused@example.com", "", "", nil)
+	require.NoError(t, err, "email should be free for reuse after account removal")
+}
+
 // TestBackend_MoveAccount tests moving an account between OUs.
 func TestBackend_MoveAccount(t *testing.T) {
 	t.Parallel()

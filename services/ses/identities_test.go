@@ -481,6 +481,22 @@ func TestDeleteIdentity_NonExistent_IsIdempotent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestDeleteIdentity_ClearsPoliciesOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("reused@example.com"))
+	require.NoError(t, h.Backend.PutIdentityPolicy("reused@example.com", "my-policy", `{"Version":"2012-10-17"}`))
+
+	h.Backend.DeleteIdentity("reused@example.com")
+
+	require.NoError(t, h.Backend.VerifyEmailIdentity("reused@example.com"))
+
+	names, err := h.Backend.ListIdentityPolicies("reused@example.com")
+	require.NoError(t, err)
+	assert.Empty(t, names)
+}
+
 func TestListIdentities_IdentityTypeFilter(t *testing.T) {
 	t.Parallel()
 

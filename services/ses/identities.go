@@ -37,6 +37,7 @@ func (b *InMemoryBackend) DeleteIdentity(identity string) {
 	defer b.mu.Unlock()
 
 	b.identities.Delete(identity)
+	delete(b.policies, identity)
 }
 
 // getOrCreateIdentityLocked returns the IdentityRecord for identity, creating one if absent.

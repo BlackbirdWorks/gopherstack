@@ -185,6 +185,10 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 	delete(b.tags, accountID)
 	delete(b.targetPolicies, accountID)
 
+	if acct != nil {
+		delete(b.emailToAccountID, acct.Email)
+	}
+
 	// Cascade-delete every delegated-admin registration for this account,
 	// across all service principals. Clone the index slice first: Table.Delete
 	// mutates the byAccount index in place, which would otherwise invalidate

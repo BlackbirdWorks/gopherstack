@@ -124,7 +124,10 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 		return fmt.Errorf("%w: policy %q has attached targets", ErrDeleteConflict, policyName)
 	}
 
+	p, _ := b.policies.Get(policyName)
+
 	b.policies.Delete(policyName)
+	delete(b.resourceTags, p.ARN)
 
 	return nil
 }

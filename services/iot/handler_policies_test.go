@@ -322,6 +322,30 @@ func TestDeletePolicy_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, iot.ErrPolicyNotFound)
 }
 
+func TestDeletePolicy_ClearsResourceTagsOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	backend := iot.NewInMemoryBackend()
+
+	created, err := backend.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "reused-policy",
+		PolicyDocument: "{}",
+	})
+	require.NoError(t, err)
+	require.NoError(t, backend.TagResourceGeneric(created.PolicyARN, map[string]string{"env": "prod"}))
+	require.Equal(t, map[string]string{"env": "prod"}, backend.ListTagsForResource(created.PolicyARN))
+
+	require.NoError(t, backend.DeletePolicy("reused-policy"))
+
+	recreated, err := backend.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "reused-policy",
+		PolicyDocument: "{}",
+	})
+	require.NoError(t, err)
+	require.Equal(t, created.PolicyARN, recreated.PolicyARN)
+	assert.Empty(t, backend.ListTagsForResource(recreated.PolicyARN))
+}
+
 func TestListPolicies_Sorted(t *testing.T) {
 	t.Parallel()
 

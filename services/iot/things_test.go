@@ -114,6 +114,35 @@ func TestBackend_DeleteThing(t *testing.T) {
 	}
 }
 
+func TestDeleteThing_ClearsGhostStateOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackend()
+
+	created, err := b.CreateThing(&iot.CreateThingInput{ThingName: "reused-thing"})
+	require.NoError(t, err)
+	require.NoError(t, b.TagResourceGeneric(created.ThingARN, map[string]string{"env": "prod"}))
+	require.NoError(t, b.AddThingToBillingGroup(&iot.AddThingToBillingGroupInput{
+		ThingName:        "reused-thing",
+		BillingGroupName: "old-group",
+	}))
+
+	described, err := b.DescribeThing("reused-thing")
+	require.NoError(t, err)
+	require.Equal(t, "old-group", described.BillingGroupName)
+
+	require.NoError(t, b.DeleteThing("reused-thing"))
+
+	recreated, err := b.CreateThing(&iot.CreateThingInput{ThingName: "reused-thing"})
+	require.NoError(t, err)
+	require.Equal(t, created.ThingARN, recreated.ThingARN)
+	assert.Empty(t, b.ListTagsForResource(recreated.ThingARN))
+
+	redescribed, err := b.DescribeThing("reused-thing")
+	require.NoError(t, err)
+	assert.Empty(t, redescribed.BillingGroupName)
+}
+
 // TestSortedListThings verifies ListThings returns items sorted by name.
 func TestSortedListThings(t *testing.T) {
 	t.Parallel()

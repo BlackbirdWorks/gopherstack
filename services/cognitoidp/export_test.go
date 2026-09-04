@@ -120,6 +120,31 @@ func (b *InMemoryBackend) SeedAuthEventForTest(poolID, username string, ev *Auth
 	b.authEvents[key][ev.EventID] = ev
 }
 
+// SeedDeviceForTest directly inserts a Device for a user, bypassing the
+// normal ConfirmDevice flow. For testing only.
+func (b *InMemoryBackend) SeedDeviceForTest(poolID, username string, dev *Device) {
+	b.mu.Lock("SeedDeviceForTest")
+	defer b.mu.Unlock()
+
+	key := userStateKey(poolID, username)
+	if b.devices[key] == nil {
+		b.devices[key] = make(map[string]*Device)
+	}
+
+	b.devices[key][dev.DeviceKey] = dev
+}
+
+// HasDeviceStateForTest reports whether any device or auth-event state is
+// stored under a user's state key. For testing only.
+func (b *InMemoryBackend) HasDeviceStateForTest(poolID, username string) bool {
+	b.mu.RLock("HasDeviceStateForTest")
+	defer b.mu.RUnlock()
+
+	key := userStateKey(poolID, username)
+
+	return len(b.devices[key]) > 0 || len(b.authEvents[key]) > 0
+}
+
 // GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
 func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
 	b.mu.RLock("GetAttrVerificationCodeForTest")

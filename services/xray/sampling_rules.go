@@ -267,6 +267,7 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName, ruleARN string) (*Samplin
 
 	deleted := cloneRule(r)
 	b.samplingRules.Delete(r.RuleName)
+	delete(b.resourceTags, r.RuleARN)
 	b.lastRuleModification = time.Now()
 
 	return deleted, nil

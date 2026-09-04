@@ -712,6 +712,63 @@ func TestBackend_DeleteUser(t *testing.T) {
 	}
 }
 
+func TestDeleteUser_ClearsDeviceStateOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("admin_delete", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		pool, err := b.CreateUserPool("admin-del-pool")
+		require.NoError(t, err)
+
+		_, err = b.AdminCreateUser(pool.ID, "reused-user", "Pass1234!", nil)
+		require.NoError(t, err)
+
+		b.SeedDeviceForTest(pool.ID, "reused-user", &cognitoidp.Device{DeviceKey: "dev1", Status: "valid"})
+		b.SeedAuthEventForTest(pool.ID, "reused-user", &cognitoidp.AuthEvent{EventID: "ev1", EventType: "SignIn"})
+		require.True(t, b.HasDeviceStateForTest(pool.ID, "reused-user"))
+
+		require.NoError(t, b.AdminDeleteUser(pool.ID, "reused-user"))
+
+		_, err = b.AdminCreateUser(pool.ID, "reused-user", "Pass1234!", nil)
+		require.NoError(t, err)
+
+		assert.False(t, b.HasDeviceStateForTest(pool.ID, "reused-user"))
+	})
+
+	t.Run("self_delete", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		pool, err := b.CreateUserPool("self-del-pool")
+		require.NoError(t, err)
+
+		client, err := b.CreateUserPoolClient(pool.ID, "self-del-client")
+		require.NoError(t, err)
+
+		user, err := b.SignUp(client.ClientID, "reused-user", "Pass1234!", map[string]string{})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "reused-user", user.ConfirmCode))
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "reused-user", "Pass1234!")
+		require.NoError(t, err)
+		require.NotNil(t, result.Tokens)
+
+		b.SeedDeviceForTest(pool.ID, "reused-user", &cognitoidp.Device{DeviceKey: "dev1", Status: "valid"})
+		b.SeedAuthEventForTest(pool.ID, "reused-user", &cognitoidp.AuthEvent{EventID: "ev1", EventType: "SignIn"})
+		require.True(t, b.HasDeviceStateForTest(pool.ID, "reused-user"))
+
+		require.NoError(t, b.DeleteUser(result.Tokens.AccessToken))
+
+		user2, err := b.SignUp(client.ClientID, "reused-user", "Pass1234!", map[string]string{})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "reused-user", user2.ConfirmCode))
+
+		assert.False(t, b.HasDeviceStateForTest(pool.ID, "reused-user"))
+	})
+}
+
 func unmarshalBody(t *testing.T, rec *httptest.ResponseRecorder, v any) error {
 	t.Helper()
 

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
@@ -148,6 +149,28 @@ func TestDeleteUser(t *testing.T) {
 
 	_, err = b.DescribeUser(s.ServerID, "alice")
 	require.Error(t, err)
+}
+
+func TestDeleteUser_ClearsTagsOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+
+	s, err := b.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	u, err := b.CreateUser(s.ServerID, "alice", "/alice", "", map[string]string{"env": "prod"})
+	require.NoError(t, err)
+
+	userArn := arn.Build("transfer", u.Region, u.AccountID, "user/"+s.ServerID+"/alice")
+	require.Equal(t, map[string]string{"env": "prod"}, b.ListTagsForResource(userArn))
+
+	require.NoError(t, b.DeleteUser(s.ServerID, "alice"))
+
+	_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListTagsForResource(userArn))
 }
 
 func TestUpdateUser(t *testing.T) {
