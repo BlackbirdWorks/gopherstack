@@ -28,11 +28,24 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	cutoffIdempotency := now.Add(-defaultIdempotencyRetention)
+	cutoffIdempotency := now.Add(-b.getIdempotencyRetentionLocked())
 	removedCount := 0
 
-	removedCount += sweepCertTokens(b.idempotencyMap, cutoffIdempotency)
-	removedCount += sweepAccountTokens(b.accountIdempotency, cutoffIdempotency)
+	certCreatedAt := func(e certIdempotencyEntry) time.Time { return e.CreatedAt }
+	accountCreatedAt := func(e accountIdempotencyEntry) time.Time { return e.CreatedAt }
+	removedCount += sweepExpiredTokens(b.idempotencyMap, cutoffIdempotency, certCreatedAt)
+	removedCount += sweepExpiredTokens(b.accountIdempotency, cutoffIdempotency, accountCreatedAt)
+	// The ACME resource family's Create* idempotency tokens (endpoints/EABs/
+	// domain-validations) previously had no TTL sweep at all -- unlike
+	// idempotencyMap/accountIdempotency above, they grew unbounded for every
+	// token-bearing Create call, and DeleteAcmeEndpoint's cascade delete
+	// (acme_endpoints.go) only cleans its own endpointIdempotency entry, not
+	// the eabIdempotency/domainValidationIdempotency entries of the children
+	// it cascade-deletes -- so those were also orphaned with no cleanup path.
+	acmeFingerprint := func(e acmeIdempotencyEntry) time.Time { return e.CreatedAt }
+	removedCount += sweepExpiredTokens(b.endpointIdempotency, cutoffIdempotency, acmeFingerprint)
+	removedCount += sweepExpiredTokens(b.eabIdempotency, cutoffIdempotency, acmeFingerprint)
+	removedCount += sweepExpiredTokens(b.domainValidationIdempotency, cutoffIdempotency, acmeFingerprint)
 
 	b.sweepStaleCerts(now)
 
@@ -46,29 +59,16 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 	telemetry.RecordWorkerTask("acm", "AcmJanitor", "success")
 }
 
-// sweepCertTokens removes expired RequestCertificate idempotency tokens across all
-// regions and returns the number removed.
-func sweepCertTokens(m map[string]map[string]certIdempotencyEntry, cutoff time.Time) int {
+// sweepExpiredTokens removes idempotency-token entries older than cutoff
+// across all regions of a region-scoped token map, and returns the number
+// removed. Shared by every idempotency-token family in this package
+// (RequestCertificate, PutAccountConfiguration, and the ACME endpoint/EAB/
+// domain-validation families).
+func sweepExpiredTokens[T any](m map[string]map[string]T, cutoff time.Time, createdAt func(T) time.Time) int {
 	removed := 0
 	for _, regionTokens := range m {
 		for token, entry := range regionTokens {
-			if entry.CreatedAt.Before(cutoff) {
-				delete(regionTokens, token)
-				removed++
-			}
-		}
-	}
-
-	return removed
-}
-
-// sweepAccountTokens removes expired PutAccountConfiguration idempotency tokens across
-// all regions and returns the number removed.
-func sweepAccountTokens(m map[string]map[string]accountIdempotencyEntry, cutoff time.Time) int {
-	removed := 0
-	for _, regionTokens := range m {
-		for token, entry := range regionTokens {
-			if entry.CreatedAt.Before(cutoff) {
+			if createdAt(entry).Before(cutoff) {
 				delete(regionTokens, token)
 				removed++
 			}
