@@ -230,6 +230,46 @@ func TestHandler_ListStatements_MaxResultsTooHigh_Returns400(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
+// TestHandler_ListStatements_RejectsBothClusterAndWorkgroup guards
+// ListStatementsInput's documented mutual-exclusivity constraint ("When
+// providing ClusterIdentifier, then WorkgroupName can't be specified",
+// api_op_ListStatements.go, aws-sdk-go-v2/service/redshiftdata@v1.43.4) --
+// unlike ExecuteStatement/BatchExecuteStatement, neither field is required,
+// so only the both-set case is invalid.
+func TestHandler_ListStatements_RejectsBothClusterAndWorkgroup(t *testing.T) {
+	t.Parallel()
+
+	t.Run("both_set_returns_400", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, newTestHandler(t), "ListStatements", map[string]any{
+			"ClusterIdentifier": "my-cluster",
+			"WorkgroupName":     "my-workgroup",
+		})
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
+	})
+
+	t.Run("neither_set_returns_200", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, newTestHandler(t), "ListStatements", map[string]any{})
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("only_cluster_set_returns_200", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, newTestHandler(t), "ListStatements", map[string]any{
+			"ClusterIdentifier": "my-cluster",
+		})
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
 // TestAddStatementInternal verifies the seed helper bypasses UUID generation.
 func TestAddStatementInternal(t *testing.T) {
 	t.Parallel()
