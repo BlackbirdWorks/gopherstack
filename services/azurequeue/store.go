@@ -153,6 +153,10 @@ func (b *InMemoryBackend) GetMessages(
 		return nil, ErrQueueNotFound
 	}
 
+	if numOfMessages < MinNumOfMessages || numOfMessages > MaxNumOfMessages {
+		return nil, ErrOutOfRangeQueryParam
+	}
+
 	now := b.now()
 	nextVisible := now.Add(visibilityTimeout)
 
@@ -188,6 +192,10 @@ func (b *InMemoryBackend) PeekMessages(queue string, numOfMessages int) ([]Messa
 		return nil, ErrQueueNotFound
 	}
 
+	if numOfMessages < MinNumOfMessages || numOfMessages > MaxNumOfMessages {
+		return nil, ErrOutOfRangeQueryParam
+	}
+
 	now := b.now()
 
 	out := make([]MessageInfo, 0, numOfMessages)
@@ -219,7 +227,7 @@ func (b *InMemoryBackend) DeleteMessage(queue, messageID, popReceipt string) err
 		return ErrQueueNotFound
 	}
 
-	idx, msg, err := findMessageLocked(q, messageID)
+	idx, msg, err := findMessageLocked(q, messageID, b.now())
 	if err != nil {
 		return err
 	}
@@ -248,7 +256,9 @@ func (b *InMemoryBackend) UpdateMessage(
 		return MessageInfo{}, ErrQueueNotFound
 	}
 
-	_, msg, err := findMessageLocked(q, messageID)
+	now := b.now()
+
+	_, msg, err := findMessageLocked(q, messageID, now)
 	if err != nil {
 		return MessageInfo{}, err
 	}
@@ -257,7 +267,7 @@ func (b *InMemoryBackend) UpdateMessage(
 		return MessageInfo{}, ErrPopReceiptMismatch
 	}
 
-	msg.NextVisibleTime = b.now().Add(visibilityTimeout)
+	msg.NextVisibleTime = now.Add(visibilityTimeout)
 	msg.PopReceipt = b.idFunc()
 
 	if text != nil {
@@ -292,11 +302,16 @@ func (b *InMemoryBackend) Reset() {
 	b.queues = make(map[string]*storedQueue)
 }
 
-// findMessageLocked resolves a message by ID within q. Callers must hold
-// b.mu (either read or write).
-func findMessageLocked(q *storedQueue, messageID string) (int, *storedMessage, error) {
+// findMessageLocked resolves a message by ID within q, as of now. A message
+// that has reached its expiration instant (see storedMessage.isExpired) is
+// treated as not found even if the Janitor has not yet swept it: real Azure
+// Queue Storage deletes a message once its TTL elapses and rejects
+// Delete/Update against an expired one, so DeleteMessage/UpdateMessage must
+// not be able to observe or mutate it in the gap between expiry and sweep.
+// Callers must hold b.mu (either read or write).
+func findMessageLocked(q *storedQueue, messageID string, now time.Time) (int, *storedMessage, error) {
 	for i, msg := range q.Messages {
-		if msg.ID == messageID {
+		if msg.ID == messageID && !msg.isExpired(now) {
 			return i, msg, nil
 		}
 	}

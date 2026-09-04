@@ -79,6 +79,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			return fmt.Errorf("%w: %q", ErrSnapshotQueueNull, name)
 		}
 
+		// Queue operations (CreateQueue, DeleteQueue, PutMessage, ...) all
+		// key off the "queues" map, while ListQueues reads storedQueue.Name
+		// -- a snapshot where these disagree would let those two views of
+		// the same queue diverge. Reject it outright rather than silently
+		// preferring one identity over the other.
+		if q.Name != name {
+			return fmt.Errorf("%w: map key %q, Name %q", ErrSnapshotQueueNameMismatch, name, q.Name)
+		}
+
 		for i, msg := range q.Messages {
 			if msg == nil {
 				return fmt.Errorf("%w: index %d in queue %q", ErrSnapshotMessageNull, i, name)

@@ -1,3 +1,8 @@
+// Package azurequeue provides a local, in-memory emulation of Azure Queue
+// Storage's REST+XML wire protocol (queue CRUD plus the full message
+// lifecycle: put/get/peek/delete/update-visibility/clear), Azurite-compatible
+// enough for unmodified azure-sdk-for-go clients to operate against. See
+// AZURE.md and PARITY.md for scope and known gaps.
 package azurequeue
 
 import "time"
@@ -15,6 +20,12 @@ type StorageBackend interface {
 	ListQueues() []QueueInfo
 
 	PutMessage(queue, text string, visibilityTimeout, ttl time.Duration) (MessageInfo, error)
+	// GetMessages and PeekMessages return ErrOutOfRangeQueryParam if
+	// numOfMessages is outside [MinNumOfMessages, MaxNumOfMessages] -- a
+	// defense-in-depth check against direct callers that bypass the
+	// handler's own range validation (see messages.go's parseNumOfMessages),
+	// since an unvalidated negative value would otherwise panic on
+	// allocation.
 	GetMessages(queue string, numOfMessages int, visibilityTimeout time.Duration) ([]MessageInfo, error)
 	PeekMessages(queue string, numOfMessages int) ([]MessageInfo, error)
 	DeleteMessage(queue, messageID, popReceipt string) error

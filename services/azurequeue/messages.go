@@ -50,17 +50,26 @@ func (h *Handler) handleMessageLevel(c *echo.Context, queue, messageID string) e
 func (h *Handler) putMessage(c *echo.Context, queue string) error {
 	r := c.Request()
 
-	// Put Message defaults visibilitytimeout to 0 (immediately visible), not
-	// Get Messages' DefaultVisibilityTimeout -- a freshly-enqueued message
-	// with no caller-specified delay must be dequeuable right away.
-	visibilityTimeout, ok, errResp := h.parseOptionalSeconds(c, queryVisibilityTimeout, 0)
+	ttl, ok, errResp := h.parseMessageTTL(c)
 	if !ok {
 		return errResp
 	}
 
-	ttl, ok, errResp := h.parseMessageTTL(c)
+	// Put Message defaults visibilitytimeout to 0 (immediately visible), not
+	// Get Messages' DefaultVisibilityTimeout -- a freshly-enqueued message
+	// with no caller-specified delay must be dequeuable right away. Its
+	// upper bound is also checked against ttl: a message can never be
+	// created invisible for as long as, or longer than, its own TTL.
+	visibilityTimeout, ok, errResp := h.parseVisibilityTimeoutSeconds(
+		c, queryVisibilityTimeout, 0, 0, maxVisibilityTimeoutSeconds,
+	)
 	if !ok {
 		return errResp
+	}
+
+	if visibilityTimeout >= ttl {
+		return h.writeError(c, http.StatusBadRequest, "OutOfRangeQueryParameterValue",
+			"The visibilitytimeout must be less than the message's time-to-live.")
 	}
 
 	body, err := httputils.ReadBody(r)
@@ -92,14 +101,19 @@ func (h *Handler) getMessages(c *echo.Context, queue string) error {
 		return errResp
 	}
 
-	visibilityTimeout, ok, errResp := h.parseOptionalSeconds(c, queryVisibilityTimeout, DefaultVisibilityTimeout)
+	// Unlike Put/Update, Get Messages requires a strictly positive
+	// visibilitytimeout (a dequeued message must actually be hidden for at
+	// least one second) -- 0 is rejected, not defaulted.
+	visibilityTimeout, ok, errResp := h.parseVisibilityTimeoutSeconds(
+		c, queryVisibilityTimeout, DefaultVisibilityTimeout, 1, maxVisibilityTimeoutSeconds,
+	)
 	if !ok {
 		return errResp
 	}
 
 	infos, err := h.Backend.GetMessages(queue, numOfMessages, visibilityTimeout)
 	if err != nil {
-		return h.writeQueueNotFoundError(c)
+		return h.writeMessagesListError(c, err)
 	}
 
 	entries := make([]queueMessageXML, 0, len(infos))
@@ -118,7 +132,7 @@ func (h *Handler) peekMessages(c *echo.Context, queue string) error {
 
 	infos, err := h.Backend.PeekMessages(queue, numOfMessages)
 	if err != nil {
-		return h.writeQueueNotFoundError(c)
+		return h.writeMessagesListError(c, err)
 	}
 
 	entries := make([]queueMessageXML, 0, len(infos))
@@ -127,6 +141,21 @@ func (h *Handler) peekMessages(c *echo.Context, queue string) error {
 	}
 
 	return h.writeXML(c, http.StatusOK, queueMessagesList{Messages: entries})
+}
+
+// writeMessagesListError maps a Get/Peek Messages backend error to the
+// corresponding Azure error code/status. ErrOutOfRangeQueryParam is only
+// reachable here as a defense-in-depth backstop (see StorageBackend's
+// GetMessages/PeekMessages doc comments) -- the handler's own
+// parseNumOfMessages already rejects an out-of-range numofmessages before
+// the backend is ever called.
+func (h *Handler) writeMessagesListError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrOutOfRangeQueryParam) {
+		return h.writeError(c, http.StatusBadRequest, "OutOfRangeQueryParameterValue",
+			"A query parameter specified in the request URI is outside the permissible range.")
+	}
+
+	return h.writeQueueNotFoundError(c)
 }
 
 func (h *Handler) clearMessages(c *echo.Context, queue string) error {
@@ -161,7 +190,13 @@ func (h *Handler) updateMessage(c *echo.Context, queue, messageID string) error 
 			"A required query parameter (visibilitytimeout) was not specified.")
 	}
 
-	visibilityTimeout, ok, errResp := h.parseOptionalSeconds(c, queryVisibilityTimeout, DefaultVisibilityTimeout)
+	// Update Message's visibilitytimeout is mandatory (checked above), so the
+	// default value passed here is never actually used; range is 0..604800,
+	// same as Put Message but with no TTL comparison (Update does not change
+	// a message's TTL).
+	visibilityTimeout, ok, errResp := h.parseVisibilityTimeoutSeconds(
+		c, queryVisibilityTimeout, 0, 0, maxVisibilityTimeoutSeconds,
+	)
 	if !ok {
 		return errResp
 	}
@@ -272,8 +307,10 @@ const neverExpireTTL = 100 * 365 * 24 * time.Hour
 // parseMessageTTL parses the messagettl query parameter for Put Message,
 // defaulting to DefaultMessageTTL when absent and special-casing Azure's
 // documented messagettl=-1 "never expire" sentinel (see neverExpireTTL). Any
-// other negative value is rejected as out of range. ok is false if an error
-// response has already been written to c.
+// other negative value, or zero, is rejected as out of range: real Azure
+// Queue Storage only accepts -1 or a strictly positive TTL -- a zero TTL
+// would create a message that expires the instant it's created. ok is false
+// if an error response has already been written to c.
 func (h *Handler) parseMessageTTL(c *echo.Context) (time.Duration, bool, error) {
 	raw := c.QueryParam(queryMessageTTL)
 	if raw == "" {
@@ -289,7 +326,7 @@ func (h *Handler) parseMessageTTL(c *echo.Context) (time.Duration, bool, error) 
 	switch {
 	case n == -1:
 		return neverExpireTTL, true, nil
-	case n < 0:
+	case n <= 0:
 		return 0, false, h.writeError(c, http.StatusBadRequest, "OutOfRangeQueryParameterValue",
 			"A query parameter specified in the request URI is outside the permissible range.")
 	default:
@@ -297,10 +334,20 @@ func (h *Handler) parseMessageTTL(c *echo.Context) (time.Duration, bool, error) 
 	}
 }
 
-// parseOptionalSeconds parses a query parameter as a non-negative integer
-// number of seconds, returning def if the parameter is absent. ok is false
-// if an error response has already been written to c.
-func (h *Handler) parseOptionalSeconds(c *echo.Context, name string, def time.Duration) (time.Duration, bool, error) {
+// maxVisibilityTimeoutSeconds is the largest visibilitytimeout (in seconds)
+// any operation accepts, matching real Azure Queue Storage's documented
+// seven-day cap. It happens to equal DefaultMessageTTL expressed in seconds.
+const maxVisibilityTimeoutSeconds = 7 * 24 * 60 * 60
+
+// parseVisibilityTimeoutSeconds parses the visibilitytimeout query parameter
+// as an integer number of seconds in [minSeconds, maxSeconds], returning def
+// if the parameter is absent. The permitted range differs per operation (see
+// callers): Get Messages requires a strictly positive value, while Put and
+// Update Message permit zero. ok is false if an error response has already
+// been written to c.
+func (h *Handler) parseVisibilityTimeoutSeconds(
+	c *echo.Context, name string, def time.Duration, minSeconds, maxSeconds int,
+) (time.Duration, bool, error) {
 	raw := c.QueryParam(name)
 	if raw == "" {
 		return def, true, nil
@@ -312,7 +359,7 @@ func (h *Handler) parseOptionalSeconds(c *echo.Context, name string, def time.Du
 			"Value for one of the query parameters specified in the request URI is invalid.")
 	}
 
-	if n < 0 {
+	if n < minSeconds || n > maxSeconds {
 		return 0, false, h.writeError(c, http.StatusBadRequest, "OutOfRangeQueryParameterValue",
 			"A query parameter specified in the request URI is outside the permissible range.")
 	}

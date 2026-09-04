@@ -98,6 +98,16 @@ func TestRestore_RejectsNullEntries(t *testing.T) {
 			data:    []byte(`{"version":1,"queues":{"q1":{"Name":"q1","Messages":[null]}}}`),
 			wantErr: azurequeue.ErrSnapshotMessageNull,
 		},
+		{
+			// Regression test: queue operations (CreateQueue, DeleteQueue,
+			// PutMessage, ...) key off the "queues" map, while ListQueues
+			// reads storedQueue.Name -- a snapshot where a map key and its
+			// entry's Name disagree would let those two views of the same
+			// queue diverge. Restore must reject it outright.
+			name:    "queue_name_mismatches_map_key",
+			data:    []byte(`{"version":1,"queues":{"q1":{"Name":"different-name"}}}`),
+			wantErr: azurequeue.ErrSnapshotQueueNameMismatch,
+		},
 	}
 
 	for _, tt := range tests {
