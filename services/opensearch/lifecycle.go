@@ -132,6 +132,15 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 			b.outboundConnections.Delete(c.ConnectionID)
 		}
 	}
+
+	// VPC endpoints are domain-scoped (DomainArn) but not a byDomain-indexed
+	// table; DomainArn is deterministic from the domain name (arn.Build), so
+	// a recreated domain would otherwise silently inherit stale endpoints.
+	for _, ep := range b.vpcEndpoints.All() {
+		if ep.DomainArn == d.ARN {
+			b.vpcEndpoints.Delete(ep.VpcEndpointID)
+		}
+	}
 }
 
 // purgeExpiredDomainsLocked finalises any domains whose deleting window has

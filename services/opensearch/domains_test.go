@@ -87,6 +87,35 @@ func TestDeleteDomain_ClearsScheduledActions(t *testing.T) {
 		"recreated domain must not inherit the deleted domain's scheduled actions")
 }
 
+// TestDeleteDomain_ClearsVpcEndpoints verifies that DeleteDomain cleans up
+// VPC endpoints associated with the deleted domain. DomainArn is deterministic
+// from the domain name (arn.Build), so a new domain created with the same
+// (user-chosen, reusable) name would otherwise silently inherit the deleted
+// domain's stale VPC endpoints -- the same ghost-row class already guarded
+// for scheduled actions in TestDeleteDomain_ClearsScheduledActions.
+func TestDeleteDomain_ClearsVpcEndpoints(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	created, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "reused-vpc-domain"})
+	require.NoError(t, err)
+
+	_, err = b.CreateVpcEndpoint(created.ARN, map[string]any{"SubnetIds": []any{"subnet-1"}})
+	require.NoError(t, err)
+	require.Len(t, b.ListVpcEndpointsForDomain(created.ARN), 1)
+
+	_, err = b.DeleteDomain("reused-vpc-domain")
+	require.NoError(t, err)
+
+	recreated, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "reused-vpc-domain"})
+	require.NoError(t, err)
+	require.Equal(t, created.ARN, recreated.ARN,
+		"domain ARN must be deterministic from the name for this test to be meaningful")
+
+	assert.Empty(t, b.ListVpcEndpointsForDomain(recreated.ARN),
+		"recreated domain must not inherit the deleted domain's stale VPC endpoints")
+}
+
 func TestListDomainNames_Sorted(t *testing.T) {
 	t.Parallel()
 
