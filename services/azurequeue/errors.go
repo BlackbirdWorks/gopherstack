@@ -17,4 +17,11 @@ var (
 	// first dereference if stored as-is. See persistence.go.
 	ErrSnapshotQueueNull   = errors.New("azurequeue: restore snapshot: queue is null")
 	ErrSnapshotMessageNull = errors.New("azurequeue: restore snapshot: message is null")
+
+	// ErrSnapshotQueueNameMismatch is returned by Restore when a snapshot's
+	// "queues" map key differs from that entry's storedQueue.Name. Queue
+	// operations (CreateQueue, DeleteQueue, PutMessage, ...) all key off the
+	// map, while ListQueues reads Name -- a mismatch would let those two
+	// views disagree about a queue's identity. See persistence.go.
+	ErrSnapshotQueueNameMismatch = errors.New("azurequeue: restore snapshot: queue map key does not match Name")
 )

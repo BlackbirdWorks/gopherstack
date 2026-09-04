@@ -434,6 +434,11 @@ func TestPutMessage_VisibilityTimeoutOutOfRange(t *testing.T) {
 	}{
 		{name: "negative_rejected", query: "?visibilitytimeout=-1"},
 		{name: "non_numeric_rejected", query: "?visibilitytimeout=abc"},
+		{name: "over_seven_days_rejected", query: "?visibilitytimeout=604801"},
+		// Put Message's visibilitytimeout must be strictly less than its own
+		// messagettl -- equal is rejected, not just greater.
+		{name: "equal_to_ttl_rejected", query: "?visibilitytimeout=60&messagettl=60"},
+		{name: "greater_than_ttl_rejected", query: "?visibilitytimeout=120&messagettl=60"},
 	}
 
 	for _, tt := range tests {
@@ -470,6 +475,97 @@ func TestPutMessage_NeverExpireSentinel(t *testing.T) {
 			body := []byte("<QueueMessage><MessageText>x</MessageText></QueueMessage>")
 			rec := doRequest(t, h, http.MethodPost, "/"+testAccount+"/myqueue/messages?messagettl=-1", body)
 			require.Equal(t, http.StatusCreated, rec.Code, tt.name)
+		})
+	}
+}
+
+// TestPutMessage_MessageTTLZeroRejected is a regression test: real Azure
+// Queue Storage only accepts messagettl=-1 (never expire) or a strictly
+// positive value -- zero would create a message that expires the instant
+// it's created.
+func TestPutMessage_MessageTTLZeroRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "messagettl_zero_rejected"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createQueue(t, h, "myqueue")
+
+			body := []byte("<QueueMessage><MessageText>x</MessageText></QueueMessage>")
+			rec := doRequest(t, h, http.MethodPost, "/"+testAccount+"/myqueue/messages?messagettl=0", body)
+			require.Equal(t, http.StatusBadRequest, rec.Code, tt.name)
+			assert.Contains(t, rec.Body.String(), "OutOfRangeQueryParameterValue", tt.name)
+		})
+	}
+}
+
+// TestGetMessages_VisibilityTimeoutRange is a regression test: unlike Put/
+// Update Message, Get Messages must reject visibilitytimeout=0 (a dequeued
+// message must be hidden for at least one second) as well as values above
+// the seven-day cap.
+func TestGetMessages_VisibilityTimeoutRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "zero_rejected", query: "?visibilitytimeout=0"},
+		{name: "over_seven_days_rejected", query: "?visibilitytimeout=604801"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createQueue(t, h, "myqueue")
+			putMessage(t, h, "myqueue", "x")
+
+			rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/myqueue/messages"+tt.query, nil)
+			require.Equal(t, http.StatusBadRequest, rec.Code, tt.name)
+			assert.Contains(t, rec.Body.String(), "OutOfRangeQueryParameterValue", tt.name)
+		})
+	}
+}
+
+// TestUpdateMessage_VisibilityTimeoutRange covers Update Message's
+// visibilitytimeout bounds: zero is permitted (unlike Get Messages), but the
+// seven-day cap still applies.
+func TestUpdateMessage_VisibilityTimeoutRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		visibility string
+		wantStatus int
+	}{
+		{name: "zero_accepted", visibility: "0", wantStatus: http.StatusNoContent},
+		{name: "over_seven_days_rejected", visibility: "604801", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createQueue(t, h, "myqueue")
+			rec := putMessage(t, h, "myqueue", "x")
+			messageID := extractXMLField(t, rec.Body.String(), "MessageId")
+			popReceipt := extractXMLField(t, rec.Body.String(), "PopReceipt")
+
+			rec = doRequest(t, h, http.MethodPut,
+				"/"+testAccount+"/myqueue/messages/"+messageID+"?popreceipt="+popReceipt+
+					"&visibilitytimeout="+tt.visibility, nil)
+			require.Equal(t, tt.wantStatus, rec.Code, tt.name)
 		})
 	}
 }
@@ -563,7 +659,7 @@ func indexOrFail(t *testing.T, s, substr string) int {
 		}
 	}
 
-	t.Fatalf("substring %q not found in %q", substr, s)
+	require.FailNowf(t, "substring not found", "substring %q not found in %q", substr, s)
 
 	return -1
 }

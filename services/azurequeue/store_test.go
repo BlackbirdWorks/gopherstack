@@ -329,6 +329,10 @@ func TestInMemoryBackend_UpdateMessage(t *testing.T) {
 		name    string
 	}{
 		{name: "visibility_only", newText: nil},
+		// new(expr) (Go 1.26+) returns a pointer to a copy of expr -- this is
+		// not new(T) called with a value instead of a type; golangci-lint's
+		// modernize check flags the old func(){s:=v;return &s}() idiom in
+		// favor of exactly this form.
 		{name: "replaces_text", newText: new("new text")},
 	}
 
@@ -537,6 +541,143 @@ func TestInMemoryBackend_SetIDFunc(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "id-1", info.ID, tt.name)
 			assert.Equal(t, "id-2", info.PopReceipt, tt.name)
+		})
+	}
+}
+
+// TestInMemoryBackend_DeleteAndUpdateMessage_RejectExpiredMessage is a
+// regression test: findMessageLocked must not return (and let
+// DeleteMessage/UpdateMessage mutate) a message that has reached its
+// expiration instant, even before the Janitor has swept it. Uses the
+// injected clock seam -- no sleeps -- to check both the exact expiry instant
+// and just after it.
+func TestInMemoryBackend_DeleteAndUpdateMessage_RejectExpiredMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		advance time.Duration
+	}{
+		{name: "exactly_at_expiry", advance: time.Second},
+		{name: "just_after_expiry", advance: time.Second + time.Millisecond},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			now := base
+
+			b := azurequeue.NewInMemoryBackend()
+			azurequeue.SetNowFunc(b, func() time.Time { return now })
+
+			_, err := b.CreateQueue("q1")
+			require.NoError(t, err)
+
+			info, err := b.PutMessage("q1", "x", 0, time.Second)
+			require.NoError(t, err)
+
+			now = base.Add(tt.advance)
+
+			err = b.DeleteMessage("q1", info.ID, info.PopReceipt)
+			require.ErrorIs(t, err, azurequeue.ErrMessageNotFound, tt.name)
+
+			_, err = b.UpdateMessage("q1", info.ID, info.PopReceipt, time.Minute, nil)
+			assert.ErrorIs(t, err, azurequeue.ErrMessageNotFound, tt.name)
+		})
+	}
+}
+
+// TestInMemoryBackend_DeleteAndUpdateMessage_NotYetExpiredSucceeds pins the
+// boundary from the other side: a message one instant before its expiration
+// is still a normal, mutable message.
+func TestInMemoryBackend_DeleteAndUpdateMessage_NotYetExpiredSucceeds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "just_before_expiry"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			now := base
+
+			b := azurequeue.NewInMemoryBackend()
+			azurequeue.SetNowFunc(b, func() time.Time { return now })
+
+			_, err := b.CreateQueue("q1")
+			require.NoError(t, err)
+
+			info, err := b.PutMessage("q1", "x", 0, time.Second)
+			require.NoError(t, err)
+
+			now = base.Add(999 * time.Millisecond)
+
+			_, err = b.UpdateMessage("q1", info.ID, info.PopReceipt, time.Minute, nil)
+			require.NoError(t, err, tt.name)
+		})
+	}
+}
+
+// TestInMemoryBackend_GetMessages_InvalidNumOfMessages and its Peek sibling
+// are regression tests: a negative numOfMessages previously reached make()
+// unchecked, which panics on a negative capacity; zero and over-max values
+// silently bypassed the documented [MinNumOfMessages, MaxNumOfMessages]
+// bounds. Both must now be rejected with ErrOutOfRangeQueryParam instead.
+func TestInMemoryBackend_GetMessages_InvalidNumOfMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		numOfMessages int
+	}{
+		{name: "negative", numOfMessages: -1},
+		{name: "zero", numOfMessages: 0},
+		{name: "over_max", numOfMessages: azurequeue.MaxNumOfMessages + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := azurequeue.NewInMemoryBackend()
+			_, err := b.CreateQueue("q1")
+			require.NoError(t, err)
+
+			_, err = b.GetMessages("q1", tt.numOfMessages, time.Second)
+			assert.ErrorIs(t, err, azurequeue.ErrOutOfRangeQueryParam, tt.name)
+		})
+	}
+}
+
+func TestInMemoryBackend_PeekMessages_InvalidNumOfMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		numOfMessages int
+	}{
+		{name: "negative", numOfMessages: -1},
+		{name: "zero", numOfMessages: 0},
+		{name: "over_max", numOfMessages: azurequeue.MaxNumOfMessages + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := azurequeue.NewInMemoryBackend()
+			_, err := b.CreateQueue("q1")
+			require.NoError(t, err)
+
+			_, err = b.PeekMessages("q1", tt.numOfMessages)
+			assert.ErrorIs(t, err, azurequeue.ErrOutOfRangeQueryParam, tt.name)
 		})
 	}
 }
