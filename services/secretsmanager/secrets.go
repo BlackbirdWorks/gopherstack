@@ -60,6 +60,16 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 	return arn.Build("secretsmanager", region, b.accountID, "secret:"+name+"-"+suffix)
 }
 
+// primaryRegionOrSelf returns s's origin region: its own region for a
+// primary/standalone secret, or the linked primary's region for a replica.
+func (s *Secret) primaryRegionOrSelf() string {
+	if s.PrimaryRegion != "" {
+		return s.PrimaryRegion
+	}
+
+	return s.region
+}
+
 // validateSecretName returns an error when the name is empty, too long, contains invalid chars,
 // or starts with the "aws/" prefix reserved for AWS managed secrets.
 func validateSecretName(name string) error {
@@ -289,6 +299,27 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 		)
 	}
 
+	// Real AWS: "You can't delete a primary secret that is replicated to
+	// other Regions. You must first delete the replicas using
+	// RemoveRegionsFromReplication, and then delete the primary secret."
+	// (api_op_DeleteSecret.go doc comment, aws-sdk-go-v2/service/secretsmanager@v1.44.4).
+	if secret.PrimaryRegion == "" && len(b.replicationConfigsStore(region)[name]) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you can't delete a primary secret that is replicated to other Regions;"+
+				" remove the replicas with RemoveRegionsFromReplication first",
+			ErrInvalidParameter,
+		)
+	}
+
+	// "When you delete a replica, it is deleted immediately" -- a replica
+	// carries no recovery window of its own, regardless of the request's
+	// ForceDeleteWithoutRecovery/RecoveryWindowInDays fields.
+	if secret.PrimaryRegion != "" {
+		b.deleteReplicaImmediatelyLocked(region, secret)
+
+		return &DeleteSecretOutput{ARN: secret.ARN, Name: secret.Name, DeletionDate: now}, nil
+	}
+
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {
 			secret.Tags.Close()
@@ -336,6 +367,35 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 		Name:         secret.Name,
 		DeletionDate: deletionDate,
 	}, nil
+}
+
+// deleteReplicaImmediatelyLocked removes a replica secret (found under
+// replicaRegion) and drops its status entry from the primary's outgoing
+// replication config, so the primary stops re-mirroring into a region that
+// no longer has a replica. Must be called with b.mu held.
+func (b *InMemoryBackend) deleteReplicaImmediatelyLocked(replicaRegion string, secret *Secret) {
+	if secret.Tags != nil {
+		secret.Tags.Close()
+	}
+
+	b.secretDelete(replicaRegion, secret.Name)
+	delete(b.resourcePoliciesStore(replicaRegion), secret.Name)
+
+	cfgs, ok := b.replicationConfigs[secret.PrimaryRegion]
+	if !ok {
+		return
+	}
+
+	statuses := cfgs[secret.Name]
+	remaining := make([]ReplicationStatusType, 0, len(statuses))
+
+	for _, st := range statuses {
+		if st.Region != replicaRegion {
+			remaining = append(remaining, st)
+		}
+	}
+
+	setReplicationStatuses(cfgs, secret.Name, remaining)
 }
 
 // ListSecrets returns a paginated list of secrets.
@@ -600,7 +660,7 @@ func (b *InMemoryBackend) DescribeSecret(
 		VersionIDsToStages:             versionIDsToStages,
 		RotationEnabled:                secret.RotationEnabled,
 		ReplicationStatus:              b.replicationConfigsStoreRO(region)[name],
-		PrimaryRegion:                  region,
+		PrimaryRegion:                  secret.primaryRegionOrSelf(),
 		Type:                           secret.Type,
 		ExternalSecretRotationRoleArn:  secret.ExternalSecretRotationRoleArn,
 		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(secret.ExternalSecretRotationMetadata),
@@ -792,7 +852,7 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		Description:                    s.Description,
 		KmsKeyID:                       s.KmsKeyID,
 		RotationLambdaARN:              s.RotationLambdaARN,
-		PrimaryRegion:                  s.region,
+		PrimaryRegion:                  s.primaryRegionOrSelf(),
 		RotationRules:                  cloneRotationRules(s.RotationRules),
 		RotationEnabled:                s.RotationEnabled,
 		DeletedDate:                    s.DeletedDate,

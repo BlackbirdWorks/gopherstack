@@ -151,6 +151,67 @@ func TestReplication_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
 
+// TestReplication_ReplicaSecretReadableInReplicaRegion confirms
+// ReplicateSecretToRegions does more than bookkeep a status: a client
+// switching to the replica region must be able to read the replicated value,
+// not get ResourceNotFoundException.
+func TestReplication_ReplicaSecretReadableInReplicaRegion(t *testing.T) {
+	t.Parallel()
+
+	h := newSMHandler()
+
+	createRec := doSMRequestInRegion(t, h, secretsmanager.MockRegion, "secretsmanager.CreateSecret",
+		`{"Name":"rep-readable","SecretString":"replicated-value"}`)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	replicateRec := doSMRequestInRegion(t, h, secretsmanager.MockRegion, "secretsmanager.ReplicateSecretToRegions",
+		`{"SecretId":"rep-readable","AddReplicaRegions":[{"Region":"us-west-2"}]}`)
+	require.Equal(t, http.StatusOK, replicateRec.Code)
+
+	getRec := doSMRequestInRegion(t, h, "us-west-2", "secretsmanager.GetSecretValue",
+		`{"SecretId":"rep-readable"}`)
+	require.Equal(t, http.StatusOK, getRec.Code,
+		"replica region must serve the replicated secret, got: %s", getRec.Body.String())
+
+	var getOut secretsmanager.GetSecretValueOutput
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Equal(t, "replicated-value", getOut.SecretString)
+
+	descRec := doSMRequestInRegion(t, h, "us-west-2", "secretsmanager.DescribeSecret",
+		`{"SecretId":"rep-readable"}`)
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut secretsmanager.DescribeSecretOutput
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	assert.Equal(t, secretsmanager.MockRegion, descOut.PrimaryRegion)
+	assert.Contains(t, descOut.ARN, "us-west-2")
+}
+
+// TestReplication_RemoveRegionsDeletesReplicaSecret confirms
+// RemoveRegionsFromReplication doesn't just stop tracking a region's status
+// while leaving the mirrored secret readable there forever.
+func TestReplication_RemoveRegionsDeletesReplicaSecret(t *testing.T) {
+	t.Parallel()
+
+	h := newSMHandler()
+
+	require.Equal(t, http.StatusOK, doSMRequestInRegion(t, h, secretsmanager.MockRegion,
+		"secretsmanager.CreateSecret", `{"Name":"rep-removed","SecretString":"v"}`).Code)
+	require.Equal(t, http.StatusOK, doSMRequestInRegion(t, h, secretsmanager.MockRegion,
+		"secretsmanager.ReplicateSecretToRegions",
+		`{"SecretId":"rep-removed","AddReplicaRegions":[{"Region":"ap-south-1"}]}`).Code)
+
+	require.Equal(t, http.StatusOK, doSMRequestInRegion(t, h, "ap-south-1",
+		"secretsmanager.GetSecretValue", `{"SecretId":"rep-removed"}`).Code, "replica must be readable before removal")
+
+	require.Equal(t, http.StatusOK, doSMRequestInRegion(t, h, secretsmanager.MockRegion,
+		"secretsmanager.RemoveRegionsFromReplication",
+		`{"SecretId":"rep-removed","RemoveReplicaRegions":["ap-south-1"]}`).Code)
+
+	getRec := doSMRequestInRegion(t, h, "ap-south-1", "secretsmanager.GetSecretValue", `{"SecretId":"rep-removed"}`)
+	assert.Equal(t, http.StatusBadRequest, getRec.Code, "removed replica region must no longer serve the secret")
+}
+
 // ---------------------------------------------------------------------------
 // Replication HTTP cycle
 // ---------------------------------------------------------------------------
