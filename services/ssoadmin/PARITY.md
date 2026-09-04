@@ -19,6 +19,15 @@ overall: A            # multiple severe client-breaking wire-shape bugs found an
                       # sweep): DescribeInstance/UpdateInstance PermissionSetsEnabled and
                       # ListInstances' Regions are now real; both DescribeInstance and UpdateInstance
                       # move from wire: partial to wire: ok. See ops table + gaps below.
+                      # 2026-09-04 (gopherstack-2fa, delete-surface sweep): fixed a resource leak in
+                      # cascadeDeleteInstance (DeleteInstance's cascade). Unlike DeletePermissionSet,
+                      # DeleteInstance has no "no live assignments" precondition, so it can force-delete
+                      # a permission set that still has account assignments -- but it only cleaned
+                      # b.assignments/b.customerManagedPolicies/b.permissionBoundaries/b.permissionSets,
+                      # leaving that permission set's b.provisionedAt and b.assignmentCreationIDs rows
+                      # (both hand-rolled maps, no cleanup path of their own) behind forever. Repeated
+                      # instance create/delete cycles grew both maps without bound. See
+                      # TestCascadeDeleteInstance_PurgesProvisioningState.
 ops:
   # --- fixed this sweep ---
   CreateAccountAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "AccountAssignmentCreationStatus used invented 'AccountId' field; real AccountAssignmentOperationStatus uses 'TargetId'/'TargetType'. A real client previously got nil TargetId. Fixed."}
@@ -96,7 +105,7 @@ gaps:
   - "RegionMetadata.IsPrimaryRegion is always false -- known simplification, unchanged from prior sweep (bd: none filed). This is also why InstanceMetadata.PrimaryRegion above has no real data to derive from."
   - "ListApplicationAuthenticationMethods/ListApplicationGrants/ListTagsForResource support NextToken on the real API but have no MaxResults member at all (unlike every other List op in this service); gopherstack still returns everything in one page with a nil NextToken for these three. Low-value: there is no MaxResults contract to violate (a real caller can never request a capped page), and this mirrors the same intentional simplification already accepted for other AWS emulators in this codebase. Re-examined this pass (gopherstack-dbwi) and confirmed still not worth building: there is no real behavior gap to close, only a self-imposed pagination-everywhere convention this service already deviates from correctly. (bd: gopherstack-dbwi, considered and left as-is)"
 deferred: []
-leaks: {status: clean, note: "no new goroutines/janitors introduced this sweep; all fixes are pure request-parsing/response-shape/backend-field changes inside the existing coarse-lock methods. identityStoreArn() helper reads b.instances while b.mu is already held by the caller (CreateApplication/AddApplicationInternal) -- safe because store.Table.Get has no internal locking (backend-level coarse lock only, confirmed in pkgs/store/table.go), consistent with every other Table access pattern in this backend."}
+leaks: {status: fixed, note: "no new goroutines/janitors introduced this sweep; all fixes are pure request-parsing/response-shape/backend-field changes inside the existing coarse-lock methods. identityStoreArn() helper reads b.instances while b.mu is already held by the caller (CreateApplication/AddApplicationInternal) -- safe because store.Table.Get has no internal locking (backend-level coarse lock only, confirmed in pkgs/store/table.go), consistent with every other Table access pattern in this backend. 2026-09-04 (gopherstack-2fa): fixed cascadeDeleteInstance leaking b.provisionedAt/b.assignmentCreationIDs rows for force-deleted permission sets (see ops table note above); everything else re-checked this pass (all Delete* handlers) confirmed clean -- tags live as a struct field (immune), applicationScopes/AuthMethods/Grants/AssignConfig/Sessions and customerManagedPolicies/permissionBoundaries are all cleaned on both DeleteApplication/DeletePermissionSet and the DeleteInstance cascade."}
 ---
 
 ## Notes (2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit)
