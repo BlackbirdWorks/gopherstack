@@ -368,8 +368,8 @@ func TestSigning_DoesNotMutateHeaders(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		sign func(r *http.Request, account, key string) (string, error)
+		name string
 	}{
 		{name: "SharedKey", sign: azureauth.SignSharedKey},
 		{name: "SharedKeyLite", sign: azureauth.SignSharedKeyLite},

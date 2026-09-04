@@ -25,7 +25,7 @@ func TestInMemoryBackend_ContainerCreateListDelete(t *testing.T) {
 			b := azureblob.NewInMemoryBackend()
 
 			require.NoError(t, b.CreateContainer("c1"))
-			assert.ErrorIs(t, b.CreateContainer("c1"), azureblob.ErrContainerAlreadyExists)
+			require.ErrorIs(t, b.CreateContainer("c1"), azureblob.ErrContainerAlreadyExists)
 
 			containers := b.ListContainers()
 			require.Len(t, containers, 1)
@@ -80,8 +80,8 @@ func TestInMemoryBackend_MissingContainerErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		op   func(b *azureblob.InMemoryBackend) error
+		name string
 	}{
 		{name: "put_blob", op: func(b *azureblob.InMemoryBackend) error {
 			_, err := b.PutBlob("missing", "blob1", []byte("x"), "")

@@ -30,10 +30,10 @@ type BlobInfo struct {
 // block-list/multipart state.
 type storedBlob struct {
 	LastModified time.Time
-	Data         []byte
 	Name         string
 	ContentType  string
 	ETag         string
+	Data         []byte
 }
 
 func (b *storedBlob) info() BlobInfo {
@@ -49,8 +49,8 @@ func (b *storedBlob) info() BlobInfo {
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
 	CreatedAt time.Time
-	Name      string
 	Blobs     map[string]*storedBlob
+	Name      string
 }
 
 // --- Azure Blob REST XML response shapes ---

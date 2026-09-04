@@ -103,7 +103,12 @@ func TestExtractOperation(t *testing.T) {
 		},
 		{name: "put_blob", method: http.MethodPut, path: "/" + testAccount + "/c/b", want: "PutBlob"},
 		{name: "get_blob", method: http.MethodGet, path: "/" + testAccount + "/c/b", want: "GetBlob"},
-		{name: "get_blob_properties", method: http.MethodHead, path: "/" + testAccount + "/c/b", want: "GetBlobProperties"},
+		{
+			name:   "get_blob_properties",
+			method: http.MethodHead,
+			path:   "/" + testAccount + "/c/b",
+			want:   "GetBlobProperties",
+		},
 		{name: "delete_blob", method: http.MethodDelete, path: "/" + testAccount + "/c/b", want: "DeleteBlob"},
 		{name: "unknown", method: http.MethodOptions, path: "/" + testAccount + "?comp=list", want: "Unknown"},
 	}

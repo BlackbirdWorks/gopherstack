@@ -442,7 +442,6 @@ type CLI struct {
 	InitScripts                   []string                  `                                  name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                  `                                  name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
-	AzureBlob                     azureblobbackend.Settings `embed:"" prefix:"azure-blob-"`
 	Lambda                        lambdabackend.Settings    `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings       `embed:"" prefix:"dynamodb-"`
 	EC2                           ec2backend.Settings       `embed:"" prefix:"ec2-"`
@@ -460,6 +459,7 @@ type CLI struct {
 	Kinesis                       kinesisbackend.Settings   `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings       `embed:"" prefix:"sts-"`
 	StepFunctions                 sfnbackend.Settings       `embed:"" prefix:"stepfunctions-"`
+	AzureBlob                     azureblobbackend.Settings `embed:"" prefix:"azure-blob-"`
 	PortRangeStart                int                       `                                  name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                       `                                  name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                       `                                  name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose

@@ -249,8 +249,8 @@ func TestGetBlob_RangeHeaderPartialRead(t *testing.T) {
 	tests := []struct {
 		name       string
 		rangeValue string
-		wantStatus int
 		wantBody   string
+		wantStatus int
 	}{
 		{name: "start_end", rangeValue: "bytes=2-5", wantStatus: http.StatusPartialContent, wantBody: "2345"},
 		{name: "open_ended", rangeValue: "bytes=7-", wantStatus: http.StatusPartialContent, wantBody: "789"},
@@ -297,7 +297,14 @@ func TestListBlobs_MissingContainerReturns404(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/does-not-exist?restype=container&comp=list", nil, nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/"+testAccount+"/does-not-exist?restype=container&comp=list",
+				nil,
+				nil,
+			)
 
 			require.Equal(t, http.StatusNotFound, rec.Code, tt.name)
 			assert.Contains(t, rec.Body.String(), "ContainerNotFound", tt.name)

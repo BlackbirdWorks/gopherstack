@@ -48,12 +48,12 @@ const (
 
 // Handler is the Echo HTTP handler for Azure Blob Storage operations.
 type Handler struct {
-	Backend  StorageBackend
-	Endpoint string // e.g. "http://127.0.0.1:10000" -- used to build ServiceEndpoint in list responses
-
-	srvMu *lockmetrics.RWMutex
-	srv   *http.Server
-
+	Backend StorageBackend
+	srvMu   *lockmetrics.RWMutex
+	srv     *http.Server
+	// Endpoint is e.g. "http://127.0.0.1:10000" -- used to build
+	// ServiceEndpoint in list responses.
+	Endpoint string
 	// Port is the TCP port StartWorker binds. Set from Settings at Init time
 	// (see provider.go); defaults to DefaultPort. Unlike a per-resource
 	// ephemeral allocation, this is a single fixed, protocol-conventional
@@ -182,7 +182,9 @@ func (h *Handler) checkAuth(r *http.Request) {
 	}
 
 	if _, ok := azureauth.ParseAuthorizationHeader(authHeader); !ok {
-		return // structurally malformed; still accepted at this milestone
+		// Structurally malformed; still accepted at this milestone, but
+		// logged so the gap is visible rather than silently swallowed.
+		logger.Load(r.Context()).DebugContext(r.Context(), "azureblob: malformed Authorization header accepted at M0")
 	}
 }
 

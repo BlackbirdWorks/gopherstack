@@ -82,9 +82,9 @@ func TestRestore_RejectsNullEntries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		data    []byte
-		wantErr error
 	}{
 		{
 			name:    "null_container",
