@@ -17,6 +17,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// sqsJSONContentType is the media type for SQS's JSON protocol responses.
+// SQS uses the awsJson1_0 protocol (aws-sdk-go-v2/service/sqs@v1.46.4
+// serializers.go sets this same value on every request), not 1.1.
+const sqsJSONContentType = "application/x-amz-json-1.0"
+
 // Handler is the Echo HTTP handler for SQS operations.
 type Handler struct {
 	Backend       StorageBackend
@@ -305,7 +310,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
-			"SQS", "application/x-amz-json-1.1",
+			"SQS", sqsJSONContentType,
 			h.GetSupportedOperations(),
 			func(ctx context.Context, action string, body []byte) ([]byte, error) {
 				return h.sqsRoute(ctx, c.Request(), action, body)
@@ -369,7 +374,14 @@ func (h *Handler) sqsRoute(
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	errType, message, status := errorDetails(err)
 
-	return c.JSON(status, jsonSQSError{Type: errType, Message: message})
+	payload, marshalErr := json.Marshal(jsonSQSError{Type: errType, Message: message})
+	if marshalErr != nil {
+		return marshalErr
+	}
+
+	c.Response().Header().Set("Content-Type", sqsJSONContentType)
+
+	return c.JSONBlob(status, payload)
 }
 
 // --- JSON request types ---
