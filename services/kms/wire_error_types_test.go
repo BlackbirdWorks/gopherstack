@@ -233,6 +233,130 @@ func TestWireErrorTypes_NotValidationException(t *testing.T) {
 	}
 }
 
+// TestWireErrorTypes_MalformedKeyIDArn verifies that a malformed KeyId ARN is
+// classified per the reaching operation's own deserializeOpError (gopherstack-qxaj):
+// resolveKeyID/resolveARNKeyID is a shared helper reached by two families with
+// different recognized error sets. Management ops (DescribeKey, CreateGrant,
+// ListAliases's KeyId filter, GetKeyLastUsage, ...) model InvalidArnException.
+// Crypto ops (Encrypt, Sign, GenerateDataKey, ...) and CreateAlias/UpdateAlias's
+// TargetKeyId do not model InvalidArnException at all -- only NotFoundException
+// among resource-shaped codes.
+//
+// Two ARN shapes exercise both malformed-ARN branches inside resolveARNKeyID:
+// arnTooFewSections fails awsarn.Parse itself; arnUnsupportedResource parses fine
+// but has a resource segment that is neither "alias/..." nor "key/...".
+func TestWireErrorTypes_MalformedKeyIDArn(t *testing.T) {
+	t.Parallel()
+
+	const (
+		arnTooFewSections      = "arn:aws:kms:us-east-1:123456789012"
+		arnUnsupportedResource = "arn:aws:kms:us-east-1:123456789012:bogus-resource"
+	)
+
+	tests := []struct {
+		body       func(malformedARN string) string
+		name       string
+		action     string
+		malformed  string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "describe key invalid arn (unparseable)",
+			action:     "DescribeKey",
+			malformed:  arnTooFewSections,
+			body:       func(arn string) string { return mustJSON(t, kms.DescribeKeyInput{KeyID: arn}) },
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidArnException",
+		},
+		{
+			name:      "create grant invalid arn (unsupported resource)",
+			action:    "CreateGrant",
+			malformed: arnUnsupportedResource,
+			body: func(arn string) string {
+				return mustJSON(t, kms.CreateGrantInput{
+					KeyID:            arn,
+					GranteePrincipal: "arn:aws:iam::123456789012:role/example",
+					Operations:       []string{"Encrypt"},
+				})
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidArnException",
+		},
+		{
+			name:       "list aliases key filter invalid arn (unparseable)",
+			action:     "ListAliases",
+			malformed:  arnTooFewSections,
+			body:       func(arn string) string { return mustJSON(t, kms.ListAliasesInput{KeyID: arn}) },
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidArnException",
+		},
+		{
+			name:       "get key last usage invalid arn (unsupported resource)",
+			action:     "GetKeyLastUsage",
+			malformed:  arnUnsupportedResource,
+			body:       func(arn string) string { return mustJSON(t, kms.GetKeyLastUsageInput{KeyID: arn}) },
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidArnException",
+		},
+		{
+			name:       "encrypt malformed arn not found (unparseable)",
+			action:     "Encrypt",
+			malformed:  arnTooFewSections,
+			body:       func(arn string) string { return mustJSON(t, kms.EncryptInput{KeyID: arn}) },
+			wantStatus: http.StatusBadRequest,
+			wantType:   "NotFoundException",
+		},
+		{
+			name:      "sign malformed arn not found (unsupported resource)",
+			action:    "Sign",
+			malformed: arnUnsupportedResource,
+			body: func(arn string) string {
+				return mustJSON(t, kms.SignInput{KeyID: arn, SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256"})
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "NotFoundException",
+		},
+		{
+			name:       "generate data key malformed arn not found (unparseable)",
+			action:     "GenerateDataKey",
+			malformed:  arnTooFewSections,
+			body:       func(arn string) string { return mustJSON(t, kms.GenerateDataKeyInput{KeyID: arn}) },
+			wantStatus: http.StatusBadRequest,
+			wantType:   "NotFoundException",
+		},
+		{
+			name:      "create alias target malformed arn not found (unsupported resource)",
+			action:    "CreateAlias",
+			malformed: arnUnsupportedResource,
+			body: func(arn string) string {
+				return mustJSON(t, kms.CreateAliasInput{AliasName: "alias/malformed-target-test", TargetKeyID: arn})
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "NotFoundException",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ab2NewHandler(t)
+			body := tc.body(tc.malformed)
+
+			rec := doKMSRequest(t, h, tc.action, body)
+
+			require.Equal(t, tc.wantStatus, rec.Code)
+
+			var resp struct {
+				Type string `json:"__type"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tc.wantType, resp.Type)
+		})
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 

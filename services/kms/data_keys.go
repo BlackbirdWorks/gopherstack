@@ -32,7 +32,7 @@ func (b *InMemoryBackend) generateDataKey(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) generateDataKeyPair(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	wrapKey, err := b.lookupKey(ctx, input.KeyID)
+	wrapKey, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}

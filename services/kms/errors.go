@@ -86,4 +86,10 @@ var (
 	// for the target KMS key (stale or skipped GetParametersForImport call).
 	// ImportKeyMaterial's deserializeOpError recognizes InvalidImportTokenException.
 	ErrInvalidImportToken = errors.New("InvalidImportTokenException")
+	// ErrInvalidArn is returned by resolveKeyID/resolveARNKeyID for a malformed KeyId
+	// ARN, for the KeyId-accepting operations whose own deserializeOpError recognizes
+	// InvalidArnException (gopherstack-qxaj). Crypto ops (Encrypt, Decrypt, Sign,
+	// GenerateDataKey, ...) do not model it -- those callers pass ErrKeyNotFound
+	// instead, the only resource-shaped code they do recognize.
+	ErrInvalidArn = errors.New("InvalidArnException")
 )

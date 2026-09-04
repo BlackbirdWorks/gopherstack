@@ -25,7 +25,7 @@ func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutp
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*Veri
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (b *InMemoryBackend) GetPublicKey(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}

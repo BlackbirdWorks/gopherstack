@@ -78,7 +78,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 	b.mu.RLock("GetParametersForImport")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) ImportKeyMaterial(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterial(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}

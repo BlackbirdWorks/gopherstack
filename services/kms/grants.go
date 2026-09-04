@@ -112,8 +112,9 @@ func (b *InMemoryBackend) CreateGrant(
 
 	// Store the grant in the key's own region (ARN-embedded region for an ARN
 	// input), so ListGrants/RevokeGrant/RetireGrant addressing the key the same
-	// way find it.
-	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	// way find it. All four grant ops recognize InvalidArnException for a
+	// malformed KeyId ARN (gopherstack-qxaj).
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +290,7 @@ func (b *InMemoryBackend) ListGrants(
 
 	// Read grants from the key's own region (ARN-embedded region for an ARN input),
 	// matching where CreateGrant stored them.
-	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +347,7 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 
 	// Resolve against the key's own region (ARN-embedded region for an ARN input)
 	// so the grant is found in the store CreateGrant wrote it to.
-	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -391,7 +392,7 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 	// grant created via a cross-region ARN is retired consistently. When no KeyId
 	// is supplied there is no region hint, so search every region for the grant ID.
 	if input.KeyID != "" {
-		key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+		key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 		if err != nil {
 			return err
 		}

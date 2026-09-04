@@ -208,7 +208,7 @@ func (b *InMemoryBackend) DescribeKey(
 	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,7 @@ func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -312,7 +312,7 @@ func (b *InMemoryBackend) EnableKey(ctx context.Context, input *EnableKeyInput) 
 	b.mu.Lock("EnableKey")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -341,7 +341,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +425,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -693,7 +693,7 @@ func (b *InMemoryBackend) UpdateKeyDescription(
 	b.mu.Lock("UpdateKeyDescription")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -740,7 +740,7 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}

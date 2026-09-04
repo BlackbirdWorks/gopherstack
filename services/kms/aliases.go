@@ -62,7 +62,9 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 		return ErrAliasAlreadyExists
 	}
 
-	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID)
+	// CreateAlias's deserializeOpError does not recognize InvalidArnException
+	// (gopherstack-qxaj) -- a malformed TargetKeyID ARN falls back to NotFoundException.
+	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID, ErrKeyNotFound)
 	if err != nil {
 		return err
 	}
@@ -97,7 +99,9 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 		return ErrAliasNotFound
 	}
 
-	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID)
+	// UpdateAlias's deserializeOpError does not recognize InvalidArnException
+	// (gopherstack-qxaj) -- a malformed TargetKeyID ARN falls back to NotFoundException.
+	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID, ErrKeyNotFound)
 	if err != nil {
 		return err
 	}
@@ -170,7 +174,8 @@ func (b *InMemoryBackend) ListAliases(
 	if input.KeyID != "" {
 		var err error
 
-		resolvedKeyID, _, err = b.resolveKeyID(ctx, input.KeyID)
+		// ListAliases's deserializeOpError recognizes InvalidArnException (gopherstack-qxaj).
+		resolvedKeyID, _, err = b.resolveKeyID(ctx, input.KeyID, ErrInvalidArn)
 		if err != nil {
 			return nil, err
 		}

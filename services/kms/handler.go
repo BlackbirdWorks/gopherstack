@@ -346,6 +346,7 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrInvalidTag, awsType: "TagException"},
 		{sentinel: ErrUnsupportedParameter, awsType: "UnsupportedOperationException"},
 		{sentinel: ErrInvalidImportToken, awsType: "InvalidImportTokenException"},
+		{sentinel: ErrInvalidArn, awsType: "InvalidArnException"},
 		// KeyUnavailableException is a server-fault exception in the real SDK
 		// (ErrorFault: Server) — real AWS returns it with a 500 status, unlike the
 		// client-fault exceptions above which are all 400.
