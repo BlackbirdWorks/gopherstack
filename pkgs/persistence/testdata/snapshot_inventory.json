@@ -2501,6 +2501,20 @@
     ],
     "version": 4
   },
+  "azureblob": {
+    "fields": [
+      "backendSnapshot.Containers map[string]*storedContainer `json:\"containers\"`",
+      "storedBlob.ContentType string",
+      "storedBlob.Data []byte",
+      "storedBlob.ETag string",
+      "storedBlob.LastModified time.Time",
+      "storedBlob.Name string",
+      "storedContainer.Blobs map[string]*storedBlob",
+      "storedContainer.CreatedAt time.Time",
+      "storedContainer.Name string"
+    ],
+    "version": 1
+  },
   "backup": {
     "fields": [
       "AdvancedBackupSetting.BackupOptions map[string]string `json:\"backupOptions,omitempty\"`",

@@ -13,8 +13,9 @@ func TestEvaluatePin(t *testing.T) {
 	t.Parallel()
 
 	goModVersions := map[string]string{
-		"dlm":      "v1.39.4",
-		"opsworks": "v1.31.0",
+		"dlm":            "v1.39.4",
+		"opsworks":       "v1.31.0",
+		"storage/azblob": "v1.8.0",
 	}
 
 	tests := []struct {
@@ -36,6 +37,19 @@ func TestEvaluatePin(t *testing.T) {
 			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.30.0   # stale\n",
 			wantKind: resultMismatch,
 			wantMsg:  "dlm: recorded v1.30.0, go.mod v1.39.4",
+		},
+		{
+			name:     "matching azure pin",
+			slug:     "azureblob",
+			content:  "service: azureblob\nsdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.8.0   # audited\n",
+			wantKind: resultOK,
+		},
+		{
+			name:     "mismatched azure pin",
+			slug:     "azureblob",
+			content:  "service: azureblob\nsdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.7.0   # stale\n",
+			wantKind: resultMismatch,
+			wantMsg:  "azureblob: recorded v1.7.0, go.mod v1.8.0",
 		},
 		{
 			name: "module cache only documented",
@@ -108,6 +122,7 @@ go 1.26.5
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/dlm v1.39.4
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/other/pkg v0.1.0
 )
 
@@ -120,5 +135,6 @@ require github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0
 
 	assert.Equal(t, "v1.39.4", versions["dlm"])
 	assert.Equal(t, "v1.31.0", versions["opsworks"])
+	assert.Equal(t, "v1.8.0", versions["storage/azblob"])
 	assert.NotContains(t, versions, "pkg")
 }

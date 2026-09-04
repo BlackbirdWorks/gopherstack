@@ -89,6 +89,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -458,6 +459,7 @@ type CLI struct {
 	Kinesis                       kinesisbackend.Settings   `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings       `embed:"" prefix:"sts-"`
 	StepFunctions                 sfnbackend.Settings       `embed:"" prefix:"stepfunctions-"`
+	AzureBlob                     azureblobbackend.Settings `embed:"" prefix:"azure-blob-"`
 	PortRangeStart                int                       `                                  name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                       `                                  name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                       `                                  name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -519,6 +521,11 @@ func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
 // GetS3Settings returns S3 settings (s3.ConfigProvider).
 func (c *CLI) GetS3Settings() s3backend.Settings {
 	return c.S3
+}
+
+// GetAzureBlobSettings returns Azure Blob settings (azureblob.ConfigProvider).
+func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
+	return c.AzureBlob
 }
 
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
@@ -1845,6 +1852,46 @@ func setupPortAllocator(
 	return alloc
 }
 
+// reserveFixedServicePorts marks ports bound directly by services outside
+// the shared PortAlloc pool as unavailable within that pool, so Acquire
+// never hands the same port number to a different caller.
+//
+// AzureBlob's dedicated listener (services/azureblob) binds a fixed,
+// protocol-conventional default port (10000, matching Azurite's own Blob
+// service port) via a raw net.Listen call, not through PortAlloc -- and that
+// default sits squarely inside PortRangeStart/PortRangeEnd's own default
+// range (10000-10100). Without this reservation, PortAlloc has no way to
+// know AzureBlob already holds 10000 and could hand it to an unrelated
+// caller (e.g. an ElastiCache instance), which would only surface later as
+// a confusing address-in-use failure when that caller tries to actually
+// bind it. See AZURE.md section 4 for the full rationale.
+//
+// A failed reservation is logged, not fatal: AzureBlob's own StartWorker
+// bind is still synchronous and fails fast on a genuine conflict (see
+// handler.go), so the worst outcome here is losing this early-warning
+// cross-service protection, not an unrecoverable startup failure.
+func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *portalloc.Allocator, cli CLI) {
+	if alloc == nil {
+		return
+	}
+
+	if err := alloc.Reserve(cli.AzureBlob.Port, "azureblob"); err != nil {
+		log.WarnContext(ctx, "failed to reserve AzureBlob's fixed port in the shared pool",
+			"port", cli.AzureBlob.Port, "error", err)
+	}
+}
+
+// setupPortAllocatorWithReservations builds the shared port allocator and
+// reserves any fixed ports services bind directly (see
+// reserveFixedServicePorts) before anything else can Acquire from it.
+// Extracted from run() to keep both steps as a single statement there.
+func setupPortAllocatorWithReservations(ctx context.Context, log *slog.Logger, cli CLI) *portalloc.Allocator {
+	alloc := setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
+	reserveFixedServicePorts(ctx, log, alloc, cli)
+
+	return alloc
+}
+
 // run starts the server with the given CLI configuration.
 // It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(ctx context.Context, cli CLI) error {
@@ -1868,7 +1915,7 @@ func run(ctx context.Context, cli CLI) error {
 	)
 
 	// --- Port allocator ---
-	cli.portAlloc = setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
+	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
@@ -3565,6 +3612,7 @@ func getNewestServiceProviders() []service.Provider {
 
 func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
+		&azureblobbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
