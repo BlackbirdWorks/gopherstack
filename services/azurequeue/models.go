@@ -66,10 +66,14 @@ func (m *storedMessage) isVisible(now time.Time) bool {
 	return !m.NextVisibleTime.After(now)
 }
 
-// isExpired reports whether m has exceeded its message TTL as of now, swept
-// by Janitor.
+// isExpired reports whether m has reached or exceeded its message TTL as of
+// now, swept by Janitor. The exact expiration instant counts as expired
+// (!now.Before(...), not now.After(...)) so a message can never be read,
+// deleted, or updated at exactly its ExpirationTime -- matching real Azure
+// Queue Storage, which deletes a message once its TTL elapses and does not
+// allow updates after expiration.
 func (m *storedMessage) isExpired(now time.Time) bool {
-	return now.After(m.ExpirationTime)
+	return !now.Before(m.ExpirationTime)
 }
 
 // storedQueue is the backend's internal representation of a queue. Messages
