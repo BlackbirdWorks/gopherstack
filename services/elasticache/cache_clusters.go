@@ -330,6 +330,33 @@ func (b *InMemoryBackend) SetClusterSubnetGroupName(ctx context.Context, id, sub
 	return nil
 }
 
+// SetClusterSnapshotRetentionLimit records how many days of automatic
+// snapshots a cluster retains. limit is a pointer so a caller that never sent
+// SnapshotRetentionLimit (nil) can be distinguished from one that explicitly
+// sent 0 -- AWS documents 0 as "backups are turned off" (api_op_
+// ModifyCacheCluster.go), not "leave unchanged". Kept separate from
+// CreateClusterWithOptions/ModifyCluster to avoid widening their already-long
+// positional signatures, same rationale as SetClusterSubnetGroupName.
+func (b *InMemoryBackend) SetClusterSnapshotRetentionLimit(ctx context.Context, id string, limit *int) error {
+	if limit == nil {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SetClusterSnapshotRetentionLimit")
+	defer b.mu.Unlock()
+
+	c, exists := b.clustersStore(region).Get(id)
+	if !exists {
+		return ErrClusterNotFound
+	}
+
+	c.SnapshotRetentionLimit = *limit
+
+	return nil
+}
+
 // DescribeClusters returns one cluster by id, or a paginated list of all clusters when id is empty.
 // When notInRG is true, only clusters with no ReplicationGroupID are returned (standalone clusters).
 func (b *InMemoryBackend) DescribeClusters(

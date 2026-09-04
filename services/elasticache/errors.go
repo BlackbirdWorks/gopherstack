@@ -81,8 +81,6 @@ var (
 )
 
 var (
-	ErrUserNotInGroup    = errors.New("user is a member of a user group and cannot be deleted")
-	ErrUserNotFound2     = ErrUserNotFound
 	ErrGroupUserNotFound = errors.New("one or more specified user IDs do not exist")
 )
 

@@ -51,6 +51,7 @@ type cacheClusterXML struct {
 	SnapshotWindow             string     `xml:"SnapshotWindow,omitempty"`
 	CacheNodes                 cacheNodes `xml:"CacheNodes"`
 	NumCacheNodes              int        `xml:"NumCacheNodes"`
+	SnapshotRetentionLimit     int        `xml:"SnapshotRetentionLimit,omitempty"`
 	TransitEncryptionEnabled   bool       `xml:"TransitEncryptionEnabled"`
 	AtRestEncryptionEnabled    bool       `xml:"AtRestEncryptionEnabled"`
 }
@@ -111,6 +112,10 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return sgErr
 	}
 
+	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, c, form, id, cluster); srErr != nil {
+		return srErr
+	}
+
 	type result struct {
 		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
 		Xmlns        string          `xml:"xmlns,attr"`
@@ -139,6 +144,33 @@ func (h *Handler) applyClusterSubnetGroup(
 	}
 
 	cluster.SubnetGroupName = subnetGroupName
+
+	return nil
+}
+
+// applyClusterSnapshotRetentionLimit records SnapshotRetentionLimit on a
+// just-created cluster, if the caller supplied it. AWS documents 0 as a
+// meaningful explicit value ("automatic backups are disabled"), so presence
+// is checked on the raw form value, not on the parsed int being non-zero.
+// Split out of createCacheCluster to keep its cognitive complexity down.
+func (h *Handler) applyClusterSnapshotRetentionLimit(
+	ctx context.Context, c *echo.Context, form url.Values, id string, cluster *Cluster,
+) error {
+	s := form.Get("SnapshotRetentionLimit")
+	if s == "" {
+		return nil
+	}
+
+	n, parseErr := strconv.Atoi(s)
+	if parseErr != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "SnapshotRetentionLimit must be an integer")
+	}
+
+	if err := h.Backend.SetClusterSnapshotRetentionLimit(ctx, id, &n); err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	cluster.SnapshotRetentionLimit = n
 
 	return nil
 }
@@ -293,6 +325,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		ReplicationGroupID:         cl.ReplicationGroupID,
 		PreferredMaintenanceWindow: cl.PreferredMaintenanceWindow,
 		SnapshotWindow:             cl.SnapshotWindow,
+		SnapshotRetentionLimit:     cl.SnapshotRetentionLimit,
 		TransitEncryptionEnabled:   cl.TransitEncryptionEnabled,
 		AtRestEncryptionEnabled:    cl.AtRestEncryptionEnabled,
 		CreatedAt:                  cl.CreatedAt.UTC().Format(time.RFC3339),
@@ -338,6 +371,10 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, c, form, id, cluster); srErr != nil {
+		return srErr
 	}
 
 	type result struct {
