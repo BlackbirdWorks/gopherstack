@@ -289,6 +289,43 @@ func TestHandler_StopHyperParameterTuningJob_ReachesStopped(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
+// TestHandler_CreateHyperParameterTuningJob_ReachesCompleted asserts
+// HyperParameterTuningJobStatus advances InProgress -> Completed, matching
+// every sibling job family's own FSM (TrainingJob, ProcessingJob,
+// TransformJob, InferenceRecommendationsJob, CompilationJob, ...). Previously
+// nothing ever advanced it off InProgress -- only Stop's Stopping -> Stopped
+// leg had an FSM -- so a job left running showed InProgress forever.
+func TestHandler_CreateHyperParameterTuningJob_ReachesCompleted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "hpt-create-reaches-completed",
+		"HyperParameterTuningJobConfig": map[string]any{
+			"Strategy":       "Bayesian",
+			"ResourceLimits": map[string]any{"MaxParallelTrainingJobs": 1},
+		},
+	})
+
+	rec := doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "hpt-create-reaches-completed",
+	})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "InProgress", descResp["HyperParameterTuningJobStatus"])
+
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
+			"HyperParameterTuningJobName": "hpt-create-reaches-completed",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["HyperParameterTuningJobStatus"] == "Completed"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 // TestHandler_CreateHyperParameterTuningJob_ExtrasRoundTrip_RealClient
 // asserts Autotune/WarmStartConfig/TrainingJobDefinition/
 // HyperParameterTuningJobConfig's ParameterRanges/TrainingJobEarlyStoppingType
