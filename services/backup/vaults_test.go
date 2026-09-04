@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -55,6 +58,43 @@ func TestDeleteBackupVaultChecked(t *testing.T) {
 		if err := b.DeleteBackupVaultChecked("ghost"); err == nil {
 			t.Error("expected error, got nil")
 		}
+	})
+}
+
+func TestDeleteBackupVaultLockConfiguration_Immutable(t *testing.T) {
+	t.Parallel()
+
+	t.Run("changeable lock deletes cleanly", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		mustVault(t, b, "changeable")
+		require.NoError(t, b.PutBackupVaultLockConfiguration("changeable", &backup.VaultLockConfig{
+			MinRetentionDays: 1,
+			MaxRetentionDays: 365,
+		}))
+
+		require.NoError(t, b.DeleteBackupVaultLockConfiguration("changeable"))
+		_, err := b.GetBackupVaultLockConfig("changeable")
+		require.ErrorIs(t, err, backup.ErrNotFound)
+	})
+
+	t.Run("matured lock date is immutable", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		mustVault(t, b, "matured")
+		past := time.Now().Add(-1 * time.Hour)
+		require.NoError(t, b.PutBackupVaultLockConfiguration("matured", &backup.VaultLockConfig{
+			MinRetentionDays: 1,
+			MaxRetentionDays: 365,
+			LockDate:         &past,
+		}))
+
+		err := b.DeleteBackupVaultLockConfiguration("matured")
+		require.ErrorIs(t, err, backup.ErrInvalidRequest)
+
+		cfg, getErr := b.GetBackupVaultLockConfig("matured")
+		require.NoError(t, getErr)
+		assert.NotNil(t, cfg)
 	})
 }
 
