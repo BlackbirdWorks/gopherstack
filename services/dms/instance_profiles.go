@@ -140,7 +140,10 @@ func (b *InMemoryBackend) migrationProjectUsesInstanceProfileLocked(region, inst
 	return false
 }
 
-// ModifyInstanceProfile updates an instance profile.
+// ModifyInstanceProfile updates an instance profile. Real AWS: "All migration
+// projects associated with the instance profile must be deleted or modified
+// before you can modify the instance profile" (databasemigrationservice@v1.66.4
+// api_op_ModifyInstanceProfile.go:16-17).
 func (b *InMemoryBackend) ModifyInstanceProfile(
 	ctx context.Context,
 	nameOrArn, availabilityZone, description, networkType string,
@@ -151,6 +154,15 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 	ip := b.findInstanceProfile(ctx, nameOrArn)
 	if ip == nil {
 		return nil, fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
+	}
+
+	region := getRegion(ctx, b.region)
+	if b.migrationProjectUsesInstanceProfileLocked(region, ip.InstanceProfileArn) {
+		return nil, fmt.Errorf(
+			"%w: instance profile %s has associated migration projects",
+			ErrInvalidState,
+			nameOrArn,
+		)
 	}
 
 	if availabilityZone != "" {
