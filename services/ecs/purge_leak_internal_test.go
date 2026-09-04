@@ -12,30 +12,21 @@ func TestReconcilerSemEviction_OnClusterDelete(t *testing.T) {
 	r := NewReconciler(b)
 	b.RegisterClusterDeleteHook(r.EvictCluster)
 
-	tdArn := registerSimpleTaskDef(t, b, "sem-app", "nginx")
-
-	makeService := func(cluster string) {
+	// DeleteCluster now refuses (ClusterContains*Exception) while a cluster
+	// still has services/tasks, so this test seeds the per-cluster semaphore
+	// directly via clusterSem -- the same lazy-creation path RunOnce would
+	// take when reconciling a service -- rather than routing through a real
+	// service+task that would then block the deletions below.
+	for _, cluster := range []string{"c1", "c2"} {
 		if _, err := b.CreateCluster(CreateClusterInput{ClusterName: cluster}); err != nil {
 			t.Fatalf("CreateCluster(%s): %v", cluster, err)
 		}
-		if _, err := b.CreateService(CreateServiceInput{
-			ServiceName:    "svc",
-			Cluster:        cluster,
-			TaskDefinition: tdArn,
-			DesiredCount:   1,
-		}); err != nil {
-			t.Fatalf("CreateService(%s): %v", cluster, err)
-		}
+
+		r.clusterSem(cluster)
 	}
 
-	makeService("c1")
-	makeService("c2")
-
-	// Reconciling scales up each service, which creates a per-cluster semaphore.
-	r.RunOnce(t.Context())
-
 	if got := r.SemCount(); got != 2 {
-		t.Fatalf("SemCount after reconcile = %d, want 2", got)
+		t.Fatalf("SemCount after seeding = %d, want 2", got)
 	}
 
 	if _, err := b.DeleteCluster("c1"); err != nil {
@@ -334,7 +325,7 @@ func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
 			t.Fatalf("TagResource: %v", err)
 		}
 
-		if _, err = b.DeleteService("tag-ghost-svc-cluster", "tag-ghost-svc"); err != nil {
+		if _, err = b.DeleteService("tag-ghost-svc-cluster", "tag-ghost-svc", true); err != nil {
 			t.Fatalf("DeleteService: %v", err)
 		}
 
@@ -368,6 +359,12 @@ func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
 		}
 
 		taskArn := tasks[0].TaskArn
+
+		// DeleteCluster now refuses while the cluster has active tasks, so
+		// stop the task first (matching what a real AWS caller must do).
+		if _, err = b.StopTask("tag-ghost-task-cluster", taskArn, "test"); err != nil {
+			t.Fatalf("StopTask: %v", err)
+		}
 
 		if _, err = b.DeleteCluster("tag-ghost-task-cluster"); err != nil {
 			t.Fatalf("DeleteCluster: %v", err)

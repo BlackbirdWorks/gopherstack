@@ -25,7 +25,7 @@ type Backend interface {
 	CreateService(input CreateServiceInput) (*Service, error)
 	DescribeServices(cluster string, serviceNames []string) ([]Service, []Failure, error)
 	UpdateService(input UpdateServiceInput) (*Service, error)
-	DeleteService(cluster, serviceName string) (*Service, error)
+	DeleteService(cluster, serviceName string, force ...bool) (*Service, error)
 	ListServices(cluster, launchType, schedulingStrategy string) ([]string, error)
 
 	// Tasks

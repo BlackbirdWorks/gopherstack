@@ -180,7 +180,9 @@ func (rc *ResourceCreator) deleteECSService(arn string) error {
 	serviceName := parts[len(parts)-1]
 	clusterName := parts[len(parts)-2]
 
-	_, err := rc.backends.ECS.Backend.DeleteService(clusterName, serviceName)
+	// Force: CloudFormation tears a service down without the caller scaling it
+	// to zero first, matching real stack deletion.
+	_, err := rc.backends.ECS.Backend.DeleteService(clusterName, serviceName, true)
 
 	return err
 }

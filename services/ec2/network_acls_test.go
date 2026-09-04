@@ -42,6 +42,38 @@ func TestDeleteNetworkAcl(t *testing.T) {
 	assert.Error(t, b.DeleteNetworkACL(acl.ID))
 }
 
+// TestDeleteNetworkAcl_DependencyViolation verifies AWS's DeleteNetworkAcl
+// guard: an ACL still associated with a subnet cannot be deleted.
+func TestDeleteNetworkAcl_DependencyViolation(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+	require.NoError(t, err)
+
+	acl1, err := b.CreateNetworkACL(vpc.ID)
+	require.NoError(t, err)
+
+	acl2, err := b.CreateNetworkACL(vpc.ID)
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, "10.0.1.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	_, err = b.ReplaceNetworkACLAssociation(acl1.ID, subnet.ID)
+	require.NoError(t, err)
+
+	err = b.DeleteNetworkACL(acl1.ID)
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	// Move the subnet to the other ACL; deletion then succeeds.
+	_, err = b.ReplaceNetworkACLAssociation(acl2.ID, subnet.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteNetworkACL(acl1.ID))
+}
+
 // TestCreateNetworkAclEntry verifies NACL rule creation.
 
 // TestCreateNetworkAclEntry verifies NACL rule creation.

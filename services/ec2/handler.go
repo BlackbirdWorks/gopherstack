@@ -709,6 +709,7 @@ var errCodeLookup = []struct {
 	{ErrVpnTunnelNotFound, errCodeInvalidParameterValue},
 	{ErrVpcEndpointServiceNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrDependencyViolation, "DependencyViolation"},
+	{ErrAddressInUse, "InvalidIPAddress.InUse"},
 	{ErrResourceAlreadyAssociated, "Resource.AlreadyAssociated"},
 	{ErrVpcClassicLinkDisabled, "VpcClassicLinkDisabled"},
 	{ErrClassicLinkInstanceNotFound, "InvalidInstanceID.NotFound"},

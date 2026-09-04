@@ -357,9 +357,15 @@ func TestDockerRunner_ContainerLeakOnStartFailure(t *testing.T) {
 	assert.False(t, tracked, "failed container must not be tracked")
 }
 
-// TestDeleteCluster_CascadesContainerStops verifies that deleting a cluster stops
-// Docker containers for all running tasks, preventing resource leaks.
-func TestDeleteCluster_CascadesContainerStops(t *testing.T) {
+// TestDeleteCluster_LeavesNoRunningContainers verifies that once every task in a
+// cluster is stopped (as real AWS requires before DeleteCluster -- it refuses
+// with ClusterContainsTasksException while any active task remains, see
+// clusterDependencyViolationLocked), deletion proceeds cleanly and no Docker
+// containers are left running. StopTask itself is what tells the runner to
+// stop each container (TestDockerRunner_StopTask_StopsAllContainers covers
+// that mechanism directly); this test proves the delete-cluster workflow
+// leaves nothing behind once callers follow that required order.
+func TestDeleteCluster_LeavesNoRunningContainers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -418,11 +424,17 @@ func TestDeleteCluster_CascadesContainerStops(t *testing.T) {
 				require.NoError(t, err)
 
 				for range tt.numTasks {
-					_, runErr := backend.RunTask(RunTaskInput{
+					tasks, runErr := backend.RunTask(RunTaskInput{
 						Cluster:        "test-cluster",
 						TaskDefinition: "test",
 					})
 					require.NoError(t, runErr)
+					require.Len(t, tasks, 1)
+
+					// Real AWS requires tasks to be stopped before the
+					// cluster can be deleted; do that here.
+					_, stopErr := backend.StopTask("test-cluster", tasks[0].TaskArn, "test cleanup")
+					require.NoError(t, stopErr)
 				}
 			}
 
