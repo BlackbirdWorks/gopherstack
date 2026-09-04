@@ -28,6 +28,13 @@ const (
 	invitationStatusRejected = "REJECTED"
 	// invitationStatusExpired is the expired status for an invitation.
 	invitationStatusExpired = "EXPIRED"
+	// invitationExpiryWindow is how long a PENDING invitation stays acceptable before
+	// it lazily transitions to EXPIRED. AWS RAM user guide: "For shared resource types
+	// not on the [7-day] list... After 12 hours, the invitation expires and the end
+	// user principal in the resource share is disassociated." Most resource types get
+	// this 12h default; the 7-day carve-out for a specific resource-type allowlist
+	// (EC2 capacity reservations, VPC subnets, etc.) is not modeled.
+	invitationExpiryWindow = 12 * time.Hour
 	// permissionTypeCustomer is the customer managed permission type.
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
 	// permissionTypeAWSManaged is the AWS-managed permission type.
