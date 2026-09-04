@@ -162,6 +162,14 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBI
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+	if inst.DBClusterIdentifier != "" {
+		if cl, ok := b.clusterGet(region, inst.DBClusterIdentifier); ok && len(cl.DBClusterMembers) == 1 {
+			return nil, fmt.Errorf(
+				"%w: instance %s is the only instance in cluster %s",
+				ErrInvalidDBInstanceStateFault, id, cl.DBClusterIdentifier,
+			)
+		}
+	}
 	cp := *inst
 	b.instanceDelete(region, id)
 	delete(b.tagsStore(region), b.instanceARN(region, id))

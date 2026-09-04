@@ -450,6 +450,7 @@ var errCodeLookup = []struct {
 	{ErrUserAlreadyExists, "UserAlreadyExistsFault", http.StatusBadRequest},
 	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault", http.StatusBadRequest},
 	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault", http.StatusBadRequest},
+	{ErrParameterGroupInUse, "InvalidParameterGroupStateFault", http.StatusBadRequest},
 	{ErrSnapshotNotFound, "SnapshotNotFoundFault", http.StatusBadRequest},
 	{ErrSnapshotAlreadyExists, "SnapshotAlreadyExistsFault", http.StatusBadRequest},
 	{ErrMultiRegionClusterNotFound, "MultiRegionClusterNotFoundFault", http.StatusBadRequest},

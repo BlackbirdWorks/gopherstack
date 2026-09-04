@@ -103,6 +103,36 @@ func TestErrCode_SubnetGroupInUse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestErrCode_ParameterGroupInUse covers a state-correctness gap: previously
+// DeleteParameterGroup had no in-use check at all and would delete a
+// parameter group still referenced by a live cluster
+// (api_op_DeleteParameterGroup.go: "You cannot delete a parameter group if
+// it is associated with any clusters.").
+func TestErrCode_ParameterGroupInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateParameterGroup", map[string]any{
+		"ParameterGroupName": "in-use-pg",
+		"Family":             "memorydb_redis7",
+	})
+	doRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName":        "pg-cluster",
+		"NodeType":           "db.t4g.small",
+		"ParameterGroupName": "in-use-pg",
+	})
+
+	rec := doRequest(t, h, "DeleteParameterGroup", map[string]any{"ParameterGroupName": "in-use-pg"})
+	require.Equal(t, http.StatusBadRequest, rec.Code,
+		"DeleteParameterGroup must reject deleting a parameter group still referenced by a cluster")
+	assert.Equal(t, "InvalidParameterGroupStateFault", responseType(t, rec.Body.Bytes()))
+
+	// The parameter group must still exist.
+	rec = doRequest(t, h, "DescribeParameterGroups", map[string]any{"ParameterGroupName": "in-use-pg"})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestErrCode_TagResourceInvalidARN(t *testing.T) {
 	t.Parallel()
 

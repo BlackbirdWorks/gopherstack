@@ -75,6 +75,12 @@ var (
 		"InvalidUserStateFault: user is currently a member of an ACL",
 		awserr.ErrConflict,
 	)
+	// ErrParameterGroupInUse is returned when a parameter group cannot be deleted
+	// because it is assigned to a cluster (real AWS fault: InvalidParameterGroupStateFault).
+	ErrParameterGroupInUse = awserr.New(
+		"InvalidParameterGroupStateFault: parameter group is currently associated with a cluster",
+		awserr.ErrConflict,
+	)
 	// ErrInvalidARN is returned by the tagging operations (ListTags/TagResource/
 	// UntagResource) when the given ResourceArn does not match any known
 	// resource (real AWS fault: InvalidARNFault -- the only NotFound-family
