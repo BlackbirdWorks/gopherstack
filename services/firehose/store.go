@@ -145,7 +145,8 @@ func (b *InMemoryBackend) SetRedshiftDataBackend(rd RedshiftDataExecutor) {
 	b.redshiftData = rd
 }
 
-// Reset clears all delivery streams, closing their tag registries to prevent leaks.
+// Reset clears all delivery streams, closing their tag registries and cancelling any
+// running Kinesis source pollers to prevent leaks.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -155,6 +156,18 @@ func (b *InMemoryBackend) Reset() {
 			s.Tags.Close()
 		}
 	}
+
+	for region, pollers := range b.pollerCancel {
+		for name, cancel := range pollers {
+			cancel()
+			delete(pollers, name)
+		}
+
+		delete(b.pollerCancel, region)
+	}
+
+	b.pendingFlush = make(map[string]map[string]struct{})
+	b.sortedNamesCache = make(map[string][]string)
 
 	b.registry.ResetAll()
 }

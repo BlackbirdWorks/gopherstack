@@ -3288,6 +3288,11 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
+	// Wire Firehose → Kinesis so a KinesisStreamAsSource delivery stream actually
+	// polls and ingests records instead of accepting the stream and never
+	// delivering anything (gopherstack-o4ny).
+	wireFirehoseKinesisSource(byName["Firehose"], byName["Kinesis"])
+
 	// Wire DynamoDB → S3 so ImportTable reads source objects and
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
@@ -11442,6 +11447,34 @@ func wireFirehoseDelivery(firehoseReg, s3Reg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireFirehoseKinesisSource connects the Firehose backend to Kinesis so that a
+// delivery stream created with KinesisStreamAsSource actually polls its source
+// stream and ingests records, instead of accepting the stream and silently
+// dropping ingestion forever.
+func wireFirehoseKinesisSource(firehoseReg, kinesisReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk, fhOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !fhOk {
+		return
+	}
+
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	fhBk.SetKinesisBackend(&kinesisStreamReaderAdapter{backend: kinesisBk})
+}
+
 // wireDynamoDBS3 connects the DynamoDB backend to the S3 backend so that
 // ImportTable can read source objects and ExportTableToPointInTime can write
 // export data to S3.
@@ -11617,22 +11650,23 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerabl
 	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
 }
 
-// kinesisAnalyticsStreamReaderAdapter adapts the Kinesis backend's real
+// kinesisStreamReaderAdapter adapts the Kinesis backend's real
 // ListShards/GetShardIterator/GetRecords (ctx+typed-struct shaped, see
-// services/kinesis/records.go and shards.go) to
-// kinesisanalyticsbackend.KinesisStreamReader's narrow (streamName string, limit int) shape
-// DiscoverInputSchema samples through (services/kinesisanalytics/discover_schema.go).
-type kinesisAnalyticsStreamReaderAdapter struct {
+// services/kinesis/records.go and shards.go) to the narrow (streamName string, limit int)
+// shape shared by kinesisanalyticsbackend.KinesisStreamReader (DiscoverInputSchema sampling,
+// services/kinesisanalytics/discover_schema.go) and firehose.KinesisReader
+// (KinesisStreamAsSource polling, services/firehose/kinesis_source.go).
+type kinesisStreamReaderAdapter struct {
 	backend *kinesisbackend.InMemoryBackend
 }
 
-// kaTrimHorizonIteratorType is the only shard-iterator starting point DiscoverInputSchema's
-// sampling needs (it just wants some records, not a caller-specified position). Not
-// kinesisbackend.iteratorTypeTrimHorizon -- that constant is unexported (services/kinesis/
-// models.go:40).
-const kaTrimHorizonIteratorType = "TRIM_HORIZON"
+// kinesisTrimHorizonIteratorType is the only shard-iterator starting point both consumers of
+// kinesisStreamReaderAdapter need (they just want records from the start, not a
+// caller-specified position). Not kinesisbackend.iteratorTypeTrimHorizon -- that constant is
+// unexported (services/kinesis/models.go:40).
+const kinesisTrimHorizonIteratorType = "TRIM_HORIZON"
 
-func (a *kinesisAnalyticsStreamReaderAdapter) ListShards(streamName string) ([]string, error) {
+func (a *kinesisStreamReaderAdapter) ListShards(streamName string) ([]string, error) {
 	out, err := a.backend.ListShards(context.Background(), &kinesisbackend.ListShardsInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
@@ -11646,11 +11680,11 @@ func (a *kinesisAnalyticsStreamReaderAdapter) ListShards(streamName string) ([]s
 	return ids, nil
 }
 
-func (a *kinesisAnalyticsStreamReaderAdapter) GetShardIterator(streamName, shardID string) (string, error) {
+func (a *kinesisStreamReaderAdapter) GetShardIterator(streamName, shardID string) (string, error) {
 	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
 		StreamName:        streamName,
 		ShardID:           shardID,
-		ShardIteratorType: kaTrimHorizonIteratorType,
+		ShardIteratorType: kinesisTrimHorizonIteratorType,
 	})
 	if err != nil {
 		return "", err
@@ -11659,7 +11693,7 @@ func (a *kinesisAnalyticsStreamReaderAdapter) GetShardIterator(streamName, shard
 	return out.ShardIterator, nil
 }
 
-func (a *kinesisAnalyticsStreamReaderAdapter) GetRecords(
+func (a *kinesisStreamReaderAdapter) GetRecords(
 	shardIterator string,
 	limit int,
 ) ([][]byte, string, error) {
@@ -11684,7 +11718,7 @@ func (a *kinesisAnalyticsStreamReaderAdapter) GetRecords(
 // s3backend.InMemoryBackend.GetObject satisfies kinesisanalyticsbackend.S3ObjectReader
 // directly (same real SDK types, no adapter -- the same no-adapter pairing as cloudwatch's
 // FirehosePutter/firehose.InMemoryBackend). Kinesis needs
-// kinesisAnalyticsStreamReaderAdapter to bridge onto KinesisStreamReader's narrow shape.
+// kinesisStreamReaderAdapter to bridge onto KinesisStreamReader's narrow shape.
 func wireKinesisAnalyticsCrossService(kaReg, kinesisReg, s3Reg service.Registerable) {
 	kaH, ok := kaReg.(*kinesisanalyticsbackend.Handler)
 	if !ok {
@@ -11698,7 +11732,7 @@ func wireKinesisAnalyticsCrossService(kaReg, kinesisReg, s3Reg service.Registera
 
 	if kinesisH, kOk := kinesisReg.(*kinesisbackend.Handler); kOk {
 		if kinesisBk, kbkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); kbkOk {
-			kaBk.SetKinesisStreamReader(&kinesisAnalyticsStreamReaderAdapter{backend: kinesisBk})
+			kaBk.SetKinesisStreamReader(&kinesisStreamReaderAdapter{backend: kinesisBk})
 		}
 	}
 
