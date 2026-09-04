@@ -17,6 +17,12 @@ const (
 	batchWorkerServiceName         = "batch"
 	inactiveJobDefSweeperComponent = "InactiveJobDefinitionSweeper"
 	completedJobSweeperComponent   = "CompletedJobSweeper"
+
+	// jobAdvanceAttemptTimedOut is an internal advanceKey.newStatus marker (not
+	// a real Batch job status) meaning the running attempt exceeded its
+	// JobTimeout.AttemptDurationSeconds; applyAdvanceRegularJobs resolves it to
+	// either a retry (RUNNABLE) or a terminal FAILED, per RetryStrategy.Attempts.
+	jobAdvanceAttemptTimedOut = "internal:AttemptTimedOut"
 )
 
 // Janitor is the Batch background worker that evicts INACTIVE job definitions
@@ -204,7 +210,13 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusRunning})
 			}
 		case jobStatusRunning:
-			if job.StoppedAt == nil {
+			if job.StoppedAt != nil {
+				continue
+			}
+
+			if j.Backend.jobAttemptTimedOutLocked(job) {
+				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobAdvanceAttemptTimedOut})
+			} else {
 				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusSucceeded})
 			}
 		}
@@ -286,17 +298,27 @@ func (j *Janitor) advanceJobs(_ context.Context) {
 
 func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
 	for _, k := range toAdvance {
-		if job, ok := j.Backend.jobs.Get(regionKey(k.region, k.id)); ok {
-			job.Status = k.newStatus
-			switch k.newStatus {
-			case jobStatusRunning:
-				job.StartedAt = &now
-			case jobStatusSucceeded:
-				job.StoppedAt = &now
-			case jobStatusFailed:
-				job.StoppedAt = &now
-				job.StatusReason = "dependency failed"
-			}
+		job, ok := j.Backend.jobs.Get(regionKey(k.region, k.id))
+		if !ok {
+			continue
+		}
+
+		if k.newStatus == jobAdvanceAttemptTimedOut {
+			j.Backend.applyAttemptTimeoutLocked(job, now)
+
+			continue
+		}
+
+		job.Status = k.newStatus
+		switch k.newStatus {
+		case jobStatusRunning:
+			job.StartedAt = &now
+			job.StatusReason = ""
+		case jobStatusSucceeded:
+			job.StoppedAt = &now
+		case jobStatusFailed:
+			job.StoppedAt = &now
+			job.StatusReason = "dependency failed"
 		}
 	}
 }

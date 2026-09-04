@@ -206,6 +206,7 @@ type InMemoryBackend struct {
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
 	jobRunDoneAt       map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
+	jobRunTimeoutAt    map[string]map[string]time.Time // jobName → runID → timeoutAt for RUNNING→TIMEOUT
 	jobRunStopAt       map[string]map[string]time.Time // jobName → runID → stopAt for STOPPING→STOPPED
 	crawlerReadyAt     map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
 	integrationReadyAt map[string]time.Time            // integrationName → readyAt for CREATING→ACTIVE
@@ -272,6 +273,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:                    region,
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
+		jobRunTimeoutAt:           make(map[string]map[string]time.Time),
 		jobRunStopAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
 		integrationReadyAt:        make(map[string]time.Time),
@@ -322,6 +324,7 @@ func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.dataCatalogExportConfig = nil
 	b.jobRunReadyAt = make(map[string]map[string]time.Time)
 	b.jobRunDoneAt = make(map[string]map[string]time.Time)
+	b.jobRunTimeoutAt = make(map[string]map[string]time.Time)
 	b.jobRunStopAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)
 	b.integrationReadyAt = make(map[string]time.Time)

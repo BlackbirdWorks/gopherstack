@@ -145,6 +145,7 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		accountID string
 		dt        DeliveryTargets
 		timeout   time.Duration
+		busDLQ    *DeadLetterConfig
 	)
 
 	func() {
@@ -159,6 +160,9 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		accountID = b.accountID
 		dt = *b.deliveryTargets
 		timeout = b.deliveryTimeout
+		if bus, exists := b.busesTable(region).Get(ebBusKey(busName)); exists {
+			busDLQ = bus.DeadLetterConfig
+		}
 		// Log the event so diagnostic callers (GetEventLog) can observe it.
 		eventID := uuid.NewString()
 		b.eventLog = append(b.eventLog, EventLogEntry{
@@ -190,7 +194,7 @@ func (b *InMemoryBackend) deliverScheduledRule(
 	for _, t := range snapped {
 		target := t
 		wg.Go(func() {
-			deliverToTargetBounded(ctx, target, envelope, dt, timeout)
+			deliverToTargetBounded(ctx, target, envelope, dt, timeout, busDLQ)
 		})
 	}
 	wg.Wait()
@@ -219,17 +223,19 @@ func (b *InMemoryBackend) deliverEvents(
 			target := t
 			envelope := g.envelope
 			wg.Go(func() {
-				deliverToTargetBounded(ctx, target, envelope, targets, timeout)
+				deliverToTargetBounded(ctx, target, envelope, targets, timeout, g.busDLQ)
 			})
 		}
 		wg.Wait()
 	}
 }
 
-// deliveryGroup is one matched rule's delivery work: a shared event envelope and
-// the snapshot of targets to deliver it to.
+// deliveryGroup is one matched rule's delivery work: a shared event envelope,
+// the snapshot of targets to deliver it to, and the bus-level DeadLetterConfig
+// a target falls back to when it has none of its own (see sendToDLQ).
 type deliveryGroup struct {
 	envelope map[string]any
+	busDLQ   *DeadLetterConfig
 	targets  []*Target
 }
 
@@ -288,6 +294,11 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 	busKey := ebBusKey(busName)
 	eventEnvelope := buildEventEnvelope(entry)
 
+	var busDLQ *DeadLetterConfig
+	if bus, exists := b.busesTable(region).Get(busKey); exists {
+		busDLQ = bus.DeadLetterConfig
+	}
+
 	var groups []deliveryGroup
 	for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
 		if !ruleMatchesForDelivery(rule, eventEnvelope, filterRuleARNs) {
@@ -303,6 +314,7 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 		// for this rule share the same event id, matching AWS behaviour.
 		groups = append(groups, deliveryGroup{
 			envelope: buildDeliveryEnvelope(entry, accountID, region),
+			busDLQ:   busDLQ,
 			targets:  snapshotTargets(storedTargets),
 		})
 	}
@@ -356,6 +368,7 @@ func deliverToTargetBounded(
 	envelope map[string]any,
 	dt DeliveryTargets,
 	timeout time.Duration,
+	busDLQ *DeadLetterConfig,
 ) {
 	maxAttempts := defaultMaxRetryAttempts
 	maxAgeSeconds := defaultMaxEventAgeSeconds
@@ -373,7 +386,7 @@ func deliverToTargetBounded(
 
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
 		if int(eventAge.Seconds()) > maxAgeSeconds {
-			sendToDLQ(ctx, target, envelope, dt, "MaximumEventAgeExceeded")
+			sendToDLQ(ctx, target, envelope, dt, busDLQ, "MaximumEventAgeExceeded")
 
 			return
 		}
@@ -392,7 +405,7 @@ func deliverToTargetBounded(
 		}
 
 		if attempt == maxAttempts {
-			sendToDLQ(ctx, target, envelope, dt, "DeliveryFailure")
+			sendToDLQ(ctx, target, envelope, dt, busDLQ, "DeliveryFailure")
 
 			return
 		}
@@ -425,9 +438,17 @@ func sendToDLQ(
 	target *Target,
 	envelope map[string]any,
 	dt DeliveryTargets,
+	busDLQ *DeadLetterConfig,
 	reason string,
 ) {
-	if target.DeadLetterConfig == nil || target.DeadLetterConfig.Arn == "" {
+	dlq := target.DeadLetterConfig
+	if dlq == nil || dlq.Arn == "" {
+		// A target with no DLQ of its own falls back to the bus's, matching
+		// real EventBridge: DeadLetterConfig can be set at the target or the
+		// bus, and the bus's applies when the target has none.
+		dlq = busDLQ
+	}
+	if dlq == nil || dlq.Arn == "" {
 		return
 	}
 	if dt.SQS == nil {
@@ -436,7 +457,7 @@ func sendToDLQ(
 
 	log := logger.Load(ctx)
 	payload, _ := json.Marshal(envelope)
-	dlqARN := target.DeadLetterConfig.Arn
+	dlqARN := dlq.Arn
 
 	if err := dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload)); err != nil {
 		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",

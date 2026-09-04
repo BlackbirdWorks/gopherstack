@@ -640,3 +640,91 @@ func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string)
 		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, idOrARN, j.Status)
 	}
 }
+
+// effectiveTimeoutSeconds returns job's own JobTimeout.AttemptDurationSeconds
+// if set, else the job definition's, else 0 (no timeout). Real AWS: SubmitJob's
+// own Timeout overrides the job definition's when both are present
+// (api_op_SubmitJob.go's Timeout doc: "the timeout configuration for this
+// SubmitJob operation... overrides ... the job definition"). Caller must hold
+// at least a read lock.
+func (b *InMemoryBackend) effectiveTimeoutSeconds(job *Job) int32 {
+	if job.Timeout != nil && job.Timeout.AttemptDurationSeconds > 0 {
+		return job.Timeout.AttemptDurationSeconds
+	}
+
+	jd, ok := b.jobDefinitions.Get(regionKey(job.region, job.JobDefinition))
+	if !ok || jd.Timeout == nil {
+		return 0
+	}
+
+	return jd.Timeout.AttemptDurationSeconds
+}
+
+// effectiveRetryAttempts returns job's own RetryStrategy.Attempts if set,
+// else the job definition's, else 1 (AWS's default of one attempt -- no
+// retry -- when no RetryStrategy is configured). Caller must hold at least a
+// read lock.
+func (b *InMemoryBackend) effectiveRetryAttempts(job *Job) int32 {
+	const defaultAttempts = 1
+
+	if job.RetryStrategy != nil && job.RetryStrategy.Attempts > 0 {
+		return job.RetryStrategy.Attempts
+	}
+
+	jd, ok := b.jobDefinitions.Get(regionKey(job.region, job.JobDefinition))
+	if ok && jd.RetryStrategy != nil && jd.RetryStrategy.Attempts > 0 {
+		return jd.RetryStrategy.Attempts
+	}
+
+	return defaultAttempts
+}
+
+// jobAttemptTimedOutLocked reports whether job's current RUNNING attempt has
+// run longer than its effective JobTimeout.AttemptDurationSeconds. Caller
+// must hold at least a read lock.
+func (b *InMemoryBackend) jobAttemptTimedOutLocked(job *Job) bool {
+	if job.StartedAt == nil {
+		return false
+	}
+
+	timeoutSec := b.effectiveTimeoutSeconds(job)
+	if timeoutSec <= 0 {
+		return false
+	}
+
+	const millisPerSecond = 1000
+
+	elapsedMs := time.Now().UnixMilli() - *job.StartedAt
+
+	return elapsedMs >= int64(timeoutSec)*millisPerSecond
+}
+
+// applyAttemptTimeoutLocked resolves a timed-out RUNNING attempt: retries it
+// (back to RUNNABLE) if RetryStrategy.Attempts allows another attempt --
+// matching the real doc, "If the value of attempts is greater than one, the
+// job is retried on failure the same number of attempts as the value" --
+// or fails the job for good once attempts are exhausted. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) applyAttemptTimeoutLocked(job *Job, now int64) {
+	const timeoutReason = "job attempt duration exceeded timeout"
+
+	job.Attempts = append(job.Attempts, JobAttempt{
+		StartedAt:    job.StartedAt,
+		StoppedAt:    &now,
+		StatusReason: timeoutReason,
+	})
+
+	job.attemptCount++
+
+	if job.attemptCount < b.effectiveRetryAttempts(job) {
+		job.Status = jobStatusRunnable
+		job.StatusReason = timeoutReason + "; retrying"
+		job.StartedAt = nil
+
+		return
+	}
+
+	job.Status = jobStatusFailed
+	job.StatusReason = timeoutReason
+	job.StoppedAt = &now
+}
