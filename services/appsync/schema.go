@@ -68,7 +68,13 @@ func (b *InMemoryBackend) GetSchemaCreationStatus(apiID string) (*Schema, error)
 	return &cp, nil
 }
 
-// GetIntrospectionSchema returns the schema SDL for an API.
+// GetIntrospectionSchema returns the schema SDL for an API. The format
+// parameter (SDL or JSON, a required SDK input) is not read: this package has
+// no GraphQL SDL<->JSON introspection converter, the same structural gap
+// already disclosed for ListTypes/GetType/ListTypesByAssociation's format
+// parameter (PARITY.md) -- a real client requesting format=JSON gets raw SDL
+// text back instead of a JSON introspection document. IncludeDirectives is
+// likewise never read; directives are always included.
 func (b *InMemoryBackend) GetIntrospectionSchema(apiID, _ string) ([]byte, error) {
 	b.mu.RLock("GetIntrospectionSchema")
 	defer b.mu.RUnlock()

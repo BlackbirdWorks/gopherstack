@@ -68,7 +68,9 @@ func (h *Handler) getSchemaCreationStatus(ctx context.Context, c *echo.Context, 
 	})
 }
 
-// getIntrospectionSchema handles GET /v1/apis/{apiId}/schema.
+// getIntrospectionSchema handles GET /v1/apis/{apiId}/schema. format and
+// includeDirectives are accepted but not honored -- see
+// InMemoryBackend.GetIntrospectionSchema's doc comment.
 func (h *Handler) getIntrospectionSchema(ctx context.Context, c *echo.Context, apiID string) error {
 	format := c.Request().URL.Query().Get("format")
 	if format == "" {
