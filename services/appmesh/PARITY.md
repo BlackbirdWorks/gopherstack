@@ -31,7 +31,7 @@ ops:
   CreateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct against real invoked deserializer"}
   DescribeVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
   UpdateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
-  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
+  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE; blocks delete while a virtual service still lists the node as its provider (gopherstack-2lz, 2026-09-04 — api_op_DeleteVirtualNode.go doc comment; previously unchecked, a real gap despite the prior 'ok' row)"}
   ListVirtualNodes: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; spec structurally validated (listeners[].portMapping.port/protocol)"}
   DescribeVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
