@@ -480,7 +480,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, ErrInvalidState):
 
-		return c.JSON(http.StatusBadRequest, errResp("RequestFailedException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	case errors.Is(err, ErrConflict):
+
+		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
 	default:
 
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
