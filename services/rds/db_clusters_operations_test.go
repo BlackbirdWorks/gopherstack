@@ -794,3 +794,34 @@ func TestModifyDBClusterViaHandler(t *testing.T) {
 }
 
 // TestEnabledCloudwatchLogsExportsInClusterXML verifies EnabledCloudwatchLogsExports is emitted for clusters.
+
+// TestDeleteDBInstance_RemovesClusterMembership verifies that deleting a DB
+// instance that belongs to a cluster removes it from the cluster's
+// DBClusterMembers list, rather than leaving a ghost entry pointing at a
+// deleted instance forever.
+func TestDeleteDBInstance_RemovesClusterMembership(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	_, err := b.CreateDBCluster(
+		"member-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{},
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateDBInstance("member-inst", "aurora-postgresql", "db.r5.large", "", "", "", 20,
+		rds.DBInstanceOptions{DBClusterIdentifier: "member-cluster"})
+	require.NoError(t, err)
+
+	clusters, err := b.DescribeDBClusters("member-cluster")
+	require.NoError(t, err)
+	require.Len(t, clusters[0].DBClusterMembers, 1)
+
+	_, err = b.DeleteDBInstanceWithOptions("member-inst", true, "", true)
+	require.NoError(t, err)
+
+	clusters, err = b.DescribeDBClusters("member-cluster")
+	require.NoError(t, err)
+	assert.Empty(t, clusters[0].DBClusterMembers,
+		"deleted instance should be removed from its cluster's DBClusterMembers, not left as a ghost entry")
+}

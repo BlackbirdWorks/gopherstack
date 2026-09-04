@@ -26,6 +26,15 @@ func RDSIDFromARNForTest(arnOrID string) string {
 	return rdsIDFromARN(arnOrID)
 }
 
+// SetInstanceReadyAtForTest overrides an instance's pending-transition
+// deadline directly, for testing restore-time reconciliation.
+func SetInstanceReadyAtForTest(b *InMemoryBackend, instanceID string, at time.Time) {
+	b.mu.Lock("SetInstanceReadyAtForTest")
+	defer b.mu.Unlock()
+
+	b.instanceReadyAt[instanceID] = at
+}
+
 // InjectExpiredFaultForTest directly inserts an expired fisFailoverFault entry
 // into the backend without starting a cleanup goroutine, allowing tests to
 // exercise the lazy-eviction path in IsClusterFailoverActive.

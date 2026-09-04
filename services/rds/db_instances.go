@@ -273,6 +273,15 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 		}
 	}
 
+	// Remove this instance from its cluster's DBClusterMembers, if any.
+	if inst.DBClusterIdentifier != "" {
+		if cluster, clusterExists := b.clusters.Get(normalizeID(inst.DBClusterIdentifier)); clusterExists {
+			cluster.DBClusterMembers = slices.DeleteFunc(cluster.DBClusterMembers, func(m DBClusterMember) bool {
+				return idEqual(m.DBInstanceIdentifier, canonicalID)
+			})
+		}
+	}
+
 	b.instances.Delete(normalizeID(id))
 	delete(b.tags, b.rdsARN("db", canonicalID))
 	delete(b.instanceRoles, canonicalID)

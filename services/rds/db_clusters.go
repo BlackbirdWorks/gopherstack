@@ -637,8 +637,13 @@ func ValidateStorageTypeForCluster(storageType string) error {
 	}
 }
 
-// FailoverDBCluster triggers a failover on an Aurora DB cluster.
-func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, error) {
+// FailoverDBCluster triggers a failover on an Aurora DB cluster, promoting an
+// Aurora Replica to be the new cluster writer (rds@v1.124.1
+// api_op_FailoverDBCluster.go:13-14). targetDBInstanceIdentifier, when given,
+// must name an existing cluster member other than the current writer; when
+// empty, the first non-writer member is promoted instead, mirroring AWS
+// auto-selecting a replica.
+func (b *InMemoryBackend) FailoverDBCluster(clusterID, targetDBInstanceIdentifier string) (*DBCluster, error) {
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters.Get(normalizeID(clusterID))
@@ -648,8 +653,31 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, er
 	if cluster.Status != instanceStatusAvailable {
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
 	}
+
+	var targetIdx int
+	if targetDBInstanceIdentifier != "" {
+		targetIdx = slices.IndexFunc(cluster.DBClusterMembers, func(m DBClusterMember) bool {
+			return idEqual(m.DBInstanceIdentifier, targetDBInstanceIdentifier)
+		})
+		if targetIdx < 0 {
+			return nil, fmt.Errorf(
+				"%w: %s is not a member of cluster %s",
+				ErrInvalidDBInstanceState, targetDBInstanceIdentifier, clusterID,
+			)
+		}
+	} else {
+		targetIdx = slices.IndexFunc(cluster.DBClusterMembers, func(m DBClusterMember) bool {
+			return !m.IsClusterWriter
+		})
+	}
+
 	cluster.Status = "failing-over"
 	b.publishClusterEventLocked(cluster.DBClusterIdentifier, "DB cluster failover started")
+	if targetIdx >= 0 {
+		for i := range cluster.DBClusterMembers {
+			cluster.DBClusterMembers[i].IsClusterWriter = i == targetIdx
+		}
+	}
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
 
