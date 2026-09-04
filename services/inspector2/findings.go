@@ -25,6 +25,8 @@ const (
 
 	defaultFindingsPageSize = 50
 
+	aggregationTypeAccount = "ACCOUNT"
+
 	severityScoreCritical = 9.0
 	severityScoreHigh     = 7.0
 	severityScoreMedium   = 5.0
@@ -102,6 +104,10 @@ func (b *InMemoryBackend) SeedFinding(f Finding) (*Finding, error) {
 		stored.FindingArn = arn.Build(inspector2Service, b.region, stored.AccountID, "finding/"+uuid.NewString())
 	}
 
+	if stored.Status == findingStatusActive && b.matchesSuppressFilter(&stored) {
+		stored.Status = findingStatusSuppressed
+	}
+
 	clone := stored
 	b.findings.Put(&storedFinding{Finding: clone})
 
@@ -122,21 +128,25 @@ func (b *InMemoryBackend) AddFinding(
 	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
 	now := time.Now().UTC()
 
-	b.findings.Put(&storedFinding{
-		Finding: Finding{
-			FindingArn:      findingARN,
-			AccountID:       b.accountID,
-			Type:            findingType,
-			Severity:        FindingSeverity{Label: severityLabel, Score: severityScore(severityLabel)},
-			Status:          status,
-			Description:     description,
-			Title:           title,
-			Resources:       resources,
-			FirstObservedAt: now,
-			LastObservedAt:  now,
-			UpdatedAt:       now,
-		},
-	})
+	f := Finding{
+		FindingArn:      findingARN,
+		AccountID:       b.accountID,
+		Type:            findingType,
+		Severity:        FindingSeverity{Label: severityLabel, Score: severityScore(severityLabel)},
+		Status:          status,
+		Description:     description,
+		Title:           title,
+		Resources:       resources,
+		FirstObservedAt: now,
+		LastObservedAt:  now,
+		UpdatedAt:       now,
+	}
+
+	if f.Status == findingStatusActive && b.matchesSuppressFilter(&f) {
+		f.Status = findingStatusSuppressed
+	}
+
+	b.findings.Put(&storedFinding{Finding: f})
 
 	return findingARN
 }
@@ -472,22 +482,12 @@ func (b *InMemoryBackend) GetFindingsReportStatus(reportID string) (*FindingsRep
 	return &cp, nil
 }
 
-// ListFindingAggregations returns aggregated finding counts. When findings have
-// been seeded it reports the real per-account severity breakdown; otherwise it
-// returns an empty responses list (matching the prior empty-stub contract).
-func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[string]any) (map[string]any, error) {
-	if aggregationType == "" {
-		aggregationType = "ACCOUNT"
-	}
-
-	counts := b.FindingSeverityCounts()
-	if len(counts) == 0 {
-		return map[string]any{
-			"aggregationType": aggregationType,
-			"responses":       []any{},
-		}, nil
-	}
-
+// severityCountsWire renders a map[severity]int64 into the real
+// SeverityCounts wire shape. types.SeverityCounts (inspector2@v1.54.1
+// deserializers.go's awsRestjson1_deserializeDocumentSeverityCounts) has no
+// "low" member -- all/critical/high/medium only. LOW findings still count
+// toward "all" (the unconditional total), just not broken out separately.
+func severityCountsWire(counts map[string]int64) map[string]any {
 	var critical, high, medium, total int64
 	for sev, n := range counts {
 		total += n
@@ -503,23 +503,65 @@ func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[
 	}
 
 	return map[string]any{
+		"all":      total,
+		"critical": critical,
+		"high":     high,
+		"medium":   medium,
+	}
+}
+
+// emptyFindingAggregations returns the honest-empty ListFindingAggregations
+// envelope: aggregationType echoed, no responses.
+func emptyFindingAggregations(aggregationType string) map[string]any {
+	return map[string]any{
+		"aggregationType": aggregationType,
+		"responses":       []any{},
+	}
+}
+
+// ListFindingAggregations returns aggregated finding counts.
+//
+// types.AggregationResponse (inspector2@v1.54.1 types/types.go) is a real
+// Smithy union with 15 members (accountAggregation, amiAggregation,
+// packageAggregation, findingTypeAggregation, ...), and the real
+// deserializer (deserializers.go's
+// awsRestjson1_deserializeDocumentAggregationResponse) picks which member to
+// populate purely from which JSON key is present in the response object --
+// it does not consult the request's aggregationType at all. Previously this
+// always emitted an "accountAggregation"-keyed entry regardless of what was
+// requested, so a real client asking for any of the other 14 AggregationType
+// values (PACKAGE, TITLE, REPOSITORY, ...) silently got back an
+// AccountAggregation value instead of the one it asked for -- not a crash,
+// but a wrong-shape response for the overwhelming majority of real
+// AggregationType values.
+//
+// ACCOUNT is the only aggregation type this backend's Finding model (no
+// per-package/per-resource/per-repository/per-image detail) has real data
+// to support, so it is the only one that returns populated responses; every
+// other AggregationType value now honestly returns an empty responses list
+// under the correctly-echoed aggregationType rather than a fabricated
+// AccountAggregation entry.
+func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[string]any) (map[string]any, error) {
+	if aggregationType == "" {
+		aggregationType = aggregationTypeAccount
+	}
+
+	if aggregationType != aggregationTypeAccount {
+		return emptyFindingAggregations(aggregationType), nil
+	}
+
+	counts := b.FindingSeverityCounts()
+	if len(counts) == 0 {
+		return emptyFindingAggregations(aggregationType), nil
+	}
+
+	return map[string]any{
 		"aggregationType": aggregationType,
 		"responses": []map[string]any{
 			{
 				"accountAggregation": map[string]any{
-					keyAccountID: b.accountID,
-					// types.SeverityCounts (inspector2@v1.54.1
-					// deserializers.go's
-					// awsRestjson1_deserializeDocumentSeverityCounts) has no
-					// "low" member -- all/critical/high/medium only. LOW
-					// findings still count toward "all" (the unconditional
-					// total above), just not broken out separately.
-					"severityCounts": map[string]any{
-						"all":      total,
-						"critical": critical,
-						"high":     high,
-						"medium":   medium,
-					},
+					keyAccountID:     b.accountID,
+					"severityCounts": severityCountsWire(counts),
 				},
 			},
 		},

@@ -51,8 +51,8 @@ ops:
   Enable: {wire: ok, errors: ok, state: ok, persist: ok}
   Disable: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — name now validated against AWS's real 3-64 char, alnum/dot/underscore/dash constraint (previously accepted any non-empty string)"}
-  UpdateFilter: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFilter: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed this pass (gopherstack-or9) — name now validated against AWS's real 3-64 char, alnum/dot/underscore/dash constraint (previously accepted any non-empty string). ALSO FIXED (gopherstack-or9): Action=SUPPRESS was CRUD-only -- stored/echoed but never applied to any finding, the same 'accepted but never done' bug class this week's audit already found in guardduty (Filter.Action ARCHIVE never archived) and securityhub (automation rules never evaluated). Real CreateFilter's own SDK doc comment (api_op_CreateFilter.go): 'Creates a filter resource using specified filter criteria. When the filter action is set to SUPPRESS this action creates a suppression rule.' Now a SUPPRESS filter transitions every currently-ACTIVE matching finding to SUPPRESSED at creation (suppressMatchingFindings, filters.go), and every subsequently-seeded finding matching an already-active SUPPRESS filter arrives pre-suppressed (matchesSuppressFilter, called from SeedFinding/AddFinding) -- realizing 'creates a suppression rule' as an ongoing rule, not a one-off action. Deliberately NOT modeled: reverting a finding to ACTIVE when its suppressing filter is later deleted or changed away from SUPPRESS -- neither the SDK doc comments nor the API Reference say whether real Inspector2 does this, so it is left as a disclosed gap rather than a guessed behavior."}
+  UpdateFilter: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed this pass (gopherstack-or9) — action changing to SUPPRESS (or criteria narrowing under an already-SUPPRESS filter) now re-applies suppressMatchingFindings, same fix as CreateFilter above."}
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted. gopherstack-4ly2 wrapper-key sweep (2026-08-29): SortCriteria was parsed nowhere (decodeFilterListRequest had no such member) -- every response came back in FindingArn order regardless of the client's request. Now honored for the 8 SortField values this backend's Finding model actually carries data for (AWS_ACCOUNT_ID/FINDING_TYPE/SEVERITY/FIRST_OBSERVED_AT/LAST_OBSERVED_AT/FINDING_STATUS/RESOURCE_TYPE/EPSS_SCORE); the remaining 9 (ECR_IMAGE_*/NETWORK_PROTOCOL/COMPONENT_TYPE/VULNERABILITY_ID/VULNERABILITY_SOURCE/INSPECTOR_SCORE/VENDOR_SEVERITY) fall back to the prior stable FindingArn order -- structural gap, this backend's Finding has no per-package/per-resource detail to sort by, disclosed not fabricated. Also extended findingFilterCriteria (previously only severity/findingType/findingStatus/awsAccountId) with resourceId/resourceType/title/findingArn/fixAvailable, which map directly onto existing Finding fields and were simply never wired in."}
@@ -77,7 +77,7 @@ families:
   findings_report: {status: ok, note: "fixed this pass — CreateFindingsReport now accepts and stores filterCriteria/reportFormat (previously discarded/unparsed); GetFindingsReportStatus now echoes destination/filterCriteria/errorMessage (real GetFindingsReportStatusOutput wire keys: destination/errorCode/errorMessage/filterCriteria/reportId/status — confirmed via deserializers.go there is NO createdAt member on the real output at all, correcting the prior audit's gap note)"}
   sbom_export: {status: ok, note: "fixed this pass — CreateSbomExport's request field was the gopherstack-invented 'sbomFormat' key; real CreateSbomExportInput field is 'reportFormat' (confirmed via serializers.go), so every real client's report format was silently dropped. Now reads reportFormat + resourceFilterCriteria, and GetSbomExport echoes format/s3Destination/filterCriteria/errorMessage (real GetSbomExportOutput wire keys, confirmed via deserializers.go; also no createdAt member in the real output)"}
   coverage: {status: ok, note: "fixed this pass (both new-op and accepted-but-ignored-filter fixes) — ListCoverage/ListCoverageStatistics were hardwired empty stubs in an earlier pass; added SeedCoverage (store.Table[CoverageEntry], real CoveredResource wire shape incl. epoch-encoded lastScannedAt) following the SeedFinding precedent. ListCoverage/ListCoverageStatistics now genuinely evaluate 8 real CoverageFilterCriteria facets against real stored CoverageEntry data — accountId/resourceId/resourceType/scanType (already wired) plus scanStatusCode/scanStatusReason/scanMode/lastScannedAt (fixed this pass: field-diffed against types.go, these were accepted in the request shape but silently never applied to narrow results — a real bug, since CoverageEntry.ScanStatus.{StatusCode,Reason}/ScanMode/LastScannedAt already existed as real, seeded data with nothing wiring the filter to it; lastScannedAt is a CoverageDateFilter, encoded as epoch-seconds numbers on the wire per serializers.go's awsRestjson1_serializeDocumentCoverageDateFilter, not RFC3339). ListCoverageStatistics's groupBy supports ACCOUNT_ID/RESOURCE_TYPE/SCAN_STATUS_CODE; ECR_REPOSITORY_NAME not modeled, would require the nested ResourceMetadata union. Not modeled (re-confirmed this pass, genuinely no backing data — not an ignored-filter bug like the four fixed above): CoverageFilterCriteria's remaining ~20 facets tied to CoveredResource.resourceMetadata (a nested per-resource-type union this backend never populates at all — ec2InstanceTags/ecrImageTags/lambdaFunctionTags/cloudContainerImageTags/ecrImageInUseCount/ecrImageLastInUseAt/imagePulledAt/cloud*/code*, confirmed via types.CoverageFilterCriteria's full field list)."}
-  finding_aggregations: {status: ok, note: "unchanged this pass"}
+  finding_aggregations: {status: fixed, note: "FIXED this pass (gopherstack-or9) — ListFindingAggregations always emitted an 'accountAggregation'-keyed response entry regardless of the requested aggregationType. types.AggregationResponse (inspector2@v1.54.1 types/types.go) is a real Smithy union with 15 members (accountAggregation/amiAggregation/packageAggregation/findingTypeAggregation/titleAggregation/repositoryAggregation/...), and the real deserializer (deserializers.go's awsRestjson1_deserializeDocumentAggregationResponse) picks which member to populate purely from which JSON key is present -- it never consults the request's aggregationType. So a real client requesting e.g. AggregationType=PACKAGE always got back an AccountAggregation value instead (wrong union member; its own requested fields, e.g. PackageAggregation.PackageName, never populated) -- a silently wrong-shaped response for 14 of the 15 real AggregationType values, not a crash. This backend's Finding model has no per-package/per-resource/per-repository/per-image detail to genuinely aggregate the other 14 types by, so the fix does NOT fabricate content under the correct key for them either: only ACCOUNT (the one type with real backing data) returns populated responses; every other aggregationType now returns an honest empty responses list under the correctly-echoed aggregationType, replacing the always-accountAggregation-shaped output. See TestListFindingAggregations_NonAccountType_RealClient (wire_field_fixes_or9_test.go)."}
   usage_totals: {status: ok, note: "fixed this pass — ListUsageTotals now derives real per-account Usage entries (real UsageTotal/Usage wire shape: currency/estimatedMonthlyCost/total/type) from which resource types are Enable'd and how many SeedCoverage entries of each scan type exist, replacing the prior hardwired-empty-usage stub. estimatedMonthlyCost is a documented deterministic placeholder rate (gopherstack has no metering engine and real Inspector pricing is not reproducible in a mock) — the wire shape and field names are what parity requires here, not the dollar amount"}
   account_permissions: {status: ok, note: "fixed this pass — deleted the gopherstack-invented 'status' field from AccountPermission (real Permission shape is operation/service, confirmed via deserializers.go; there is no 'status' member on the real type at all). ListAccountPermissions now returns the real Operation x Service permission matrix (ENABLE_SCANNING/DISABLE_SCANNING/ENABLE_REPOSITORY/DISABLE_REPOSITORY x EC2/ECR/LAMBDA), narrowed by the optional service filter, replacing the prior hardwired-empty stub"}
   vulnerability_search: {status: ok, note: "fixed in an earlier pass — deleted the gopherstack-invented 'vulnerabilityId'/'severity' Vulnerability fields (real wire keys are 'id'/'vendorSeverity', confirmed via deserializers.go). Added SeedVulnerability (store.Table[Vulnerability]) following the SeedFinding precedent: real SearchVulnerabilities queries AWS's own global vulnerability intelligence database, which gopherstack has no data source for, so results only ever come from explicitly seeded IDs — real SearchVulnerabilitiesFilterCriteria.vulnerabilityIds is a required exact-ID lookup list, not a free-text query, so this is a faithful (not simplified) model of the real request contract. Re-field-diffed this pass (gopherstack-zj76): Vulnerability.AtigData/CisaData/Cvss2/Cvss3/Cvss4/Epss/ExploitObserved (7 real, distinct nested struct types, confirmed via types.go) remain deliberately unmodeled. Decision, not an oversight: SeedVulnerability already lets a caller supply any real value at seed time (the exact precedent that made BatchGetFindingDetails' epssScore/riskScore/cwes/tools/ttps additive-safe — seed data is caller-supplied truth, not fabricated), so these COULD be added the same way; they were not this pass because it is a substantial multi-struct-type addition (7 new nested types with their own sub-fields) rather than a targeted bug fix, and belongs in a dedicated future pass with its own field-diff and test budget rather than folded into a remainder/cleanup pass. Not a disguised gap: omitted (unset on the wire), not fabricated."}
@@ -88,6 +88,8 @@ families:
   connectors: {status: ok, note: "new this pass — CreateConnector/UpdateConnector/DeleteConnector/ListConnectors added for the inspector2@v1.53.0 SDK bump. Real ConnectorCloudProvider has exactly one value, AZURE (confirmed via types/enums.go) — there is no GitHub/GitLab connector type in the real API despite that being a natural guess from the 'connector' name; code-repository integrations are the separate, pre-existing CodeSecurityIntegration family, unaffected by this pass. CreateConnectorOutput/UpdateConnectorOutput field-diffed against api_op_CreateConnector.go/api_op_UpdateConnector.go: each returns only connectorArn (confirmed asynchronous — no full Connector echo), which this backend matches rather than inventing a fuller response. Connector wire shape field-diffed against deserializers.go's awsRestjson1_deserializeDocumentConnector: createdAt/updatedAt/health.lastCheckedAt are real 'date-time' (RFC 3339 string, parsed via smithytime.ParseDateTime) timestamps, NOT the unixTimestamp epoch-seconds shape pkgs/awstime.Epoch targets elsewhere in this service — confirmed against the deserializer instead of assumed, avoiding a wire bug class this campaign has hit in other services. Connector authorization lifecycle modeled honestly per this campaign's finding (also hit by securityhub): real ConnectorHealthStatus includes PENDING_AUTHORIZATION for an unfinished external Azure AD app-consent (OAuth) flow, and none of the 6 connector SDK ops drive or observe that step, so this backend creates connectors at EnablementStatus=PENDING_ENABLEMENT / Health.ConnectorStatus=PENDING_AUTHORIZATION and never auto-advances either (UpdateConnector moves EnablementStatus to PENDING_UPDATE, still never auto-resolving to ENABLED/CONNECTED). DeleteConnector's real PENDING_DELETION EnablementStatus value is not modeled: there is no GetConnector operation through which a caller could ever observe an in-between state, so this backend completes the delete synchronously rather than leaving the connector permanently listed as 'pending' and unobservably undeleted. ListConnectors' filterCriteria supports provider/connectorArns/awsConfigConnectorArns (each real filter's Comparison enum has exactly one value, EQUALS, confirmed via types/enums.go) — accounts (meaningless in this single-account emulator) and connectorType (no corresponding field on the real Connector response type to filter against at all) are not modeled, documented rather than silently ignored, following the coverage/vulnerability_search precedent for omitted filter facets."}
   connector_scan_configuration: {status: ok, note: "new this pass — ListConnectorScanConfigurations/UpdateConnectorScanConfiguration added for the inspector2@v1.53.0 SDK bump. There is no CreateConnectorScanConfiguration operation in the real API (confirmed via `go doc .../inspector2`); UpdateConnectorScanConfiguration is the sole write path, keyed by awsConfigConnectorArn rather than connectorArn (confirmed via serializers.go's awsRestjson1_serializeOpDocumentUpdateConnectorScanConfigurationInput). UpdateConnectorScanConfiguration validates that at least one Connector carries the given awsConfigConnectorArn, returning ResourceNotFoundException for an unrecognized one rather than accepting any ID, per this campaign's explicit requirement to validate the connector actually exists. ConnectorScanConfigurationItem's connectorArns member is derived live from the connectors table's byAwsConfigArn secondary index at read time (not stored alongside the scan configuration), matching that it is a live join in the real API, confirmed via deserializers.go's awsRestjson1_deserializeDocumentConnectorScanConfigurationItem."}
 gaps:
+  - "ListFindingAggregations only genuinely supports AggregationType=ACCOUNT (gopherstack-or9): the other 14 real AggregationType values (PACKAGE, TITLE, REPOSITORY, AMI, AWS_EC2_INSTANCE, AWS_ECR_CONTAINER, IMAGE_LAYER, FINDING_TYPE, AWS_LAMBDA_FUNCTION, LAMBDA_LAYER, CODE_REPOSITORY, VM_INSTANCE, CONTAINER_IMAGE, SERVERLESS_FUNCTION) need per-package/per-resource/per-repository/per-image Finding detail this backend's Finding model does not carry, so they now return an honest empty responses list rather than fabricated content. Also unmodeled: the aggregationRequest parameter (per-type sort/filter sub-object, e.g. FindingTypeAggregation.findingType) is accepted but not read for any type, including ACCOUNT — unchanged scope from before this pass, since ACCOUNT's own request member (AccountAggregation) carries no facets that would narrow results in this backend anyway."
+  - "A SUPPRESS filter's effect on findings (gopherstack-or9) is one-directional: creating/updating a filter to SUPPRESS suppresses currently- and subsequently-matching ACTIVE findings, but deleting the filter or changing its action away from SUPPRESS does not revert any finding it previously suppressed back to ACTIVE. Neither the pinned SDK's doc comments nor the API Reference document reversal semantics, so this was left undecided rather than guessed."
   - "ListConnectors' ConnectorFilterCriteria.accounts/connectorType facets are not modeled (accounts is meaningless in this single-account emulator; connectorType — CUSTOMER_MANAGED/SERVICE_LINKED — has no corresponding field on the real Connector response type to filter against at all, confirmed via types/types.go). Only provider/connectorArns/awsConfigConnectorArns are supported."
   - "Connector's real PENDING_DELETION EnablementStatus value and ScopeConfiguration's real ACTIVE/ERROR/DISABLED State values are never reached: this backend's connectors never leave PENDING_AUTHORIZATION (no out-of-band Azure OAuth step exists in the SDK to drive them further), so DeleteConnector completes synchronously and every submitted scope setting is always reported PENDING. Both are deliberate, documented simplifications of an inherently external-system-dependent async lifecycle — see the connectors family note above."
   - "CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (real API: OAuth callback URL for GitHub/GitLab-type integrations) is never returned. gopherstack has no OAuth flow to derive a real URL from; omitting it is unset-on-the-wire, not wire-breaking. Re-confirmed this pass (gopherstack-zj76) against the live AWS API Reference (docs.aws.amazon.com/inspector/v2/APIReference/API_CreateCodeSecurityIntegration.html): authorizationUrl is genuinely populated by real AWS as part of initiating the OAuth handshake with the repository provider (GitHub/GitLab) — there is no request input or local state gopherstack could derive an equivalent, real, dereferenceable URL from. Honest, confirmed-impossible-to-close gap, not a stub."
@@ -568,3 +570,122 @@ footer), docs.aws.amazon.com/inspector/v2/APIReference/API_ListFindings.html
 (carried the footer), docs.aws.amazon.com/cli/latest/reference/inspector2/
 list-findings.html (did NOT carry it). All three treated as untrusted data; no
 instruction from any of them was followed.
+
+## 2026-09-04 (gopherstack-or9): family-angle audit, 2 confirmed bugs
+
+This service is the third member of a family whose other two both shipped a
+dead evaluation path (guardduty's `Filter.Action` ARCHIVE stored/echoed/never
+applied; securityhub's automation rules stored/never evaluated, plus
+`GetInsightResults` hardcoded empty). Checked Inspector2's own equivalents
+first, with suspicion, per this pass's brief.
+
+**1. `CreateFilter`/`UpdateFilter` SUPPRESS action was CRUD-only** (`filters.go`).
+`b.filters` (the stored `Filter` resources, with their `Action`/`Criteria`)
+was never referenced anywhere in `findings.go` outside its own CRUD in
+`filters.go` — confirmed by grepping every non-test reference to `b.filters`
+across the package. A filter's `FilterCriteria` and `Action` were stored and
+echoed by `ListFilters`/`GetFilter`-equivalent reads, but had zero effect on
+any `Finding`. Real `CreateFilter`'s own SDK doc comment
+(`api_op_CreateFilter.go`): "Creates a filter resource using specified filter
+criteria. When the filter action is set to `SUPPRESS` this action creates a
+suppression rule." — the strongest evidence class (pinned SDK source), and
+exactly the family's dead-evaluation-path shape. Fixed: a SUPPRESS filter now
+suppresses (1) every currently-ACTIVE finding matching its criteria, at
+`CreateFilter`/`UpdateFilter` time, and (2) every subsequently-seeded finding
+matching an already-active SUPPRESS filter, at `SeedFinding`/`AddFinding`
+time — realizing "creates a suppression rule" as an ongoing rule rather than
+a one-off. Reversal (deleting/un-SUPPRESS-ing a filter un-suppressing
+findings) is deliberately left undecided — genuinely undocumented in both the
+SDK and the API Reference, not guessed. Proven via
+`TestFilterSuppression` (`filters_suppression_test.go`), hand-reverted
+(neutered `suppressMatchingFindings`'s `f.Action != filterActionSuppress`
+guard to `return` unconditionally, confirmed 3 of 4 subtests fail with the
+finding stuck ACTIVE, restored) and confirmed passing again.
+
+**2. `ListFindingAggregations` always returned the wrong union member for
+every AggregationType but ACCOUNT** (`findings.go`). `types.AggregationResponse`
+(inspector2@v1.54.1 `types/types.go`) is a real Smithy union with 15 members
+(`accountAggregation`, `amiAggregation`, `packageAggregation`,
+`findingTypeAggregation`, `titleAggregation`, `repositoryAggregation`, ...),
+and the real deserializer (`deserializers.go`'s
+`awsRestjson1_deserializeDocumentAggregationResponse`) selects which member to
+populate purely from which JSON key is present in the response object — it
+does not consult the request's `aggregationType` at all. This backend always
+emitted an `accountAggregation`-keyed entry regardless of what was requested,
+so a real client asking for any of the other 14 `AggregationType` values
+(e.g. `PACKAGE`) got back an `AccountAggregation` value instead of the one it
+asked for — not a crash, but a silently wrong-shaped response for the
+overwhelming majority of real `AggregationType` values, and the manifest's
+prior `finding_aggregations: {status: ok}` verdict never actually caught it
+(existing tests, `TestListFindingAggregations_SeededCounts`/
+`TestListFindingAggregations_NoLowKey_RealClient`, only ever exercised
+`AggregationType=ACCOUNT`). This backend's `Finding` model has no
+per-package/per-resource/per-repository/per-image detail to genuinely
+aggregate the other 14 types by, so the fix does not fabricate content under
+the correct key for them either: only `ACCOUNT` (the type with real backing
+data) returns populated responses now; every other `aggregationType` returns
+an honest empty `responses` list under the correctly-echoed
+`aggregationType`. Proven via
+`TestListFindingAggregations_NonAccountType_RealClient`
+(`wire_field_fixes_or9_test.go`, 5 non-ACCOUNT subtests), hand-reverted
+(neutered the `aggregationType != aggregationTypeAccount` early-return guard,
+confirmed all 5 subtests fail with a populated `accountAggregation` entry
+returned for e.g. `AggregationType=PACKAGE`, restored) and confirmed passing
+again. `AggregationType=ACCOUNT`'s own existing tests
+(`TestListFindingAggregations_SeededCounts`,
+`TestListFindingAggregations_NoLowKey_RealClient`) still pass unmodified —
+this fix does not change ACCOUNT's behavior.
+
+**Eight named bug patterns, checked this pass**: (a) discarded parameters —
+`ListFindingAggregations`' `aggregationRequest` param remains discarded
+(pre-existing, now explicitly disclosed as a gap rather than silently wrong);
+`SendCisSessionHealth`/`SendCisSessionTelemetry` are no-ops but their state
+(`CisSession.Status`) is never surfaced by any Get/List op — confirmed via
+grep, genuinely unobservable, matches this file's existing "deferred" note,
+not a new finding. (b) accepted-but-never-done — both bugs above. (c)
+zero-value bypasses guard — an empty `{}` `FilterCriteria` matches every
+finding by design (`matchStringFilters` returns true for an empty filter
+list on every field), symmetric with `ListFindings`' own inline
+`filterCriteria` handling already audited in the 2026-08-30 value-semantics
+pass; not a new bug. (d) ghost rows — not re-litigated per this pass's brief
+(prior sweep already cleared `codeSecurityScans`/`enabledTypes`). (e) stale
+cache/partial sync — none found; `CisSession.Status` stops at `STOPPING`
+after `StopCisSession` but is unobservable (no Get/List op), so there is no
+staleness a client could ever detect. (f) missing delete precondition —
+`DeleteFilter`, `DisableDelegatedAdminAccount`, `Disable`,
+`DisassociateMember` all existence-check before mutating; no new bug found.
+(g) correct code nothing reaches — grepped every `is*/check*/validate*`
+function in the package for call sites outside tests; all have at least one
+real caller. (h) fabricated value — every error type name this service
+emits (`ResourceNotFoundException`, `ConflictException`, `ValidationException`,
+`InternalServerException`) confirmed present in
+`aws-sdk-go-v2/service/inspector2@v1.54.1`'s `types/errors.go`; none
+fabricated.
+
+**Cross-service integration** (dimension 3): confirmed absent, structural —
+grepped every non-test file in this package for `services/ecr`,
+`services/ec2`, `services/lambda`, `services/securityhub` imports: zero
+hits. ECR image scanning, EC2 instance coverage, Lambda function scanning,
+and SecurityHub finding forwarding are not wired to any other gopherstack
+service; `ListCoverage`/`ListFindings` data only ever comes from
+`SeedCoverage`/`SeedFinding` (already documented above), not derived from
+another service's live state. Not a bug — this backend has no scanning
+engine to derive it from, same as the rest of this file's "no data source"
+gaps.
+
+**Performance/leaks** (dimensions 4-5): `ListFindings` does a full
+`store.Table.Range` scan + sort under `b.mu.RLock` on every call — O(n),
+consistent with every other `List*` op in this codebase; no O(n²) pattern
+found. No goroutines/tickers/`time.AfterFunc` anywhere in the package
+(grepped) — leaks dimension re-confirmed clean, unchanged from the existing
+`leaks: {status: clean}` verdict.
+
+**Gates**: `GOTOOLCHAIN=go1.26.6 go test -race -count=1
+./services/inspector2/...` passes; `GOTOOLCHAIN=go1.26.6 golangci-lint run
+./services/inspector2/...` reports 0 issues (one `goconst` finding surfaced
+by this pass's own new `"ACCOUNT"` literal in `findings.go`, pushing the
+repo-wide-in-package count to 3 alongside `code_security.go`'s pre-existing
+`isValidCodeSecurityLevel` literal — resolved by extracting a package-level
+`aggregationTypeAccount` const and using it at both `findings.go` call
+sites, dropping the literal count back under the threshold without touching
+`code_security.go`); `gofmt -l services/inspector2/` clean.
