@@ -209,6 +209,7 @@ require github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.49.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue v1.0.1
 	github.com/aws/aws-sdk-go-v2/service/account v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.4
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.44.1
