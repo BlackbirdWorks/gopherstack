@@ -170,6 +170,8 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 
 	t.Tags.Close()
 	b.trails.Delete(t.Name)
+	delete(b.eventConfigs, t.TrailARN)
+	b.resourcePolicies.Delete(t.TrailARN)
 
 	return nil
 }
