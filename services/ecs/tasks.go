@@ -503,11 +503,15 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 			return
 		}
 
-		// Fast path: transition straight to STOPPED.
+		// Fast path: transition straight to STOPPED. Clear any lifecycle entry
+		// left over from a start (or a prior, still in-flight stop) pipeline --
+		// otherwise the lifecycle stepper later advances the stale entry and
+		// resurrects this task past STOPPED (e.g. back to PENDING/RUNNING).
 		task.LastStatus = statusStopped
 		task.StoppedAt = &now
 		syncContainerStatuses(task, nil)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn
 		fastCp = b.taskWithLiveTagsLocked(task)

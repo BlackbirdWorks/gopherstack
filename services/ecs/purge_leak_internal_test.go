@@ -346,4 +346,39 @@ func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
 			t.Errorf("resourceTags still has an entry for deleted service %s", svc.ServiceArn)
 		}
 	})
+
+	t.Run("task_via_cluster_delete", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		tdArn := registerSimpleTaskDef(t, b, "tag-ghost-task-app", "nginx")
+
+		if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "tag-ghost-task-cluster"}); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		tasks, err := b.RunTask(RunTaskInput{
+			Cluster:        "tag-ghost-task-cluster",
+			TaskDefinition: tdArn,
+			Count:          1,
+			Tags:           []Tag{{Key: "k", Value: "v"}},
+		})
+		if err != nil {
+			t.Fatalf("RunTask: %v", err)
+		}
+
+		taskArn := tasks[0].TaskArn
+
+		if _, err = b.DeleteCluster("tag-ghost-task-cluster"); err != nil {
+			t.Fatalf("DeleteCluster: %v", err)
+		}
+
+		b.mu.RLock("check")
+		_, ghost := b.resourceTags[taskArn]
+		b.mu.RUnlock()
+
+		if ghost {
+			t.Errorf("resourceTags still has an entry for a task deleted via cluster delete %s", taskArn)
+		}
+	})
 }
