@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateKey(
 	if len(input.Tags) > maxTagsPerKey {
 		return nil, fmt.Errorf(
 			"%w: number of tags (%d) exceeds the maximum of %d",
-			ErrValidation, len(input.Tags), maxTagsPerKey,
+			ErrLimitExceeded, len(input.Tags), maxTagsPerKey,
 		)
 	}
 
@@ -726,9 +726,12 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 	input *GetKeyLastUsageInput,
 ) (*GetKeyLastUsageOutput, error) {
 	if isAliasKeyID(input.KeyID) {
+		// GetKeyLastUsage's own deserializeOpError recognizes NotFoundException,
+		// not ValidationException -- an alias name is a KeyId shape this op
+		// doesn't resolve, so it is classified the same as an unresolvable KeyId.
 		return nil, fmt.Errorf(
 			"%w: GetKeyLastUsage does not support alias names; specify a key ID or key ARN",
-			ErrValidation,
+			ErrKeyNotFound,
 		)
 	}
 

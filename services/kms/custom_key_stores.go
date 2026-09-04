@@ -64,10 +64,6 @@ func (b *InMemoryBackend) DeleteCustomKeyStore(
 	ctx context.Context,
 	input *DeleteCustomKeyStoreInput,
 ) error {
-	if input.CustomKeyStoreID == "" {
-		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
-	}
-
 	b.mu.Lock("DeleteCustomKeyStore")
 	defer b.mu.Unlock()
 
@@ -153,10 +149,6 @@ func (b *InMemoryBackend) ConnectCustomKeyStore(
 	ctx context.Context,
 	input *ConnectCustomKeyStoreInput,
 ) error {
-	if input.CustomKeyStoreID == "" {
-		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
-	}
-
 	b.mu.Lock("ConnectCustomKeyStore")
 	defer b.mu.Unlock()
 
@@ -188,10 +180,6 @@ func (b *InMemoryBackend) DisconnectCustomKeyStore(
 	ctx context.Context,
 	input *DisconnectCustomKeyStoreInput,
 ) error {
-	if input.CustomKeyStoreID == "" {
-		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
-	}
-
 	b.mu.Lock("DisconnectCustomKeyStore")
 	defer b.mu.Unlock()
 
@@ -223,10 +211,6 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(
 	ctx context.Context,
 	input *UpdateCustomKeyStoreInput,
 ) error {
-	if strings.TrimSpace(input.CustomKeyStoreID) == "" {
-		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
-	}
-
 	b.mu.Lock("UpdateCustomKeyStore")
 	defer b.mu.Unlock()
 

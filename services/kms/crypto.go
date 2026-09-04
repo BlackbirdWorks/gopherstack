@@ -116,12 +116,13 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 	case keySpecHMAC512:
 		return generateHMACKeyMaterial(hmac512Bytes)
 	default:
-		// Wrap with ErrValidation (in addition to errUnsupportedKeySpec) so an
-		// unrecognized KeySpec/KeyPairSpec classifies as ValidationException (400)
-		// rather than falling through classifyKMSError's default KMSInternalException
-		// (500). CreateKey and GenerateDataKeyPair both route unvalidated spec
-		// strings here.
-		return nil, fmt.Errorf("%w: %w: %s", ErrValidation, errUnsupportedKeySpec, keySpec)
+		// Wrap with ErrUnsupportedParameter (in addition to errUnsupportedKeySpec) so
+		// an unrecognized KeySpec/KeyPairSpec classifies as UnsupportedOperationException
+		// (400) rather than falling through classifyKMSError's default
+		// KMSInternalException (500). CreateKey, GenerateDataKeyPair(WithoutPlaintext)
+		// and key rotation all route unvalidated spec strings here, and all recognize
+		// UnsupportedOperationException in their deserializeOpError.
+		return nil, fmt.Errorf("%w: %w: %s", ErrUnsupportedParameter, errUnsupportedKeySpec, keySpec)
 	}
 }
 

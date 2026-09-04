@@ -142,9 +142,13 @@ Freeform findings from the 2026-07-05 sweep (bd: gopherstack-42s), for the next 
    ("missing errCodeLookup entries"). Fixed with a single-point fix: wrap with both
    `ErrValidation` and `errUnsupportedKeySpec` (Go 1.20+ multi-`%w`) at the source, so every
    current and future caller of `generateKeyMaterial` gets correct classification for free.
-   Proven with an HTTP-level test (`Test_KMS_InvalidKeySpec_Returns400ValidationException`)
+   Proven with an HTTP-level test (`TestKMS_InvalidKeySpec_Returns400UnsupportedOperationException`)
    that exercises the full `Handler().Handler()` echo path and checks both status code and
    `ErrorResponse.Type`.
+   **Update (gopherstack-e3yu):** `ValidationException` names no type in any KMS
+   operation's `deserializeOpError` (CreateKey and GenerateDataKeyPair included), so the
+   wrap now uses `ErrUnsupportedParameter` (`UnsupportedOperationException`, which both
+   operations' real deserializers do recognize) instead of `ErrValidation`; still 400.
 
 3. **`purgeKey` leaked the `grantsByKey` secondary-index submap (moderate, matches the
    "unbounded key/grant maps" pattern called out in the audit brief).** When the janitor

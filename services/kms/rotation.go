@@ -147,7 +147,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 	if recentCount >= maxOnDemandRotationsPerDay {
 		return nil, fmt.Errorf(
 			"%w: on-demand rotation limit of %d per 24-hour window exceeded for key %q",
-			ErrValidation, maxOnDemandRotationsPerDay, key.KeyID,
+			ErrLimitExceeded, maxOnDemandRotationsPerDay, key.KeyID,
 		)
 	}
 

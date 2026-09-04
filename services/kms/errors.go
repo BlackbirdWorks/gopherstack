@@ -51,11 +51,14 @@ var (
 	ErrUnsupportedOrigin = errors.New("UnsupportedOperationException")
 	// ErrValidation is returned for invalid request parameters (maps to ValidationException).
 	// NOTE: "ValidationException" names no real type in kms@v1.55.4 (not in
-	// types/errors.go, not in any op's deserializeOpError) -- every one of this
-	// sentinel's ~50 call sites is a class-A code/wrong-op mismatch. Left
-	// unremapped: each call site needs its own correct per-condition exception
-	// (see ErrInvalidAliasName above for one now fixed); this one is too broad
-	// to safely bulk-fix without verifying each condition individually.
+	// types/errors.go, not in any op's deserializeOpError). Sites with a real
+	// per-op fit (see ErrInvalidAliasName, ErrInvalidTag, ErrUnsupportedParameter,
+	// ErrInvalidImportToken, and the CustomKeyStoreNotFoundException /
+	// LimitExceededException / NotFoundException reuses) have been remapped.
+	// Remaining ErrValidation call sites were checked individually against their
+	// reaching operation's deserializeOpError and have no fitting recognized code
+	// (gopherstack-e3yu) -- most are smithy-required-field or range-trait checks a
+	// real AWS SDK client already rejects before the request reaches the wire.
 	ErrValidation = errors.New("ValidationException")
 	// ErrExpiredKeyMaterial is returned when a key's imported material has passed its ValidTo date.
 	ErrExpiredKeyMaterial = errors.New("ExpiredImportTokenException")
@@ -68,4 +71,19 @@ var (
 	// ErrAccessDenied is returned when a grant token is valid but its Operations list
 	// does not authorize the operation being performed.
 	ErrAccessDenied = errors.New("AccessDeniedException")
+	// ErrInvalidTag is returned when a tag key/value fails KMS's format constraints
+	// (empty key, length limit, reserved "aws:" prefix). TagResource, CreateKey and
+	// ReplicateKey's deserializeOpError all recognize TagException for this.
+	ErrInvalidTag = errors.New("TagException")
+	// ErrUnsupportedParameter is returned when a KeySpec/KeyPairSpec/WrappingAlgorithm/
+	// WrappingKeySpec value is not one this operation supports. CreateKey,
+	// GenerateDataKeyPair(WithoutPlaintext), GetParametersForImport and the rotation
+	// ops all recognize UnsupportedOperationException for an unsupported parameter
+	// value, per its doc ("a specified parameter is not supported").
+	ErrUnsupportedParameter = errors.New("UnsupportedOperationException")
+	// ErrInvalidImportToken is returned when ImportKeyMaterial's wrapped key material
+	// cannot be unwrapped because no GetParametersForImport wrapping key is on record
+	// for the target KMS key (stale or skipped GetParametersForImport call).
+	// ImportKeyMaterial's deserializeOpError recognizes InvalidImportTokenException.
+	ErrInvalidImportToken = errors.New("InvalidImportTokenException")
 )

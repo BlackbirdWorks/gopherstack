@@ -136,7 +136,7 @@ func (b *InMemoryBackend) generateDataKeyPair(
 	ctx context.Context, input *GenerateDataKeyPairInput, operation string,
 ) (*GenerateDataKeyPairOutput, error) {
 	if input.KeyPairSpec == "" {
-		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrValidation)
+		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrUnsupportedParameter)
 	}
 
 	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {

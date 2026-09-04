@@ -139,7 +139,7 @@ func TestGenerateDataKeyPair_EmptySpec(t *testing.T) {
 		KeyID:       key.KeyMetadata.KeyID,
 		KeyPairSpec: "",
 	})
-	require.ErrorIs(t, err, kms.ErrValidation)
+	require.ErrorIs(t, err, kms.ErrUnsupportedParameter)
 }
 
 // TestKMSBackendGenerateDataKey verifies data key generation.
