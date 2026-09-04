@@ -241,3 +241,38 @@ func TestProjectPolicies(t *testing.T) { //nolint:paralleltest // existing issue
 		})
 	}
 }
+
+// TestDeleteProject_CascadesProjectPolicies verifies DeleteProject removes
+// the project's ProjectPolicies too, per DeleteProjectInput's own doc
+// comment (api_op_DeleteProject.go): "Be aware that deleting a given
+// project will also delete any ProjectPolicies associated with that
+// project".
+func TestDeleteProject_CascadesProjectPolicies(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "policy-cascade-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var projResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	projectARN := projResp["ProjectArn"].(string)
+
+	rec = doRequest(t, h, "PutProjectPolicy", map[string]any{
+		"ProjectArn":     projectARN,
+		"PolicyName":     "my-policy",
+		"PolicyDocument": `{"Version":"2012-10-17"}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DeleteProject", map[string]any{"ProjectArn": projectARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListProjectPolicies", map[string]any{"ProjectArn": projectARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	policies, ok := listResp["ProjectPolicies"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, policies, "ProjectPolicies must be cascade-deleted with the project")
+}

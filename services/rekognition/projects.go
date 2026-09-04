@@ -62,7 +62,9 @@ func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams)
 
 // DeleteProject deletes a project. DeleteProjectInput's own doc comment
 // (api_op_DeleteProject.go): "To delete a project you must first delete all
-// models or adapters associated with the project.".
+// models or adapters associated with the project." and "deleting a given
+// project will also delete any ProjectPolicies associated with that
+// project" -- so ProjectPolicies cascade while ProjectVersions block.
 func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
@@ -85,6 +87,10 @@ func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 
 	if hasVersions {
 		return ErrProjectHasVersions
+	}
+
+	for _, p := range slices.Clone(b.projectPoliciesByProject.Get(projectARN)) {
+		b.projectPolicies.Delete(projectPolicyKey(p.ProjectARN, p.PolicyName))
 	}
 
 	b.projects.Delete(projectARN)
