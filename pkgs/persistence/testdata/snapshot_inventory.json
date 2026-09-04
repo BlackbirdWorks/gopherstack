@@ -2531,6 +2531,20 @@
     ],
     "version": 1
   },
+  "azuretable": {
+    "fields": [
+      "EntityProperty.Type EdmType",
+      "EntityProperty.Value any",
+      "backendSnapshot.Tables map[string]*storedTable `json:\"tables\"`",
+      "storedEntity.PartitionKey string",
+      "storedEntity.Properties map[string]EntityProperty",
+      "storedEntity.RowKey string",
+      "storedEntity.Timestamp time.Time",
+      "storedTable.Entities map[string]*storedEntity",
+      "storedTable.Name string"
+    ],
+    "version": 1
+  },
   "backup": {
     "fields": [
       "AdvancedBackupSetting.BackupOptions map[string]string `json:\"backupOptions,omitempty\"`",

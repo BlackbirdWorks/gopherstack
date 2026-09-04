@@ -91,6 +91,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -462,6 +463,7 @@ type CLI struct {
 	StepFunctions                 sfnbackend.Settings        `embed:"" prefix:"stepfunctions-"`
 	AzureBlob                     azureblobbackend.Settings  `embed:"" prefix:"azure-blob-"`
 	AzureQueue                    azurequeuebackend.Settings `embed:"" prefix:"azure-queue-"`
+	AzureTable                    azuretablebackend.Settings `embed:"" prefix:"azure-table-"`
 	PortRangeStart                int                        `                                  name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                        `                                  name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                        `                                  name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -533,6 +535,11 @@ func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
 func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 	return c.AzureQueue
+}
+
+// GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
+func (c *CLI) GetAzureTableSettings() azuretablebackend.Settings {
+	return c.AzureTable
 }
 
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
@@ -1896,6 +1903,17 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.AzureQueue.Port, "azurequeue"); err != nil {
 		log.WarnContext(ctx, "failed to reserve AzureQueue's fixed port in the shared pool",
 			"port", cli.AzureQueue.Port, "error", err)
+	}
+
+	// AzureTable's dedicated listener (services/azuretable) binds its own
+	// fixed, protocol-conventional default port (10002, matching Azurite's
+	// own Table service port) the same way AzureBlob/AzureQueue do above --
+	// see those calls' comments and AZURE.md section 4 for the full
+	// rationale. It sits in the same PortRangeStart/PortRangeEnd default
+	// range, so it needs the same reservation.
+	if err := alloc.Reserve(cli.AzureTable.Port, "azuretable"); err != nil {
+		log.WarnContext(ctx, "failed to reserve AzureTable's fixed port in the shared pool",
+			"port", cli.AzureTable.Port, "error", err)
 	}
 }
 
@@ -3632,6 +3650,7 @@ func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&azureblobbackend.Provider{},
 		&azurequeuebackend.Provider{},
+		&azuretablebackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
