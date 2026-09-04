@@ -119,7 +119,8 @@ func (b *InMemoryBackend) CreateGrant(
 
 	keyID := key.KeyID
 
-	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
+		key.KeyState == KeyStatePendingReplicaDeletion {
 		return nil, keyStateError(key)
 	}
 

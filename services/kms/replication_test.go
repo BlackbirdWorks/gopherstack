@@ -3,6 +3,7 @@ package kms_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -710,4 +711,59 @@ func TestReplicateKeyRequiresMultiRegion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScheduleKeyDeletion_PrimaryWithReplicas verifies that scheduling
+// deletion of a multi-Region primary key with an existing replica moves it to
+// PendingReplicaDeletion (not PendingDeletion) with no DeletionDate, and that
+// once the last replica is actually purged, the primary is promoted to
+// PendingDeletion with its own waiting period starting then.
+func TestScheduleKeyDeletion_PrimaryWithReplicas(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	ctx := context.Background()
+
+	primaryOut, err := b.CreateKey(ctx, &kms.CreateKeyInput{MultiRegion: true})
+	require.NoError(t, err)
+	primaryID := primaryOut.KeyMetadata.KeyID
+
+	replicaOut, err := b.ReplicateKey(ctx, &kms.ReplicateKeyInput{
+		KeyID:         primaryID,
+		ReplicaRegion: "us-west-2",
+	})
+	require.NoError(t, err)
+	replicaID := replicaOut.ReplicaKeyMetadata.KeyID
+
+	delOut, err := b.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
+		KeyID:               primaryID,
+		PendingWindowInDays: 10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStatePendingReplicaDeletion, delOut.KeyState)
+	assert.Zero(t, delOut.DeletionDate, "DeletionDate must not appear while replicas exist")
+
+	desc, err := b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: primaryID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStatePendingReplicaDeletion, desc.KeyMetadata.KeyState)
+	assert.Zero(t, desc.KeyMetadata.DeletionDate)
+
+	// Schedule and force-expire the replica's own deletion.
+	_, err = b.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
+		KeyID:               replicaID,
+		PendingWindowInDays: 7,
+	})
+	require.NoError(t, err)
+	b.SetDeletionDateForTest(replicaID, time.Now().Add(-time.Second))
+
+	kms.NewJanitor(b, time.Minute).SweepOnce(ctx)
+
+	_, err = b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: replicaID})
+	require.Error(t, err, "replica must be purged")
+
+	desc, err = b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: primaryID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStatePendingDeletion, desc.KeyMetadata.KeyState,
+		"primary must be promoted once its last replica is purged")
+	assert.NotZero(t, desc.KeyMetadata.DeletionDate)
 }

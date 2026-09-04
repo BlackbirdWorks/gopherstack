@@ -108,6 +108,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		PreferredBackupWindow:            vals.Get("PreferredBackupWindow"),
 		KmsKeyID:                         vals.Get("KmsKeyId"),
 		DBClusterIdentifier:              vals.Get("DBClusterIdentifier"),
+		DBSubnetGroupName:                vals.Get("DBSubnetGroupName"),
 		BackupRetentionPeriod:            backupRetention,
 		Iops:                             iops,
 		StorageThroughput:                storageThroughput,

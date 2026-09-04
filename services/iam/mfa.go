@@ -265,8 +265,16 @@ func (b *InMemoryBackend) DeleteVirtualMFADevice(serialNumber string) error {
 	b.mu.Lock("DeleteVirtualMFADevice")
 	defer b.mu.Unlock()
 
-	if _, exists := b.virtualMFADevices.Get(serialNumber); !exists {
+	dev, exists := b.virtualMFADevices.Get(serialNumber)
+	if !exists {
 		return fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
+	}
+
+	if dev.Status == MFAStatusEnabled {
+		return fmt.Errorf(
+			"%w: virtual MFA device %q must be deactivated before it can be deleted",
+			ErrDeleteConflict, serialNumber,
+		)
 	}
 
 	b.virtualMFADevices.Delete(serialNumber)

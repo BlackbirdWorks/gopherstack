@@ -86,6 +86,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		Port:                             port,
 		AllocatedStorage:                 allocatedStorage,
 		DBParameterGroupName:             paramGroupName,
+		DBSubnetGroupName:                opts.DBSubnetGroupName,
 		OptionGroupName:                  opts.OptionGroupName,
 		MultiAZ:                          opts.MultiAZ,
 		StorageType:                      opts.StorageType,

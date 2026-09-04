@@ -257,6 +257,7 @@ func (j *Janitor) purgeKey(region, keyID string) {
 	// in keyIDResolutionCache forever, unbounded, without this eviction.
 	if key, ok := j.Backend.keysStore(region).Get(keyID); ok {
 		j.Backend.keyIDResolutionCache.Delete(key.Arn)
+		j.Backend.promoteMultiRegionPrimaryAfterReplicaPurgeLocked(key)
 	}
 
 	j.Backend.keysStore(region).Delete(keyID)

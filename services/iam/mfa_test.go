@@ -334,6 +334,24 @@ func TestVirtualMFADevice_CRUD(t *testing.T) {
 	require.NoError(t, b.DeleteVirtualMFADevice(dev.SerialNumber))
 }
 
+func TestDeleteVirtualMFADevice_RequiresDeactivation(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, _ = b.CreateUser("bob", "/", "")
+
+	dev, err := b.CreateVirtualMFADeviceFull("bob-token", "/mfa/")
+	require.NoError(t, err)
+
+	require.NoError(t, b.EnableMFADevice("bob", dev.SerialNumber, "123456", "789012"))
+
+	err = b.DeleteVirtualMFADevice(dev.SerialNumber)
+	require.ErrorIs(t, err, iam.ErrDeleteConflict)
+
+	require.NoError(t, b.DeactivateMFADevice("bob", dev.SerialNumber))
+	require.NoError(t, b.DeleteVirtualMFADevice(dev.SerialNumber))
+}
+
 // TestListVirtualMFADevices_ItemShape_RealClient is a regression test for gopherstack-21my:
 // ListVirtualMFADevices' item struct (VirtualMFADeviceXML, models_mfa.go) omitted User and
 // Tags entirely, even though the real VirtualMFADevice deserializer

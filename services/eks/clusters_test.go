@@ -758,6 +758,9 @@ func TestCreateClusterInitsAllMaps(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestDeleteClusterCascade verifies that DeleteCluster still cascades access
+// entries (which AWS does not require removed first), but rejects the delete
+// outright while a nodegroup is attached (which AWS does require removed first).
 func TestDeleteClusterCascade(t *testing.T) {
 	t.Parallel()
 
@@ -776,11 +779,40 @@ func TestDeleteClusterCascade(t *testing.T) {
 	assert.Equal(t, 1, b.AccessEntryCount())
 
 	_, err = b.DeleteCluster("c1")
+	require.ErrorIs(t, err, eks.ErrAlreadyExists, "DeleteCluster must reject a cluster with attached nodegroups")
+
+	_, err = b.DeleteNodegroup("c1", "ng1")
+	require.NoError(t, err)
+
+	_, err = b.DeleteCluster("c1")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, b.ClusterCount())
 	assert.Equal(t, 0, b.NodegroupCount())
 	assert.Equal(t, 0, b.AccessEntryCount())
+}
+
+func TestDeleteCluster_RejectedWithFargateProfile(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+
+	_, err := b.CreateCluster("fp-c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateFargateProfile("fp-c1", "fp1", "arn:aws:iam::123456789012:role/fp",
+		nil, []string{"subnet-aaa"}, nil)
+	require.NoError(t, err)
+
+	_, err = b.DeleteCluster("fp-c1")
+	require.ErrorIs(t, err, eks.ErrAlreadyExists,
+		"DeleteCluster must reject a cluster with an attached fargate profile")
+
+	_, err = b.DeleteFargateProfile("fp-c1", "fp1")
+	require.NoError(t, err)
+
+	_, err = b.DeleteCluster("fp-c1")
+	require.NoError(t, err, "DeleteCluster must succeed once the fargate profile is removed")
 }
 
 func TestClusterHasCertificateAuthority(t *testing.T) {

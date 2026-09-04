@@ -34,6 +34,7 @@ type Cluster struct {
 	TransitEncryptionMode      string
 	ConnectAddress             string
 	PendingStatus              string
+	SubnetGroupName            string
 	AvailableAt                time.Time
 	Members                    []CacheNodeMember
 	Port                       int
@@ -134,6 +135,7 @@ type StorageBackend interface {
 		numCacheNodes, port int,
 	) (*Cluster, error)
 	DeleteCluster(ctx context.Context, id string) error
+	SetClusterSubnetGroupName(ctx context.Context, id, subnetGroupName string) error
 	DescribeClusters(ctx context.Context, id, marker string, maxRecords int, notInRG bool) (page.Page[Cluster], error)
 	ModifyCluster(
 		ctx context.Context,

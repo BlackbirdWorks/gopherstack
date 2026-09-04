@@ -331,6 +331,13 @@ type GetKeyRotationStatusOutput struct {
 // KeyStatePendingDeletion is the string constant for a key pending deletion.
 const KeyStatePendingDeletion = "PendingDeletion"
 
+// KeyStatePendingReplicaDeletion is the string constant for a multi-Region
+// primary key whose deletion was scheduled while it still has replica keys.
+// It stays in this non-final state indefinitely until the last replica is
+// actually deleted, at which point it moves to KeyStatePendingDeletion and
+// its waiting period begins.
+const KeyStatePendingReplicaDeletion = "PendingReplicaDeletion"
+
 // KeyStatePendingImport is the string constant for a key awaiting imported key material.
 const KeyStatePendingImport = "PendingImport"
 
@@ -358,9 +365,12 @@ type ScheduleKeyDeletionInput struct {
 
 // ScheduleKeyDeletionOutput is the response payload for ScheduleKeyDeletion.
 type ScheduleKeyDeletionOutput struct {
-	KeyID               string  `json:"KeyId"`
-	KeyState            string  `json:"KeyState"`
-	DeletionDate        float64 `json:"DeletionDate"`
+	KeyID    string `json:"KeyId"`
+	KeyState string `json:"KeyState"`
+	// DeletionDate is absent for a multi-Region primary key with replicas:
+	// real AWS doesn't know the deletion date until the last replica is
+	// deleted, so the key is in KeyStatePendingReplicaDeletion instead.
+	DeletionDate        float64 `json:"DeletionDate,omitempty"`
 	PendingWindowInDays int     `json:"PendingWindowInDays,omitempty"`
 }
 

@@ -14,6 +14,7 @@ var (
 	ErrInvalidParameterGroupFamily        = errors.New("InvalidParameterGroupFamily")
 	ErrSubnetGroupNotFound                = errors.New("CacheSubnetGroupNotFound")
 	ErrSubnetGroupAlreadyExists           = errors.New("CacheSubnetGroupAlreadyExists")
+	ErrSubnetGroupInUse                   = errors.New("CacheSubnetGroupInUse")
 	ErrSnapshotNotFound                   = errors.New("SnapshotNotFound")
 	ErrSnapshotAlreadyExists              = errors.New("SnapshotAlreadyExistsFault")
 	ErrInvalidSnapshotSource              = errors.New(
@@ -49,6 +50,9 @@ var (
 	ErrReplicationGroupNotAvailable       = errors.New("replication group is not in the available state")
 	ErrServerlessCacheNotAvailable        = errors.New("serverless cache is not in the available state")
 	ErrGlobalReplicationGroupNotAvailable = errors.New("global replication group is not in the available state")
+	ErrClusterInReplicationGroup          = errors.New(
+		"cannot delete a cache cluster that is the last member of a replication group",
+	)
 )
 
 // ----------------------------------------

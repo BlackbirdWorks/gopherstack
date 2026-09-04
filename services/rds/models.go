@@ -634,6 +634,7 @@ type DBInstanceOptions struct {
 	KmsKeyID                         string
 	DBClusterIdentifier              string
 	EngineLifecycleSupport           string
+	DBSubnetGroupName                string
 	VpcSecurityGroupIDs              []string
 	EnabledCloudwatchLogsExports     []string
 	BackupRetentionPeriod            int

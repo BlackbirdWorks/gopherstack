@@ -19,6 +19,8 @@ var (
 	ErrSubnetGroupNotFound = awserr.New("DBSubnetGroupNotFound", awserr.ErrNotFound)
 	// ErrSubnetGroupAlreadyExists is returned when a subnet group already exists.
 	ErrSubnetGroupAlreadyExists = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrSubnetGroupInUse is returned when a subnet group is still associated with a DB instance.
+	ErrSubnetGroupInUse = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrConflict)
 	// ErrInvalidParameter is returned for invalid input.
 	ErrInvalidParameter = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
 	// ErrInvalidParameterCombination is returned when a set of otherwise-valid

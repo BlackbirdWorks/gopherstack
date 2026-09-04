@@ -355,6 +355,28 @@ func TestDeleteFileSystem_RequiresEmptyState(t *testing.T) {
 	}
 }
 
+func TestDeleteFileSystem_RejectedWhileReplicating(t *testing.T) {
+	t.Parallel()
+
+	b := newTestEFSBackend()
+	fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-del-repl"))
+	require.NoError(t, err)
+
+	_, err = b.CreateReplicationConfiguration(
+		context.Background(),
+		fs.FileSystemID,
+		[]efs.ReplicationDestination{{Region: "us-west-2", Status: "ENABLED"}},
+	)
+	require.NoError(t, err)
+
+	err = b.DeleteFileSystem(context.Background(), fs.FileSystemID)
+	require.ErrorIs(t, err, efs.ErrFileSystemInUse)
+
+	require.NoError(t, b.DeleteReplicationConfiguration(context.Background(), fs.FileSystemID))
+
+	require.NoError(t, b.DeleteFileSystem(context.Background(), fs.FileSystemID))
+}
+
 // TestCreationTokenIdempotency verifies identical args return 200, different args return 409.
 func TestCreationTokenIdempotency(t *testing.T) {
 	t.Parallel()

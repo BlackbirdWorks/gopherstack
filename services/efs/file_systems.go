@@ -257,7 +257,8 @@ func (b *InMemoryBackend) DescribeFileSystems(
 }
 
 // DeleteFileSystem deletes a file system by ID.
-// Returns ErrFileSystemInUse if any mount targets exist.
+// Returns ErrFileSystemInUse if mount targets, access points, or a
+// replication configuration exist for it.
 func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID string) error {
 	region := getRegion(ctx, b.region)
 
@@ -286,6 +287,15 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID str
 		)
 	}
 
+	if _, exists := b.replicationConfigs.Get(regionKey(region, fileSystemID)); exists {
+		return fmt.Errorf(
+			"%w: file system %s is part of an EFS replication configuration; delete the replication "+
+				"configuration first",
+			ErrFileSystemInUse,
+			fileSystemID,
+		)
+	}
+
 	b.fileSystemsByARN.Delete(regionKey(region, fs.FileSystemArn))
 	// Remove from creation-token index so the token can be reused.
 	if b.creationTokenIdx[region] != nil {
@@ -297,7 +307,6 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID str
 	delete(b.lifecycleStore(region), fileSystemID)
 	delete(b.backupStore(region), fileSystemID)
 	delete(b.fsPolicyStore(region), fileSystemID)
-	b.replicationConfigs.Delete(regionKey(region, fileSystemID))
 
 	return nil
 }
