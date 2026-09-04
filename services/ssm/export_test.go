@@ -77,6 +77,16 @@ func (b *InMemoryBackend) HasTagEntry(name string) bool {
 	return b.tagsStore(b.Region())[name] != nil
 }
 
+// HasParameterLabelEntry reports whether the parameter labels map contains an
+// entry for the given parameter name. Returns false when the parameter's
+// label entry has been cleaned up (nil or absent).
+func (b *InMemoryBackend) HasParameterLabelEntry(name string) bool {
+	b.mu.RLock("HasParameterLabelEntry")
+	defer b.mu.RUnlock()
+
+	return b.parameterLabelsStore(b.Region())[name] != nil
+}
+
 // DocumentVersionCount returns the number of versions stored for the given document.
 func (b *InMemoryBackend) DocumentVersionCount(name string) int {
 	b.mu.RLock("DocumentVersionCount")

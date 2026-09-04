@@ -817,6 +817,20 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 	mwTable := b.maintenanceWindowsStore(region)
 	mwTable.Delete(input.WindowID)
 
+	targets := b.maintenanceWindowTargetsStore(region)
+	for _, t := range targets.All() {
+		if t.WindowID == input.WindowID {
+			targets.Delete(t.WindowTargetID)
+		}
+	}
+
+	tasks := b.maintenanceWindowTasksStore(region)
+	for _, t := range tasks.All() {
+		if t.WindowID == input.WindowID {
+			tasks.Delete(t.WindowTaskID)
+		}
+	}
+
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil
 }
 

@@ -600,6 +600,7 @@ func (b *InMemoryBackend) DeleteParameter(
 
 	params.Delete(input.Name)
 	delete(b.historyStore(region), input.Name)
+	delete(b.parameterLabelsStore(region), input.Name)
 	b.clearParameterPolicyNotificationStateLocked(region, input.Name)
 
 	tags := b.tagsStore(region)
@@ -636,6 +637,7 @@ func (b *InMemoryBackend) DeleteParameters(
 		if params.Has(name) {
 			params.Delete(name)
 			delete(history, name)
+			delete(b.parameterLabelsStore(region), name)
 			b.clearParameterPolicyNotificationStateLocked(region, name)
 			if t, ok := tags[name]; ok {
 				t.Close()

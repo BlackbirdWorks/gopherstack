@@ -15,8 +15,9 @@ func partitionKey(dbName, tableName string, values []string) string {
 	return fmt.Sprintf("%s|%s|%s", dbName, tableName, strings.Join(values, "#"))
 }
 
-// deleteTablePartitionsLocked removes all partitions and versions for a table.
-// Must be called with b.mu held for writing.
+// deleteTablePartitionsLocked removes all partitions, versions, column
+// statistics, and table optimizers for a table. Must be called with b.mu
+// held for writing.
 func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) {
 	prefix := dbName + "|" + tableName + "|"
 
@@ -35,6 +36,24 @@ func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) 
 	for _, tv := range b.tableVersions.Snapshot() {
 		if k := tableVersionEntryKeyFn(tv); strings.HasPrefix(k, prefix) {
 			b.tableVersions.Delete(k)
+		}
+	}
+
+	for k := range b.tableColumnStats {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.tableColumnStats, k)
+		}
+	}
+
+	for k := range b.partitionColumnStats {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.partitionColumnStats, k)
+		}
+	}
+
+	for _, rec := range b.tableOptimizers.Snapshot() {
+		if k := tableOptimizerEntryKeyFn(rec); strings.HasPrefix(k, prefix) {
+			b.tableOptimizers.Delete(k)
 		}
 	}
 }
@@ -127,9 +146,22 @@ func (b *InMemoryBackend) BatchDeletePartition(
 		}
 
 		b.partitions.Delete(key)
+		b.deletePartitionColumnStatsLocked(key)
 	}
 
 	return errs
+}
+
+// deletePartitionColumnStatsLocked removes every column-statistics entry for
+// the partition identified by partKey (as built by partitionKey). Must be
+// called with b.mu held for writing.
+func (b *InMemoryBackend) deletePartitionColumnStatsLocked(partKey string) {
+	prefix := partKey + "|"
+	for k := range b.partitionColumnStats {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.partitionColumnStats, k)
+		}
+	}
 }
 
 // AddPartitionInternal adds a partition directly to the backend without
@@ -236,6 +268,7 @@ func (b *InMemoryBackend) renamePartitionLocked(
 	}
 
 	b.partitions.Delete(oldKey)
+	b.deletePartitionColumnStatsLocked(oldKey)
 	p.Values = append([]string(nil), input.Values...)
 	p.StorageDescriptor = input.StorageDescriptor
 	p.Parameters = maps.Clone(input.Parameters)

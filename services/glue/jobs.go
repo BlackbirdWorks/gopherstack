@@ -13,6 +13,8 @@ const jobTransitionDelay = 150 * time.Millisecond // STARTING→RUNNING
 
 const jobSucceededDelay = 300 * time.Millisecond // RUNNING→SUCCEEDED
 
+const jobStopDelay = 150 * time.Millisecond // STOPPING→STOPPED
+
 // maxJobRetries is the maximum value for MaxRetries on a Glue job.
 const maxJobRetries = 10
 
@@ -452,7 +454,8 @@ func (b *InMemoryBackend) BatchStopJobRun(
 	jobName string,
 	runIDs []string,
 ) ([]BatchStopJobRunSuccessfulSubmission, []BatchStopJobRunError) {
-	b.advanceStates(time.Now())
+	now := time.Now()
+	b.advanceStates(now)
 
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
@@ -478,6 +481,13 @@ func (b *InMemoryBackend) BatchStopJobRun(
 				})
 			} else {
 				run.JobRunState = stateStopping
+
+				if b.jobRunStopAt[jobName] == nil {
+					b.jobRunStopAt[jobName] = make(map[string]time.Time)
+				}
+
+				b.jobRunStopAt[jobName][run.ID] = now.Add(jobStopDelay)
+
 				successes = append(successes, BatchStopJobRunSuccessfulSubmission{
 					JobName:  jobName,
 					JobRunID: id,

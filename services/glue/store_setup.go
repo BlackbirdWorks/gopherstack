@@ -148,9 +148,9 @@ func formTypeKeyFn(v *FormType) string { return v.ID }
 //   - jobRuns / workflowRuns / schemaVersions / sessionStatements /
 //     crawlHistory: one-to-many (map[string][]*T) history/list fields, not
 //     the map[string]*T shape store.Table replaces.
-//   - jobRunReadyAt / jobRunDoneAt / crawlerReadyAt: ephemeral lifecycle-timer
-//     bookkeeping (ready/done rather than resource state), not persisted, and
-//     not map[string]*T.
+//   - jobRunReadyAt / jobRunDoneAt / jobRunStopAt / crawlerReadyAt: ephemeral
+//     lifecycle-timer bookkeeping (ready/done/stop rather than resource
+//     state), not persisted, and not map[string]*T.
 //   - iterableFormItems: a nested per-asset, per-iterable-form-name collection
 //     (map[string]map[string]map[string]*iterableFormItemRecord), not the
 //     map[string]*T shape store.Table replaces -- see the field's doc comment
