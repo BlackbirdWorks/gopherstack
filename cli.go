@@ -2902,6 +2902,11 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
+	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
+	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
+	// delivery requires S3 integration.
+	wireLambdaS3(byName["Lambda"], byName["S3"])
+
 	// Wire Timestream Query → Timestream Write's shared tag store, so
 	// CreateScheduledQuery's Tags reach TagResource/ListTagsForResource --
 	// timestreamquery's own RouteMatcher defers those ops to TimestreamWrite
@@ -3324,6 +3329,11 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// OutputLocation output (job.txt/results/result_manifest.txt) instead of
 	// only serving results via GetJobOutput.
 	wireGlacierS3(byName["Glacier"], byName["S3"])
+
+	// Wire S3 Control → S3 so PutAccessPointConfigurationForObjectLambda
+	// actually reaches GetObject instead of accepting the config and never
+	// invoking the Lambda transform (gopherstack-6o0r).
+	wireS3ControlObjectLambda(byName["S3Control"], byName["S3"])
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
@@ -3894,8 +3904,22 @@ func wireSNSToLambdaFirehose(snsReg, lambdaReg, firehoseReg, sqsReg service.Regi
 	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
 		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
 			snsBk.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
+
+			// Wire the DLQ existence checker so SetSubscriptionAttributes
+			// rejects a RedrivePolicy naming a nonexistent SQS queue, matching
+			// real SNS instead of silently accepting it.
+			snsBk.SetSQSChecker(&sqsQueueCheckerAdapter{backend: sqsBk})
 		}
 	}
+}
+
+// sqsQueueCheckerAdapter adapts the SQS backend to the sns.SQSQueueChecker interface.
+type sqsQueueCheckerAdapter struct {
+	backend *sqsbackend.InMemoryBackend
+}
+
+func (a *sqsQueueCheckerAdapter) QueueExists(_ context.Context, queueARN string) (bool, error) {
+	return a.backend.QueueExists(queueARN), nil
 }
 
 // snsFirehosePutterAdapter adapts the Firehose backend to the sns.FirehosePutter
@@ -4044,6 +4068,21 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:    queueURL,
 		MessageBody: messageBody,
+	})
+
+	return err
+}
+
+// SendMessageToFIFOQueue adapts the SQS backend to the scheduler.SQSFIFOSender interface.
+func (a *sqsSenderAdapter) SendMessageToFIFOQueue(
+	_ context.Context,
+	queueARN, messageBody, messageGroupID string,
+) error {
+	queueURL := arnToSQSQueueURL(queueARN)
+	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:       queueURL,
+		MessageBody:    messageBody,
+		MessageGroupID: messageGroupID,
 	})
 
 	return err
@@ -5548,6 +5587,31 @@ func wireLambdaCWLogs(lambdaReg, cwlogsReg service.Registerable) {
 			lambdaBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
 		}
 	}
+}
+
+// wireLambdaS3 connects the Lambda backend to S3 so a function deployed from
+// a Code.S3Bucket/S3Key zip can actually fetch its code, instead of
+// startZipContainer always returning ErrLambdaUnavailable for S3-sourced
+// code. sfnbackend.NewS3Integration already adapts an s3.StorageBackend to
+// GetObjectBytes(ctx, bucket, key) -- the exact shape lambda.S3CodeFetcher
+// needs -- so it is reused here rather than writing a new adapter.
+func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	lambdaBk.SetS3CodeFetcher(sfnbackend.NewS3Integration(s3H.Backend))
 }
 
 // wireTimestreamQueryTags connects the Timestream Query backend to
@@ -11688,6 +11752,26 @@ func wireGlacierS3(glacierReg, s3Reg service.Registerable) {
 	glBk.SetS3Backend(s3Bk)
 }
 
+// wireS3ControlObjectLambda connects the S3 Control backend to S3 so a
+// completed PutAccessPointConfigurationForObjectLambda resolves its
+// SupportingAccessPoint to the underlying bucket and configures GetObject to
+// actually invoke the Lambda transform, instead of accepting the config and
+// never reaching S3 (gopherstack-6o0r). s3backend.S3Handler satisfies
+// s3controlbackend.ObjectLambdaConfigSink directly, so no adapter is needed.
+func wireS3ControlObjectLambda(s3controlReg, s3Reg service.Registerable) {
+	s3cH, ok := s3controlReg.(*s3controlbackend.Handler)
+	if !ok || s3cH.Backend == nil {
+		return
+	}
+
+	s3H, ok := s3Reg.(*s3backend.S3Handler)
+	if !ok {
+		return
+	}
+
+	s3cH.Backend.SetObjectLambdaConfigSink(s3H)
+}
+
 // iotAnalyticsThingRegistryAdapter adapts the IoT backend's DescribeThing to the
 // iotanalytics.ThingRegistry interface for the "deviceRegistryEnrich" pipeline activity
 // (iot:DescribeThing, per the CloudFormation docs for AWS::IoTAnalytics::Pipeline
@@ -12590,7 +12674,9 @@ func wireSchedulerMessaging(
 
 	if sqsH, ok := sqsReg.(*sqsbackend.Handler); ok {
 		if sqsBk, ok2 := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok2 {
-			runner.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
+			adapter := &sqsSenderAdapter{backend: sqsBk}
+			runner.SetSQSSender(adapter)
+			runner.SetSQSFIFOSender(adapter)
 		}
 	}
 
