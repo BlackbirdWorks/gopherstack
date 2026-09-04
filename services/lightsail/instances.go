@@ -222,7 +222,11 @@ func (b *InMemoryBackend) scheduleInstanceRunningLocked(name string) {
 	})
 }
 
-// DeleteInstance deletes the named instance.
+// DeleteInstance deletes the named instance, detaching any disk and
+// releasing any static IP still attached to it first. Lightsail resource
+// names are freed on delete and reusable (unregisterNameLocked below), so a
+// disk or static IP left pointing at name would silently attach itself to
+// whatever unrelated instance is next created under that same name.
 func (b *InMemoryBackend) DeleteInstance(name string) ([]Operation, error) {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
@@ -230,6 +234,25 @@ func (b *InMemoryBackend) DeleteInstance(name string) ([]Operation, error) {
 	i, ok := b.instances.Get(name)
 	if !ok {
 		return nil, notFoundError("Instance", name)
+	}
+
+	for _, d := range b.disks.All() {
+		if d.AttachedTo == name {
+			d.State = DiskStateAvailable
+			d.IsAttached = false
+			d.AttachedTo = ""
+			d.AttachmentState = ""
+			d.Path = ""
+			d.GbInUse = 0
+			d.AutoMountStatus = ""
+		}
+	}
+
+	for _, sip := range b.staticIPs.All() {
+		if sip.AttachedTo == name {
+			sip.IsAttached = false
+			sip.AttachedTo = ""
+		}
 	}
 
 	if i.Tags != nil {
