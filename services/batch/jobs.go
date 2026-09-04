@@ -607,8 +607,13 @@ func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason stri
 	return nil
 }
 
-// CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state.
-// Accepts job ID or ARN.
+// CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state. A job
+// that has already progressed to STARTING or RUNNING is not cancelled, but
+// the call still succeeds with no state change -- matching the documented
+// AWS behavior (api_op_CancelJob.go: "Jobs that progressed to the STARTING
+// or RUNNING state aren't canceled. However, the API operation still
+// succeeds, even if no job is canceled. These jobs must be terminated with
+// the TerminateJob operation."). Accepts job ID or ARN.
 func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string) error {
 	region := getRegion(ctx, b.region)
 
@@ -628,6 +633,8 @@ func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string)
 		j.StoppedAt = &now
 		j.IsCancelled = true
 
+		return nil
+	case jobStatusStarting, jobStatusRunning:
 		return nil
 	default:
 		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, idOrARN, j.Status)

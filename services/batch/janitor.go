@@ -196,7 +196,13 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	for _, job := range j.Backend.jobs.All() {
 		switch job.Status {
 		case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
-			toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusRunning})
+			switch depStatus := j.dependencyStatus(job); depStatus {
+			case dependencyPending:
+			case dependencyFailed:
+				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusFailed})
+			case dependencySatisfied:
+				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusRunning})
+			}
 		case jobStatusRunning:
 			if job.StoppedAt == nil {
 				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusSucceeded})
@@ -216,6 +222,52 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	}
 
 	return toAdvance, toAdvanceSvc
+}
+
+type dependencyState int
+
+const (
+	dependencySatisfied dependencyState = iota
+	dependencyPending
+	dependencyFailed
+)
+
+// dependencyStatus evaluates a job's DependsOn list (batch@v1.68.4
+// api_op_SubmitJob.go: "A list of dependencies for the job... each index
+// child of this job must wait for the corresponding index child of each
+// dependency to complete before it can begin"). A job with any dependency
+// not yet in a terminal state stays dependencyPending (blocks the
+// SUBMITTED/PENDING/RUNNABLE/STARTING -> RUNNING advance below); a FAILED
+// dependency propagates as dependencyFailed. Caller must hold at least a
+// read lock.
+//
+// Only the plain JobId form is evaluated. SEQUENTIAL/N_TO_N dependency
+// types reference array-job children this backend never spawns (SubmitJob
+// stores ArrayProperties.Size without creating child Job records -- a
+// pre-existing, disclosed gap; see ListJobs's arrayJobId note in
+// PARITY.md), so an entry with no JobId can never be resolved and is
+// skipped rather than blocking a job forever.
+func (j *Janitor) dependencyStatus(job *Job) dependencyState {
+	for _, dep := range job.DependsOn {
+		if dep.JobID == "" {
+			continue
+		}
+
+		depJob, ok := j.Backend.jobs.Get(regionKey(job.region, dep.JobID))
+		if !ok {
+			return dependencyPending
+		}
+
+		switch depJob.Status {
+		case jobStatusFailed:
+			return dependencyFailed
+		case jobStatusSucceeded:
+		default:
+			return dependencyPending
+		}
+	}
+
+	return dependencySatisfied
 }
 
 func (j *Janitor) advanceJobs(_ context.Context) {
@@ -241,6 +293,9 @@ func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
 				job.StartedAt = &now
 			case jobStatusSucceeded:
 				job.StoppedAt = &now
+			case jobStatusFailed:
+				job.StoppedAt = &now
+				job.StatusReason = "dependency failed"
 			}
 		}
 	}
