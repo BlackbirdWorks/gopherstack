@@ -4312,9 +4312,9 @@ type s3SNSPublisherAdapter struct {
 
 func (a *s3SNSPublisherAdapter) PublishToTopic(
 	_ context.Context,
-	topicARN, message, _ string,
+	topicARN, message, subject string,
 ) error {
-	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+	_, err := a.backend.Publish(topicARN, message, subject, "", nil)
 
 	return err
 }
