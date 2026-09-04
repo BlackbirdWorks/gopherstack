@@ -333,7 +333,7 @@ func TestResourceCreator_SupplementalTypes_RealBackends(t *testing.T) {
 					tt.props["ServiceNamespace"].(string),
 					tt.props["ResourceId"].(string),
 					tt.props["ScalableDimension"].(string),
-					1, 10, nil, "", nil,
+					int32p(1), int32p(10), nil, "", nil,
 				)
 				require.NoError(t, regErr)
 			}

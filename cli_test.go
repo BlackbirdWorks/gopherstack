@@ -2010,9 +2010,10 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				aasBk := applicationautoscalingbackend.NewInMemoryBackend(accountID, region)
+				minCap, maxCap := int32(1), int32(10)
 				target, err := aasBk.RegisterScalableTarget(
 					"ecs", "service/wiring-cluster/wiring-svc", "ecs:service:DesiredCount",
-					1, 10, map[string]string{wantTagKey: wantTagValue}, "", nil,
+					&minCap, &maxCap, map[string]string{wantTagKey: wantTagValue}, "", nil,
 				)
 				require.NoError(t, err)
 
