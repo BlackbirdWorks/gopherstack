@@ -9,6 +9,38 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # 2026-08-11 follow-up (bd: gopherstack-oius): the previous "wire: ok" grading on UpdateResource/UpdateMethod/UpdateIntegration/UpdateIntegrationResponse/UpdateMethodResponse was WRONG — audited all 22 patchOperations-taking ops against a fresh patch-operations.html fetch; classification and fixes below (see the 5 op lines and Notes). Swept applyResourcePatchOp/applyStructuredPatch to return an error so a resolver can now REJECT an op/path/value combination (BadRequestException) instead of only ever silently applying-or-dropping it — used to reject AWS-documented-unsupported combinations (UpdateIntegration's "/type", any op but replace on "/parentId") and AWS-documented-but-unmodeled paths (Method.authorizationScopes, Integration.{integrationTarget,responseTransferMode,tlsConfig}) rather than fabricating support. Confirmed with real aws-sdk-go-v2 client tests (patch_ops_sdk_test.go) run against a git-worktree checkout of the pre-fix commit that every fixed case actually failed before (two as a hard 500 json-unmarshal-type-mismatch — UpdateIntegration's "/cacheKeyParameters" and "/timeoutInMillis", matching the "cannot be called successfully at all" bug class named in the ticket — the rest as a silent 200-OK no-op).
 # 2026-08-11 follow-up (bd: gopherstack-6q5h): fixed the 3 items gopherstack-oius deferred. UpdateBasePathMapping's "/basepath"/"/restapiId" casing bug turned out to be deeper than casing alone (see Notes) — fixed with a dedicated resolver plus a real rename path in InMemoryBackend.UpdateBasePathMapping (previously the backend could never rename a mapping's base path at all, regardless of PATCH path casing). UpdateAuthorizer's "/providerARNs" and UpdateAccount's "/features" both had real backend state to support them and are now implemented as list-membership add/remove, matching this file's existing /stages, /binaryMediaTypes, /cacheKeyParameters pattern. Swept all 22 ops' documented paths against their Update*Input json tags for the same casing question: no other mismatch found (see Notes).
 # 2026-08-21 follow-up (bd: gopherstack-eax4): fixed GetSdk's header-vs-body confusion. handler_sdk.go's opGetSdk action returned {"contentType","contentDisposition","body"} as a JSON map, which dispatch()/dispatchAndRespond() then JSON-marshalled with Content-Type application/json — a real client's ContentType/ContentDisposition decoded as zero values and Body as garbage. Added a general escape hatch to the dispatch chain (handler.go's rawBinaryResponse type; dispatch()/dispatchAndRespond()/handleJSONProtocol()/dispatchRestAPISpec() all now check for it before JSON-marshalling) so any actionFn can opt out of the JSON envelope and write real headers + a raw body via c.Blob, mirroring iotdataplane's GetThingShadow / medialive's DescribeInputDeviceThumbnail (gopherstack-tp8x) c.Blob-with-real-headers pattern — those two write directly to echo.Context from a per-route handler, which apigateway's actionFn (func([]byte) (int, any, error), no echo.Context) can't do directly, so this closes the same gap through dispatch()'s existing choke point instead of threading echo.Context through every actionFn. Audited every other apigateway op for the same class: GetExport is the only other op with output-side HTTP header bindings in apigateway@v1.42.4 (the 3 ImportRestApi/PutRestApi/ImportApiKeys/ImportDocumentationParts ops with Body []byte carry it on their *Input*, already handled correctly by isRawBodyAPIGWAction/dispatchRestAPISpec's existing raw-request-body path). GetExport's body was never double-JSON-wrapped (the export map was already served as the sole JSON payload) and its Content-Type happened to already read application/json correctly (this emulator only ever produces JSON), but it never set Content-Disposition; fixed via the same rawBinaryResponse mechanism. AWS's docs (API_GetExport.html) confirm ContentDisposition is a real response header but do not specify its value's format, so the filename this emulator sends is a synthesized, non-wire-mandated convention, same as GetSdk's pre-existing ContentDisposition in sdk.go. Proven with real aws-sdk-go-v2-client tests (TestAPIGateway_GetSdk_HeadersNotBody_RealClient, TestAPIGateway_GetExport_HeadersNotBody_RealClient) that fail against the pre-fix code (verified via hand-revert: ContentType decoded as "application/json" instead of "application/octet-stream", ContentDisposition nil) and pass post-fix. The pre-fix TestAPIGateway_GetSdk test asserted the broken JSON shape directly (unmarshalling the response body into a map and reading resp["contentType"]/resp["body"]) — replaced with the real-client test.
+# 2026-09-04 follow-up (bd: gopherstack-fum): data-plane routing audit. FIXED: (1)
+# handleProxyRequest never checked whether the URL's {stage} segment named a real,
+# deployed stage -- an undeployed RestApi (PutMethod/PutIntegration configured, no
+# CreateDeployment ever called) or a completely made-up stage name in the URL still
+# routed straight through to the integration and executed it; also, an unmatched
+# resource/method returned a bare 404 "page not found" instead of AWS's real 403
+# "Missing Authentication Token". Both fixed in proxy.go (GetStage gate +
+# writeMissingAuthenticationTokenResponse), verified fail-before/pass-after with
+# TestHandleProxyRequest_RequiresDeployedStage plus updated assertions in 4 existing
+# tests that had been asserting the wrong 404 status. (2) h.trieCache (the compiled
+# per-API routing-trie cache) was never evicted on DeleteRestApi -- since RestApi IDs
+# are fresh-random per CreateRestApi, a deleted API's entry can never be overwritten
+# and stays in process memory for the server's lifetime; fixed in
+# handler_rest_apis.go's deleteRestAPIAction, verified with
+# TestDeleteRestAPI_EvictsTrieCache (fails pre-fix, passes post-fix). NOT FIXED, see
+# gaps: the "AWS" (non-proxy) integration type unconditionally treats its target as a
+# Lambda function regardless of what service the URI actually names -- confirmed a
+# real DynamoDB/SQS/SNS/S3/Step-Functions direct "AWS" integration (a common,
+# AWS-documented pattern) is accepted at PutIntegration with no validation but never
+# executes the target action; fixing this needs new per-service invoker wiring in
+# cli.go, out of this pass's services/apigateway-only scope. Also documented (not
+# fixed, large architectural change): CreateDeployment does not freeze a routable
+# snapshot -- the data plane always matches against the RestApi's LIVE current
+# resource/method/integration state regardless of which deployment a stage is
+# nominally pinned to, so editing or deleting a resource after deployment takes
+# effect on the already-deployed stage immediately, with no new deployment required
+# (confirmed by reproduction: delete a resource post-deploy, no redeploy, and the
+# already-deployed stage 403s immediately instead of continuing to serve the old
+# resource). Everything else audited this pass (AWS_PROXY/Lambda event+response
+# shape, MOCK, HTTP/HTTP_PROXY, TOKEN/REQUEST/COGNITO_USER_POOLS authorizers, API
+# key + usage plan enforcement, request validators) is real and wired -- see the
+# per-integration-type verdict table in the dated section at the end of this file.
 ops:
   UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). This sweep: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added"}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}
@@ -133,7 +165,7 @@ ops:
   ImportRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  proxy_invocation: {status: ok, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch"}
+  proxy_invocation: {status: fixed, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch. 2026-09-04 (gopherstack-fum): FIXED -- handleProxyRequest never verified the URL's {stage} segment named a real deployed stage, so an undeployed RestApi (or any made-up stage name) still routed to and executed the configured integration; unmatched routes also returned a bare 404 instead of AWS's real 403 'Missing Authentication Token'. Both fixed (GetStage gate + writeMissingAuthenticationTokenResponse). Per-integration-type verdict: AWS_PROXY (Lambda proxy) wired and executing, event/response shape correct; AWS (Lambda, non-proxy, VTL) wired and executing; AWS (non-Lambda service target, e.g. DynamoDB/SQS/SNS/S3/Step Functions direct integration) accepted at PutIntegration with no validation but NEVER executes -- handleAWSIntegration unconditionally treats the URI as a Lambda function name regardless of target service, confirmed by reproduction (503/500, never reaches the target service) -- see gaps; HTTP/HTTP_PROXY wired and executing (real outbound HTTP request); MOCK wired and executing; VPC_LINK is not a distinct Integration.Type (it's HTTP/HTTP_PROXY + connectionType=VPC_LINK) and is routed identically to a plain HTTP_PROXY request to integration.URI -- no real VPC/NLB emulation exists to route through, a structural simplification, not separately verified against connectionId. TOKEN/REQUEST/COGNITO_USER_POOLS authorizers and API-key/usage-plan enforcement confirmed wired and executing (unchanged this pass)."}
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps:
@@ -147,10 +179,12 @@ gaps:
   - "FIXED (bd: gopherstack-6q5h): UpdateAuthorizer's \"/providerARNs\" add/remove (patch-operations.html: add/remove supported, replace not). Added applyAuthorizerPatchOp, merging with the authorizer's existing ProviderARNs (a wholesale replace would otherwise drop every other ARN) the same way applyAPIKeyPatchOp's /stages case does. InMemoryBackend.UpdateAuthorizer's ProviderARNs merge switched from len()>0 to != nil so removing the last ARN actually clears it (same class of bug the gopherstack-oius sweep fixed 'everywhere these paths reach', but Authorizer wasn't in that sweep's scope). Before this fix the raw Value JSON string unmarshaled straight into a []string field via the generic fallback and FAILED THE WHOLE PATCH REQUEST with a 500 (same bug class as UpdateIntegration's /cacheKeyParameters) — confirmed against a git-worktree checkout of the pre-fix commit with TestSDK_UpdateAuthorizer_ProviderARNsPatch (patch_ops_sdk_test.go), a real aws-sdk-go-v2 client test."
   - "FIXED (bd: gopherstack-6q5h): UpdateBasePathMapping's PATCH paths were far more broken than a casing bug. patch-operations.html spells them lowercase (\"/basepath\", \"/restapiId\" — note even here the doc keeps a capital I in \"restapiId\"), but the AWS CLI reference's own worked example (docs.aws.amazon.com/cli/latest/reference/apigateway/update-base-path-mapping.html, mirrored in the AWS Doc SDK Examples code-library page) uses path='/basePath' and shows a real, changed \"basePath\" in its output — AWS's own sources disagree on the casing, so BOTH spellings are now accepted rather than picking one. But even the EXACT struct-tag-matching spelling \"/basePath\" did not work before this fix, for a reason unrelated to casing: UpdateBasePathMappingInput.BasePath is the REQUIRED identity used to find the mapping (populated from the URL path segment), and handler.go's pathParams-merge step (injectJSONFieldAPIGW) runs AFTER applyStructuredPatch and unconditionally overwrites whatever the patch resolver staged under \"basePath\" with the URL's OLD value — so a rename could never take effect regardless of spelling, and InMemoryBackend.UpdateBasePathMapping had no rename logic at all (BasePath was read-only, used solely as a lookup key). Fixed both: applyBasePathMappingPatchOp now stages a rename under a new NewBasePath field (private to this backend, no equivalent on the real AWS wire) that InMemoryBackend.UpdateBasePathMapping applies as an actual store.Table key rename (delete old key, mutate BasePath, re-Put — rejecting a collision with an existing mapping at the new path). \"/restapiId\" is now explicitly aliased to RestAPIID too, rather than relying on it incidentally working via json.Unmarshal's case-insensitive field match (it does, since RestAPIID isn't pathParams-clobbered, but that's an accident worth not depending on). \"/restApiId\" and \"/stage\" already worked via the generic fallback and needed no change. Verified with TestSDK_UpdateBasePathMapping_PatchOperations (patch_ops_sdk_test.go) against a real aws-sdk-go-v2 client, confirmed failing pre-fix for both \"/basepath\" (404 on the renamed lookup) and \"/basePath\" (silently kept the old value)."
   - "CASING SWEEP (bd: gopherstack-6q5h): compared all 22 patchOperations-taking ops' documented paths (a fresh patch-operations.html fetch) against their Update*Input json tags and, for UpdateStage's per-route method-settings properties and UpdateUsagePlan's per-route throttle path, the literal strings this dispatcher compares against (patch.go's stageMethodSettingProperty map / usagePlanThrottlePathMinSegs segmentation). UpdateBasePathMapping's /basepath and /restapiId (fixed this pass) were the ONLY casing mismatch found; every other operation's json tags match their documented path spelling exactly, letter for letter. Also found in passing, NOT fixed (a real casing question but out of this ticket's scope): UpdateAuthorizer's PATCH table separately documents \"/authType\" (types.Authorizer.AuthType, a real but different field from Authorizer's existing \"Type\"/authorizerType) which this backend does not model at all — an unmodeled-field gap, not a casing one; and UpdateRestApi's table documents \"/securityPolicy\", but neither RestAPI nor UpdateRestAPIInput has a SecurityPolicy field (only DomainName does) — also unmodeled, not casing."
+  - "2026-09-04 (bd: gopherstack-fum), NOT FIXED (needs cli.go wiring, out of services/apigateway-only scope): the 'AWS' (non-proxy) integration type only ever invokes Lambda -- handleAWSIntegration (proxy_integrations.go) calls ExtractLambdaFunctionName(integration.URI) and h.lambda.InvokeFunction unconditionally, regardless of what AWS service the URI actually names. A real, AWS-documented direct 'AWS' integration targeting DynamoDB/SQS/SNS/S3/Step Functions/etc. (e.g. uri=\"arn:aws:apigateway:us-east-1:dynamodb:action/PutItem\") is accepted at PutIntegration with no validation of the target service, but fails at invoke time -- either 503 'Lambda integration not configured' (no invoker wired) or a Lambda 'function not found' failure (invoker wired, ExtractLambdaFunctionName returns the DynamoDB ARN unchanged, which is not a real Lambda function). The target action never executes. Fixing this for real needs new per-service invoker interfaces (mirroring LambdaInvoker) wired in cli.go for each directly-integrable AWS service -- a large, multi-service change, not a services/apigateway-local fix."
+  - "2026-09-04 (bd: gopherstack-fum), documented, NOT FIXED (large architectural change): CreateDeployment does not freeze a routable snapshot of resources/methods/integrations. Deployment.APISummary is a lightweight display-only summary (matching the real SDK's ApiSummary field), not something the data plane routes against -- proxy_routing.go's routingTrie always calls Backend.ResourcesForRouting(apiID), which reads the RestApi's LIVE current resource tree, with no notion of 'as of which deployment'. Confirmed by reproduction: deploy a stage, then delete (or edit) a resource with NO new deployment -- the already-deployed stage's behavior changes immediately, where real AWS would keep serving the old, deployed configuration until a new deployment is created and the stage is repointed to it. Properly fixing this needs a real per-deployment resource/method/integration snapshot plus stage-to-deployment pinning enforced in the data plane -- a substantial redesign of the deployment model, out of scope for a targeted bug-fix pass."
 deferred:
   - "ApiKey.StageKeys's PATCH /labels add/remove path (listed in patch-operations.html's UpdateApiKey table) still has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey (re-verified this sweep) — likely a stale doc artifact from a pre-Tags API generation. Nothing to implement against; distinct from /stages, which this sweep DID implement (see Notes)."
   - "2026-08-11 (gopherstack-oius): Method.AuthorizationScopes is not modeled anywhere in this backend (not on Method, not on PutMethodInput/CreateAuthorizerInput's COGNITO_USER_POOLS flow) even though patch-operations.html documents UpdateMethod's \"/authorizationScopes\" as add/remove-supported and it's a real, commonly-used field (COGNITO_USER_POOLS authorizer scope matching). UpdateMethod now explicitly REJECTS this path (BadRequestException) rather than silently accepting a patch that changes nothing — see applyMethodPatchOp. Properly modeling it needs PutMethod/PutMethodInput plumbing too, a larger change than this PATCH-focused sweep; tracked here as the next real step."
-leaks: {status: clean, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly"}
+leaks: {status: fixed, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly. 2026-09-04 (bd: gopherstack-fum): FIXED -- h.trieCache (the compiled per-API routing-trie cache, a sync.Map keyed by RestApi ID) was never evicted on DeleteRestApi; since IDs are fresh-random per CreateRestApi a deleted API's cached trie could never be overwritten by a later Store and stayed in process memory for the server's remaining lifetime. Fixed in handler_rest_apis.go's deleteRestAPIAction (h.trieCache.Delete after a successful backend delete); TestDeleteRestAPI_EvictsTrieCache confirmed failing pre-fix, passing post-fix."}
 ---
 
 ## Notes
@@ -790,3 +824,146 @@ unmodified code -- no bug found.
 
 Gates (this pass, `services/apigateway/` only): `go build`, `go vet`,
 `go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-09-04 gopherstack-fum: data-plane routing audit (does a real request reach the integration?)
+
+Focus this pass was the question prior sweeps hadn't asked directly: for a real
+HTTP request against a *deployed* API, does it actually route through to its
+configured integration, or is configuration accepted at PutIntegration time and
+never genuinely exercised? Per-integration-type verdict:
+
+| Integration type | Verdict |
+|---|---|
+| AWS_PROXY (Lambda proxy) | wired and executing -- event shape (`LambdaProxyEvent`) and response translation (`statusCode`/`headers`/`body`/`isBase64Encoded`) verified against AWS's documented proxy integration contract |
+| AWS, Lambda target (non-proxy, VTL) | wired and executing -- request/response VTL templates render, Lambda invoked via the injected `LambdaInvoker` |
+| AWS, non-Lambda service target (DynamoDB/SQS/SNS/S3/Step Functions/etc.) | **accepted but never executes** -- see gaps below |
+| HTTP / HTTP_PROXY | wired and executing -- real outbound `http.Client` request to `integration.URI` |
+| MOCK | wired and executing |
+| VPC_LINK | not a distinct `Integration.Type` in real AWS (it's HTTP/HTTP_PROXY + `connectionType=VPC_LINK`); routed identically to a plain HTTP_PROXY request -- no VPC/NLB emulation exists, `connectionId` is not separately validated. Structural simplification, not a "never executes" bug. |
+| Authorizers (TOKEN/REQUEST/COGNITO_USER_POOLS) | wired and executing -- Lambda invoke for TOKEN/REQUEST, local JWKS verification for COGNITO_USER_POOLS |
+| API key + usage plan enforcement | wired and executing -- real 429s (`LimitExceededException`/`TooManyRequestsException`) |
+
+**Bug found and fixed: stage deployment did not gate routing at all.**
+`handleProxyRequest` (proxy.go) matched the incoming request against
+`Backend.ResourcesForRouting(apiID)` -- the RestApi's *live* current resource
+tree -- and never checked whether the URL's `{stage}` segment named a stage
+that a real `CreateDeployment` had actually produced. Consequences, both
+reproduced before fixing:
+
+1. A RestApi with `PutMethod`/`PutIntegration` configured but **no
+   `CreateDeployment` ever called** was still fully invocable via
+   `/proxy/{apiId}/{anyStage}/...` or
+   `/restapis/{apiId}/{anyStage}/_user_request_/...` -- with `{anyStage}` an
+   entirely made-up string. AWS refuses any request to an undeployed API.
+2. Even with a real deployment, invoking with the *wrong* stage name in the
+   URL still routed successfully, because the stage name was only used as a
+   path-prefix string to strip, never validated against `Backend.GetStage`.
+3. Unmatched routes (resource path, or method with no integration) returned a
+   bare `http.NotFound` -- HTTP 404 with body "404 page not found" -- where
+   real API Gateway returns HTTP 403 with body
+   `{"message":"Missing Authentication Token"}` and header
+   `X-Amzn-Errortype: MissingAuthenticationTokenException` (confirmed via
+   live web search against AWS's documented behavior and the well-known
+   "Missing Authentication Token" troubleshooting pattern; this fires for an
+   invalid/undeployed stage, an unmatched path, a method with no integration,
+   or a root resource with no method -- before authentication is ever
+   considered, despite the name).
+
+Fixed in `proxy.go`: `handleProxyRequest` now checks `Backend.GetStage(apiID,
+stageName)` before matching a route, and every "no match" branch (bad stage,
+unmatched resource, unmatched method/integration) now calls the new
+`writeMissingAuthenticationTokenResponse` (403 + the AWS body/header shown
+above) instead of `http.NotFound`. `services/apigateway/proxy_test.go`'s
+`TestHandleProxyRequest_RequiresDeployedStage` (new) and
+`services/apigateway/proxy_validation_test.go`'s
+`TestProxy_TrieCache_InvalidatesOnNewResource` (existing, assertion updated)
+both confirmed failing against the pre-fix binary and passing post-fix; three
+more existing subtests (`TestHandleAWSProxy/not_found`,
+`TestUserRequestEndpoint/not_found`,
+`TestPathVariableMatching/param_no_match_wrong_depth`) had their expected
+status updated from 404 to 403 for the same reason (they were asserting the
+old, wrong behavior).
+
+**Bug found and fixed: `h.trieCache` (compiled routing-trie cache) leaked on
+DeleteRestApi.** `h.trieCache` is a `sync.Map` keyed by RestApi ID, holding the
+compiled routing trie built from that API's resources. `deleteRestAPIAction`
+(handler_rest_apis.go) called `Backend.DeleteRestAPI` but never
+`h.trieCache.Delete` -- and since RestApi IDs are freshly random on every
+`CreateRestApi`, a deleted API's stale trie-cache entry could never later be
+overwritten by a `Store` under the same key. Every RestApi ever routed to and
+then deleted stays in process memory for the remainder of the server's
+lifetime -- an unbounded leak in any long-running gopherstack process (e.g.
+integration-test suites that create/delete many APIs). Fixed by adding
+`h.trieCache.Delete(input.RestAPIID)` after a successful backend delete.
+`TestDeleteRestAPI_EvictsTrieCache` (new, `proxy_internal_test.go`, white-box)
+confirmed failing pre-fix and passing post-fix.
+
+**Confirmed, NOT fixed (out of services/apigateway-only scope): "AWS"
+(non-proxy) integration only ever invokes Lambda.** `handleAWSIntegration`
+(proxy_integrations.go) unconditionally calls
+`ExtractLambdaFunctionName(integration.URI)` and `h.lambda.InvokeFunction`,
+regardless of what AWS service the URI actually names. A real,
+AWS-documented direct "AWS" integration targeting DynamoDB, SQS, SNS, S3,
+Step Functions, etc. (e.g.
+`uri: "arn:aws:apigateway:us-east-1:dynamodb:action/PutItem"`, a pattern AWS
+explicitly documents for API Gateway → DynamoDB direct integrations) is
+accepted by `PutIntegration` with zero validation of the target service, but
+the target action never executes: reproduced getting either a 503 ("Lambda
+integration not configured", no invoker wired) or, with the production
+`LambdaInvoker` wired the way `cli.go`'s `wireAPIGatewayLambda` wires it, a
+Lambda "function not found" failure (`ExtractLambdaFunctionName` returns the
+DynamoDB ARN unchanged, which resolves to no real Lambda function). This
+matches the campaign's "accepted on the wire, silently does nothing in a real
+server" bug class exactly. Not fixed here because a genuine fix needs new
+per-service invoker interfaces (mirroring `LambdaInvoker`) wired into each
+directly-integrable backend from `cli.go` -- a multi-service architectural
+change, not a services/apigateway-local one.
+
+**Documented, NOT fixed (large architectural change): `CreateDeployment`
+does not freeze a routable snapshot.** `Deployment.APISummary` is a
+lightweight, display-only summary (matching the real SDK's `ApiSummary`
+field) -- it is never consulted by the data plane. `routingTrie` always
+calls `Backend.ResourcesForRouting(apiID)`, which reads the RestApi's *live*
+current resource/method/integration state, with no notion of "as of which
+deployment". Reproduced: deploy a stage, then delete a resource with **no**
+new deployment -- the already-deployed stage's behavior changes immediately
+(the deleted route now 403s), where real AWS keeps serving the old, deployed
+configuration until a new deployment is created and the stage is repointed
+to it. A real fix needs a per-deployment resource/method/integration
+snapshot plus stage-to-deployment pinning enforced in the data plane --
+tracked here as a known gap, not attempted this pass.
+
+Five-dimension summary:
+
+1. **AWS behavior compliance**: BUGS FOUND (documented above: deployment
+   gating, 403-vs-404 error shape, AWS-non-Lambda integration gap). Checked
+   the data-plane routing/authorizer/API-key/usage-plan paths in depth; did
+   not re-verify the (already extensively audited in prior sweeps) control-
+   plane CRUD wire shapes/PATCH semantics this pass.
+2. **LocalStack parity**: NOT CHECKED -- no LocalStack instance available.
+3. **Cross-service integration**: BUGS FOUND -- the AWS-non-Lambda-target gap
+   above is squarely this dimension. Lambda proxy event/response shape
+   verified correct (AWS_PROXY). Cognito JWKS and Lambda-invoker wiring in
+   `cli.go` verified present and correctly connected (read-only check).
+4. **Performance**: CLEAN (checked) -- routing trie is built once per
+   resource-set version and cached (`routingTrie`/`trieCacheEntry`), not
+   rebuilt per request; selection-pattern regexps are cached in a bounded LRU
+   (`regexpCache`); no obvious O(n) per-request scan found in the request
+   hot path.
+5. **Resource leaks**: BUGS FOUND AND FIXED -- the `h.trieCache` leak above.
+   Did not separately re-audit every other map in the service for the same
+   class of issue this pass (authorizer cache and regexp cache are already
+   bounded LRUs per prior sweeps).
+
+Unconfirmed suspicions (not chased further this pass, no reproduction
+attempted): `mockIntegrationResponse` only ever looks at the `"200"`
+`IntegrationResponses` entry for MOCK integrations, never applying
+`selectionPattern`-based response selection the way `matchIntegrationResponse`
+does for AWS (non-proxy) integrations -- real MOCK integrations are commonly
+configured with a `#set($context.responseOverride.status = ...)` request
+template to pick a non-200 response; whether that's honored here wasn't
+verified.
+
+Gates: `gofmt -l services/apigateway/` clean; `GOTOOLCHAIN=go1.26.6 go build
+./services/apigateway/...`, `go vet`, `go test -race -count=1`, and
+`golangci-lint run` all clean on `./services/apigateway/...`.

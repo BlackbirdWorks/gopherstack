@@ -337,7 +337,9 @@ func TestProxy_TrieCache_InvalidatesOnNewResource(t *testing.T) {
 
 	// Prime the trie cache.
 	assert.Equal(t, http.StatusOK, rawProxyGet(t, h, e, api.ID, "/first").Code)
-	assert.Equal(t, http.StatusNotFound, rawProxyGet(t, h, e, api.ID, "/second").Code)
+	// Unmatched resource path on a deployed stage: AWS returns 403 "Missing
+	// Authentication Token", not 404.
+	assert.Equal(t, http.StatusForbidden, rawProxyGet(t, h, e, api.ID, "/second").Code)
 
 	// Add a new resource; the cached trie must be invalidated by the version bump.
 	second, err := backend.CreateResource(api.ID, rootID, "second")

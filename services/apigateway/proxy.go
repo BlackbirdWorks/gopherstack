@@ -29,6 +29,10 @@ const defaultAuthorizerCacheMaxEntries = 1024
 
 const defaultIdentitySource = "method.request.header.Authorization"
 
+// jsonMessageKey is the JSON key AWS uses for the human-readable error text in every
+// API Gateway error response body.
+const jsonMessageKey = "message"
+
 // maxProxyRequestBodyBytes caps API Gateway proxy request bodies. AWS limits the
 // Lambda synchronous invoke payload to 6 MiB; bodies larger than that cannot be
 // forwarded anyway, so cap reads to prevent unbounded io.ReadAll memory usage.
@@ -155,6 +159,17 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// AWS requires an explicit deployment before a stage is invocable, and rejects
+		// any request whose {stage} segment doesn't name a real, deployed stage -- with
+		// 403 "Missing Authentication Token", not 404. Gate on that here so an API with
+		// resources/methods/integrations configured but never deployed (or invoked with a
+		// made-up stage name) cannot be routed to.
+		if _, err := h.Backend.GetStage(apiID, stageName); err != nil {
+			writeMissingAuthenticationTokenResponse(w)
+
+			return
+		}
+
 		// Resolve the routing trie (cached per resource-set version) and match.
 		trie, err := h.routingTrie(apiID)
 		if err != nil {
@@ -167,7 +182,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		// Match request path to resource path, extracting any path parameters.
 		resource, pathParams := matchResourceTrie(trie, r.URL.Path, stageName)
 		if resource == nil {
-			http.NotFound(w, r)
+			writeMissingAuthenticationTokenResponse(w)
 
 			return
 		}
@@ -197,7 +212,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			// Fall back to any method.
 			integration, err = h.Backend.GetIntegration(apiID, resource.ID, "ANY")
 			if err != nil {
-				http.NotFound(w, r)
+				writeMissingAuthenticationTokenResponse(w)
 
 				return
 			}
@@ -315,7 +330,20 @@ func writeThrottleResponse(w http.ResponseWriter, errorType, message string) {
 	w.Header().Set(headerContentType, "application/json")
 	w.Header().Set("X-Amzn-Errortype", errorType)
 	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: message})
+}
+
+// writeMissingAuthenticationTokenResponse writes AWS API Gateway's real response for a
+// request that never resolves to a deployed stage + matching resource + method: HTTP 403
+// with a "Missing Authentication Token" body and x-amzn-errortype header, not a 404. AWS
+// returns this for an invalid or undeployed stage, an unmatched resource path, or a
+// resource with no method for the request's HTTP verb -- the error fires before
+// authentication is ever considered, despite its name.
+func writeMissingAuthenticationTokenResponse(w http.ResponseWriter) {
+	w.Header().Set(headerContentType, "application/json")
+	w.Header().Set("X-Amzn-Errortype", "MissingAuthenticationTokenException")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Missing Authentication Token"})
 }
 
 // dispatchIntegration routes the request to the appropriate integration handler.
