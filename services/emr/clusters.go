@@ -40,6 +40,19 @@ func effectiveStepStatus(s StepStatus) StepStatus {
 	return cp
 }
 
+// clusterAcceptsSteps reports whether a cluster in the given state may
+// accept new steps via AddJobFlowSteps, per real AddJobFlowSteps' doc
+// ("You can only add steps to a cluster that is in one of the following
+// states: STARTING, BOOTSTRAPPING, RUNNING, or WAITING").
+func clusterAcceptsSteps(state string) bool {
+	switch state {
+	case StateStarting, StateBootstrapping, StateRunning, StateWaiting:
+		return true
+	default:
+		return false
+	}
+}
+
 // The following Get/Has/Put/Delete/InRegion helpers replace the old lazy
 // per-region map accessors (clustersStore(region) etc.) with store.Table /
 // store.Index operations. Callers must still hold b.mu, exactly as before --

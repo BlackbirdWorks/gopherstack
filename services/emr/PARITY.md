@@ -7,8 +7,32 @@
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 8c56f4eb9                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26). HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
-last_audit_date: 2026-08-30
-overall: A                # 2026-08-30 (transfer/emr/elasticache Describe/List rigor pass, same wrapper-key-sweep
+last_audit_date: 2026-09-04
+overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
+                           # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
+                           # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
+                           # DeleteStudioSessionMapping, CancelSteps, StopNotebookExecution) against their own
+                           # api_op_<Op>.go doc comments: only TerminateJobFlows (TerminationProtected, already
+                           # correctly enforced -- clusters.go's terminateSingle) and CancelSteps (PENDING/RUNNING-
+                           # only, structurally reduces to PENDING-only since this backend never produces RUNNING
+                           # steps, matching the existing steps state-model) document real preconditions; the other
+                           # seven document none -- a valid negative result, not seven unchecked rows. Found one real
+                           # bug via the same doc-comment method applied to a tenth, non-listed op: AddJobFlowSteps'
+                           # own doc ("You can only add steps to a cluster that is in one of the following states:
+                           # STARTING, BOOTSTRAPPING, RUNNING, or WAITING") had no corresponding check at all --
+                           # steps could be silently appended to an already-TERMINATED cluster. Fixed (see
+                           # AddJobFlowSteps' ops note). Also confirmed real, disclosed-not-fixed: AutoTerminationPolicy
+                           # and AutoTerminate/KeepJobFlowAliveWhenNoSteps are accepted/persisted/echoed but never
+                           # enforced by any timer or sweep (see gaps); PutAutoScalingPolicy/PutManagedScalingPolicy's
+                           # similar non-effect judged structural (no load-metrics signal exists to act on, unlike
+                           # the idle-timeout/no-more-steps signals AutoTerminationPolicy/AutoTerminate could compute
+                           # from state already tracked). ModifyInstanceGroups/ModifyInstanceFleet re-verified as
+                           # genuinely mutating state (not disguised no-ops); instance/cluster/step lifecycle
+                           # (WAITING-only, PENDING->COMPLETED-only) re-confirmed as the existing documented
+                           # structural simplification, not a newly found stub. ghost-row/hard-delete class (pattern
+                           # d) re-confirmed inapplicable per the prior sweep's finding (EMR has no hard-delete
+                           # concept; TerminateJobFlows leaves clusters describable, matching real EMR).
+                           # 2026-08-30 (transfer/emr/elasticache Describe/List rigor pass, same wrapper-key-sweep
                            # branch): independently re-derived the 22-op Describe/List surface from handler.go's
                            # dispatch table (not PARITY.md prose) and read each op's own api_op_<Op>.go against its
                            # handler. Found and fixed two real bugs the 2026-08-28/29 sweeps on this same branch
@@ -111,7 +135,7 @@ ops:
   TerminateJobFlows: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed EndDateTime millis->epoch-seconds"}
   ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeJobFlows: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed CreatedAfter/CreatedBefore millis->epoch-seconds parsing"}
-  AddJobFlowSteps: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed StepTimeline millis->epoch-seconds"}
+  AddJobFlowSteps: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed StepTimeline millis->epoch-seconds. FIXED 2026-09-04 (gopherstack-s1m missing-delete-precondition sweep): real AddJobFlowSteps doc (api_op_AddJobFlowSteps.go) states \"You can only add steps to a cluster that is in one of the following states: STARTING, BOOTSTRAPPING, RUNNING, or WAITING\" -- this backend's AddJobFlowSteps checked only that the cluster existed, never its Status.State, so steps could be silently appended to an already-TERMINATED cluster (no error, StepIds returned as if the call succeeded). Added clusterAcceptsSteps (clusters.go), an explicit allow-list mirroring sessionCanStart's existing pattern; STARTING/BOOTSTRAPPING (new StateStarting/StateBootstrapping constants, models.go) are unreachable in this backend for the same reason StateRunning already was (see its comment) but included for correctness against the real API. Proven via TestEMR_AddJobFlowSteps_RejectsTerminatedCluster (handler_steps_test.go), hand-reverted (git show HEAD, four source files)/confirmed failing pre-fix (200 instead of 400, step silently added)/restored."}
   ListSteps: {wire: ok, errors: ok, state: ok, persist: ok, note: "steps now auto-complete on read (were stuck PENDING forever)"}
   DescribeStep: {wire: ok, errors: ok, state: ok, persist: ok, note: "same auto-complete-on-read fix"}
   CancelSteps: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed enum: SUBMITTED/FAILED (was fabricated SUCCESS/QUEUED); added Reason"}
@@ -191,6 +215,7 @@ families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."}
 gaps:
   - "ListInstances synthesized fleet instances leave InstanceType blank: InstanceFleet (unlike InstanceGroup) only tracks aggregate TargetOnDemandCapacity/TargetSpotCapacity/Provisioned* counts, not a per-instance-type breakdown -- AddInstanceFleet's real wire input accepts InstanceTypeConfigs (a weighted list of candidate instance types) but gopherstack's InstanceFleetSpec never captured it at all, a pre-existing gap larger than this pass's ListInstances-synthesis scope. This IS buildable (thread InstanceTypeConfigs through AddInstanceFleet/RunJobFlow's inline fleet spec, pick a type per synthesized instance) but was left out of this pass to stay in scope; leaving InstanceType blank rather than inventing a plausible-looking type avoids fabricating data the backend doesn't have. (bd: gopherstack-dqd8)"
+  - "AutoTerminationPolicy.IdleTimeout and AutoTerminate/KeepJobFlowAliveWhenNoSteps are accepted, validated, persisted, and echoed back verbatim (PutAutoTerminationPolicy/RunJobFlow), but neither ever actually terminates a cluster: the only background worker in this package (janitor.go) sweeps already-TERMINATED clusters past a TTL, it does not evaluate idle time or step-completion against a live cluster to trigger a *new* termination. Real AWS auto-terminates an idle/step-exhausted cluster; gopherstack's cluster just sits in WAITING forever regardless of either setting (2026-09-04 gopherstack-s1m pattern-(b) sweep). Distinguished from PutAutoScalingPolicy/PutManagedScalingPolicy's non-effect (structural: those need a real load/metrics signal this emulator has no model for at all -- see the session-state-model precedent) because idle-timeout and no-more-steps are both signals this backend could compute from state it already tracks (effectiveStepStatus's step-completion promotion, cluster.steps). Not fixed this pass: real AutoTerminate's exact idle definition (does a live interactive session or notebook execution count as activity? does the timer restart on AddJobFlowSteps?) is not specified in the pinned SDK doc comment beyond \"amount of idle time... after which a cluster automatically terminates\", and this backend's huge existing test suite (handler_clusters_test.go et al.) broadly assumes a WAITING cluster stays WAITING indefinitely once created -- implementing this without a precise spec risked being speculative invention of behavior across a wide, already-A-graded surface. Flagged for a dedicated follow-up pass rather than fixed speculatively."
 structural_gaps:
   - "Cluster.OutpostArn stays omitted (nil): the real value is derived from which Outpost the launch subnet belongs to, a subnet-to-Outpost topology fact that lives in EC2/Outposts, not in anything RunJobFlowInput passes to EMR directly. Gopherstack's EMR has no cross-service lookup into services/outposts' subnet/Outpost state, and most clusters are not Outpost-launched anyway (nil is the correct value for the common case); wiring a real cross-service resolution is a distinct, larger feature than an EMR-local field fix. (bd: gopherstack-dqd8)"
   - "Cluster.MasterPublicDnsName stays omitted (nil): a real DNS name comes from the EC2 instance actually launched for the master node. Gopherstack's EMR never creates a corresponding EC2 instance (ListInstances synthesizes lightweight ClusterInstance records, not real ec2.Instance resources with their own IP/DNS allocation), so there is no real DNS name to report; inventing one would be exactly the fabrication this campaign removes elsewhere. (bd: gopherstack-dqd8)"
