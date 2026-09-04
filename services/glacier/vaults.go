@@ -93,10 +93,12 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 		// AbortMultipartUpload/CompleteMultipartUpload already do for a single
 		// upload -- otherwise deleting a vault with in-progress multipart uploads
 		// leaves orphaned rows behind forever.
-		delete(b.multipartParts, uploadKey{
+		uKey := uploadKey{
 			AccountID: accountID, Region: region, VaultName: vaultName,
 			UploadID: up.MultipartUploadID,
-		})
+		}
+		delete(b.multipartParts, uKey)
+		delete(b.multipartPartData, uKey)
 	}
 
 	b.vaultLocks.Delete(vArn)
