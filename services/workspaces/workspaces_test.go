@@ -302,12 +302,15 @@ func TestStartWorkspaces_ResumesFromStopped(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Stop/Start idempotency
+// Stop/Start state preconditions
 // ---------------------------------------------------------------------------
 
-// TestStopWorkspaces_AlreadyStopped_Succeeds verifies that stopping an
-// already-STOPPED workspace succeeds with no failures.
-func TestStopWorkspaces_AlreadyStopped_Succeeds(t *testing.T) {
+// TestStopWorkspaces_AlreadyStopped_Fails verifies real AWS's documented
+// precondition ("You cannot stop a WorkSpace unless ... a state of AVAILABLE,
+// IMPAIRED, UNHEALTHY, or ERROR", api_op_StopWorkspaces.go doc comment):
+// STOPPED is not in that list, so stopping an already-STOPPED workspace must
+// report a per-item failure, not silently succeed.
+func TestStopWorkspaces_AlreadyStopped_Fails(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -325,12 +328,17 @@ func TestStopWorkspaces_AlreadyStopped_Succeeds(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	failures, _ := resp["FailedRequests"].([]any)
-	assert.Empty(t, failures, "stopping an already-STOPPED workspace must succeed")
+	require.Len(t, failures, 1, "stopping an already-STOPPED workspace must fail")
+	failed := failures[0].(map[string]any)
+	assert.Equal(t, wsID, failed["WorkspaceId"])
+	assert.Equal(t, "InvalidResourceStateException", failed["ErrorCode"])
 }
 
-// TestStartWorkspaces_AlreadyAvailable_Succeeds verifies that starting an
-// already-AVAILABLE workspace succeeds with no failures.
-func TestStartWorkspaces_AlreadyAvailable_Succeeds(t *testing.T) {
+// TestStartWorkspaces_AlreadyAvailable_Fails verifies real AWS's documented
+// precondition ("You cannot start a WorkSpace unless ... a state of STOPPED",
+// api_op_StartWorkspaces.go doc comment): starting an already-AVAILABLE
+// workspace must report a per-item failure, not silently succeed.
+func TestStartWorkspaces_AlreadyAvailable_Fails(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -344,7 +352,10 @@ func TestStartWorkspaces_AlreadyAvailable_Succeeds(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	failures, _ := resp["FailedRequests"].([]any)
-	assert.Empty(t, failures, "starting an already-AVAILABLE workspace must succeed")
+	require.Len(t, failures, 1, "starting an already-AVAILABLE workspace must fail")
+	failed := failures[0].(map[string]any)
+	assert.Equal(t, wsID, failed["WorkspaceId"])
+	assert.Equal(t, "InvalidResourceStateException", failed["ErrorCode"])
 }
 
 // ---------------------------------------------------------------------------

@@ -417,10 +417,15 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			},
 		},
 		{
-			name:   "StartWorkspaces with known workspace returns no failures",
+			name:   "StartWorkspaces with known stopped workspace returns no failures",
 			target: "StartWorkspaces",
 			setup: func(h *workspaces.Handler) string {
-				return createWorkspace(t, h)
+				wsID := createWorkspace(t, h)
+				doTargetRequest(t, h, "StopWorkspaces", map[string]any{
+					"StopWorkspaceRequests": []map[string]any{{"WorkspaceId": wsID}},
+				})
+
+				return wsID
 			},
 			body: func(wsID string) any {
 				return map[string]any{
