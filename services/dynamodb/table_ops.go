@@ -491,6 +491,11 @@ func (db *InMemoryDB) DeleteTable(
 		db.streamARNIndex.Delete(table.StreamARN)
 	}
 
+	// Clear any FIS global-table-pause-replication fault. TableArn is
+	// deterministic from the table name, so a same-named recreated table
+	// would otherwise inherit a stale paused-replication state.
+	delete(db.fisReplicationPaused, table.TableArn)
+
 	// The table is already unlinked from db.tables, but a caller that grabbed
 	// this same *Table just before this delete can still be actively writing to
 	// it under table.mu without re-checking db.tables -- reading these fields
