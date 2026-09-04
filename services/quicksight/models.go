@@ -140,11 +140,14 @@ func (i *storedIngestion) toIngestion() *Ingestion {
 type storedDashboard struct {
 	CreatedTime            time.Time            `json:"createdTime"`
 	LastUpdatedTime        time.Time            `json:"lastUpdatedTime"`
+	LastPublishedTime      time.Time            `json:"lastPublishedTime"`
 	Definition             map[string]any       `json:"definition,omitempty"`
 	DashboardID            string               `json:"dashboardId"`
 	Arn                    string               `json:"arn"`
 	Name                   string               `json:"name"`
 	Status                 string               `json:"status"`
+	ThemeArn               string               `json:"themeArn,omitempty"`
+	VersionDescription     string               `json:"versionDescription,omitempty"`
 	Permissions            []ResourcePermission `json:"permissions,omitempty"`
 	LinkEntities           []string             `json:"linkEntities,omitempty"`
 	VersionNumber          int64                `json:"versionNumber"`
@@ -155,10 +158,13 @@ func (d *storedDashboard) toDashboard() *Dashboard {
 	return &Dashboard{
 		CreatedTime:            d.CreatedTime,
 		LastUpdatedTime:        d.LastUpdatedTime,
+		LastPublishedTime:      d.LastPublishedTime,
 		DashboardID:            d.DashboardID,
 		Arn:                    d.Arn,
 		Name:                   d.Name,
 		Status:                 d.Status,
+		ThemeArn:               d.ThemeArn,
+		VersionDescription:     d.VersionDescription,
 		VersionNumber:          d.VersionNumber,
 		PublishedVersionNumber: d.PublishedVersionNumber,
 		Definition:             d.Definition,
