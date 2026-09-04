@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -197,6 +198,106 @@ func TestSessionExpiryConsistent(t *testing.T) {
 		_, err = b.GetCallerIdentity(creds.AccessKeyID, "")
 		require.ErrorIs(t, err, sts.ErrSessionExpired)
 	})
+}
+
+// TestResolvePrincipal_KindReflectsSessionType verifies that ResolvePrincipal
+// (the awsmeta.PrincipalResolver implementation consumed by IAM's cross-service
+// enforcement middleware) only reports Kind=AssumedRole for sessions minted by
+// an actual role-assumption operation. GetSessionToken/GetFederationToken/
+// GetDelegatedAccessToken keep the caller's own identity — they are not role
+// assumptions — and mislabeling them as AssumedRole sends
+// services/iam/middleware.go's resolveAssumedRoleIdentityPolicies down the
+// GetPoliciesForRole path with a garbage "role name" derived from a user/root/
+// federated-user ARN, which fails to resolve and silently falls through to
+// unenforced (full IAM bypass) instead of any policy check.
+func TestResolvePrincipal_KindReflectsSessionType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mint     func(t *testing.T, b *sts.InMemoryBackend) string
+		name     string
+		wantKind awsmeta.PrincipalKind
+	}{
+		{
+			name: "assume_role_is_assumed_role",
+			mint: func(t *testing.T, b *sts.InMemoryBackend) string {
+				t.Helper()
+
+				resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+					RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
+					RoleSessionName: "sess",
+				})
+				require.NoError(t, err)
+
+				return resp.AssumeRoleResult.Credentials.AccessKeyID
+			},
+			wantKind: awsmeta.PrincipalKindAssumedRole,
+		},
+		{
+			name: "assume_root_is_assumed_role",
+			mint: func(t *testing.T, b *sts.InMemoryBackend) string {
+				t.Helper()
+
+				resp, err := b.AssumeRoot(&sts.AssumeRootInput{
+					TargetPrincipal: "123456789012",
+					TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
+				})
+				require.NoError(t, err)
+
+				return resp.AssumeRootResult.Credentials.AccessKeyID
+			},
+			wantKind: awsmeta.PrincipalKindAssumedRole,
+		},
+		{
+			name: "get_session_token_is_not_assumed_role",
+			mint: func(t *testing.T, b *sts.InMemoryBackend) string {
+				t.Helper()
+
+				resp, err := b.GetSessionToken(&sts.GetSessionTokenInput{})
+				require.NoError(t, err)
+
+				return resp.GetSessionTokenResult.Credentials.AccessKeyID
+			},
+			wantKind: awsmeta.PrincipalKindUser,
+		},
+		{
+			name: "get_federation_token_is_not_assumed_role",
+			mint: func(t *testing.T, b *sts.InMemoryBackend) string {
+				t.Helper()
+
+				resp, err := b.GetFederationToken(&sts.GetFederationTokenInput{Name: "alice"})
+				require.NoError(t, err)
+
+				return resp.GetFederationTokenResult.Credentials.AccessKeyID
+			},
+			wantKind: awsmeta.PrincipalKindUser,
+		},
+		{
+			name: "get_delegated_access_token_is_not_assumed_role",
+			mint: func(t *testing.T, b *sts.InMemoryBackend) string {
+				t.Helper()
+
+				resp, err := b.GetDelegatedAccessToken(&sts.GetDelegatedAccessTokenInput{TradeInToken: "trade-in-1"})
+				require.NoError(t, err)
+
+				return resp.GetDelegatedAccessTokenResult.Credentials.AccessKeyID
+			},
+			wantKind: awsmeta.PrincipalKindUser,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			accessKeyID := tt.mint(t, b)
+
+			p, ok := b.ResolvePrincipal(t.Context(), accessKeyID, "")
+			require.True(t, ok)
+			assert.Equal(t, tt.wantKind, p.Kind)
+		})
+	}
 }
 
 // TestAccountID verifies AccountID() returns a non-empty string.
