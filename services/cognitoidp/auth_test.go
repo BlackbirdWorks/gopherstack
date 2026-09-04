@@ -45,12 +45,20 @@ func TestSignUpWithValidation_AutoVerify(t *testing.T) {
 	client, err := b.CreateUserPoolClient(pool.ID, "av-client")
 	require.NoError(t, err)
 
+	// AutoVerifiedAttributes selects which contact channel Cognito sends a
+	// confirmation code to; it does not skip confirmation itself (AWS docs,
+	// "Signing up and confirming user accounts": self-signed-up users always
+	// start Unconfirmed, and only a PreSignUp Lambda's autoConfirmUser
+	// response -- not AutoVerifiedAttributes -- can bypass that).
 	user, err := b.SignUpWithValidation(client.ClientID, "frank", "Pass1234!",
 		map[string]string{"email": "frank@example.com"})
 	require.NoError(t, err)
-	assert.Equal(t, cognitoidp.UserStatusConfirmed, user.Status)
-	assert.Empty(t, user.ConfirmCode)
+	assert.Equal(t, cognitoidp.UserStatusUnconfirmed, user.Status)
+	assert.NotEmpty(t, user.ConfirmCode)
 	assert.Equal(t, "true", user.Attributes["email_verified"])
+
+	err = b.ConfirmSignUp(client.ClientID, "frank", user.ConfirmCode)
+	require.NoError(t, err)
 }
 
 func TestSignUpWithValidation_RequiresCode_WhenEmailMissing(t *testing.T) {

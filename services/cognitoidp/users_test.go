@@ -485,6 +485,16 @@ func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "cognito_user_status_filter",
+			filter:    `cognito:user_status = "FORCE_CHANGE_PASSWORD"`,
+			wantCount: 3,
+		},
+		{
+			name:      "status_enabled_filter",
+			filter:    `status = "Enabled"`,
+			wantCount: 3,
+		},
+		{
 			name:      "pool_not_found",
 			wantErr:   true,
 			errTarget: cognitoidp.ErrUserPoolNotFound,
@@ -523,6 +533,24 @@ func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
 			assert.ErrorIs(t, err, tt.errTarget)
 		})
 	}
+}
+
+func TestInMemoryBackend_ListUsersFiltered_BySub(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	p, err := b.CreateUserPool("pool")
+	require.NoError(t, err)
+
+	alice, err := b.AdminCreateUser(p.ID, "alice", "Pass1!", nil)
+	require.NoError(t, err)
+	_, err = b.AdminCreateUser(p.ID, "bob", "Pass1!", nil)
+	require.NoError(t, err)
+
+	users, err := b.ListUsersFiltered(p.ID, `sub = "`+alice.Sub+`"`)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	assert.Equal(t, "alice", users[0].Username)
 }
 
 func TestAdminCreateUser_Backend_Full(t *testing.T) {

@@ -833,14 +833,16 @@ func (b *InMemoryBackend) SignUpWithValidation(
 
 	lambdaAutoConfirm, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
 
-	// Auto-verify attributes that are configured on the pool, or that the PreSignUp
-	// trigger explicitly requested verification for.
+	// AutoVerifiedAttributes only selects which contact channel Cognito sends
+	// the confirmation code to; it does not skip confirmation itself -- a
+	// self-signed-up user always starts UNCONFIRMED unless the PreSignUp
+	// trigger's autoConfirmUser says otherwise (AWS docs, "Signing up and
+	// confirming user accounts"). Only lambdaAutoConfirm may bypass the code.
 	autoConfirmed := lambdaAutoConfirm
 
 	for _, attr := range pool.AutoVerifiedAttributes {
 		if _, hasAttr := attrs[attr]; hasAttr {
 			attrs[attr+"_verified"] = attrVerifiedTrue
-			autoConfirmed = true
 		}
 	}
 

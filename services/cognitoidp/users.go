@@ -292,19 +292,29 @@ func parseListUsersFilter(filter string) (string, [2]string) {
 }
 
 // userMatchesFilter returns true if the user satisfies the filter criteria.
+// AttributeName cognito:user_status, status, and sub are not stored in
+// u.Attributes (they're dedicated User fields), so they need their own cases;
+// AWS documents all three as searchable ListUsers attributes alongside the
+// generic standard/custom ones (api_op_ListUsers.go).
 func userMatchesFilter(u *User, usernamePrefix string, attrFilter [2]string) bool {
 	if usernamePrefix != "" && !strings.HasPrefix(u.Username, usernamePrefix) {
 		return false
 	}
 
-	if attrFilter[0] != "" {
+	switch attrFilter[0] {
+	case "":
+		return true
+	case "cognito:user_status":
+		return strings.EqualFold(u.Status, attrFilter[1])
+	case "status":
+		return u.Enabled == (attrFilter[1] == "Enabled")
+	case "sub":
+		return u.Sub == attrFilter[1]
+	default:
 		attrVal, exists := u.Attributes[attrFilter[0]]
-		if !exists || attrVal != attrFilter[1] {
-			return false
-		}
-	}
 
-	return true
+		return exists && attrVal == attrFilter[1]
+	}
 }
 
 // AddUserInternal seeds a user directly into the backend, bypassing normal sign-up.
