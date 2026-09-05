@@ -128,7 +128,7 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
 
-				p, err := b.DescribeAlarmHistory("hist-persist", nil, "", "", time.Time{}, time.Time{}, 0)
+				p, err := b.DescribeAlarmHistory("hist-persist", nil, "", "", "", time.Time{}, time.Time{}, 0)
 				require.NoError(t, err)
 				assert.NotEmpty(t, p.Data)
 				assert.Equal(t, "hist-persist", p.Data[0].AlarmName)
@@ -546,7 +546,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, alarms.Data, 1)
 	assert.Equal(t, "full-state-alarm", alarms.Data[0].AlarmName)
 
-	hist, err := fresh.DescribeAlarmHistory("full-state-alarm", nil, "", "", time.Time{}, time.Time{}, 0)
+	hist, err := fresh.DescribeAlarmHistory("full-state-alarm", nil, "", "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, hist.Data)
 

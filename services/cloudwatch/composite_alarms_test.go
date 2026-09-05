@@ -345,13 +345,13 @@ func TestCloudWatchBackend_CompositeAlarmActionsFireOnChildChange(t *testing.T) 
 	// regardless of which kind of alarm actually fired it), so
 	// DescribeAlarmHistory's AlarmType filter can find it.
 	composite, err := b.DescribeAlarmHistory(
-		"parent2", []string{"CompositeAlarm"}, "Action", "", time.Time{}, time.Time{}, 0,
+		"parent2", []string{"CompositeAlarm"}, "Action", "", "", time.Time{}, time.Time{}, 0,
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, composite.Data, "composite alarm's Action history should be tagged CompositeAlarm")
 
 	metricTyped, err := b.DescribeAlarmHistory(
-		"parent2", []string{"MetricAlarm"}, "Action", "", time.Time{}, time.Time{}, 0,
+		"parent2", []string{"MetricAlarm"}, "Action", "", "", time.Time{}, time.Time{}, 0,
 	)
 	require.NoError(t, err)
 	assert.Empty(t, metricTyped.Data,
