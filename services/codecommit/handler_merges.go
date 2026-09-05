@@ -150,6 +150,7 @@ func (h *Handler) handleMergeBranchesByFastForward(body []byte) (any, error) {
 		RepositoryName             string `json:"repositoryName"`
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
+		TargetBranch               string `json:"targetBranch"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -159,7 +160,7 @@ func (h *Handler) handleMergeBranchesByFastForward(body []byte) (any, error) {
 	}
 
 	commit, err := h.Backend.MergeBranchesByFastForward(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.TargetBranch,
 	)
 	if err != nil {
 		return nil, err

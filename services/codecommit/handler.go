@@ -403,6 +403,11 @@ var errCodeLookup = []errCodeEntry{
 		code:     http.StatusBadRequest,
 		errType:  "FilePathConflictsWithSubmodulePathException",
 	},
+	{
+		sentinel: ErrInvalidPullRequestEventType,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidPullRequestEventTypeException",
+	},
 	{sentinel: ErrValidation, code: http.StatusBadRequest, errType: "InvalidParameterException"},
 	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
 }

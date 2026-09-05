@@ -307,8 +307,11 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(
 	return &cp, nil
 }
 
-// DescribePullRequestEvents returns events for a pull request.
-func (b *InMemoryBackend) DescribePullRequestEvents(prID string) ([]PullRequestEvent, error) {
+// DescribePullRequestEvents returns events for a pull request, optionally
+// filtered to a single pullRequestEventType (DescribePullRequestEventsInput.
+// PullRequestEventType, api_op_DescribePullRequestEvents.go: "Optional. The
+// pull request event type about which you want to return information.").
+func (b *InMemoryBackend) DescribePullRequestEvents(prID, eventType string) ([]PullRequestEvent, error) {
 	b.mu.RLock("DescribePullRequestEvents")
 	defer b.mu.RUnlock()
 
@@ -317,11 +320,13 @@ func (b *InMemoryBackend) DescribePullRequestEvents(prID string) ([]PullRequestE
 	}
 
 	events := b.prEvents[prID]
-	if events == nil {
-		return []PullRequestEvent{}, nil
+	result := make([]PullRequestEvent, 0, len(events))
+	for _, e := range events {
+		if eventType != "" && e.PullRequestEventType != eventType {
+			continue
+		}
+		result = append(result, e)
 	}
-	result := make([]PullRequestEvent, len(events))
-	copy(result, events)
 
 	return result, nil
 }
