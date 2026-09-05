@@ -39,7 +39,7 @@ type StorageBackend interface {
 	StartLendingAnalysis(ctx context.Context, documentURI string) (*LendingJob, error)
 	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
 	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
-	UpdateAdapter(ctx context.Context, adapterID, description, autoUpdate string) (
+	UpdateAdapter(ctx context.Context, adapterID string, name, description *string, autoUpdate string) (
 		*Adapter, error,
 	)
 }

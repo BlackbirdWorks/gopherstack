@@ -33,6 +33,18 @@ func (h *Handler) handleCreateAdapterVersion(
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
+	// DatasetConfig and OutputConfig (with OutputConfig.S3Bucket) are both
+	// "This member is required" on CreateAdapterVersionInput
+	// (api_op_CreateAdapterVersion.go), enforced client-side by the real
+	// SDK's validateOpCreateAdapterVersionInput/validateOutputConfig.
+	if in.DatasetConfig == nil {
+		return nil, fmt.Errorf("%w: DatasetConfig is required", errInvalidRequest)
+	}
+
+	if in.OutputConfig == nil || in.OutputConfig.S3Bucket == "" {
+		return nil, fmt.Errorf("%w: OutputConfig.S3Bucket is required", errInvalidRequest)
+	}
+
 	var av *AdapterVersion
 	var err error
 
