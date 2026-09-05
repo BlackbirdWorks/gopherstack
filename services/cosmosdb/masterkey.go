@@ -87,12 +87,34 @@ func parseMasterKeyAuthorization(header string) (masterKeyAuthorization, bool) {
 //
 // resourceId is NOT lowercased (its casing is significant -- it identifies
 // the exact resource path segment, e.g. "dbs/mydb/colls/mycoll").
+//
+// dateHeader is the value to place in the fifth field verbatim (already
+// resolved by the caller -- see effectiveDateHeaderField's doc comment for
+// why that resolution can't just be "whatever the Date header says").
 func masterKeyStringToSign(verb, resourceType, resourceID, xmsDate, dateHeader string) string {
 	return strings.ToLower(verb) + "\n" +
 		strings.ToLower(resourceType) + "\n" +
 		resourceID + "\n" +
 		strings.ToLower(xmsDate) + "\n" +
 		strings.ToLower(dateHeader) + "\n"
+}
+
+// effectiveDateHeaderField resolves the fifth string-to-sign field per
+// Microsoft's official generateAuthToken reference implementation:
+// verb\nresourceType\nresourceId\n<x-ms-date, lowercased>\n\n -- note the
+// literal EMPTY fifth field whenever x-ms-date is present, regardless of
+// whether a Date header was also sent. Real SDKs (and curl/Postman-style
+// manual clients) commonly send both headers; signing against the actual
+// Date header value in that case -- this function's original, incorrect
+// behavior -- produces a signature real Cosmos would reject. The Date
+// header is used as the fifth field ONLY as a fallback when x-ms-date is
+// absent entirely.
+func effectiveDateHeaderField(xmsDate, dateHeader string) string {
+	if xmsDate != "" {
+		return ""
+	}
+
+	return dateHeader
 }
 
 // signMasterKey returns base64(HMAC-SHA256(base64decode(masterKey),
@@ -114,13 +136,18 @@ func signMasterKey(masterKey, stringToSign string) (string, error) {
 // resource-path convention: resourceType is the last even-indexed (0-based)
 // path segment kind ("dbs", "colls", or "docs"), and resourceId is the full
 // path with the leading "/" trimmed -- UNLESS the request targets a
-// collection resource (e.g. POST /dbs/mydb/colls to create a container, or
-// POST .../docs to create/query a document), in which case resourceId is
-// the path of the PARENT resource instead (the collection being posted
-// into, not a not-yet-existent child) -- matching real Cosmos's own
-// signing convention where a Create/Query-type POST signs against its
-// parent's resource ID.
-func resourceTypeAndIDFor(method, path string) (string, string) {
+// collection resource (e.g. GET /dbs to list databases, POST
+// /dbs/mydb/colls to create a container, or POST .../docs to create/query a
+// document), in which case resourceId is the path of the PARENT resource
+// instead (the collection itself, or the not-yet-existent child being
+// created). Real Cosmos signs EVERY operation against a collection path --
+// list/feed reads included, not just creates -- against its parent link:
+// GET /dbs signs resourceId "" (the account root has no parent), and GET
+// /dbs/mydb/colls signs "dbs/mydb", not "dbs/mydb/colls". This is NOT
+// method-dependent; an earlier version of this function special-cased POST
+// only, which made GET (list/feed) requests sign against the wrong resource
+// ID and fail verification.
+func resourceTypeAndIDFor(_, path string) (string, string) {
 	trimmed := strings.Trim(path, "/")
 	if trimmed == "" {
 		return "", ""
@@ -135,16 +162,11 @@ func resourceTypeAndIDFor(method, path string) (string, string) {
 	if len(segments)%2 == 1 {
 		resourceType := segments[len(segments)-1]
 
-		if method == http.MethodPost {
-			// Posting into a collection (create or query): sign against the
-			// parent, which is everything before the trailing collection
-			// segment.
-			return resourceType, strings.Join(segments[:len(segments)-1], "/")
-		}
-
-		// GET on a collection (list): the collection itself has no
-		// meaningful "id" beyond its own path.
-		return resourceType, trimmed
+		// Always sign against the parent link, regardless of HTTP method:
+		// the parent is everything before the trailing collection segment
+		// (the empty string when the collection IS the account root, i.e.
+		// "/dbs").
+		return resourceType, strings.Join(segments[:len(segments)-1], "/")
 	}
 
 	return segments[len(segments)-2], trimmed
@@ -163,8 +185,9 @@ func VerifyMasterKey(masterKey string, r *http.Request) (bool, error) {
 	}
 
 	resourceType, resourceID := resourceTypeAndIDFor(r.Method, r.URL.Path)
+	xmsDate := r.Header.Get("X-Ms-Date")
 	stringToSign := masterKeyStringToSign(
-		r.Method, resourceType, resourceID, r.Header.Get("X-Ms-Date"), r.Header.Get("Date"),
+		r.Method, resourceType, resourceID, xmsDate, effectiveDateHeaderField(xmsDate, r.Header.Get("Date")),
 	)
 
 	expected, err := signMasterKey(masterKey, stringToSign)

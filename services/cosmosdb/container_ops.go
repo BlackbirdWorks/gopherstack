@@ -86,6 +86,8 @@ func (h *Handler) createContainer(c *echo.Context, dbID string) error {
 		return h.writeDatabaseNotFoundError(c)
 	case errors.Is(createErr, ErrContainerAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "Conflict", "A container with the specified id already exists.")
+	case errors.Is(createErr, ErrInvalidPartitionKeyPath):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", createErr.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", createErr.Error())
 	}

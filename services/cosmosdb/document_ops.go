@@ -57,6 +57,15 @@ func (h *Handler) handleDocumentItem(c *echo.Context, dbID, collID, docID string
 // encoding. Required on every point operation (Get/Replace/Delete
 // Document); Create derives the partition key from the document body
 // instead (see store.go's prepareDocumentBody), matching real Cosmos.
+//
+// The array MUST contain exactly one element: an empty array ([]) is
+// rejected rather than silently treated as a null partition key ([null] is
+// the correct way to express that), and an array with more than one
+// element is rejected too rather than silently truncated to its first
+// element -- an earlier version of this function did exactly that
+// truncation, which could route a request against the wrong document
+// without any error. The element itself must be a scalar (string, number,
+// bool, or null) -- canonicalPartitionKeyJSON enforces that.
 func partitionKeyFromHeader(r *http.Request) (string, error) {
 	raw := r.Header.Get(headerPartitionKey)
 	if raw == "" {
@@ -71,12 +80,14 @@ func partitionKeyFromHeader(r *http.Request) (string, error) {
 		return "", fmt.Errorf("%w: malformed %s header: %w", ErrInvalidDocument, headerPartitionKey, err)
 	}
 
-	var value any
-	if len(arr) > 0 {
-		value = arr[0]
+	if len(arr) != 1 {
+		return "", fmt.Errorf(
+			"%w: %s header must carry exactly one partition key value, got %d",
+			ErrInvalidDocument, headerPartitionKey, len(arr),
+		)
 	}
 
-	return canonicalPartitionKeyJSON(value)
+	return canonicalPartitionKeyJSON(arr[0])
 }
 
 func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
@@ -172,6 +183,8 @@ func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) e
 		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"Operation cannot be performed because one of the specified precondition is not met.")
 	case errors.Is(replaceErr, ErrInvalidDocument):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", replaceErr.Error())
+	case errors.Is(replaceErr, ErrPartitionKeyMismatch):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", replaceErr.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", replaceErr.Error())

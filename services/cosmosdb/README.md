@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 14 (14 ok) |
+| PARITY entries audited | 15 (15 ok) |
 | Feature families | 10 (8 ok, 2 partial) |
 | Known gaps | 9 |
 | Deferred items | 5 |
@@ -23,7 +23,7 @@
 - TLS is not implemented -- plain HTTP only. Clients must connect to http://localhost:8081 (or, for SDKs that default to HTTPS against local emulators, disable SSL verification / point explicitly at plain HTTP). A self-signed cert is a documented non-goal for this milestone, per AZURE.md section 5.
 - No container-level DefaultTimeToLive (TTL) enforcement -- documents never expire, and there is deliberately no janitor.go (see provider.go's Provider doc comment).
 - Database/container ETags are static (derived from their RID, never versioned) since neither resource has an "update in place" operation in this milestone.
-- Auth verification, even when opted into via --cosmosdb-validate-auth, is logged-not-enforced on mismatch -- see families.auth. All gaps above are intentional MVP scope per AZURE.md's M4 entry (see AZURE.md section 8), not oversights.
+- Auth verification is off by default (permissive, matching the other three Azure services); --cosmosdb-validate-auth opts into enforcing it, but even then only for requests that actually send an Authorization header -- anonymous requests are always accepted. See families.auth. All gaps above are intentional MVP scope per AZURE.md's M4 entry (see AZURE.md section 8), not oversights.
 
 ### Deferred
 

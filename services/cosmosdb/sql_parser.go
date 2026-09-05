@@ -32,10 +32,18 @@ import (
 //
 // The first identifier after FROM is the source/container alias (e.g. "c"
 // in "FROM c"); an optional second identifier re-aliases it (e.g. "r" in
-// "FROM root r"). Every path in selectList/WHERE/ORDER BY must start with
-// whichever alias is in effect -- that leading segment is stripped before
-// evaluation (see sql_exec.go's resolvePath), since this emulator only ever
-// queries a single, already-known container (no JOINs).
+// "FROM root r"). Every path in selectList/WHERE/ORDER BY MUST start with
+// whichever alias is in effect -- parsePath keeps the full segment chain
+// (it does NOT strip the leading segment on its own, since FROM's alias
+// isn't known yet when the SELECT list is parsed); resolveFieldPath
+// validates and strips it in a pass over the whole statement once FROM has
+// been parsed (see ParseQuery/parseSelectStmt's tail and
+// resolveWhereAliases). An unqualified field (e.g. "SELECT name FROM c") or
+// a path qualified with anything other than the effective alias (e.g.
+// "WHERE other.value = 1" when the alias is "c") is a parse error --
+// exactly like real Cosmos SQL, which has no implicit "current row" scope.
+// A bare alias reference alone (e.g. "SELECT c FROM c") resolves to an
+// empty path, meaning "the whole row" (see sql_exec.go's resolvePath).
 
 // sqlNode is a node in a parsed WHERE expression tree.
 type sqlNode interface{ isSQLNode() }
@@ -223,6 +231,10 @@ func (p *sqlParser) parseSelectStmt() (*sqlSelectStmt, error) {
 		}
 	}
 
+	if err := resolveStatementAliases(stmt); err != nil {
+		return nil, err
+	}
+
 	return stmt, nil
 }
 
@@ -290,9 +302,9 @@ func (p *sqlParser) parseProjection() (sqlProjection, error) {
 	return sqlProjection{path: path, alias: alias}, nil
 }
 
-// parsePath parses a dotted identifier chain (e.g. "c.a.b") and strips its
-// leading alias segment -- callers only ever want the path relative to the
-// query's single FROM source (see this file's top doc comment).
+// parsePath parses a dotted identifier chain (e.g. "c.a.b") and returns its
+// FULL segment list, unstripped -- see this file's top doc comment for why
+// alias validation/stripping is deferred to resolveFieldPath.
 func (p *sqlParser) parsePath() ([]string, error) {
 	first, err := p.expect(sqlTokIdent, "identifier")
 	if err != nil {
@@ -312,10 +324,115 @@ func (p *sqlParser) parsePath() ([]string, error) {
 		segments = append(segments, tok.lit)
 	}
 
-	// Strip the leading alias segment: "c.a.b" -> ["a","b"]; a bare alias
-	// reference ("c" alone, e.g. "SELECT c FROM c" or ORDER BY c) becomes an
-	// empty path, meaning "the whole row".
-	return segments[1:], nil
+	return segments, nil
+}
+
+// resolveFieldPath validates that path's leading segment is fromAlias (the
+// query's single FROM source alias, known only once the FROM clause has
+// been parsed) and strips it, returning the path relative to the row: "c.a.b"
+// -> ["a","b"]; a bare alias reference ("c" alone) -> [] ("the whole row").
+// A path whose leading segment is anything else is a parse error -- real
+// Cosmos SQL has no implicit "current row" scope, so an unqualified field
+// name and a path qualified with an unknown alias are both invalid, not
+// silently resolved against whatever the first path segment happens to be
+// (an earlier version of this parser did exactly that: it stripped
+// parsePath's first segment unconditionally, so "SELECT name FROM c" or a
+// WHERE clause misspelling the alias silently "worked" by treating whatever
+// leading word appeared as the alias, rather than erroring).
+func resolveFieldPath(fromAlias string, path []string) ([]string, error) {
+	if len(path) == 0 {
+		return nil, fmt.Errorf("%w: empty field reference", ErrQueryParse)
+	}
+
+	if path[0] == fromAlias {
+		return path[1:], nil
+	}
+
+	if len(path) == 1 {
+		return nil, fmt.Errorf(
+			"%w: unqualified field %q (fields must be qualified with the FROM alias %q)",
+			ErrQueryParse, path[0], fromAlias,
+		)
+	}
+
+	return nil, fmt.Errorf("%w: unknown alias %q (query source is %q)", ErrQueryParse, path[0], fromAlias)
+}
+
+// resolveStatementAliases resolves and strips the FROM alias from every
+// path reference in stmt (SELECT list, WHERE tree, ORDER BY), once FROM has
+// been fully parsed and stmt.fromAlias is known.
+func resolveStatementAliases(stmt *sqlSelectStmt) error {
+	for i := range stmt.projections {
+		resolved, err := resolveFieldPath(stmt.fromAlias, stmt.projections[i].path)
+		if err != nil {
+			return err
+		}
+
+		stmt.projections[i].path = resolved
+	}
+
+	for i := range stmt.orderBy {
+		resolved, err := resolveFieldPath(stmt.fromAlias, stmt.orderBy[i].path)
+		if err != nil {
+			return err
+		}
+
+		stmt.orderBy[i].path = resolved
+	}
+
+	if stmt.where != nil {
+		return resolveWhereAliases(stmt.where, stmt.fromAlias)
+	}
+
+	return nil
+}
+
+// resolveWhereAliases walks node's WHERE expression tree, resolving and
+// stripping the FROM alias from every path-kind operand it finds.
+func resolveWhereAliases(node sqlNode, fromAlias string) error {
+	switch n := node.(type) {
+	case *sqlAndNode:
+		if err := resolveWhereAliases(n.left, fromAlias); err != nil {
+			return err
+		}
+
+		return resolveWhereAliases(n.right, fromAlias)
+	case *sqlOrNode:
+		if err := resolveWhereAliases(n.left, fromAlias); err != nil {
+			return err
+		}
+
+		return resolveWhereAliases(n.right, fromAlias)
+	case *sqlNotNode:
+		return resolveWhereAliases(n.expr, fromAlias)
+	case *sqlCmpNode:
+		if err := resolveOperandAlias(&n.left, fromAlias); err != nil {
+			return err
+		}
+
+		return resolveOperandAlias(&n.right, fromAlias)
+	case *sqlIsNullNode:
+		return resolveOperandAlias(&n.operand, fromAlias)
+	default:
+		return nil
+	}
+}
+
+// resolveOperandAlias resolves op's path in place when op is a path-kind
+// operand; every other operand kind (param/literal) is left untouched.
+func resolveOperandAlias(op *sqlOperand, fromAlias string) error {
+	if op.kind != sqlOperandPath {
+		return nil
+	}
+
+	resolved, err := resolveFieldPath(fromAlias, op.path)
+	if err != nil {
+		return err
+	}
+
+	op.path = resolved
+
+	return nil
 }
 
 func (p *sqlParser) parseFromClause(stmt *sqlSelectStmt) error {

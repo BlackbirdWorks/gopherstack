@@ -193,6 +193,60 @@ func TestInMemoryBackend_GetReplaceDeleteDocument(t *testing.T) {
 	require.ErrorIs(t, err, cosmosdb.ErrDocumentNotFound)
 }
 
+// TestInMemoryBackend_DeleteDocument_AbsentWithoutIfMatchIsNotFound is a
+// regression test: DeleteDocument, unlike ReplaceDocument, has no upsert
+// concept -- there is nothing to "delete into" -- so deleting an
+// already-absent document must report ErrDocumentNotFound even with no
+// If-Match header, not silently succeed just because checkIfMatch's
+// ifMatch=="" branch returns nil unconditionally (that branch's job is to
+// make Replace's upsert semantics work, not to make Delete idempotent).
+func TestInMemoryBackend_DeleteDocument_AbsentWithoutIfMatchIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := cosmosdb.NewInMemoryBackend()
+	setupContainer(t, b)
+
+	pk, err := cosmosdb.CanonicalPartitionKeyJSON("a")
+	require.NoError(t, err)
+
+	err = b.DeleteDocument("mydb", "mycoll", pk, "never-existed", "")
+	require.ErrorIs(t, err, cosmosdb.ErrDocumentNotFound)
+}
+
+// TestInMemoryBackend_ReplaceDocument_PartitionKeyMismatchRejected is a
+// regression test: the replacement body's own partition-key-path field, if
+// present, must agree with the request's partition key. Without this
+// check, a document stored (and only ever findable) under partition "a"
+// could have its body silently rewritten to claim partition "b" -- an
+// internally inconsistent document real Cosmos DB never allows.
+func TestInMemoryBackend_ReplaceDocument_PartitionKeyMismatchRejected(t *testing.T) {
+	t.Parallel()
+
+	b := cosmosdb.NewInMemoryBackend()
+	setupContainer(t, b)
+
+	_, err := b.CreateDocument("mydb", "mycoll", map[string]any{"id": "1", "pk": "a"}, false)
+	require.NoError(t, err)
+
+	pk, err := cosmosdb.CanonicalPartitionKeyJSON("a")
+	require.NoError(t, err)
+
+	// The replacement body claims partition "b" while the request still
+	// targets partition "a" -- must be rejected, not silently stored.
+	_, err = b.ReplaceDocument("mydb", "mycoll", pk, "1", map[string]any{"pk": "b", "v": 1.0}, "")
+	require.ErrorIs(t, err, cosmosdb.ErrPartitionKeyMismatch)
+
+	// A replacement body that simply omits the partition key field
+	// entirely is tolerated (not every legitimate replace body restates
+	// it).
+	_, err = b.ReplaceDocument("mydb", "mycoll", pk, "1", map[string]any{"v": 1.0}, "")
+	require.NoError(t, err)
+
+	// A replacement body whose partition key field agrees is fine.
+	_, err = b.ReplaceDocument("mydb", "mycoll", pk, "1", map[string]any{"pk": "a", "v": 2.0}, "")
+	require.NoError(t, err)
+}
+
 func TestInMemoryBackend_ListDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -321,6 +375,38 @@ func TestCanonicalPartitionKeyJSON_DisambiguatesStringAndNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, strKey, numKey, "the string \"123\" and the number 123 must not collide as partition key values")
+}
+
+func TestCanonicalPartitionKeyJSON_RejectsNonScalars(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value any
+		name  string
+	}{
+		{name: "object", value: map[string]any{"x": 1}},
+		{name: "array", value: []any{1, 2}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := cosmosdb.CanonicalPartitionKeyJSON(tt.value)
+			require.ErrorIs(t, err, cosmosdb.ErrInvalidDocument)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateContainer_EmptyPartitionKeyPathRejected(t *testing.T) {
+	t.Parallel()
+
+	b := cosmosdb.NewInMemoryBackend()
+	_, err := b.CreateDatabase("mydb")
+	require.NoError(t, err)
+
+	_, err = b.CreateContainer("mydb", cosmosdb.ContainerSpec{ID: "mycoll", PartitionKeyPath: ""})
+	require.ErrorIs(t, err, cosmosdb.ErrInvalidPartitionKeyPath)
 }
 
 func TestFakeRID_DeterministicAndDistinct(t *testing.T) {

@@ -40,21 +40,28 @@ func TestBackend_SnapshotRestore_RoundTrip(t *testing.T) {
 func TestBackend_SnapshotRestore_Int64PrecisionRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	values := map[string]string{
-		"beyond_float64_mantissa": "9007199254740993",
-		"max_int64":               "9223372036854775807",
-		"min_int64":               "-9223372036854775808",
-		"negative_one":            "-1",
-		"zero":                    "0",
+	// A slice of cases, not a map: map iteration order is randomized by Go
+	// itself, which would make document-creation order (and therefore
+	// which case's error message appears first on failure) vary from run
+	// to run for no reason -- a slice keeps this deterministic.
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "beyond_float64_mantissa", raw: "9007199254740993"},
+		{name: "max_int64", raw: "9223372036854775807"},
+		{name: "min_int64", raw: "-9223372036854775808"},
+		{name: "negative_one", raw: "-1"},
+		{name: "zero", raw: "0"},
 	}
 
 	b := cosmosdb.NewInMemoryBackend()
 	setupContainer(t, b)
 
-	for name, raw := range values {
-		body := decodeJSONBody(t, `{"id":"`+name+`","pk":"a","big":`+raw+`}`)
+	for _, tt := range tests {
+		body := decodeJSONBody(t, `{"id":"`+tt.name+`","pk":"a","big":`+tt.raw+`}`)
 		_, err := b.CreateDocument("mydb", "mycoll", body, false)
-		require.NoError(t, err, name)
+		require.NoError(t, err, tt.name)
 	}
 
 	snap := b.Snapshot(t.Context())
@@ -66,13 +73,13 @@ func TestBackend_SnapshotRestore_Int64PrecisionRoundTrip(t *testing.T) {
 	pk, err := cosmosdb.CanonicalPartitionKeyJSON("a")
 	require.NoError(t, err)
 
-	for name, want := range values {
-		info, getErr := b2.GetDocument("mydb", "mycoll", pk, name)
-		require.NoError(t, getErr, name)
+	for _, tt := range tests {
+		info, getErr := b2.GetDocument("mydb", "mycoll", pk, tt.name)
+		require.NoError(t, getErr, tt.name)
 
 		gotNum, ok := info.Body["big"].(json.Number)
-		require.True(t, ok, name)
-		assert.Equal(t, want, gotNum.String(), name)
+		require.True(t, ok, tt.name)
+		assert.Equal(t, tt.raw, gotNum.String(), tt.name)
 	}
 }
 
@@ -117,6 +124,22 @@ func TestBackend_Restore_NullDocumentRejected(t *testing.T) {
 		`{"databases":{"d":{"ID":"d","Containers":{"c":{"ID":"c","PartitionKeyPath":"/pk",`+
 			`"Documents":{"[\"pkval\",\"id1\"]":null}}}}},"version":1}`))
 	require.ErrorIs(t, err, cosmosdb.ErrSnapshotDocumentNull)
+}
+
+// TestBackend_Restore_NullDocumentBodyRejected covers a persisted document
+// whose "Body" field is itself JSON null (distinct from the whole document
+// entry being null, which TestBackend_Restore_NullDocumentRejected covers):
+// encoding/json decodes null-into-map with no error, so without an explicit
+// check this would silently restore as an empty document, discarding every
+// field it used to have.
+func TestBackend_Restore_NullDocumentBodyRejected(t *testing.T) {
+	t.Parallel()
+
+	b := cosmosdb.NewInMemoryBackend()
+	err := b.Restore(t.Context(), []byte(
+		`{"databases":{"d":{"ID":"d","Containers":{"c":{"ID":"c","PartitionKeyPath":"/pk",`+
+			`"Documents":{"[\"pkval\",\"id1\"]":{"Body":null,"ID":"id1","PartitionKeyJSON":"pkval"}}}}}},"version":1}`))
+	require.ErrorIs(t, err, cosmosdb.ErrSnapshotDocumentNullBody)
 }
 
 // TestBackend_Restore_NilNestedMapsAreInitialized covers snapshots whose

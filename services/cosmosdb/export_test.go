@@ -65,3 +65,20 @@ func FakeRID(name string) string {
 func DocumentAsMap(info DocumentInfo) map[string]any {
 	return documentAsMap(info)
 }
+
+// Tri-state constants and combinators, exposed for external table tests of
+// SQL 3VL (see sql_exec.go's top doc comment).
+const (
+	TriUndefined = sqlUndefined
+	TriFalse     = sqlFalse
+	TriTrue      = sqlTrue
+)
+
+// TriState is the exported name for sqlTriState, for external test table
+// field types.
+type TriState = sqlTriState
+
+// TriAnd, TriOr, and TriNot expose triAnd/triOr/triNot for external tests.
+func TriAnd(a, b TriState) TriState { return triAnd(a, b) }
+func TriOr(a, b TriState) TriState  { return triOr(a, b) }
+func TriNot(a TriState) TriState    { return triNot(a) }

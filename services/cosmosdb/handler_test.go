@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -80,7 +81,6 @@ func TestHandler_InvalidURI(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "root", path: "/"},
 		{name: "not dbs", path: "/foo"},
 		{name: "too many segments", path: "/dbs/a/colls/b/docs/c/extra"},
 		{name: "colls typo", path: "/dbs/a/bogus"},
@@ -256,6 +256,45 @@ func TestHandler_CreateContainer_InvalidPartitionKey(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestHandler_CreateContainer_EmptyPartitionKeyPath covers store.go's
+// backend-level rejection of an empty partitionKey.paths[0] (a single path
+// that's an empty string slips past the handler's len(paths) != 1 check,
+// which only counts entries, and must be caught by the backend too, mapped
+// to 400 BadRequest rather than falling through to a 500 InternalError).
+func TestHandler_CreateContainer_EmptyPartitionKeyPath(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestDatabase(t, h)
+
+	body, err := json.Marshal(map[string]any{
+		"id":           "mycoll",
+		"partitionKey": map[string]any{"paths": []string{""}, "kind": "Hash"},
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls", nil, body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_CreateDocument_TrailingContentRejected covers
+// decodeJSONObject's rejection of a body carrying more than one JSON value
+// (e.g. two concatenated objects): json.Decoder.Decode only consumes the
+// first value and silently ignores anything after it by default, which
+// would let a malformed or concatenated body through as if it were a
+// single well-formed document.
+func TestHandler_CreateDocument_TrailingContentRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestDatabase(t, h)
+	createTestContainer(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil,
+		[]byte(`{"id":"1","pk":"a"}{}`))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestHandler_DocumentLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -335,6 +374,47 @@ func TestHandler_DocumentLifecycle(t *testing.T) {
 	// Verify gone.
 	rec = doRequest(t, h, http.MethodGet, "/dbs/mydb/colls/mycoll/docs/doc1", pkHeader, nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestPartitionKeyFromHeader_ExactlyOneScalarElement covers the fix
+// requiring the x-ms-documentdb-partitionkey header's JSON array to carry
+// exactly one scalar element: an empty array must not be silently treated
+// as a null partition key ([null] is the correct way to express that), and
+// an array with more than one element must not be silently truncated to
+// its first element -- either of which used to succeed and could route a
+// request against the wrong document with no error at all.
+func TestPartitionKeyFromHeader_ExactlyOneScalarElement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		header  string
+		wantErr bool
+	}{
+		{name: "single string element", header: `["foo"]`, wantErr: false},
+		{name: "single null element is the valid way to express a null PK", header: `[null]`, wantErr: false},
+		{name: "empty array is rejected, not treated as null", header: `[]`, wantErr: true},
+		{name: "two elements is rejected, not truncated", header: `["a","b"]`, wantErr: true},
+		{name: "object element is rejected (not a scalar)", header: `[{"x":1}]`, wantErr: true},
+		{name: "array element is rejected (not a scalar)", header: `[[1,2]]`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/dbs/a/colls/b/docs/c", http.NoBody)
+			require.NoError(t, err)
+			req.Header.Set("X-Ms-Documentdb-Partitionkey", tt.header)
+
+			_, pkErr := cosmosdb.PartitionKeyFromHeader(req)
+			if tt.wantErr {
+				require.Error(t, pkErr)
+			} else {
+				require.NoError(t, pkErr)
+			}
+		})
+	}
 }
 
 func TestHandler_ReadFeed(t *testing.T) {
@@ -425,16 +505,17 @@ func TestParseResourcePath(t *testing.T) {
 		wantDoc  string
 		wantKind int
 	}{
-		{name: "databases", path: "/dbs", wantKind: 1},
-		{name: "database item", path: "/dbs/mydb", wantKind: 2, wantDB: "mydb"},
-		{name: "containers", path: "/dbs/mydb/colls", wantKind: 3, wantDB: "mydb"},
-		{name: "container item", path: "/dbs/mydb/colls/mycoll", wantKind: 4, wantDB: "mydb", wantColl: "mycoll"},
-		{name: "documents", path: "/dbs/mydb/colls/mycoll/docs", wantKind: 5, wantDB: "mydb", wantColl: "mycoll"},
+		{name: "account root", path: "/", wantKind: 1},
+		{name: "account root, no leading slash", path: "", wantKind: 1},
+		{name: "databases", path: "/dbs", wantKind: 2},
+		{name: "database item", path: "/dbs/mydb", wantKind: 3, wantDB: "mydb"},
+		{name: "containers", path: "/dbs/mydb/colls", wantKind: 4, wantDB: "mydb"},
+		{name: "container item", path: "/dbs/mydb/colls/mycoll", wantKind: 5, wantDB: "mydb", wantColl: "mycoll"},
+		{name: "documents", path: "/dbs/mydb/colls/mycoll/docs", wantKind: 6, wantDB: "mydb", wantColl: "mycoll"},
 		{
-			name: "document item", path: "/dbs/mydb/colls/mycoll/docs/doc1", wantKind: 6,
+			name: "document item", path: "/dbs/mydb/colls/mycoll/docs/doc1", wantKind: 7,
 			wantDB: "mydb", wantColl: "mycoll", wantDoc: "doc1",
 		},
-		{name: "empty", path: "/", wantKind: 0},
 		{name: "not dbs", path: "/foo", wantKind: 0},
 	}
 
@@ -475,6 +556,86 @@ func TestIsQueryRequest(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.want, cosmosdb.IsQueryRequest(req))
+		})
+	}
+}
+
+// TestHandler_ValidateAuthEnforcement covers the opt-in master-key
+// enforcement path. The flag deliberately behaves like services/s3's
+// PresignSecret/WithPresignValidation (the precedent AZURE.md section 5
+// names): OFF by default and fully permissive, but when ON a *present*
+// Authorization header must verify or the request is rejected -- an opt-in
+// flag named "validate" that only logged would be actively misleading.
+// An absent header stays anonymous-accepted either way, so enabling the
+// flag can never break the no-credentials local-dev workflow.
+//
+// The signed case reuses masterkey_test.go's hand-computed known-answer
+// vector (independently reproducible: base64(HMAC-SHA256(base64decode(
+// DefaultMasterKey), "get\ndbs\ndbs/mydb\nthu, 01 jan 1970 00:00:00 gmt\n\n"))).
+// That database does not exist, so a passing signature yields 404, not 200 --
+// the assertion is precisely "not 401", which is what distinguishes an
+// auth rejection from ordinary resource handling.
+func TestHandler_ValidateAuthEnforcement(t *testing.T) {
+	t.Parallel()
+
+	const goodSig = "0UrOUjNuyWU/2xulf8ZyCV7Yf/Yr0BeqSlr7CJyEWhI="
+
+	tests := []struct {
+		name         string
+		authHeader   string
+		validateAuth bool
+		wantStatus   int
+	}{
+		{
+			name:       "permissive by default accepts a garbage signature",
+			authHeader: "type=master&ver=1.0&sig=not-a-real-signature",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "permissive by default accepts a structurally malformed header",
+			authHeader: "total-nonsense",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:         "validate on rejects a garbage signature",
+			authHeader:   "type=master&ver=1.0&sig=not-a-real-signature",
+			validateAuth: true,
+			wantStatus:   http.StatusUnauthorized,
+		},
+		{
+			name:         "validate on rejects a structurally malformed header",
+			authHeader:   "total-nonsense",
+			validateAuth: true,
+			wantStatus:   http.StatusUnauthorized,
+		},
+		{
+			name:         "validate on still accepts an anonymous request",
+			authHeader:   "",
+			validateAuth: true,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "validate on accepts a correctly signed request",
+			authHeader:   "type=master&ver=1.0&sig=" + goodSig,
+			validateAuth: true,
+			wantStatus:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			h.ValidateAuth = tt.validateAuth
+
+			headers := map[string]string{"X-Ms-Date": "Thu, 01 Jan 1970 00:00:00 GMT"}
+			if tt.authHeader != "" {
+				headers["Authorization"] = url.QueryEscape(tt.authHeader)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/dbs/mydb", headers, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }

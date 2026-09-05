@@ -45,6 +45,32 @@ func TestVerifyMasterKey_KnownAnswerVector(t *testing.T) {
 	assert.True(t, ok, "hand-computed known-answer vector must verify")
 }
 
+// TestVerifyMasterKey_XMsDateWinsOverDateHeader is a regression test: when a
+// client sends BOTH x-ms-date and Date (real SDKs and manual clients
+// commonly do), the fifth string-to-sign field must be a literal empty
+// string, not the Date header's value, per Microsoft's official
+// generateAuthToken reference implementation. Reuses
+// TestVerifyMasterKey_KnownAnswerVector's exact signature: it was computed
+// against date-header="" (absent) in the first place, so if a bogus Date
+// header value bled into the fifth field, this would fail exactly the way
+// it would have failed before the fix.
+func TestVerifyMasterKey_XMsDateWinsOverDateHeader(t *testing.T) {
+	t.Parallel()
+
+	const wantSig = "0UrOUjNuyWU/2xulf8ZyCV7Yf/Yr0BeqSlr7CJyEWhI="
+
+	req := httptest.NewRequest(http.MethodGet, "/dbs/mydb", nil)
+	req.Header.Set("X-Ms-Date", "Thu, 01 Jan 1970 00:00:00 GMT")
+	req.Header.Set("Date", "Fri, 02 Jan 1970 00:00:00 GMT") // deliberately a DIFFERENT value
+
+	authHeader := "type=master&ver=1.0&sig=" + wantSig
+	req.Header.Set("Authorization", url.QueryEscape(authHeader))
+
+	ok, err := cosmosdb.VerifyMasterKey(cosmosdb.DefaultMasterKey, req)
+	require.NoError(t, err)
+	assert.True(t, ok, "x-ms-date present must blank the fifth field regardless of a co-sent Date header")
+}
+
 func TestVerifyMasterKey_WrongSignatureRejected(t *testing.T) {
 	t.Parallel()
 
@@ -105,8 +131,19 @@ func TestResourceTypeAndIDFor(t *testing.T) {
 			wantResourceType: "colls", wantResourceID: "dbs/mydb/colls/mycoll",
 		},
 		{
-			name: "list databases collection", method: http.MethodGet, path: "/dbs",
-			wantResourceType: "dbs", wantResourceID: "dbs",
+			name:   "list databases collection signs against the account root, not against \"dbs\"",
+			method: http.MethodGet, path: "/dbs",
+			wantResourceType: "dbs", wantResourceID: "",
+		},
+		{
+			name:   "list containers collection signs against its parent database, not against itself",
+			method: http.MethodGet, path: "/dbs/mydb/colls",
+			wantResourceType: "colls", wantResourceID: "dbs/mydb",
+		},
+		{
+			name:   "list documents collection signs against its parent container, not against itself",
+			method: http.MethodGet, path: "/dbs/mydb/colls/mycoll/docs",
+			wantResourceType: "docs", wantResourceID: "dbs/mydb/colls/mycoll",
 		},
 		{
 			name: "create container posts against parent database", method: http.MethodPost, path: "/dbs/mydb/colls",

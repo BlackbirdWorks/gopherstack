@@ -14,21 +14,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
-// freeEphemeralPort returns a port that was free at the moment of the call,
-// mirroring services/azuretable's identical helper.
-func freeEphemeralPort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	require.NoError(t, l.Close())
-
-	return addr.Port
-}
-
 // reserveEphemeralPort binds and holds a real TCP port until the test ends.
 func reserveEphemeralPort(t *testing.T) int {
 	t.Helper()
@@ -46,12 +31,16 @@ func reserveEphemeralPort(t *testing.T) int {
 func TestStartWorker_BindsAndServes(t *testing.T) {
 	t.Parallel()
 
-	port := freeEphemeralPort(t)
-
 	backend := cosmosdb.NewInMemoryBackend()
 	h := cosmosdb.NewHandler(backend)
-	h.Port = port
 
+	// Port 0 lets the OS assign a free ephemeral port directly inside
+	// StartWorker's own net.Listen call -- no separate "bind :0, read the
+	// port, close it, then tell StartWorker to bind that same number"
+	// helper is needed (that pattern has a real release-then-rebind race:
+	// another process can grab the port in the gap). StartWorker reflects
+	// the actual bound port back onto h.Port before returning, so it's
+	// available here with zero race window.
 	ctx := t.Context()
 	require.NoError(t, h.StartWorker(ctx))
 
@@ -61,7 +50,7 @@ func TestStartWorker_BindsAndServes(t *testing.T) {
 		h.Shutdown(shutdownCtx)
 	})
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/dbs", port)
+	url := fmt.Sprintf("http://127.0.0.1:%d/dbs", h.Port)
 
 	require.Eventually(t, func() bool {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
@@ -202,7 +191,11 @@ func TestHandler_ExtractOperationAndResource(t *testing.T) {
 			wantOp: "DeleteDocument", wantResource: "dbs/mydb/colls/mycoll/docs/doc1",
 		},
 		{name: "unknown", method: http.MethodPatch, path: "/dbs", wantOp: "Unknown", wantResource: "dbs"},
-		{name: "invalid path", method: http.MethodGet, path: "/", wantOp: "Unknown", wantResource: ""},
+		{
+			name: "account root", method: http.MethodGet, path: "/",
+			wantOp: "GetDatabaseAccount", wantResource: "",
+		},
+		{name: "invalid path", method: http.MethodGet, path: "/foo", wantOp: "Unknown", wantResource: "foo"},
 	}
 
 	for _, tt := range tests {

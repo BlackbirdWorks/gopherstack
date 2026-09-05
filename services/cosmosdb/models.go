@@ -159,6 +159,19 @@ func (d *storedDocument) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("cosmosdb: unmarshal stored document: %w", err)
 	}
 
+	// A JSON null "Body" decodes to a nil map with NO error from
+	// dec.Decode below (encoding/json treats null-into-a-map as "set it to
+	// its zero value", not a type error) -- silently losing every
+	// previously persisted field on the next restore, since a nil map
+	// reads back as empty rather than failing loudly. Reject it explicitly
+	// instead, mirroring services/azuretable's identical
+	// ErrSnapshotEntityNull treatment of a null map/pointer entry: a
+	// snapshot that can't be decoded exactly must not be decoded
+	// approximately.
+	if bytes.Equal(bytes.TrimSpace(wire.Body), []byte("null")) {
+		return fmt.Errorf("%w: id %q", ErrSnapshotDocumentNullBody, wire.ID)
+	}
+
 	dec := json.NewDecoder(bytes.NewReader(wire.Body))
 	dec.UseNumber()
 
@@ -217,7 +230,26 @@ func (k *documentCompositeKey) UnmarshalText(text []byte) error {
 // partition key. json.Marshal already disambiguates every scalar kind
 // unambiguously (e.g. the string "123" marshals to `"123"`, the number 123
 // marshals to `123` -- these can never collide).
+//
+// v MUST be one of the scalar kinds this doc comment claims: an object
+// (map[string]any) or array ([]any) is rejected with ErrInvalidDocument
+// rather than silently JSON-encoded -- real Cosmos partition keys are
+// always scalar, and letting a nested object/array through here would
+// let two documents whose partition-key-path field happens to be a
+// same-shaped object collide as if they shared a partition key value, or
+// (worse) make the composite key's identity depend on Go map key
+// iteration-order-independent-but-still-fragile JSON encoding of nested
+// data never intended to be a key at all.
 func canonicalPartitionKeyJSON(v any) (string, error) {
+	switch v.(type) {
+	case nil, string, bool, json.Number, float64, float32, int, int32, int64:
+	default:
+		return "", fmt.Errorf(
+			"%w: partition key value must be a scalar (string, number, bool, or null), got %T",
+			ErrInvalidDocument, v,
+		)
+	}
+
 	data, err := json.Marshal(v)
 	if err != nil {
 		return "", fmt.Errorf("cosmosdb: encode partition key value: %w", err)
@@ -240,6 +272,16 @@ func decodeJSONObject(body []byte) (map[string]any, error) {
 	var m map[string]any
 	if err := dec.Decode(&m); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDocument, err)
+	}
+
+	// Reject trailing content after the object -- json.Decoder.Decode only
+	// consumes one JSON value and silently ignores anything after it (e.g.
+	// a request body of `{"id":"1"}{}` decodes as if it were just the first
+	// object), which would let a client's malformed/concatenated body
+	// through as if it were well-formed. dec.More() reports whether the
+	// decoder's underlying stream has another JSON value queued up.
+	if dec.More() {
+		return nil, fmt.Errorf("%w: trailing content after JSON object", ErrInvalidDocument)
 	}
 
 	return m, nil
@@ -296,9 +338,17 @@ func deepCopyBody(body map[string]any) (map[string]any, error) {
 // evaluation, so "SELECT c.id" / "WHERE c._ts > ..." resolve against the
 // same field set a client actually receives.
 func documentAsMap(info DocumentInfo) map[string]any {
-	const systemPropertyCount = 5
-
-	m := make(map[string]any, len(info.Body)+systemPropertyCount)
+	// Deliberately NOT `make(map[string]any, len(info.Body)+systemPropertyCount)`:
+	// info.Body originates from an attacker-controlled request body, and
+	// CodeQL's go/allocation-size-overflow rule flags arithmetic on a
+	// tainted length feeding an allocation size (see PR review). The
+	// arithmetic itself can never actually overflow -- len() of an
+	// already-parsed in-memory map cannot approach MaxInt, and the
+	// capacity argument is only a sizing hint, not a hard allocation --
+	// but sizing off the untouched length sidesteps the tainted-arithmetic
+	// pattern entirely. The five system properties then cost at most one
+	// extra map growth, which is irrelevant here.
+	m := make(map[string]any, len(info.Body))
 
 	maps.Copy(m, info.Body)
 

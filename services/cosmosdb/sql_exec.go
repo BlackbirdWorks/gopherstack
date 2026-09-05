@@ -8,9 +8,23 @@ import (
 )
 
 // sql_exec.go executes a parsed sqlSelectStmt (see sql_parser.go) against a
-// container's documents, mirroring services/azuretable's
-// odata_filter_eval.go's evaluate-never-panic, missing-field-means-false
-// philosophy.
+// container's documents. WHERE evaluation never panics, matching
+// services/azuretable's odata_filter_eval.go's evaluate-never-panic
+// posture, but -- unlike that file's simpler two-valued "missing field
+// means false" model -- implements real Cosmos SQL's three-valued logic
+// (sqlTriState: true/false/undefined). A missing document field (or an
+// unbound @param) is Undefined, NOT false: Undefined is not the same value
+// as false, and critically does not flip to true under NOT (`NOT
+// (c.missing = 1)` must still not match -- if a missing comparison were
+// modeled as a plain false, NOT would incorrectly turn it into a match).
+// AND/OR follow standard SQL 3VL (undefined AND false = false; undefined OR
+// true = true; anything else touching undefined stays undefined). Only a
+// definite sqlTrue at the top level counts as a row match -- see
+// ExecuteQuery. IS NULL/IS NOT NULL are the one place this emulator
+// deliberately does NOT propagate Undefined: both evaluate to a definite
+// boolean false against an undefined operand (real Cosmos's own behavior),
+// since undefined is neither "null" nor meaningfully "not null" for what
+// these operators test.
 
 // QueryParameter is one "@name"/value binding from a query request body's
 // "parameters" array.
@@ -41,7 +55,10 @@ func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([
 	for _, doc := range docs {
 		row := documentAsMap(doc)
 
-		if stmt.where != nil && !evalSQLNode(stmt.where, row, paramValues) {
+		// Only a definite sqlTrue counts as a match: both sqlFalse and
+		// sqlUndefined exclude the row (see this file's top doc comment on
+		// three-valued logic).
+		if stmt.where != nil && evalSQLNode(stmt.where, row, paramValues) != sqlTrue {
 			continue
 		}
 
@@ -207,48 +224,133 @@ func resolvePath(row map[string]any, path []string) (any, bool) {
 	return cur, true
 }
 
-// evalSQLNode reports whether node is satisfied by row, resolving @param
-// references against paramValues. Never panics; a comparison against a
-// missing field, or between mismatched types, evaluates to false, exactly
-// like services/azuretable's EvaluateFilter.
-func evalSQLNode(node sqlNode, row map[string]any, paramValues map[string]any) bool {
+// sqlTriState is Cosmos SQL's three-valued logic result: true, false, or
+// undefined (the result of evaluating an expression against a field that
+// doesn't exist, or an unbound @param). See this file's top doc comment.
+type sqlTriState int
+
+const (
+	sqlUndefined sqlTriState = iota
+	sqlFalse
+	sqlTrue
+)
+
+// boolToTri lifts a definite Go bool into sqlTriState. Never returns
+// sqlUndefined -- callers that need to produce Undefined do so explicitly.
+func boolToTri(b bool) sqlTriState {
+	if b {
+		return sqlTrue
+	}
+
+	return sqlFalse
+}
+
+// triAnd implements SQL 3VL's AND truth table: false in either operand
+// forces false (even against undefined -- false is "stronger" than
+// undefined); true in both operands is required for true; anything else
+// (undefined paired with true, or undefined paired with undefined) stays
+// undefined.
+func triAnd(a, b sqlTriState) sqlTriState {
+	if a == sqlFalse || b == sqlFalse {
+		return sqlFalse
+	}
+
+	if a == sqlTrue && b == sqlTrue {
+		return sqlTrue
+	}
+
+	return sqlUndefined
+}
+
+// triOr implements SQL 3VL's OR truth table: true in either operand forces
+// true; false in both operands is required for false; anything else stays
+// undefined.
+func triOr(a, b sqlTriState) sqlTriState {
+	if a == sqlTrue || b == sqlTrue {
+		return sqlTrue
+	}
+
+	if a == sqlFalse && b == sqlFalse {
+		return sqlFalse
+	}
+
+	return sqlUndefined
+}
+
+// triNot implements SQL 3VL's NOT: true and false invert as usual, but
+// undefined stays undefined -- it never flips to true. This is the crux of
+// the bug this tri-state model fixes: "NOT (c.missing = 1)" must still
+// exclude the row, not match it just because negating the inner
+// comparison's (incorrect, two-valued) false would otherwise yield true.
+func triNot(a sqlTriState) sqlTriState {
+	switch a {
+	case sqlTrue:
+		return sqlFalse
+	case sqlFalse:
+		return sqlTrue
+	default:
+		return sqlUndefined
+	}
+}
+
+// evalSQLNode evaluates node against row under Cosmos SQL's three-valued
+// logic, resolving @param references against paramValues. Never panics --
+// see this file's top doc comment.
+func evalSQLNode(node sqlNode, row map[string]any, paramValues map[string]any) sqlTriState {
 	switch n := node.(type) {
 	case *sqlAndNode:
-		return evalSQLNode(n.left, row, paramValues) && evalSQLNode(n.right, row, paramValues)
+		return triAnd(evalSQLNode(n.left, row, paramValues), evalSQLNode(n.right, row, paramValues))
 	case *sqlOrNode:
-		return evalSQLNode(n.left, row, paramValues) || evalSQLNode(n.right, row, paramValues)
+		return triOr(evalSQLNode(n.left, row, paramValues), evalSQLNode(n.right, row, paramValues))
 	case *sqlNotNode:
-		return !evalSQLNode(n.expr, row, paramValues)
+		return triNot(evalSQLNode(n.expr, row, paramValues))
 	case *sqlCmpNode:
 		return evalSQLComparison(n, row, paramValues)
 	case *sqlIsNullNode:
 		return evalSQLIsNull(n, row, paramValues)
 	default:
-		return false
+		return sqlFalse
 	}
 }
 
-func evalSQLIsNull(n *sqlIsNullNode, row map[string]any, paramValues map[string]any) bool {
+// evalSQLIsNull evaluates IS NULL / IS NOT NULL. Deliberately never returns
+// sqlUndefined: against an undefined operand (a missing field or unbound
+// param), BOTH "IS NULL" and "IS NOT NULL" evaluate to a definite false --
+// matching real Cosmos SQL, where undefined is neither "null" nor
+// meaningfully "not null" for what these operators test. Only a resolved,
+// non-nil value makes "IS NOT NULL" true.
+func evalSQLIsNull(n *sqlIsNullNode, row map[string]any, paramValues map[string]any) sqlTriState {
 	v, ok := resolveSQLOperand(n.operand, row, paramValues)
-
-	isNull := ok && v == nil || !ok
-
-	if n.negate {
-		return !isNull
+	if !ok {
+		return sqlFalse
 	}
 
-	return isNull
+	result := v == nil
+	if n.negate {
+		result = !result
+	}
+
+	return boolToTri(result)
 }
 
-func evalSQLComparison(n *sqlCmpNode, row map[string]any, paramValues map[string]any) bool {
+// evalSQLComparison evaluates a comparison operator. Returns sqlUndefined
+// (never sqlFalse) when either side fails to resolve (a missing field or an
+// unbound @param) -- see this file's top doc comment for why that
+// distinction matters under NOT/AND/OR. A resolved comparison between
+// mismatched types (e.g. a string against a number) still evaluates to a
+// definite false, not undefined -- this emulator does not attempt to
+// replicate every nuance of real Cosmos's type-coercion rules, only the
+// undefined-propagation behavior the review that added this function was
+// actually about.
+func evalSQLComparison(n *sqlCmpNode, row map[string]any, paramValues map[string]any) sqlTriState {
 	left, leftOK := resolveSQLOperand(n.left, row, paramValues)
 	right, rightOK := resolveSQLOperand(n.right, row, paramValues)
 
 	if !leftOK || !rightOK {
-		return false
+		return sqlUndefined
 	}
 
-	return compareValues(left, right, n.op)
+	return boolToTri(compareValues(left, right, n.op))
 }
 
 // resolveSQLOperand resolves op against row/paramValues: a path resolves

@@ -34,4 +34,25 @@ var (
 	ErrSnapshotDatabaseNull  = errors.New("cosmosdb: restore snapshot: database is null")
 	ErrSnapshotContainerNull = errors.New("cosmosdb: restore snapshot: container is null")
 	ErrSnapshotDocumentNull  = errors.New("cosmosdb: restore snapshot: document is null")
+
+	// ErrPartitionKeyMismatch is returned by ReplaceDocument when the
+	// replacement body's own partition-key-path field is present but
+	// disagrees with the caller-supplied partition key (the
+	// x-ms-documentdb-partitionkey header value, canonicalized). Without
+	// this check, a document keyed under partition "a" could be silently
+	// rewritten to claim partition "b" in its own body while remaining
+	// stored (and only ever findable) under "a" -- an internally
+	// inconsistent document real Cosmos DB never allows to exist.
+	ErrPartitionKeyMismatch = errors.New(
+		"cosmosdb: replacement body's partition key does not match the request's partition key",
+	)
+
+	// ErrSnapshotDocumentNullBody is returned by storedDocument.UnmarshalJSON
+	// when a persisted document's "Body" field is itself JSON null.
+	// encoding/json decodes a null-into-map with no error (it just sets the
+	// map to nil), so without this explicit check a document with a null
+	// Body would silently restore as an empty document, discarding every
+	// field it used to have -- not a decode failure, so nothing would ever
+	// surface the data loss.
+	ErrSnapshotDocumentNullBody = errors.New("cosmosdb: restore snapshot: document body is null")
 )

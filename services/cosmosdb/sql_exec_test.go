@@ -88,9 +88,25 @@ func TestExecuteQuery_WhereComparisons(t *testing.T) {
 		{name: "not", query: "SELECT * FROM c WHERE NOT c.name = 'alice'", wantIDs: []string{"2", "3"}},
 		{name: "missing field never matches", query: "SELECT * FROM c WHERE c.nope = 1", wantIDs: nil},
 		{
-			name:    "is null on missing field",
+			// Real Cosmos: an undefined (missing) field is not the same
+			// value as JSON null, so IS NULL against it is false, not
+			// true -- see sql_exec.go's evalSQLIsNull doc comment.
+			name:    "is null on missing field is false, not true",
 			query:   "SELECT * FROM c WHERE c.nope IS NULL",
-			wantIDs: []string{"1", "2", "3"},
+			wantIDs: nil,
+		},
+		{
+			name:    "is not null on missing field is also false",
+			query:   "SELECT * FROM c WHERE c.nope IS NOT NULL",
+			wantIDs: nil,
+		},
+		{
+			// The crux of the three-valued-logic fix: "c.nope = 1" is
+			// Undefined (not a plain false), so NOT(...) must still not
+			// match -- Undefined never flips to true under NOT.
+			name:    "NOT over a missing-field comparison stays excluded, does not flip to a match",
+			query:   "SELECT * FROM c WHERE NOT (c.nope = 1)",
+			wantIDs: nil,
 		},
 	}
 
@@ -171,6 +187,11 @@ func TestExecuteQuery_ParseErrors(t *testing.T) {
 		{name: "trailing garbage", query: "SELECT * FROM c WHERE c.x = 1 GARBAGE"},
 		{name: "empty", query: ""},
 		{name: "bad operator", query: "SELECT * FROM c WHERE c.x ~~ 1"},
+		{name: "lone minus is not a number", query: "SELECT * FROM c WHERE c.value = -"},
+		{name: "unqualified field in SELECT list", query: "SELECT name FROM c"},
+		{name: "unqualified field in WHERE", query: "SELECT * FROM c WHERE value = 42"},
+		{name: "unknown alias in WHERE", query: "SELECT * FROM c WHERE other.value = 42"},
+		{name: "unknown alias in ORDER BY", query: "SELECT * FROM c ORDER BY other.value"},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +203,55 @@ func TestExecuteQuery_ParseErrors(t *testing.T) {
 			require.ErrorIs(t, err, cosmosdb.ErrQueryParse)
 		})
 	}
+}
+
+// TestExecuteQuery_AliasResolution covers the fix requiring every field
+// reference to be qualified with whichever alias FROM declares (including a
+// re-aliased source, "FROM root r"), rather than the old behavior of
+// unconditionally stripping whatever the leading path segment happened to
+// be.
+func TestExecuteQuery_AliasResolution(t *testing.T) {
+	t.Parallel()
+
+	docs := docInfos(t, `{"id":"1","name":"alice"}`)
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "qualified with the declared alias", query: "SELECT c.name FROM c"},
+		{name: "qualified with a re-aliased source", query: "SELECT r.name FROM root r WHERE r.name = 'alice'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, err := cosmosdb.ExecuteQuery(tt.query, nil, docs)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			assert.Equal(t, "alice", rows[0]["name"])
+		})
+	}
+}
+
+// TestExecuteQuery_BareAliasProjectsWholeRow covers "SELECT c FROM c": a
+// bare alias reference (no dotted field) resolves to an empty path, meaning
+// "the whole row" -- it must still parse and execute, not be rejected as an
+// unqualified field the way "SELECT name FROM c" is.
+func TestExecuteQuery_BareAliasProjectsWholeRow(t *testing.T) {
+	t.Parallel()
+
+	docs := docInfos(t, `{"id":"1","name":"alice"}`)
+
+	rows, err := cosmosdb.ExecuteQuery("SELECT c FROM c", nil, docs)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	whole, ok := rows[0]["c"].(map[string]any)
+	require.True(t, ok, "bare alias projects the whole row under its own alias key")
+	assert.Equal(t, "1", whole["id"])
+	assert.Equal(t, "alice", whole["name"])
 }
 
 func TestParseQuery_DeepNestingBounded(t *testing.T) {

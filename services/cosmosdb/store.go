@@ -146,6 +146,10 @@ func (b *InMemoryBackend) DeleteDatabase(id string) error {
 // ErrDatabaseNotFound if dbID doesn't exist, or ErrContainerAlreadyExists if
 // a container with the same ID already exists in it.
 func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (ContainerInfo, error) {
+	if spec.PartitionKeyPath == "" {
+		return ContainerInfo{}, ErrInvalidPartitionKeyPath
+	}
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -455,6 +459,22 @@ func (b *InMemoryBackend) ReplaceDocument(
 
 	clean["id"] = id
 
+	// The replacement body's own partition-key-path field, if it declares
+	// one at all, must agree with the caller-supplied partition key -- see
+	// ErrPartitionKeyMismatch's doc comment for why silently allowing a
+	// contradiction here would leave a document stored under one partition
+	// while its own body claims another.
+	if pkValue, ok := extractPartitionKeyValue(clean, c.PartitionKeyPath); ok {
+		bodyPK, pkErr := canonicalPartitionKeyJSON(pkValue)
+		if pkErr != nil {
+			return DocumentInfo{}, pkErr
+		}
+
+		if bodyPK != partitionKey {
+			return DocumentInfo{}, ErrPartitionKeyMismatch
+		}
+	}
+
 	now := b.now()
 
 	prevTimestamp := now
@@ -486,6 +506,17 @@ func (b *InMemoryBackend) DeleteDocument(dbID, containerID, partitionKey, id, if
 	key := documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}
 
 	existing, exists := c.Documents[key]
+	if !exists {
+		// checkIfMatch alone is not sufficient here: with ifMatch == "" it
+		// returns nil unconditionally (that's the correct contract for
+		// Replace's upsert semantics -- see StorageBackend's doc comment),
+		// which would make deleting an already-absent document silently
+		// "succeed" (204) instead of reporting 404. Delete, unlike
+		// Replace, has no upsert concept -- there's nothing to "delete
+		// into" -- so absence is always an error regardless of ifMatch.
+		return ErrDocumentNotFound
+	}
+
 	if matchErr := b.checkIfMatch(existing, exists, ifMatch); matchErr != nil {
 		return matchErr
 	}
