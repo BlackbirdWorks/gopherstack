@@ -2,7 +2,7 @@
 service: managedblockchain
 sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.34.4
 last_audit_commit: a073b2b1
-last_audit_date: 2026-08-20
+last_audit_date: 2026-09-04
 overall: A
 ops:
   CreateNetwork: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FrameworkConfiguration.Fabric.Edition, VpcEndpointServiceName, Framework restricted to HYPERLEDGER_FABRIC; see Notes"}
@@ -11,7 +11,7 @@ ops:
   CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "InvitationId now required and validated against a real PENDING invitation for this network, consumed (ACCEPTED) on success; MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword required and validated, KmsKeyArn accepted; see Notes"}
   GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn; LogPublishingConfiguration.Fabric.CaLogs wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
   ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
-  DeleteMember: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades to member's nodes, matching real AWS"}
+  DeleteMember: {wire: ok, errors: ok, state: fixed, persist: ok, note: "cascades to member's nodes, matching real AWS; now also cascade-deletes the network when the removed member was its last, matching both the direct-call and approved-removal-proposal paths; see 2026-09-04 Notes"}
   UpdateMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LogPublishingConfiguration.Fabric.CaLogs.Cloudwatch request/response wire key fixed, see 2026-08-20 Notes"}
   CreateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "NodeConfiguration.StateDB accepted (defaults CouchDB), KmsKeyArn inherited from owning member; see Notes"}
   GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.PeerEndpoint/PeerEventEndpoint + StateDB + KmsKeyArn; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs} wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
@@ -19,9 +19,9 @@ ops:
   DeleteNode: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "MemberId moved from a required query parameter to the required JSON body field a real client actually sends; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs}.Cloudwatch wire key fixed; see 2026-08-20 Notes"}
   CreateProposal: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetProposal: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListProposals: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented; fabricated ProposalSummary.NetworkId member removed, see 2026-08-20 Notes"}
-  VoteOnProposal: {wire: ok, errors: ok, state: ok, persist: ok, note: "tallies votes and resolves APPROVED/REJECTED against VotingPolicy; not a disguised no-op"}
+  GetProposal: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now resolves a lapsed IN_PROGRESS proposal to EXPIRED on read; see 2026-09-04 Notes"}
+  ListProposals: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "server-side pagination now implemented; fabricated ProposalSummary.NetworkId member removed, see 2026-08-20 Notes; now resolves EXPIRED the same way GetProposal does, see 2026-09-04 Notes"}
+  VoteOnProposal: {wire: ok, errors: ok, state: fixed, persist: ok, note: "tallies votes and resolves APPROVED/REJECTED against VotingPolicy; not a disguised no-op; now also resolves EXPIRED on a lapsed proposal and rejects votes on it; see 2026-09-04 Notes"}
   ListProposalVotes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   ListInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented; fabricated Invitation.NetworkId/NetworkName top-level members removed, see 2026-08-20 Notes"}
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,7 +36,7 @@ families:
   network: {status: fixed, note: "CreateNetwork/GetNetwork/ListNetworks field-diffed against types.go/api_op_*.go/validators.go; FrameworkAttributes+VpcEndpointServiceName+Framework restriction added, see Notes"}
   member: {status: fixed, note: "MemberConfiguration.FrameworkConfiguration was entirely unmodeled (a real, required field per validateMemberFabricConfiguration) -- now implemented with real server-side validation + FrameworkAttributes/KmsKeyArn on responses, see Notes; distinct wire structs confirmed for Member vs MemberSummary, each matching its own live deserializer case list, see 2026-08-20 Notes"}
   node: {status: fixed, note: "StateDB/KmsKeyArn/FrameworkAttributes were entirely unmodeled -- now implemented; the prior audit's node-routing-URI fix remains correct and unchanged; UpdateNode's MemberId location bug and the CloudWatch/Cloudwatch key bug fixed this pass, see 2026-08-20 Notes"}
-  proposal: {status: fixed, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub); ListProposals/ListProposalVotes now paginate; fabricated ProposalSummary.NetworkId removed this pass, see 2026-08-20 Notes"}
+  proposal: {status: fixed, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub); ListProposals/ListProposalVotes now paginate; fabricated ProposalSummary.NetworkId removed this pass, see 2026-08-20 Notes; EXPIRED status (real AWS's 5-value ProposalStatus enum, types/enums.go v1.34.4) was entirely unmodeled -- now implemented, see 2026-09-04 Notes"}
   invitation: {status: fixed, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements); ListInvitations now paginates; fabricated top-level NetworkId/NetworkName removed this pass, see 2026-08-20 Notes"}
   accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates; Accessor vs AccessorSummary wire structs confirmed distinct and each matches its own live deserializer, see 2026-08-20 Notes"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
@@ -44,9 +44,74 @@ gaps:
   - "Member.IsOwned is always true, even for a member created via CreateMember (i.e. joining via invitation, which in real AWS is not owned by the joining account's original network-owner relationship). gopherstack has no multi-account model to distinguish an owned member from an invited one, so this is a reasonable simplification, not flagged as a bug to fix (gopherstack-u84u re-reviewed this alongside InvitationId; InvitationId itself is now real, see Notes #8)."
   - "No artificial service quotas (max members per network, max nodes per member, max networks per account) are enforced, so ResourceLimitExceededException is never returned. Consistent with this emulator's general no-limits style elsewhere; not treated as a bug."
   - "Network.FrameworkAttributes.Ethereum and Node.FrameworkAttributes.Ethereum are not modeled. gopherstack-u84u answered the design question this was deferred under: real AWS's CreateNode documents exactly one well-known public Ethereum NetworkId, \"n-ethereum-mainnet\" (aws-sdk-go-v2 managedblockchain api_op_CreateNode.go:44-47 and api_op_DeleteNode.go:36, v1.34.4 -- confirmed NOT invented; older SDKs additionally listed now-sunset n-ethereum-goerli/n-ethereum-rinkeby testnets, absent from this pin), with FrameworkAttributes.Ethereum.ChainId documented as \"1\" for mainnet (types/types.go:538-547's NetworkEthereumAttributes). ListNetworks/GetNetwork both self-document \"Applies to Hyperledger Fabric and Ethereum\", so real AWS does surface this network through both once an account has a node on it. Seeding the network itself would therefore be honest (a real, stable constant, not invented). Still deferred: CreateNode's real MemberId is documented \"Applies only to Hyperledger Fabric\" (api_op_CreateNode.go:56-58) -- Ethereum nodes have no owning member -- but gopherstack's Node storage is keyed by (networkID, memberID, nodeID) (nodeKey in store_setup.go) and CreateNode already requires MemberId unconditionally (ErrMissingNodeMemberID) for its one supported framework. Making CreateNode against Ethereum reachable needs a memberless Node storage path, not just a seeded network row -- a real structural change, not an adjacent fix."
+  - "Real AWS's ProposalStatus enum also has ACTION_FAILED (\"One or more of the specified ProposalActions ... could not be completed because of an error\", AWS Managed Blockchain Hyperledger Fabric dev guide, \"View Proposals\"). gopherstack's executeProposalActionsLocked (proposals.go) has no failure path -- invitation/removal actions on an approved proposal always succeed -- so there is no reachable condition that would produce ACTION_FAILED. Consistent with this emulator's general no-injected-failure style (see the ResourceLimitExceededException gap above); not fabricated, not flagged as a bug to fix."
+  - "ResourceNotReadyException (\"The requested resource exists but isn't in a status that can complete the operation\", aws-sdk-go-v2 managedblockchain types/errors.go:198-199, v1.34.4) is modeled by CreateMember/CreateNode/CreateProposal/DeleteMember/DeleteNode's deserializers but gopherstack has no sentinel or return path for it anywhere. Real AWS's plausible trigger is a Create/Delete op against a network/member still in a transient CREATING/DELETING/UPDATING status, but gopherstack has no async creation lifecycle at all -- CreateNetwork/CreateMember/CreateNode set Status=AVAILABLE synchronously and no code path ever produces CREATING/DELETING/UPDATING/FAILED. Making this reachable needs a real async lifecycle simulation, not a one-line guard; not fabricated, not flagged as a bug to fix (2026-09-04 audit)."
 deferred: []
-leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule. The new paginate() helper (pagination.go) and buildNetworkFrameworkAttributes/buildMemberFrameworkAttributes/CreateNode's FrameworkAttributes synthesis are all pure functions operating on already-locked state or post-lock snapshots -- no new lock paths introduced."}
+leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule. The new paginate() helper (pagination.go) and buildNetworkFrameworkAttributes/buildMemberFrameworkAttributes/CreateNode's FrameworkAttributes synthesis are all pure functions operating on already-locked state or post-lock snapshots -- no new lock paths introduced. 2026-09-04: expireProposalLocked/deleteNetworkIfEmptyLocked (both pure functions taking an already-locked *Proposal/*Network) and promoting GetProposal/ListProposals from RLock to Lock (they can now mutate a proposal's Status in place) introduce no new lock paths either."}
 ---
+
+## 2026-09-04 (lifecycle-state precondition sweep)
+
+**Real bug #1, fixed: proposal EXPIRED status was entirely unmodeled.** Real
+AWS's `ProposalStatus` enum has 5 values (`aws-sdk-go-v2/service/
+managedblockchain/types/enums.go:222-226`, v1.34.4): `IN_PROGRESS`,
+`APPROVED`, `REJECTED`, `EXPIRED`, `ACTION_FAILED`. gopherstack only ever set
+3 of them. The AWS Managed Blockchain Hyperledger Fabric dev guide ("View
+Proposals") documents `EXPIRED`: "Members did not cast the number of votes
+required to determine the proposal outcome before the proposal expired. The
+specified `ProposalActions` are not carried out." gopherstack stored and
+round-tripped `Proposal.ExpirationDate` but never enforced it: a proposal
+that ran out its 24-hour voting window with an inconclusive vote stayed
+`IN_PROGRESS` forever, and `VoteOnProposal` would still accept votes on it
+indefinitely. Fixed: `expireProposalLocked` (`proposals.go`) transitions an
+`IN_PROGRESS` proposal to `EXPIRED` once `time.Now()` passes
+`ExpirationDate`; called from `GetProposal`, `ListProposals` (both promoted
+from `RLock` to `Lock` since they can now mutate proposal state), and
+`VoteOnProposal` (before its in-progress check, so a vote on a lapsed
+proposal is correctly rejected as `InvalidRequestException` rather than
+silently accepted). New test: `TestHandler_ProposalExpiresAfterExpirationDate`
+(`proposals_voting_test.go`), 3 subtests covering `GetProposal`,
+`ListProposals`, and `VoteOnProposal`; confirmed all 3 fail against the
+unmodified code (GetProposal/ListProposals report `IN_PROGRESS` instead of
+`EXPIRED`, VoteOnProposal returns 204 instead of 400). New export_test.go
+helper `SetProposalExpiration` (test-only, matches the file's existing
+`*Count`/`ARNIndexSize` pattern) backdates a proposal's `ExpirationDate`
+without a real sleep.
+
+**Real bug #2, fixed: DeleteMember never cascaded to the network on its last
+member.** `api_op_DeleteMember.go`'s doc comment (v1.34.4): "If MemberId is
+the last member in a network specified by the last Amazon Web Services
+account, the network is deleted also." Real AWS has no `DeleteNetwork`
+operation at all (confirmed: `ls aws-sdk-go-v2/service/managedblockchain@*/
+api_op_*.go` lists no such file) -- this DeleteMember side effect is the
+*only* way a network is ever deleted, so without it gopherstack's networks
+are immortal. Two independent code paths remove a member -- `DeleteMember`
+(`members.go`) and `executeProposalActionsLocked`'s removal-action cascade
+(`proposals.go`, run when an approved proposal's `Actions.Removals` fires) --
+and neither checked whether the network was now empty. Fixed: new shared
+helper `deleteNetworkIfEmptyLocked` (`networks.go`) called from both. New
+tests: `TestInMemoryBackend_DeleteMemberNetworkCascade` (`members_test.go`,
+2 subtests: last member deletes the network, non-last member does not) and
+`TestHandler_ApprovedRemovalProposalCascadeDeletesEmptyNetwork`
+(`proposals_voting_test.go`, exercises the proposal-approval path
+specifically). Confirmed failing against the unmodified code: neutering
+`deleteNetworkIfEmptyLocked` to a no-op fails the "last member" subtest
+(`GetNetwork` returns no error instead of `ErrNetworkNotFound`) while the
+"non-last member" subtest still correctly passes, and fails the HTTP-level
+removal-proposal test (`GET /networks/{id}` returns 200 instead of 404).
+One pre-existing test, `TestInMemoryBackend_DeleteMemberCascadeARNIndex`,
+asserted the old (buggy) behavior directly -- a 1-member network's ARN index
+had 1 entry ("only network remains") after deleting that member's only
+member -- and was corrected to assert 0 (network is gone too), with a
+comment explaining why.
+
+**Considered, not fixed (see `gaps`):** `ACTION_FAILED` (no failure path
+exists in `executeProposalActionsLocked` for approved actions to hit) and
+`ResourceNotReadyException` (no async CREATING/DELETING/UPDATING lifecycle
+exists anywhere in this emulator for any resource; every Create op sets
+`AVAILABLE` synchronously). Both are structural gaps consistent with this
+emulator's existing no-injected-failure, no-async-lifecycle style elsewhere,
+not fabricated and not one-line fixes.
 
 ## 2026-08-30 (request-field axis sweep, gopherstack-4shm's class)
 
