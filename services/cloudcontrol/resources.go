@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,13 @@ const (
 	typeNamePartCount = 3
 	// typeNameSplitLimit limits SplitN so that a four-part string is detectable as invalid.
 	typeNameSplitLimit = typeNamePartCount + 1
+)
+
+// RFC 6902 patch operation names applyPatch implements.
+const (
+	patchOpAdd     = "add"
+	patchOpReplace = "replace"
+	patchOpRemove  = "remove"
 )
 
 // CreateResource creates a new resource of the given type with the given desired state JSON.
@@ -445,9 +453,15 @@ func matchesResourceModel(properties string, modelFilter map[string]any) bool {
 	return true
 }
 
-// applyPatch applies a simplified JSON RFC 6902 patch to a JSON document.
-// For each "replace" or "add" operation it sets the field; "remove" deletes it.
-// If the document or patch cannot be parsed, the original document is returned unchanged.
+// applyPatch applies "add"/"replace"/"remove" operations from an RFC 6902 JSON
+// Patch document to a JSON document, resolving each op's Path as a real RFC
+// 6901 JSON Pointer -- walking into nested objects and array elements, not
+// just top-level fields. "move"/"copy"/"test" are accepted (per real
+// UpdateResourceInput.PatchDocument, "a JSON document listing the patch
+// operations", api_op_UpdateResource.go) but not applied: they need
+// cross-path/value semantics this simplified engine doesn't implement, so
+// they are silently skipped rather than guessed at. If the document or patch
+// cannot be parsed, the original document is returned unchanged.
 func applyPatch(document, patchDocument string) string {
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(document), &doc); err != nil {
@@ -465,13 +479,14 @@ func applyPatch(document, patchDocument string) string {
 	}
 
 	for _, op := range ops {
-		field := strings.TrimPrefix(op.Path, "/")
+		segments := splitPointer(op.Path)
+		if len(segments) == 0 {
+			continue
+		}
 
 		switch op.Op {
-		case "replace", "add":
-			doc[field] = op.Value
-		case "remove":
-			delete(doc, field)
+		case patchOpAdd, patchOpReplace, patchOpRemove:
+			doc, _ = applyPointerOp(doc, segments, op.Op, op.Value).(map[string]any)
 		}
 	}
 
@@ -481,4 +496,117 @@ func applyPatch(document, patchDocument string) string {
 	}
 
 	return string(out)
+}
+
+// splitPointer decodes an RFC 6901 JSON Pointer into its unescaped reference
+// tokens (~1 -> "/", then ~0 -> "~", per the RFC's decoding order). The root
+// pointer ("" or "/") yields no segments.
+func splitPointer(path string) []string {
+	if path == "" || path == "/" {
+		return nil
+	}
+
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	for i, p := range parts {
+		p = strings.ReplaceAll(p, "~1", "/")
+		parts[i] = strings.ReplaceAll(p, "~0", "~")
+	}
+
+	return parts
+}
+
+// applyPointerOp resolves segments against node and applies op at the target
+// location, returning the (possibly new, for array insert/remove) node. A
+// segment that fails to resolve (missing map key, out-of-range array index)
+// leaves node unchanged rather than erroring, matching applyPatch's
+// fail-closed, best-effort contract.
+func applyPointerOp(node any, segments []string, op string, value any) any {
+	key := segments[0]
+	rest := segments[1:]
+
+	switch n := node.(type) {
+	case map[string]any:
+		if len(rest) > 0 {
+			child, ok := n[key]
+			if ok {
+				n[key] = applyPointerOp(child, rest, op, value)
+			}
+
+			return n
+		}
+
+		switch op {
+		case patchOpAdd, patchOpReplace:
+			n[key] = value
+		case patchOpRemove:
+			delete(n, key)
+		}
+
+		return n
+	case []any:
+		return applyArrayPointerOp(n, key, rest, op, value)
+	default:
+		return node
+	}
+}
+
+// applyArrayPointerOp handles one pointer segment against a JSON array,
+// including the RFC 6901 "-" token (end-of-array, "add" only).
+func applyArrayPointerOp(n []any, key string, rest []string, op string, value any) any {
+	if len(rest) > 0 {
+		idx, ok := parseArrayIndex(key)
+		if !ok || idx >= len(n) {
+			return n
+		}
+
+		n[idx] = applyPointerOp(n[idx], rest, op, value)
+
+		return n
+	}
+
+	if key == "-" && op == patchOpAdd {
+		return append(n, value)
+	}
+
+	idx, ok := parseArrayIndex(key)
+	if !ok {
+		return n
+	}
+
+	switch op {
+	case patchOpAdd:
+		if idx > len(n) {
+			return n
+		}
+
+		n = append(n, nil)
+		copy(n[idx+1:], n[idx:])
+		n[idx] = value
+	case patchOpReplace:
+		if idx >= len(n) {
+			return n
+		}
+
+		n[idx] = value
+	case patchOpRemove:
+		if idx >= len(n) {
+			return n
+		}
+
+		n = append(n[:idx], n[idx+1:]...)
+	}
+
+	return n
+}
+
+// parseArrayIndex parses an RFC 6901 array reference token as a non-negative
+// index. Callers apply the op-specific bound ("add" allows == len(array),
+// "replace"/"remove" require < len(array)).
+func parseArrayIndex(seg string) (int, bool) {
+	idx, err := strconv.Atoi(seg)
+	if err != nil || idx < 0 {
+		return 0, false
+	}
+
+	return idx, true
 }

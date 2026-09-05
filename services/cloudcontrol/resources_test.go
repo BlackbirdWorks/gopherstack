@@ -753,6 +753,84 @@ func TestBackend_UpdateResource_ClientToken_Idempotency(t *testing.T) {
 		"patch must only be applied once")
 }
 
+// TestBackend_UpdateResource_NestedPatchPaths verifies that PatchDocument's Path is
+// resolved as a real RFC 6901 JSON Pointer -- navigating into nested objects and
+// array elements -- rather than treated as a literal top-level map key. The real
+// UpdateResourceInput.PatchDocument is "a JSON document listing the patch operations"
+// that "adheres to the RFC 6902 ... standard" (api_op_UpdateResource.go), whose Path
+// members are routinely multi-segment for real resource shapes (e.g. Environment
+// variables, Tags arrays).
+func TestBackend_UpdateResource_NestedPatchPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		initial    string
+		patch      string
+		wantResult string
+	}{
+		{
+			name:       "replace nested object field",
+			initial:    `{"Id":"r1","Nested":{"Field":"old"}}`,
+			patch:      `[{"op":"replace","path":"/Nested/Field","value":"new"}]`,
+			wantResult: `{"Id":"r1","Nested":{"Field":"new"}}`,
+		},
+		{
+			name:       "add nested object field",
+			initial:    `{"Id":"r1","Nested":{}}`,
+			patch:      `[{"op":"add","path":"/Nested/Field","value":"created"}]`,
+			wantResult: `{"Id":"r1","Nested":{"Field":"created"}}`,
+		},
+		{
+			name:       "remove nested object field",
+			initial:    `{"Id":"r1","Nested":{"Field":"gone","Keep":1}}`,
+			patch:      `[{"op":"remove","path":"/Nested/Field"}]`,
+			wantResult: `{"Id":"r1","Nested":{"Keep":1}}`,
+		},
+		{
+			name:       "replace array element by index",
+			initial:    `{"Id":"r1","Tags":[{"Key":"a","Value":"old"}]}`,
+			patch:      `[{"op":"replace","path":"/Tags/0/Value","value":"new"}]`,
+			wantResult: `{"Id":"r1","Tags":[{"Key":"a","Value":"new"}]}`,
+		},
+		{
+			name:       "add element at array end via dash",
+			initial:    `{"Id":"r1","Tags":["a"]}`,
+			patch:      `[{"op":"add","path":"/Tags/-","value":"b"}]`,
+			wantResult: `{"Id":"r1","Tags":["a","b"]}`,
+		},
+		{
+			name:       "add element at array index shifts remainder",
+			initial:    `{"Id":"r1","Tags":["a","c"]}`,
+			patch:      `[{"op":"add","path":"/Tags/1","value":"b"}]`,
+			wantResult: `{"Id":"r1","Tags":["a","b","c"]}`,
+		},
+		{
+			name:       "remove element from array",
+			initial:    `{"Id":"r1","Tags":["a","b","c"]}`,
+			patch:      `[{"op":"remove","path":"/Tags/1"}]`,
+			wantResult: `{"Id":"r1","Tags":["a","c"]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.CreateResource("AWS::Test::Resource", tt.initial, "")
+			require.NoError(t, err)
+
+			_, err = b.UpdateResource("AWS::Test::Resource", "r1", tt.patch, "")
+			require.NoError(t, err)
+
+			r, err := b.GetResource("AWS::Test::Resource", "r1")
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.wantResult, r.Properties)
+		})
+	}
+}
+
 // TestHandler_DeleteResource_ClientToken verifies that DeleteResourceInput.ClientToken --
 // a real field on the SDK's DeleteResourceInput, previously silently dropped by
 // gopherstack's deleteResourceInput -- provides idempotent-replay behavior: a

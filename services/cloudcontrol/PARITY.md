@@ -14,7 +14,7 @@ overall: A            # wrapper-key/nested-shape sweep (2026-08-20): zero bugs f
 ops:
   CreateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now enforced as required (was silently accepted empty, matching CreateResourceInput.DesiredState 'This member is required'); ProgressEvent.ResourceModel populated; AlreadyExistsException/InvalidRequestException HTTP 400"}
   GetResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException HTTP 400"}
-  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PatchDocument now enforced as required (was silently no-op'd by applyPatch on an empty/missing patch, matching UpdateResourceInput.PatchDocument 'This member is required'); ClientToken idempotency added (real UpdateResourceInput.ClientToken field was previously dropped entirely -- accepted on the wire but never passed to the backend); ProgressEvent.ResourceModel reflects post-patch Properties; RFC6902 patch applied in place"}
+  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PatchDocument now enforced as required (was silently no-op'd by applyPatch on an empty/missing patch, matching UpdateResourceInput.PatchDocument 'This member is required'); ClientToken idempotency added (real UpdateResourceInput.ClientToken field was previously dropped entirely -- accepted on the wire but never passed to the backend); ProgressEvent.ResourceModel reflects post-patch Properties; applyPatch now resolves each Path as a real RFC 6901 JSON Pointer (nested objects + array elements/indices), fixing a bug where a multi-segment Path (e.g. /Tags/0/Value) was treated as a literal top-level map key instead of navigating -- see Notes below (2026-09-04 pass)"}
   DeleteResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency added (real DeleteResourceInput.ClientToken field was previously dropped entirely)"}
   ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination via pkgs/page; InvalidRequestException on malformed TypeName; now returns defensive copies (see leaks note) instead of live backend pointers; ResourceModel (real 'resource model to use to select the resources to return' field) is now applied as a real filter -- see gopherstack-c9yf fix below"}
   GetResourceRequestStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "unknown token -> RequestTokenNotFoundException (the only error this op declares); output now includes HooksProgressEvent (real field on GetResourceRequestStatusOutput, always empty/omitted -- this backend has no Hooks concept)"}
@@ -34,6 +34,30 @@ leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is 
 ---
 
 ## Notes
+
+**Fixed this pass (2026-09-04)**:
+
+- `UpdateResource`'s `applyPatch` treated `PatchDocument`'s per-op `Path` as a literal
+  top-level map key (`strings.TrimPrefix(op.Path, "/")` used directly as `doc[field]`)
+  instead of resolving it as an RFC 6901 JSON Pointer. The real
+  `UpdateResourceInput.PatchDocument` is "a JSON document listing the patch operations
+  that ... adheres to the RFC 6902 ... standard" (`api_op_UpdateResource.go`), and RFC
+  6902 paths are routinely multi-segment for real resource shapes (nested objects like
+  Lambda's `Environment.Variables`, array elements like a `Tags[i].Value`). A patch
+  `{"op":"replace","path":"/Tags/0/Value","value":"c"}` against
+  `{"Tags":[{"Key":"a","Value":"b"}]}` silently corrupted the document into
+  `{"Tags":[{"Key":"a","Value":"b"}],"Tags/0/Value":"c"}` -- the real field was left
+  unchanged and a bogus literal-slash-named top-level key was added instead. Fixed by
+  giving `applyPatch` a real pointer walk (`splitPointer`/`applyPointerOp`/
+  `applyArrayPointerOp`) that decodes RFC 6901 escaping (`~1`->`/`, `~0`->`~`) and
+  navigates nested `map[string]any`/`[]any` structures, including the `-` end-of-array
+  token and index-shifting array insert/remove. `move`/`copy`/`test` remain
+  unimplemented (accepted on the wire, silently skipped) since they need cross-path/
+  value semantics this best-effort engine doesn't attempt -- not a new gap, matches the
+  prior "simplified" scope, just now documented explicitly rather than silently
+  degrading `add`/`replace`/`remove` themselves. Regression test:
+  `TestBackend_UpdateResource_NestedPatchPaths` (7 subtests: nested-object
+  replace/add/remove, array-index replace/remove, array insert via `-` and via index).
 
 **Wrapper-key/nested-shape sweep (2026-08-20)**: all 8 ops (CreateResource,
 DeleteResource, GetResource, GetResourceRequestStatus, ListResourceRequests,
