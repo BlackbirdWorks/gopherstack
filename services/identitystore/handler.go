@@ -18,6 +18,8 @@ import (
 const (
 	keyNextToken       = "NextToken"
 	keyIdentityStoreID = "IdentityStoreId"
+	keyErrType         = "__type"
+	keyErrMessage      = "message"
 )
 
 const (
@@ -361,7 +363,7 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP_MEMBERSHIP")
 	case errors.Is(err, ErrConflict):
 
-		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+		return h.writeConflictError(c, err.Error())
 	case errors.Is(err, ErrValidation):
 
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
@@ -379,15 +381,33 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 // AWS-compatible error responses.
 func (h *Handler) writeResourceError(c *echo.Context, errType, message, resourceType string) error {
 	return c.JSON(http.StatusNotFound, map[string]string{
-		"__type":       errType,
-		"message":      message,
+		keyErrType:     errType,
+		keyErrMessage:  message,
 		"ResourceType": resourceType,
+	})
+}
+
+// writeConflictError writes a ConflictException with a Reason field for
+// AWS-compatible error responses. Every ErrConflict this backend raises today
+// is a duplicate-value rejection (UserName, primary email, DisplayName, or a
+// group membership's (group, member) pair), never a concurrent-modification
+// race, so Reason is always UNIQUENESS_CONSTRAINT_VIOLATION -- the only other
+// modeled ConflictExceptionReason value is CONCURRENT_MODIFICATION (see
+// types/enums.go), which no code path here produces. Deserializers.go's
+// awsAwsjson11_deserializeDocumentConflictException parses a top-level
+// "Reason" field; omitting it (the previous behavior) left every real SDK
+// caller's err.(*types.ConflictException).Reason empty instead of set.
+func (h *Handler) writeConflictError(c *echo.Context, message string) error {
+	return c.JSON(http.StatusConflict, map[string]string{
+		keyErrType:    "ConflictException",
+		keyErrMessage: message,
+		"Reason":      "UNIQUENESS_CONSTRAINT_VIOLATION",
 	})
 }
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message string) error {
 	return c.JSON(statusCode, map[string]string{
-		"__type":  errType,
-		"message": message,
+		keyErrType:    errType,
+		keyErrMessage: message,
 	})
 }
