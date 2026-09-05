@@ -244,6 +244,13 @@ func (b *InMemoryBackend) DeleteClusterSnapshot(snapshotID string) (*Snapshot, e
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
+	if len(snap.AccountsWithRestoreAccess) > 0 {
+		return nil, fmt.Errorf(
+			"%w: snapshot %s still has accounts authorized for restore access; revoke access first",
+			ErrSnapshotHasAuthorizedAccounts, snapshotID,
+		)
+	}
+
 	cp := cloneSnapshot(snap)
 	b.snapshots.Delete(snapshotID)
 

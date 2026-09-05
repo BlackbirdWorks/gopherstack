@@ -115,6 +115,22 @@ func TestRedshiftHandler_DeleteClusterSnapshot(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
+		{
+			// api_op_DeleteClusterSnapshot.go: "If other accounts are
+			// authorized to access the snapshot, you must revoke all of the
+			// authorizations before you can delete the snapshot."
+			name: "still_authorized",
+			setup: func(h *redshift.Handler) {
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=auth-snap-cluster")
+				postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+					"&SnapshotIdentifier=auth-snap&ClusterIdentifier=auth-snap-cluster")
+				postRedshiftForm(t, h, "Action=AuthorizeSnapshotAccess&Version=2012-12-01"+
+					"&SnapshotIdentifier=auth-snap&AccountWithRestoreAccess=999999999999")
+			},
+			body:         "Action=DeleteClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=auth-snap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidClusterSnapshotState"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -121,4 +121,14 @@ var (
 	// own declared error switch, awsAwsquery_deserializeOpErrorDeleteClusterParameterGroup
 	// in deserializers.go).
 	ErrParameterGroupInvalidState = errors.New("InvalidClusterParameterGroupState")
+	// ErrSnapshotHasAuthorizedAccounts is returned by DeleteClusterSnapshot
+	// when other accounts still have restore access to the snapshot
+	// (ErrorCode() "InvalidClusterSnapshotState", verified against
+	// InvalidClusterSnapshotStateFault in types/errors.go and this op's own
+	// declared error switch, awsAwsquery_deserializeOpErrorDeleteClusterSnapshot
+	// in deserializers.go). Per api_op_DeleteClusterSnapshot.go, the snapshot
+	// must be in the available state with no other users authorized to
+	// access it, and other accounts' authorizations must be revoked before
+	// the snapshot can be deleted.
+	ErrSnapshotHasAuthorizedAccounts = errors.New("InvalidClusterSnapshotState")
 )
