@@ -3911,8 +3911,11 @@
       "ceCostCategoryValues.Values []string `json:\"Values\"`",
       "ceDimensionValues.Key string `json:\"Key\"`",
       "ceDimensionValues.Values []string `json:\"Values\"`",
+      "ceExpression.And []ceExpression `json:\"And,omitempty\"`",
       "ceExpression.CostCategories *ceCostCategoryValues `json:\"CostCategories,omitempty\"`",
       "ceExpression.Dimensions *ceDimensionValues `json:\"Dimensions,omitempty\"`",
+      "ceExpression.Not *ceExpression `json:\"Not,omitempty\"`",
+      "ceExpression.Or []ceExpression `json:\"Or,omitempty\"`",
       "ceExpression.Tags *ceTagValues `json:\"Tags,omitempty\"`",
       "ceTagValues.Key string `json:\"Key\"`",
       "ceTagValues.Values []string `json:\"Values\"`"
@@ -22288,6 +22291,7 @@
       "reportStateSnapshot.Region string `json:\"region\"`",
       "reportStateSnapshot.S3Location string `json:\"s3Location\"`",
       "reportStateSnapshot.StartDate string `json:\"startDate\"`",
+      "reportStateSnapshot.StartedAt string `json:\"startedAt\"`",
       "reportStateSnapshot.Status string `json:\"status\"`"
     ],
     "version": 1
