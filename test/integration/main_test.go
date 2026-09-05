@@ -223,6 +223,30 @@ func requireStaticELF(path string) error {
 	return nil
 }
 
+// resolveMappedEndpoint looks up container's host-mapped port for
+// containerPort and, on success, returns a "<scheme>://localhost:<port>"
+// endpoint after logging it as available under label. On failure it logs a
+// warning naming which tests will be skipped and returns "", leaving the
+// corresponding endpoint global unset -- callers must not treat "" as a
+// real endpoint.
+func resolveMappedEndpoint(
+	ctx context.Context, container testcontainers.Container, logger *slog.Logger,
+	containerPort, scheme, label, skippedTests string,
+) string {
+	port, err := container.MappedPort(ctx, containerPort)
+	if err != nil {
+		logger.WarnContext(ctx, "failed to get mapped port; tests will be skipped",
+			"label", label, "skipped", skippedTests, "error", err)
+
+		return ""
+	}
+
+	resolved := scheme + "://localhost:" + port.Port()
+	logger.InfoContext(ctx, label+" running", "endpoint", resolved)
+
+	return resolved
+}
+
 func TestMain(m *testing.M) {
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -336,45 +360,15 @@ func TestMain(m *testing.M) {
 
 	logger.Info("gopherstack state reset; starting tests")
 
-	mqttPort, err := container.MappedPort(ctx, "1883")
-	if err != nil {
-		logger.Warn("failed to get MQTT mapped port; IoT tests will be skipped", "error", err)
-	} else {
-		mqttEndpoint = "tcp://localhost:" + mqttPort.Port()
-		logger.Info("MQTT broker running", "endpoint", mqttEndpoint)
-	}
-
-	azureBlobPort, err := container.MappedPort(ctx, "10000")
-	if err != nil {
-		logger.Warn("failed to get Azure Blob mapped port; Azure Blob tests will be skipped", "error", err)
-	} else {
-		azureBlobEndpoint = "http://localhost:" + azureBlobPort.Port()
-		logger.Info("Azure Blob Storage-compatible endpoint running", "endpoint", azureBlobEndpoint)
-	}
-
-	azureQueuePort, err := container.MappedPort(ctx, "10001")
-	if err != nil {
-		logger.Warn("failed to get Azure Queue mapped port; Azure Queue tests will be skipped", "error", err)
-	} else {
-		azureQueueEndpoint = "http://localhost:" + azureQueuePort.Port()
-		logger.Info("Azure Queue Storage-compatible endpoint running", "endpoint", azureQueueEndpoint)
-	}
-
-	azureTablePort, err := container.MappedPort(ctx, "10002")
-	if err != nil {
-		logger.Warn("failed to get Azure Table mapped port; Azure Table tests will be skipped", "error", err)
-	} else {
-		azureTableEndpoint = "http://localhost:" + azureTablePort.Port()
-		logger.Info("Azure Table Storage-compatible endpoint running", "endpoint", azureTableEndpoint)
-	}
-
-	cosmosDBPort, err := container.MappedPort(ctx, "8081")
-	if err != nil {
-		logger.Warn("failed to get Cosmos DB mapped port; Cosmos DB tests will be skipped", "error", err)
-	} else {
-		cosmosDBEndpoint = "http://localhost:" + cosmosDBPort.Port()
-		logger.Info("Cosmos DB (Core/SQL API)-compatible endpoint running", "endpoint", cosmosDBEndpoint)
-	}
+	mqttEndpoint = resolveMappedEndpoint(ctx, container, logger, "1883", "tcp", "MQTT broker", "IoT")
+	azureBlobEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10000", "http", "Azure Blob Storage-compatible endpoint", "Azure Blob")
+	azureQueueEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10001", "http", "Azure Queue Storage-compatible endpoint", "Azure Queue")
+	azureTableEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10002", "http", "Azure Table Storage-compatible endpoint", "Azure Table")
+	cosmosDBEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "8081", "http", "Cosmos DB (Core/SQL API)-compatible endpoint", "Cosmos DB")
 
 	code := m.Run()
 
