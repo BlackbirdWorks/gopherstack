@@ -2,7 +2,7 @@
 service: cleanrooms
 sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.49.4   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-21
+last_audit_date: 2026-09-04
 overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (2026-07-25 pass)
                       # 2026-08-07 pass (bd gopherstack-kiqa): CollaborationChangeRequest.Changes is now a
                       # real typed union (Change/ChangeSpecification/MemberChangeSpecification/
@@ -18,6 +18,13 @@ overall: A            # systemic invented-field cleanup + several real state-mac
                       # in this service in a prior pass but missed on this one struct). Members-own-table
                       # (moving Collaboration.Members off the wire into its own store.Table) not
                       # attempted this pass -- still deferred, see gaps.
+                      # 2026-09-04 pass: DeleteMembership silently orphaned membership-scoped child
+                      # resources (ConfiguredTableAssociation/AnalysisTemplate/PrivacyBudgetTemplate/
+                      # IDMappingTable/IDNamespaceAssociation/ConfiguredAudienceModelAssociation/
+                      # IntermediateTable) since it never enforced api_op_DeleteMembership.go's "All
+                      # resources under a membership must be deleted" -- now returns ConflictException
+                      # (modeled on this op) while any remain. See memberships.go's
+                      # membershipHasResources and delete_membership_test.go.
                       # 2026-08-13 (bd gopherstack-bv5d): the entire collaboration-scoped API
                       # surface was silently broken for real clients -- twelve response-key bugs
                       # this "wire: ok"/"FIXED" grading never disclosed, since the SDK decodes
