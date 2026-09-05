@@ -160,6 +160,16 @@ func (b *InMemoryBackend) DeleteOutpost(idOrARN string) error {
 		b.assets.Delete(a.ID)
 	}
 
+	// Ghost-row guard: ConsumeCapacity (capacity_ledger.go) keys every
+	// runningInstance by AssetID/OutpostID, and DeleteOutpost only blocks on
+	// a REQUESTED capacity task -- COMPLETED ones (and any capacity they
+	// consumed) don't stop deletion, so orphaned rows would otherwise
+	// survive here forever unless services/ec2 later happens to terminate
+	// that exact instance ID.
+	for _, ri := range b.runningInstancesByOutpost.Get(o.ID) {
+		b.runningInstances.Delete(ri.InstanceID)
+	}
+
 	if o.Tags != nil {
 		o.Tags.Close()
 	}
@@ -202,7 +212,11 @@ func (b *InMemoryBackend) ListOutposts(f listOutpostsFilter, token string, limit
 
 	for _, o := range all {
 		if matchesOutpostFilter(o, f) {
-			filtered = append(filtered, o)
+			// Clone before returning: these are the live, backend-owned
+			// pointers, and UpdateOutpost/StartOutpostDecommission mutate
+			// them in place after this call returns and the lock is
+			// released -- see clone's doc comment.
+			filtered = append(filtered, o.clone())
 		}
 	}
 
