@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
@@ -83,8 +84,64 @@ func (p EntityProperty) MarshalJSON() ([]byte, error) {
 	return json.Marshal(entityPropertyWire{Type: p.Type, Value: v})
 }
 
-//nolint:cyclop // per-EDM-type dispatch; splitting would obscure it
+// marshalValue dispatches to marshalScalarValue or marshalStringEncodedValue
+// per p.Type, mirroring unmarshalPropertyValue's own split.
 func (p EntityProperty) marshalValue() (any, error) {
+	switch p.Type {
+	case EdmInt32, EdmDouble, EdmBoolean:
+		return p.marshalScalarValue()
+	case EdmInt64, EdmDateTime, EdmGUID, EdmBinary:
+		return p.marshalStringEncodedValue()
+	case EdmString:
+		s, ok := p.Value.(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: Edm.String property has non-string value %T", ErrInvalidEntityProperty, p.Value)
+		}
+
+		return s, nil
+	default:
+		return nil, fmt.Errorf("%w: unknown EdmType %q", ErrInvalidEntityProperty, p.Type)
+	}
+}
+
+// marshalScalarValue encodes the three EDM types whose Go value is already
+// the JSON-native type encoding/json's generic `any` decode produces (see
+// unmarshalScalarValue's own doc comment for the matching decode side).
+func (p EntityProperty) marshalScalarValue() (any, error) {
+	switch p.Type {
+	case EdmInt32:
+		n, ok := p.Value.(int32)
+		if !ok {
+			return nil, fmt.Errorf("%w: Edm.Int32 property has non-int32 value %T", ErrInvalidEntityProperty, p.Value)
+		}
+
+		return n, nil
+	case EdmDouble:
+		f, ok := p.Value.(float64)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: Edm.Double property has non-float64 value %T", ErrInvalidEntityProperty, p.Value,
+			)
+		}
+
+		return f, nil
+	case EdmBoolean:
+		fallthrough
+	default:
+		b, ok := p.Value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("%w: Edm.Boolean property has non-bool value %T", ErrInvalidEntityProperty, p.Value)
+		}
+
+		return b, nil
+	}
+}
+
+// marshalStringEncodedValue encodes the EDM types whose snapshot wire value
+// is a string rather than encoding/json's native decode for that Go type
+// (see unmarshalStringEncodedValue's own doc comment for the matching decode
+// side).
+func (p EntityProperty) marshalStringEncodedValue() (any, error) {
 	switch p.Type {
 	case EdmBinary:
 		b, ok := p.Value.([]byte)
@@ -118,44 +175,14 @@ func (p EntityProperty) marshalValue() (any, error) {
 		// so the snapshot and wire encodings are now consistent.
 		return strconv.FormatInt(n, 10), nil
 	case EdmGUID:
+		fallthrough
+	default:
 		s, ok := p.Value.(string)
 		if !ok {
 			return nil, fmt.Errorf("%w: Edm.Guid property has non-string value %T", ErrInvalidEntityProperty, p.Value)
 		}
 
 		return s, nil
-	case EdmString:
-		s, ok := p.Value.(string)
-		if !ok {
-			return nil, fmt.Errorf("%w: Edm.String property has non-string value %T", ErrInvalidEntityProperty, p.Value)
-		}
-
-		return s, nil
-	case EdmInt32:
-		n, ok := p.Value.(int32)
-		if !ok {
-			return nil, fmt.Errorf("%w: Edm.Int32 property has non-int32 value %T", ErrInvalidEntityProperty, p.Value)
-		}
-
-		return n, nil
-	case EdmDouble:
-		f, ok := p.Value.(float64)
-		if !ok {
-			return nil, fmt.Errorf(
-				"%w: Edm.Double property has non-float64 value %T", ErrInvalidEntityProperty, p.Value,
-			)
-		}
-
-		return f, nil
-	case EdmBoolean:
-		b, ok := p.Value.(bool)
-		if !ok {
-			return nil, fmt.Errorf("%w: Edm.Boolean property has non-bool value %T", ErrInvalidEntityProperty, p.Value)
-		}
-
-		return b, nil
-	default:
-		return nil, fmt.Errorf("%w: unknown EdmType %q", ErrInvalidEntityProperty, p.Type)
 	}
 }
 
@@ -217,6 +244,14 @@ func unmarshalScalarValue(edmType EdmType, wireValue any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf(
 				"%w: Edm.Int32 snapshot value is not a number: %v",
+				ErrInvalidEntityProperty,
+				wireValue,
+			)
+		}
+
+		if f != math.Trunc(f) || f < math.MinInt32 || f > math.MaxInt32 {
+			return nil, fmt.Errorf(
+				"%w: Edm.Int32 snapshot value out of range or fractional: %v",
 				ErrInvalidEntityProperty,
 				wireValue,
 			)
