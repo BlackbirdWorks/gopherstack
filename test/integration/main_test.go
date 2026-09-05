@@ -151,6 +151,18 @@ var azureQueueEndpoint string
 //nolint:gochecknoglobals // Set in TestMain for integration tests.
 var azureTableEndpoint string
 
+// cosmosDBEndpoint is the Azure Cosmos DB (Core/SQL API)-compatible endpoint
+// for the running Gopherstack container (its own dedicated port -- see
+// services/cosmosdb/provider.go and AZURE.md section 4 for why this service
+// cannot share the main AWS endpoint/port, or any of AzureBlob's/
+// AzureQueue's/AzureTable's own dedicated ports). Left empty (and Cosmos DB
+// tests skipped) if the mapped port cannot be determined, mirroring
+// azureTableEndpoint's non-fatal behavior above. This is initialized by
+// TestMain before running integration tests.
+//
+//nolint:gochecknoglobals // Set in TestMain for integration tests.
+var cosmosDBEndpoint string
+
 // sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
 // This is initialized by TestMain before running integration tests.
 //
@@ -275,7 +287,7 @@ func TestMain(m *testing.M) {
 				options.PullParent = false
 			},
 		},
-		ExposedPorts: []string{"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp"},
+		ExposedPorts: []string{"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "8081/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
 				WithPort("8000/tcp").
@@ -288,6 +300,8 @@ func TestMain(m *testing.M) {
 			wait.ForListeningPort("10001/tcp").
 				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("10002/tcp").
+				WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort("8081/tcp").
 				WithStartupTimeout(60*time.Second),
 		),
 	}
@@ -352,6 +366,14 @@ func TestMain(m *testing.M) {
 	} else {
 		azureTableEndpoint = "http://localhost:" + azureTablePort.Port()
 		logger.Info("Azure Table Storage-compatible endpoint running", "endpoint", azureTableEndpoint)
+	}
+
+	cosmosDBPort, err := container.MappedPort(ctx, "8081")
+	if err != nil {
+		logger.Warn("failed to get Cosmos DB mapped port; Cosmos DB tests will be skipped", "error", err)
+	} else {
+		cosmosDBEndpoint = "http://localhost:" + cosmosDBPort.Port()
+		logger.Info("Cosmos DB (Core/SQL API)-compatible endpoint running", "endpoint", cosmosDBEndpoint)
 	}
 
 	code := m.Run()
