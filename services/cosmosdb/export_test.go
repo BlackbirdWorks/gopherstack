@@ -66,6 +66,15 @@ func DocumentAsMap(info DocumentInfo) map[string]any {
 	return documentAsMap(info)
 }
 
+// ParseQuery exposes parseQuery for external tests. Only the error is
+// exported-usable (the parsed statement's type stays unexported), which
+// matches every current external caller's actual need.
+func ParseQuery(query string) error {
+	_, err := parseQuery(query)
+
+	return err
+}
+
 // Tri-state constants and combinators, exposed for external table tests of
 // SQL 3VL (see sql_exec.go's top doc comment).
 const (

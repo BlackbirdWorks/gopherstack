@@ -40,7 +40,7 @@ type QueryParameter struct {
 // during WHERE evaluation simply excludes that document, exactly like
 // services/azuretable's EvaluateFilter.
 func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([]map[string]any, error) {
-	stmt, err := ParseQuery(query)
+	stmt, err := parseQuery(query)
 	if err != nil {
 		return nil, err
 	}

@@ -156,10 +156,10 @@ func (p *sqlParser) expect(typ sqlTokenType, what string) (sqlToken, error) {
 	return tok, nil
 }
 
-// ParseQuery parses a complete Cosmos SQL query string into a sqlSelectStmt.
+// parseQuery parses a complete Cosmos SQL query string into a sqlSelectStmt.
 // Returns ErrQueryParse (wrapped with detail) on any malformed input,
 // ErrQueryTooDeep if WHERE nesting exceeds maxQueryDepth, and never panics.
-func ParseQuery(query string) (*sqlSelectStmt, error) {
+func parseQuery(query string) (*sqlSelectStmt, error) {
 	p := newSQLParser(query)
 
 	stmt, err := p.parseSelectStmt()

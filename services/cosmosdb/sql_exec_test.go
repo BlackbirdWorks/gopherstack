@@ -261,7 +261,7 @@ func TestParseQuery_DeepNestingBounded(t *testing.T) {
 
 	query := "SELECT * FROM c WHERE " + strings.Repeat("(", depth) + "c.x = 1" + strings.Repeat(")", depth)
 
-	_, err := cosmosdb.ParseQuery(query)
+	err := cosmosdb.ParseQuery(query)
 	require.ErrorIs(t, err, cosmosdb.ErrQueryTooDeep)
 }
 
@@ -272,6 +272,6 @@ func TestParseQuery_ModeratelyNestedParensAccepted(t *testing.T) {
 
 	query := "SELECT * FROM c WHERE " + strings.Repeat("(", depth) + "c.x = 1" + strings.Repeat(")", depth)
 
-	_, err := cosmosdb.ParseQuery(query)
+	err := cosmosdb.ParseQuery(query)
 	require.NoError(t, err)
 }
