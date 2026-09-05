@@ -3,7 +3,6 @@ package ses
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -189,11 +188,17 @@ func (b *InMemoryBackend) DeleteIdentityPolicy(identity, policyName string) erro
 	return nil
 }
 
-// GetIdentityPolicies returns the policy documents for the given identity filtered by name.
-// An empty policyNames list returns all policies for the identity.
+// GetIdentityPolicies returns the policy documents for the given identity
+// filtered by name. PolicyNames is a required member (api_op_GetIdentityPolicies.go:
+// "This member is required") -- there is no real "return everything" mode; the
+// doc directs callers who don't know the names to ListIdentityPolicies first.
 func (b *InMemoryBackend) GetIdentityPolicies(identity string, policyNames []string) (map[string]string, error) {
 	if strings.TrimSpace(identity) == "" {
 		return nil, fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
+	}
+
+	if len(policyNames) == 0 {
+		return nil, fmt.Errorf("%w: PolicyNames is required", ErrInvalidParameter)
 	}
 
 	b.mu.RLock("GetIdentityPolicies")
@@ -201,12 +206,6 @@ func (b *InMemoryBackend) GetIdentityPolicies(identity string, policyNames []str
 
 	all := b.policies[identity]
 	out := make(map[string]string)
-
-	if len(policyNames) == 0 {
-		maps.Copy(out, all)
-
-		return out, nil
-	}
 
 	for _, name := range policyNames {
 		if v, ok := all[name]; ok {

@@ -6,8 +6,11 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
-last_audit_commit: a40e7cc1                      # NOT updated this pass -- git commands were off-limits
-last_audit_date: 2026-08-29                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
+last_audit_commit: 44a1f8a1c                      # HEAD at audit time; a40e7cc1 (prior value) is not an
+                       # ancestor of this branch -- confirmed via `git merge-base --is-ancestor`, it predates
+                       # a squash-history rewrite. Re-audit protocol used dates instead: diffed every commit
+                       # touching services/ses/ after last_audit_date (b8484292f, c78177958) by inspection.
+last_audit_date: 2026-09-05                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
                        # (ListTemplates default page size, DescribeConfigurationSet attribute gating,
                        # ListCustomVerificationEmailTemplates + ListReceiptRuleSets pagination never
                        # plumbed through the call chain at all) -- see the four rows' notes.
@@ -56,7 +59,7 @@ ops:
   GetIdentityDkimAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIdentityMailFromDomainAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "BehaviorOnMXFailure now actually reflects the persisted value. gopherstack-r80d batch 24 (2026-08-21): FIXED -- required *string member MailFromDomain (types.IdentityMailFromDomainAttributes, ses@v1.37.4 types/types.go:557-577) was tagged xml omitempty; an identity with no custom MailFrom domain configured (the default state, before SetIdentityMailFromDomain is ever called) decoded it as a nil pointer on a real client instead of a pointer to \"\". BehaviorOnMXFailure's own omitempty was also removed as harmless cleanup (non-pointer enum on the real type, so omitted vs present-empty decode identically -- not a distinguishable bug, unlike MailFromDomain)."}
   GetIdentityNotificationAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-r80d batch 24 (2026-08-21): FIXED -- required *string members BounceTopic/ComplaintTopic/DeliveryTopic (types.IdentityNotificationAttributes, ses@v1.37.4 types/types.go) were tagged xml omitempty; an identity with no SNS topic configured for a given notification type (the default state before SetIdentityNotificationTopic is called) decoded each as a nil pointer instead of a pointer to \"\". Also fixed, not part of this cut (HeadersIn* are optional, not required): the xmlNotificationAttributes.HeadersInBounce/HeadersInComplaint/HeadersInDelivery XML tags didn't match the real deserializer's key names (HeadersInBounceNotificationsEnabled/HeadersInComplaintNotificationsEnabled/HeadersInDeliveryNotificationsEnabled, deserializers.go's IdentityNotificationAttributes case-switch) -- these three were always silently dropped by a real client regardless of value, now correctly keyed."}
-  GetIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-05 pass: PolicyNames is a required member (api_op_GetIdentityPolicies.go: \"This member is required\"; client-side validateOpGetIdentityPoliciesInput also enforces v.PolicyNames != nil) -- gopherstack instead treated an absent/empty PolicyNames as \"return every policy for this identity\", a fabricated mode the real op doesn't have (its own doc even directs callers who don't know the names to call ListIdentityPolicies first). Fixed: empty/nil PolicyNames now returns InvalidParameterValue (ErrInvalidParameter, same convention as this op's own \"Identity is required\" check). Confirmed safe against errtargetaudit: GetIdentityPolicies's own deserializeOpError switch declares only the default case (no typed exceptions at all), so any wire code is passed through as a generic smithy.GenericAPIError verbatim -- unlike the DeleteReceiptRule-class bug, there's no risk of colliding with a real typed exception this op does declare."}
   ListIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
   VerifyDomainIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
   VerifyDomainDkim: {wire: ok, errors: ok, state: ok, persist: ok, note: "deterministic tokens per identity, stable across calls"}
@@ -119,6 +122,8 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "MaxSendRate (per-second) advertised via GetSendQuota but not enforced, only the 24h quota is now enforced -- a fabricated per-second throttle would need sub-second timing state with no test-visible way to exercise it without time.Sleep (banned); the advertised value (1/sec) is already the correct AWS sandbox default, just not yet gated (bd: gopherstack-a6y)"
   - "SendRawEmailInput.FromArn (cross-account sending-authorization ARN for the raw message's From: header, distinct from SourceArn/ReturnPathArn) is not captured -- confirmed via handler_email_sending.go: handleSendRawEmail never calls vals.Get(\"FromArn\") at all, so the field is present in the parsed form body but never read into SendEmailInput (accepted-then-silently-dropped, not genuinely absent from the wire shape). botocore's ses/2010-12-01 service-2.json models FromArn as a plain string with no format pattern, so real AWS does not appear to client-side-validate its shape either; rejecting a malformed FromArn cannot be cited to a documented behavior. No cross-account identity/policy enforcement exists anywhere in this backend even for SourceArn (PutIdentityPolicy stores policies but nothing evaluates them), so capturing-but-ignoring FromArn would be indistinguishable from today's behavior. Left unimplemented (bd: none filed, tracked here; re-confirmed gopherstack-mhnk)."
   - "SendTemplatedEmailInput/SendBulkTemplatedEmailInput.TemplateArn (cross-account template reference) is not captured -- same accepted-then-silently-dropped shape as FromArn (handler never reads TemplateArn out of vals), same botocore evidence of no format pattern to validate against, same absence of any cross-account resource model in this backend to act on it. Template remains a required member on both real inputs regardless of TemplateArn. Left unimplemented (bd: none filed, tracked here; re-confirmed gopherstack-mhnk)."
+  - "2026-09-05: ConfigurationSet EventDestinations and identity notification topics (SetIdentityNotificationTopic's Bounce/Complaint/Delivery SNS topics) are validated, stored, and returned correctly on every read op, but NEVER ACTUALLY PUBLISHED TO -- SendEmail/SendTemplatedEmail already classify recipients against the mailbox-simulator addresses and set Email.Bounced/Complained (see mailbox_simulator_bounces_complaints), so the trigger condition is reachable, but nothing constructs an SNS notification payload or calls out to the SNS backend when it fires. This is a real, fixable gap (not the DNS/virus-scan class of unreachable state): five other services in this repo (cloudwatch, eventbridge, pipes, s3, scheduler; see their interfaces.go SNSPublisher) already have the established convention -- an SNSPublisher interface implemented here, a Set*Publisher method on InMemoryBackend, and a cli.go adapter wiring it to the real sns backend's PublishToTopic. NOT fixed this pass: the SNS notification JSON payload shape (top-level notificationType/mail/bounce/complaint/delivery objects with bounceType/bounceSubType/bouncedRecipients/reportingMTA/etc.) is documented only in the AWS SES Developer Guide, not in the pinned aws-sdk-go-v2 Go SDK (ses client types never decode this payload -- it's consumed by SNS subscribers, not the SES API surface), so it fails the campaign's 'SDK is the only oracle' rule: there is no pinned source to verify the exact field names/shapes against, only training-data memory of AWS docs, which is exactly the fabrication risk this campaign has been avoiding elsewhere (see invented_error_removed, LimitExceeded gap). A future pass should pull the actual AWS SES Developer Guide JSON schema (not memory) before implementing, or fetch and pin it into the repo the way an SDK module is pinned. bd: none filed, tracked here."
+  - "2026-09-05: ReceiptAction fields (S3BucketName, SNSTopicARN, LambdaFunctionARN, SQSQueueARN, BounceTopicARN, etc. on every action type CreateReceiptRule/UpdateReceiptRule accepts) are stored as inert configuration and returned correctly on every describe/list, but this backend has no inbound-mail entry point at all -- no SMTP listener, no API to inject a simulated received message -- so no action ever fires. Unlike the EventDestination gap above, this is judged structural/unfixable within this emulator's architecture (an HTTP API emulator has no MTA to receive real internet SMTP traffic with), not a missing wiring step: there is no reachable trigger to hang a fix off of, mirroring the reasoning already accepted for MailFromDomainNotVerified (gopherstack-nbp). Recorded for completeness, not filed as a bd issue."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "services/sesv2/ — separate REST-JSON service, out of scope this pass per task constraints (bd: gopherstack-029)"
 leaks: {status: clean, note: "janitor sweep uses pkgs/worker.Group ticker with proper ctx cancellation via WithJanitor/StartWorker/Shutdown; sweepExpiredEmails is O(k) amortized (slice prefix trim, not full rescan); emailsByID map kept in sync on every eviction path (appendEmailLocked cap-eviction, sweepExpiredEmails, Restore pruning); maxRetainedEmails (10000) bounds the emails slice; no unbounded identity/template/config-set/receipt-rule maps found (all are keyed by caller-supplied names with no synthetic churn); no goroutines leaked outside the single janitor ticker."}
@@ -281,3 +286,90 @@ typed error), then passing after the fix. Two pre-existing table-driven tests
 Gates: `go build ./services/ses/...`, `go vet ./services/ses/...`,
 `go test -race -count=1 ./services/ses/...` (pass), `golangci-lint run
 ./services/ses/...` (0 issues).
+
+### 2026-09-05 (parity re-audit, chore/parity-sweep-2026-09-03)
+
+`last_audit_commit: a40e7cc1` turned out not to be an ancestor of this branch
+(`git merge-base --is-ancestor a40e7cc1 HEAD` fails) -- it predates a squash-history
+rewrite, consistent with this repo's documented squash-merge behavior
+(`CLAUDE.md`: "this repo squash-merges ... only 8 of 155 Closes trailers survive
+into main"). Re-audit protocol fell back to `last_audit_date` (2026-08-29): every
+commit touching `services/ses/` after that date was inspected directly rather than
+diffed against the stale hash.
+
+Two such commits existed: `c78177958` (2026-09-02, part of a 222-bug cross-service
+campaign PR) and `b8484292f` (2026-09-04, a ghost-row-after-delete sweep). Both
+were read in full (`git show <sha> -- services/ses/`) and confirmed to be exactly
+what this file's existing 2026-08-31 sections already describe (idempotent-delete
+fixes, `ConfigurationSetAttributeNames` gating, `ListReceiptRuleSets`/
+`ListCustomVerificationEmailTemplates` pagination) plus one new fix not yet
+recorded here: `DeleteIdentity` left a `policies[identity]` ghost row for a
+recreated identity to inherit (`b8484292f`, regression test
+`TestDeleteIdentity_ClearsPoliciesOnRecreate` in `identities_test.go`) -- already
+fixed on this branch, re-verified correct (only `policies` is a side map keyed by
+identity outside the `identities` table itself; DKIM/mail-from/notification-topic
+state lives on `IdentityRecord` and is wiped by `b.identities.Delete` already).
+
+Bug classes named across the recent repo-wide campaign but not previously checked
+by name for `ses` were re-derived from source, not trusted:
+
+- **Tie-prone sorts** (a `sort.Slice` comparator with no tiebreak, over a map-walk
+  source): every paginated `List*` op in this service (`ListIdentities`,
+  `ListConfigurationSets`, `ListReceiptRuleSets`, `ListTemplates`,
+  `ListCustomVerificationEmailTemplates`) sorts on the field that is also the
+  underlying `store.Table`'s own unique key, so no tie can exist structurally --
+  same "clean by structure" class as iam/cleanrooms/medialive in the campaign's own
+  commit messages. `ListReceiptFilters`/`ListVerifiedEmailAddresses`/
+  `ListIdentityPolicies` sort similarly but aren't paginated at all in the real API,
+  so no page-boundary loss is possible either way.
+- **Negative-continuation-token panic**: every paginated op here goes through the
+  shared `pkgs/page.New`, which already guards `idx < 0` (`pkgs/page/page.go:68`) --
+  confirmed by reading the helper directly, not assumed from the service using it.
+- **Equality-cursor restart-to-zero**: doesn't apply -- `pkgs/page` cursors are
+  plain offsets, not identity-matched, so there's no "cursor no longer found, so
+  resume at 0" branch to have this bug in the first place.
+
+New finding this pass, unrelated to the campaign's named classes:
+`GetIdentityPolicies` treated an absent/empty `PolicyNames` as "return every policy
+for this identity" -- `PolicyNames` is a required member
+(`api_op_GetIdentityPolicies.go`) with no such mode in the real op; the doc itself
+says to call `ListIdentityPolicies` first if you don't know the names. Fixed to
+return `InvalidParameterValue`; see the `GetIdentityPolicies` row for the full
+citation and the errtargetaudit cross-check. Regression test:
+`TestGetIdentityPolicies_EmptyNamesList_IsRejected` (backend-level) and
+`TestHandler_GetIdentityPolicies/missing_policy_names_param` (wire-level, since a
+real SDK client's own client-side validator would refuse to build this request at
+all -- only a raw/non-Go-SDK client can reach it). Both neutered (guard commented
+out, restored from a saved copy) and confirmed failing pre-fix: the backend test
+got `nil` instead of an error, the wire test got `200`/`GetIdentityPoliciesResponse`
+instead of `400`/`InvalidParameterValue`.
+
+Two new **gaps** recorded (not fixed, see `gaps` above for full citations and
+reasoning): (1) configuration-set `EventDestinations` and identity notification
+topics are validated/stored/returned but never actually published to over SNS,
+despite the trigger condition (mailbox-simulator bounce/complaint) already being
+reachable -- deferred because the SNS notification JSON payload shape is an AWS
+Developer Guide artifact, not part of the pinned `aws-sdk-go-v2` module, so it
+fails this campaign's SDK-only-oracle rule; (2) receipt-rule S3/SNS/Lambda/SQS/
+Bounce actions are inert configuration with no inbound-mail entry point in this
+backend to ever trigger them -- judged structural/unfixable, same class as the
+already-accepted `MailFromDomainNotVerified` gap.
+
+Also checked, confirmed already correct, no changes: `MessageRejected` reachability
+for unverified-sender sends (yes, all four `Send*` paths); `GetSendStatistics`/
+`sentLast24HoursLocked` hot-path shape (bounded by `maxRetainedEmails`, no O(n²));
+`DeleteConfigurationSet`'s cascade (event destinations + tracking options; delivery/
+reputation options are plain struct fields wiped by `configSets.Delete`, not a
+separate map, so no further ghost-row risk there); LocalStack parity -- **NOT
+CHECKED**, no LocalStack instance or repo harness available in this sandbox to
+compare against.
+
+Baseline (pre-fix, this pass): `golangci-lint run ./services/ses/...` → `0 issues`;
+`go test -race -count=1 ./services/ses/...` → `ok`; `go build ./services/ses/...`
+→ clean. Same three gates green after the fix. `go run ./cmd/errtargetaudit -dir
+ses` → `0 class A findings` both before and after (this fix doesn't touch error
+targeting). `go run ./cmd/requiredoutputfields` was not re-run repo-wide this pass
+(no `-dir` flag exists on the current binary, and a repo-wide run would have read
+`services/sagemakerruntime/`, off-limits this pass per a concurrent editor there);
+the existing `wire_output_required_r80d_test.go` sweep for this service was
+trusted as unchanged and still green.
