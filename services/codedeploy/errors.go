@@ -17,10 +17,15 @@ var (
 	ErrIamArnRequired                = awserr.New("IamArnRequiredException", awserr.ErrInvalidParameter)
 	ErrMultipleIamArns               = awserr.New("MultipleIamArnsProvidedException", awserr.ErrInvalidParameter)
 	// ErrDeploymentConfigIsDefault guards DeleteDeploymentConfig's built-in-config
-	// case. DeleteDeploymentConfig's own deserializer models InvalidOperationException,
-	// not DeploymentConfigInUseException (that code belongs to AddTagsToOnPremisesInstances/
-	// RemoveTagsFromOnPremisesInstances/UpdateDeploymentGroup's tag-limit case instead).
-	ErrDeploymentConfigIsDefault  = awserr.New("InvalidOperationException", awserr.ErrConflict)
+	// case (InvalidOperationException); ErrDeploymentConfigInUse below guards its
+	// other modeled case (DeploymentConfigInUseException) -- distinct codes for
+	// the same op's two distinct delete-rejection reasons.
+	ErrDeploymentConfigIsDefault = awserr.New("InvalidOperationException", awserr.ErrConflict)
+	// ErrDeploymentConfigInUse guards DeleteDeploymentConfig's other own-modeled
+	// case: "A deployment configuration cannot be deleted if it is currently
+	// in use." (api_op_DeleteDeploymentConfig.go). DeploymentConfigInUseException
+	// is modeled by no other operation in this package.
+	ErrDeploymentConfigInUse      = awserr.New("DeploymentConfigInUseException", awserr.ErrConflict)
 	ErrGitHubAccountTokenNotFound = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
 	ErrRevisionNotFound           = awserr.New("RevisionDoesNotExistException", awserr.ErrNotFound)
 	ErrDeploymentTargetNotFound   = awserr.New("DeploymentTargetDoesNotExistException", awserr.ErrNotFound)

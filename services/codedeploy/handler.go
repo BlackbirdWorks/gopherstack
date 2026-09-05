@@ -260,6 +260,7 @@ var errorMappings = []errorMapping{
 	{ErrDeploymentAlreadyCompleted, "DeploymentAlreadyCompletedException", http.StatusConflict},
 	{ErrDeploymentNotInReadyState, "DeploymentIsNotInReadyStateException", http.StatusConflict},
 	{ErrDeploymentConfigIsDefault, "InvalidOperationException", http.StatusBadRequest},
+	{ErrDeploymentConfigInUse, "DeploymentConfigInUseException", http.StatusConflict},
 	{ErrInvalidDeploymentWaitType, "InvalidDeploymentWaitTypeException", http.StatusBadRequest},
 	{ErrInvalidFileExistsBehavior, "InvalidFileExistsBehaviorException", http.StatusBadRequest},
 	{ErrInvalidComputePlatform, "InvalidComputePlatformException", http.StatusBadRequest},

@@ -60,7 +60,7 @@ func TestDeploymentTargets_Ec2TagFilters_RealInstances(t *testing.T) {
 	d, err := h.Backend.CreateDeployment("my-app", "my-dg", codedeploy.DeploymentOptions{Creator: "user"})
 	require.NoError(t, err)
 
-	targetIDs, err := h.Backend.ListDeploymentTargets(d.DeploymentID)
+	targetIDs, err := h.Backend.ListDeploymentTargets(d.DeploymentID, codedeploy.TargetListFilter{})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{matchedInstances[0].ID, matchedInstances[1].ID}, targetIDs)
 
@@ -94,7 +94,7 @@ func TestDeploymentTargets_Ec2TagFilters_NoEc2Wired(t *testing.T) {
 	d, err := h.Backend.CreateDeployment("my-app", "my-dg", codedeploy.DeploymentOptions{Creator: "user"})
 	require.NoError(t, err)
 
-	targetIDs, err := h.Backend.ListDeploymentTargets(d.DeploymentID)
+	targetIDs, err := h.Backend.ListDeploymentTargets(d.DeploymentID, codedeploy.TargetListFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, targetIDs)
 }

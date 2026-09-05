@@ -325,6 +325,22 @@ type RevisionListFilter struct {
 	SortOrder   string // ascending | descending
 }
 
+// InstanceListFilter holds ListDeploymentInstances' optional instanceStatusFilter
+// (TargetStatus values) and instanceTypeFilter (Blue/Green, case-insensitive
+// against this backend's BLUE/GREEN InstanceLabel values).
+type InstanceListFilter struct {
+	StatusFilter []string
+	TypeFilter   []string
+}
+
+// TargetListFilter holds ListDeploymentTargets' optional targetFilters map,
+// keyed by "TargetStatus" or "ServerInstanceLabel" (the two SDK-defined
+// TargetFilterName values).
+type TargetListFilter struct {
+	TargetStatus        []string
+	ServerInstanceLabel []string
+}
+
 // DeploymentTargetRecord describes one participant (instance/ECS service/Lambda
 // function) in a deployment. It is derived on read from the deployment's real
 // backend state (the owning deployment group's compute platform, on-premises
