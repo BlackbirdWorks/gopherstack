@@ -608,6 +608,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		c.Response().Header().Set("x-amzn-ErrorType", "MountTargetConflict")
 
 		return c.JSON(http.StatusConflict, errResp("MountTargetConflict", err.Error()))
+	case errors.Is(err, ErrIncorrectFileSystemLifeCycleState):
+		c.Response().Header().Set("x-amzn-ErrorType", "IncorrectFileSystemLifeCycleState")
+
+		return c.JSON(http.StatusConflict, errResp("IncorrectFileSystemLifeCycleState", err.Error()))
 	case errors.Is(err, ErrSecurityGroupLimitExceeded):
 		c.Response().Header().Set("x-amzn-ErrorType", "SecurityGroupLimitExceeded")
 

@@ -40,6 +40,10 @@ var (
 	ErrFileSystemInUse = awserr.New("FileSystemInUse", awserr.ErrConflict)
 	// ErrMountTargetConflict is returned when a duplicate mount target is created in the same subnet.
 	ErrMountTargetConflict = awserr.New("MountTargetConflict", awserr.ErrConflict)
+	// ErrIncorrectFileSystemLifeCycleState is returned when an operation requires the
+	// file system to be in the "available" lifecycle state (botocore efs/service-2.json:
+	// "Returned if the file system's lifecycle state is not \"available\"").
+	ErrIncorrectFileSystemLifeCycleState = awserr.New("IncorrectFileSystemLifeCycleState", awserr.ErrConflict)
 	// ErrSecurityGroupLimitExceeded is returned when too many security groups are specified.
 	ErrSecurityGroupLimitExceeded = awserr.New("SecurityGroupLimitExceeded", awserr.ErrConflict)
 	// ErrTooManyRequests is returned when a throughput change cooldown is violated.

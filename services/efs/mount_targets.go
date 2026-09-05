@@ -52,6 +52,53 @@ func azNameToID(azName string) string {
 	return fmt.Sprintf("%s-az%d", regionPart, suffix)
 }
 
+// checkMountTargetPreconditions validates the file system's lifecycle state and its
+// existing mount targets against the CreateMountTarget rules in
+// api_op_CreateMountTarget.go:21-30 before a new mount target is created.
+func (b *InMemoryBackend) checkMountTargetPreconditions(
+	region string,
+	fs *FileSystem,
+	req CreateMountTargetRequest,
+) error {
+	// api_op_CreateMountTarget.go:29-30: "To create a mount target for a file system,
+	// the file system's lifecycle state must be available."
+	if fs.LifeCycleState != statusAvailable {
+		return fmt.Errorf(
+			"%w: file system %s is in lifecycle state %q, not %q",
+			ErrIncorrectFileSystemLifeCycleState,
+			req.FileSystemID,
+			fs.LifeCycleState,
+			statusAvailable,
+		)
+	}
+
+	existingMTCount := len(b.mtSubnetIdx[region][req.FileSystemID])
+
+	// api_op_CreateMountTarget.go:21-22: "You can create only one mount target for a
+	// One Zone file system."
+	if fs.AvailabilityZoneName != "" && existingMTCount > 0 {
+		return fmt.Errorf(
+			"%w: file system %s is a One Zone file system and already has a mount target",
+			ErrMountTargetConflict,
+			req.FileSystemID,
+		)
+	}
+
+	// O(1) subnet conflict check via index: one mount target per subnet per file system.
+	if req.SubnetID != "" && b.mtSubnetIdx[region] != nil {
+		if _, dup := b.mtSubnetIdx[region][req.FileSystemID][req.SubnetID]; dup {
+			return fmt.Errorf(
+				"%w: mount target already exists for file system %s in subnet %s",
+				ErrMountTargetConflict,
+				req.FileSystemID,
+				req.SubnetID,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateMountTarget creates a mount target for a file system.
 // Returns ErrMountTargetConflict if a mount target already exists in the same subnet.
 func (b *InMemoryBackend) CreateMountTarget(
@@ -82,18 +129,8 @@ func (b *InMemoryBackend) CreateMountTarget(
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
 	}
 
-	// O(1) subnet conflict check via index: one mount target per subnet per file system.
-	if req.SubnetID != "" {
-		if b.mtSubnetIdx[region] != nil {
-			if _, dup := b.mtSubnetIdx[region][req.FileSystemID][req.SubnetID]; dup {
-				return nil, fmt.Errorf(
-					"%w: mount target already exists for file system %s in subnet %s",
-					ErrMountTargetConflict,
-					req.FileSystemID,
-					req.SubnetID,
-				)
-			}
-		}
+	if err := b.checkMountTargetPreconditions(region, fs, req); err != nil {
+		return nil, err
 	}
 
 	if len(req.SecurityGroups) > maxSecurityGroups {
