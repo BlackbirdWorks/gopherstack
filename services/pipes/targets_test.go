@@ -235,6 +235,73 @@ func TestTargetParams_Kinesis(t *testing.T) {
 	}
 }
 
+// TestTargetPartitionKey_Required verifies that CreatePipe and UpdatePipe
+// reject a Kinesis target with no PartitionKey, matching aws-sdk-go-v2 pipes
+// validators.go's validatePipeTargetKinesisStreamParameters (PartitionKey
+// required). Unlike source StartingPosition, this applies to both ops: Create
+// and Update route TargetParameters through the same validator.
+func TestTargetPartitionKey_Required(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create_missing_partition_key_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := b2Backend()
+		_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+			Name:         "create-missing-pk-pipe",
+			RoleARN:      "arn:aws:iam::123456789012:role/r",
+			Source:       "arn:aws:sqs:us-east-1:123456789012:q",
+			Target:       "arn:aws:kinesis:us-east-1:123456789012:stream/out",
+			DesiredState: "RUNNING",
+			TargetParameters: &pipes.TargetParameters{
+				KinesisStreamParameters: &pipes.KinesisStreamTargetParameters{},
+			},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, pipes.ErrValidation)
+	})
+
+	t.Run("create_with_partition_key_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		b := b2Backend()
+		_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+			Name:         "create-with-pk-pipe",
+			RoleARN:      "arn:aws:iam::123456789012:role/r",
+			Source:       "arn:aws:sqs:us-east-1:123456789012:q",
+			Target:       "arn:aws:kinesis:us-east-1:123456789012:stream/out",
+			DesiredState: "RUNNING",
+			TargetParameters: &pipes.TargetParameters{
+				KinesisStreamParameters: &pipes.KinesisStreamTargetParameters{PartitionKey: "pk"},
+			},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("update_missing_partition_key_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := b2Backend()
+		_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+			Name:         "update-missing-pk-pipe",
+			RoleARN:      "arn:aws:iam::123456789012:role/r",
+			Source:       "arn:aws:sqs:us-east-1:123456789012:q",
+			Target:       "arn:aws:lambda:us-east-1:123456789012:function:fn",
+			DesiredState: "RUNNING",
+		})
+		require.NoError(t, err)
+
+		_, err = b.UpdatePipe(context.Background(), "update-missing-pk-pipe", pipes.UpdatePipeInput{
+			RoleARN: "arn:aws:iam::123456789012:role/r",
+			TargetParameters: &pipes.TargetParameters{
+				KinesisStreamParameters: &pipes.KinesisStreamTargetParameters{},
+			},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, pipes.ErrValidation)
+	})
+}
+
 // TestTargetParams_CloudWatchLogs verifies CloudWatch Logs target parameters.
 func TestTargetParams_CloudWatchLogs(t *testing.T) {
 	t.Parallel()

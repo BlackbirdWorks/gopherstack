@@ -1,6 +1,7 @@
 package pipes
 
 import (
+	"fmt"
 	"maps"
 )
 
@@ -346,4 +347,20 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 	}
 
 	return &tp
+}
+
+// validateTargetRequiredFields enforces required nested target fields, matching
+// aws-sdk-go-v2 pipes validators.go's validatePipeTargetKinesisStreamParameters
+// (PartitionKey required). Unlike source-side StartingPosition, this applies on
+// both CreatePipe and UpdatePipe: both ops route TargetParameters through the
+// same validator.
+func validateTargetRequiredFields(tp *TargetParameters) error {
+	if tp == nil {
+		return nil
+	}
+	if kp := tp.KinesisStreamParameters; kp != nil && kp.PartitionKey == "" {
+		return fmt.Errorf("%w: KinesisStreamParameters.PartitionKey is required", ErrValidation)
+	}
+
+	return nil
 }

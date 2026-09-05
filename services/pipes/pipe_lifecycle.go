@@ -36,6 +36,12 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
 		return nil, err
 	}
+	if err := validateSourceStartingPosition(in.SourceParameters); err != nil {
+		return nil, err
+	}
+	if err := validateTargetRequiredFields(in.TargetParameters); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
@@ -146,6 +152,9 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 		return nil, err
 	}
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
+		return nil, err
+	}
+	if err := validateTargetRequiredFields(in.TargetParameters); err != nil {
 		return nil, err
 	}
 	if in.RoleARN == "" {

@@ -521,6 +521,72 @@ func TestBatchSize_UpdateValidation(t *testing.T) {
 	}
 }
 
+// TestSourceStartingPosition_Required verifies that CreatePipe rejects a
+// Kinesis or DynamoDB Streams source with no StartingPosition, matching
+// aws-sdk-go-v2 pipes validators.go's validatePipeSourceKinesisStreamParameters
+// and validatePipeSourceDynamoDBStreamParameters (both mark it required).
+func TestSourceStartingPosition_Required(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sp        *pipes.SourceParameters
+		name      string
+		wantError bool
+	}{
+		{
+			name: "kinesis_missing_starting_position_rejected",
+			sp: &pipes.SourceParameters{
+				KinesisStreamParameters: &pipes.KinesisStreamSourceParameters{},
+			},
+			wantError: true,
+		},
+		{
+			name: "kinesis_with_starting_position_accepted",
+			sp: &pipes.SourceParameters{
+				KinesisStreamParameters: &pipes.KinesisStreamSourceParameters{StartingPosition: "LATEST"},
+			},
+			wantError: false,
+		},
+		{
+			name: "dynamodb_missing_starting_position_rejected",
+			sp: &pipes.SourceParameters{
+				DynamoDBStreamParameters: &pipes.DynamoDBStreamSourceParameters{},
+			},
+			wantError: true,
+		},
+		{
+			name: "dynamodb_with_starting_position_accepted",
+			sp: &pipes.SourceParameters{
+				DynamoDBStreamParameters: &pipes.DynamoDBStreamSourceParameters{StartingPosition: "TRIM_HORIZON"},
+			},
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := b3Backend()
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				Name:             tt.name + "-pipe",
+				RoleARN:          "arn:aws:iam::111122223333:role/r",
+				Source:           b3SQSSource,
+				Target:           b3LambdaTarget,
+				DesiredState:     "RUNNING",
+				SourceParameters: tt.sp,
+			})
+
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // --- Kinesis and DynamoDB Streams runtime pollers ---
 
 // fakeKinesisReader is a fake PipeKinesisReader used to exercise the runtime
@@ -656,10 +722,12 @@ func newStreamSourceHarness(t *testing.T, tc streamSourceCase) *streamSourceHarn
 		// source's own stream parameters, never at the top level.
 		if tc.isDynamoDB {
 			input.SourceParameters.DynamoDBStreamParameters = &pipes.DynamoDBStreamSourceParameters{
+				StartingPosition: "TRIM_HORIZON",
 				DeadLetterConfig: &pipes.DeadLetterConfig{Arn: tc.dlqARN},
 			}
 		} else {
 			input.SourceParameters.KinesisStreamParameters = &pipes.KinesisStreamSourceParameters{
+				StartingPosition: "TRIM_HORIZON",
 				DeadLetterConfig: &pipes.DeadLetterConfig{Arn: tc.dlqARN},
 			}
 		}

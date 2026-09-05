@@ -266,6 +266,26 @@ func validateSourceBatchSize(sp *SourceParameters) error {
 	return nil
 }
 
+// validateSourceStartingPosition enforces that Kinesis and DynamoDB Streams
+// sources specify StartingPosition, matching aws-sdk-go-v2 pipes
+// validators.go's validatePipeSourceKinesisStreamParameters and
+// validatePipeSourceDynamoDBStreamParameters (both mark it required). This
+// applies only at CreatePipe: UpdatePipeSourceParameters carries no such
+// requirement, since starting position cannot be changed after creation.
+func validateSourceStartingPosition(sp *SourceParameters) error {
+	if sp == nil {
+		return nil
+	}
+	if kp := sp.KinesisStreamParameters; kp != nil && kp.StartingPosition == "" {
+		return fmt.Errorf("%w: KinesisStreamParameters.StartingPosition is required", ErrValidation)
+	}
+	if dp := sp.DynamoDBStreamParameters; dp != nil && dp.StartingPosition == "" {
+		return fmt.Errorf("%w: DynamoDBStreamParameters.StartingPosition is required", ErrValidation)
+	}
+
+	return nil
+}
+
 func (p *Pipe) effectiveBatchSize() int {
 	if p.SourceParameters != nil {
 		if bs := sourceBatchSize(p.SourceParameters); bs > 0 {
