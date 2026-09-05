@@ -173,6 +173,14 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
 	visConfig := parseVisibilityConfig(json.RawMessage(rg.VisibilityConfig), rg.Name)
 
+	// LabelNamespace grammar ("awswaf:<account ID>:rulegroup:<rule group
+	// name>:") confirmed via
+	// https://docs.aws.amazon.com/waf/latest/APIReference/API_RuleGroup.html
+	// (same codegen-stripped-placeholder situation as WebACL.LabelNamespace,
+	// see marshalWebACL) -- deterministic from data this backend already
+	// has, not fabricated.
+	labelNamespace := fmt.Sprintf("awswaf:%s:rulegroup:%s:", h.Backend.AccountID(), rg.Name)
+
 	ruleGroupMap := map[string]any{
 		"Id":                rg.ID,
 		keyName:             rg.Name,
@@ -181,6 +189,7 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 		keyCapacity:         rg.Capacity,
 		keyRules:            rg.Rules,
 		keyVisibilityConfig: visConfig,
+		keyLabelNamespace:   labelNamespace,
 	}
 
 	if len(rg.CustomResponseBodies) > 0 {
@@ -245,6 +254,14 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
 		return nil, err
 	}
@@ -285,6 +302,14 @@ func (h *Handler) handleDeleteRuleGroup(ctx context.Context, body []byte) ([]byt
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteRuleGroup(ctx, req.ID, req.LockToken); err != nil {

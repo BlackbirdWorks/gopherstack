@@ -4,8 +4,16 @@ import (
 	"context"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// userImportJobsPageSize is this backend's default page size for
+// ListUserImportJobs; real AWS makes MaxResults a required field on this
+// operation with no documented default (unlike most other List/Describe ops
+// here), so this exists only as the fallback pkgs/page.New uses when a
+// caller sends 0 -- gopherstack does not itself enforce the "required" rule.
+const userImportJobsPageSize = 100
 
 func toUserImportJobType(job *UserImportJob) *userImportJobType {
 	return &userImportJobType{
@@ -57,12 +65,14 @@ func (h *Handler) handleListUserImportJobs(
 		return nil, err
 	}
 
-	out := make([]userImportJobType, 0, len(jobs))
-	for _, job := range jobs {
+	pg := page.New(jobs, in.PaginationToken, in.MaxResults, userImportJobsPageSize)
+
+	out := make([]userImportJobType, 0, len(pg.Data))
+	for _, job := range pg.Data {
 		out = append(out, *toUserImportJobType(job))
 	}
 
-	return &listUserImportJobsOutput{UserImportJobs: out}, nil
+	return &listUserImportJobsOutput{UserImportJobs: out, PaginationToken: pg.Next}, nil
 }
 
 func (h *Handler) handleStartUserImportJob(

@@ -1,9 +1,28 @@
 ---
 service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.56.4
-last_audit_commit: 95db4e412
-last_audit_date: 2026-08-10
-overall: A            # gopherstack-nojq: wired UserGroup.ServerlessCaches (real
+last_audit_commit: 33ef0db22
+last_audit_date: 2026-08-30
+overall: A            # 2026-08-30 (transfer/emr/elasticache Describe/List rigor pass, same wrapper-key-sweep
+                       # branch): independently re-derived this service's 21-op Describe/List surface from
+                       # handler.go's dispatch table (not PARITY.md prose): 19 Describe + 2 List. Re-verified the
+                       # 2026-08-29 list-filter-params sweep's four fixes (DescribeUpdateActions, DescribeUsers,
+                       # DescribeReservedCacheNodes/Offerings) by reading their handlers directly -- all four
+                       # genuinely correct, not re-fixed. Spot-read the remaining ops not given a filter-by-filter
+                       # note in that sweep (DescribeCacheSubnetGroups, DescribeSnapshots, DescribeCacheSecurityGroups,
+                       # DescribeGlobalReplicationGroups, DescribeEvents, DescribeCacheParameterGroups,
+                       # DescribeEngineDefaultParameters, DescribeCacheEngineVersions) against their own
+                       # api_op_<Op>.go Input structs -- all correctly wired except DescribeCacheParameters (see its
+                       # own ops-table row, new gap found and disclosed, not fixed -- missing backend data, not a
+                       # misread key). Confirmed ListAllowedNodeTypeModifications's already-disclosed structural gap
+                       # by independently reading api_op_ListAllowedNodeTypeModificationsInput/Output and the
+                       # backend method -- not re-fixed, correctly characterized already. No listing found that
+                       # skips its store; no handler found discarding its whole request; no wrong Go type found. The
+                       # Query/XML protocol (confirmed via aws/protocol/query import in serializers.go, Action= form
+                       # field) has no NextToken-vs-Marker sibling-key-mismatch class the way emr's awsjson1.1 did
+                       # (this service's Marker key is genuinely uniform across every op) -- checked and ruled out,
+                       # not assumed.
+                       # gopherstack-nojq: wired UserGroup.ServerlessCaches (real
                        # reverse-association, same pattern as ReplicationGroups); added
                        # published-quota enforcement for CacheSubnetGroupQuotaExceeded/
                        # CacheSubnetQuotaExceededFault/ServerlessCacheQuotaForCustomer
@@ -75,7 +94,7 @@ ops:
   DescribeCacheParameterGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked"}
   ModifyCacheParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ResetCacheParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCacheParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CacheParameterGroupNotFound 400->404; MaxRecords [20,100] now enforced"}
+  DescribeCacheParameters: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed: CacheParameterGroupNotFound 400->404; MaxRecords [20,100] now enforced. GAP found 2026-08-30 (transfer/emr/elasticache rigor pass): DescribeCacheParametersInput.Source (real, Valid Values user|system|engine-default, api_op_DescribeCacheParameters.go) is declared on the wire and never read by the handler at all. Not fixed: this backend's CacheParameterGroup.Parameters only ever stores explicitly-overridden values (every stored entry is unconditionally IsModifiable:true, i.e. always 'user' source) -- there is no modeled 'system'/'engine-default' parameter state to differentiate by Source in the first place (DescribeEngineDefaultParameters is a separate, unrelated static catalog, not merged into a group's own parameter list). Implementing Source faithfully needs the same class of full-default-parameter-catalog-merge work already deferred elsewhere in this manifest (see ListAllowedNodeTypeModifications, snapshot data-plane fidelity) -- a missing-backend-data gap per parity-principles.md #4, not a quick key fix; fabricating a Source split over undifferentiated data would be worse than leaving it unfiltered."}
   DescribeEngineDefaultParameters: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "MaxRecords [20,100] now enforced"}
   CreateCacheSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "(2026-08-10) now enforces CacheSubnetGroupQuotaExceeded (300/Region) and CacheSubnetQuotaExceededFault (20/group) -- AWS's documented default quotas, docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html"}
   DeleteCacheSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: code CacheSubnetGroupNotFound -> CacheSubnetGroupNotFoundFault (Fault suffix kept on the wire for this one; status stays 400)"}
@@ -90,7 +109,7 @@ ops:
   DeleteSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: SnapshotNotFoundFault 400->404"}
   DescribeSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; automatic vs manual source filter verified ok; MaxRecords [20,100] now enforced"}
   CopySnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: SnapshotNotFoundFault 400->404"}
-  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "MaxRecords [20,100] now enforced"}
+  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "MaxRecords [20,100] now enforced. FIXED 2026-08-31 (value-semantics pass), two bugs in the same function: (1) Duration is documented as \"the number of minutes worth of events to retrieve\" (api_op_DescribeEvents.go) but was multiplied as *time.Second, not *time.Minute -- a client's Duration=60 (meaning the last hour) retrieved only the last 60 SECONDS, 60x too narrow a window. (2) the operation's own summary documents \"By default, only the events occurring within the last hour are returned\" -- omitting Duration/StartTime/EndTime left effectiveStart at its zero value, which the Before-comparison treats as no lower bound at all, so an unfiltered call returned every event ever recorded instead of just the last hour (the primary omission-default bug this campaign targets: absence of a filter was given the wrong meaning). Also fixed the same pass: appendEventLocked stamped events with time.Now() rather than the injectable b.now(), so SetClock (used elsewhere in this package for deterministic lifecycle tests) had no effect on event timestamps at all -- switched to b.now() so the two new regression tests (TestDescribeEvents_DefaultsToLastHour, TestDescribeEvents_DurationIsMinutes) could exercise both bugs deterministically without a real sleep; both proved failing pre-fix."}
   CreateServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "(2026-08-10) now enforces ServerlessCacheQuotaForCustomerExceededFault (40/Region, AWS's documented default, quota-limits.html) -- both the wire-routed path (CreateServerlessCacheFull) and the legacy 3-arg CreateServerlessCache. (2026-07-25 #1) serverlessCacheXML was only wiring 5 of 13 real ServerlessCache fields (ARN/ServerlessCacheName/Description/Status/Engine + Endpoint/ReaderEndpoint) -- CreateTime/DailySnapshotTime/KmsKeyId/MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/UserGroupId were silently dropped despite the domain model already storing all of them; fixed. (2026-07-25 #2) found a much more severe bug while wiring CacheUsageLimits: the wire-routed handler only ever parsed ServerlessCacheName/Description/Engine from the request and called the crippled 3-arg CreateServerlessCache backend method, silently dropping every other real request field on create (not just CacheUsageLimits -- KmsKeyId/DailySnapshotTime/MajorEngineVersion/SecurityGroupIds/SubnetIds/SnapshotRetentionLimit/UserGroupId/Tags too, despite the response-side wire-shape fix above being correct). Fixed by routing through CreateServerlessCacheFull; CacheUsageLimits now fully implemented (request parsing, backend storage, response wire shape)"}
   ModifyServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound -> ServerlessCacheNotFoundFault, 400->404; (2026-07-24) InvalidServerlessCacheStateFault guard added to both the wire-routed ModifyServerlessCache and the ModifyServerlessCacheFull variant; (2026-07-25 #1) same wire-shape fix as CreateServerlessCache; (2026-07-25 #2) same request-parsing fix as CreateServerlessCache -- now routes through ModifyServerlessCacheFull, threading UserGroupId/DailySnapshotTime/SnapshotRetentionLimit/SecurityGroupIds/CacheUsageLimits/RemoveUserGroup, previously all silently dropped on the real wire path"}
   DeleteServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidServerlessCacheStateFault guard added; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
@@ -103,7 +122,7 @@ ops:
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-07-24): DELETED gopherstack-invented `NoPasswordRequired` wire output field (types.User/CreateUserResult have no such field); now serializes the real Authentication{Type,PasswordCount} struct and UserGroupIds list. Handles AuthenticationMode.Type (password/no-password-required/iam, translated to output's password/no-password/iam) + AuthenticationMode.Passwords / legacy top-level Passwords (1-2, else InvalidParameterValue) + legacy NoPasswordRequired bool. New CreateUserWithAuth backend method carries the full model; CreateUser(bool) kept as a thin legacy wrapper so existing call sites are unaffected"}
   ModifyUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UserNotFound 400->404; InvalidParameterValueException -> InvalidParameterValue; (2026-07-24) added AppendAccessString (was unhandled -- ModifyUserInput has both AccessString and AppendAccessString), Engine, and the same Authentication-model handling as CreateUser via new ModifyUserWithAuth"}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UserNotFound 400->404; (2026-07-24) response now includes Authentication/UserGroupIds like the other User-returning ops"}
-  DescribeUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) Authentication/UserGroupIds wire fix (see CreateUser); MaxRecords [20,100] now enforced; handler deduped via describeListChecked"}
+  DescribeUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) Authentication/UserGroupIds wire fix (see CreateUser); MaxRecords [20,100] now enforced; handler deduped via describeListChecked. FIXED (2026-08-29 list-filter-params pass) — Engine and Filters (Name=\"UserId\", the only documented Filters[].Name per api_op_DescribeUsers.go) were declared on the wire and never read by the handler at all"}
   CreateUserGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: code UserGroupAlreadyExistsFault -> UserGroupAlreadyExists; (2026-07-24) DELETED gopherstack-invented `Description` field (types.UserGroup/CreateUserGroupInput have no such field/param) from both input parsing and wire output; now wires the real ReplicationGroups field (reverse of a ReplicationGroup's UserGroupIds, computed fresh on every response -- was previously a dead, always-empty model field); (2026-08-10) now also wires the real ServerlessCaches field the same way (reverse of ServerlessCache.UserGroupId) -- see users_and_user_groups"}
   ModifyUserGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UserGroupNotFound 400->404; (2026-07-24) ReplicationGroups wire fix (see CreateUserGroup); (2026-08-10) ServerlessCaches wire fix (see CreateUserGroup)"}
   DeleteUserGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) Description removed, ReplicationGroups wired; (2026-08-10) ServerlessCaches wire fix (see CreateUserGroup)"}
@@ -117,15 +136,15 @@ ops:
   IncreaseNodeGroupsInGlobalReplicationGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidGlobalReplicationGroupState guard added; (2026-08-13, gopherstack-9kw0) ApplyImmediately (required) was previously unread. AWS documents \"the only permitted value for this parameter is true\" for this op, so applyImmediately=false is now genuinely rejected (ErrApplyImmediatelyRequired -> InvalidParameterValue) rather than silently accepted as if it had been true."}
   DecreaseNodeGroupsInGlobalReplicationGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidGlobalReplicationGroupState guard added; (2026-08-13, gopherstack-9kw0) same ApplyImmediately fix as IncreaseNodeGroupsInGlobalReplicationGroup -- false now rejected, matching AWS's \"only permitted value ... is true\" documentation."}
   RebalanceSlotsInGlobalReplicationGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidGlobalReplicationGroupState guard added; (2026-08-13, gopherstack-9kw0) ApplyImmediately (required) was previously unread. Unlike the node-group-resize GRG ops, AWS's doc for this one doesn't say false is unsupported (\"If True, redistribution is applied immediately\", silent on False), and this backend has no background scheduler to defer a rebalance onto -- so the flag is now read and accepted but both true/false rebalance synchronously; documented as not a genuine timing gate."}
-  DescribeReservedCacheNodes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ReservedCacheNodeNotFound 400->404; MaxRecords [20,100] now enforced"}
-  DescribeReservedCacheNodesOfferings: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "fixed: ReservedCacheNodesOfferingNotFound 400->404; MaxRecords [20,100] now enforced"}
+  DescribeReservedCacheNodes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ReservedCacheNodeNotFound 400->404; MaxRecords [20,100] now enforced. FIXED (2026-08-29 list-filter-params pass) — Duration and ProductDescription were declared on the wire and never read by the handler at all"}
+  DescribeReservedCacheNodesOfferings: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "fixed: ReservedCacheNodesOfferingNotFound 400->404; MaxRecords [20,100] now enforced. FIXED (2026-08-29 list-filter-params pass) — same Duration/ProductDescription gap as DescribeReservedCacheNodes; matchesReservedDuration accepts AWS's documented \"1\"/\"3\"-year forms and raw seconds (api_op_DescribeReservedCacheNodesOfferings.go: \"Valid Values: 1 | 3 | 31536000 | 94608000\")"}
   PurchaseReservedCacheNodesOffering: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed: ReservedCacheNodesOfferingNotFound 400->404; ReservedCacheNodeAlreadyExists 409->404. Deferred (investigated 2026-08-10, gopherstack-nojq, not a fixable gap): RecurringCharges is always empty. Confirmed via the real API docs (API_ReservedCacheNodesOffering.html: RecurringCharges is an optional, undocumented-content array; API_DescribeReservedCacheNodesOfferings.html's own example response shows a NON-empty RecurringCharges for a Heavy-Utilization offering, RecurringChargeAmount 0.123/Hourly) that real AWS's RecurringCharges is live Price-List state tied to OfferingType/node-type/region/time, not a static per-shape default -- there is no published, deterministic algorithm to reproduce specific $ amounts, so leaving it empty rather than fabricating a number is the correct call under this campaign's no-fabrication rule. This emulator's 3 builtin offerings are all 'All Upfront' (see builtinReservedOfferings), for which an empty/zero recurring charge is the economically expected case anyway -- not verified against a live 'All Upfront' AWS response, but the closest defensible reading. See Notes."}
   DescribeCacheEngineVersions: {wire: ok, errors: ok, state: n/a, persist: n/a}
   DescribeServiceUpdates: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "MaxRecords [20,100] now enforced"}
-  DescribeUpdateActions: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "MaxRecords [20,100] now enforced"}
+  DescribeUpdateActions: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "MaxRecords [20,100] now enforced. FIXED (2026-08-29 list-filter-params pass) — CacheClusterIds, ReplicationGroupIds, and UpdateActionStatus were declared on the wire and never read by the handler at all; only ServiceUpdateName was honoured. Engine, ServiceUpdateTimeRange, and ShowNodeLevelUpdateStatus left unfixed: UpdateAction (models.go) carries no Engine or timestamp field to filter on — structural gap, not a read bug"}
   BatchApplyUpdateAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchStopUpdateAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAllowedNodeTypeModifications: {wire: ok, errors: ok, state: n/a, persist: n/a}
+  BatchStopUpdateAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-29 list-filter-params pass) — a stopped action never updated the tracked UpdateAction record's status (batchUpdateActions only computed the response; the method also took RLock, so it couldn't have mutated anyway). DescribeUpdateActions' new UpdateActionStatus filter would otherwise have had no non-\"scheduling\" status ever reachable through the real API to filter on"}
+  ListAllowedNodeTypeModifications: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "STRUCTURAL GAP (2026-08-29 list-filter-params pass, deferred) — CacheClusterId/ReplicationGroupId are accepted but ignored; the handler always returns the same fixed 8-entry ScaleUpModifications list regardless of the target's current node type, and ScaleDownModifications is never populated. Deriving the real AWS answer needs a modeled node-type hierarchy (which types are larger/smaller than the current one) — left unimplemented as a larger piece of work than this pass, not silently accepted as correct"}
   StartMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "no state guard added -- migration ops legitimately run while status is \"migrating\", not \"available\"; adding the generic guard here would be wrong, not an improvement (see Notes). (2026-08-13, gopherstack-9kw0) CustomerNodeEndpointList (required) was previously unread -- the backend signature had no parameter for it, so a request omitting it silently succeeded. Real AWS's ReplicationGroup response never echoes this field back (it exists purely to tell AWS what to migrate from), so there's nowhere to make it observable in output; fixed by enforcing AWS's required-member contract instead -- an empty/absent list is now rejected (InvalidParameterValue) rather than silently accepted."}
   TestMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as StartMigration; (2026-08-13, gopherstack-9kw0) same CustomerNodeEndpointList required-field fix as StartMigration"}
   CompleteMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as StartMigration -- must succeed while status=\"migrating\""}
@@ -184,6 +203,30 @@ leaks: {status: clean, note: "zero goroutines/timers/tickers in the entire packa
 ---
 
 ## Notes
+
+### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
+
+Measured all 20 collection-returning Describe/List operations (verified by SDK output
+shape) and every constraining parameter each declares in its own `api_op_<Op>.go` Input
+struct. Found and fixed 4 real never-read filter bugs: `DescribeUpdateActions`
+(CacheClusterIds, ReplicationGroupIds, UpdateActionStatus), `DescribeUsers` (Engine,
+Filters), and both `DescribeReservedCacheNodes`/`DescribeReservedCacheNodesOfferings`
+(Duration, ProductDescription) — see ops table above. Fixing `UpdateActionStatus`
+exposed an adjacent mutation bug: `BatchStopUpdateAction` never persisted the "stopped"
+status back onto the tracked `UpdateAction` record (also fixed, see ops table).
+`ListAllowedNodeTypeModifications` ignores its CacheClusterId/ReplicationGroupId
+entirely and returns a fixed static list — left as a deferred structural gap (needs a
+real node-type-size hierarchy to answer correctly, out of proportion to this pass).
+`DescribeCacheClusters` (ShowCacheNodeInfo/ShowCacheClustersNotInReplicationGroups) and
+`DescribeSnapshots` (ShowNodeGroupConfig) were re-verified: their remaining parameters
+are output-detail toggles, not result-membership filters, and were already correctly
+honoured. `DescribeEvents`, `DescribeServerlessCaches`, `DescribeUserGroups`,
+`DescribeServiceUpdates` were re-verified clean — every declared filter already applied.
+Pagination in this service routes through per-operation cursor logic (no single shared
+helper, unlike eks/cleanrooms) but was found correctly truncating everywhere checked; no
+never-truncating list ops found here, unlike route53's equivalent sweep. No
+parameter-parsed-then-discarded-to-`_` cases and no handler that skips reading its
+request body were found in this service this pass.
 
 **Protocol**: query/XML (`Version=2015-02-02`), matching `aws-sdk-go-v2/service/elasticache`'s
 `awsAwsquery` (de)serializers. All list wrappers (`CacheNode`, `NodeGroup`, `NodeGroupMember`,
@@ -532,3 +575,70 @@ drives a real SDK client through `service.NewRegistry`/`service.NewServiceRouter
 direct-`Handler()`-mount workaround), confirmed to fail against the pre-fix code with
 `UnknownError` instead of `InternalFailure`; `TestHandler_NormalSizedBodyStillRoutes` is the
 added regression guard for a normal-sized request still routing and succeeding.
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 7 `errors.go` sentinel literals (`ReplicationGroupNotFound`,
+  `InvalidParameterGroupFamily`, `CacheSubnetGroupNotFound`, `SnapshotNotFound`,
+  `UserGroupAlreadyExistsFault`, `GlobalReplicationGroupNotFound`, `ServerlessCacheNotFound`)
+  as absent from elasticache's real type/deserializer set. All are **tool false positives**:
+  every one of these sentinel strings is only ever used for `errors.Is` identity, never
+  emitted to the wire — each handler call site hardcodes the correct SDK-verified code and
+  message as its own string literal (e.g. `xmlError(c, http.StatusNotFound,
+  "ReplicationGroupNotFoundFault", "Replication group not found")`, not
+  `err.Error()`), independently of the sentinel's own text. Confirmed by grepping every
+  call site of each flagged sentinel across `handler_*.go`. This matches commit
+  `53b12b4c9`'s prior finding ("redshift and elasticache are clean on this class", all 75
+  elasticache op switches extracted) — no new fix needed.
+
+- **2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6)**: 1
+  class A finding, `CreateReplicationGroup` / `SnapshotNotFoundFault`, pointing at
+  `replication_groups.go:372` where `CreateReplicationGroupFull` returns the
+  `ErrSnapshotNotFound` sentinel. **False positive, already fixed by a prior pass.**
+  The tool traces the sentinel to its usual wire code, but doesn't see that
+  `mapReplicationGroupCreateErr` (`handler_replication_groups.go:183-186`) already
+  intercepts `ErrSnapshotNotFound` specifically for `CreateReplicationGroup` and emits
+  `InvalidParameterValue` instead, with a comment citing the exact reason ("Same
+  rationale as createCacheCluster: SnapshotNotFoundFault isn't in
+  CreateReplicationGroup's modeled error list either"). Re-confirmed against the
+  pinned SDK: `awsAwsquery_deserializeOpErrorCreateReplicationGroup`
+  (`deserializers.go:1645`) declares no `SnapshotNotFoundFault` case; `InvalidParameterValue`
+  is declared and is what the handler actually emits. Zero code changes.
+
+### 2026-08-31 (response-element-naming re-verification, gopherstack-uox6 trigger)
+
+Triggered by the rds `DBParameterGroups` bug (`e2a4d084a`): a list field whose per-item
+XML wrapper was named after the *status type* (`DBParameterGroupStatus`) where the
+pinned deserializer's list decoder actually matches on the *group* name
+(`DBParameterGroup`), so the list decoded empty for every real client. Checked whether
+this exact shape exists anywhere in elasticache, whose own wrapper/nested-shape sweeps
+already document per-list-item element-name checks (e.g. the serverless-cache
+`securityGroupIDsXML`/`subnetIDsXML` note above: "their list items use dedicated
+per-list element names `SecurityGroupId`/`SubnetId`, NOT the generic `member`... --
+verified against the deserializer").
+
+**No new bug.** `CacheCluster.CacheParameterGroup` is a *singular* nested struct in
+this service (`CacheParameterGroupStatus{CacheParameterGroupName,
+ParameterApplyStatus, CacheNodeIdsToReboot}`, deserializers.go:15029) -- there is no
+`CacheParameterGroupStatusList` deserializer in `aws-sdk-go-v2/service/elasticache@v1.56.4`
+(matches `go.mod`; confirmed by grep, zero matches), so elasticache has no direct
+analog of rds's multi-parameter-group list. `handler_cache_clusters.go`'s
+`cacheClusterXML.CacheParameterGroupName` (`xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`)
+decodes correctly into that struct; `ParameterApplyStatus`/`CacheNodeIdsToReboot` are
+absent from the wire struct entirely (a genuine field-absence gap, not a naming
+mismatch -- recorded, not fixed, since this pass's scope is naming bugs on fields
+already emitted).
+
+Checked the three real `*StatusList` shapes this service does have --
+`CacheSecurityGroupMembershipList` (wraps `CacheSecurityGroup`, deserializers.go:~15400s),
+`CacheNodeUpdateStatusList`/`NodeGroupMemberUpdateStatusList`/`NodeGroupUpdateStatusList`
+(wrap `CacheNodeUpdateStatus`/`NodeGroupMemberUpdateStatus`/`NodeGroupUpdateStatus`
+respectively, non-`member` custom names, deserializers.go:14642/19508/19729) -- against
+what the emulator emits. `CacheCluster.CacheSecurityGroups`/`.SecurityGroups` and the
+three update-status lists are not emitted by `handler_cache_clusters.go` /
+`handler_service_updates.go` at all (`updateActionXML` has no
+`CacheNodeUpdateStatus`/`NodeGroupUpdateStatus` fields, and no backing domain state
+exists to populate them) -- real-but-unobservable gaps, consistent with this file's
+existing convention of recording rather than fabricating a fix for a field the backend
+never populates. **Zero new bugs found; nothing changed in this service.** `go build`,
+`go vet` (repo-wide, clean), `go test -race ./services/elasticache/...` all pass on the
+unmodified tree. No AWS documentation was fetched this pass.

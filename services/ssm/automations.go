@@ -192,7 +192,11 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	}
 
 	sort.Slice(list, func(i, k int) bool {
-		return list[i].StartTime < list[k].StartTime
+		if list[i].StartTime != list[k].StartTime {
+			return list[i].StartTime < list[k].StartTime
+		}
+
+		return list[i].AutomationExecutionID < list[k].AutomationExecutionID
 	})
 
 	var maxResults int
@@ -306,7 +310,14 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		steps = []AutomationStepExec{}
 	}
 
-	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: steps}, nil
+	maxResults := 0
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(steps, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: page, NextToken: next}, nil
 }
 
 // StartChangeRequestExecution creates a change request automation execution.

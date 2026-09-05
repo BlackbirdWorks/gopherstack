@@ -48,6 +48,13 @@ func (b *InMemoryBackend) EventSubscriptionCount() int {
 	return b.eventSubscriptions.Len()
 }
 
+// AddEventInternal seeds a DMS operational event directly without HTTP. Used only in tests.
+func (b *InMemoryBackend) AddEventInternal(sourceID, sourceType, msg string, cats []string) {
+	b.mu.Lock("AddEventInternal")
+	defer b.mu.Unlock()
+	b.appendEvent(b.region, sourceID, sourceType, msg, cats)
+}
+
 // FleetAdvisorCollectorCount returns the number of Fleet Advisor collectors. Used only in tests.
 func (b *InMemoryBackend) FleetAdvisorCollectorCount() int {
 	b.mu.RLock("FleetAdvisorCollectorCount")

@@ -36,7 +36,7 @@ func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
 	return &createIpamResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Ipam:      toIpamItem(ipam),
+		Ipam:      h.toIpamItem(ipam),
 	}, nil
 }
 
@@ -47,7 +47,7 @@ func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error
 	resp := &describeIpamsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, ipam := range ipams {
-		resp.IpamSet.Items = append(resp.IpamSet.Items, toIpamItem(ipam))
+		resp.IpamSet.Items = append(resp.IpamSet.Items, h.toIpamItem(ipam))
 	}
 
 	return resp, nil
@@ -66,7 +66,7 @@ func (h *Handler) handleModifyIpam(vals url.Values, reqID string) (any, error) {
 	return &modifyIpamResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Ipam:      toIpamItem(ipam),
+		Ipam:      h.toIpamItem(ipam),
 	}, nil
 }
 
@@ -82,7 +82,7 @@ func (h *Handler) handleDeleteIpam(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
-	item := toIpamItem(ipams[0])
+	item := h.toIpamItem(ipams[0])
 	item.State = ipamStateDeleteComplete
 
 	return &deleteIpamResponse{Xmlns: ec2XMLNS, RequestID: reqID, Ipam: item}, nil
@@ -97,7 +97,7 @@ func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, err
 	return &createIpamScopeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		IpamScope: toIpamScopeItem(scope),
+		IpamScope: h.toIpamScopeItem(scope),
 	}, nil
 }
 
@@ -108,7 +108,7 @@ func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, 
 	resp := &describeIpamScopesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, scope := range scopes {
-		resp.IpamScopeSet.Items = append(resp.IpamScopeSet.Items, toIpamScopeItem(scope))
+		resp.IpamScopeSet.Items = append(resp.IpamScopeSet.Items, h.toIpamScopeItem(scope))
 	}
 
 	return resp, nil
@@ -123,7 +123,7 @@ func (h *Handler) handleModifyIpamScope(vals url.Values, reqID string) (any, err
 	return &modifyIpamScopeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		IpamScope: toIpamScopeItem(scope),
+		IpamScope: h.toIpamScopeItem(scope),
 	}, nil
 }
 
@@ -139,7 +139,7 @@ func (h *Handler) handleDeleteIpamScope(vals url.Values, reqID string) (any, err
 		return nil, err
 	}
 
-	item := toIpamScopeItem(scopes[0])
+	item := h.toIpamScopeItem(scopes[0])
 	item.State = ipamStateDeleteComplete
 
 	return &deleteIpamScopeResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamScope: item}, nil
@@ -220,7 +220,7 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 	return &createIpamPoolResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		IpamPool:  toIpamPoolItem(pool),
+		IpamPool:  h.toIpamPoolItem(pool),
 	}, nil
 }
 
@@ -231,7 +231,7 @@ func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, e
 	resp := &describeIpamPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, pool := range pools {
-		resp.IpamPoolSet.Items = append(resp.IpamPoolSet.Items, toIpamPoolItem(pool))
+		resp.IpamPoolSet.Items = append(resp.IpamPoolSet.Items, h.toIpamPoolItem(pool))
 	}
 
 	return resp, nil
@@ -267,7 +267,7 @@ func (h *Handler) handleModifyIpamPool(vals url.Values, reqID string) (any, erro
 	return &modifyIpamPoolResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		IpamPool:  toIpamPoolItem(pool),
+		IpamPool:  h.toIpamPoolItem(pool),
 	}, nil
 }
 
@@ -283,7 +283,7 @@ func (h *Handler) handleDeleteIpamPool(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	item := toIpamPoolItem(pools[0])
+	item := h.toIpamPoolItem(pools[0])
 	item.State = ipamStateDeleteComplete
 
 	return &deleteIpamPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPool: item}, nil

@@ -2,6 +2,7 @@ package shield_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -134,6 +135,57 @@ func TestHandler_ListAttacksEndTimeRangeFiltersOut(t *testing.T) {
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Empty(t, summaries, "attacks after ToExclusive must be excluded")
+}
+
+// TestHandler_ListAttacksEndTimeExclusiveBoundary verifies EndTime.ToExclusive
+// excludes an attack whose StartTime falls exactly ON the boundary, matching
+// its documented name (types.go's TimeRange field is literally named
+// ToExclusive) rather than treating the boundary as inclusive.
+func TestHandler_ListAttacksEndTimeExclusiveBoundary(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	atk := b.AddAttackInternal("atk-boundary", eipARN("1"))
+
+	h := shield.NewHandler(b)
+
+	rec := doShieldRequest(t, h, "ListAttacks", map[string]any{
+		"EndTime": map[string]any{
+			"ToExclusive": float64(atk.StartTime.Unix()),
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	summaries := resp["AttackSummaries"].([]any)
+	assert.Empty(t, summaries, "an attack starting exactly at ToExclusive must be excluded, not included")
+}
+
+// TestHandler_ListAttacksDefaultMaxResults verifies that omitting MaxResults
+// pages at the documented default of 20 (api_op_ListAttacks.go: "The default
+// setting is 20."), not at the handler's internal cap.
+func TestHandler_ListAttacksDefaultMaxResults(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+
+	const numAttacks = 25
+	for i := range numAttacks {
+		b.AddAttackInternal(fmt.Sprintf("atk-%02d", i), eipARN(fmt.Sprintf("%02d", i)))
+	}
+
+	h := shield.NewHandler(b)
+	rec := doShieldRequest(t, h, "ListAttacks", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	summaries := resp["AttackSummaries"].([]any)
+	assert.Len(t, summaries, 20, "omitted MaxResults must default to 20 per the documented default")
+	assert.NotEmpty(t, resp["NextToken"], "25 attacks at a default page size of 20 must continue")
 }
 
 // TestParity_OpaquePageToken_ListAttacks verifies attack pagination tokens are opaque.

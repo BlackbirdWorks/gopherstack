@@ -52,6 +52,7 @@ func TestInMemoryBackend_GetCostAndUsage_MultipleMetrics(t *testing.T) {
 		"2026-03-01", "2026-04-01", "MONTHLY",
 		[]string{"BlendedCost", "UnblendedCost", "UsageQuantity"},
 		nil,
+		nil,
 	)
 
 	require.NotEmpty(t, results)
@@ -118,7 +119,7 @@ func TestInMemoryBackend_GetForecastByTime_VariousBuckets(t *testing.T) {
 
 			b := ce.NewInMemoryBackend("000000000000", "us-east-1")
 			buckets, totalMean, totalLo, totalHi := b.GetForecastByTime(
-				tt.start, tt.end, tt.granularity, 80,
+				tt.start, tt.end, tt.granularity, "", 80, nil,
 			)
 
 			assert.Len(t, buckets, tt.wantBuckets)

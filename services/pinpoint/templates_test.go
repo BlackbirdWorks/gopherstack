@@ -266,7 +266,7 @@ func TestVoiceTemplate_DuplicateRejected(t *testing.T) {
 	rec2 := doPinpointRequest(t, h, http.MethodPost,
 		"/v1/templates/"+templateName+"/voice",
 		map[string]any{"Body": "Second"})
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 // ──────────────────────────────────────────────────

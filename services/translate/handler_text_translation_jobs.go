@@ -3,6 +3,7 @@ package translate
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -164,19 +165,80 @@ var validJobStatusesTable = sync.OnceValue(func() map[string]bool {
 	}
 })
 
+// epochTimeFromFilter reads key from a decoded JSON-RPC Filter object as a
+// unixTimestamp (JSON number of seconds since the epoch, awsjson1.1's
+// timestamp wire format -- see pkgs/awstime doc comment), returning nil when
+// the key is absent or not a number.
+func epochTimeFromFilter(f map[string]any, key string) *time.Time {
+	sec, ok := f[key].(float64)
+	if !ok {
+		return nil
+	}
+
+	t := time.UnixMilli(int64(sec * float64(time.Second/time.Millisecond))).UTC()
+
+	return &t
+}
+
+// textTranslationJobFilterFromMap decodes a ListTextTranslationJobsInput
+// Filter object into a TextTranslationJobFilter, rejecting Filter.JobStatus
+// values outside the real enum and requests that set more than one of
+// JobName/JobStatus/SubmittedAfterTime/SubmittedBeforeTime -- per
+// api_op_ListTextTranslationJobs.go's Filter doc comment: "Filters include
+// job name, job status, and submission time. You can only set one filter at
+// a time".
+func textTranslationJobFilterFromMap(f map[string]any) (TextTranslationJobFilter, error) {
+	var filter TextTranslationJobFilter
+
+	setCount := 0
+
+	if name, nameOK := f["JobName"].(string); nameOK && name != "" {
+		filter.JobName = name
+		setCount++
+	}
+
+	if status, statusOK := f[keyJobStatus].(string); statusOK && status != "" {
+		if !validJobStatusesTable()[status] {
+			return filter, fmt.Errorf("%w: Filter.JobStatus %q is not a valid job status", ErrInvalidFilter, status)
+		}
+
+		filter.JobStatus = status
+		setCount++
+	}
+
+	if after := epochTimeFromFilter(f, "SubmittedAfterTime"); after != nil {
+		filter.SubmittedAfterTime = after
+		setCount++
+	}
+
+	if before := epochTimeFromFilter(f, "SubmittedBeforeTime"); before != nil {
+		filter.SubmittedBeforeTime = before
+		setCount++
+	}
+
+	if setCount > 1 {
+		return filter, fmt.Errorf("%w: you can only set one filter at a time", ErrInvalidFilter)
+	}
+
+	return filter, nil
+}
+
 func (h *Handler) listTextTranslationJobs(input map[string]any) (map[string]any, error) {
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
 
-	var statusFilter string
+	var filter TextTranslationJobFilter
+
 	if f, ok := input["Filter"].(map[string]any); ok {
-		statusFilter, _ = f[keyJobStatus].(string)
-		if statusFilter != "" && !validJobStatusesTable()[statusFilter] {
-			return nil, fmt.Errorf("%w: Filter.JobStatus %q is not a valid job status", ErrInvalidFilter, statusFilter)
+		var err error
+
+		filter, err = textTranslationJobFilterFromMap(f)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	list, outToken := h.Backend.ListTextTranslationJobs(statusFilter, maxResults, nextToken)
+	list, outToken := h.Backend.ListTextTranslationJobs(filter, maxResults, nextToken)
 
 	jobs := make([]map[string]any, 0, len(list))
 	for _, job := range list {

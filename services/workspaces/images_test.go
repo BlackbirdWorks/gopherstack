@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -586,4 +588,113 @@ func TestCreateUpdatedWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testi
 		idCounterSuffix(t, secondID, "wsi-"),
 		"rejected create must not consume an ID from the shared counter",
 	)
+}
+
+// TestDescribeWorkspaceImagePermissions_Pagination proves the op pages
+// through every shared-account permission exactly once instead of returning
+// them all on a single page with no cursor.
+func TestDescribeWorkspaceImagePermissions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	copyOut, err := client.CopyWorkspaceImage(ctx, &wssdk.CopyWorkspaceImageInput{
+		Name:          aws.String("copied-image"),
+		SourceImageId: aws.String("wsi-source"),
+		SourceRegion:  aws.String("us-west-2"),
+	})
+	require.NoError(t, err)
+	imageID := copyOut.ImageId
+
+	sharedAccounts := []string{"111111111111", "222222222222", "333333333333"}
+	for _, acct := range sharedAccounts {
+		_, updateErr := client.UpdateWorkspaceImagePermission(ctx, &wssdk.UpdateWorkspaceImagePermissionInput{
+			ImageId:         imageID,
+			SharedAccountId: aws.String(acct),
+			AllowCopyImage:  aws.Bool(true),
+		})
+		require.NoError(t, updateErr)
+	}
+
+	page1, err := client.DescribeWorkspaceImagePermissions(ctx, &wssdk.DescribeWorkspaceImagePermissionsInput{
+		ImageId:    imageID,
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ImagePermissions, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more permissions remain")
+
+	page2, err := client.DescribeWorkspaceImagePermissions(ctx, &wssdk.DescribeWorkspaceImagePermissionsInput{
+		ImageId:    imageID,
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ImagePermissions, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, p := range page1.ImagePermissions {
+		seen[aws.ToString(p.SharedAccountId)] = true
+	}
+
+	for _, p := range page2.ImagePermissions {
+		acct := aws.ToString(p.SharedAccountId)
+		require.False(t, seen[acct], "account %s returned on both pages", acct)
+		seen[acct] = true
+	}
+
+	require.Len(t, seen, len(sharedAccounts))
+	for _, acct := range sharedAccounts {
+		require.True(t, seen[acct])
+	}
+}
+
+// TestDescribeWorkspaceImages_Pagination proves the op pages through every
+// image exactly once instead of returning them all on a single page with no
+// cursor.
+func TestDescribeWorkspaceImages_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	names := []string{"image-a", "image-b", "image-c"}
+	for _, n := range names {
+		_, err := client.CopyWorkspaceImage(ctx, &wssdk.CopyWorkspaceImageInput{
+			Name:          aws.String(n),
+			SourceImageId: aws.String("wsi-source"),
+			SourceRegion:  aws.String("us-west-2"),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.DescribeWorkspaceImages(ctx, &wssdk.DescribeWorkspaceImagesInput{
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Images, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more images remain")
+
+	page2, err := client.DescribeWorkspaceImages(ctx, &wssdk.DescribeWorkspaceImagesInput{
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Images, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, img := range page1.Images {
+		seen[aws.ToString(img.ImageId)] = true
+	}
+
+	for _, img := range page2.Images {
+		id := aws.ToString(img.ImageId)
+		require.False(t, seen[id], "image %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(names))
 }

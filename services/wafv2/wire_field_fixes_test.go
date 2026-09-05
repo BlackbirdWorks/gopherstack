@@ -1,6 +1,7 @@
 package wafv2_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -340,4 +341,133 @@ func TestCheckCapacity_WireKeyCase(t *testing.T) {
 	assert.Equal(t, int64(3), got.Capacity,
 		"Capacity was silently dropped by the real SDK client's exact-case response "+
 			"deserializer before the wire key was fixed from \"ConsumedCapacity\" to \"Capacity\"")
+}
+
+// TestGetWebACL_CapacityAndLabelNamespace proves two real GetWebACLOutput
+// members were entirely unmodeled (reverse write-only-state direction: a
+// Get/Describe op not reading data this backend can already derive):
+//
+//   - WebACL.Capacity (wafv2@v1.77.3 types/types.go, "The web ACL capacity
+//     units (WCUs) currently being used by this web ACL", Required: No but
+//     always genuinely populated by real AWS) -- this backend already has a
+//     real per-statement WCU cost model (capacity.go, used by CheckCapacity)
+//     but never applied it to GetWebACL/GetWebACLForResource's own response.
+//   - WebACL.LabelNamespace (types/types.go), whose exact grammar
+//     ("awswaf:<account ID>:webacl:<web ACL name>:") is confirmed via the
+//     AWS API reference (the pinned SDK's own godoc comment for this field
+//     has its <placeholder> substitutions stripped by a codegen artifact,
+//     unlike the doc comment's plain-text mirror on
+//     https://docs.aws.amazon.com/waf/latest/APIReference/API_WebACL.html)
+//     -- deterministic from data this backend already has (AccountID, Name),
+//     not fabricated.
+func TestGetWebACL_CapacityAndLabelNamespace(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	vc := &types.VisibilityConfig{
+		CloudWatchMetricsEnabled: true,
+		MetricName:               aws.String("metric"),
+		SampledRequestsEnabled:   true,
+	}
+
+	created, err := client.CreateWebACL(t.Context(), &wafv2sdk.CreateWebACLInput{
+		Name:             aws.String("capacity-labelns-acl"),
+		Scope:            types.ScopeRegional,
+		DefaultAction:    &types.DefaultAction{Allow: &types.AllowAction{}},
+		VisibilityConfig: vc,
+		Rules: []types.Rule{
+			{
+				Name:     aws.String("xss-rule"),
+				Priority: 0,
+				Statement: &types.Statement{
+					XssMatchStatement: &types.XssMatchStatement{
+						FieldToMatch: &types.FieldToMatch{AllQueryArguments: &types.AllQueryArguments{}},
+						TextTransformations: []types.TextTransformation{
+							{Priority: 0, Type: types.TextTransformationTypeNone},
+						},
+					},
+				},
+				Action:           &types.RuleAction{Block: &types.BlockAction{}},
+				VisibilityConfig: vc,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetWebACL(t.Context(), &wafv2sdk.GetWebACLInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+
+	// XssMatchStatement base 40 WCU + AllQueryArguments surcharge 10 + one
+	// TextTransformation 10 == 60, matching capacity.go's documented model.
+	assert.Equal(t, int64(60), got.WebACL.Capacity,
+		"WebACL.Capacity was never computed/emitted by GetWebACL despite this backend "+
+			"already having a real per-statement WCU cost model (capacity.go)")
+
+	wantNamespace := fmt.Sprintf("awswaf:%s:webacl:%s:", "000000000000", "capacity-labelns-acl")
+	assert.Equal(t, wantNamespace, aws.ToString(got.WebACL.LabelNamespace),
+		"WebACL.LabelNamespace was never emitted by GetWebACL")
+}
+
+// TestGetRuleGroup_LabelNamespace proves RuleGroup.LabelNamespace
+// (types/types.go, same "awswaf:<account ID>:rulegroup:<rule group name>:"
+// grammar as WebACL's, confirmed via
+// https://docs.aws.amazon.com/waf/latest/APIReference/API_RuleGroup.html)
+// was entirely unmodeled by GetRuleGroup, unlike RuleGroup.Capacity (a
+// sibling field this handler already emits correctly).
+func TestGetRuleGroup_LabelNamespace(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	created, err := client.CreateRuleGroup(t.Context(), &wafv2sdk.CreateRuleGroupInput{
+		Name:     aws.String("labelns-rulegroup"),
+		Scope:    types.ScopeRegional,
+		Capacity: aws.Int64(10),
+		VisibilityConfig: &types.VisibilityConfig{
+			CloudWatchMetricsEnabled: true,
+			MetricName:               aws.String("metric"),
+			SampledRequestsEnabled:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetRuleGroup(t.Context(), &wafv2sdk.GetRuleGroupInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+
+	wantNamespace := fmt.Sprintf("awswaf:%s:rulegroup:%s:", "000000000000", "labelns-rulegroup")
+	assert.Equal(t, wantNamespace, aws.ToString(got.RuleGroup.LabelNamespace),
+		"RuleGroup.LabelNamespace was never emitted by GetRuleGroup")
+}
+
+// TestDescribeManagedRuleGroup_LabelNamespaceAndVersionName proves two real
+// DescribeManagedRuleGroupOutput members were entirely unmodeled:
+// LabelNamespace (grammar "awswaf:managed:<vendor>:<rule group name>:",
+// confirmed via
+// https://docs.aws.amazon.com/waf/latest/APIReference/API_DescribeManagedRuleGroup.html,
+// deterministic from data this catalog already has) and VersionName (echoes
+// the request's VersionName, or the catalog's hardcoded default
+// "Version_1.0" for a versioning-supported group -- matching
+// ListAvailableManagedRuleGroupVersions' own existing CurrentDefaultVersion
+// value, not a new invention).
+func TestDescribeManagedRuleGroup_LabelNamespaceAndVersionName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	got, err := client.DescribeManagedRuleGroup(t.Context(), &wafv2sdk.DescribeManagedRuleGroupInput{
+		Scope:      types.ScopeRegional,
+		VendorName: aws.String("AWS"),
+		Name:       aws.String("AWSManagedRulesCommonRuleSet"),
+	})
+	require.NoError(t, err)
+
+	wantNamespace := "awswaf:managed:AWS:AWSManagedRulesCommonRuleSet:"
+	assert.Equal(t, wantNamespace, aws.ToString(got.LabelNamespace),
+		"DescribeManagedRuleGroupOutput.LabelNamespace was never emitted")
+	assert.Equal(t, "Version_1.0", aws.ToString(got.VersionName),
+		"DescribeManagedRuleGroupOutput.VersionName was never emitted for a versioning-supported managed rule group")
 }

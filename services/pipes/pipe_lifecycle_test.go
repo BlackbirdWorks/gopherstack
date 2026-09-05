@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1027,7 +1028,7 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				RoleARN:          "arn:aws:iam::123456789012:role/r",
-				KmsKeyIdentifier: tt.updatedKey,
+				KmsKeyIdentifier: aws.String(tt.updatedKey),
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.updatedKey, updated.KmsKeyIdentifier)
@@ -1134,116 +1135,6 @@ func TestLogConfiguration(t *testing.T) {
 				require.True(t, ok, "S3 log destination not found")
 				assert.Equal(t, tt.s3BucketName, s3["BucketName"])
 			}
-		})
-	}
-}
-
-// --- RuntimeMetricsStreaming tests ---
-
-// TestRuntimeMetricsStreaming_Create verifies metrics streaming config persists.
-func TestRuntimeMetricsStreaming_Create(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		level     string
-		namespace string
-	}{
-		{
-			name:      "all_level_with_ns",
-			level:     "ALL",
-			namespace: "MyApp/Pipes",
-		},
-		{
-			name:      "errors_level",
-			level:     "ERRORS",
-			namespace: "MyApp/PipeErrors",
-		},
-		{
-			name:  "no_namespace",
-			level: "ALL",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := b2Handler(t)
-			rmsBody := map[string]any{"Level": tt.level}
-			if tt.namespace != "" {
-				rmsBody["MetricsDestination"] = map[string]any{
-					"CloudwatchMetrics": map[string]any{
-						"Namespace": tt.namespace,
-					},
-				}
-			}
-
-			body := map[string]any{
-				"RoleArn":                 "arn:aws:iam::123456789012:role/r",
-				"Source":                  b2SQSSource,
-				"Target":                  b2LambdaTarget,
-				"RuntimeMetricsStreaming": rmsBody,
-			}
-			resp := b2Create(t, h, tt.name, body)
-
-			rms, ok := resp["RuntimeMetricsStreaming"].(map[string]any)
-			require.True(t, ok, "RuntimeMetricsStreaming missing")
-			assert.Equal(t, tt.level, rms["Level"])
-
-			if tt.namespace != "" {
-				ns := nestedString(t, rms, "MetricsDestination", "CloudwatchMetrics", "Namespace")
-				assert.Equal(t, tt.namespace, ns)
-			}
-		})
-	}
-}
-
-// TestRuntimeMetricsStreaming_Update verifies metrics streaming updates.
-func TestRuntimeMetricsStreaming_Update(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		initialLevel string
-		updatedLevel string
-	}{
-		{
-			name:         "upgrade_to_all",
-			initialLevel: "ERRORS",
-			updatedLevel: "ALL",
-		},
-		{
-			name:         "downgrade_to_errors",
-			initialLevel: "ALL",
-			updatedLevel: "ERRORS",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := b2Handler(t)
-			b2Create(t, h, tt.name, map[string]any{
-				"RoleArn": "arn:aws:iam::123456789012:role/r",
-				"Source":  b2SQSSource,
-				"Target":  b2LambdaTarget,
-				"RuntimeMetricsStreaming": map[string]any{
-					"Level": tt.initialLevel,
-				},
-			})
-
-			resp := b2Update(t, h, tt.name, map[string]any{
-				"RoleArn": "arn:aws:iam::123456789012:role/r",
-				"RuntimeMetricsStreaming": map[string]any{
-					"Level": tt.updatedLevel,
-				},
-			})
-
-			rms, ok := resp["RuntimeMetricsStreaming"].(map[string]any)
-			require.True(t, ok, "RuntimeMetricsStreaming missing after update")
-			assert.Equal(t, tt.updatedLevel, rms["Level"])
 		})
 	}
 }

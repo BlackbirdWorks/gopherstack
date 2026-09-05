@@ -369,7 +369,7 @@ func TestInMemoryBackend_CertificateAuthorityValidation(t *testing.T) {
 				t.Helper()
 
 				err := b.RestoreCertificateAuthority(context.Background(), "")
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArn)
 			},
 		},
 		{
@@ -411,7 +411,7 @@ func TestInMemoryBackend_CertificateAuthorityValidation(t *testing.T) {
 				require.NoError(t, err)
 
 				err = b.DeleteCertificateAuthority(context.Background(), ca.ARN, 5)
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 			},
 		},
 		{
@@ -429,7 +429,7 @@ func TestInMemoryBackend_CertificateAuthorityValidation(t *testing.T) {
 				require.NoError(t, err)
 
 				err = b.UpdateCertificateAuthority(context.Background(), ca.ARN, "INVALID_STATUS")
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
 			},
 		},
 	}

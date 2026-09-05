@@ -76,45 +76,28 @@ type LogConfiguration struct {
 	IncludeExecutionData         []string                      `json:"IncludeExecutionData,omitempty"`
 }
 
-// CloudWatchMetricsDestination configures a CloudWatch metrics destination.
-type CloudWatchMetricsDestination struct {
-	Namespace string `json:"Namespace,omitempty"`
-}
-
-// MetricsDestination wraps the destination for pipe runtime metrics.
-type MetricsDestination struct {
-	CloudwatchMetrics *CloudWatchMetricsDestination `json:"CloudwatchMetrics,omitempty"`
-}
-
-// RuntimeMetricsStreaming configures runtime metrics streaming for a pipe.
-type RuntimeMetricsStreaming struct {
-	MetricsDestination *MetricsDestination `json:"MetricsDestination,omitempty"`
-	Level              string              `json:"Level,omitempty"`
-}
-
 // Pipe represents an EventBridge Pipe.
 type Pipe struct {
-	SourceParameters        *SourceParameters        `json:"sourceParameters,omitempty"`
-	TargetParameters        *TargetParameters        `json:"targetParameters,omitempty"`
-	LogConfiguration        *LogConfiguration        `json:"logConfiguration,omitempty"`
-	EnrichmentParameters    *EnrichmentParameters    `json:"enrichmentParameters,omitempty"`
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"runtimeMetricsStreaming,omitempty"`
-	LastModifiedTime        time.Time                `json:"lastModifiedTime"`
-	CreationTime            time.Time                `json:"creationTime"`
-	Tags                    map[string]string        `json:"tags,omitempty"`
-	Description             string                   `json:"description,omitempty"`
-	Enrichment              string                   `json:"enrichment,omitempty"`
-	KmsKeyIdentifier        string                   `json:"kmsKeyIdentifier,omitempty"`
-	Source                  string                   `json:"source"`
-	Target                  string                   `json:"target"`
-	RoleARN                 string                   `json:"roleArn"`
-	StateReason             string                   `json:"stateReason,omitempty"`
-	DesiredState            string                   `json:"desiredState"`
-	CurrentState            string                   `json:"currentState"`
-	AccountID               string                   `json:"accountID"`
-	Region                  string                   `json:"region"`
-	ARN                     string                   `json:"arn"`
-	Name                    string                   `json:"name"`
+	SourceParameters     *SourceParameters     `json:"sourceParameters,omitempty"`
+	TargetParameters     *TargetParameters     `json:"targetParameters,omitempty"`
+	LogConfiguration     *LogConfiguration     `json:"logConfiguration,omitempty"`
+	EnrichmentParameters *EnrichmentParameters `json:"enrichmentParameters,omitempty"`
+	LastModifiedTime     time.Time             `json:"lastModifiedTime"`
+	CreationTime         time.Time             `json:"creationTime"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Description          string                `json:"description,omitempty"`
+	Enrichment           string                `json:"enrichment,omitempty"`
+	KmsKeyIdentifier     string                `json:"kmsKeyIdentifier,omitempty"`
+	Source               string                `json:"source"`
+	Target               string                `json:"target"`
+	RoleARN              string                `json:"roleArn"`
+	StateReason          string                `json:"stateReason,omitempty"`
+	DesiredState         string                `json:"desiredState"`
+	CurrentState         string                `json:"currentState"`
+	AccountID            string                `json:"accountID"`
+	Region               string                `json:"region"`
+	ARN                  string                `json:"arn"`
+	Name                 string                `json:"name"`
 }
 
 func cloneDeadLetterConfig(src *DeadLetterConfig) *DeadLetterConfig {
@@ -155,53 +138,39 @@ func clonePipe(p *Pipe) *Pipe {
 		lc.IncludeExecutionData = append([]string(nil), p.LogConfiguration.IncludeExecutionData...)
 		cp.LogConfiguration = &lc
 	}
-	if p.RuntimeMetricsStreaming != nil {
-		rms := *p.RuntimeMetricsStreaming
-		if rms.MetricsDestination != nil {
-			md := *rms.MetricsDestination
-			if md.CloudwatchMetrics != nil {
-				cw := *md.CloudwatchMetrics
-				md.CloudwatchMetrics = &cw
-			}
-			rms.MetricsDestination = &md
-		}
-		cp.RuntimeMetricsStreaming = &rms
-	}
 
 	return &cp
 }
 
 // CreatePipeInput holds the full set of fields for pipe creation.
 type CreatePipeInput struct {
-	Tags                    map[string]string
-	SourceParameters        *SourceParameters
-	TargetParameters        *TargetParameters
-	LogConfiguration        *LogConfiguration
-	EnrichmentParameters    *EnrichmentParameters
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming
-	Name                    string
-	RoleARN                 string
-	Source                  string
-	Target                  string
-	Description             string
-	Enrichment              string
-	KmsKeyIdentifier        string
-	DesiredState            string
+	Tags                 map[string]string
+	SourceParameters     *SourceParameters
+	TargetParameters     *TargetParameters
+	LogConfiguration     *LogConfiguration
+	EnrichmentParameters *EnrichmentParameters
+	Name                 string
+	RoleARN              string
+	Source               string
+	Target               string
+	Description          string
+	Enrichment           string
+	KmsKeyIdentifier     string
+	DesiredState         string
 }
 
 // UpdatePipeInput holds the fields that can be updated on an existing pipe.
 type UpdatePipeInput struct {
-	SourceParameters        *SourceParameters
-	TargetParameters        *TargetParameters
-	LogConfiguration        *LogConfiguration
-	EnrichmentParameters    *EnrichmentParameters
-	RuntimeMetricsStreaming *RuntimeMetricsStreaming
-	Description             *string
-	RoleARN                 string
-	Target                  string
-	Enrichment              string
-	KmsKeyIdentifier        string
-	DesiredState            string
+	SourceParameters     *SourceParameters
+	TargetParameters     *TargetParameters
+	LogConfiguration     *LogConfiguration
+	EnrichmentParameters *EnrichmentParameters
+	Description          *string
+	KmsKeyIdentifier     *string
+	RoleARN              string
+	Target               string
+	Enrichment           string
+	DesiredState         string
 }
 
 // ListPipesFilter holds optional query parameters for ListPipes.

@@ -155,12 +155,13 @@ type listCertificatesIncludes struct {
 }
 
 type listCertificatesInput struct {
-	Includes            *listCertificatesIncludes `json:"Includes,omitempty"`
-	NextToken           string                    `json:"NextToken"`
-	SortBy              string                    `json:"SortBy,omitempty"`
-	SortOrder           string                    `json:"SortOrder,omitempty"`
-	CertificateStatuses []string                  `json:"CertificateStatuses,omitempty"`
-	MaxItems            int                       `json:"MaxItems"`
+	Includes                  *listCertificatesIncludes `json:"Includes,omitempty"`
+	NextToken                 string                    `json:"NextToken"`
+	SortBy                    string                    `json:"SortBy,omitempty"`
+	SortOrder                 string                    `json:"SortOrder,omitempty"`
+	CertificateStatuses       []string                  `json:"CertificateStatuses,omitempty"`
+	CertificateKeyPairOrigins []string                  `json:"CertificateKeyPairOrigins,omitempty"`
+	MaxItems                  int                       `json:"MaxItems"`
 }
 
 type listCertificatesOutput struct {
@@ -461,11 +462,12 @@ func (h *Handler) jsonListCertificates(ctx context.Context, body []byte) (any, e
 	_ = json.Unmarshal(body, &input)
 
 	params := ListCertificatesParams{
-		NextToken:    input.NextToken,
-		MaxItems:     input.MaxItems,
-		StatusFilter: input.CertificateStatuses,
-		SortBy:       input.SortBy,
-		SortOrder:    input.SortOrder,
+		NextToken:                 input.NextToken,
+		MaxItems:                  input.MaxItems,
+		StatusFilter:              input.CertificateStatuses,
+		CertificateKeyPairOrigins: input.CertificateKeyPairOrigins,
+		SortBy:                    input.SortBy,
+		SortOrder:                 input.SortOrder,
 	}
 
 	if input.Includes != nil {

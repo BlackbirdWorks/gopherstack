@@ -89,14 +89,16 @@ type InlinePolicyEntryXML struct {
 
 // UserDetailXML is the per-user element in GetAccountAuthorizationDetails.
 type UserDetailXML struct {
-	Path                    string                 `xml:"Path"`
-	UserName                string                 `xml:"UserName"`
-	UserID                  string                 `xml:"UserId"`
-	Arn                     string                 `xml:"Arn"`
-	CreateDate              string                 `xml:"CreateDate"`
-	UserPolicyList          []InlinePolicyEntryXML `xml:"UserPolicyList>member"`
-	AttachedManagedPolicies []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
-	GroupList               []string               `xml:"GroupList>member"`
+	PermissionsBoundary     *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
+	Path                    string                  `xml:"Path"`
+	UserName                string                  `xml:"UserName"`
+	UserID                  string                  `xml:"UserId"`
+	Arn                     string                  `xml:"Arn"`
+	CreateDate              string                  `xml:"CreateDate"`
+	UserPolicyList          []InlinePolicyEntryXML  `xml:"UserPolicyList>member"`
+	AttachedManagedPolicies []AttachedPolicyXML     `xml:"AttachedManagedPolicies>member"`
+	GroupList               []string                `xml:"GroupList>member"`
+	Tags                    []TagXML                `xml:"Tags>member,omitempty"`
 }
 
 // GroupDetailXML is the per-group element in GetAccountAuthorizationDetails.
@@ -112,15 +114,17 @@ type GroupDetailXML struct {
 
 // RoleDetailXML is the per-role element in GetAccountAuthorizationDetails.
 type RoleDetailXML struct {
-	Path                     string                 `xml:"Path"`
-	RoleName                 string                 `xml:"RoleName"`
-	RoleID                   string                 `xml:"RoleId"`
-	Arn                      string                 `xml:"Arn"`
-	CreateDate               string                 `xml:"CreateDate"`
-	AssumeRolePolicyDocument string                 `xml:"AssumeRolePolicyDocument"`
-	RolePolicyList           []InlinePolicyEntryXML `xml:"RolePolicyList>member"`
-	AttachedManagedPolicies  []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
-	InstanceProfileList      []InstanceProfileXML   `xml:"InstanceProfileList>member"`
+	PermissionsBoundary      *PermissionsBoundaryXML `xml:"PermissionsBoundary,omitempty"`
+	Path                     string                  `xml:"Path"`
+	RoleName                 string                  `xml:"RoleName"`
+	RoleID                   string                  `xml:"RoleId"`
+	Arn                      string                  `xml:"Arn"`
+	CreateDate               string                  `xml:"CreateDate"`
+	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
+	RolePolicyList           []InlinePolicyEntryXML  `xml:"RolePolicyList>member"`
+	AttachedManagedPolicies  []AttachedPolicyXML     `xml:"AttachedManagedPolicies>member"`
+	InstanceProfileList      []InstanceProfileXML    `xml:"InstanceProfileList>member"`
+	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
 }
 
 // ManagedPolicyDetailXML is the per-policy element in GetAccountAuthorizationDetails.
@@ -129,8 +133,12 @@ type ManagedPolicyDetailXML struct {
 	PolicyID          string             `xml:"PolicyId"`
 	Arn               string             `xml:"Arn"`
 	Path              string             `xml:"Path"`
+	DefaultVersionID  string             `xml:"DefaultVersionId"`
 	CreateDate        string             `xml:"CreateDate"`
+	UpdateDate        string             `xml:"UpdateDate"`
 	PolicyVersionList []PolicyVersionXML `xml:"PolicyVersionList>member"`
+	AttachmentCount   int                `xml:"AttachmentCount"`
+	IsAttachable      bool               `xml:"IsAttachable"`
 }
 
 // GetAccountAuthorizationDetailsResponse is the XML response for GetAccountAuthorizationDetails.

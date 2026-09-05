@@ -5,11 +5,60 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
+
+// TestECS_ListAttributes_StableOrder guards against Go map iteration leaking
+// into the wire response: gopherstack keys attributes in a
+// map[string]*Attribute per cluster (services/ecs/store.go), and ranging that
+// map directly -- as ListAttributes did -- produces an order that can differ
+// between two calls with no mutation in between. AWS documents no order for
+// ListAttributes (ecs@v1.90.0 api_op_ListAttributes.go), so any deterministic
+// order is correct; this pins name-ascending.
+func TestECS_ListAttributes_StableOrder(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &ecssdk.CreateClusterInput{
+		ClusterName: aws.String("attr-order-cluster"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutAttributes(t.Context(), &ecssdk.PutAttributesInput{
+		Cluster: aws.String("attr-order-cluster"),
+		Attributes: []ecstypes.Attribute{
+			{Name: aws.String("zeta"), TargetId: aws.String("i-1"), TargetType: ecstypes.TargetTypeContainerInstance},
+			{Name: aws.String("alpha"), TargetId: aws.String("i-1"), TargetType: ecstypes.TargetTypeContainerInstance},
+			{Name: aws.String("mid"), TargetId: aws.String("i-1"), TargetType: ecstypes.TargetTypeContainerInstance},
+		},
+	})
+	require.NoError(t, err)
+
+	want := []string{"alpha", "mid", "zeta"}
+
+	for range 5 {
+		out, listErr := client.ListAttributes(t.Context(), &ecssdk.ListAttributesInput{
+			Cluster:    aws.String("attr-order-cluster"),
+			TargetType: ecstypes.TargetTypeContainerInstance,
+		})
+		require.NoError(t, listErr)
+
+		got := make([]string, len(out.Attributes))
+		for i, a := range out.Attributes {
+			got[i] = aws.ToString(a.Name)
+		}
+
+		assert.Equal(t, want, got)
+	}
+}
 
 func TestAttributes_PutListDelete_Roundtrip(t *testing.T) {
 	t.Parallel()

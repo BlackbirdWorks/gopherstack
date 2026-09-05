@@ -209,3 +209,69 @@ func TestHandler_ListEventConfigurations(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, list, 2)
 }
+
+// TestHandler_ListEventConfigurations_FilterByResourceType verifies the
+// resourceType query param (ListEventConfigurationsInput.ResourceType,
+// enums.go: SidewalkAccount|WirelessDevice|WirelessGateway) is matched
+// against the entry's IdentifierType (enums.go: PartnerAccountId|DevEui|
+// GatewayEui|WirelessDeviceId|WirelessGatewayId) using AWS's real mapping,
+// not a same-string prefix match: a WirelessDevice can be identified by
+// either WirelessDeviceId or DevEui, a WirelessGateway by either
+// WirelessGatewayId or GatewayEui, and SidewalkAccount only by
+// PartnerAccountId.
+func TestHandler_ListEventConfigurations_FilterByResourceType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	entries := []struct {
+		id             string
+		identifierType string
+	}{
+		{"dev-id-1", "WirelessDeviceId"},
+		{"dev-eui-1", "DevEui"},
+		{"gw-id-1", "WirelessGatewayId"},
+		{"gw-eui-1", "GatewayEui"},
+		{"partner-1", "PartnerAccountId"},
+	}
+
+	for _, e := range entries {
+		rec := doIoTWRequest(t, h, http.MethodPatch,
+			"/event-configurations/"+e.id+"?identifierType="+e.identifierType,
+			`{"ConnectionStatus":{}}`)
+		require.Equal(t, http.StatusNoContent, rec.Code)
+	}
+
+	tests := []struct {
+		name         string
+		resourceType string
+		wantIDs      []string
+	}{
+		{"wireless_device", "WirelessDevice", []string{"dev-id-1", "dev-eui-1"}},
+		{"wireless_gateway", "WirelessGateway", []string{"gw-id-1", "gw-eui-1"}},
+		{"sidewalk_account", "SidewalkAccount", []string{"partner-1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doIoTWRequest(t, h, http.MethodGet,
+				"/event-configurations?resourceType="+tt.resourceType, "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				EventConfigurationsList []struct {
+					Identifier string `json:"Identifier"`
+				} `json:"EventConfigurationsList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			ids := make([]string, 0, len(resp.EventConfigurationsList))
+			for _, e := range resp.EventConfigurationsList {
+				ids = append(ids, e.Identifier)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, ids)
+		})
+	}
+}

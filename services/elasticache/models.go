@@ -244,7 +244,12 @@ type StorageBackend interface {
 	CompleteMigration(ctx context.Context, replicationGroupID string, force bool) (*ReplicationGroup, error)
 	// User operations
 	DeleteUser(ctx context.Context, userID string) (*User, error)
-	DescribeUsers(ctx context.Context, userID, marker string, maxRecords int) (page.Page[User], error)
+	DescribeUsers(
+		ctx context.Context,
+		userID, marker, engine string,
+		maxRecords int,
+		filterUserIDs []string,
+	) (page.Page[User], error)
 	ModifyUser(ctx context.Context, userID, accessString string, noPasswordRequired bool) (*User, error)
 	ModifyUserWithAuth(
 		ctx context.Context,
@@ -305,12 +310,12 @@ type StorageBackend interface {
 	// ReservedCacheNodes operations
 	DescribeReservedCacheNodes(
 		ctx context.Context,
-		id, cacheNodeType, offeringType, marker string,
+		id, cacheNodeType, offeringType, duration, productDescription, marker string,
 		maxRecords int,
 	) (page.Page[ReservedCacheNode], error)
 	DescribeReservedCacheNodesOfferings(
 		ctx context.Context,
-		offeringID, cacheNodeType, offeringType, marker string,
+		offeringID, cacheNodeType, offeringType, duration, productDescription, marker string,
 		maxRecords int,
 	) (page.Page[ReservedCacheNodesOffering], error)
 	PurchaseReservedCacheNodesOffering(
@@ -399,6 +404,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		serviceUpdateName, marker string,
 		maxRecords int,
+		cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
 	) (page.Page[UpdateAction], error)
 	ListAllowedNodeTypeModifications(ctx context.Context, clusterID, replicationGroupID string) ([]string, error)
 	// Audit1: extended create/modify with new fields

@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -78,9 +79,17 @@ func (h *Handler) handleDescribeInsight(c *echo.Context, clusterName, insightID 
 	})
 }
 
+// KubernetesVersions is intentionally not applied: Insight has no version
+// field to filter against (both synthetic insights are cluster-wide).
+type listInsightsFilterBody struct {
+	Categories []string `json:"categories"`
+	Statuses   []string `json:"statuses"`
+}
+
 type listInsightsBody struct {
-	NextToken  string `json:"nextToken"`
-	MaxResults int    `json:"maxResults"`
+	Filter     *listInsightsFilterBody `json:"filter"`
+	NextToken  string                  `json:"nextToken"`
+	MaxResults int                     `json:"maxResults"`
 }
 
 func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body []byte) error {
@@ -89,17 +98,31 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body [
 		return h.handleError(c, err)
 	}
 
-	result := make([]map[string]any, len(insights))
-	for i, ins := range insights {
-		result[i] = insightToSummaryJSON(ins)
-	}
-
 	var in listInsightsBody
 	if len(body) > 0 {
 		// A malformed body is tolerated (ListInsights' filter/pagination
 		// fields are all optional) rather than rejected, matching the
 		// permissive parsing used by every other optional-body op here.
 		_ = json.Unmarshal(body, &in)
+	}
+
+	if in.Filter != nil {
+		if len(in.Filter.Categories) > 0 {
+			insights = slices.DeleteFunc(insights, func(ins *Insight) bool {
+				return !slices.Contains(in.Filter.Categories, ins.Category)
+			})
+		}
+
+		if len(in.Filter.Statuses) > 0 {
+			insights = slices.DeleteFunc(insights, func(ins *Insight) bool {
+				return !slices.Contains(in.Filter.Statuses, ins.Status)
+			})
+		}
+	}
+
+	result := make([]map[string]any, len(insights))
+	for i, ins := range insights {
+		result[i] = insightToSummaryJSON(ins)
 	}
 
 	p := page.New(result, in.NextToken, in.MaxResults, eksDefaultPageSize)

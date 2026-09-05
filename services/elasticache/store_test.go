@@ -77,7 +77,7 @@ func TestBackend_Reset_ClearsAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, p2.Data)
 
-	p3, err := b.DescribeUsers(context.Background(), "", "", 0)
+	p3, err := b.DescribeUsers(context.Background(), "", "", "", 0, nil)
 	require.NoError(t, err)
 	assert.Empty(t, p3.Data)
 }
@@ -143,7 +143,7 @@ func TestBackend_ConcurrentDescribeNoRace(t *testing.T) {
 			return err
 		}},
 		{name: "users", call: func(b *elasticache.InMemoryBackend, ctx context.Context) error {
-			_, err := b.DescribeUsers(ctx, "", "", 0)
+			_, err := b.DescribeUsers(ctx, "", "", "", 0, nil)
 
 			return err
 		}},
@@ -153,7 +153,7 @@ func TestBackend_ConcurrentDescribeNoRace(t *testing.T) {
 			return err
 		}},
 		{name: "reserved_cache_nodes", call: func(b *elasticache.InMemoryBackend, ctx context.Context) error {
-			_, err := b.DescribeReservedCacheNodes(ctx, "", "", "", "", 0)
+			_, err := b.DescribeReservedCacheNodes(ctx, "", "", "", "", "", "", 0)
 
 			return err
 		}},

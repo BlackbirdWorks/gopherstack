@@ -345,7 +345,8 @@ func TestIdentityProvider_GetByIdentifier(t *testing.T) {
 			"client_secret":    "amzn-sec",
 			"authorize_scopes": "profile",
 		},
-		"IdpIdentifiers": []string{"amazon.com"},
+		"AttributeMapping": map[string]string{"email": "email"},
+		"IdpIdentifiers":   []string{"amazon.com"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -357,12 +358,22 @@ func TestIdentityProvider_GetByIdentifier(t *testing.T) {
 
 	var out struct {
 		IdentityProvider *struct {
-			ProviderName string `json:"ProviderName,omitempty"`
+			ProviderName     string            `json:"ProviderName,omitempty"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			IdpIdentifiers   []string          `json:"IdpIdentifiers,omitempty"`
+			CreationDate     float64           `json:"CreationDate,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.NotNil(t, out.IdentityProvider)
 	assert.Equal(t, "LoginWithAmazon", out.IdentityProvider.ProviderName)
+	// AttributeMapping/IdpIdentifiers/CreationDate only appear on the "Full"
+	// handler's output shape (identityProvidersOpsC, the later maps.Copy
+	// registration) -- the shadowed loser's identityProviderType lacks them
+	// entirely, so this pins which handler is actually wired.
+	assert.Equal(t, "email", out.IdentityProvider.AttributeMapping["email"])
+	assert.Contains(t, out.IdentityProvider.IdpIdentifiers, "amazon.com")
+	assert.Greater(t, out.IdentityProvider.CreationDate, float64(0))
 }
 
 func TestIdentityProvider_List_WithTimestamps(t *testing.T) {
@@ -681,4 +692,68 @@ func TestHandler_AdminDisableProviderForUser(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestListIdentityProviders_Pagination proves the op pages through every
+// identity provider exactly once instead of returning them all on a single
+// page with no cursor.
+func TestListIdentityProviders_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "idp-pagination-pool")
+
+	names := []string{"ProviderA", "ProviderB", "ProviderC"}
+	for _, n := range names {
+		rec := doCognitoRequest(t, h, "CreateIdentityProvider", map[string]any{
+			"UserPoolId":   poolID,
+			"ProviderName": n,
+			"ProviderType": "SAML",
+			"ProviderDetails": map[string]string{
+				"MetadataURL": "https://example.com/" + n,
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+	}
+
+	type listOut struct {
+		NextToken string           `json:"NextToken,omitempty"`
+		Providers []map[string]any `json:"Providers"`
+	}
+
+	rec1 := doCognitoRequest(t, h, "ListIdentityProviders", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
+
+	var page1 listOut
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Providers, 2)
+	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more providers remain")
+
+	rec2 := doCognitoRequest(t, h, "ListIdentityProviders", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+		"NextToken":  page1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
+
+	var page2 listOut
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Providers, 1)
+	require.Empty(t, page2.NextToken)
+
+	seen := map[string]bool{}
+	for _, p := range page1.Providers {
+		seen[p["ProviderName"].(string)] = true
+	}
+
+	for _, p := range page2.Providers {
+		name := p["ProviderName"].(string)
+		require.False(t, seen[name], "provider %s returned on both pages", name)
+		seen[name] = true
+	}
+
+	require.Len(t, seen, len(names))
 }

@@ -190,8 +190,13 @@ func (b *InMemoryBackend) DeletePolicy(groupName, policyNameOrARN string) error 
 	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyNameOrARN)
 }
 
-// DescribePolicies returns scaling policies for the given group, optionally filtered by name.
-func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []string) ([]ScalingPolicy, error) {
+// DescribePolicies returns scaling policies for the given group, optionally
+// filtered by name and/or PolicyTypes (api_op_DescribePolicies.go: "The
+// valid values are SimpleScaling, StepScaling, TargetTrackingScaling, and
+// PredictiveScaling").
+func (b *InMemoryBackend) DescribePolicies(
+	groupName string, policyNames, policyTypes []string,
+) ([]ScalingPolicy, error) {
 	b.mu.RLock("DescribePolicies")
 	defer b.mu.RUnlock()
 
@@ -200,24 +205,49 @@ func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []strin
 		nameFilter[n] = true
 	}
 
+	typeFilter := make(map[string]bool, len(policyTypes))
+	for _, t := range policyTypes {
+		typeFilter[t] = true
+	}
+
+	matches := func(p *ScalingPolicy) bool {
+		if len(nameFilter) > 0 && !nameFilter[p.PolicyName] {
+			return false
+		}
+
+		if len(typeFilter) > 0 && !typeFilter[p.PolicyType] {
+			return false
+		}
+
+		return true
+	}
+
 	var result []ScalingPolicy
 
 	if groupName != "" {
 		for _, p := range b.scalingPoliciesByGroup.Get(groupName) {
-			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+			if matches(p) {
 				result = append(result, *p)
 			}
 		}
 	} else {
 		for _, p := range b.scalingPolicies.All() {
-			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+			if matches(p) {
 				result = append(result, *p)
 			}
 		}
 	}
 
+	// PolicyName is unique only within a group (scalingPolicies is keyed by
+	// scopedKey(groupName, PolicyName)), not account-wide -- when groupName is empty this scans
+	// every group's policies, so two different groups can share a policy name and need
+	// AutoScalingGroupName as a tiebreak for a stable pagination cursor.
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].PolicyName < result[j].PolicyName
+		if result[i].PolicyName != result[j].PolicyName {
+			return result[i].PolicyName < result[j].PolicyName
+		}
+
+		return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
 	})
 
 	return result, nil

@@ -246,8 +246,18 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		errors.Is(opErr, ErrPermissionNotFound), errors.Is(opErr, ErrPolicyNotFound),
 		errors.Is(opErr, ErrAuditReportNotFound):
 		code = "ResourceNotFoundException"
-	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterException"
+	case errors.Is(opErr, ErrInvalidArgs):
+		code = "InvalidArgsException"
+	case errors.Is(opErr, ErrInvalidArn):
+		code = "InvalidArnException"
+	case errors.Is(opErr, ErrInvalidRequest):
+		code = "InvalidRequestException"
+	case errors.Is(opErr, ErrInvalidPolicy):
+		code = "InvalidPolicyException"
+	case errors.Is(opErr, ErrMalformedCertificate):
+		code = "MalformedCertificateException"
+	case errors.Is(opErr, ErrMalformedCSR):
+		code = "MalformedCSRException"
 	case errors.Is(opErr, ErrInvalidState):
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrPermissionAlreadyExists):
@@ -280,14 +290,14 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 // ...ImportCertificateAuthorityCertificateInput: both call Base64EncodeBytes).
 // Using the JSON string as-is here would hand raw base64 text to pem.Decode and
 // always fail for real SDK clients.
-func decodeBase64Field(encoded, fieldName string) (string, error) {
+func decodeBase64Field(encoded, fieldName string, sentinel error) (string, error) {
 	if encoded == "" {
 		return "", nil
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s must be base64-encoded: %w", ErrInvalidParameter, fieldName, err)
+		return "", fmt.Errorf("%w: %s must be base64-encoded: %w", sentinel, fieldName, err)
 	}
 
 	return string(decoded), nil

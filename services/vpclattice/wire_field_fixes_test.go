@@ -1,6 +1,7 @@
 package vpclattice_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -395,4 +396,179 @@ func TestResourceConfiguration_CustomDomainNameAndDomainVerificationId(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, "custom.example.com", aws.ToString(got.CustomDomainName))
 	assert.Equal(t, "dvi-abc123", aws.ToString(got.DomainVerificationId))
+}
+
+// TestResourceConfiguration_DomainVerificationArnStatusAndAmazonManaged
+// drives StartDomainVerification/CreateResourceConfiguration/
+// GetResourceConfiguration through the real SDK client. GetResourceConfigurationOutput
+// carries amazonManaged/domainVerificationArn/domainVerificationStatus
+// (deserializers.go's awsRestjson1_deserializeOpDocumentGetResourceConfigurationOutput)
+// but ResourceConfiguration/resourceConfigurationToJSON had no fields for
+// any of the three -- a real client's typed fields were always nil/false
+// regardless of backend state.
+func TestResourceConfiguration_DomainVerificationArnStatusAndAmazonManaged(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	dv, err := client.StartDomainVerification(ctx, &vpclatticesdk.StartDomainVerificationInput{
+		DomainName: aws.String("verify.example.com"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, dv)
+	require.NotEmpty(t, aws.ToString(dv.Id), "StartDomainVerification must return a real Id")
+	require.NotEmpty(t, aws.ToString(dv.Arn), "StartDomainVerification must return a real Arn")
+
+	created, err := client.CreateResourceConfiguration(
+		ctx,
+		&vpclatticesdk.CreateResourceConfigurationInput{
+			Name:                         aws.String("rc-domainverification"),
+			Type:                         vpclatticetypes.ResourceConfigurationTypeSingle,
+			DomainVerificationIdentifier: dv.Id,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(created.DomainVerificationArn))
+
+	got, err := client.GetResourceConfiguration(ctx, &vpclatticesdk.GetResourceConfigurationInput{
+		ResourceConfigurationIdentifier: created.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.AmazonManaged, "AmazonManaged must be a real, populated pointer, not omitted")
+	assert.False(t, aws.ToBool(got.AmazonManaged))
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(got.DomainVerificationArn))
+	assert.Equal(t, vpclatticetypes.VerificationStatusPending, got.DomainVerificationStatus)
+}
+
+// TestResourceConfiguration_ChildInheritsParentDomainVerification drives
+// StartDomainVerification/CreateResourceConfiguration(GROUP)/
+// CreateResourceConfiguration(CHILD)/GetResourceConfiguration(CHILD) through
+// the real SDK client. Real AWS: "Child resources inherit the verification
+// status of the [parent GROUP's] domain"
+// (CreateResourceConfigurationInput.GroupDomain doc comment) -- a CHILD
+// created with no DomainVerificationIdentifier of its own must still surface
+// its parent GROUP's DomainVerificationArn/DomainVerificationStatus on both
+// CreateResourceConfiguration and GetResourceConfiguration responses.
+func TestResourceConfiguration_ChildInheritsParentDomainVerification(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	dv, err := client.StartDomainVerification(ctx, &vpclatticesdk.StartDomainVerificationInput{
+		DomainName: aws.String("group-verify.example.com"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(dv.Id))
+	require.NotEmpty(t, aws.ToString(dv.Arn))
+
+	group, err := client.CreateResourceConfiguration(
+		ctx,
+		&vpclatticesdk.CreateResourceConfigurationInput{
+			Name:                         aws.String("rc-group-verified"),
+			Type:                         vpclatticetypes.ResourceConfigurationTypeGroup,
+			DomainVerificationIdentifier: dv.Id,
+		},
+	)
+	require.NoError(t, err)
+
+	child, err := client.CreateResourceConfiguration(
+		ctx,
+		&vpclatticesdk.CreateResourceConfigurationInput{
+			Name:                                 aws.String("rc-child-inherits"),
+			Type:                                 vpclatticetypes.ResourceConfigurationTypeChild,
+			ResourceConfigurationGroupIdentifier: group.Id,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(child.DomainVerificationArn),
+		"CreateResourceConfiguration(CHILD) must inherit the parent GROUP's DomainVerificationArn")
+
+	got, err := client.GetResourceConfiguration(ctx, &vpclatticesdk.GetResourceConfigurationInput{
+		ResourceConfigurationIdentifier: child.Id,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(dv.Arn), aws.ToString(got.DomainVerificationArn),
+		"GetResourceConfiguration(CHILD) must inherit the parent GROUP's DomainVerificationArn")
+	assert.Equal(t, vpclatticetypes.VerificationStatusPending, got.DomainVerificationStatus)
+}
+
+// TestResourceConfiguration_CreateUpdateResponsesAreOperationSpecific proves
+// CreateResourceConfiguration and UpdateResourceConfiguration responses only
+// carry fields their real pinned SDK output structs declare
+// (api_op_CreateResourceConfiguration.go / api_op_UpdateResourceConfiguration.go),
+// not GetResourceConfigurationOutput's superset -- the shared serializer this
+// backend used to call for all three operations emitted amazonManaged and
+// domainVerificationStatus (real only on Get) unconditionally on Create, and
+// timestamps/domain-verification/amazonManaged/failureReason fields (real
+// only on Create+Get) on Update, none of which a real client could ever
+// decode there. Raw-body checked, not the typed SDK client: a typed client
+// silently drops unknown fields, so it cannot tell an over-wide response
+// from a correct one.
+func TestResourceConfiguration_CreateUpdateResponsesAreOperationSpecific(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, "/resourceconfigurations", map[string]any{
+		"name": "rc-op-specific",
+		"type": "SINGLE",
+	})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+	created := parseBody(t, createRec)
+
+	for _, forbidden := range []string{"amazonManaged", "domainVerificationStatus", "lastUpdatedAt"} {
+		_, present := created[forbidden]
+		assert.False(t, present, "CreateResourceConfiguration response must not carry %q", forbidden)
+	}
+
+	require.Contains(t, created, "createdAt", "CreateResourceConfigurationOutput does carry CreatedAt")
+
+	id, _ := created["id"].(string)
+	require.NotEmpty(t, id)
+
+	updateRec := doRequest(t, h, http.MethodPatch, "/resourceconfigurations/"+id, map[string]any{
+		"portRanges": []string{"443"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+	updated := parseBody(t, updateRec)
+
+	for _, forbidden := range []string{
+		"amazonManaged", "domainVerificationStatus", "domainVerificationArn", "failureReason",
+		"createdAt", "lastUpdatedAt", "customDomainName", "groupDomain", "domainVerificationId",
+	} {
+		_, present := updated[forbidden]
+		assert.False(t, present, "UpdateResourceConfiguration response must not carry %q", forbidden)
+	}
+}
+
+// TestGetResourceGateway_ServiceManaged drives CreateResourceGateway/
+// GetResourceGateway through the real SDK client. GetResourceGatewayOutput
+// carries serviceManaged (deserializers.go's
+// awsRestjson1_deserializeOpDocumentGetResourceGatewayOutput) but
+// ResourceGateway had no field for it and the handler never emitted the
+// key -- a real client's typed field was always nil regardless of backend
+// state.
+func TestGetResourceGateway_ServiceManaged(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateResourceGateway(ctx, &vpclatticesdk.CreateResourceGatewayInput{
+		Name:          aws.String("gw-servicemanaged"),
+		VpcIdentifier: aws.String("vpc-123"),
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetResourceGateway(ctx, &vpclatticesdk.GetResourceGatewayInput{
+		ResourceGatewayIdentifier: created.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.ServiceManaged, "ServiceManaged must round-trip under its real wire key")
+	assert.False(t, aws.ToBool(got.ServiceManaged))
 }

@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -107,8 +108,13 @@ func (b *InMemoryBackend) ListGroups(
 	return result, next, nil
 }
 
+// SearchGroups filters by namespace and, for each filter, GROUP_NAME with a
+// StartsWith comparison -- the only Name/Operator the real API supports
+// (types.GroupSearchFilter's doc comment: "Currently, the only supported
+// name is GROUP_NAME"/"the only supported operator is StartsWith").
 func (b *InMemoryBackend) SearchGroups(
-	_, namespace, query string,
+	_, namespace string,
+	filters []SearchFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*Group, string, error) {
@@ -117,8 +123,7 @@ func (b *InMemoryBackend) SearchGroups(
 
 	var all []*storedGroup
 	for _, g := range b.groups.All() {
-		if g.Namespace == namespace &&
-			(query == "" || strings.Contains(strings.ToLower(g.GroupName), strings.ToLower(query))) {
+		if g.Namespace == namespace && matchesGroupNameFilters(g.GroupName, filters) {
 			all = append(all, g)
 		}
 	}
@@ -128,13 +133,37 @@ func (b *InMemoryBackend) SearchGroups(
 	return result, next, nil
 }
 
+// matchesGroupNameFilters reports whether name satisfies every GROUP_NAME
+// filter (AND semantics, matching the other Search* ops' matchesNameFilter).
+// A filter whose Name isn't GROUP_NAME passes through: it's not a value this
+// API defines today, and there's nothing on Group to check it against.
+func matchesGroupNameFilters(name string, filters []SearchFilter) bool {
+	for _, f := range filters {
+		if f.Name != "GROUP_NAME" {
+			continue
+		}
+
+		if !strings.HasPrefix(name, f.Value) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*Group, string) {
+	// Callers pass storedGroup slices built by filtering store.Table.All(),
+	// whose iteration order is unspecified -- sort here so both call sites
+	// get a stable order without duplicating it at each one.
+	sort.Slice(all, func(i, j int) bool { return all[i].GroupName < all[j].GroupName })
+
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
 	}
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, g := range all {
 			if g.GroupName == nextToken {
 				start = i
@@ -236,6 +265,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 			members = append(members, member)
 		}
 	}
+	sort.Strings(members)
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -243,6 +273,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 
 	start := 0
 	if nextToken != "" {
+		start = len(members)
 		for i, m := range members {
 			if m == nextToken {
 				start = i

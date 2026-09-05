@@ -443,6 +443,11 @@ func (b *InMemoryBackend) GetLogEvents(
 	}
 	// nextToken=="" && startFromHead=true: startIdx stays 0 (oldest first).
 
+	// A stale or adversarial token can name an offset past the current event
+	// count (e.g. retention swept older events out from under it); clamp
+	// before slicing so it degrades to an empty page instead of panicking.
+	startIdx = min(startIdx, len(filtered))
+
 	end := min(startIdx+limit, len(filtered))
 
 	page := filtered[startIdx:end]

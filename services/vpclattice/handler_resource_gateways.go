@@ -62,6 +62,7 @@ func (h *Handler) handleGetResourceGateway(c *echo.Context, id string) error {
 		keySecurityGroupIDs:            gw.SecurityGroupIDs,
 		keySubnetIDs:                   gw.SubnetIDs,
 		keyStatus:                      gw.Status,
+		"serviceManaged":               gw.ServiceManaged,
 		keyCreatedAt:                   gw.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:               gw.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	})

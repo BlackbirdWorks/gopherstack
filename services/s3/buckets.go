@@ -145,6 +145,7 @@ func (b *InMemoryBackend) ListBuckets(
 	input *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
 	prefix := aws.ToString(input.Prefix)
+	bucketRegion := aws.ToString(input.BucketRegion)
 
 	// Snapshot bucket data under lock, release immediately.
 	var buckets []types.Bucket
@@ -159,6 +160,9 @@ func (b *InMemoryBackend) ListBuckets(
 				continue
 			}
 			if prefix != "" && !strings.HasPrefix(bucket.Name, prefix) {
+				continue
+			}
+			if bucketRegion != "" && bucket.Region != bucketRegion {
 				continue
 			}
 			buckets = append(buckets, types.Bucket{

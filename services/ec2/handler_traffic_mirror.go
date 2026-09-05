@@ -105,7 +105,15 @@ type fleetItem struct {
 	FleetState                      string `xml:"fleetState"`
 	FleetType                       string `xml:"type,omitempty"`
 	ExcessCapacityTerminationPolicy string `xml:"excessCapacityTerminationPolicy,omitempty"`
-	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
+	DefaultTargetCapacityType       string `xml:"targetCapacitySpecification>defaultTargetCapacityType,omitempty"`
+	TargetCapacityUnitType          string `xml:"targetCapacitySpecification>targetCapacityUnitType,omitempty"`
+	// Errors/Instances are valid only for fleets of type instant (ec2@v1.319.1
+	// types/types.go:6646, FleetData.Errors/Instances doc comments).
+	Errors                 fleetErrorSet        `xml:"errorSet"`
+	Instances              fleetInstanceItemSet `xml:"fleetInstanceSet"`
+	TotalTargetCapacity    int                  `xml:"targetCapacitySpecification>totalTargetCapacity"`
+	OnDemandTargetCapacity int                  `xml:"targetCapacitySpecification>onDemandTargetCapacity,omitempty"`
+	SpotTargetCapacity     int                  `xml:"targetCapacitySpecification>spotTargetCapacity,omitempty"`
 }
 
 type fleetErrorItem struct {

@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +19,7 @@ func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error
 	}
 
 	for _, r := range b.instanceRefreshes[groupName] {
-		if r.Status == statusInProgress || r.Status == "Pending" {
+		if r.Status == statusInProgress || r.Status == statusPending {
 			r.Status = "Cancelling"
 
 			return r.InstanceRefreshID, nil
@@ -61,6 +62,15 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
+	for _, r := range b.instanceRefreshes[input.AutoScalingGroupName] {
+		if r.Status == statusInProgress || r.Status == statusPending {
+			return nil, fmt.Errorf(
+				"%w: an instance refresh is already in progress for group %q",
+				ErrInstanceRefreshInProgress, input.AutoScalingGroupName,
+			)
+		}
+	}
+
 	strategy := input.Strategy
 	if strategy == "" {
 		strategy = "Rolling"
@@ -97,7 +107,7 @@ func (b *InMemoryBackend) RollbackInstanceRefresh(groupName string) (string, err
 	}
 
 	for _, r := range b.instanceRefreshes[groupName] {
-		if r.Status == statusInProgress || r.Status == "Pending" {
+		if r.Status == statusInProgress || r.Status == statusPending {
 			r.Status = "RollbackInProgress"
 
 			return r.InstanceRefreshID, nil
@@ -139,6 +149,12 @@ func (b *InMemoryBackend) DescribeInstanceRefreshes(groupName string, refreshIDs
 			result = append(result, *r)
 		}
 	}
+
+	// groups is b.instanceRefreshes (a map) when groupName is empty, so account-wide iteration
+	// order is randomized run to run; a stable total order is required for pagination to not
+	// drop or duplicate records across a page boundary. InstanceRefreshID is a uuid.NewString()
+	// value (see StartInstanceRefresh below) -- globally unique, so no tiebreak is needed.
+	sort.Slice(result, func(i, j int) bool { return result[i].InstanceRefreshID < result[j].InstanceRefreshID })
 
 	return result, nil
 }

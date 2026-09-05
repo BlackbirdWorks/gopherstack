@@ -237,26 +237,41 @@ func policyTypeString(managed bool) string {
 	return "custom"
 }
 
+// handleListCachePolicies paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOpHttpBindingsListCachePoliciesInput).
+// Real CachePolicyList has no IsTruncated field -- NextMarker's presence alone signals
+// truncation (types/types.go:871-891).
 func (h *Handler) handleListCachePolicies(c *echo.Context) error {
 	policies := h.Backend.ListCachePolicies()
 	policies = filterByManagedType(c.QueryParam("Type"), func(p *CachePolicy) bool { return p.Managed }, policies)
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		policies,
+		func(p *CachePolicy) string { return p.ID },
+	)
+
 	var sb strings.Builder
 
-	for _, p := range policies {
+	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<CachePolicySummary><Type>%s</Type><CachePolicy><Id>%s</Id>`+
 				`<CachePolicyConfig>%s</CachePolicyConfig></CachePolicy></CachePolicySummary>`,
 			policyTypeString(p.Managed), p.ID, cachePolicyConfigXMLBlock(p))
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<CachePolicyList xmlns="%s">`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
-		`<Items>%s</Items>`+
+		`<Items>%s</Items>%s`+
 		`</CachePolicyList>`,
-		cfNS, maxItems, len(policies), sb.String())
+		cfNS, pageSize, len(page), sb.String(), nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

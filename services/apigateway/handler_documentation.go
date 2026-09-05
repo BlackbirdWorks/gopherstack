@@ -3,6 +3,7 @@ package apigateway
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type getDocumentationPartInput struct {
@@ -12,6 +13,11 @@ type getDocumentationPartInput struct {
 
 type getDocumentationPartsInput struct {
 	RestAPIID string `json:"restApiId"`
+	Position  string `json:"position"`
+	NameQuery string `json:"name"`
+	Path      string `json:"path"`
+	Type      string `json:"type"`
+	Limit     int    `json:"limit"`
 }
 
 type deleteDocumentationPartInput struct {
@@ -26,6 +32,8 @@ type getDocumentationVersionInput struct {
 
 type getDocumentationVersionsInput struct {
 	RestAPIID string `json:"restApiId"`
+	Position  string `json:"position"`
+	Limit     int    `json:"limit"`
 }
 
 type deleteDocumentationVersionInput struct {
@@ -158,8 +166,47 @@ func (h *Handler) getDocumentationPartsAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	ps = filterDocumentationParts(ps, input.NameQuery, input.Path, input.Type)
+	if input.Limit == 0 && input.Position == "" {
+		return http.StatusOK, map[string]any{keyItem: ps}, nil
+	}
+	page, position := paginatePageByKey(
+		ps,
+		input.Limit,
+		input.Position,
+		func(p DocumentationPart) string { return p.ID },
+	)
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
 
-	return http.StatusOK, map[string]any{keyItem: ps}, nil
+	return http.StatusOK, map[string]any{keyItem: page}, nil
+}
+
+// filterDocumentationParts applies GetDocumentationParts' name (substring),
+// path (exact) and type (exact) filters. Real keys: name, path, type in
+// apigateway@v1.42.4/serializers.go:4904,4908,4925. locationStatus has no
+// backing field here — this backend doesn't track a separate "documented"
+// version snapshot, so it's not filtered on.
+func filterDocumentationParts(parts []DocumentationPart, nameQuery, path, locType string) []DocumentationPart {
+	if nameQuery == "" && path == "" && locType == "" {
+		return parts
+	}
+	out := make([]DocumentationPart, 0, len(parts))
+	for _, p := range parts {
+		if nameQuery != "" && !strings.Contains(p.Location.Name, nameQuery) {
+			continue
+		}
+		if path != "" && p.Location.Path != path {
+			continue
+		}
+		if locType != "" && p.Location.Type != locType {
+			continue
+		}
+		out = append(out, p)
+	}
+
+	return out
 }
 
 func (h *Handler) updateDocumentationPartAction(b []byte) (int, any, error) {
@@ -222,8 +269,16 @@ func (h *Handler) getDocumentationVersionsAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	if input.Limit == 0 && input.Position == "" {
+		return http.StatusOK, map[string]any{keyItem: vs}, nil
+	}
+	page, position := paginatePageByKey(vs, input.Limit, input.Position,
+		func(v DocumentationVersion) string { return v.Version })
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
 
-	return http.StatusOK, map[string]any{keyItem: vs}, nil
+	return http.StatusOK, map[string]any{keyItem: page}, nil
 }
 
 func (h *Handler) deleteDocumentationVersionAction(b []byte) (int, any, error) {

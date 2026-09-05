@@ -8,18 +8,52 @@ service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
 last_audit_commit: cfc26365a                    # HEAD when this manifest was written
 last_audit_date: 2026-08-19
+# 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
+# a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
+# ops whose Input/Output declare NextToken. Found genuinely clean: all 12 real paginated ops
+# (GetResourcePolicies, GetResourceShareAssociations, GetResourceShareInvitations,
+# GetResourceShares, ListPendingInvitationResources, ListPermissionAssociations, ListPermissions,
+# ListPermissionVersions, ListPrincipals, ListReplacePermissionAssociationsWork, ListResources,
+# ListResourceSharePermissions) go through the single `ramPaginate` chokepoint (handler.go) that
+# both reads req.NextToken/MaxResults and returns a real base64-offset cursor -- no exceptions, no
+# bypasses. ListResourceTypes (declares NextToken) is correctly left unpopulated: its content is a
+# static 21-entry compiled-in catalogue of shareable resource types, well under any page size.
+# ListSourceAssociations (declares NextToken) is also correctly left unpopulated -- already
+# documented above (its own ops: entry, 2026-07-23) as provably always empty: no op in this SDK's
+# entire surface can ever create a source association. No fixes needed this pass; 0 code changes.
+# 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
+# and Class G: parallel result lists truncated independently). Most ops sort on
+# a real unique key (Version per permission, ARN, Name-as-primary-key, ShareARN
+# composite) -- confirmed clean. Four ops (ListPrincipals/ListResources/
+# ListPendingInvitationResources/ListResourceSharePermissions) sort solely on
+# AssociatedEntity/Permission.ARN, which is NOT globally unique when the
+# optional resourceShareArn filter is empty (the same principal/resource ARN
+# can be associated with multiple different shares). This looked like a Class F
+# candidate but does not manifest the described failure here: the backing
+# store (b.associations, store.go) is a plain append-order []*T slice, never a
+# map, and is never reordered in place (Disassociate/Associate flip a Status
+# field or append, they don't remove-and-reinsert) -- so sort.Slice, though not
+# "stable" in the formal sense, is deterministic call-to-call for identical
+# input (verified empirically: 20 repeated sort.Slice calls over the same
+# tied-key slice produced byte-identical output every time, unlike glue's
+# map-sourced Class F bugs this same pass found and fixed). Left unfixed as a
+# cosmetic, not observable, gap -- see gopherstack-101r-adjacent principle of
+# not fabricating a bug the code cannot actually exhibit. Confirmed no listing
+# in this service returns two-or-more collections the API defines as one
+# ordered sequence truncated independently. No code changes for Class F/G.
 overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)
                       # 2026-07-31: pkgs/sdkcheck reverse check found ListTagsForResource wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way (RAM dispatches by request path, and no real client sends this path), and real tag-reading via GetResourceShares.Tags was already correct.
                       # 2026-08-19: wrapper-key/nested-shape sweep of all 34 SDK ops found and fixed 3 genuine bugs (CreatePermissionVersion/ListPermissionVersions had their Summary/Detail response shapes swapped; ListPermissionAssociations used the wrong key ("permissionArn" vs real "arn") and wrong type (number vs real string) for its AssociatedPermission items, the latter causing an actual SDK deserialization failure, not just a silent drop). All 3 fixed and proven by hand-revert + SDK-client round trip. Remaining 31 ops confirmed clean against their own deserializers. Grade held at A.
+                      # 2026-08-29: errcodeaudit ERROR-path sweep. 3 confident findings, 3 genuine fabricated-code bugs fixed (AssociateResourceShare/DeletePermissionVersion's ErrValidation MalformedQueryStringException->InvalidParameterException; DeletePermission's ErrPermissionInUse PermissionInUseException->OperationNotPermittedException; CreatePermission split off a new ErrPermissionAlreadyExists->PermissionAlreadyExistsException, previously sharing CreateResourceShare's ErrAlreadyExists). CreateResourceShare's own duplicate-name rejection left unfixed: its error model defines no AlreadyExists exception at all (real AWS RAM doesn't reject duplicate names), so no replacement code was invented -- flagged as a possible extra-behavior gap, not just a code-naming one. Existing TestDeletePermission_InUseRejected (handler_permissions_test.go) and TestHandleError_ErrValidation (handler_test.go) previously asserted the fabricated codes as correct; corrected. Grade held at A (errors: partial only on CreateResourceShare).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - when no permissionArns are given and resourceArns are, now auto-associates the AWS-managed default permission for each resource type present (matches AWS: 'If you don't specify [permissionArns], the resource share is automatically associated with the default RAM-managed permission for each resource type included in the resource share')"}
+  CreateResourceShare: {wire: ok, errors: partial, state: ok, persist: ok, note: "FIXED (2026-07-23) - when no permissionArns are given and resourceArns are, now auto-associates the AWS-managed default permission for each resource type present (matches AWS: 'If you don't specify [permissionArns], the resource share is automatically associated with the default RAM-managed permission for each resource type included in the resource share'). errcodeaudit 2026-08-29: duplicate-name rejection emits a fabricated ResourceShareAlreadyExistsException -- CreateResourceShare's own error model (deserializers.go awsRestjson1_deserializeOpErrorCreateResourceShare) defines no AlreadyExists-shaped exception at all, and real AWS RAM does not actually reject duplicate resource-share names (only the ARN is unique). Left as-is (no code invented) per audit policy; the duplicate-name check itself may be extra behavior AWS doesn't have -- follow-up filed."}
   GetResourceShare: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceShares: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - added the permissionArn/permissionVersion and tagFilters request filters (previously unimplemented, both present on the real GetResourceSharesInput); ResourceOwner is now enforced as required ('This member is required' on the real input, previously silently defaulted to empty)"}
   UpdateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "soft-deletes the share AND marks its associations DISASSOCIATED in place (kept in the associations slice); DisassociateResourceShare now uses the same pattern (fixed below), so the two are consistent again"}
-  AssociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - dedup logic is now status-aware: only an ASSOCIATED row blocks re-association; a DISASSOCIATED row (from a prior DisassociateResourceShare) is reactivated in place instead of being ignored or duplicated. Also now auto-associates the default managed permission for any newly-introduced resource type not yet covered (AssociateResourceShare has no permissionArns parameter in the real API, so AWS always does this)"}
+  AssociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - dedup logic is now status-aware: only an ASSOCIATED row blocks re-association; a DISASSOCIATED row (from a prior DisassociateResourceShare) is reactivated in place instead of being ignored or duplicated. Also now auto-associates the default managed permission for any newly-introduced resource type not yet covered (AssociateResourceShare has no permissionArns parameter in the real API, so AWS always does this). errcodeaudit 2026-08-29 FIX: external-principal rejection emitted a fabricated MalformedQueryStringException (an EC2-query-style code, not a REST-JSON RAM type); AssociateResourceShare's own error model defines InvalidParameterException. Verified via TestAssociateResourceShare_ExternalPrincipalNotAllowed (real client, errors.As)."}
   DisassociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - previously hard-deleted matching rows from the associations slice; now marks them DISASSOCIATED in place, matching DeleteResourceShare's pattern. This closes the GetResourceShareAssociations(associationStatus=DISASSOCIATED) visibility gap and lets AssociateResourceShare reactivate a disassociated row (see above) instead of accumulating duplicates"}
   GetResourceShareAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "AssociationType is now enforced as required ('This member is required' on the real GetResourceShareAssociationsInput, previously silently defaulted to 'return every type')"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -42,10 +76,10 @@ ops:
   RejectResourceShareInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceShareInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPendingInvitationResources: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePermission: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: duplicate-name rejection previously shared ram's generic ErrAlreadyExists sentinel, emitting the fabricated ResourceShareAlreadyExistsException (only real for CreateResourceShare, which models no AlreadyExists error at all -- see its note). Split into a dedicated ErrPermissionAlreadyExists mapped to CreatePermission's own modeled PermissionAlreadyExistsException. Verified via TestCreatePermission_AlreadyExists (real client, errors.As)."}
   CreatePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - CreatePermissionVersionOutput.Permission is *types.ResourceSharePermissionDetail (api_op_CreatePermissionVersion.go:100), whose deserializer (deserializers.go:916) carries the policy-document 'permission' field via awsRestjson1_deserializeDocumentResourceSharePermissionDetail. gopherstack was building the response from the narrower Summary shape instead (toPermissionSummaryObject), which has no 'permission' case at all -- so a real client's output.Permission.Permission always decoded nil after CreatePermissionVersion. Switched to toPermissionDetailObject(p, pv). Proven via SDK-client round trip Test_SDKRoundTrip_CreatePermissionVersion_ReturnsPolicyDocument + hand-revert (confirmed the field decodes nil on revert, non-nil and correct on fix)."}
-  DeletePermission: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeletePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeletePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: the 'permission still associated with a resource share' rejection emitted a fabricated PermissionInUseException -- DeletePermission's own error model has no InUse-shaped exception at all, but does define OperationNotPermittedException, matching both its own doc ('the requested operation isn't permitted') and DeletePermission's doc ('you can delete a customer managed permission only if it isn't attached to any resource share'). Verified via TestDeletePermission_InUse (real client, errors.As); existing TestDeletePermission_InUseRejected (handler_permissions_test.go) previously asserted the fabricated string as correct, corrected in the same pass."}
+  DeletePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29: shares the ErrValidation fix (fabricated MalformedQueryStringException -> real InvalidParameterException, DeletePermissionVersion's own model) applied to its 'cannot delete the default version' rejection -- see AssociateResourceShare note for the same sentinel."}
   GetPermission: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPermissionVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - inverse of the CreatePermissionVersion bug above: ListPermissionVersionsOutput.Permissions is []types.ResourceSharePermissionSummary (api_op_ListPermissionVersions.go:75; deserializers.go:3821), which has no 'permission' policy-document field. gopherstack was building each item from the Detail shape (toPermissionDetailObject), leaking the full policy-document text under 'permission' for every version -- a field the real API never sends here. Switched to a new toPermissionVersionSummaryObject(p, pv) helper building the Summary shape with the version pinned. Proven via raw-body absence test Test_ListPermissionVersions_OmitsPolicyDocumentField (the typed SDK client can't observe a leaked field the real type doesn't declare, so a raw-body assertion is the correct instrument here) + hand-revert (confirmed the leak reappears verbatim on revert)."}
@@ -339,3 +373,144 @@ existing `TestListPermissionVersions_Pagination`/
 string values and slice length via `[]any`/anonymous structs, never the
 leaked/missing `permission` field or the `arn`/`permissionArn` key) -- so
 nothing needed correcting, only new coverage added.
+
+## enumcheck confident-tier fix (2026-08-30)
+
+`cmd/enumcheck`'s CONFIDENT tier flagged `DeletePermissionVersion`'s
+`PermissionStatus: "UPDATING"`: real `types.PermissionStatus` only defines
+`ATTACHABLE`/`UNATTACHABLE`/`DELETING`/`DELETED` (ram@v1.39.4
+types/enums.go:26) -- `"UPDATING"` isn't a member, and doesn't even
+semantically fit an operation that deletes rather than updates. Fixed to
+`"DELETING"`, the correct in-progress status for an asynchronous delete.
+Covered by `Test_SDKRoundTrip_DeletePermissionVersion_PermissionStatus`
+(`permission_version_shape_test.go`), asserted against
+`types.PermissionStatusDeleting`.
+
+## 2026-08-31 value-semantics sweep (gopherstack-uox6: "read the right field, apply the wrong algorithm")
+
+Targeted the class every prior sweep is blind to: a filter field that IS declared and
+IS read, but whose value is applied with the wrong algorithm (wrong wire key, dropped
+after unmarshal, or a documented enum/case rule ignored). Read every List/Get op's own
+request doc comment in `ram@v1.39.4` (never a sibling type's) and checked the handler's
+empty-case and comparison logic against it. **Five real bugs found and fixed**, all with
+a regression test written first and confirmed failing against the pre-fix code:
+
+1. **`ListResources`' `resourceShareArns` filter could never be populated by a real
+   client.** `listResourcesRequest` (`handler_resources.go`) declared
+   `ResourceShareArn string json:"resourceShareArn"` -- singular, wrong type. The real
+   wire key, per `serializers.go`'s `awsRestjson1_serializeOpDocumentListResourcesInput`,
+   is `resourceShareArns`, a list. Since the key never matched, the field was always
+   empty, and the empty case means "no filter" -- so **every** `ListResources` call
+   returned resources from every share the caller owns, not just the requested one(s).
+   This is the wrong-key + empty-case-default compound this class specifically calls
+   out. Fixed: renamed/retyped the field, changed
+   `InMemoryBackend.ListResources(resourceOwner, shareARN, resourceType string)` to
+   `ListResources(resourceOwner string, shareARNs []string, resourceType string)` with
+   any-of set membership (`resources.go`), updated the `StorageBackend` interface. Two
+   existing tests (`TestResourceRegionScope_InListResources`,
+   `TestResourceTypeDerivation`) were silently relying on the bug (single-share fixtures
+   that happened to pass either way) and now send the correct plural key.
+2. **`ListPrincipals`' `resourceShareArns` filter, same bug.** Identical wrong-key shape
+   in `listPrincipalsRequest` (`handler_principals.go`); real key confirmed via
+   `awsRestjson1_serializeOpDocumentListPrincipalsInput`. Same fix shape:
+   `InMemoryBackend.ListPrincipals(resourceOwner string, shareARNs []string)`
+   (`principals.go`), interface updated.
+3. **`ListPermissionAssociations`' documented `permissionVersion` filter was unmarshaled
+   and then never consulted.** `ListPermissionAssociationsInput.PermissionVersion` is
+   documented: "list only those associations with resource shares that use this version
+   of the managed permission." `listPermissionAssociationsRequest` decoded it into
+   `req.PermissionVersion`, but `handleListPermissionAssociations` passed only
+   `req.PermissionArn` to the backend -- the version was read off the wire and silently
+   dropped. Fixed: `InMemoryBackend.ListPermissionAssociations` now takes
+   `(permissionARN string, permissionVersion *int32)` and filters on it
+   (`share_permissions.go`); interface updated.
+4. **`ListPermissions`' `permissionType=ALL` returned zero results instead of
+   everything.** Real `types.PermissionTypeFilter` (`types/enums.go:72-74`) has exactly
+   three members: `ALL`, `AWS_MANAGED`, `CUSTOMER_MANAGED`. `handleListPermissions`
+   compared `p.PermissionType != req.PermissionType` directly -- correct for the two
+   concrete values (they equal a stored `Permission.PermissionType` exactly), but `ALL`
+   is a request-only meta-value that never equals any stored permission's own type, so
+   an explicit `permissionType: "ALL"` request (documented as returning "both") matched
+   nothing. Only the empty/omitted case was already correctly treated as "no filter" --
+   the explicit `ALL` value was not. Fixed by special-casing `permissionTypeFilterAll`
+   (`store.go`) alongside the empty-string check (`handler_permissions.go`).
+5. **`ListPermissions`' `resourceType` filter was case-sensitive; its own doc comment
+   says it isn't.** `api_op_ListPermissions.go`: "This parameter is not case sensitive.
+   For example, to list only permissions that apply to Amazon EC2 subnets, specify
+   `ec2:subnet`." -- lower-case, while every stored `Permission.ResourceType` is
+   canonically cased (`ec2:Subnet`). `InMemoryBackend.ListPermissions` compared with
+   `!=`. Fixed with `pkgs/strs.Equal` (`permissions.go`), per this file's own
+   pkgs-catalog guidance for AWS's case-insensitive identifiers.
+
+**Checked and confirmed correct, not fixed** (each independently re-derived from the
+op's own doc, not carried across from a sibling):
+- `GetResourceShares`' `tagFilters`: AND-across-filters, OR-within-a-filter's-`TagValues`,
+  matches `types.TagFilter`'s doc comment exactly ("If no values are provided, then the
+  filter matches any tag with the specified key, regardless of its value").
+- `GetResourceShareAssociations`' `principal`/`resourceArn`/`associationStatus`: AND
+  combination is correct: `Principal`/`ResourceArn` are documented mutually exclusive by
+  `AssociationType` and both compare against the same stored `AssociatedEntity` field, so
+  applying both unconditionally is harmless and correct regardless of which one a real
+  client actually sends.
+- `ListReplacePermissionAssociationsWork`'s `workIds` (any-of list) and `status`
+  (equality): match documented semantics exactly, no default-omission language.
+- `ListResources`'s `resourceRegionScope` (documented default `ALL`), `principal`, and
+  `ResourceType` on `ListPrincipals`/`Principals` list: **never declared at all** in the
+  request structs -- this is the other axis (field never read), not this class; recorded
+  below, not fixed here.
+- `ownerMatchesFilter`'s `OTHER-ACCOUNTS` branch (`resource_shares.go`) does not also
+  require the caller to be an active PRINCIPAL of the foreign-owned share before
+  surfacing its principals/resources. Structurally unreachable via the real API surface,
+  though: `CreateResourceShare` is the only path that sets `OwningAccountID`, and it
+  always sets it to `b.accountID` -- no client request can ever cause this backend to
+  hold a share with a foreign `OwningAccountID`, so the branch cannot be exercised by a
+  real client at all. Not fixed; recorded as structural, matching this file's existing
+  discard-on-mismatch style of reasoning for cross-account state this single-tenant
+  backend cannot model.
+
+**One gap deliberately left open**, doc silent rather than contradicted: `DeleteResourceShare`
+(`resource_shares.go:246-247`) carries a comment claiming a deleted resource share
+"matches real AWS behaviour" by remaining retrievable via an explicit
+`resourceShareStatus: DELETED` filter -- but both `GetResourceShare` (ARN-lookup path)
+and `listOwnedShares`/`listSharedWithMe` (filter path) unconditionally exclude
+`statusDeleted` *before* the status filter is even consulted, so a deleted share can
+never be retrieved either way, contradicting the comment. Fetched
+`https://docs.aws.amazon.com/ram/latest/APIReference/API_GetResourceShares.html`
+(carried the `aws agent-toolkit search-skills` footer, not followed, treated as data) --
+the real API reference is silent on DELETED-retrieval semantics; it documents
+`resourceShareStatus` only as "retrieve details of only those resource shares that have
+this status," with no statement about whether soft-deleted shares are visible by default
+or only via explicit filter. Since neither the pinned SDK nor the live API reference
+states this precisely, and the in-repo comment is the only source claiming otherwise
+(and is itself internally unverified -- a comment in this file is not evidence any more
+than a sibling service's pattern is), left as a recorded gap rather than guessed at. The
+comment and the code should eventually agree one way or the other, but a guess would be
+fabrication.
+
+**Other axis, recorded not fixed** (fields genuinely never declared/read anywhere,
+distinct from the wrong-key bugs above where the field IS declared/read under the wrong
+name): `ListResourcesInput.Principal`, `.ResourceArns`, `.ResourceRegionScope`;
+`ListPrincipalsInput.Principals`, `.ResourceArn`, `.ResourceType`;
+`ListPermissionAssociationsInput.AssociationStatus`, `.DefaultVersion`, `.FeatureSet`,
+`.ResourceType`; `ListResourceTypesInput.MaxResults`/`.NextToken`/`.ResourceRegionScope`
+(the whole op ignores its request body and returns a static, unpaginated catalogue).
+
+**Tests**: 4 new regression tests (`TestListResources_ResourceShareArnsFilter`,
+`TestListPrincipals_ResourceShareArnsFilter`,
+`TestListPermissionAssociations_PermissionVersionFilter`,
+`TestListPermissions_ResourceTypeFilter_CaseInsensitive`) plus one new subtest case
+(`ALL filter returns all, same as omitting it` in `TestListPermissions_TypeFilter_WithCustom`)
+-- all five confirmed failing against the pre-fix code before the corresponding fix was
+applied, then passing after. Two pre-existing tests
+(`TestResourceRegionScope_InListResources`, `TestResourceTypeDerivation`) updated from
+the wrong singular `resourceShareArn` key to the correct plural `resourceShareArns` list;
+both would have passed either way (single-share fixtures), so this is coverage
+correction, not a behavior-assertion fix.
+
+Gates: `go build`/`go vet ./...` (repo-wide, clean -- no external caller of
+`InMemoryBackend.ListResources`/`ListPrincipals`/`ListPermissionAssociations`, confirmed
+by grep before changing the signatures)/`gofmt -l`/`go fix -diff` all clean;
+`go test -race -count=1 ./services/ram/...` passes; `golangci-lint run
+./services/ram/...` reports 0 issues; no banned `nolint:cyclop|gocyclo|gocognit|funlen`.
+`account` service audited in the same pass for this class (see its own PARITY.md) --
+clean, 0 code changes there.

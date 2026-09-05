@@ -2,6 +2,7 @@ package cloudfront_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -408,4 +409,93 @@ func TestListConnectionFunctions_RealClient(t *testing.T) {
 	}
 
 	assert.True(t, found, "created connection function must appear in ListConnectionFunctions")
+}
+
+// TestListConnectionFunctions_ItemShape_RealClient covers the per-item shape of
+// ListConnectionFunctions: real ConnectionFunctionSummary (shared with
+// DescribeConnectionFunction, cloudfront@v1.67.4 deserializers.go
+// awsRestxml_deserializeDocumentConnectionFunctionSummary) declares CreatedTime and
+// LastModifiedTime, but the List handler's cfnSummary never populated either, despite the
+// backend tracking both (DescribeConnectionFunction's connectionFunctionSummaryXML already
+// emits them correctly from the same fields) -- the "Get right, List wrong" trap.
+func TestListConnectionFunctions_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := h.Backend.CreateConnectionFunction("cf-item-shape", "item shape test")
+	require.NoError(t, err)
+	require.NotEmpty(t, created.CreatedTime)
+	require.NotEmpty(t, created.LastModifiedTime)
+
+	listed, err := client.ListConnectionFunctions(t.Context(), &cfsdk.ListConnectionFunctionsInput{})
+	require.NoError(t, err)
+
+	var item *types.ConnectionFunctionSummary
+
+	for i := range listed.ConnectionFunctions {
+		if aws.ToString(listed.ConnectionFunctions[i].Id) == created.ID {
+			item = &listed.ConnectionFunctions[i]
+
+			break
+		}
+	}
+
+	require.NotNil(t, item, "created connection function must appear in ListConnectionFunctions")
+	require.NotNil(t, item.CreatedTime, "CreatedTime must round-trip, not decode nil")
+	require.NotNil(t, item.LastModifiedTime, "LastModifiedTime must round-trip, not decode nil")
+
+	wantCreated, parseErr := time.Parse(time.RFC3339, created.CreatedTime)
+	require.NoError(t, parseErr)
+	assert.WithinDuration(t, wantCreated, *item.CreatedTime, time.Second)
+
+	wantModified, parseErr := time.Parse(time.RFC3339, created.LastModifiedTime)
+	require.NoError(t, parseErr)
+	assert.WithinDuration(t, wantModified, *item.LastModifiedTime, time.Second)
+}
+
+// TestListConnectionGroups_ItemShape_RealClient covers the per-item shape of
+// ListConnectionGroups: real ConnectionGroupSummary (cloudfront@v1.67.4 deserializers.go
+// awsRestxml_deserializeDocumentConnectionGroupSummary) declares AnycastIpListId, CreatedTime,
+// Enabled, IsDefault, and LastModifiedTime, none of which the List handler's cgSummary
+// populated, despite GetConnectionGroup's connectionGroupXML already emitting all five
+// correctly from the same backend fields -- the "Get right, List wrong" trap.
+func TestListConnectionGroups_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := h.Backend.CreateConnectionGroupWithConfig(
+		"cg-item-shape", "item shape test", "anycast-item-shape", false, true, nil,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, created.CreatedTime)
+	require.NotEmpty(t, created.LastModifiedTime)
+
+	listed, err := client.ListConnectionGroups(t.Context(), &cfsdk.ListConnectionGroupsInput{})
+	require.NoError(t, err)
+
+	var item *types.ConnectionGroupSummary
+
+	for i := range listed.ConnectionGroups {
+		if aws.ToString(listed.ConnectionGroups[i].Id) == created.ID {
+			item = &listed.ConnectionGroups[i]
+
+			break
+		}
+	}
+
+	require.NotNil(t, item, "created connection group must appear in ListConnectionGroups")
+	assert.Equal(t, "anycast-item-shape", aws.ToString(item.AnycastIpListId))
+	assert.True(t, aws.ToBool(item.Enabled))
+	assert.False(t, aws.ToBool(item.IsDefault))
+
+	require.NotNil(t, item.CreatedTime, "CreatedTime must round-trip, not decode nil")
+	require.NotNil(t, item.LastModifiedTime, "LastModifiedTime must round-trip, not decode nil")
+
+	wantCreated, parseErr := time.Parse(time.RFC3339, created.CreatedTime)
+	require.NoError(t, parseErr)
+	assert.WithinDuration(t, wantCreated, *item.CreatedTime, time.Second)
 }

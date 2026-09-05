@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.CreateUser(br.BrokerID, "second", "anothersecretpassword2", nil, false, false))
 
 	cfg, err := original.CreateConfiguration(
-		"config-1", "initial config", mq.EngineTypeActiveMQ, "", map[string]string{"team": "infra"},
+		"config-1", "initial config", mq.EngineTypeActiveMQ, "", "", map[string]string{"team": "infra"},
 	)
 	require.NoError(t, err)
 
@@ -165,6 +165,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 		"desc",
 		mq.EngineTypeActiveMQ,
 		"5.18.3",
+		"",
 		map[string]string{"k": "v"},
 	)
 	require.NoError(t, err)

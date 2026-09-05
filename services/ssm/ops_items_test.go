@@ -827,6 +827,25 @@ func TestOpsItemMatchesFilters(t *testing.T) {
 			wantCount: 1,
 		},
 		{
+			// types.OpsItemFilter's Operator field, api_op_DescribeOpsItems.go:
+			// "Key: Title* / Operations: Equals,Contains". "Alpha" is a substring
+			// of "Alpha Issue" but not equal to it, so this only passes if
+			// Operator=Contains is honored rather than always compared with Equal.
+			name: "filter_by_title_contains",
+			filters: []ssm.OpsItemFilter{
+				{Key: "Title", Operator: "Contains", Values: []string{"Alpha"}},
+			},
+			wantCount: 1,
+		},
+		{
+			// api_op_DescribeOpsItems.go: "Key: Source / Operations: Contains, Equals".
+			name: "filter_by_source_contains",
+			filters: []ssm.OpsItemFilter{
+				{Key: "Source", Operator: "Contains", Values: []string{"source-"}},
+			},
+			wantCount: 2,
+		},
+		{
 			name: "unknown_filter_key",
 			filters: []ssm.OpsItemFilter{
 				{Key: "UnknownKey", Operator: "Equal", Values: []string{"v"}},

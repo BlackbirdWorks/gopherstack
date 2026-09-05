@@ -133,12 +133,29 @@ func (h *Handler) handleDescribeRoleAlias(c *echo.Context) error {
 
 func (h *Handler) handleListRoleAliases(c *echo.Context) error {
 	aliases := h.Backend.ListRoleAliases()
+
+	// ListRoleAliases() already returns them name-sorted ascending
+	// (store.Table.Snapshot, keyed by RoleAlias) -- "Return the list of
+	// role aliases in ascending alphabetical order" is the true (default)
+	// case, so only the false case needs a reversal.
+	if c.QueryParam("isAscendingOrder") != keyBoolTrue {
+		reverseSlice(aliases)
+	}
+
 	names := make([]string, len(aliases))
 	for i, ra := range aliases {
 		names[i] = ra.RoleAlias
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"roleAliases": names})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(names, pageSize, start)
+
+	resp := map[string]any{"roleAliases": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateRoleAlias(c *echo.Context) error {

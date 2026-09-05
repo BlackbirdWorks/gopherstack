@@ -17,9 +17,17 @@ import (
 
 // newMemorydbSDKClient stands up a real aws-sdk-go-v2 memorydb client against
 // an httptest server running h, wired through the same pkgs/service
-// registry/router used in production.
-func newMemorydbSDKClient(t *testing.T, h *memorydb.Handler) *memorydbsdk.Client {
+// registry/router used in production. It signs requests for us-east-1
+// unless an explicit region is passed, so a caller can stand up a second
+// client signed for a different region against the same handler/backend to
+// prove cross-region isolation.
+func newMemorydbSDKClient(t *testing.T, h *memorydb.Handler, region ...string) *memorydbsdk.Client {
 	t.Helper()
+
+	signingRegion := "us-east-1"
+	if len(region) > 0 {
+		signingRegion = region[0]
+	}
 
 	e := echo.New()
 	registry := service.NewRegistry()
@@ -31,7 +39,7 @@ func newMemorydbSDKClient(t *testing.T, h *memorydb.Handler) *memorydbsdk.Client
 
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
-		awscfg.WithRegion("us-east-1"),
+		awscfg.WithRegion(signingRegion),
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
 		),

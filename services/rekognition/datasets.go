@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,9 +96,91 @@ func (b *InMemoryBackend) DescribeDataset(datasetARN string) (*Dataset, error) {
 	return result, nil
 }
 
-// ListDatasetEntries returns a paginated list of dataset entries.
+// ListDatasetEntriesFilter groups ListDatasetEntriesInput's optional filter
+// members (own doc comments, api_op_ListDatasetEntries.go). HasErrors has no
+// effect beyond excluding everything when true: this backend has no
+// entry-level error concept (see computeDatasetStats' ErrorEntries note), so
+// no entry can ever satisfy it.
+type ListDatasetEntriesFilter struct {
+	HasErrors         *bool
+	Labeled           *bool
+	SourceRefContains string
+	ContainsLabels    []string
+}
+
+func matchesDatasetEntryFilter(entry string, filter ListDatasetEntriesFilter) bool {
+	if filter.HasErrors != nil && *filter.HasErrors {
+		return false
+	}
+
+	names, labeled := entryLabels(entry)
+
+	if filter.Labeled != nil && *filter.Labeled != labeled {
+		return false
+	}
+
+	if len(filter.ContainsLabels) > 0 && !slices.ContainsFunc(filter.ContainsLabels, func(want string) bool {
+		return slices.Contains(names, want)
+	}) {
+		return false
+	}
+
+	if filter.SourceRefContains != "" && !strings.Contains(entrySourceRef(entry), filter.SourceRefContains) {
+		return false
+	}
+
+	return true
+}
+
+// entryLabels parses one JSON-lines dataset entry and returns every label
+// name found across its "-metadata" blocks, plus whether it carried at
+// least one such block (i.e. is "labeled").
+func entryLabels(entry string) ([]string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
+		return nil, false
+	}
+
+	var names []string
+
+	labeled := false
+
+	for key, val := range obj {
+		const metaSuffix = "-metadata"
+		if len(key) < len(metaSuffix) || key[len(key)-len(metaSuffix):] != metaSuffix {
+			continue
+		}
+
+		labeled = true
+		names = append(names, labelNamesFromMeta(val)...)
+	}
+
+	return names, labeled
+}
+
+// entrySourceRef parses one JSON-lines dataset entry and returns its
+// "source-ref" field (the image's S3 location), or "" if absent/malformed.
+func entrySourceRef(entry string) string {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
+		return ""
+	}
+
+	raw, ok := obj["source-ref"]
+	if !ok {
+		return ""
+	}
+
+	var ref string
+	_ = json.Unmarshal(raw, &ref)
+
+	return ref
+}
+
+// ListDatasetEntries returns a paginated list of dataset entries, optionally
+// constrained by filter.
 func (b *InMemoryBackend) ListDatasetEntries(
-	datasetARN string, maxResults int32, nextToken string,
+	datasetARN string, filter ListDatasetEntriesFilter, maxResults int32, nextToken string,
 ) ([]string, string, error) {
 	b.mu.RLock("ListDatasetEntries")
 	defer b.mu.RUnlock()
@@ -105,7 +189,13 @@ func (b *InMemoryBackend) ListDatasetEntries(
 		return nil, "", ErrDatasetNotFound
 	}
 
-	entries := b.datasetEntries[datasetARN]
+	var entries []string
+
+	for _, e := range b.datasetEntries[datasetARN] {
+		if matchesDatasetEntryFilter(e, filter) {
+			entries = append(entries, e)
+		}
+	}
 
 	start := 0
 	if nextToken != "" {
@@ -146,22 +236,9 @@ type datasetPaginationToken struct {
 // counts, returning whether the entry carried at least one -metadata block
 // (i.e. is "labeled" for DatasetStats.LabeledEntries purposes).
 func countLabelsFromEntry(entry string, counts map[string]int64) bool {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
-		return false
-	}
-
-	labeled := false
-
-	for key, val := range obj {
-		const metaSuffix = "-metadata"
-		if len(key) < len(metaSuffix) || key[len(key)-len(metaSuffix):] != metaSuffix {
-			continue
-		}
-
-		labeled = true
-
-		countLabelsFromMeta(val, counts)
+	names, labeled := entryLabels(entry)
+	for _, n := range names {
+		counts[n]++
 	}
 
 	return labeled
@@ -189,18 +266,20 @@ func computeDatasetStats(entries []string) DatasetStats {
 	}
 }
 
-// countLabelsFromMeta parses a -metadata block and increments label counts.
-func countLabelsFromMeta(raw json.RawMessage, counts map[string]int64) {
+// labelNamesFromMeta parses a -metadata block and returns its label names.
+func labelNamesFromMeta(raw json.RawMessage) []string {
 	var meta map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &meta); err != nil {
-		return
+		return nil
 	}
+
+	var names []string
 
 	// Single-label: "class-name"
 	if cn, ok := meta["class-name"]; ok {
 		var name string
 		if err := json.Unmarshal(cn, &name); err == nil && name != "" {
-			counts[name]++
+			names = append(names, name)
 		}
 	}
 
@@ -209,10 +288,12 @@ func countLabelsFromMeta(raw json.RawMessage, counts map[string]int64) {
 		var classMap map[string]json.RawMessage
 		if err := json.Unmarshal(cm, &classMap); err == nil {
 			for name := range classMap {
-				counts[name]++
+				names = append(names, name)
 			}
 		}
 	}
+
+	return names
 }
 
 // decodeDatasetPageToken decodes an opaque pagination token into an offset.

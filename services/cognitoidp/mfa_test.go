@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -218,6 +220,35 @@ func TestHandler_AssociateSoftwareToken_Accurate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.SecretCode)
 	assert.Greater(t, len(resp.SecretCode), 10)
+}
+
+// TestVerifySoftwareToken_WrongCode_Rejected pins VerifySoftwareToken to the handler
+// that actually validates the TOTP code against the backend (mfaOpsB, the later
+// maps.Copy registration). The shadowed loser (mfaOpsA's handleVerifySoftwareToken)
+// ignores its input and unconditionally returns Status: "SUCCESS" -- if it ever won
+// the dispatch race this test would start passing a wrong code.
+func TestVerifySoftwareToken_WrongCode_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCognitoIDPClient(t, h)
+	ctx := t.Context()
+
+	_, clientID := setupHandlerPoolAndClient(t, h, "verify-wrong-pool")
+	signUpAndConfirmViaHandler(t, h, clientID, "wrong-code-user")
+	accessToken := loginViaHandler(t, h, clientID, "wrong-code-user")
+
+	assocResp, err := client.AssociateSoftwareToken(ctx, &cognitoidpsdk.AssociateSoftwareTokenInput{
+		AccessToken: aws.String(accessToken),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(assocResp.SecretCode))
+
+	_, err = client.VerifySoftwareToken(ctx, &cognitoidpsdk.VerifySoftwareTokenInput{
+		AccessToken: aws.String(accessToken),
+		UserCode:    aws.String("000000"),
+	})
+	require.Error(t, err, "VerifySoftwareToken must reject a code that doesn't match the enrolled TOTP secret")
 }
 
 func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {

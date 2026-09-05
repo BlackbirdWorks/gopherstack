@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -100,6 +101,23 @@ func (b *InMemoryBackend) DescribeNotificationConfigurations(groupNames []string
 				result = append(result, *c)
 			}
 		}
+
+		// b.notificationConfigs is a map, so account-wide iteration order (groupNames empty) is
+		// randomized run to run; a stable total order is required for pagination to not drop or
+		// duplicate records across a page boundary. (AutoScalingGroupName, TopicARN,
+		// NotificationType) is the natural unique key: PutNotificationConfiguration replaces any
+		// existing config for that exact triple.
+		sort.Slice(result, func(i, j int) bool {
+			if result[i].AutoScalingGroupName != result[j].AutoScalingGroupName {
+				return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
+			}
+
+			if result[i].TopicARN != result[j].TopicARN {
+				return result[i].TopicARN < result[j].TopicARN
+			}
+
+			return result[i].NotificationType < result[j].NotificationType
+		})
 	}
 
 	return result, nil

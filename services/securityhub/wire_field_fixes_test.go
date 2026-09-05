@@ -1,6 +1,7 @@
 package securityhub_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -148,4 +149,130 @@ func TestBatchEnableStandards_ReachesReady(t *testing.T) {
 		t, securityhubtypes.StandardsStatusReady, getOut.StandardsSubscriptions[0].StandardsStatus,
 		"GetEnabledStandards must reap PENDING to READY on poll",
 	)
+}
+
+// TestBatchGetSecurityControls_UnprocessedErrorCode_InvalidInputEnum guards
+// against handleBatchGetSecurityControls emitting the free-form string
+// "InvalidInput" under UnprocessedSecurityControl.ErrorCode, whose real type
+// is types.UnprocessedErrorCode (securityhub@v1.75.4 types/types.go:19946),
+// an enum whose members are upper-snake-case ("INVALID_INPUT", enums.go:2086)
+// -- not the mixed-case string BatchUpdateFindings' *string ErrorCode uses.
+// A typed client decodes the wrong value without error, so only comparing
+// against the real constant (not a bare string) catches every non-member.
+func TestBatchGetSecurityControls_UnprocessedErrorCode_InvalidInputEnum(t *testing.T) {
+	t.Parallel()
+
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+	out, err := client.BatchGetSecurityControls(t.Context(), &securityhubsdk.BatchGetSecurityControlsInput{
+		SecurityControlIds: []string{"no-such-control"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.UnprocessedIds, 1)
+	assert.Equal(t, securityhubtypes.UnprocessedErrorCodeInvalidInput, out.UnprocessedIds[0].ErrorCode)
+}
+
+// TestBatchAutomationRules_UnprocessedErrorCode_DecodesAsInt32 guards against
+// BatchGetAutomationRules/BatchDeleteAutomationRules/BatchUpdateAutomationRules
+// emitting a STRING under UnprocessedAutomationRule.ErrorCode; the real member
+// is *int32 (securityhub@v1.75.4 types/types.go:19904, mirroring cloudfront's
+// identically-shaped CustomErrorResponse.ErrorCode, "The HTTP status code").
+// Before the fix, a real client's deserializer hard-fails on this field
+// ("expected Integer to be json.Number, got string instead") -- confirmed by
+// driving the real client against the unfixed handler -- so require.NoError
+// on each call is itself part of the regression check, not just the value.
+func TestBatchAutomationRules_UnprocessedErrorCode_DecodesAsInt32(t *testing.T) {
+	t.Parallel()
+
+	unknownArn := "arn:aws:securityhub:us-east-1:000000000000:automation-rule/does-not-exist"
+
+	t.Run("get", func(t *testing.T) {
+		t.Parallel()
+
+		backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+		out, err := client.BatchGetAutomationRules(t.Context(), &securityhubsdk.BatchGetAutomationRulesInput{
+			AutomationRulesArns: []string{unknownArn},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.UnprocessedAutomationRules, 1)
+		require.NotNil(t, out.UnprocessedAutomationRules[0].ErrorCode)
+		assert.Equal(t, int32(http.StatusNotFound), *out.UnprocessedAutomationRules[0].ErrorCode)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		t.Parallel()
+
+		backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+		out, err := client.BatchDeleteAutomationRules(t.Context(), &securityhubsdk.BatchDeleteAutomationRulesInput{
+			AutomationRulesArns: []string{unknownArn},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.UnprocessedAutomationRules, 1)
+		require.NotNil(t, out.UnprocessedAutomationRules[0].ErrorCode)
+		assert.Equal(t, int32(http.StatusNotFound), *out.UnprocessedAutomationRules[0].ErrorCode)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		t.Parallel()
+
+		backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+		out, err := client.BatchUpdateAutomationRules(t.Context(), &securityhubsdk.BatchUpdateAutomationRulesInput{
+			UpdateAutomationRulesRequestItems: []securityhubtypes.UpdateAutomationRulesRequestItem{
+				{RuleArn: aws.String(unknownArn)},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.UnprocessedAutomationRules, 1)
+		require.NotNil(t, out.UnprocessedAutomationRules[0].ErrorCode)
+		assert.Equal(t, int32(http.StatusNotFound), *out.UnprocessedAutomationRules[0].ErrorCode)
+	})
+}
+
+// TestDeclineDeleteInvitations_UnprocessedAccounts_NoInventedErrorFields_RealClient
+// guards against handleDeclineInvitations/handleDeleteInvitations's
+// unprocessed-account entries fabricating "ErrorCode"/"ErrorMessage" keys.
+// DeclineInvitationsOutput/DeleteInvitationsOutput's UnprocessedAccounts is
+// []types.Result (securityhub@v1.75.4 types/types.go:18271), which declares
+// only AccountId and ProcessingResult -- a typed client silently discards the
+// unknown keys and never observes them as a zero value, so only the raw body
+// proves they were ever emitted.
+func TestDeclineDeleteInvitations_UnprocessedAccounts_NoInventedErrorFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("decline", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodPost, "/invitations/decline", map[string]any{
+			"AccountIds": []any{"999999999999"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		body := rec.Body.String()
+		assert.NotContains(t, body, `"ErrorCode"`, "types.Result has no ErrorCode member")
+		assert.NotContains(t, body, `"ErrorMessage"`, "types.Result has no ErrorMessage member")
+		assert.Contains(t, body, `"ProcessingResult"`)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodPost, "/invitations/delete", map[string]any{
+			"AccountIds": []any{"999999999999"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		body := rec.Body.String()
+		assert.NotContains(t, body, `"ErrorCode"`, "types.Result has no ErrorCode member")
+		assert.NotContains(t, body, `"ErrorMessage"`, "types.Result has no ErrorMessage member")
+		assert.Contains(t, body, `"ProcessingResult"`)
+	})
 }

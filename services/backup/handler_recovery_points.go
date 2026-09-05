@@ -29,11 +29,11 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 
 	q := c.Request().URL.Query()
 	f := ListRPFilter{
-		ResourceArn:            q.Get("byResourceArn"),
-		ResourceType:           q.Get("byResourceType"),
-		ParentRecoveryPointArn: q.Get("byParentRecoveryPointArn"),
-		CreatedAfter:           ParseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore:          ParseTimeFilter(q.Get("byCreatedBefore")),
+		ResourceArn:            q.Get("resourceArn"),
+		ResourceType:           q.Get("resourceType"),
+		ParentRecoveryPointArn: q.Get("parentRecoveryPointArn"),
+		CreatedAfter:           ParseTimeFilter(q.Get("createdAfter")),
+		CreatedBefore:          ParseTimeFilter(q.Get("createdBefore")),
 		NextToken:              q.Get("nextToken"),
 		MaxResults:             parseInt(q.Get("maxResults")),
 	}
@@ -245,10 +245,24 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 		rps := h.Backend.ListRecoveryPointsByResource(route.resource)
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
-			items = append(
-				items,
-				map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn, keyStatus: rp.Status},
-			)
+			// Real AWS wire shape is RecoveryPointByResource
+			// (backup@v1.59.4 deserializers.go): RecoveryPointArn,
+			// Status, BackupVaultName, CreationDate, BackupSizeBytes,
+			// EncryptionKeyArn are all real members this backend already
+			// tracks on RecoveryPoint but previously dropped here. There
+			// is no ResourceArn/ResourceType member on this type (the
+			// resource is implied by the request path).
+			item := map[string]any{
+				keyRecoveryPointArn: rp.RecoveryPointArn,
+				keyStatus:           rp.Status,
+				keyBackupVaultName:  rp.BackupVaultName,
+				keyCreationDate:     epochSeconds(rp.CreationDate),
+			}
+			if rp.BackupSizeInBytes > 0 {
+				item["BackupSizeBytes"] = rp.BackupSizeInBytes
+			}
+			setOptionalStr(item, "EncryptionKeyArn", rp.EncryptionKeyArn)
+			items = append(items, item)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
@@ -256,10 +270,24 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 		rps := h.Backend.ListIndexedRecoveryPoints()
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
-			items = append(
-				items,
-				map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn, keyStatus: rp.Status},
-			)
+			// Real AWS wire shape is IndexedRecoveryPoint (backup@v1.59.4
+			// deserializers.go), which has NO "Status" member at all --
+			// the prior implementation emitted rp.Status (a backup-job
+			// status like COMPLETED) under a key the real deserializer
+			// never reads, so a real client's IndexStatus was always
+			// nil regardless of this backend's own tracked index state
+			// (GetRecoveryPointIndexDetails/UpdateRecoveryPointIndexSettings).
+			indexStatus, _ := h.Backend.GetRecoveryPointIndexDetails(rp.BackupVaultName, rp.RecoveryPointArn)
+			item := map[string]any{
+				keyRecoveryPointArn:  rp.RecoveryPointArn,
+				keyBackupVaultArn:    rp.BackupVaultArn,
+				"IndexStatus":        indexStatus,
+				"BackupCreationDate": epochSeconds(rp.CreationDate),
+			}
+			setOptionalStr(item, keyIamRoleArn, rp.IAMRoleArn)
+			setOptionalStr(item, keyResourceType, rp.ResourceType)
+			setOptionalStr(item, "SourceResourceArn", rp.ResourceArn)
+			items = append(items, item)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"IndexedRecoveryPoints": items})

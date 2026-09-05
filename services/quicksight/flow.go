@@ -1,6 +1,7 @@
 package quicksight
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 // filterFlowAssetName is the SearchFlows filter attribute name for matching
 // on a flow's display name (the "assetName" filter per the QuickSight API).
 const filterFlowAssetName = "assetName"
+
+// filterFlowAssetDescription is the SearchFlows filter attribute name for
+// matching on a flow's description (types.FieldName's "assetDescription").
+const filterFlowAssetDescription = "assetDescription"
 
 // storedFlow is the persisted representation of a QuickSight flow.
 // CreateFlow was added to the QuickSight API after the prior parity pass
@@ -118,8 +123,10 @@ func (b *InMemoryBackend) CreateFlow(
 // DescribeFlow returns the FlowDetail-shaped view of a flow. Real AWS scopes
 // the response to a requested PublishState (DRAFT/PUBLISHED/
 // PENDING_APPROVAL); this backend stores a single definition (no draft/
-// published divergence), so publishState is accepted by the handler for
-// wire fidelity but doesn't change which data is returned.
+// published divergence), so publishState (required on the request, bound to
+// the "publish-state" query parameter) has nothing to select between and
+// isn't read at all -- confirmed the handler doesn't change which data is
+// returned for any value, not merely that it's unread.
 func (b *InMemoryBackend) DescribeFlow(accountID, flowID string) (*Flow, error) {
 	b.mu.RLock("DescribeFlow")
 	defer b.mu.RUnlock()
@@ -229,6 +236,28 @@ func (b *InMemoryBackend) ListFlows(
 	return result, next, nil
 }
 
+// flowMatchesFilters reports whether f satisfies every filter (AND
+// semantics, matching matchesAllNameFilters). types.FieldName documents
+// assetName and assetDescription as substring-searchable flow fields
+// alongside three ownership names; both are tracked on storedFlow, so both
+// are checked here rather than only assetName.
+func flowMatchesFilters(f *storedFlow, filters []SearchFilter) bool {
+	for _, filt := range filters {
+		switch filt.Name {
+		case filterFlowAssetName:
+			if !matchesStringOp(f.Name, filt.Operator, filt.Value, filterOperatorStringLike) {
+				return false
+			}
+		case filterFlowAssetDescription:
+			if !matchesStringOp(f.Description, filt.Operator, filt.Value, filterOperatorStringLike) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) SearchFlows(
 	_ string,
 	filters []SearchFilter,
@@ -240,7 +269,7 @@ func (b *InMemoryBackend) SearchFlows(
 
 	var filtered []*storedFlow
 	for _, f := range b.flows.All() {
-		if matchesAllNameFilters(f.Name, filters, filterFlowAssetName) {
+		if flowMatchesFilters(f, filters) {
 			filtered = append(filtered, f)
 		}
 	}
@@ -258,6 +287,7 @@ func paginateFlows(all []*storedFlow, maxResults int32, nextToken string) ([]*Fl
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, f := range all {
 			if f.FlowID == nextToken {
 				start = i
@@ -289,7 +319,11 @@ func (b *InMemoryBackend) GetFlowMetadata(accountID, flowID string) (*Flow, erro
 
 	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
-		return nil, ErrFlowNotFound
+		// GetFlowMetadata's own deserializer models InvalidParameterValueException,
+		// not ResourceNotFoundException, for an unresolvable FlowId -- unlike
+		// CreateFlow/DescribeFlow/UpdateFlow/DeleteFlow, which do model it
+		// (quicksight@v1.123.1 deserializers.go).
+		return nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	return f.toFlow(), nil
@@ -303,7 +337,9 @@ func (b *InMemoryBackend) GetFlowPermissions(accountID, flowID string) (*Flow, [
 
 	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
-		return nil, nil, ErrFlowNotFound
+		// GetFlowPermissions's own deserializer models InvalidParameterValueException,
+		// not ResourceNotFoundException, for an unresolvable FlowId.
+		return nil, nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	return f.toFlow(), clonePermissions(f.Permissions), nil
@@ -319,7 +355,10 @@ func (b *InMemoryBackend) UpdateFlowPermissions(
 	key := flowKey(accountID, flowID)
 	f, ok := b.flows.Get(key)
 	if !ok {
-		return nil, nil, ErrFlowNotFound
+		// UpdateFlowPermissions's own deserializer models
+		// InvalidParameterValueException, not ResourceNotFoundException, for an
+		// unresolvable FlowId.
+		return nil, nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	f.Permissions = applyGrantRevoke(f.Permissions, grant, revoke)

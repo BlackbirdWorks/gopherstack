@@ -27,11 +27,11 @@ func (b *InMemoryBackend) CreateDelivery(
 	tags map[string]string,
 ) (*Delivery, error) {
 	if deliverySourceName == "" {
-		return nil, fmt.Errorf("%w: deliverySourceName is required", ErrValidation)
+		return nil, fmt.Errorf("%w: deliverySourceName is required", ErrValidationException)
 	}
 
 	if deliveryDestinationArn == "" {
-		return nil, fmt.Errorf("%w: deliveryDestinationArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: deliveryDestinationArn is required", ErrValidationException)
 	}
 
 	id := uuid.New().String()
@@ -79,7 +79,13 @@ func (b *InMemoryBackend) DescribeDeliveries(
 		cp.Tags = maps.Clone(d.Tags)
 		all = append(all, cp)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTime != all[j].CreationTime {
+			return all[i].CreationTime < all[j].CreationTime
+		}
+
+		return all[i].ID < all[j].ID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -102,7 +108,7 @@ func (b *InMemoryBackend) DescribeDeliveries(
 // GetDelivery returns a single delivery by ID.
 func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
 	if id == "" {
-		return nil, fmt.Errorf("%w: id is required", ErrValidation)
+		return nil, fmt.Errorf("%w: id is required", ErrValidationException)
 	}
 
 	b.mu.RLock("GetDelivery")
@@ -121,7 +127,7 @@ func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
 // DeleteDelivery deletes a delivery by ID.
 func (b *InMemoryBackend) DeleteDelivery(id string) error {
 	if id == "" {
-		return fmt.Errorf("%w: id is required", ErrValidation)
+		return fmt.Errorf("%w: id is required", ErrValidationException)
 	}
 
 	b.mu.Lock("DeleteDelivery")
@@ -164,14 +170,14 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	tags map[string]string,
 ) (*DeliveryDestination, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: name is required", ErrValidationException)
 	}
 
 	if destinationType != "" {
 		if _, ok := validDeliveryDestinationTypes()[destinationType]; !ok {
 			return nil, fmt.Errorf(
 				"%w: invalid deliveryDestinationType %q, must be one of S3, CWL, FH, XRAY",
-				ErrValidation, destinationType,
+				ErrValidationException, destinationType,
 			)
 		}
 	}
@@ -237,8 +243,11 @@ func (b *InMemoryBackend) GetDeliveryDestination(name string) (*DeliveryDestinat
 	return &cp, nil
 }
 
-// DescribeDeliveryDestinations returns all delivery destinations sorted by name.
-func (b *InMemoryBackend) DescribeDeliveryDestinations() []DeliveryDestination {
+// DescribeDeliveryDestinations returns delivery destinations with Limit/NextToken
+// pagination (real DescribeDeliveryDestinationsInput members, api_op_DescribeDeliveryDestinations.go
+// -- no documented default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeDeliveryDestinations(nextToken string, limit int) ([]DeliveryDestination, string) {
 	b.mu.RLock("DescribeDeliveryDestinations")
 	defer b.mu.RUnlock()
 
@@ -249,7 +258,9 @@ func (b *InMemoryBackend) DescribeDeliveryDestinations() []DeliveryDestination {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteDeliveryDestination removes a delivery destination by name.
@@ -335,7 +346,7 @@ func (b *InMemoryBackend) PutDeliverySource(
 	tags map[string]string,
 ) (*DeliverySource, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: name is required", ErrValidationException)
 	}
 
 	var service string
@@ -390,8 +401,11 @@ func (b *InMemoryBackend) GetDeliverySource(name string) (*DeliverySource, error
 	return &cp, nil
 }
 
-// DescribeDeliverySources returns all delivery sources sorted by name.
-func (b *InMemoryBackend) DescribeDeliverySources() []DeliverySource {
+// DescribeDeliverySources returns delivery sources with Limit/NextToken
+// pagination (real DescribeDeliverySourcesInput members, api_op_DescribeDeliverySources.go
+// -- no documented default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeDeliverySources(nextToken string, limit int) ([]DeliverySource, string) {
 	b.mu.RLock("DescribeDeliverySources")
 	defer b.mu.RUnlock()
 
@@ -402,7 +416,9 @@ func (b *InMemoryBackend) DescribeDeliverySources() []DeliverySource {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteDeliverySource removes a delivery source by name.

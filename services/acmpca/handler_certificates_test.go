@@ -534,7 +534,7 @@ func TestACMPCAHandler_IssueCertificateBase64Csr(t *testing.T) {
 		})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		resp := parseACMPCAResponse(t, rec)
-		assert.Equal(t, "InvalidParameterException", resp["__type"])
+		assert.Equal(t, "MalformedCSRException", resp["__type"])
 	})
 
 	t.Run("accepts base64-encoded Csr", func(t *testing.T) {

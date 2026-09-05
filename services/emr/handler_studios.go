@@ -208,9 +208,11 @@ func (h *Handler) handleGetStudioSessionMapping(
 type listStudioSessionMappingsInput struct {
 	StudioID     string `json:"StudioId"`
 	IdentityType string `json:"IdentityType"`
+	Marker       string `json:"Marker"`
 }
 
 type listStudioSessionMappingsOutput struct {
+	Marker          string                 `json:"Marker,omitempty"`
 	SessionMappings []StudioSessionMapping `json:"SessionMappings"`
 }
 
@@ -218,9 +220,9 @@ func (h *Handler) handleListStudioSessionMappings(
 	ctx context.Context,
 	in *listStudioSessionMappingsInput,
 ) (*listStudioSessionMappingsOutput, error) {
-	mappings := h.Backend.ListStudioSessionMappings(ctx, in.StudioID, in.IdentityType)
+	mappings, nextMarker := h.Backend.ListStudioSessionMappings(ctx, in.StudioID, in.IdentityType, in.Marker)
 
-	return &listStudioSessionMappingsOutput{SessionMappings: mappings}, nil
+	return &listStudioSessionMappingsOutput{SessionMappings: mappings, Marker: nextMarker}, nil
 }
 
 // --- UpdateStudioSessionMapping ---

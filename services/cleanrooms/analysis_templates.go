@@ -27,6 +27,7 @@ func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
 		MembershipIdentifier:       t.MembershipIdentifier,
 		MembershipArn:              t.MembershipArn,
 		Name:                       t.Name,
+		Description:                t.Description,
 		CreateTime:                 t.CreateTime,
 		UpdateTime:                 t.UpdateTime,
 		ID:                         t.ID,

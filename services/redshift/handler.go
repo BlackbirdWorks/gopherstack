@@ -606,8 +606,8 @@ func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	tagKey := vals.Get("TagKey")
-	tagValue := vals.Get("TagValue")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 	marker := vals.Get("Marker")
 
 	maxRecords := 0
@@ -617,27 +617,20 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 		}
 	}
 
-	clusters, nextMarker, err := h.Backend.DescribeClusters(id, marker, maxRecords)
+	clusters, nextMarker, err := h.Backend.DescribeClusters(id, marker, maxRecords, tagKeys, tagValues)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch the live tag map once (not once per cluster -- see toXMLClusterWithTags)
-	// and reuse it both for the optional tag filter and for embedding each
-	// cluster's Tags in its response. cloneCluster sets Tags=nil so we cannot
-	// read tags from the cloned value.
+	// Fetch the live tag map once (not once per cluster) to embed each
+	// cluster's Tags in its response -- cloneCluster sets Tags=nil so we
+	// cannot read tags from the cloned value.
 	allTags := h.Backend.DescribeTags()
 
 	members := make([]xmlCluster, 0, len(clusters))
 
 	for _, c := range clusters {
 		cp := c
-		if tagKey != "" || tagValue != "" {
-			if !clusterMatchesTagFilter(allTags[c.ClusterIdentifier], tagKey, tagValue) {
-				continue
-			}
-		}
-
 		members = append(members, toXMLClusterWithTags(&cp, allTags[c.ClusterIdentifier]))
 	}
 
@@ -646,20 +639,6 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 		Clusters: xmlClusterList{Members: members},
 		Marker:   nextMarker,
 	}, nil
-}
-
-// clusterMatchesTagFilter returns true when the cluster tags satisfy both the key and value filter.
-// An empty filter string is treated as "match any".
-func clusterMatchesTagFilter(tags map[string]string, tagKey, tagValue string) bool {
-	for k, v := range tags {
-		keyMatch := tagKey == "" || k == tagKey
-		valMatch := tagValue == "" || v == tagValue
-		if keyMatch && valMatch {
-			return true
-		}
-	}
-
-	return false
 }
 
 // validateMasterUserPassword enforces AWS CreateCluster password rules.

@@ -114,12 +114,14 @@ type storedConnAlias struct {
 // ---------------------------------------------------------------------------
 
 type storedCustomBundle struct {
-	Tags        map[string]string `json:"tags"`
-	BundleID    string            `json:"bundleId"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	ImageID     string            `json:"imageId"`
-	ComputeType string            `json:"computeType"`
+	Tags           map[string]string `json:"tags"`
+	BundleID       string            `json:"bundleId"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	ImageID        string            `json:"imageId"`
+	ComputeType    string            `json:"computeType"`
+	UserStorageGiB int32             `json:"userStorageGiB"`
+	RootStorageGiB int32             `json:"rootStorageGiB"`
 }
 
 // ---------------------------------------------------------------------------

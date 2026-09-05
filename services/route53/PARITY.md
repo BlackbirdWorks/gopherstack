@@ -24,7 +24,7 @@ ops:
   CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone; fixed this pass: DelegationSetId was parsed off the wire and then silently dropped — every zone got the same hardcoded default name servers regardless of what was requested. Now accepts a reusable delegation set (bare or /delegationset/-prefixed ID), validates it exists (NoSuchDelegationSet), and both the CreateHostedZone/GetHostedZone DelegationSet response element and the zone's auto-seeded NS/SOA records use the linked set's real name servers"}
   DeleteHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "DelegationSet response element now reflects the zone's actual linked reusable delegation set (Id + NameServers) instead of always the fixed default pair — see CreateHostedZone"}
-  ListHostedZones: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — Marker, a required output member (api_op_ListHostedZones.go: 'the value that you specified for the marker parameter in the request that produced the current response'), was never echoed back; the response struct only carried the optional NextMarker (next-page cursor). Prior wire: ok was false — see 2026-08-14 pass"}
+  ListHostedZones: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — Marker, a required output member (api_op_ListHostedZones.go: 'the value that you specified for the marker parameter in the request that produced the current response'), was never echoed back; the response struct only carried the optional NextMarker (next-page cursor). Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-29 list-filter-params pass) — DelegationSetId and HostedZoneType, both real query-bound filters (api_op_ListHostedZones.go), were never read by the handler at all; every call returned every zone regardless. Now filters by the zone's stored DelegationSetID/PrivateZone. FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — pagination was not reproducible across calls: source is b.zones.All() (store.Table map walk, unspecified order) and the result was sorted only by Name, which real Route53 allows to repeat across distinct hosted zones (distinct CallerReference, same domain name -- CreateHostedZone/matchExistingHostedZone only reject a CallerReference collision, never a bare name collision). Paging in small windows dropped or duplicated a same-named zone at the page boundary between two otherwise-identical calls. Fixed by tiebreaking on ID (the zone's own store.Table key) after Name, matching ListHostedZonesByName's existing Name-then-ID order. See TestListHostedZones_PaginationStableAcrossDuplicateNames (list_hosted_zones_pagination_test.go), hand-reverted to confirm it fails against the unfixed sort, then restored."}
   ListHostedZonesByName: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHostedZoneComment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZoneCount: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -53,25 +53,25 @@ ops:
   AssociateVPCWithHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: re-associating a VPC already associated with the same zone now returns success (idempotent no-op) instead of a fabricated InvalidInput error. AWS's documented error list has no duplicate-association error, and the one association-conflict error it does document (ConflictingDomainExists) is explicitly scoped to a *different* hosted zone with the same name, ruling it out for this case — confirmed against the AssociateVPCWithHostedZone API reference's Errors section"}
   DisassociateVPCFromHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: VPC not associated now returns VPCAssociationNotFound (404) instead of generic InvalidInput; LastVPCAssociation guard already correct"}
   ListVPCAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHostedZonesByVPC: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — MaxItems, a required output member (api_op_ListHostedZonesByVPC.go:36-40), was absent from the response struct entirely (not merely unset); the SDK always decoded a nil *int32. Handler now parses the optional maxitems query param (default 100, maxHZByVPC) and echoes it. Prior wire: ok was false — see 2026-08-14 pass"}
+  ListHostedZonesByVPC: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — MaxItems, a required output member (api_op_ListHostedZonesByVPC.go:36-40), was absent from the response struct entirely (not merely unset); the SDK always decoded a nil *int32. Handler now parses the optional maxitems query param (default 100, maxHZByVPC) and echoes it. Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-29 list-filter-params pass) — MaxItems was parsed and echoed in the response but never actually applied: the backend call dropped it entirely, so the constraint was decorative only. Now truncates the result to maxItems. FIXED (2026-08-29 wrapper-key-sweep pass, corrects the two entries above's state: ok) — truncation had no cursor at all: the response carried no NextToken and no IsTruncated, so anything past the first page was silently and permanently unreachable, with no way for a client to even detect truncation. api_op_ListHostedZonesByVPC.go confirms the real continuation field is NextToken on both Input and Output (not NextMarker, unlike ListHostedZones/ListHealthChecks/ListReusableDelegationSets), wire element also \"NextToken\" (deserializers.go). Backend now returns pkgs/page.Page[HostedZone] (index-cursor, same shape ListHostedZones/ListHealthChecks already use) instead of a bare truncated slice; handler reads/echoes nexttoken and emits NextToken when truncated. See TestListHostedZonesByVPC_Pagination (creates more items than one page, follows the cursor, asserts the remainder arrives exactly once). FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — same not-reproducible-across-calls bug as ListHostedZones above, on b.vpcAssociations (a plain map keyed by zone ID, unspecified walk order) sorted only by Name: two private zones associated with the same VPC can share a Name (CreateHostedZone allows duplicate names; AssociateVPCWithHostedZone has no name-collision check), so a tied pair could drop or duplicate at a page boundary between calls. Fixed identically: tiebreak on ID after Name. See TestListHostedZonesByVPC_PaginationStableAcrossDuplicateNames (list_hosted_zones_by_vpc_pagination2_test.go), hand-reverted to confirm it fails against the unfixed sort, then restored."}
   CreateVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListVPCAssociationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVPCAssociationAuthorizations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — MaxResults/NextToken (api_op_ListVPCAssociationAuthorizations.go, no IsTruncated member) were parsed nowhere; every call returned every authorization. Now truncates via pkgs/page.New (b.vpcAssocAuthorizations[zoneID] is an append-only slice, already call-stable, no sort/tiebreak needed) and echoes NextToken. Default MaxResults is 50 per the SDK doc comment (new vpcAssocAuthDefaultMaxResults, distinct from this service's usual 100). See TestListVPCAssociationAuthorizations_Pagination."}
   CountAssociatedVPCs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: duplicate collection name now returns CidrCollectionAlreadyExistsException (400) instead of allowing an unbounded number of same-named collections"}
   ChangeCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: added the optional CollectionVersion request field; when supplied it is checked against the collection's current Version and a mismatch returns CidrCollectionVersionMismatchException (409)"}
   DeleteCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: real AWS requires a CIDR collection to be empty (no locations/CIDR blocks) before it can be deleted; gopherstack previously deleted non-empty collections unconditionally. Now returns CidrCollectionInUseException (400) when Locations is non-empty"}
-  ListCidrCollections: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCidrLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "code fix: NoSuchCidrCollection -> NoSuchCidrCollectionException (real AWS shape name has the Exception suffix, confirmed against aws-sdk-go-v2 types/errors.go — unlike every other Route53 NoSuch* error)"}
-  ListCidrBlocks: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCidrCollections: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — MaxResults/NextToken (api_op_ListCidrCollections.go, no IsTruncated member) were never applied; the response always returned every collection and the existing (unset) NextToken struct field, plus a fabricated IsTruncated field the real op doesn't have, were both dead weight. Now paginates via pkgs/page.New (sorted by ID, unique, so the b.cidrCollections.All() map walk admits no tie) and the fabricated IsTruncated field was removed rather than wired to a value with no wire meaning."}
+  ListCidrLocations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "code fix: NoSuchCidrCollection -> NoSuchCidrCollectionException (real AWS shape name has the Exception suffix, confirmed against aws-sdk-go-v2 types/errors.go — unlike every other Route53 NoSuch* error). FIXED (2026-08-30 gopherstack-kwzs) — MaxResults/NextToken (api_op_ListCidrLocations.go, no IsTruncated member) never applied; same fabricated-IsTruncated-field removal and pkgs/page.New pagination as ListCidrCollections. collections.SortedKeys(col.Locations) was already deterministic, no tiebreak needed."}
+  ListCidrBlocks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — MaxResults/NextToken (api_op_ListCidrBlocks.go, no IsTruncated member) never applied; same fabricated-IsTruncated-field removal and pkgs/page.New pagination as ListCidrCollections. col.Locations[locationName] is an append-only slice, already call-stable across calls, no tiebreak needed."}
   CreateQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: QueryLoggingConfigAlreadyExists 400 -> 409"}
   GetQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListQueryLoggingConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListQueryLoggingConfigs: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTION (2026-08-29 wrapper-key-sweep pass): a prior note claimed this op already honoured every declared filter/marker; false — MaxResults/NextToken (api_op_ListQueryLoggingConfigs.go) are never read, response always returns every matching config with no IsTruncated/NextToken. Not fixed this pass (out of the two-service scope); see deferred list."}
   CreateReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix (prior pass): NoSuchDelegationSet 404 -> 400. Fixed this pass: the HostedZoneId param (real AWS's 'mark an existing hosted zone's delegation set as reusable' mode, confirmed against the CreateReusableDelegationSet API reference) was parsed off the wire and silently discarded. Now validates the zone exists (HostedZoneNotFound, 400 — a distinct wire code from NoSuchHostedZone, confirmed against the same reference), rejects private zones (a reusable delegation set can't be associated with a private hosted zone, per the operation's own doc text), rejects a zone whose delegation set was already extracted this way (DelegationSetAlreadyReusable, 400), and returns a new reusable set carrying the zone's real name servers (tracked via a backend-internal, non-wire HostedZone.DelegationSetSourceUsed bookkeeping field, confirmed to survive Snapshot/Restore). Also fixed a second, previously-untracked bug found while auditing this op: reusing a CallerReference across two CreateReusableDelegationSet calls silently created two unrelated delegation sets instead of erroring — now returns DelegationSetAlreadyCreated (400, confirmed against the same API reference), matching real AWS's non-idempotent CallerReference-reuse behavior for this specific operation (unlike CreateHostedZone/CreateHealthCheck's idempotent-retry semantics)"}
   GetReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: now returns DelegationSetInUse (400) if any hosted zone is still linked to the set, instead of deleting it out from under live zones"}
-  ListReusableDelegationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListHealthChecks; handler didn't even read the marker query param. Prior wire: ok was false — see 2026-08-14 pass"}
+  ListReusableDelegationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListHealthChecks; handler didn't even read the marker query param. Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-30 gopherstack-kwzs) — Marker was echoed but never actually applied, and MaxItems was hardcoded to the literal string \"100\": every call returned every reusable delegation set regardless of MaxItems, and NextMarker/IsTruncated never appeared at all. Now paginates via pkgs/page.New (sorted by ID, unique, so the b.reusableDelegationSets.All() map walk admits no tie). See TestListReusableDelegationSets_Pagination."}
   CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: previously always returned 0 (hosted zones were never linked to delegation sets at all); now counts real linked zones"}
   TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: classifyRouting never recognised GeoProximityLocation or CidrRoutingConfig at all (only Weight/Region/GeoLocation/Failover/MultiValueAnswer), so geoproximity- and CIDR-routed record sets silently fell through to routingSimple and TestDNSAnswer answered from whichever candidate sorted first by SetIdentifier instead of running real proximity/CIDR selection — a genuine wrong-answer bug, not just an unverified-but-correct algorithm. Implemented selectGeoProximity (great-circle distance from awsRegionCoords/parsed lat-lon, scaled by (1 - Bias/100) per AWS's documented bias direction — exact geometry is AWS-undocumented, so this is a faithful approximation, not a re-derivation of a public spec) and selectCIDR (longest-prefix-match against the CIDR collection's location blocks, reserved \"*\" location as the catch-all default, matching AWS's documented CIDR-routing specificity rule). Weighted/latency/failover/geolocation/multivalue selection re-read against AWS's routing-policy documentation this pass and found already correct; not fully re-derived against non-public AWS source, see deferred"}
   CreateTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: TrafficPolicyAlreadyExists 400 -> 409"}
@@ -83,11 +83,11 @@ ops:
   GetTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response dropped TrafficPolicyIdMarker, a required member on ListTrafficPoliciesOutput (deserializers.go's ListTrafficPoliciesOutput switch) that AWS always serializes, not just when truncated. This backend is single-page (IsTruncated always false), so the marker is emitted as an always-present empty string rather than a fabricated next-page ID. Prior wire: ok was false"}
-  ListTrafficPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — same TrafficPolicyVersionMarker gap and fix as ListTrafficPolicies' TrafficPolicyIdMarker above. Prior wire: ok was false"}
-  ListTrafficPolicyInstances: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicyInstancesByHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicyInstancesByPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTrafficPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response dropped TrafficPolicyIdMarker, a required member on ListTrafficPoliciesOutput (deserializers.go's ListTrafficPoliciesOutput switch) that AWS always serializes, not just when truncated. This backend is single-page (IsTruncated always false), so the marker is emitted as an always-present empty string rather than a fabricated next-page ID. Prior wire: ok was false. FIXED (2026-08-30 gopherstack-kwzs) — this service is no longer single-page: MaxItems was hardcoded \"100\" and the marker was never applied. Query key is \"trafficpolicyid\" (serializers.go's awsRestxml_serializeOpHttpBindingsListTrafficPoliciesInput), NOT \"trafficpolicyidmarker\" as the field name would suggest -- verified from the pinned SDK rather than inferred. Paginates via pkgs/page.New, sorted by ID (unique, no tie). See TestListTrafficPolicies_Pagination."}
+  ListTrafficPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — same TrafficPolicyVersionMarker gap and fix as ListTrafficPolicies' TrafficPolicyIdMarker above. Prior wire: ok was false. FIXED (2026-08-30 gopherstack-kwzs) — same never-truncates bug as ListTrafficPolicies. Query key is \"trafficpolicyversion\", not \"trafficpolicyversionmarker\". b.trafficPolicies[id] is an append-only slice in ascending version order, already call-stable, no tiebreak needed. See TestListTrafficPolicyVersions_Pagination."}
+  ListTrafficPolicyInstances: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — MaxItems hardcoded \"100\", HostedZoneIdMarker/TrafficPolicyInstanceNameMarker/TrafficPolicyInstanceTypeMarker entirely absent from the response struct, marker never applied. api_op_ListTrafficPolicyInstances.go's three marker fields collapse to a single opaque pkgs/page.New token carried in HostedZoneIdMarker (query key \"hostedzoneid\"); the other two marker fields are decorative, matching the simplification ListHostedZonesByVPC already makes over AWS's real per-field marker semantics. Sorted by ID (unique), no tie. See TestListTrafficPolicyInstances_Pagination."}
+  ListTrafficPolicyInstancesByHostedZone: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — two bugs, one more severe than the filed pagination issue: (1) the HostedZoneId FILTER itself was read from query key \"hostedzoneid\", but serializers.go's awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesByHostedZoneInput binds it to \"id\" -- a real aws-sdk-go-v2 client's filter was silently ignored and this op always returned nothing to a real caller (the pre-existing test that appeared to cover this used the same wrong \"hostedzoneid\" key the handler read, so test and bug agreed -- corrected to \"id\", not weakened). (2) MaxItems hardcoded \"100\", markers never applied. This op has no HostedZoneIdMarker (redundant with the now-fixed HostedZoneId filter), so TrafficPolicyInstanceNameMarker carries the pkgs/page.New opaque token instead. See TestListTrafficPolicyInstancesByHostedZone_Pagination."}
+  ListTrafficPolicyInstancesByPolicy: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-30 gopherstack-kwzs) — same class of bug as ListTrafficPolicyInstancesByHostedZone, more severe than the filed pagination issue: TrafficPolicyId/TrafficPolicyVersion (the FILTER, not the pagination marker) were read from query keys \"trafficpolicyid\"/\"trafficpolicyversion\", but serializers.go's awsRestxml_serializeOpHttpBindingsListTrafficPolicyInstancesByPolicyInput binds them to \"id\"/\"version\" -- a real client's filter was always empty/zero and this op always returned nothing. \"hostedzoneid\" is genuinely HostedZoneIdMarker here (distinct from the filter, unlike ByHostedZone which has none), now the pkgs/page.New opaque cursor. MaxItems hardcoded \"100\" and markers never applied, also fixed. See TestListTrafficPolicyInstancesByPolicy_Pagination."}
 families:
   record_types: {status: ok, note: "A/AAAA/CNAME/MX/TXT/SPF/NS/SOA/PTR/SRV/CAA/DS/NAPTR value-format validators verified against RFC-shaped regexes; HTTPS/SVCB/SSHFP/TLSA intentionally accept any value (no AWS-documented format constraint enforced by the real service either)"}
   routing_policies: {status: ok, note: "Weighted(SetIdentifier+Weight 0-255)/Latency(Region)/Failover(PRIMARY|SECONDARY)/Geolocation/Multivalue/Geoproximity(exactly one of AWSRegion|Coordinates|LocalZoneGroup, Bias -99..99, lat/lon range-checked)/CIDR routing all validated for mutual exclusion and SetIdentifier requirement per AWS rules at ChangeResourceRecordSets time. fixed this pass: TestDNSAnswer's selection algorithm (classifyRouting/selectAnswer) never actually ran geoproximity or CIDR selection at all despite validating those fields — see TestDNSAnswer note in ops table. Weighted/latency/geo/failover/multivalue selection re-checked against AWS's public routing-policy docs and found correct (all-zero weights split equally, exact-region-match short-circuits latency, PRIMARY-healthy-else-SECONDARY failover, most-specific geolocation match, up-to-8-record multivalue cap)"}
@@ -96,10 +96,71 @@ families:
 gaps: []  # both tracked gaps (gopherstack-8l0.5, gopherstack-8l0.3) closed this pass, see ops table
 deferred:
   - selectWeighted/selectLatency/selectGeo/selectFailover/multiValueAnswer were re-checked against AWS's *public* routing-policy documentation this pass (see routing_policies family note) and found correct, but not re-derived against AWS's non-public source — Route 53's exact selection algorithm (esp. latency-routing tie-breaks and geoproximity's precise bias geometry) is not fully published, so "matches documented behavior" is the strongest verification achievable without live-AWS access
+  - "2026-08-29 list-filter-params pass: pagination is hardcoded/never-truncating on 6 list ops — ListReusableDelegationSets (Marker/MaxItems never read, backend takes none), ListGeoLocations (Start*Code + MaxItems never read; static 15-row table so low real-world impact), ListCidrCollections/ListCidrBlocks/ListCidrLocations (MaxResults/NextToken never read, always IsTruncated=false), and the ListTrafficPolic{y,yInstance}* family — ListTrafficPolicies, ListTrafficPolicyVersions, ListTrafficPolicyInstances(ByHostedZone|ByPolicy) — which all hardcode MaxItems:\"100\" in the response and never truncate or apply their Marker params. Recorded as deferred rather than fixed, matching the cloudfront pass's precedent: real filter/parameter bugs (ListHostedZones) took priority over a page-size sweep across 6 ops, which is a larger piece of work than this pass. ListVPCAssociationAuthorizations similarly ignores MaxResults/NextToken but VPC-per-zone authorization counts are AWS-limited to a handful, so impact is low. **ALL SIX FIXED 2026-08-30 (gopherstack-kwzs), plus ListVPCAssociationAuthorizations** — see each op's own row above for its real marker field name(s) and test. ListGeoLocations (still not its own ops: row; it's a static compile-time table, not backend-owned data) now does threshold search on the exact (ContinentCode, CountryCode, SubdivisionCode) triple to resume — equality matching is safe here specifically because the table is immutable at runtime, unlike the equality-with-zero-default bug class this campaign otherwise warns about; see seekGeoLocationStart's doc comment (handler_record_sets.go) and TestListGeoLocations_Pagination. Two of the six (ListTrafficPolicyInstancesByHostedZone, ListTrafficPolicyInstancesByPolicy) turned out to have a second, more severe, independent bug on top of the filed pagination gap: each read its primary FILTER parameter (not the marker) from the wrong query key entirely, so a real client's filter was always silently ignored and the op always returned nothing — see each row's own note for the exact wrong-vs-real key."
+  - "2026-08-29 wrapper-key-sweep pass: ListQueryLoggingConfigs was missed by the list-filter-params pass above and its ops-table row wrongly recorded as already honouring every filter (corrected in that op's row and the note two entries above). MaxResults/NextToken are never read; the account-wide case (no hostedzoneid filter) returns every config with no IsTruncated/NextToken, unbounded by the number of hosted zones in the account. Not fixed this pass (out of the cloudfront/route53 two-service scope) — same never-truncating-pagination shape as the 6 ops above, so grouped with them rather than fixed in isolation."
 leaks: {status: clean, note: "no goroutines, tickers, or background timers anywhere in services/route53 (grep for 'go func|time.After|time.Sleep|Ticker' returns nothing) — all ops are synchronous request/response; Reset()/DeleteHostedZone/DeleteHealthCheck correctly cascade-delete tags/KSKs/VPC-assocs/query-logging-configs so no orphaned map entries accumulate under normal use. b.tags itself was NOT wired into Snapshot/Restore before a prior pass (fixed then) — that was a persistence gap, not a leak, since Reset() already covered it. This pass's new HostedZone.DelegationSetSourceUsed field is backend-internal (not a new map/table) and rides along with the existing zoneDataSnapshot embedding of HostedZone, confirmed to survive Snapshot/Restore by TestSnapshotRestore_DelegationSetSourceUsed — no new lock paths, no new leak surface."}
 ---
 
 ## Notes
+
+### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
+
+Measured all 21 collection-returning operations (verified by SDK output shape, not
+verb: the 17 `List*` ops, plus `ListTagsForResources`, `GetHealthCheckStatus`, and
+`GetCheckerIpRanges`, which return arrays despite `Get*` names) and every constraining
+parameter each declares in its own `api_op_<Op>.go` Input struct. Found and fixed 2
+real bugs on `ListHostedZones`/`ListHostedZonesByVPC` (see ops table). `ListHealthChecks`,
+`ListHostedZonesByName`, `ListResourceRecordSets`, and `ListTagsForResources` were
+re-verified and already honour every declared filter/marker correctly. **Correction
+(2026-08-29 wrapper-key-sweep pass): the claim above that `ListQueryLoggingConfigs`
+"already honours every declared filter/marker" was wrong.** Its real Input
+(`api_op_ListQueryLoggingConfigs.go`) declares `MaxResults` and `NextToken`; the
+handler (`handler_query_logging.go`) only reads `hostedzoneid` and returns every
+matching config unpaginated, with no `IsTruncated`/`NextToken` in the response at
+all — the account-wide (no `hostedzoneid` filter) case can grow with the number of
+hosted zones. Not fixed this pass (out of the two-service budget); added to the
+never-truncating-pagination list below rather than left mis-recorded as correct.
+6 further list ops have never-truncating pagination — see `deferred` above,
+same shape as cloudfront's prior-pass finding, not fixed here by the same "larger piece
+of work" reasoning. No parameter-parsed-then-discarded-to-`_` cases and no handler that
+skips reading its request body were found in this service this pass.
+
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 71 `awsRestxml_deserializeOpError<Op>` switches from route53@v1.65.6's
+deserializers.go and cross-referenced every backend/handler call site raising a sentinel
+error (or a literal wire code) against its own op's modeled set. `backendErrorTable`
+(handler.go) — the shared sentinel-to-wire-code table every op funnels through via
+`handleBackendError` — was correct and 1:1 with errors.go's sentinels (unlike quicksight,
+which collapses by category; unlike this table, which maps every sentinel to its own distinct
+code, matching real AWS's fine-grained Route 53 error set). No sentinel-reuse or wrong-code
+bugs found across the 62 ops resolvable by direct backend-method-name call-graph tracing
+(op name == `StorageBackend` interface method name here, confirmed via interfaces.go).
+
+**Real bug found and fixed**: `UpdateHostedZoneFeatures` never validated `HostedZoneId` at
+all — `updateHostedZoneFeatures` (handler_hosted_zones.go) discarded its `path` argument
+(`func (h *Handler) updateHostedZoneFeatures(c *echo.Context, _ string) error`) and
+unconditionally returned success. Its own deserializer models `NoSuchHostedZone` for exactly
+this case (alongside `InvalidInput`/`LimitsExceeded`/`PriorRequestNotComplete`) — a
+missing-error bug (returning success where AWS raises), not a wrong-code one. Fixed by parsing
+the zone ID from the path (same `TrimPrefix`/`TrimSuffix` pattern as the sibling
+`disassociateVPCFromHostedZone`) and validating existence via the already-available
+`GetHostedZone` backend method before returning success. Covered by
+`error_path_sweep_test.go` (real `aws-sdk-go-v2/service/route53` client, `errors.As` against
+`types.NoSuchHostedZone`). Persisting the `EnableAcceleratedRecovery` flag itself is a separate,
+larger feature gap (the `StorageBackend` interface has no such field/method) and was left
+out of scope for this error-path-only pass.
+
+**Method note**: 9 of the 71 ops (`GetAccountLimit`, `GetCheckerIpRanges`, `GetGeoLocation`,
+`GetHealthCheckLastFailureReason`, `GetHostedZoneLimit`, `GetReusableDelegationSetLimit`,
+`GetTrafficPolicyInstanceCount`, `ListGeoLocations`, `UpdateHostedZoneFeatures`) have no
+backend method of the same name — they're implemented as handler-layer functions instead
+(`getHostedZoneLimit`, `getGeoLocation`, etc., in handler_*.go), so a naive op-name-to-method
+call-graph trace misses them entirely and silently under-reports. Re-traced each by its actual
+handler function name. `GetGeoLocation` raises `NoSuchGeoLocation` via a direct `xmlError(...)`
+call rather than a named sentinel (correct — the code was simply invisible to sentinel-based
+tracing, not missing). `GetCheckerIpRanges`/`GetTrafficPolicyInstanceCount`/`GetAccountLimit`
+model no core error code at all and correctly raise none.
 
 **Protocol**: REST-XML (path/verb routing, XML request+response bodies), matching
 `aws-sdk-go-v2/service/route53`'s `awsRestxml_*` (de)serializers. Namespace
@@ -461,3 +522,135 @@ Gates: `go build`, `go vet`, `go test -race`, `go fix -diff` (no diff),
 `golangci-lint run` (0 findings, after decomposing 3 new `cyclop` violations
 and adding op-name constants for 6 new `goconst` violations the extended
 `ExtractOperation` introduced) all clean.
+
+## 2026-08-31 pass (gopherstack-21my): first per-item sweep
+
+route53 had never had a per-item field-name sweep under this issue. Confirmed
+`awsRestxml_` (REST-XML, `strings.EqualFold` element matching, same latent
+case-only-mismatch class as query/XML) from route53@v1.65.6's own
+`deserializers.go` before starting. Byte-for-byte case check against the
+pinned SDK for every list op below, plus the no-`*Unwrapped`-call-site check
+repo-wide against route53@v1.65.6: **zero hits**, so every route53 list is
+correctly member-wrapped, not flattened.
+
+**BUG (fixed): `ListHostedZonesByName`'s own ad-hoc `HostedZone` item builder
+(`handler_hosted_zones.go`'s `listHostedZonesByName`) dropped
+`Config.PrivateZone` and `ResourceRecordSetCount` entirely** -- both are real
+`types.HostedZone`/`types.HostedZoneConfig` members
+(`awsRestxml_deserializeDocumentHostedZone` /
+`...HostedZoneConfig`), and both are backed by state this backend already
+tracks correctly: `GetHostedZone` and the plain `ListHostedZones` both build
+the item through a single shared `toXMLHostedZone` helper that sets both
+fields from the zone record, but `listHostedZonesByName` built its own
+literal instead of calling it, setting only `ID`/`Name`/`CallerReference`/
+`Config.Comment`. Every hosted zone returned by `ListHostedZonesByName` had
+the right count, `PrivateZone` always `false` and `ResourceRecordSetCount`
+always `0` regardless of the zone's real state -- the sibling-disagreement
+shape this issue's queue prioritized, on a route53 op that had never been
+checked at either layer before. Fixed by replacing the ad-hoc literal with
+`toXMLHostedZone(&zones[i])`, the same builder the other two ops use. Test:
+`TestListHostedZonesByName_ItemShape_RealClient`
+(`wire_field_fixes_r53sweep1_test.go`), creates a private hosted zone with a
+comment via the real client, adds one record, and asserts
+`Config.PrivateZone`, `Config.Comment` and `ResourceRecordSetCount` all
+round-trip through `ListHostedZonesByName`. Verified failing pre-fix by
+hand-revert (`PrivateZone` false, `ResourceRecordSetCount` 0).
+
+**RE-VERIFIED CLEAN, byte-for-byte case included:**
+- `ListHealthChecks` -- shares `xmlHealthCheck`/`xmlHealthCheckConfig` with
+  `GetHealthCheck`/`CreateHealthCheck` (one struct, three call sites), all
+  emitted `HealthCheckConfig` members (18 of 18) and `HealthCheck`'s own
+  `Id`/`CallerReference`/`HealthCheckConfig`/`HealthCheckVersion` correctly
+  named, including the flattened-list checks (`Regions>Region`,
+  `ChildHealthChecks>ChildHealthCheck`) against the real deserializer's exact
+  member-element names. `CloudWatchAlarmConfiguration` and `LinkedService`
+  (both real top-level `HealthCheck` members) are genuine no-backing-state
+  gaps -- absent from the domain model entirely -- shared identically by
+  `Get` and `List`, so no sibling disagreement is possible here.
+- `ListResourceRecordSets` -- `xmlResourceRecordSet` carries 14 of 15 real
+  `ResourceRecordSet` members correctly, including the fully-nested
+  `AliasTarget`, `CidrRoutingConfig`, `GeoProximityLocation.Coordinates`, and
+  `ResourceRecords>ResourceRecord`. `TrafficPolicyInstanceId` is a genuine
+  gap: nothing in this backend tags a record set with the traffic-policy
+  instance that created it. The reused `xmlGeoLocation` type carries three
+  extra fields (`ContinentName`/`CountryName`/`SubdivisionName`) that don't
+  exist on the real per-record `GeoLocation` type -- harmless, since a real
+  client's decoder silently skips unrecognized elements, and those fields
+  are exactly the ones the *different* real type `GeoLocationDetails`
+  (`ListGeoLocations`'s own item, verified separately below) legitimately
+  needs; the type is deliberately shared, not a mismatch.
+- `ListGeoLocations` -- `xmlGeoLocation` (the same struct, used here for its
+  full six-field form) matches `GeoLocationDetails` exactly, wrapped
+  `GeoLocationDetailsList>GeoLocationDetails` as the real (never called)
+  `*Unwrapped` sibling confirms it should be.
+- `ListTrafficPolicyInstances` (and its `ByHostedZone`/`ByPolicy` siblings) --
+  all six call sites of the item builder share one function,
+  `toXMLTPInstance`, emitting 8 of 9 real `TrafficPolicyInstance` members.
+  The missing `Message` is a genuine no-backing-state gap: this backend's
+  `TrafficPolicyInstance.State` is hardcoded to `"Applied"` at every creation
+  site (no async-failure modeling), and `Message` is only ever populated by
+  real AWS on a non-`Applied` state, so no legal input through this backend
+  can ever populate it -- recorded per this issue's restraint guidance, not
+  counted as a fix.
+- `ListTrafficPolicies` -- `xmlTrafficPolicySummary`'s five members match
+  `TrafficPolicySummary` exactly (a genuinely different, slimmer real type
+  than `GetTrafficPolicy`'s `TrafficPolicy`, so no sibling disagreement is
+  expected or possible).
+- `ListReusableDelegationSets` -- reuses the already-clean `xmlDelegationSet`
+  (`CallerReference`/`Id`/`NameServers`), wrapped
+  `DelegationSets>DelegationSet` matching the real deserializer.
+- `ListQueryLoggingConfigs` -- `xmlQueryLoggingConfig`'s three members
+  (`CloudWatchLogsLogGroupArn`/`HostedZoneId`/`Id`) all correct.
+- `ListCidrCollections`/`ListCidrBlocks`/`ListCidrLocations` --
+  `xmlCidrCollectionSummary`/`xmlCidrBlockSummary`/`xmlCidrLocationSummary`
+  all match `CollectionSummary`/`CidrBlockSummary`/`LocationSummary` exactly.
+- `ListHostedZonesByVPC` -- `xmlHostedZoneSummary` (already carrying an
+  explanatory comment tying it to `HostedZoneSummary`'s deserializer) matches
+  exactly, including its "Id wire element is HostedZoneId, not Id" detail.
+- `ListVPCAssociationAuthorizations` -- `xmlVPC`'s `VPCId`/`VPCRegion` match
+  `types.VPC` exactly.
+
+**NOT REACHED at this layer:** `ListTagsForResource(s)` (simple map/tag
+shapes, lower yield per this issue's own priority note), and the read-side
+detail of `ListCidrCollections`' companion `GetCidrCollection`-equivalent
+change/version flow beyond what the existing sweep1 tests already cover.
+
+Gates: `go build ./services/iam/... ./services/route53/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iam/... ./services/route53/...`
+(pass), `golangci-lint run ./services/iam/... ./services/route53/...` (0
+issues). No `nolint` directives exist in any file this pass touched.
+
+## 2026-08-31 pass (gopherstack-21my): closing out the per-item sweep
+
+Continuation of the 2026-08-31 first-per-item-sweep entry above, which
+explicitly named `ListTagsForResource(s)` as not reached ("simple map/tag
+shapes, lower yield per this issue's own priority note"). Reconfirmed
+`awsRestxml_` from route53@v1.65.6's own `deserializers.go` before starting
+(unchanged from the prior entry).
+
+**`ListTagsForResource`/`ListTagsForResources` came back CLEAN, byte-for-byte
+case included.** `handler_tags.go`'s `resourceTagSet`/`xmlResourceTagSet`
+match `types.ResourceTagSet` (`ResourceId`/`ResourceType`/`Tags>Tag`)
+exactly, `r53Tag` matches `types.Tag` (`Key`/`Value`) exactly, and both
+wrapper keys (`ResourceTagSet` on the singular op, `ResourceTagSets>
+ResourceTagSet` on the batch op) match `awsRestxml_deserializeOpDocument
+ListTagsForResourceOutput`/`...ResourcesOutput` exactly. No wrapping-shape
+issue either: `ResourceTagSetListUnwrapped`/`TagListUnwrapped` exist in the
+pinned SDK but have no call site anywhere in `services/route53`, confirming
+both lists are correctly member-wrapped. This closes the one item this
+issue's route53 coverage had explicitly left open; every route53 list
+operation named across both sweep passes has now had a per-item field-name
+check.
+
+No bugs found, no fix, no new test — a clean verdict doesn't need a
+round-trip test to prove a negative, consistent with how prior clean
+per-item findings in this issue's history (e.g. sagemaker, elbv2's
+non-buggy ops) were recorded without one.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache (route53@v1.65.6) already vendored in the module cache.
+
+Gates: `go build ./services/route53/...`, `go vet ./services/route53/...`,
+`go test -race -count=1 ./services/route53/...` (pass, no test changes),
+`golangci-lint run ./services/route53/...` (0 issues). No `nolint`
+directives exist in this service.

@@ -345,11 +345,21 @@ func (b *InMemoryBackend) DescribeNetworkInterfaceAttribute(
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, niID)
 	}
 
-	return &NIAttributeResult{
+	result := &NIAttributeResult{
 		NetworkInterfaceID: niID,
 		Description:        ni.Description,
 		SourceDestCheck:    ni.SourceDestCheck,
-	}, nil
+	}
+	if ni.InstanceID != "" {
+		result.HasAttachment = true
+		result.AttachmentID = ni.AttachmentID
+		result.AttachInstanceID = ni.InstanceID
+		result.AttachDeviceIndex = ni.DeviceIndex
+		result.AttachStatus = attachmentStateAttached
+		result.AttachDeleteOnTerm = ni.DeleteOnTermination
+	}
+
+	return result, nil
 }
 
 // ResetNetworkInterfaceAttribute resets sourceDestCheck to true for a network interface.

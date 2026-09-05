@@ -136,11 +136,26 @@ type getTransitGatewayPrefixListReferencesResponse struct {
 }
 
 type verifiedAccessEndpointItem struct {
-	VerifiedAccessEndpointID string `xml:"verifiedAccessEndpointId"`
-	VerifiedAccessGroupID    string `xml:"verifiedAccessGroupId"`
-	Status                   string `xml:"status"`
-	Description              string `xml:"description,omitempty"`
-	EndpointType             string `xml:"endpointType,omitempty"`
+	VerifiedAccessEndpointID string          `xml:"verifiedAccessEndpointId"`
+	VerifiedAccessGroupID    string          `xml:"verifiedAccessGroupId"`
+	Status                   string          `xml:"status"`
+	Description              string          `xml:"description,omitempty"`
+	EndpointType             string          `xml:"endpointType,omitempty"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+}
+
+// toVerifiedAccessEndpointItem converts a backend VerifiedAccessEndpoint
+// into its wire item, including any tags applied via the shared CreateTags
+// op.
+func (h *Handler) toVerifiedAccessEndpointItem(ep *VerifiedAccessEndpoint) verifiedAccessEndpointItem {
+	return verifiedAccessEndpointItem{
+		VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
+		VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
+		Status:                   ep.Status,
+		Description:              ep.Description,
+		EndpointType:             ep.EndpointType,
+		TagSet:                   tagItemsFromMap(h.Backend.TagsForResource(ep.VerifiedAccessEndpointID)),
+	}
 }
 
 func toTGWPeeringAttachmentItem(
@@ -205,7 +220,7 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayAttachmentId")
+	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayPeeringAttachments(ids)
 
 	resp := &describeTransitGatewayPeeringAttachmentsResponse{RequestID: reqID}
@@ -278,7 +293,7 @@ type deleteTransitGatewayConnectResponse struct {
 }
 
 func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID string) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayAttachmentId")
+	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	conns := h.Backend.DescribeTransitGatewayConnects(ids)
 
 	resp := &describeTransitGatewayConnectsResponse{RequestID: reqID}
@@ -344,7 +359,7 @@ func (h *Handler) handleDescribeTransitGatewayConnectPeers(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayConnectPeerId")
+	ids := parseMemberList(vals, "TransitGatewayConnectPeerIds")
 	peers := h.Backend.DescribeTransitGatewayConnectPeers(ids)
 
 	resp := &describeTransitGatewayConnectPeersResponse{RequestID: reqID}

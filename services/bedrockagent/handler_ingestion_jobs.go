@@ -52,11 +52,44 @@ func (h *Handler) handleStopIngestionJob(
 }
 
 func (h *Handler) handleListIngestionJobs(
-	ctx context.Context, c *echo.Context, kbID, dsID string,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	var req struct {
+		SortBy *struct {
+			Attribute string `json:"attribute"`
+			Order     string `json:"order"`
+		} `json:"sortBy"`
+		NextToken string `json:"nextToken"`
+		Filters   []struct {
+			Attribute string   `json:"attribute"`
+			Operator  string   `json:"operator"`
+			Values    []string `json:"values"`
+		} `json:"filters"`
+		MaxResults int `json:"maxResults"`
+	}
 
-	jobs, outToken, err := h.Backend.ListIngestionJobs(ctx, kbID, dsID, maxResults, nextToken)
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return handleErr(c, err)
+		}
+	}
+
+	maxResults := maxPageDefault
+	if req.MaxResults > 0 {
+		maxResults = req.MaxResults
+	}
+
+	filters := make([]IngestionJobFilter, len(req.Filters))
+	for i, f := range req.Filters {
+		filters[i] = IngestionJobFilter{Attribute: f.Attribute, Operator: f.Operator, Values: f.Values}
+	}
+
+	var sortBy *IngestionJobSortBy
+	if req.SortBy != nil {
+		sortBy = &IngestionJobSortBy{Attribute: req.SortBy.Attribute, Order: req.SortBy.Order}
+	}
+
+	jobs, outToken, err := h.Backend.ListIngestionJobs(ctx, kbID, dsID, filters, sortBy, maxResults, req.NextToken)
 	if err != nil {
 		return handleErr(c, err)
 	}

@@ -212,16 +212,9 @@ func (b *InMemoryBackend) CreateImportTask(
 	return &cp, nil
 }
 
-// DescribeExportTasks lists export tasks optionally filtered by task ID or status.
-// It also lazily advances task state from PENDING→RUNNING→COMPLETED based on elapsed time.
-func (b *InMemoryBackend) DescribeExportTasks(
-	taskID, statusCode string,
-	limit int,
-	nextToken string,
-) ([]ExportTask, string, error) {
-	b.mu.Lock("DescribeExportTasks")
-	defer b.mu.Unlock()
-
+// advanceExportTaskStatesLocked lazily advances every export task's state
+// from PENDING→RUNNING→COMPLETED based on elapsed time. Caller must hold b.mu.
+func (b *InMemoryBackend) advanceExportTaskStatesLocked() {
 	now := time.Now().UnixMilli()
 	for _, t := range b.exportTasks.All() {
 		age := now - t.CreationTime
@@ -235,6 +228,19 @@ func (b *InMemoryBackend) DescribeExportTasks(
 			t.Status = exportStatusCompleted
 		}
 	}
+}
+
+// DescribeExportTasks lists export tasks optionally filtered by task ID or status.
+// It also lazily advances task state from PENDING→RUNNING→COMPLETED based on elapsed time.
+func (b *InMemoryBackend) DescribeExportTasks(
+	taskID, statusCode string,
+	limit int,
+	nextToken string,
+) ([]ExportTask, string, error) {
+	b.mu.Lock("DescribeExportTasks")
+	defer b.mu.Unlock()
+
+	b.advanceExportTaskStatesLocked()
 
 	all := make([]ExportTask, 0, b.exportTasks.Len())
 	for _, t := range b.exportTasks.All() {
@@ -246,7 +252,13 @@ func (b *InMemoryBackend) DescribeExportTasks(
 		}
 		all = append(all, *t)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTime != all[j].CreationTime {
+			return all[i].CreationTime < all[j].CreationTime
+		}
+
+		return all[i].TaskID < all[j].TaskID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -282,7 +294,13 @@ func (b *InMemoryBackend) DescribeImportTasks(
 		}
 		all = append(all, *t)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreationTime != all[j].CreationTime {
+			return all[i].CreationTime < all[j].CreationTime
+		}
+
+		return all[i].ImportID < all[j].ImportID
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {

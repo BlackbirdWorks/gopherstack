@@ -71,20 +71,48 @@ func (b *InMemoryBackend) GetDomainNodes(domainName string) ([]map[string]any, e
 
 	nodes := make([]map[string]any, 0, count)
 
-	storageVolumeType := "EBS"
-	if d.EBSOptions != nil && d.EBSOptions.VolumeType != "" {
-		storageVolumeType = d.EBSOptions.VolumeType
+	// StorageType/StorageVolumeType/StorageSize (real DomainNodesStatus,
+	// opensearch@v1.75.4 types/types.go) only apply to EBS-backed nodes;
+	// StorageVolumeType's real enum (standard/gp2/io1/gp3) has no "EBS" member.
+	// EBS is assumed unless a request explicitly disabled it, matching most
+	// real instance types (which require EBS storage).
+	ebsEnabled := d.EBSOptions == nil || d.EBSOptions.EBSEnabled
+	storageType := "Instance"
+	storageVolumeType := ""
+	storageSize := ""
+
+	if ebsEnabled {
+		storageType = "EBS"
+		volumeSize := 0
+
+		if d.EBSOptions != nil {
+			storageVolumeType = d.EBSOptions.VolumeType
+			volumeSize = d.EBSOptions.VolumeSize
+		}
+
+		if storageVolumeType == "" {
+			storageVolumeType = "gp2"
+		}
+
+		storageSize = strconv.Itoa(volumeSize)
 	}
 
 	for i := range count {
-		nodes = append(nodes, map[string]any{
+		node := map[string]any{
 			"NodeId":            fmt.Sprintf("node-%d", i),
 			"NodeType":          nodeRoleData,
 			jsonKeyInstanceType: d.ClusterConfig.InstanceType,
 			"NodeStatus":        domainStatusActive,
-			"StorageVolumeType": storageVolumeType,
+			"StorageType":       storageType,
 			"AvailabilityZone":  fmt.Sprintf("%sa", b.region),
-		})
+		}
+
+		if ebsEnabled {
+			node["StorageVolumeType"] = storageVolumeType
+			node["StorageSize"] = storageSize
+		}
+
+		nodes = append(nodes, node)
 	}
 
 	return nodes, nil

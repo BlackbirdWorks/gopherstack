@@ -14,9 +14,12 @@ func (b *InMemoryBackend) DeletePersonalAccessToken(orgID, tokenID string) error
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.personalTokens.Delete(orgKey(orgID, tokenID)) {
+		// DeletePersonalAccessToken's own error model declares no not-found
+		// type for the token itself (only Organization*); no correct code
+		// exists to send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: personal access token %q not found", ErrNotFound, tokenID)
 	}
 
@@ -31,11 +34,11 @@ func (b *InMemoryBackend) GetPersonalAccessTokenMetadata(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	tok, ok := b.personalTokens.Get(orgKey(orgID, tokenID))
 	if !ok {
-		return nil, fmt.Errorf("%w: personal access token %q not found", ErrNotFound, tokenID)
+		return nil, fmt.Errorf("%w: personal access token %q not found", ErrResourceNotFound, tokenID)
 	}
 
 	return tok, nil

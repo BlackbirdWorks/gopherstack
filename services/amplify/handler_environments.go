@@ -73,6 +73,7 @@ func (h *Handler) createBackendEnvironment(ctx context.Context, c *echo.Context,
 func (h *Handler) listBackendEnvironments(ctx context.Context, c *echo.Context, appID string) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
+	environmentName := q.Get("environmentName")
 
 	maxResults := 0
 	if s := q.Get("maxResults"); s != "" {
@@ -81,7 +82,7 @@ func (h *Handler) listBackendEnvironments(ctx context.Context, c *echo.Context, 
 		}
 	}
 
-	envs, outToken, err := h.Backend.ListBackendEnvironments(appID, nextToken, maxResults)
+	envs, outToken, err := h.Backend.ListBackendEnvironments(appID, environmentName, nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(ctx, c, opListBackendEnvironments, err)
 	}

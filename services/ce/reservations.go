@@ -217,7 +217,7 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 
 	return []ReservationRecommendation{
 		{
-			AccountScope:         "LINKED",
+			AccountScope:         accountScopeLinked,
 			LookbackPeriodInDays: lookback,
 			TermInYears:          term,
 			PaymentOption:        payment,

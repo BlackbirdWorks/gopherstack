@@ -247,7 +247,8 @@ func (h *Handler) handleListNetworkMigrationMappings(_ context.Context, _ *http.
 	}
 
 	pg, err := h.Backend.ListNetworkMigrationMappings(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.NextToken, int(req.MaxResults),
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, nmFilterJobIDs(req.Filters),
+		req.NextToken, int(req.MaxResults),
 	)
 	if err != nil {
 		return nil, err
@@ -267,7 +268,8 @@ func (h *Handler) handleListNetworkMigrationMappingUpdates(
 	}
 
 	pg, err := h.Backend.ListNetworkMigrationMappingUpdates(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.NextToken, int(req.MaxResults),
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, nmFilterJobIDs(req.Filters),
+		req.NextToken, int(req.MaxResults),
 	)
 	if err != nil {
 		return nil, err

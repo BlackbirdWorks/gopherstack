@@ -137,7 +137,7 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 		StatisticsConfigurations: cborMetricStreamStatisticsConfigurations(input, "StatisticsConfigurations"),
 	}); err != nil {
 		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 		}
 
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

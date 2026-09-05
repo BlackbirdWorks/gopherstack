@@ -207,8 +207,15 @@ func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id str
 	return c.NoContent(http.StatusNoContent)
 }
 
+// handleListContinuousDeploymentPolicies paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real ContinuousDeploymentPolicyList has no IsTruncated
+// field -- NextMarker's presence alone signals truncation (types/types.go:1435-1455).
 func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error {
 	policies := h.Backend.ListContinuousDeploymentPolicies()
+
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c, policies, func(p *ContinuousDeploymentPolicy) string { return p.ID },
+	)
 
 	var sb strings.Builder
 
@@ -216,14 +223,12 @@ func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error 
 	sb.WriteString(`<ContinuousDeploymentPolicyList xmlns="`)
 	sb.WriteString(cfNS)
 	sb.WriteString(`">`)
-	count := strconv.Itoa(len(policies))
 	sb.WriteString(`<MaxItems>`)
-	sb.WriteString(count)
+	sb.WriteString(strconv.Itoa(pageSize))
 	sb.WriteString(`</MaxItems>`)
 	sb.WriteString(`<Quantity>`)
-	sb.WriteString(count)
+	sb.WriteString(strconv.Itoa(len(page)))
 	sb.WriteString(`</Quantity>`)
-	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
 	sb.WriteString(`<Items>`)
 
 	// A ContinuousDeploymentPolicySummary wraps a single nested <ContinuousDeploymentPolicy>
@@ -232,13 +237,16 @@ func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error 
 	// real client decodes ContinuousDeploymentPolicySummary.ContinuousDeploymentPolicy as nil
 	// for every item against the flattened shape, giving the right item count with entirely
 	// blank content.
-	for _, p := range policies {
+	for _, p := range page {
 		sb.WriteString(`<ContinuousDeploymentPolicySummary><ContinuousDeploymentPolicy>`)
 		sb.WriteString(continuousDeploymentPolicyBodyXML(p))
 		sb.WriteString(`</ContinuousDeploymentPolicy></ContinuousDeploymentPolicySummary>`)
 	}
 
 	sb.WriteString(`</Items>`)
+	if isTruncated {
+		sb.WriteString(`<NextMarker>` + nextMarker + `</NextMarker>`)
+	}
 	sb.WriteString(`</ContinuousDeploymentPolicyList>`)
 
 	return xmlResp(c, http.StatusOK, sb.String())

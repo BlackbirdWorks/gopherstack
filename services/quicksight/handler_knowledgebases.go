@@ -306,7 +306,7 @@ func (h *Handler) handleSearchKnowledgeBases(c *echo.Context) error {
 	}
 
 	items, next, err := h.Backend.SearchKnowledgeBases(
-		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+		accountID, lowercaseFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
 	)
 	if err != nil {
 		return httpErr(c, err)

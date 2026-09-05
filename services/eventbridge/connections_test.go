@@ -314,7 +314,7 @@ func TestConnectionCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "updated desc", updated.Description)
 
-		conns, _, err := b.ListConnections(context.Background(), "my-", "")
+		conns, _, err := b.ListConnections(context.Background(), "my-", "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, conns, 1)
 

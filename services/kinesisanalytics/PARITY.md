@@ -335,3 +335,80 @@ $ git status --short
 (services/pipes/* and .claude/ dirty entries belong to a concurrent, unrelated
 session -- confirmed not touched by this sweep)
 ```
+
+### Follow-up pass (2026-08-29, gopherstack-6flj/21my wrapper-key/silent-drop sweep, V1-vs-V2 lens)
+
+Paired with `services/kinesisanalyticsv2` under the explicit instruction to verify V1
+(this package) and V2 do not share Go types or assume shape parity. **Confirmed 0
+shared types**: `grep -rn "kinesisanalytics\"" services/kinesisanalyticsv2/*.go` and the
+reverse grep against this package both come back empty (the only cross-hit is an
+unrelated ARN-namespace string literal in `kinesisanalyticsv2/store.go:109`); each
+package has its own `models.go` and is registered under its own SDK module
+(`kinesisanalytics@v1.33.4` vs. `kinesisanalyticsv2@v1.41.4` per `go.mod`). No op-level
+V1/V2 naming collision exists within either package for this concern to apply to.
+
+Independently re-derived member lists from the pinned SDK's own
+`awsAwsjson11_deserializeDocument*`/`serializeOpDocument*` case switches (not `types.go`)
+and diffed against this package's structs:
+- `ApplicationDetail`: **12 of 12** deserializer cases (`deserializers.go:2870`), matching
+  `models.go:219-230` exactly.
+- `InputDescription`: **9 of 9** (`deserializers.go:3400`), matching `models.go:81-91`
+  exactly; `InputID`/`InputStartingPositionConfiguration` traced to their actual write
+  sites (`application_inputs.go:32`, `applications.go:486,641-642`) -- genuinely wired,
+  not present-but-unpopulated.
+- `OutputDescription`: **6 of 6** (`deserializers.go:4133`), matching `models.go:117-124`
+  exactly.
+- `CreateApplicationInput` (request side): **7 of 7** serializer fields
+  (`serializers.go:2350`), all read and acted on in `handleCreateApplication`
+  (`handler_applications.go:9-77`).
+
+No new bugs found in this package this pass -- every spot-check matched the prior
+audit's claims exactly, both request and response direction. The paired sweep of
+`services/kinesisanalyticsv2` did find one real bug (`UpdateApplication` accepting and
+applying a gopherstack-invented `ApplicationDescription` request member); see that
+package's PARITY.md. `last_audit_commit`/`last_audit_date` above intentionally left
+unchanged (no code in this package changed this pass).
+
+### 2026-08-31 (error-target sweep, gopherstack-uox6 class-A campaign)
+
+`errtargetaudit -dir kinesisanalytics` flagged 3 findings (`DeleteApplication`,
+`DescribeApplication`, `StopApplication`, all `code=InvalidArgumentException`), all
+real. Verified against `kinesisanalytics@v1.33.4` deserializers.go
+(`awsAwsjson11_deserializeOpError<Op>` switches): `DeleteApplication` declares
+`ConcurrentModificationException`/`ResourceInUseException`/`ResourceNotFoundException`/
+`UnsupportedOperationException`; `DescribeApplication` declares
+`ResourceNotFoundException`/`UnsupportedOperationException`; `StopApplication` declares
+`ResourceInUseException`/`ResourceNotFoundException`/`UnsupportedOperationException`
+-- none of the three declare `InvalidArgumentException`.
+
+All three handlers pre-checked `ApplicationName == ""` and returned the shared
+`errApplicationName` sentinel (-> `InvalidArgumentException`), an invented check: the
+client-side SDK validator only rejects a nil `*string`, so `""` reaches the handler,
+and each backend method already has a natural not-found lookup
+(`b.apps.Get(applicationKey(region, name))`) that returns `awserr.ErrNotFound` ->
+`ResourceNotFoundException`, which all three operations do declare. Deleted the
+pre-check at all three call sites; `errApplicationName` stays unchanged for its 12
+other legitimate callers (all declare `InvalidArgumentException` correctly:
+`CreateApplication`, `StartApplication`, `UpdateApplication`, and the
+Add/DeleteApplication{CloudWatchLoggingOption,Output,ReferenceDataSource,
+InputProcessingConfiguration} family).
+
+A second, closely related bug surfaced incidentally while writing the test for
+`DeleteApplication`: its handler also pre-checked `CreateTimestamp == 0` and returned
+the same undeclared `InvalidArgumentException` -- but `CreateTimestamp` is a required
+`*time.Time` client-side (nil-only validation), so an explicit epoch-0 timestamp is a
+legitimate wire value, not a "missing" one. The backend's own comparison
+(`app.CreateTimestamp != nil && createTimestamp.Unix() != app.CreateTimestamp.Unix()`)
+already answers a mismatched/zero timestamp correctly via `ErrConcurrentUpdate` ->
+`ConcurrentModificationException` (declared). Deleted this pre-check too.
+
+Test-first: `undeclared_invalidargument_test.go` (real SDK client, `errors.As` against
+`*types.ResourceNotFoundException`) confirmed failing against the unmodified tree
+(got `*smithy.OperationError` wrapping `InvalidArgumentException` for all three, and
+again for `DeleteApplication` after the first fix once the test's epoch-0
+`CreateTimestamp` collided with the second bug), then passing after both fixes.
+
+Gates: `go build ./services/kinesisanalytics/...`, `go vet
+./services/kinesisanalytics/...`, `go test -race -count=1
+./services/kinesisanalytics/...` (pass), `golangci-lint run
+./services/kinesisanalytics/...` (0 issues).

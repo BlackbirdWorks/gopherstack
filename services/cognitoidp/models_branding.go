@@ -111,28 +111,3 @@ type updateManagedLoginBrandingInput struct {
 type updateManagedLoginBrandingOutput struct {
 	ManagedLoginBranding *managedLoginBrandingType `json:"ManagedLoginBranding,omitempty"`
 }
-
-type uiCustomizationType struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-	CSS        string `json:"CSS,omitempty"`
-}
-
-type getUICustomizationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type getUICustomizationOutput struct {
-	UICustomization *uiCustomizationType `json:"UICustomization,omitempty"`
-}
-
-type setUICustomizationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-	CSS        string `json:"CSS,omitempty"`
-}
-
-type setUICustomizationOutput struct {
-	UICustomization *uiCustomizationType `json:"UICustomization,omitempty"`
-}

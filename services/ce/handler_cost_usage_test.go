@@ -171,7 +171,7 @@ func TestGetCostComparisonDrivers_Shape(t *testing.T) {
 	rec := doRequest(t, h, "GetCostComparisonDrivers", map[string]any{
 		"BaselineTimePeriod":   map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 		"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
-		"Metric":               "BlendedCost",
+		"MetricForComparison":  "BlendedCost",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -589,11 +589,12 @@ func TestGetCostForecast_ReturnsTimeSeries(t *testing.T) {
 			rec := doRequest(t, h, "GetCostForecast", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			// Total is *types.MetricValue (Amount/Unit) on real AWS CE, not a
+			// ForecastResult -- see getCostForecastOutput's doc comment.
 			var out struct {
 				Total struct {
-					MeanValue                    string `json:"MeanValue"`
-					PredictionIntervalLowerBound string `json:"PredictionIntervalLowerBound"`
-					PredictionIntervalUpperBound string `json:"PredictionIntervalUpperBound"`
+					Amount string `json:"Amount"`
+					Unit   string `json:"Unit"`
 				} `json:"Total"`
 				ForecastResultsByTime []struct {
 					TimePeriod map[string]string `json:"TimePeriod"`
@@ -601,9 +602,8 @@ func TestGetCostForecast_ReturnsTimeSeries(t *testing.T) {
 				} `json:"ForecastResultsByTime"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.NotEmpty(t, out.Total.MeanValue)
-			assert.NotEmpty(t, out.Total.PredictionIntervalLowerBound)
-			assert.NotEmpty(t, out.Total.PredictionIntervalUpperBound)
+			assert.NotEmpty(t, out.Total.Amount)
+			assert.NotEmpty(t, out.Total.Unit)
 			assert.NotEmpty(t, out.ForecastResultsByTime)
 
 			for _, fr := range out.ForecastResultsByTime {
@@ -1006,7 +1006,7 @@ func TestHandler_GetCostComparisonDrivers(t *testing.T) {
 			body: map[string]any{
 				"BaselineTimePeriod":   map[string]string{"Start": "2023-01-01", "End": "2024-01-01"},
 				"ComparisonTimePeriod": map[string]string{"Start": "2024-01-01", "End": "2025-01-01"},
-				"Metric":               "BlendedCost",
+				"MetricForComparison":  "BlendedCost",
 			},
 			wantStatusCode: http.StatusOK,
 		},

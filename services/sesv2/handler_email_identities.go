@@ -56,9 +56,10 @@ type getEmailIdentityOutput struct {
 }
 
 type emailIdentitySummary struct {
-	IdentityName   string `json:"IdentityName"`
-	IdentityType   string `json:"IdentityType"`
-	SendingEnabled bool   `json:"SendingEnabled"`
+	IdentityName       string `json:"IdentityName"`
+	IdentityType       string `json:"IdentityType"`
+	VerificationStatus string `json:"VerificationStatus,omitempty"`
+	SendingEnabled     bool   `json:"SendingEnabled"`
 }
 
 type listEmailIdentitiesOutput struct {
@@ -144,9 +145,10 @@ func (h *Handler) handleListEmailIdentities(c *echo.Context) any {
 
 	for _, ei := range pg.Data {
 		items = append(items, emailIdentitySummary{
-			IdentityName:   ei.Identity,
-			IdentityType:   ei.IdentityType,
-			SendingEnabled: ei.VerifiedForSending,
+			IdentityName:       ei.Identity,
+			IdentityType:       ei.IdentityType,
+			VerificationStatus: ei.VerificationStatus,
+			SendingEnabled:     ei.VerifiedForSending,
 		})
 	}
 

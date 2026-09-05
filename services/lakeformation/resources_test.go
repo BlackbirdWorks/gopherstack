@@ -143,7 +143,7 @@ func TestListResources(t *testing.T) {
 				)
 			}
 
-			resources, nextToken := b.ListResources(tt.maxResults, "")
+			resources, nextToken := b.ListResources(nil, tt.maxResults, "")
 			assert.Len(t, resources, tt.wantCount)
 
 			if tt.wantToken {

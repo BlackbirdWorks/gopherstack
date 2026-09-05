@@ -45,6 +45,7 @@ type UserPoolOptions struct {
 	AccountRecoverySetting map[string]any  `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy `json:"passwordPolicy,omitempty"`
 	DeletionProtection     string          `json:"deletionProtection,omitempty"`
+	MfaConfiguration       string          `json:"mfaConfiguration,omitempty"`
 	AutoVerifiedAttributes []string        `json:"autoVerifiedAttributes,omitempty"`
 }
 

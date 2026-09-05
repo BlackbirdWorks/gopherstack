@@ -31,6 +31,7 @@ type createBrokerInput struct {
 	SecurityGroups                  []string            `json:"securityGroups"`
 	SubnetIDs                       []string            `json:"subnetIds"`
 	Users                           []createUserBody    `json:"users"`
+	StorageSize                     int32               `json:"storageSize"`
 	PubliclyAccessible              bool                `json:"publiclyAccessible"`
 	AutoMinorVersionUpgrade         bool                `json:"autoMinorVersionUpgrade"`
 }
@@ -83,6 +84,7 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 			Logs:                            in.Logs,
 			DataReplicationMode:             in.DataReplicationMode,
 			DataReplicationPrimaryBrokerArn: in.DataReplicationPrimaryBrokerArn,
+			StorageSize:                     in.StorageSize,
 		},
 	)
 	if err != nil {
@@ -168,6 +170,8 @@ type updateBrokerInput struct {
 	HostInstanceType           string              `json:"hostInstanceType"`
 	DataReplicationMode        string              `json:"dataReplicationMode"`
 	SecurityGroups             []string            `json:"securityGroups"`
+	ResourceShareArns          []string            `json:"resourceShareArns"`
+	StorageSize                int32               `json:"storageSize"`
 }
 
 // updateBrokerResponse matches the AWS MQ UpdateBroker response shape.
@@ -209,7 +213,9 @@ type updateBrokerResponse struct {
 	PendingDataReplicationMode string                   `json:"pendingDataReplicationMode,omitempty"`
 	PendingSecurityGroups      []string                 `json:"pendingSecurityGroups,omitempty"`
 	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
+	ResourceShareArns          []string                 `json:"resourceShareArns,omitempty"`
 	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
+	StorageSize                int32                    `json:"storageSize,omitempty"`
 }
 
 func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []byte) error {
@@ -231,6 +237,8 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 			MaintenanceWindowStartTime: in.MaintenanceWindowStartTime,
 			Configuration:              in.Configuration,
 			DataReplicationMode:        in.DataReplicationMode,
+			ResourceShareArns:          in.ResourceShareArns,
+			StorageSize:                in.StorageSize,
 		},
 	)
 	if err != nil {
@@ -270,6 +278,8 @@ func toUpdateBrokerResponse(br *Broker) updateBrokerResponse {
 		DataReplicationMetadata:    br.DataReplicationMetadata,
 		PendingDataReplicationMode: br.PendingDataReplicationMode,
 		PendingDataReplicationMeta: br.PendingDataReplicationMeta,
+		ResourceShareArns:          br.PendingResourceShareArns,
+		StorageSize:                pendingOrCurrentInt32(br.PendingStorageSize, br.StorageSize),
 	}
 }
 
@@ -303,6 +313,15 @@ func pendingOrCurrentLDAP(pending, current *LdapServerMetadata) *LdapServerMetad
 // pendingOrCurrentConfigID returns pending if non-nil, else current.
 func pendingOrCurrentConfigID(pending, current *ConfigurationID) *ConfigurationID {
 	if pending != nil {
+		return pending
+	}
+
+	return current
+}
+
+// pendingOrCurrentInt32 returns pending if non-zero, else current.
+func pendingOrCurrentInt32(pending, current int32) int32 {
+	if pending != 0 {
 		return pending
 	}
 
@@ -394,6 +413,8 @@ type brokerResponse struct {
 	BrokerInstances            []BrokerInstance         `json:"brokerInstances,omitempty"`
 	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
 	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
+	StorageSize                int32                    `json:"storageSize,omitempty"`
+	PendingStorageSize         int32                    `json:"pendingStorageSize,omitempty"`
 }
 
 func toBrokerResponse(br *Broker) brokerResponse {
@@ -443,6 +464,8 @@ func toBrokerResponse(br *Broker) brokerResponse {
 		PendingLdapServerMetadata:  br.PendingLdapServerMetadata,
 		PendingDataReplicationMode: br.PendingDataReplicationMode,
 		PendingDataReplicationMeta: br.PendingDataReplicationMeta,
+		StorageSize:                br.StorageSize,
+		PendingStorageSize:         br.PendingStorageSize,
 	}
 }
 

@@ -59,7 +59,12 @@ func (h *Handler) handleGetEBRuleTemplateGroup(c *echo.Context, identifier strin
 
 func (h *Handler) handleListEBRuleTemplateGroups(c *echo.Context) error {
 	maxResults, nextTokenParam := paginationParams(c)
-	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplateGroups(maxResults, nextTokenParam)
+	signalMapIdentifier := c.QueryParam("signalMapIdentifier")
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplateGroups(
+		maxResults,
+		nextTokenParam,
+		signalMapIdentifier,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -196,7 +201,11 @@ func (h *Handler) handleGetEBRuleTemplate(c *echo.Context, identifier string) er
 
 func (h *Handler) handleListEBRuleTemplates(c *echo.Context) error {
 	maxResults, nextTokenParam := paginationParams(c)
-	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplates(maxResults, nextTokenParam)
+	groupIdentifier := c.QueryParam("groupIdentifier")
+	signalMapIdentifier := c.QueryParam("signalMapIdentifier")
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplates(
+		maxResults, nextTokenParam, groupIdentifier, signalMapIdentifier,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}

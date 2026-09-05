@@ -142,7 +142,7 @@ func (db *InMemoryDB) InjectExpiredTxnTokenForTest(token string) {
 	db.mu.Lock("InjectExpiredTxnTokenForTest")
 	defer db.mu.Unlock()
 
-	db.txnTokens[token] = time.Now().Add(-time.Hour) // already expired
+	db.txnTokens[token] = txnTokenRecord{expiry: time.Now().Add(-time.Hour)} // already expired
 }
 
 // StreamARNIndexSize returns the number of entries in the stream ARN reverse index.
@@ -328,7 +328,7 @@ func (db *InMemoryDB) AddTxnToken(token string, expiry time.Time) {
 	db.mu.Lock("AddTxnToken")
 	defer db.mu.Unlock()
 
-	db.txnTokens[token] = expiry
+	db.txnTokens[token] = txnTokenRecord{expiry: expiry}
 }
 
 // StreamRecordCount returns the number of stream record slots currently allocated

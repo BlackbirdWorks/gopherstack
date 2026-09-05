@@ -321,4 +321,263 @@ func TestHandler_GetScalingConfigurationRecommendation_ScalingPolicyObjective_Re
 	require.NotNil(t, out.Metric)
 }
 
+// searchTrainingJobInput builds a minimal valid CreateTrainingJobInput for
+// the Search-family real-client tests below.
+func searchTrainingJobInput(name string) *sagemakersdk.CreateTrainingJobInput {
+	return &sagemakersdk.CreateTrainingJobInput{
+		TrainingJobName: aws.String(name),
+		RoleArn:         aws.String("arn:aws:iam::000000000000:role/TestRole"),
+		AlgorithmSpecification: &smtypes.AlgorithmSpecification{
+			TrainingInputMode: smtypes.TrainingInputModeFile,
+		},
+		OutputDataConfig: &smtypes.OutputDataConfig{
+			S3OutputPath: aws.String("s3://bucket/output"),
+		},
+		ResourceConfig: &smtypes.ResourceConfig{
+			InstanceType:   smtypes.TrainingInstanceTypeMlM5Large,
+			InstanceCount:  aws.Int32(1),
+			VolumeSizeInGB: aws.Int32(20),
+		},
+		StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+	}
+}
+
+// TestHandler_Search_NestedFilters_RealClient asserts NestedFilters -
+// previously not decoded from the wire at all, so SearchExpression.Filters
+// being empty made matchesSearchExpression match every resource. Per
+// types.NestedFilters' doc and the SDK API_NestedFilters.html worked
+// example, a NestedFilters entry is satisfied only if a SINGLE object in
+// the NestedPropertyName list satisfies every one of its Filters, whose
+// Name carries the full dotted path including the NestedPropertyName
+// prefix (e.g. "InputDataConfig.DataSource.S3DataSource.S3Uri").
+func TestHandler_Search_NestedFilters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	create := func(name, channelName, s3uri string) {
+		in := searchTrainingJobInput(name)
+		in.InputDataConfig = []smtypes.Channel{
+			{
+				ChannelName: aws.String(channelName),
+				DataSource: &smtypes.DataSource{
+					S3DataSource: &smtypes.S3DataSource{
+						S3Uri: aws.String(s3uri), S3DataType: smtypes.S3DataTypeS3Prefix,
+					},
+				},
+			},
+		}
+		_, err := client.CreateTrainingJob(t.Context(), in)
+		require.NoError(t, err)
+	}
+
+	create("nested-match", "train", "s3://mybucket/catdata/part1")
+	create("nested-wrong-channel", "validation", "s3://mybucket/catdata/part1")
+	create("nested-wrong-uri", "train", "s3://otherbucket/dogdata")
+
+	out, err := client.Search(t.Context(), &sagemakersdk.SearchInput{
+		Resource: smtypes.ResourceTypeTrainingJob,
+		SearchExpression: &smtypes.SearchExpression{
+			NestedFilters: []smtypes.NestedFilters{
+				{
+					NestedPropertyName: aws.String("InputDataConfig"),
+					Filters: []smtypes.Filter{
+						{
+							Name: aws.String("InputDataConfig.ChannelName"), Operator: smtypes.OperatorEquals,
+							Value: aws.String("train"),
+						},
+						{
+							Name:     aws.String("InputDataConfig.DataSource.S3DataSource.S3Uri"),
+							Operator: smtypes.OperatorContains, Value: aws.String("mybucket/catdata"),
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Results, 1)
+	require.NotNil(t, out.Results[0].TrainingJob)
+	assert.Equal(t, "nested-match", aws.ToString(out.Results[0].TrainingJob.TrainingJobName))
+}
+
+// TestHandler_Search_SubExpressions_RealClient asserts SubExpressions are
+// decoded and recursively evaluated, combined with sibling Filters by the
+// SAME single Operator (types.SearchExpression's doc: "every conditional
+// statement in all lists"). Previously SubExpressions were entirely absent
+// from decode, so an Or across a top-level Filter and a SubExpression had
+// no effect on the SubExpression arm at all.
+func TestHandler_Search_SubExpressions_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for _, name := range []string{"sub-a", "sub-b", "sub-c"} {
+		_, err := client.CreateTrainingJob(t.Context(), searchTrainingJobInput(name))
+		require.NoError(t, err)
+	}
+
+	out, err := client.Search(t.Context(), &sagemakersdk.SearchInput{
+		Resource: smtypes.ResourceTypeTrainingJob,
+		SearchExpression: &smtypes.SearchExpression{
+			Operator: smtypes.BooleanOperatorOr,
+			Filters: []smtypes.Filter{
+				{Name: aws.String("TrainingJobName"), Operator: smtypes.OperatorEquals, Value: aws.String("sub-a")},
+			},
+			SubExpressions: []smtypes.SearchExpression{
+				{
+					Filters: []smtypes.Filter{
+						{
+							Name: aws.String("TrainingJobName"), Operator: smtypes.OperatorEquals,
+							Value: aws.String("sub-b"),
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Results, 2)
+
+	names := make([]string, len(out.Results))
+	for i, r := range out.Results {
+		require.NotNil(t, r.TrainingJob)
+		names[i] = aws.ToString(r.TrainingJob.TrainingJobName)
+	}
+	assert.ElementsMatch(t, []string{"sub-a", "sub-b"}, names)
+}
+
+// TestHandler_Search_DefaultOperatorIsAnd_RealClient asserts
+// SearchExpression's documented default Operator ("If you want every
+// conditional statement in all lists to be satisfied... specify And. ...
+// The default value is And.") is honoured when Operator is omitted.
+func TestHandler_Search_DefaultOperatorIsAnd_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrainingJob(t.Context(), searchTrainingJobInput("and-job"))
+	require.NoError(t, err)
+
+	filters := []smtypes.Filter{
+		{Name: aws.String("TrainingJobName"), Operator: smtypes.OperatorEquals, Value: aws.String("and-job")},
+		{Name: aws.String("TrainingJobStatus"), Operator: smtypes.OperatorEquals, Value: aws.String("Completed")},
+	}
+
+	andOut, err := client.Search(t.Context(), &sagemakersdk.SearchInput{
+		Resource:         smtypes.ResourceTypeTrainingJob,
+		SearchExpression: &smtypes.SearchExpression{Filters: filters},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, andOut.Results)
+
+	orOut, err := client.Search(t.Context(), &sagemakersdk.SearchInput{
+		Resource: smtypes.ResourceTypeTrainingJob,
+		SearchExpression: &smtypes.SearchExpression{
+			Operator: smtypes.BooleanOperatorOr, Filters: filters,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, orOut.Results, 1)
+}
+
+// TestHandler_Search_RangeOperators_TimestampConsistency_RealClient asserts
+// GreaterThan/LessThan (previously unimplemented and falling through to an
+// unconditional match) and that they compare CreationTime correctly despite
+// the response emitting it as an epoch-seconds number while types.Filter's
+// doc states timestamp Values are ISO 8601 strings
+// (YYYY-mm-dd'T'HH:MM:SS) -- a filter built in the documented format must
+// still be able to match this API's own emitted CreationTime.
+func TestHandler_Search_RangeOperators_TimestampConsistency_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrainingJob(t.Context(), searchTrainingJobInput("range-job"))
+	require.NoError(t, err)
+
+	search := func(op smtypes.Operator, value string) []smtypes.SearchRecord {
+		out, searchErr := client.Search(t.Context(), &sagemakersdk.SearchInput{
+			Resource: smtypes.ResourceTypeTrainingJob,
+			SearchExpression: &smtypes.SearchExpression{
+				Filters: []smtypes.Filter{
+					{Name: aws.String("CreationTime"), Operator: op, Value: aws.String(value)},
+				},
+			},
+		})
+		require.NoError(t, searchErr)
+
+		return out.Results
+	}
+
+	require.Len(t, search(smtypes.OperatorGreaterThan, "2000-01-01T00:00:00"), 1)
+	assert.Empty(t, search(smtypes.OperatorGreaterThan, "2100-01-01T00:00:00"))
+	require.Len(t, search(smtypes.OperatorLessThan, "2100-01-01T00:00:00"), 1)
+	assert.Empty(t, search(smtypes.OperatorLessThan, "2000-01-01T00:00:00"))
+}
+
+// TestHandler_Search_InOperator_RealClient asserts the In operator
+// ("the value of Name is one of the comma delimited strings in Value"),
+// previously unimplemented and falling through to an unconditional match.
+func TestHandler_Search_InOperator_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrainingJob(t.Context(), searchTrainingJobInput("in-job"))
+	require.NoError(t, err)
+
+	search := func(value string) []smtypes.SearchRecord {
+		out, searchErr := client.Search(t.Context(), &sagemakersdk.SearchInput{
+			Resource: smtypes.ResourceTypeTrainingJob,
+			SearchExpression: &smtypes.SearchExpression{
+				Filters: []smtypes.Filter{
+					{Name: aws.String("TrainingJobStatus"), Operator: smtypes.OperatorIn, Value: aws.String(value)},
+				},
+			},
+		})
+		require.NoError(t, searchErr)
+
+		return out.Results
+	}
+
+	require.Len(t, search("Failed,Completed,InProgress"), 1)
+	assert.Empty(t, search("Failed,Completed"))
+}
+
+// TestHandler_Search_UnsupportedOperator_RealClient asserts an Operator
+// value outside types.Operator's documented enum is REJECTED (matches
+// nothing) rather than matching every resource -- the over-accept shape
+// this class has found elsewhere in this campaign (e.g. an SNS numeric
+// operator outside its documented set).
+func TestHandler_Search_UnsupportedOperator_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrainingJob(t.Context(), searchTrainingJobInput("op-job"))
+	require.NoError(t, err)
+
+	out, err := client.Search(t.Context(), &sagemakersdk.SearchInput{
+		Resource: smtypes.ResourceTypeTrainingJob,
+		SearchExpression: &smtypes.SearchExpression{
+			Filters: []smtypes.Filter{
+				{
+					Name:     aws.String("TrainingJobName"),
+					Operator: smtypes.Operator("Between"),
+					Value:    aws.String("op-job"),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.Results)
+}
+
 // ---------------------------------------------------------------------------

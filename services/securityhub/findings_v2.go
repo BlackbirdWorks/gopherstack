@@ -496,9 +496,9 @@ func matchesOcsfMapFilter(finding, m map[string]any) bool {
 // combination rule for repeated filters on the same field.
 func compareMapFilter(comp string, candidates []string, val string) bool {
 	switch comp {
-	case "NOT_EQUALS":
+	case comparisonNotEquals:
 		return !slices.Contains(candidates, val)
-	case "NOT_CONTAINS":
+	case comparisonNotContains:
 		return !slices.ContainsFunc(candidates, func(c string) bool { return strings.Contains(c, val) })
 	case "CONTAINS":
 		return slices.ContainsFunc(candidates, func(c string) bool { return strings.Contains(c, val) })

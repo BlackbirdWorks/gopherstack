@@ -1,5 +1,18 @@
 package workspaces
 
+import (
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// connectClientAddInsPageSize is this backend's default page size for
+// DescribeConnectClientAddIns; real AWS doesn't document an exact default,
+// so this is chosen generously (larger than any realistic per-directory
+// add-in count) so pagination only activates when a caller explicitly
+// requests a smaller MaxResults.
+const connectClientAddInsPageSize = 100
+
 // CreateConnectClientAddIn creates a new Connect client add-in.
 func (b *InMemoryBackend) CreateConnectClientAddIn(name, resourceID, url string) (string, error) {
 	b.mu.Lock("CreateConnectClientAddIn")
@@ -32,14 +45,18 @@ func (b *InMemoryBackend) DeleteConnectClientAddIn(addInID, _ /*resourceId*/ str
 
 // DescribeConnectClientAddIns returns add-ins for a resource.
 func (b *InMemoryBackend) DescribeConnectClientAddIns(
-	resourceID string, _ int32, _ string,
+	resourceID string, maxResults int32, nextToken string,
 ) ([]*storedConnectAddIn, string, error) {
 	b.mu.RLock("DescribeConnectClientAddIns")
 	defer b.mu.RUnlock()
 
-	var result []*storedConnectAddIn
+	all := b.connectAddIns.All()
 
-	for _, a := range b.connectAddIns.All() {
+	sort.Slice(all, func(i, j int) bool { return all[i].AddInID < all[j].AddInID })
+
+	result := make([]*storedConnectAddIn, 0, len(all))
+
+	for _, a := range all {
 		if a.ResourceID != resourceID {
 			continue
 		}
@@ -48,11 +65,9 @@ func (b *InMemoryBackend) DescribeConnectClientAddIns(
 		result = append(result, &cp)
 	}
 
-	if result == nil {
-		result = []*storedConnectAddIn{}
-	}
+	pg := page.New(result, nextToken, int(maxResults), connectClientAddInsPageSize)
 
-	return result, "", nil
+	return pg.Data, pg.Next, nil
 }
 
 // UpdateConnectClientAddIn updates a Connect client add-in.

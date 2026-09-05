@@ -37,14 +37,23 @@ type getResourcePoliciesOutput struct {
 	GetResourcePoliciesResponseList []gluePolicyOut `json:"GetResourcePoliciesResponseList"`
 }
 
+const defaultGetResourcePoliciesLimit = 100
+
 func (h *Handler) handleGetResourcePolicies(
 	_ context.Context,
-	_ *getResourcePoliciesInput,
+	in *getResourcePoliciesInput,
 ) (*getResourcePoliciesOutput, error) {
 	entries := h.Backend.ListResourcePolicies()
-	list := make([]gluePolicyOut, 0, len(entries))
 
-	for _, e := range entries {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetResourcePoliciesLimit
+	}
+
+	page, next := paginateSlice(entries, in.NextToken, limit)
+	list := make([]gluePolicyOut, 0, len(page))
+
+	for _, e := range page {
 		list = append(list, gluePolicyOut{
 			PolicyInJSON: e.Policy,
 			PolicyHash:   e.Hash,
@@ -53,7 +62,7 @@ func (h *Handler) handleGetResourcePolicies(
 		})
 	}
 
-	return &getResourcePoliciesOutput{GetResourcePoliciesResponseList: list}, nil
+	return &getResourcePoliciesOutput{GetResourcePoliciesResponseList: list, NextToken: next}, nil
 }
 
 // getResourcePolicyInput holds input for GetResourcePolicy.

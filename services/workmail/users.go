@@ -15,7 +15,7 @@ func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if name == "" {
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams
 
 	for _, u := range b.usersByOrg.Get(orgID) {
 		if u.Name == name {
-			return nil, fmt.Errorf("%w: user %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: user %q already exists", ErrNameUnavailable, name)
 		}
 	}
 
@@ -184,10 +184,13 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, entityID)
 	if u == nil {
+		// DeleteUser's own error model declares no not-found type for the
+		// user itself (only Organization*); no correct code exists to send
+		// here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: user %q not found", ErrNotFound, entityID)
 	}
 
@@ -224,7 +227,7 @@ func (b *InMemoryBackend) ListUsers(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	users := make([]*UserSummary, 0)
@@ -288,7 +291,7 @@ func (b *InMemoryBackend) RegisterToWorkMail(orgID, entityID, email string) erro
 	}
 
 	if ta, exists := b.globalAliases.Get(email); exists && ta.OrgID == orgID {
-		return fmt.Errorf("%w: email %q already in use", ErrConflict, email)
+		return fmt.Errorf("%w: email %q already in use", ErrEmailInUse, email)
 	}
 
 	now := time.Now().UTC()

@@ -20,7 +20,7 @@ func (h *Handler) handlePutLifecycleEventHookExecutionStatus(
 	in *putLifecycleEventHookExecutionStatusInput,
 ) (*putLifecycleEventHookExecutionStatusOutput, error) {
 	if in.DeploymentID == "" {
-		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
 
 	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {

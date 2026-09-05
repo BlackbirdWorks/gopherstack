@@ -195,13 +195,18 @@ type applicationConfigurationUpdateInput struct {
 	VpcConfigurationUpdates                      []vpcConfigUpdateInput             `json:"VpcConfigurationUpdates,omitempty"`                      //nolint:lll // AWS API name
 }
 
+// updateApplicationInput deliberately has no ApplicationDescription field:
+// real AWS's UpdateApplicationInput (api_op_UpdateApplication.go:33-78) has
+// no such member -- there is no way to change an application's description
+// after CreateApplication. Do not add it back; a prior version did, and
+// applied it to backend state, a gopherstack-invented write capability (see
+// wire_field_fixes_test.go's ApplicationDescription_NotARealField test).
 type updateApplicationInput struct {
 	ApplicationConfigurationUpdate *applicationConfigurationUpdateInput `json:"ApplicationConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
 	RunConfigurationUpdate         *runConfigurationInput               `json:"RunConfigurationUpdate,omitempty"`
 	ApplicationName                string                               `json:"ApplicationName"`
 	ConditionalToken               string                               `json:"ConditionalToken,omitempty"`
 	ServiceExecutionRoleUpdate     string                               `json:"ServiceExecutionRoleUpdate,omitempty"`
-	ApplicationDescription         string                               `json:"ApplicationDescription,omitempty"`
 	RuntimeEnvironmentUpdate       string                               `json:"RuntimeEnvironmentUpdate,omitempty"`
 	CloudWatchLoggingOptionUpdates []cwlOptionUpdateInput               `json:"CloudWatchLoggingOptionUpdates,omitempty"` //nolint:lll // AWS API name
 	CurrentApplicationVersionID    int64                                `json:"CurrentApplicationVersionId,omitempty"`
@@ -245,7 +250,6 @@ func buildUpdateApplicationParams(in *updateApplicationInput) UpdateApplicationP
 		ConditionalToken:               in.ConditionalToken,
 		CurrentApplicationVersionID:    in.CurrentApplicationVersionID,
 		ServiceExecutionRoleUpdate:     in.ServiceExecutionRoleUpdate,
-		ApplicationDescription:         in.ApplicationDescription,
 		RuntimeEnvironmentUpdate:       in.RuntimeEnvironmentUpdate,
 		ApplicationConfigurationUpdate: buildApplicationConfigurationUpdate(in.ApplicationConfigurationUpdate),
 		CloudWatchLoggingOptionUpdates: cwlUpdates,

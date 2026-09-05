@@ -66,6 +66,17 @@ func (b *InMemoryBackend) DeleteTemplate(name string) {
 	b.templates.Delete(name)
 }
 
+// listTemplatesDefaultMaxItems/listTemplatesMaxItemsCap are this op's own
+// documented default and ceiling (api_op_ListTemplates.go: "must be at least
+// 1 and less than or equal to 100... If more than 100 items are requested,
+// the page size will automatically set to 100. If you do not specify a
+// value, 10 is the default page size") -- distinct from sesDefaultMaxItems
+// (100), which every other List* op here defaults to.
+const (
+	listTemplatesDefaultMaxItems = 10
+	listTemplatesMaxItemsCap     = 100
+)
+
 // ListTemplates returns template names sorted alphabetically, with pagination.
 func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Page[string] {
 	b.mu.RLock("ListTemplates")
@@ -78,7 +89,11 @@ func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Pag
 		names[i] = tmpl.TemplateName
 	}
 
-	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
+	if maxItems > listTemplatesMaxItemsCap {
+		maxItems = listTemplatesMaxItemsCap
+	}
+
+	return page.New(names, nextToken, maxItems, listTemplatesDefaultMaxItems)
 }
 
 // parseTemplateData parses the JSON template-data document into a flat

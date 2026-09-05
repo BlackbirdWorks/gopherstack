@@ -113,9 +113,7 @@ func TestDataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
 	require.Equal(t, http.StatusOK, getEvalRec.Code)
 	var getEvalOut map[string]any
 	require.NoError(t, json.Unmarshal(getEvalRec.Body.Bytes(), &getEvalOut))
-	evalRun, ok := getEvalOut["DataQualityEvaluationRun"].(map[string]any)
-	require.True(t, ok, "expected DataQualityEvaluationRun field in response")
-	assert.Equal(t, "RUNNING", evalRun["Status"])
+	assert.Equal(t, "RUNNING", getEvalOut["Status"])
 
 	cancelEvalRec := doGlueRequest(t, h, "CancelDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
 	assert.Equal(t, http.StatusOK, cancelEvalRec.Code)

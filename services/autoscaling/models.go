@@ -749,9 +749,9 @@ type UpdateAutoScalingGroupInput struct {
 	InstanceLifecyclePolicy          *InstanceLifecyclePolicy
 	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	MinSize                          *int32
+	PlacementGroup                   *string
 	LaunchConfigurationName          string
 	VPCZoneIdentifier                string
-	PlacementGroup                   string
 	Context                          string
 	DesiredCapacityType              string
 	HealthCheckType                  string

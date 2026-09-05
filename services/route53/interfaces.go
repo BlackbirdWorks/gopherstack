@@ -18,7 +18,7 @@ type StorageBackend interface {
 	) (*HostedZone, error)
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
-	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+	ListHostedZones(marker string, maxItems int, delegationSetID, hostedZoneType string) (page.Page[HostedZone], error)
 	ListHostedZonesByName(dnsName, zoneID string, maxItems int) ([]HostedZone, string, string, error)
 	GetHostedZoneCount() int
 	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
@@ -54,10 +54,13 @@ type StorageBackend interface {
 	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
 	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
 	ListVPCAssociations(zoneID string) ([]vpcAssociation, error)
-	ListHostedZonesByVPC(vpcID, vpcRegion string) ([]HostedZone, error)
+	ListHostedZonesByVPC(vpcID, vpcRegion, token string, maxItems int) (page.Page[HostedZone], error)
 	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
 	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
-	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)
+	ListVPCAssociationAuthorizations(
+		zoneID, nextToken string,
+		maxResults int,
+	) (page.Page[VPCAssociationAuthorization], error)
 	CountAssociatedVPCs(zoneID string) (int, error)
 
 	// CIDR collection operations
@@ -68,9 +71,9 @@ type StorageBackend interface {
 		expectedVersion *int64,
 	) (*CidrCollection, error)
 	DeleteCidrCollection(id string) error
-	ListCidrCollections() ([]*CidrCollection, error)
-	ListCidrLocations(collectionID string) ([]string, error)
-	ListCidrBlocks(collectionID, locationName string) ([]string, error)
+	ListCidrCollections(nextToken string, maxResults int) (page.Page[*CidrCollection], error)
+	ListCidrLocations(collectionID, nextToken string, maxResults int) (page.Page[string], error)
+	ListCidrBlocks(collectionID, locationName, nextToken string, maxResults int) (page.Page[string], error)
 
 	// Query logging operations
 	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)
@@ -82,7 +85,7 @@ type StorageBackend interface {
 	CreateReusableDelegationSet(callerRef, hostedZoneID string) (*ReusableDelegationSet, error)
 	GetReusableDelegationSet(id string) (*ReusableDelegationSet, error)
 	DeleteReusableDelegationSet(id string) error
-	ListReusableDelegationSets() ([]*ReusableDelegationSet, error)
+	ListReusableDelegationSets(marker string, maxItems int) (page.Page[*ReusableDelegationSet], error)
 	CountZonesByReusableDelegationSet(id string) (int, error)
 
 	// DNS query simulation
@@ -102,11 +105,19 @@ type StorageBackend interface {
 	GetTrafficPolicy(id string, version int32) (*TrafficPolicy, error)
 	DeleteTrafficPolicyInstance(id string) error
 	GetTrafficPolicyInstance(id string) (*TrafficPolicyInstance, error)
-	ListTrafficPolicies() ([]*TrafficPolicySummary, error)
-	ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error)
-	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
-	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
-	ListTrafficPolicyInstancesByPolicy(tpID string, tpVersion int32) ([]*TrafficPolicyInstance, error)
+	ListTrafficPolicies(marker string, maxItems int) (page.Page[*TrafficPolicySummary], error)
+	ListTrafficPolicyVersions(id, marker string, maxItems int) (page.Page[*TrafficPolicy], error)
+	ListTrafficPolicyInstances(marker string, maxItems int) (page.Page[*TrafficPolicyInstance], error)
+	ListTrafficPolicyInstancesByHostedZone(
+		hostedZoneID, marker string,
+		maxItems int,
+	) (page.Page[*TrafficPolicyInstance], error)
+	ListTrafficPolicyInstancesByPolicy(
+		tpID string,
+		tpVersion int32,
+		marker string,
+		maxItems int,
+	) (page.Page[*TrafficPolicyInstance], error)
 
 	// Tags operations. resourceType is the AWS TagResourceType wire value
 	// ("hostedzone" or "healthcheck"); it is used to validate that the

@@ -143,7 +143,7 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool, nextToken string, max
 
 	var all []*Member
 
-	for _, m := range b.members.All() {
+	for _, m := range b.members.Snapshot() {
 		if onlyAssociated && m.MemberStatus != "Enabled" {
 			continue
 		}

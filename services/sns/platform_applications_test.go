@@ -46,7 +46,7 @@ func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
 				"Platform": {"GCM"},
 			},
 			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: []string{"PlatformApplicationAlreadyExists"},
+			wantBodyContains: []string{"InvalidParameter"},
 		},
 		{
 			name: "invalid_name_with_slash",
@@ -277,11 +277,16 @@ func TestSNSHandler_DeletePlatformApplication(t *testing.T) {
 			wantStatus:    http.StatusBadRequest,
 		},
 		{
-			name: "not_found",
+			// DeletePlatformApplication is idempotent, matching its declared
+			// error set (AuthorizationError/InternalError/InvalidParameter --
+			// no not-found type at all): deleting an ARN that does not exist
+			// succeeds rather than erroring (gopherstack-uox6 error-envelope
+			// sweep).
+			name: "not_found_is_idempotent",
 			formOverrides: url.Values{
 				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/none"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

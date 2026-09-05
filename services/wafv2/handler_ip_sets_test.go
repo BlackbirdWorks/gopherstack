@@ -520,6 +520,8 @@ func TestIPSetUpdateCIDRValidation(t *testing.T) {
 	// Update with invalid CIDR.
 	recBad := doWafv2Request(t, h, "UpdateIPSet", map[string]any{
 		"Id":        id,
+		"Name":      "update-set",
+		"Scope":     "REGIONAL",
 		"Addresses": []string{"not-valid"},
 	})
 	assert.Equal(t, http.StatusBadRequest, recBad.Code)
@@ -527,6 +529,8 @@ func TestIPSetUpdateCIDRValidation(t *testing.T) {
 	// Update with wrong IP version.
 	recMix := doWafv2Request(t, h, "UpdateIPSet", map[string]any{
 		"Id":        id,
+		"Name":      "update-set",
+		"Scope":     "REGIONAL",
 		"Addresses": []string{"2001:db8::/32"}, // IPv6 in IPv4 set
 	})
 	assert.Equal(t, http.StatusBadRequest, recMix.Code)
@@ -534,6 +538,8 @@ func TestIPSetUpdateCIDRValidation(t *testing.T) {
 	// Update with valid CIDR.
 	recOK := doWafv2Request(t, h, "UpdateIPSet", map[string]any{
 		"Id":        id,
+		"Name":      "update-set",
+		"Scope":     "REGIONAL",
 		"Addresses": []string{"10.0.0.0/8"},
 	})
 	assert.Equal(t, http.StatusOK, recOK.Code)
@@ -644,6 +650,8 @@ func TestUpdateIPSet_ClearAddresses(t *testing.T) {
 	// Update with empty addresses list should clear addresses (not be ignored).
 	rec := doWafv2Request(t, h, "UpdateIPSet", map[string]any{
 		"Id":        id,
+		"Name":      "my-ipset",
+		"Scope":     "REGIONAL",
 		"LockToken": lockToken,
 		"Addresses": []string{},
 	})
@@ -654,7 +662,7 @@ func TestUpdateIPSet_ClearAddresses(t *testing.T) {
 	newLockToken := updateResp["NextLockToken"].(string)
 
 	// Verify addresses were cleared.
-	rec = doWafv2Request(t, h, "GetIPSet", map[string]any{"Id": id, "Scope": "REGIONAL"})
+	rec = doWafv2Request(t, h, "GetIPSet", map[string]any{"Id": id, "Name": "my-ipset", "Scope": "REGIONAL"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any

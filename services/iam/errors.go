@@ -68,4 +68,17 @@ var (
 	ErrUnrecognizedPublicKeyEncoding = errors.New("UnrecognizedPublicKeyEncoding")
 	// ErrDelegationRequestNotFound is returned when a requested delegation request does not exist.
 	ErrDelegationRequestNotFound = errors.New("NoSuchEntity: delegation request")
+	// ErrAccountAliasNotFound is returned when DeleteAccountAlias is called with
+	// an alias that isn't the account's current one. DeleteAccountAlias's own
+	// deserializeOpError switch (iam@v1.58.1) models NoSuchEntity, not InvalidAction.
+	ErrAccountAliasNotFound = errors.New("NoSuchEntity: account alias")
+	// ErrMFADeviceNotFound is returned when an MFA operation references a virtual
+	// MFA device serial number that doesn't exist. EnableMFADevice and
+	// DeactivateMFADevice's own deserializeOpError switches (iam@v1.58.1) both
+	// model NoSuchEntity, not InvalidAction.
+	ErrMFADeviceNotFound = errors.New("NoSuchEntity: virtual MFA device")
+	// ErrMFADeviceAlreadyEnabled is returned when EnableMFADevice is called on a
+	// device that is already enabled. EnableMFADevice's own deserializeOpError
+	// switch (iam@v1.58.1) models EntityAlreadyExists, not InvalidAction.
+	ErrMFADeviceAlreadyEnabled = errors.New("EntityAlreadyExists: virtual MFA device already enabled")
 )

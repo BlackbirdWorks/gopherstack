@@ -107,6 +107,13 @@ type InMemoryBackend struct {
 	// totalMetrics is the running count of distinct metric series across all
 	// namespaces, maintained on insert/delete to avoid O(namespaces) walks (#60).
 	totalMetrics int
+	// alarmHistorySeq is a monotonic counter assigned to each AlarmHistoryItem
+	// on append, used as a sort tiebreak alongside Timestamp: alarmHistory is a
+	// plain map keyed by alarm name (unordered walk), and real-world history
+	// items can share an identical Timestamp, so Timestamp alone is not a
+	// unique sort key -- DescribeAlarmHistory's pagination would otherwise drop
+	// or duplicate records at a page boundary across two calls.
+	alarmHistorySeq uint64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -183,5 +190,6 @@ func (b *InMemoryBackend) Reset() {
 
 	b.metrics = make(map[string]map[string]*metricRecord)
 	b.alarmHistory = make(map[string][]AlarmHistoryItem)
+	b.alarmHistorySeq = 0
 	b.registry.ResetAll()
 }

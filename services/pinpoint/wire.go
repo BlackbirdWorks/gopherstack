@@ -69,7 +69,6 @@ type createInAppTemplateRequest struct {
 
 // createJourneyRequest is the request body for CreateJourney.
 type createJourneyRequest struct {
-	Tags                   map[string]string         `json:"tags,omitempty"`
 	Activities             map[string]map[string]any `json:"Activities,omitempty"`
 	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
 	Schedule               map[string]any            `json:"Schedule,omitempty"`
@@ -115,11 +114,10 @@ type createRecommenderConfigRequest struct {
 
 // createSegmentRequest is the request body for CreateSegment.
 type createSegmentRequest struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	Dimensions       map[string]any    `json:"Dimensions,omitempty"`
-	SegmentGroups    map[string]any    `json:"SegmentGroups,omitempty"`
-	ImportDefinition map[string]any    `json:"ImportDefinition,omitempty"`
-	Name             string            `json:"Name"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	Dimensions    map[string]any    `json:"Dimensions,omitempty"`
+	SegmentGroups map[string]any    `json:"SegmentGroups,omitempty"`
+	Name          string            `json:"Name"`
 }
 
 // createSmsTemplateRequest is the request body for CreateSmsTemplate.
@@ -228,7 +226,6 @@ type importJobResponse struct {
 
 // journeyResponse is the JSON wire format of JourneyResponse.
 type journeyResponse struct {
-	Tags                   map[string]string         `json:"tags,omitempty"`
 	Activities             map[string]map[string]any `json:"Activities,omitempty"`
 	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
 	Schedule               map[string]any            `json:"Schedule,omitempty"`
@@ -361,16 +358,14 @@ type updateCampaignRequest struct {
 
 // updateSegmentRequest is the request body for UpdateSegment.
 type updateSegmentRequest struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	Dimensions       map[string]any    `json:"Dimensions,omitempty"`
-	SegmentGroups    map[string]any    `json:"SegmentGroups,omitempty"`
-	ImportDefinition map[string]any    `json:"ImportDefinition,omitempty"`
-	Name             string            `json:"Name,omitempty"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	Dimensions    map[string]any    `json:"Dimensions,omitempty"`
+	SegmentGroups map[string]any    `json:"SegmentGroups,omitempty"`
+	Name          string            `json:"Name,omitempty"`
 }
 
 // updateJourneyRequest is the request body for UpdateJourney.
 type updateJourneyRequest struct {
-	Tags                   map[string]string         `json:"tags,omitempty"`
 	Activities             map[string]map[string]any `json:"Activities,omitempty"`
 	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
 	Schedule               map[string]any            `json:"Schedule,omitempty"`

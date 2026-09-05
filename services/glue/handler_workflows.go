@@ -238,7 +238,7 @@ func (h *Handler) handleResumeWorkflowRun(
 		return &resumeWorkflowRunOutput{NodeIDs: []string{}}, nil
 	}
 
-	runID, nodeIDs, err := h.Backend.ResumeWorkflowRun(in.Name, in.RunID)
+	runID, nodeIDs, err := h.Backend.ResumeWorkflowRun(in.Name, in.RunID, in.NodeIDs)
 	if err != nil {
 		return nil, err
 	}

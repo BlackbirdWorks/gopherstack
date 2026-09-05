@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -129,8 +131,17 @@ func (b *InMemoryBackend) GetTrafficPolicyInstance(id string) (*TrafficPolicyIns
 	return &cp, nil
 }
 
-// ListTrafficPolicyInstances returns all traffic policy instances.
-func (b *InMemoryBackend) ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error) {
+// ListTrafficPolicyInstances returns a page of traffic policy instances,
+// paginated by marker (route53@v1.65.6 api_op_ListTrafficPolicyInstances.go
+// echoes the cursor across HostedZoneIdMarker/TrafficPolicyInstanceNameMarker/
+// TrafficPolicyInstanceTypeMarker; this backend carries it as a single
+// opaque token, same simplification ListHostedZonesByVPC already makes).
+// Sorted by ID, which is unique, so the sort admits no ties despite
+// b.trafficPolicyInstances.All() being an unordered map walk.
+func (b *InMemoryBackend) ListTrafficPolicyInstances(
+	marker string,
+	maxItems int,
+) (page.Page[*TrafficPolicyInstance], error) {
 	b.mu.RLock("ListTrafficPolicyInstances")
 	defer b.mu.RUnlock()
 
@@ -143,7 +154,7 @@ func (b *InMemoryBackend) ListTrafficPolicyInstances() ([]*TrafficPolicyInstance
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
 // UpdateTrafficPolicyInstance updates the TTL of a traffic policy instance.
@@ -181,10 +192,16 @@ func (b *InMemoryBackend) UpdateTrafficPolicyInstance(
 	return &cp, nil
 }
 
-// ListTrafficPolicyInstancesByHostedZone filters instances by hosted zone ID.
+// ListTrafficPolicyInstancesByHostedZone returns a page of instances
+// filtered by hosted zone ID, paginated by marker (route53@v1.65.6
+// api_op_ListTrafficPolicyInstancesByHostedZone.go; see
+// ListTrafficPolicyInstances's doc comment for the single-opaque-token
+// simplification). Sorted by ID, which is unique, so the sort admits no
+// ties despite trafficPolicyInstancesByZone.Get being an unordered map walk.
 func (b *InMemoryBackend) ListTrafficPolicyInstancesByHostedZone(
-	hostedZoneID string,
-) ([]*TrafficPolicyInstance, error) {
+	hostedZoneID, marker string,
+	maxItems int,
+) (page.Page[*TrafficPolicyInstance], error) {
 	b.mu.RLock("ListTrafficPolicyInstancesByHostedZone")
 	defer b.mu.RUnlock()
 
@@ -198,14 +215,20 @@ func (b *InMemoryBackend) ListTrafficPolicyInstancesByHostedZone(
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
-// ListTrafficPolicyInstancesByPolicy filters instances by traffic policy ID and version.
+// ListTrafficPolicyInstancesByPolicy returns a page of instances filtered by
+// traffic policy ID and version, paginated by marker (route53@v1.65.6
+// api_op_ListTrafficPolicyInstancesByPolicy.go; see
+// ListTrafficPolicyInstances's doc comment for the single-opaque-token
+// simplification).
 func (b *InMemoryBackend) ListTrafficPolicyInstancesByPolicy(
 	tpID string,
 	tpVersion int32,
-) ([]*TrafficPolicyInstance, error) {
+	marker string,
+	maxItems int,
+) (page.Page[*TrafficPolicyInstance], error) {
 	b.mu.RLock("ListTrafficPolicyInstancesByPolicy")
 	defer b.mu.RUnlock()
 
@@ -225,5 +248,5 @@ func (b *InMemoryBackend) ListTrafficPolicyInstancesByPolicy(
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }

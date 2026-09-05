@@ -142,6 +142,15 @@ func TestHandler_ListTableMetadata(t *testing.T) {
 			wantExclude: "sample_table",
 		},
 		{
+			// Expression is documented as a regex, not a substring. A literal
+			// substring match would never find "sample_table" via an anchored
+			// regex like this one.
+			name:         "filtered_regex_anchor",
+			body:         `{"CatalogName":"AwsDataCatalog","DatabaseName":"default","Expression":"^sample_table$"}`,
+			wantStatus:   http.StatusOK,
+			wantContains: "sample_table",
+		},
+		{
 			name:       "validation_no_catalog",
 			body:       `{}`,
 			wantStatus: http.StatusBadRequest,

@@ -49,7 +49,7 @@ func (b *InMemoryBackend) UpdateFirewallConfig(
 	default:
 		return nil, fmt.Errorf(
 			"%w: FirewallFailOpen must be %s, %s, or %s",
-			ErrValidation,
+			ErrBatchValidation,
 			firewallFailOpenEnabled,
 			firewallFailOpenDisabled,
 			firewallFailOpenUseLocal,

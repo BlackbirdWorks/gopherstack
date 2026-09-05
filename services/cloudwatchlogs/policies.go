@@ -90,22 +90,27 @@ func (b *InMemoryBackend) PutResourcePolicy(
 	return &p, nil
 }
 
-// DescribeResourcePolicies returns resource policies, sorted by name.
+// DescribeResourcePolicies returns resource policies, sorted by name, with
+// Limit/NextToken pagination (api_op_DescribeResourcePolicies.go:29-42 --
+// no documented default, so this falls back to defaultDescribeLimit like
+// every other Describe op in this service, e.g. DescribeLogStreams).
 // resourceArn (when set) looks up the single resource-scoped policy on that
 // ARN. Otherwise policyScope filters by scope, defaulting to ACCOUNT per
 // DescribeResourcePoliciesInput's own doc comment ("When not specified,
 // defaults to ACCOUNT").
-func (b *InMemoryBackend) DescribeResourcePolicies(policyScope, resourceArn string) []ResourcePolicy {
+func (b *InMemoryBackend) DescribeResourcePolicies(
+	policyScope, resourceArn, nextToken string, limit int,
+) ([]ResourcePolicy, string) {
 	b.mu.RLock("DescribeResourcePolicies")
 	defer b.mu.RUnlock()
 
 	if resourceArn != "" {
 		p, ok := b.resourcePolicies.Get(resourcePolicyStoreKey("", resourceArn))
 		if !ok {
-			return []ResourcePolicy{}
+			return []ResourcePolicy{}, ""
 		}
 
-		return []ResourcePolicy{*p}
+		return []ResourcePolicy{*p}, ""
 	}
 
 	if policyScope == "" {
@@ -120,9 +125,33 @@ func (b *InMemoryBackend) DescribeResourcePolicies(policyScope, resourceArn stri
 		out = append(out, *p)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].PolicyName < out[j].PolicyName })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PolicyName != out[j].PolicyName {
+			return out[i].PolicyName < out[j].PolicyName
+		}
 
-	return out
+		return out[i].ResourceArn < out[j].ResourceArn
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(out) {
+		return []ResourcePolicy{}, ""
+	}
+
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	end := startIdx + limit
+
+	var outToken string
+	if end < len(out) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(out)
+	}
+
+	return out[startIdx:end], outToken
 }
 
 // DeleteResourcePolicy removes a resource policy by name (account scope) or
@@ -168,19 +197,35 @@ func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument stri
 	return &p, nil
 }
 
-// DescribeIndexPolicies returns all index policies sorted by log group identifier.
-func (b *InMemoryBackend) DescribeIndexPolicies() []IndexPolicy {
+// DescribeIndexPolicies returns the index policies for the given log group
+// identifiers (DescribeIndexPoliciesInput.LogGroupIdentifiers is a required
+// member -- api_op_DescribeIndexPolicies.go), sorted by log group
+// identifier, with NextToken pagination (the real op has no documented
+// default/max page size, so this follows the same defaultDescribeLimit
+// fallback the rest of this package's undocumented-default ops use).
+func (b *InMemoryBackend) DescribeIndexPolicies(
+	logGroupIdentifiers []string, nextToken string, limit int,
+) ([]IndexPolicy, string) {
 	b.mu.RLock("DescribeIndexPolicies")
 	defer b.mu.RUnlock()
 
-	out := make([]IndexPolicy, 0, b.indexPolicies.Len())
+	want := make(map[string]bool, len(logGroupIdentifiers))
+	for _, id := range logGroupIdentifiers {
+		want[id] = true
+	}
+
+	out := make([]IndexPolicy, 0, len(want))
 	for _, p := range b.indexPolicies.All() {
-		out = append(out, *p)
+		if want[p.LogGroupIdentifier] {
+			out = append(out, *p)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].LogGroupIdentifier < out[j].LogGroupIdentifier })
 
-	return out
+	start, end, outToken := paginateRange(len(out), nextToken, limit)
+
+	return out[start:end], outToken
 }
 
 // DeleteIndexPolicy removes the index policy for a log group.

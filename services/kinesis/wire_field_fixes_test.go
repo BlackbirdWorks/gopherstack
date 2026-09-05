@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -378,4 +379,131 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 	require.NotNil(t, summary.StreamDescriptionSummary.WarmThroughput)
 	assert.Equal(t, int32(7), aws.ToInt32(summary.StreamDescriptionSummary.WarmThroughput.CurrentMiBps),
 		"WarmThroughputMiBps given at UpdateStreamMode time must be applied")
+}
+
+// TestGetRecords_EncryptionType drives types.Record's EncryptionType member
+// (kinesis@v1.46.4 deserializers.go:5363, awsAwsjson11_deserializeDocumentRecord)
+// on both GetRecords and SubscribeToShard. Before this fix, jsonRecord had no
+// Go field for it at all -- every record silently reported no encryption type
+// even on a stream with StartStreamEncryption(KMS) applied, though the
+// backend already tracks Stream.EncryptionType and reads it back correctly
+// on DescribeStream/DescribeStreamSummary.
+func TestGetRecords_EncryptionType(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "encryption-type-stream"
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, desc.StreamDescription.Shards, errNoShards)
+	shardID := desc.StreamDescription.Shards[0].ShardId
+
+	_, err = client.StartStreamEncryption(t.Context(), &kinesissdk.StartStreamEncryptionInput{
+		StreamName:     aws.String(streamName),
+		EncryptionType: types.EncryptionTypeKms,
+		KeyId:          aws.String("alias/test-key"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutRecord(t.Context(), &kinesissdk.PutRecordInput{
+		StreamName:   aws.String(streamName),
+		PartitionKey: aws.String("pk"),
+		Data:         []byte("hello"),
+	})
+	require.NoError(t, err)
+
+	iterOut, err := client.GetShardIterator(t.Context(), &kinesissdk.GetShardIteratorInput{
+		StreamName:        aws.String(streamName),
+		ShardId:           shardID,
+		ShardIteratorType: types.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+
+	recOut, err := client.GetRecords(t.Context(), &kinesissdk.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.NoError(t, err)
+	require.Len(t, recOut.Records, 1)
+	assert.Equal(t, types.EncryptionTypeKms, recOut.Records[0].EncryptionType,
+		"GetRecords must report the stream's real KMS encryption type, not the zero value")
+}
+
+// TestSubscribeToShard_EncryptionType is TestGetRecords_EncryptionType's
+// enhanced-fan-out counterpart: SubscribeToShardEvent.Records use the same
+// real types.Record shape (deserializers.go:5549-5605 ->
+// awsAwsjson11_deserializeDocumentRecordList), so it shared the same missing
+// jsonRecord.EncryptionType field.
+func TestSubscribeToShard_EncryptionType(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "subscribe-encryption-type-stream"
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, desc.StreamDescription.Shards, errNoShards)
+	shardID := desc.StreamDescription.Shards[0].ShardId
+
+	_, err = client.StartStreamEncryption(t.Context(), &kinesissdk.StartStreamEncryptionInput{
+		StreamName:     aws.String(streamName),
+		EncryptionType: types.EncryptionTypeKms,
+		KeyId:          aws.String("alias/test-key"),
+	})
+	require.NoError(t, err)
+
+	consOut, err := client.RegisterStreamConsumer(t.Context(), &kinesissdk.RegisterStreamConsumerInput{
+		StreamARN:    desc.StreamDescription.StreamARN,
+		ConsumerName: aws.String("encryption-watcher"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutRecord(t.Context(), &kinesissdk.PutRecordInput{
+		StreamName:   aws.String(streamName),
+		PartitionKey: aws.String("pk"),
+		Data:         []byte("hello"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.SubscribeToShard(t.Context(), &kinesissdk.SubscribeToShardInput{
+		ConsumerARN: consOut.Consumer.ConsumerARN,
+		ShardId:     shardID,
+		StartingPosition: &types.StartingPosition{
+			Type: types.ShardIteratorTypeTrimHorizon,
+		},
+	})
+	require.NoError(t, err)
+
+	stream := out.GetStream()
+	require.NotNil(t, stream)
+	defer stream.Close()
+
+	select {
+	case ev := <-stream.Events():
+		e, ok := ev.(*types.SubscribeToShardEventStreamMemberSubscribeToShardEvent)
+		require.True(t, ok, "unexpected event type %T", ev)
+		require.Len(t, e.Value.Records, 1)
+		assert.Equal(t, types.EncryptionTypeKms, e.Value.Records[0].EncryptionType,
+			"SubscribeToShard must report the stream's real KMS encryption type, not the zero value")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for an event from the real SDK's event stream reader")
+	}
 }

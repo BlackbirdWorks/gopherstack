@@ -73,7 +73,9 @@ func (h *Handler) handleDeleteProgram(c *echo.Context, channelName, programName 
 
 func (h *Handler) handleGetChannelSchedule(c *echo.Context, channelName string) error {
 	maxResults, nextToken := extractPaginationParams(c)
-	entries, nextToken, err := h.Backend.GetChannelSchedule(channelName, maxResults, nextToken)
+	audience := c.Request().URL.Query().Get("audience")
+
+	entries, nextToken, err := h.Backend.GetChannelSchedule(channelName, audience, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}

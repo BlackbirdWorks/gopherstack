@@ -75,12 +75,16 @@ func (h *Handler) describeReservedCacheNodes(ctx context.Context, c *echo.Contex
 	id := form.Get("ReservedCacheNodeId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
+	duration := form.Get("Duration")
+	productDescription := form.Get("ProductDescription")
 	marker, maxRecords, err := parsePaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
-	p, err := h.Backend.DescribeReservedCacheNodes(ctx, id, cacheNodeType, offeringType, marker, maxRecords)
+	p, err := h.Backend.DescribeReservedCacheNodes(
+		ctx, id, cacheNodeType, offeringType, duration, productDescription, marker, maxRecords,
+	)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodeNotFound) {
 			return xmlError(c, http.StatusNotFound, "ReservedCacheNodeNotFound", "Reserved cache node not found")
@@ -107,6 +111,8 @@ func (h *Handler) describeReservedCacheNodesOfferings(ctx context.Context, c *ec
 	offeringID := form.Get("ReservedCacheNodesOfferingId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
+	duration := form.Get("Duration")
+	productDescription := form.Get("ProductDescription")
 	marker, maxRecords, err := parsePaginationChecked(c, form)
 	if err != nil {
 		return err
@@ -117,6 +123,8 @@ func (h *Handler) describeReservedCacheNodesOfferings(ctx context.Context, c *ec
 		offeringID,
 		cacheNodeType,
 		offeringType,
+		duration,
+		productDescription,
 		marker,
 		maxRecords,
 	)

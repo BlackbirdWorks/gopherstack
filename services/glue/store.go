@@ -102,6 +102,8 @@ const stateScheduled = "SCHEDULED"
 
 const stateNotScheduled = "NOT_SCHEDULED"
 
+const sortDirectionDescending = "DESCENDING"
+
 // ExportSetting values for {Get,Put}DataCatalogExportConfiguration. Status
 // reuses these two values rather than the SDK's richer ExportStatus enum,
 // since this backend has no async export pipeline to simulate -- see catalogs.go.

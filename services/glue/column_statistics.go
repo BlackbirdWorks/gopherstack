@@ -137,7 +137,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 		DatabaseName:              dbName,
 		TableName:                 tableName,
 		ColumnStatisticsTaskRunID: runID,
-		Status:                    "STARTED",
+		Status:                    stateStarting,
 		Role:                      role,
 		StartedOn:                 float64(time.Now().Unix()),
 	}
@@ -205,7 +205,11 @@ func (b *InMemoryBackend) ListColumnStatisticsTaskRuns() []*ColumnStatisticsTask
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn < runs[k].StartedOn
+		if runs[i].StartedOn != runs[k].StartedOn {
+			return runs[i].StartedOn < runs[k].StartedOn
+		}
+
+		return runs[i].ColumnStatisticsTaskRunID < runs[k].ColumnStatisticsTaskRunID
 	})
 
 	return runs

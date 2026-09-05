@@ -138,6 +138,264 @@ func TestGetTraceSummaries_Annotations_RealClient(t *testing.T) {
 	assert.Equal(t, []string{"svc-b"}, []string{aws.ToString(ann["env2"][0].ServiceIds[0].Name)})
 }
 
+// TestGetTraceSummaries_AvailabilityZonesAndInstanceIds_RealClient covers a
+// write-only-state bug: PutTraceSegments already parses and stores each
+// segment's "aws" block (models.go's Segment.AWS, populated via
+// json.Unmarshal in trace_segments.go's PutTraceSegments) but nothing ever
+// read it back. TraceSummary.AvailabilityZones ([]AvailabilityZoneDetail{Name})
+// and TraceSummary.InstanceIds ([]InstanceIdDetail{Id}) are real,
+// documented GetTraceSummariesOutput fields (confirmed against
+// xray@v1.39.4 deserializers.go's awsRestjson1_deserializeDocumentTraceSummary
+// case "AvailabilityZones"/"InstanceIds", and the segment document's
+// aws.ec2.{availability_zone,instance_id} fields per
+// docs.aws.amazon.com/xray/latest/devguide/xray-api-segmentdocuments.html)
+// that were entirely absent from the response, even though the data needed
+// to populate them was already sitting in already-parsed segments.
+func TestGetTraceSummaries_AvailabilityZonesAndInstanceIds_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	const traceID = "1-6a1b2c3d-aabbccddeeff00112233445566"
+
+	root := fmt.Sprintf(
+		`{"trace_id":%q,"id":"root","name":"svc-a","start_time":1700000000,`+
+			`"end_time":1700000001,"origin":"AWS::EC2::Instance",`+
+			`"aws":{"ec2":{"instance_id":"i-0b5a4678fc325bg98","availability_zone":"us-west-2c"}}}`,
+		traceID,
+	)
+	// A second segment on a different instance in the same AZ, in the same
+	// trace: proves de-duplication of the shared AZ and accumulation of the
+	// second, distinct instance ID.
+	child := fmt.Sprintf(
+		`{"trace_id":%q,"id":"child","parent_id":"root","name":"svc-b","start_time":1700000000.5,`+
+			`"end_time":1700000001,"origin":"AWS::EC2::Instance",`+
+			`"aws":{"ec2":{"instance_id":"i-0999888877776666a","availability_zone":"us-west-2c"}}}`,
+		traceID,
+	)
+
+	_, err := client.PutTraceSegments(ctx, &xraysdk.PutTraceSegmentsInput{
+		TraceSegmentDocuments: []string{root, child},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetTraceSummaries(ctx, &xraysdk.GetTraceSummariesInput{
+		StartTime: aws.Time(time.Unix(1699999999, 0)),
+		EndTime:   aws.Time(time.Unix(1700000100, 0)),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TraceSummaries, 1)
+
+	ts := out.TraceSummaries[0]
+
+	require.Len(t, ts.AvailabilityZones, 1, "the shared AZ across both segments must be de-duplicated")
+	assert.Equal(t, "us-west-2c", aws.ToString(ts.AvailabilityZones[0].Name))
+
+	gotInstances := make([]string, 0, len(ts.InstanceIds))
+	for _, id := range ts.InstanceIds {
+		gotInstances = append(gotInstances, aws.ToString(id.Id))
+	}
+
+	assert.ElementsMatch(t, []string{"i-0b5a4678fc325bg98", "i-0999888877776666a"}, gotInstances)
+}
+
+// TestGetServiceGraph_GroupFilterExpression_RealClient covers a discarded-filter
+// bug sibling to gopherstack-6flj's GetInsightSummaries fix: GetServiceGraphInput's
+// optional GroupName/GroupARN (api_op_GetServiceGraph.go: "The name of a group
+// based on which you want to generate a graph") were parsed by the handler but
+// never passed to the backend at all -- every group, including a nonexistent
+// one, returned the exact same unfiltered graph built from every stored trace.
+func TestGetServiceGraph_GroupFilterExpression_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateGroup(ctx, &xraysdk.CreateGroupInput{
+		GroupName:        aws.String("faults-only"),
+		FilterExpression: aws.String("fault"),
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	faultTraceID := "1-svcgraph-fault-0000000000000001"
+	okTraceID := "1-svcgraph-ok-00000000000000001"
+
+	_, err = client.PutTraceSegments(ctx, &xraysdk.PutTraceSegmentsInput{
+		TraceSegmentDocuments: []string{
+			fmt.Sprintf(
+				`{"trace_id":%q,"id":"seg-fault","name":"svc-fault","start_time":%d,"end_time":%d,"fault":true}`,
+				faultTraceID, now.Unix(), now.Unix()+1,
+			),
+			fmt.Sprintf(
+				`{"trace_id":%q,"id":"seg-ok","name":"svc-ok","start_time":%d,"end_time":%d}`,
+				okTraceID, now.Unix(), now.Unix()+1,
+			),
+		},
+	})
+	require.NoError(t, err)
+
+	window := func(in *xraysdk.GetServiceGraphInput) {
+		in.StartTime = aws.Time(now.Add(-time.Hour))
+		in.EndTime = aws.Time(now.Add(time.Hour))
+	}
+
+	names := func(services []xraytypes.Service) []string {
+		out := make([]string, 0, len(services))
+		for _, s := range services {
+			out = append(out, aws.ToString(s.Name))
+		}
+
+		return out
+	}
+
+	// No group specified: both services appear, matching pre-fix behavior for
+	// the ungrouped case.
+	unfiltered := &xraysdk.GetServiceGraphInput{}
+	window(unfiltered)
+	out, err := client.GetServiceGraph(ctx, unfiltered)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc-fault", "svc-ok"}, names(out.Services))
+
+	// Scoped to "faults-only" (FilterExpression "fault"): only the faulting
+	// trace's service must appear. Pre-fix, this returned the same unfiltered
+	// set as above.
+	scoped := &xraysdk.GetServiceGraphInput{GroupName: aws.String("faults-only")}
+	window(scoped)
+	out, err = client.GetServiceGraph(ctx, scoped)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"svc-fault"}, names(out.Services))
+
+	// A group name that doesn't exist: real X-Ray declares no
+	// ResourceNotFoundException for this op (InvalidRequestException/
+	// ThrottledException only), so an unresolvable group must yield an empty
+	// graph, not an error and not the full unfiltered graph.
+	unknown := &xraysdk.GetServiceGraphInput{GroupName: aws.String("does-not-exist")}
+	window(unknown)
+	out, err = client.GetServiceGraph(ctx, unknown)
+	require.NoError(t, err)
+	assert.Empty(t, out.Services)
+}
+
+// TestGetTimeSeriesServiceStatistics_GroupFilterExpression_RealClient covers
+// the same discarded-filter bug class as TestGetServiceGraph_GroupFilterExpression_RealClient,
+// for GetTimeSeriesServiceStatisticsInput's sibling optional GroupName/GroupARN
+// fields (api_op_GetTimeSeriesServiceStatistics.go).
+func TestGetTimeSeriesServiceStatistics_GroupFilterExpression_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateGroup(ctx, &xraysdk.CreateGroupInput{
+		GroupName:        aws.String("faults-only-ts"),
+		FilterExpression: aws.String("fault"),
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+
+	_, err = client.PutTraceSegments(ctx, &xraysdk.PutTraceSegmentsInput{
+		TraceSegmentDocuments: []string{
+			fmt.Sprintf(
+				`{"trace_id":"1-tsstats-fault-000000000001","id":"seg-fault-ts",`+
+					`"name":"svc-fault-ts","start_time":%d,"end_time":%d,"fault":true}`,
+				now.Unix(), now.Unix()+1,
+			),
+			fmt.Sprintf(
+				`{"trace_id":"1-tsstats-ok-0000000000001","id":"seg-ok-ts",`+
+					`"name":"svc-ok-ts","start_time":%d,"end_time":%d}`,
+				now.Unix(), now.Unix()+1,
+			),
+		},
+	})
+	require.NoError(t, err)
+
+	totalCount := func(out *xraysdk.GetTimeSeriesServiceStatisticsOutput) int64 {
+		var total int64
+		for _, ts := range out.TimeSeriesServiceStatistics {
+			if ts.ServiceSummaryStatistics != nil {
+				total += aws.ToInt64(ts.ServiceSummaryStatistics.TotalCount)
+			}
+		}
+
+		return total
+	}
+
+	unfiltered, err := client.GetTimeSeriesServiceStatistics(ctx, &xraysdk.GetTimeSeriesServiceStatisticsInput{
+		StartTime: aws.Time(now.Add(-time.Hour)),
+		EndTime:   aws.Time(now.Add(time.Hour)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), totalCount(unfiltered), "both segments must count with no group filter")
+
+	scoped, err := client.GetTimeSeriesServiceStatistics(ctx, &xraysdk.GetTimeSeriesServiceStatisticsInput{
+		StartTime: aws.Time(now.Add(-time.Hour)),
+		EndTime:   aws.Time(now.Add(time.Hour)),
+		GroupName: aws.String("faults-only-ts"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), totalCount(scoped), "only the faulting trace's segment must count once scoped")
+}
+
+// TestStartTraceRetrieval_TimeRangeFiltering_RealClient covers a
+// decoded-but-never-read request field / disabled-validation bug:
+// StartTraceRetrievalInput.StartTime/.EndTime are both real, required fields
+// (api_op_StartTraceRetrieval.go: "the time range to retrieve traces" --
+// required alongside TraceIds) that the handler parsed but never passed to
+// the backend at all, so a retrieval token always returned every requested
+// trace ID regardless of whether it fell inside the requested time range.
+func TestStartTraceRetrieval_TimeRangeFiltering_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	now := time.Now()
+	oldTraceID := "1-retrieval-old-00000000000000001"
+	recentTraceID := "1-retrieval-recent-0000000000001"
+
+	oldStart := now.Add(-72 * time.Hour)
+
+	_, err := client.PutTraceSegments(ctx, &xraysdk.PutTraceSegmentsInput{
+		TraceSegmentDocuments: []string{
+			fmt.Sprintf(
+				`{"trace_id":%q,"id":"seg-old","name":"svc-old","start_time":%d,"end_time":%d}`,
+				oldTraceID, oldStart.Unix(), oldStart.Unix()+1,
+			),
+			fmt.Sprintf(
+				`{"trace_id":%q,"id":"seg-recent","name":"svc-recent","start_time":%d,"end_time":%d}`,
+				recentTraceID, now.Unix(), now.Unix()+1,
+			),
+		},
+	})
+	require.NoError(t, err)
+
+	// Window covers only the recent trace -- pre-fix, both traces would come
+	// back regardless of this window.
+	start, err := client.StartTraceRetrieval(ctx, &xraysdk.StartTraceRetrievalInput{
+		TraceIds:  []string{oldTraceID, recentTraceID},
+		StartTime: aws.Time(now.Add(-time.Hour)),
+		EndTime:   aws.Time(now.Add(time.Hour)),
+	})
+	require.NoError(t, err)
+
+	token := aws.ToString(start.RetrievalToken)
+	require.NotEmpty(t, token)
+
+	list, err := client.ListRetrievedTraces(ctx, &xraysdk.ListRetrievedTracesInput{RetrievalToken: aws.String(token)})
+	require.NoError(t, err)
+
+	gotIDs := make([]string, 0, len(list.Traces))
+	for _, tr := range list.Traces {
+		gotIDs = append(gotIDs, aws.ToString(tr.Id))
+	}
+
+	assert.Equal(t, []string{recentTraceID}, gotIDs,
+		"the trace whose StartTime falls outside [StartTime,EndTime] must be excluded")
+}
+
 // TestGetInsightSummaries_GroupAndTimeFiltering covers a discarded-filter bug
 // (gopherstack-6flj): GetInsightSummariesInput's GroupARN/GroupName and
 // StartTime/EndTime (all required or one-of-required per the real

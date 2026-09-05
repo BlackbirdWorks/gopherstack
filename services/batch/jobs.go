@@ -24,6 +24,15 @@ const (
 	jobStatusFailed    = "FAILED"
 
 	maxJobNameLength = 128
+
+	// KeyValuesPair filter names shared by ListJobs/ListServiceJobs/
+	// ListConsumableResources (api_op_ListJobs.go, api_op_ListServiceJobs.go).
+	filterJobName         = "JOB_NAME"
+	filterJobDefinition   = "JOB_DEFINITION"
+	filterShareIdentifier = "SHARE_IDENTIFIER"
+	filterQuotaShareName  = "QUOTA_SHARE_NAME"
+	filterBeforeCreatedAt = "BEFORE_CREATED_AT"
+	filterAfterCreatedAt  = "AFTER_CREATED_AT"
 )
 
 // newConsumableResourceProperties wraps a non-empty requirement list in the
@@ -304,15 +313,109 @@ func (b *InMemoryBackend) listJobIDsForQueue(region, queue string) ([]string, er
 	return ids, nil
 }
 
-// ListJobs returns job summaries for a queue, optionally filtered by status.
-// Matching real AWS Batch's documented ListJobs behavior (api_op_ListJobs.go:
-// "If you don't specify a status, only RUNNING jobs are returned"), an
-// unspecified status defaults to RUNNING -- same pattern as ListServiceJobs.
-// Pagination is controlled via maxResults and nextToken (token encodes an integer offset).
+// KeyValueFilter is one KeyValuesPair entry from ListJobsInput.Filters
+// (aws-sdk-go-v2/service/batch/types.KeyValuesPair). Name is case sensitive
+// per the SDK's own doc comment on KeyValuesPair.
+type KeyValueFilter struct {
+	Name   string
+	Values []string
+}
+
+// jobDefinitionNameFromARN extracts the name from a
+// "job-definition/<name>:<revision>" ARN resource segment, as built by
+// job_definitions.go's RegisterJobDefinition (arn.Build(..., "job-definition/%s:%d", ...)).
+func jobDefinitionNameFromARN(jdARN string) string {
+	resource := jdARN
+	if i := strings.LastIndex(jdARN, "job-definition/"); i >= 0 {
+		resource = jdARN[i+len("job-definition/"):]
+	}
+
+	if i := strings.LastIndex(resource, ":"); i >= 0 {
+		return resource[:i]
+	}
+
+	return resource
+}
+
+// filterValueMatches reports whether s matches value under ListJobs' shared
+// wildcard rule: a trailing '*' is a prefix match, otherwise an exact match.
+// caseInsensitive controls whether the comparison folds case (JOB_NAME is
+// documented case-insensitive; JOB_DEFINITION and SHARE_IDENTIFIER are not).
+func filterValueMatches(s, value string, caseInsensitive bool) bool {
+	if caseInsensitive {
+		s = strings.ToLower(s)
+		value = strings.ToLower(value)
+	}
+
+	if prefix, ok := strings.CutSuffix(value, "*"); ok {
+		return strings.HasPrefix(s, prefix)
+	}
+
+	return s == value
+}
+
+// jobMatchesFilterValue reports whether j matches a single value of a
+// single-named filter (one of the JOB_NAME/JOB_DEFINITION/SHARE_IDENTIFIER/
+// BEFORE_CREATED_AT/AFTER_CREATED_AT filter names documented on
+// api_op_ListJobs.go). An unrecognized name matches nothing.
+func jobMatchesFilterValue(j *Job, name, v string) bool {
+	switch name {
+	case filterJobName:
+		return filterValueMatches(j.JobName, v, true)
+	case filterJobDefinition:
+		return jobMatchesJobDefinitionFilter(j, v)
+	case filterShareIdentifier:
+		return j.ShareIdentifier == v
+	case filterBeforeCreatedAt:
+		ms, err := strconv.ParseInt(v, 10, 64)
+
+		return err == nil && j.CreatedAt < ms
+	case filterAfterCreatedAt:
+		ms, err := strconv.ParseInt(v, 10, 64)
+
+		return err == nil && j.CreatedAt > ms
+	default:
+		return false
+	}
+}
+
+// jobMatchesJobDefinitionFilter implements the JOB_DEFINITION filter: an ARN
+// value is matched exactly (no wildcard support for ARNs, per
+// api_op_ListJobs.go: "Asterisk isn't supported when the ARN is used"); a
+// bare name matches any revision of that job definition, case sensitively,
+// with the same trailing-'*' prefix rule as JOB_NAME.
+func jobMatchesJobDefinitionFilter(j *Job, v string) bool {
+	if strings.HasPrefix(v, "arn:") {
+		return j.JobDefinition == v
+	}
+
+	return filterValueMatches(jobDefinitionNameFromARN(j.JobDefinition), v, false)
+}
+
+// jobMatchesFilter reports whether j satisfies a single KeyValueFilter entry.
+// Values within one entry are OR'd (matches any).
+func jobMatchesFilter(j *Job, f KeyValueFilter) bool {
+	for _, v := range f.Values {
+		if jobMatchesFilterValue(j, f.Name, v) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ListJobs returns job summaries for a queue, optionally filtered by status
+// and/or Filters. Matching real AWS Batch's documented ListJobs behavior
+// (api_op_ListJobs.go): an unspecified status defaults to RUNNING; when
+// Filters is non-empty, status is ignored (jobs of any status are returned)
+// unless every filter entry is SHARE_IDENTIFIER, the one documented
+// exception where status and Filters combine. Pagination is controlled via
+// maxResults and nextToken (token encodes an integer offset).
 func (b *InMemoryBackend) ListJobs(
 	ctx context.Context,
 	queue, status, nextToken string,
 	maxResults int32,
+	filters []KeyValueFilter,
 ) ([]*Job, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -324,6 +427,17 @@ func (b *InMemoryBackend) ListJobs(
 		return nil, "", err
 	}
 
+	shareIdentifierOnly := len(filters) > 0
+	for _, f := range filters {
+		if f.Name != filterShareIdentifier {
+			shareIdentifierOnly = false
+
+			break
+		}
+	}
+
+	applyStatus := len(filters) == 0 || shareIdentifierOnly
+
 	wantStatus := status
 	if wantStatus == "" {
 		wantStatus = jobStatusRunning
@@ -333,7 +447,21 @@ func (b *InMemoryBackend) ListJobs(
 
 	for _, k := range allKeys {
 		j, _ := b.jobs.Get(regionKey(region, k))
-		if j.Status == wantStatus {
+		if applyStatus && j.Status != wantStatus {
+			continue
+		}
+
+		matched := true
+
+		for _, f := range filters {
+			if !jobMatchesFilter(j, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
 			filtered = append(filtered, k)
 		}
 	}

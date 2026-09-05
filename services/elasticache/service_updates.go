@@ -129,10 +129,67 @@ func newServiceUpdatePage(items []ServiceUpdate, marker string, maxRecords int) 
 // DescribeUpdateActionsFull — returns tracked update actions
 // ----------------------------------------
 
-// DescribeUpdateActionsFull returns update actions filtered by service update name, with pagination.
+// updateActionFilter holds the DescribeUpdateActions constraining
+// parameters as membership sets, built once per call by
+// newUpdateActionFilter.
+type updateActionFilter struct {
+	clusterIDs        map[string]bool
+	replicationGroups map[string]bool
+	statuses          map[string]bool
+	serviceUpdateName string
+}
+
+func newUpdateActionFilter(
+	serviceUpdateName string,
+	cacheClusterIDs, replicationGroupIDs, status []string,
+) updateActionFilter {
+	clusterFilter := make(map[string]bool, len(cacheClusterIDs))
+	for _, id := range cacheClusterIDs {
+		clusterFilter[id] = true
+	}
+
+	rgFilter := make(map[string]bool, len(replicationGroupIDs))
+	for _, id := range replicationGroupIDs {
+		rgFilter[id] = true
+	}
+
+	statusFilter := make(map[string]bool, len(status))
+	for _, s := range status {
+		statusFilter[s] = true
+	}
+
+	return updateActionFilter{
+		serviceUpdateName: serviceUpdateName,
+		clusterIDs:        clusterFilter,
+		replicationGroups: rgFilter,
+		statuses:          statusFilter,
+	}
+}
+
+func (f updateActionFilter) matches(a *UpdateAction) bool {
+	if f.serviceUpdateName != "" && a.ServiceUpdateName != f.serviceUpdateName {
+		return false
+	}
+	if len(f.clusterIDs) > 0 && !f.clusterIDs[a.CacheClusterID] {
+		return false
+	}
+	if len(f.replicationGroups) > 0 && !f.replicationGroups[a.ReplicationGroupID] {
+		return false
+	}
+	if len(f.statuses) > 0 && !f.statuses[a.UpdateActionStatus] {
+		return false
+	}
+
+	return true
+}
+
+// DescribeUpdateActionsFull returns update actions filtered by service update
+// name, cache cluster/replication group IDs, and update action status, with
+// pagination (elasticache@v1.56.4 api_op_DescribeUpdateActions.go).
 func (b *InMemoryBackend) DescribeUpdateActionsFull(
 	serviceUpdateName, marker string,
 	maxRecords int,
+	cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
 ) ([]UpdateAction, string, error) {
 	b.mu.RLock("DescribeUpdateActionsFull")
 	defer b.mu.RUnlock()
@@ -141,13 +198,13 @@ func (b *InMemoryBackend) DescribeUpdateActionsFull(
 		maxRecords = elasticacheDefaultMaxRecords
 	}
 
+	filter := newUpdateActionFilter(serviceUpdateName, cacheClusterIDs, replicationGroupIDs, updateActionStatus)
+
 	all := make([]UpdateAction, 0, len(b.updateActions))
 	for _, a := range b.updateActions {
-		if serviceUpdateName != "" && a.ServiceUpdateName != serviceUpdateName {
-			continue
+		if filter.matches(a) {
+			all = append(all, *a)
 		}
-
-		all = append(all, *a)
 	}
 
 	start := 0
@@ -281,10 +338,25 @@ func (b *InMemoryBackend) BatchStopUpdateAction(
 	replicationGroupIDs, cacheClusterIDs []string,
 	serviceUpdateName string,
 ) (*BatchUpdateResult, error) {
-	b.mu.RLock("BatchStopUpdateAction")
-	defer b.mu.RUnlock()
+	b.mu.Lock("BatchStopUpdateAction")
+	defer b.mu.Unlock()
 
-	return b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "stopped"), nil
+	result := b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "stopped")
+
+	// Without this, a stopped action's UpdateActionStatus stayed "scheduling"
+	// forever in DescribeUpdateActions -- batchUpdateActions above only
+	// computes the response, it never touches the tracked records.
+	for _, processed := range result.ProcessedUpdateActions {
+		for _, action := range b.updateActions {
+			if action.ServiceUpdateName == serviceUpdateName &&
+				action.ReplicationGroupID == processed.ReplicationGroupID &&
+				action.CacheClusterID == processed.CacheClusterID {
+				action.UpdateActionStatus = "stopped"
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // ----------------------------------------
@@ -313,8 +385,11 @@ func (b *InMemoryBackend) DescribeUpdateActions(
 	serviceUpdateName string,
 	marker string,
 	maxRecords int,
+	cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
 ) (page.Page[UpdateAction], error) {
-	data, next, err := b.DescribeUpdateActionsFull(serviceUpdateName, marker, maxRecords)
+	data, next, err := b.DescribeUpdateActionsFull(
+		serviceUpdateName, marker, maxRecords, cacheClusterIDs, replicationGroupIDs, updateActionStatus,
+	)
 	if err != nil {
 		return page.Page[UpdateAction]{}, err
 	}

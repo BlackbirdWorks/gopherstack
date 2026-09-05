@@ -68,13 +68,35 @@ func toInboundConnectionJSON(c *InboundConnection) inboundConnectionJSON {
 }
 
 func (h *Handler) handleDescribeInboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
-	connections := h.Backend.DescribeInboundCrossClusterSearchConnections(h.reqContext(r))
-	result := make([]inboundConnectionJSON, 0, len(connections))
-	for _, connection := range connections {
-		result = append(result, toInboundConnectionJSON(connection))
-	}
+	describeCrossClusterConnections(
+		h, w, r,
+		h.Backend.DescribeInboundCrossClusterSearchConnections,
+		inboundConnectionFilterValue,
+		func(c *InboundConnection) any { return toInboundConnectionJSON(c) },
+	)
+}
 
-	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": result})
+// inboundConnectionFilterValue resolves the five real Filternames
+// DescribeInboundCrossClusterSearchConnections documents (api_op_
+// DescribeInboundCrossClusterSearchConnections.go's Input doc comment)
+// against one connection.
+func inboundConnectionFilterValue(c *InboundConnection) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		switch name {
+		case "cross-cluster-search-connection-id":
+			return c.ConnectionID, true
+		case "source-domain-info.domain-name":
+			return c.SourceDomainInfo.DomainName, true
+		case "source-domain-info.owner-id":
+			return c.SourceDomainInfo.OwnerID, true
+		case "source-domain-info.region":
+			return c.SourceDomainInfo.Region, true
+		case "destination-domain-info.domain-name":
+			return c.DestDomainInfo.DomainName, true
+		default:
+			return "", false
+		}
+	}
 }
 
 func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {

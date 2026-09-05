@@ -4,10 +4,14 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/url"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 func TestCFN_GeneratedTemplates(t *testing.T) {
@@ -208,4 +212,200 @@ func TestResourceScanResources(t *testing.T) {
 		"ResourceScanId": []string{scanID},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestListGeneratedTemplates_TiedNamePageWalk proves ListGeneratedTemplates
+// sorts on GeneratedTemplateName alone -- a field CreateGeneratedTemplate
+// never checks for uniqueness -- over b.generatedTemplates.All() (a
+// store.Table map walk, unstable between calls). page.New then paginates
+// that order with an offset-index scheme. Several templates sharing one
+// Name can therefore land in a different relative order on each call, so a
+// page boundary that fell between two tied templates on one call falls
+// between two different tied templates on the next -- one gets dropped or
+// duplicated across the page boundary with nothing else changed. Looped: a
+// single walk can pass by luck since map iteration is randomized per-call.
+func TestListGeneratedTemplates_TiedNamePageWalk(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// ListGeneratedTemplates hardcodes cfnDefaultPageSize (100) as its page
+	// size -- it takes no maxResults param -- so total must exceed 100 to
+	// force a page boundary at all.
+	const total = 110
+
+	want := make(map[string]bool, total)
+
+	for range total {
+		gt, err := b.CreateGeneratedTemplate("shared-name", nil)
+		require.NoError(t, err)
+		want[gt.GeneratedTemplateID] = true
+	}
+
+	const pageSize = 100
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		token := ""
+		for range total/pageSize + 2 {
+			p, err := b.ListGeneratedTemplates(token)
+			require.NoError(t, err)
+
+			for _, gt := range p.Data {
+				got[gt.GeneratedTemplateID]++
+			}
+
+			if p.Next == "" {
+				break
+			}
+
+			token = p.Next
+		}
+
+		require.Lenf(
+			t, got, total,
+			"iteration %d: page walk produced %d distinct templates, want %d", iter, len(got), total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t, 1, got[id],
+				"iteration %d: template %s appeared %d times across the page walk", iter, id, got[id],
+			)
+		}
+	}
+}
+
+// TestDescribeEvents_AllStacksTiedTimestampPageWalk proves that, when
+// StackName is omitted, DescribeEvents flattens b.events (a raw
+// map[string][]StackEvent keyed by stack ID) by ranging it directly --
+// unspecified Go map order -- before sorting by Timestamp. Two events on
+// different stacks sharing an exact Timestamp can therefore land in a
+// different relative order on each call, so a page boundary that fell
+// between two tied events on one call falls between two different tied
+// events on the next -- one gets dropped or duplicated across the page
+// boundary with nothing else changed. Looped: a single walk can pass by
+// luck since map iteration is randomized per-call.
+func TestDescribeEvents_AllStacksTiedTimestampPageWalk(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// DescribeEvents hardcodes cfnDefaultPageSize (100) as its page size --
+	// it takes no maxResults param -- so total must exceed 100 to force a
+	// page boundary at all.
+	const stacks = 4
+	const eventsPerStack = 30
+	const total = stacks * eventsPerStack
+
+	tied := time.Now()
+
+	want := make(map[string]bool, total)
+
+	for s := range stacks {
+		stackID := "stack-" + strconv.Itoa(s)
+
+		for e := range eventsPerStack {
+			eventID := "evt-" + strconv.Itoa(s) + "-" + strconv.Itoa(e)
+			b.AddStackEventInternal(stackID, cloudformation.StackEvent{
+				EventID:   eventID,
+				StackID:   stackID,
+				Timestamp: tied,
+			})
+			want[eventID] = true
+		}
+	}
+
+	const pageSize = 100
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		token := ""
+		for range total/pageSize + 2 {
+			p, err := b.DescribeEvents("", token, false)
+			require.NoError(t, err)
+
+			for _, evt := range p.Data {
+				got[evt.EventID]++
+			}
+
+			if p.Next == "" {
+				break
+			}
+
+			token = p.Next
+		}
+
+		require.Lenf(
+			t, got, total,
+			"iteration %d: page walk produced %d distinct events, want %d", iter, len(got), total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t, 1, got[id],
+				"iteration %d: event %s appeared %d times across the page walk", iter, id, got[id],
+			)
+		}
+	}
+}
+
+// TestListResourceScans_PageWalkReproducesFullSet proves ListResourceScans
+// sorts nothing before paginating: it builds its list from
+// b.resourceScans.All() (a store.Table map walk, unstable between calls)
+// and hands it straight to page.New's offset-index scheme. Looped: a single
+// walk can pass by luck.
+func TestListResourceScans_PageWalkReproducesFullSet(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// ListResourceScans hardcodes cfnDefaultPageSize (100) as its page size
+	// -- it takes no maxResults param -- so total must exceed 100 to force a
+	// page boundary at all.
+	const total = 110
+
+	want := make(map[string]bool, total)
+
+	for range total {
+		scanID, err := b.StartResourceScan()
+		require.NoError(t, err)
+		want[scanID] = true
+	}
+
+	const pageSize = 100
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		token := ""
+		for range total/pageSize + 2 {
+			p, err := b.ListResourceScans(token)
+			require.NoError(t, err)
+
+			for _, rs := range p.Data {
+				got[rs.ResourceScanID]++
+			}
+
+			if p.Next == "" {
+				break
+			}
+
+			token = p.Next
+		}
+
+		require.Lenf(
+			t, got, total,
+			"iteration %d: page walk produced %d distinct resource scans, want %d", iter, len(got), total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t, 1, got[id],
+				"iteration %d: resource scan %s appeared %d times across the page walk", iter, id, got[id],
+			)
+		}
+	}
 }

@@ -228,22 +228,32 @@ func streamingDistributionSummary(sd *StreamingDistribution) streamingDistributi
 	return s
 }
 
+// handleListStreamingDistributions paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go).
 func (h *Handler) handleListStreamingDistributions(c *echo.Context) error {
 	items := h.Backend.ListStreamingDistributions()
+
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c, items, func(sd *StreamingDistribution) string { return sd.ID },
+	)
 
 	type sdList struct {
 		XMLName     xml.Name                          `xml:"StreamingDistributionList"`
 		XMLNS       string                            `xml:"xmlns,attr"`
+		NextMarker  string                            `xml:"NextMarker,omitempty"`
 		Items       []streamingDistributionSummaryXML `xml:"Items>StreamingDistributionSummary"`
 		MaxItems    int                               `xml:"MaxItems"`
 		Quantity    int                               `xml:"Quantity"`
 		IsTruncated bool                              `xml:"IsTruncated"`
 	}
-	summaries := make([]streamingDistributionSummaryXML, 0, len(items))
-	for _, sd := range items {
+	summaries := make([]streamingDistributionSummaryXML, 0, len(page))
+	for _, sd := range page {
 		summaries = append(summaries, streamingDistributionSummary(sd))
 	}
-	list := sdList{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := sdList{
+		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
+		Items: summaries, IsTruncated: isTruncated,
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)

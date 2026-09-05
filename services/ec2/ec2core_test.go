@@ -28,7 +28,7 @@ func TestEC2Core_EgressOnlyInternetGateway(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
-	vpc, err := bk.CreateVpc("10.0.0.0/16")
+	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	igw, err := bk.CreateEgressOnlyInternetGateway(vpc.ID)
@@ -125,7 +125,7 @@ func TestEC2Core_AssociateVpcCidrBlock(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
-	vpc, err := bk.CreateVpc("10.0.0.0/16")
+	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	assoc, err := bk.AssociateVpcCidrBlock(vpc.ID, "192.168.0.0/24")
@@ -798,9 +798,9 @@ func TestDescribeInstanceStatus_IncludesHealthObjects(t *testing.T) {
 	require.NotEmpty(t, id)
 
 	statusReq := url.Values{
-		"Action":     {"DescribeInstanceStatus"},
-		"Version":    {"2016-11-15"},
-		"InstanceId": {id},
+		"Action":       {"DescribeInstanceStatus"},
+		"Version":      {"2016-11-15"},
+		"InstanceId.1": {id},
 	}
 
 	// While pending: health objects present, reporting "initializing".

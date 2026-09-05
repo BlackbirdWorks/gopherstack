@@ -132,6 +132,7 @@ type ReplicationDestination struct {
 	KmsKeyID                string `json:"KmsKeyId,omitempty"`
 	OwnerID                 string `json:"OwnerId,omitempty"`
 	Status                  string `json:"Status,omitempty"`
+	StatusMessage           string `json:"StatusMessage,omitempty"`
 	RoleArn                 string `json:"RoleArn,omitempty"`
 	LastReplicatedTimestamp int64  `json:"LastReplicatedTimestamp,omitempty"`
 }
@@ -161,6 +162,7 @@ type UpdateFileSystemRequest struct {
 // CreateFileSystemRequest holds parameters for creating an EFS file system.
 type CreateFileSystemRequest struct {
 	Tags                     map[string]string
+	Backup                   *bool
 	CreationToken            string
 	PerformanceMode          string
 	ThroughputMode           string

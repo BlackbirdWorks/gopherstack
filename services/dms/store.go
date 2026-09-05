@@ -46,6 +46,7 @@ const (
 	engineNamePostgres         = "postgres"
 	engineNameAuroraPostgreSQL = "aurora-postgresql"
 	endpointTypeSource         = "source"
+	endpointTypeTarget         = "target"
 	defaultEngineVersion       = "3.5.3"
 
 	eventCategoryCreation    = "creation"

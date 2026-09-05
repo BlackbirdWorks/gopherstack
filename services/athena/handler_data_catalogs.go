@@ -8,12 +8,11 @@ import "encoding/json"
 const dataCatalogRespKey = "DataCatalog"
 
 type createDataCatalogInput struct {
-	Parameters     map[string]string `json:"Parameters"`
-	Name           string            `json:"Name"`
-	Type           string            `json:"Type"`
-	Description    string            `json:"Description"`
-	ConnectionType string            `json:"ConnectionType"`
-	Tags           []Tag             `json:"Tags"`
+	Parameters  map[string]string `json:"Parameters"`
+	Name        string            `json:"Name"`
+	Type        string            `json:"Type"`
+	Description string            `json:"Description"`
+	Tags        []Tag             `json:"Tags"`
 }
 
 type listDataCatalogsInput struct {
@@ -26,11 +25,10 @@ type getDataCatalogInput struct {
 }
 
 type updateDataCatalogInput struct {
-	Parameters     map[string]string `json:"Parameters"`
-	Name           string            `json:"Name"`
-	Type           string            `json:"Type"`
-	Description    string            `json:"Description"`
-	ConnectionType string            `json:"ConnectionType"`
+	Parameters  map[string]string `json:"Parameters"`
+	Name        string            `json:"Name"`
+	Type        string            `json:"Type"`
+	Description string            `json:"Description"`
 }
 
 type deleteDataCatalogInput struct {
@@ -50,7 +48,6 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				input.Name,
 				input.Type,
 				input.Description,
-				input.ConnectionType,
 				input.Parameters,
 				tagsFromSlice(input.Tags),
 			)
@@ -98,7 +95,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 			}
 
 			return struct{}{}, h.Backend.UpdateDataCatalog(
-				input.Name, input.Type, input.Description, input.ConnectionType, input.Parameters,
+				input.Name, input.Type, input.Description, input.Parameters,
 			)
 		},
 		"DeleteDataCatalog": func(b []byte) (any, error) {

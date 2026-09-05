@@ -40,8 +40,11 @@ func (b *InMemoryBackend) CreateNodegroup(
 	b.mu.Lock("CreateNodegroup")
 	defer b.mu.Unlock()
 
+	// CreateNodegroup's own deserializer (eks@v1.90.4 deserializers.go) has
+	// no ResourceNotFoundException case -- an unknown cluster here is
+	// ErrValidation (InvalidParameterException), not ErrNotFound.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
 	}
 
 	if _, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName)); ok {
@@ -333,12 +336,13 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	}
 
 	u := &Update{
-		ID:          stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
-		ClusterName: clusterName,
-		Status:      statusInProgress,
-		Type:        typeVersionUpdate,
-		Params:      []UpdateParam{{Type: "Version", Value: version}},
-		CreatedAt:   time.Now().UTC(),
+		ID:            stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
+		ClusterName:   clusterName,
+		NodegroupName: nodegroupName,
+		Status:        statusInProgress,
+		Type:          typeVersionUpdate,
+		Params:        []UpdateParam{{Type: "Version", Value: version}},
+		CreatedAt:     time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
 	b.scheduleUpdateTransition(clusterName, u.ID)

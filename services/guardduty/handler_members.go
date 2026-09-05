@@ -68,7 +68,7 @@ func (h *Handler) dispatchMemberOps(op, path, query string, body []byte) (any, i
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchInvitationOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchInvitationOps(op, path, query string, body []byte) (any, int, bool, error) {
 	detectorID := extractID(path, pathDetector)
 
 	switch op {
@@ -118,7 +118,7 @@ func (h *Handler) dispatchInvitationOps(op, path string, body []byte) (any, int,
 		return result, code, true, nil
 
 	case opListInvitations:
-		result, code := h.handleListInvitations()
+		result, code := h.handleListInvitations(query)
 
 		return result, code, true, nil
 	}
@@ -228,7 +228,9 @@ func (h *Handler) handleInviteMembers(detectorID string, body []byte) (any, int,
 }
 
 func (h *Handler) handleListMembers(detectorID, query string) (any, int, error) {
-	members, err := h.Backend.ListMembers(detectorID, onlyAssociatedFromQuery(query))
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	members, next, err := h.Backend.ListMembers(detectorID, onlyAssociatedFromQuery(query), maxResults, nextToken)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -238,7 +240,12 @@ func (h *Handler) handleListMembers(detectorID, query string) (any, int, error) 
 		out = append(out, memberToMap(m))
 	}
 
-	return map[string]any{keyMembers: out}, http.StatusOK, nil
+	resp := map[string]any{keyMembers: out}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleStartMonitoringMembers(detectorID string, body []byte) (any, int, error) {
@@ -397,8 +404,10 @@ func (h *Handler) handleGetInvitationsCount() (any, int) {
 	return map[string]any{"invitationsCount": count}, http.StatusOK
 }
 
-func (h *Handler) handleListInvitations() (any, int) {
-	invitations := h.Backend.ListInvitations()
+func (h *Handler) handleListInvitations(query string) (any, int) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	invitations, next := h.Backend.ListInvitations(maxResults, nextToken)
 
 	out := make([]map[string]any, 0, len(invitations))
 	for _, inv := range invitations {
@@ -410,7 +419,12 @@ func (h *Handler) handleListInvitations() (any, int) {
 		})
 	}
 
-	return map[string]any{"invitations": out}, http.StatusOK
+	resp := map[string]any{"invitations": out}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK
 }
 
 // onlyAssociatedFromQuery parses ListMembersInput's onlyAssociated query

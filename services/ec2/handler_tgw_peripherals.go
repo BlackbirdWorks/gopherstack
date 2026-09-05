@@ -351,6 +351,7 @@ type searchTransitGatewayRoutesResponse struct {
 	XMLName   xml.Name `xml:"SearchTransitGatewayRoutesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	RouteSet  struct {
 		Items []tgwRouteItem `xml:"item"`
 	} `xml:"routeSet"`
@@ -779,7 +780,20 @@ func (h *Handler) handleSearchTransitGatewayRoutes(vals url.Values, reqID string
 		return nil, err
 	}
 
-	resp := &searchTransitGatewayRoutesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	routes, nextToken = pageSlice(routes, offset, maxResults)
+
+	resp := &searchTransitGatewayRoutesResponse{
+		Xmlns:                     ec2XMLNS,
+		RequestID:                 reqID,
+		NextToken:                 nextToken,
+		AdditionalRoutesAvailable: nextToken != "",
+	}
 	for _, r := range routes {
 		resp.RouteSet.Items = append(resp.RouteSet.Items, tgwRouteToItem(r))
 	}
@@ -824,8 +838,8 @@ func (h *Handler) handleModifyTransitGatewayVpcAttachment(vals url.Values, reqID
 
 func (h *Handler) handleModifyTransitGatewayMeteringPolicy(vals url.Values, reqID string) (any, error) {
 	policyID := vals.Get("TransitGatewayMeteringPolicyId")
-	addIDs := parseMemberList(vals, "AddMiddleboxAttachmentIds")
-	removeIDs := parseMemberList(vals, "RemoveMiddleboxAttachmentIds")
+	addIDs := parseMemberList(vals, "AddMiddleboxAttachmentId")
+	removeIDs := parseMemberList(vals, "RemoveMiddleboxAttachmentId")
 
 	policy, err := h.Backend.ModifyTransitGatewayMeteringPolicy(policyID, addIDs, removeIDs)
 	if err != nil {

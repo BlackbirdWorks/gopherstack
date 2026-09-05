@@ -285,7 +285,7 @@ func (b *InMemoryBackend) ListGrants(
 	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
-	limit := int32(defaultListLimit)
+	limit := int32(default50ListLimit)
 
 	if input.Limit != nil && *input.Limit > 0 {
 		limit = *input.Limit
@@ -395,10 +395,21 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
+// ListRetirableGrantsInput's doc requires exactly one of RetiringPrincipal/
+// RetiringServicePrincipal (kms@v1.55.4 api_op_ListRetirableGrants.go: "You
+// must specify either RetiringPrincipal or RetiringServicePrincipal, but not
+// both.").
 func (b *InMemoryBackend) ListRetirableGrants(
 	ctx context.Context,
 	input *ListRetirableGrantsInput,
 ) (*ListGrantsOutput, error) {
+	if (input.RetiringPrincipal == "") == (input.RetiringServicePrincipal == "") {
+		return nil, fmt.Errorf(
+			"%w: you must specify either RetiringPrincipal or RetiringServicePrincipal, but not both",
+			ErrValidation,
+		)
+	}
+
 	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 
@@ -406,7 +417,11 @@ func (b *InMemoryBackend) ListRetirableGrants(
 
 	stored := make([]*Grant, 0)
 	for _, g := range b.grantsStore(region).All() {
-		if g.RetiringPrincipal == input.RetiringPrincipal {
+		matchesPrincipal := input.RetiringPrincipal != "" && g.RetiringPrincipal == input.RetiringPrincipal
+		matchesServicePrincipal := input.RetiringServicePrincipal != "" &&
+			g.RetiringServicePrincipal == input.RetiringServicePrincipal
+
+		if matchesPrincipal || matchesServicePrincipal {
 			stored = append(stored, g)
 		}
 	}
@@ -414,7 +429,7 @@ func (b *InMemoryBackend) ListRetirableGrants(
 	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
-	limit := int32(defaultListLimit)
+	limit := int32(default50ListLimit)
 
 	if input.Limit != nil && *input.Limit > 0 {
 		limit = *input.Limit

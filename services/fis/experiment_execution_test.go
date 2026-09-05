@@ -192,7 +192,7 @@ func TestFISHandler_StartExperiment_SafetyLeverEngaged(t *testing.T) {
 
 	// Engage the safety lever.
 	rec2 := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000", map[string]any{
-		"updateSafetyLeverStateInput": map[string]any{
+		"state": map[string]any{
 			"status": "engaged",
 			"reason": "blocking all experiments",
 		},

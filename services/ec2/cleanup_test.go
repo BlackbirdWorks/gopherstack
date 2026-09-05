@@ -42,7 +42,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 
 				return vpc.ID
@@ -688,7 +688,7 @@ func TestDeleteVpc_DependencyViolation_Dependents(t *testing.T) {
 
 	b := newTestBackend()
 
-	vpc, err := b.CreateVpc("10.99.0.0/16")
+	vpc, err := b.CreateVpc("10.99.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.99.1.0/24", "us-east-1a")
@@ -745,7 +745,7 @@ func TestDeleteVpc_DependencyViolation_Instances(t *testing.T) {
 
 	b := newTestBackend()
 
-	vpc, err := b.CreateVpc("10.77.0.0/16")
+	vpc, err := b.CreateVpc("10.77.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.77.1.0/24", "us-east-1a")
@@ -1054,7 +1054,7 @@ func TestDeleteVpc_DependencyViolation_IGWsAndNatGateways(t *testing.T) {
 
 	b := newTestBackend()
 
-	vpc, err := b.CreateVpc("10.88.0.0/16")
+	vpc, err := b.CreateVpc("10.88.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.88.1.0/24", "us-east-1a")
@@ -1106,7 +1106,7 @@ func TestDeleteVpc_AfterTeardownDetachesVolumesAndEIPs(t *testing.T) {
 
 	b := newTestBackend()
 
-	vpc, err := b.CreateVpc("10.55.0.0/16")
+	vpc, err := b.CreateVpc("10.55.0.0/16", "default")
 	require.NoError(t, err)
 
 	subnet, err := b.CreateSubnet(vpc.ID, "10.55.1.0/24", "us-east-1a")

@@ -50,7 +50,7 @@ func (b *InMemoryBackend) ListFindingAggregators(nextToken string, maxResults in
 	b.mu.RLock("ListFindingAggregators")
 	defer b.mu.RUnlock()
 
-	snap := b.findingAggregators.All()
+	snap := b.findingAggregators.Snapshot()
 	all := make([]*FindingAggregator, 0, len(snap))
 
 	for _, agg := range snap {

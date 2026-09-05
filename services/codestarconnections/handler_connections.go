@@ -68,14 +68,17 @@ func connectionToView(c *Connection) connectionView {
 	}
 }
 
+// handleGetConnection does not pre-check for an empty ConnectionArn:
+// GetConnection's own deserializeOpErrorGetConnection switch
+// (codestarconnections@v1.38.4 deserializers.go) declares
+// ResourceNotFoundException/ResourceUnavailableException, not
+// InvalidInputException -- an ARN that matches nothing (including "")
+// already answers ResourceNotFoundException through the ordinary
+// lookup-miss path below (gopherstack-6flj/uox6 error-envelope sweep).
 func (h *Handler) handleGetConnection(
 	ctx context.Context,
 	in *getConnectionInput,
 ) (*getConnectionOutput, error) {
-	if in.ConnectionArn == "" {
-		return nil, fmt.Errorf("%w: ConnectionArn is required", errInvalidRequest)
-	}
-
 	conn, err := h.Backend.GetConnection(ctx, in.ConnectionArn)
 	if err != nil {
 		return nil, err
@@ -118,14 +121,14 @@ type deleteConnectionInput struct {
 
 type deleteConnectionOutput struct{}
 
+// handleDeleteConnection does not pre-check for an empty ConnectionArn: see
+// handleGetConnection's doc comment -- DeleteConnection's own switch
+// declares only ResourceNotFoundException, no InvalidInputException
+// (gopherstack-6flj/uox6 error-envelope sweep).
 func (h *Handler) handleDeleteConnection(
 	ctx context.Context,
 	in *deleteConnectionInput,
 ) (*deleteConnectionOutput, error) {
-	if in.ConnectionArn == "" {
-		return nil, fmt.Errorf("%w: ConnectionArn is required", errInvalidRequest)
-	}
-
 	if err := h.Backend.DeleteConnection(ctx, in.ConnectionArn); err != nil {
 		return nil, err
 	}

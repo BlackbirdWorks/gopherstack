@@ -173,10 +173,18 @@ func (b *InMemoryBackend) GetDomainName(name string) (*DomainName, error) {
 	return &cp, nil
 }
 
-// GetDomainNames returns all domain names sorted by name.
-func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
+// GetDomainNames returns all domain names sorted by name. resourceOwner
+// selects SELF (default) or OTHER_ACCOUNTS; mirrors
+// GetDomainNameAccessAssociations' SELF/OTHER_ACCOUNTS handling above, since
+// this backend only ever creates domain names under the caller's own account.
+func (b *InMemoryBackend) GetDomainNames(resourceOwner string) ([]DomainName, error) {
 	b.mu.RLock("GetDomainNames")
 	defer b.mu.RUnlock()
+
+	if resourceOwner == resourceOwnerOther {
+		return []DomainName{}, nil
+	}
+
 	all := make([]DomainName, 0, b.domainNames.Len())
 	for _, dn := range b.domainNames.All() {
 		all = append(all, *dn)

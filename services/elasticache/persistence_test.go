@@ -174,7 +174,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) { //nolint:main
 	require.NoError(t, err)
 	require.Len(t, scSnaps.Data, 1)
 
-	users, err := fresh.DescribeUsers(ctx, "fs-user", "", 0)
+	users, err := fresh.DescribeUsers(ctx, "fs-user", "", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, users.Data, 1)
 
@@ -182,7 +182,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) { //nolint:main
 	require.NoError(t, err)
 	require.Len(t, userGroups.Data, 1)
 
-	reservedNodes, err := fresh.DescribeReservedCacheNodes(ctx, "fs-reserved-node", "", "", "", 0)
+	reservedNodes, err := fresh.DescribeReservedCacheNodes(ctx, "fs-reserved-node", "", "", "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, reservedNodes.Data, 1)
 }

@@ -4,18 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 )
-
-// regionalResourceServices are the AWS service identifiers accepted for REGIONAL WebACL associations.
-var regionalResourceServices = []string{ //nolint:gochecknoglobals // package-level lookup table
-	"elasticloadbalancing",
-	"execute-api",
-	"appsync",
-	"cognito-idp",
-	"apprunner",
-}
 
 // associateWebACLRequest is the request body for AssociateWebACL.
 type associateWebACLRequest struct {
@@ -58,13 +48,19 @@ func (h *Handler) validateAssociationScope(webACLArn, resourceArn string) error 
 		)
 	}
 
-	// For REGIONAL WebACLs, validate service.
-	service := extractARNService(resourceArn)
-	if slices.Contains(regionalResourceServices, service) {
-		return nil
+	// resourceTypeForARN implements the same 8-format classification as
+	// AssociateWebACLInput.ResourceArn's own doc comment (wafv2@v1.77.3
+	// api_op_AssociateWebACL.go); an ARN whose service segment matches none
+	// of them "corresponds to a resource with which a web ACL can't be
+	// associated" per WAFInvalidParameterException's doc comment
+	// (types/errors.go), which is the error real AWS returns for it.
+	if resourceTypeForARN(resourceArn) == "" {
+		return fmt.Errorf(
+			"%w: ResourceArn %q does not correspond to a resource with which a web ACL can be associated",
+			errInvalidRequest, resourceArn,
+		)
 	}
 
-	// If service is unrecognised, still allow (for compatibility with unknown resource types).
 	return nil
 }
 
@@ -123,7 +119,7 @@ func (h *Handler) handleGetWebACLForResource(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return h.marshalWebACL(w)
+	return h.marshalWebACL(ctx, w)
 }
 
 // listResourcesForWebACLRequest is the request body for ListResourcesForWebACL.
@@ -142,12 +138,69 @@ func (h *Handler) handleListResourcesForWebACL(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
+	resourceType := req.ResourceType
+	if resourceType == "" {
+		resourceType = resourceTypeApplicationLoadBalancer
+	}
+
 	resources, err := h.Backend.ListResourcesForWebACL(ctx, req.WebACLArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"ResourceArns": resources})
+	filtered := make([]string, 0, len(resources))
+
+	for _, r := range resources {
+		if resourceTypeForARN(r) == resourceType {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return json.Marshal(map[string]any{"ResourceArns": filtered})
+}
+
+const (
+	resourceTypeApplicationLoadBalancer = "APPLICATION_LOAD_BALANCER"
+	resourceTypeAPIGateway              = "API_GATEWAY"
+	resourceTypeAppsync                 = "APPSYNC"
+	resourceTypeCognitoUserPool         = "COGNITO_USER_POOL"
+	resourceTypeAppRunnerService        = "APP_RUNNER_SERVICE"
+	resourceTypeVerifiedAccessInstance  = "VERIFIED_ACCESS_INSTANCE"
+	resourceTypeAmplify                 = "AMPLIFY"
+	resourceTypeAgentcoreGateway        = "AGENTCORE_GATEWAY"
+)
+
+// resourceTypeForARN classifies a resource ARN into its WAF ResourceType,
+// per AssociateWebACLInput.ResourceArn's doc comment (wafv2@v1.77.3
+// api_op_AssociateWebACL.go), which enumerates the exact ARN format for
+// each of the 8 supported resource types. verified-access-instance is the
+// only type sharing a service segment (ec2) with other resource kinds, so
+// it's matched on its resource-id prefix rather than service alone.
+func resourceTypeForARN(arnStr string) string {
+	switch extractARNService(arnStr) {
+	case "elasticloadbalancing":
+		return resourceTypeApplicationLoadBalancer
+	case "apigateway":
+		return resourceTypeAPIGateway
+	case "appsync":
+		return resourceTypeAppsync
+	case "cognito-idp":
+		return resourceTypeCognitoUserPool
+	case "apprunner":
+		return resourceTypeAppRunnerService
+	case "amplify":
+		return resourceTypeAmplify
+	case "bedrock-agentcore":
+		return resourceTypeAgentcoreGateway
+	case "ec2":
+		if strings.Contains(arnStr, ":verified-access-instance/") {
+			return resourceTypeVerifiedAccessInstance
+		}
+
+		return ""
+	default:
+		return ""
+	}
 }
 
 // resourceAssociationDispatchOps returns the WebACL-resource-association operation

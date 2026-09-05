@@ -547,13 +547,14 @@ func (h *Handler) handleListMlflowTrackingServers(ctx context.Context, body []by
 }
 
 // updateMlflowTrackingServerInput is UpdateMlflowTrackingServer's request
-// shape (api_op_UpdateMlflowTrackingServer.go:28-63).
+// shape (api_op_UpdateMlflowTrackingServer.go:28-63). MlflowVersion is
+// deliberately absent — see UpdateMlflowTrackingServerOptions' doc comment
+// (mlflow.go) for why.
 type updateMlflowTrackingServerInput struct {
 	AutomaticModelRegistration   *bool  `json:"AutomaticModelRegistration"`
 	S3BucketOwnerVerification    *bool  `json:"S3BucketOwnerVerification"`
 	TrackingServerName           string `json:"TrackingServerName"`
 	ArtifactStoreURI             string `json:"ArtifactStoreUri,omitempty"`
-	MlflowVersion                string `json:"MlflowVersion,omitempty"`
 	S3BucketOwnerAccountID       string `json:"S3BucketOwnerAccountId,omitempty"`
 	TrackingServerSize           string `json:"TrackingServerSize,omitempty"`
 	WeeklyMaintenanceWindowStart string `json:"WeeklyMaintenanceWindowStart,omitempty"`

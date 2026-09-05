@@ -48,7 +48,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*DeviceProfile, error)
 	GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error)
-	ListDeviceProfiles(accountID, region string) []*DeviceProfile
+	ListDeviceProfiles(accountID, region, deviceProfileType string) []*DeviceProfile
 	DeleteDeviceProfile(accountID, region, id string) error
 
 	CreateFuotaTask(

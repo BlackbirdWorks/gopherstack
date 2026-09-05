@@ -184,6 +184,41 @@ func TestLambda_EventFilterMatches(t *testing.T) {
 			want:   false,
 		},
 		{
+			// AWS docs, "Or (multiple fields)": $or combines sibling clauses
+			// with logical OR instead of the default AND. Location doesn't
+			// match but Day does, so the $or clause should still pass.
+			name:   "$or matches when second branch matches",
+			fc:     fc(`{"$or":[{"Location":["New York"]},{"Day":["Monday"]}]}`),
+			record: map[string]any{"Location": "Boston", "Day": "Monday"},
+			want:   true,
+		},
+		{
+			name:   "$or fails when no branch matches",
+			fc:     fc(`{"$or":[{"Location":["New York"]},{"Day":["Monday"]}]}`),
+			record: map[string]any{"Location": "Boston", "Day": "Tuesday"},
+			want:   false,
+		},
+		{
+			name:   "$or combines with a sibling key via AND",
+			fc:     fc(`{"a":["x"],"$or":[{"Location":["New York"]},{"Day":["Monday"]}]}`),
+			record: map[string]any{"a": "x", "Location": "Boston", "Day": "Tuesday"},
+			want:   false,
+		},
+		{
+			// AWS docs: "the Exists operator only works on leaf nodes ... It
+			// doesn't match intermediate nodes." address is present but as an
+			// object, not a leaf, so exists:true must not match it.
+			name: "exists true does not match an intermediate object node",
+			fc:   fc(`{"person":{"address":[{"exists":true}]}}`),
+			record: map[string]any{
+				"person": map[string]any{
+					"name":    "John Doe",
+					"address": map[string]any{"street": "123 Main St", "city": "Anytown"},
+				},
+			},
+			want: false,
+		},
+		{
 			name:   "malformed pattern is skipped",
 			fc:     fc(`{not json`),
 			record: map[string]any{"a": "b"},

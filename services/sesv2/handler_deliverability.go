@@ -219,7 +219,7 @@ func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	items, next, err := h.Backend.ListReputationEntities(in.NextToken, int(in.PageSize))
+	items, next, err := h.Backend.ListReputationEntities(in.Filter, in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}

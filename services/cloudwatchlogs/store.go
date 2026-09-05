@@ -334,6 +334,34 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+// paginateRange returns the [start,end) slice bounds and continuation token
+// for a page of a total-length total, using nextToken/limit the same way
+// every Describe*/List* op in this package does (defaultDescribeLimit
+// fallback, base64-index cursor). Callers that don't already have a
+// type-specific pagination helper (paginateGroups, paginateStreams) should
+// use this instead of re-deriving the same index arithmetic.
+func paginateRange(total int, nextToken string, limit int) (int, int, string) {
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	start := parseNextToken(nextToken)
+	if start >= total {
+		return start, start, ""
+	}
+
+	end := start + limit
+
+	var outToken string
+	if end < total {
+		outToken = encodeNextToken(end)
+	} else {
+		end = total
+	}
+
+	return start, end, outToken
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {

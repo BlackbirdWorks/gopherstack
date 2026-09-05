@@ -98,9 +98,12 @@ func TestHandler_DeleteStateMachine(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "not found returns 404",
+			// AWS: DeleteStateMachine's own error switch models only InvalidArn
+			// and ValidationException -- no StateMachineDoesNotExist -- so it is
+			// idempotent on a missing state machine.
+			name:     "not found is idempotent",
 			body:     `{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:nonexistent"}`,
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 	}
 

@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 		Description:           description,
 		ServiceAccessRoleArn:  serviceAccessRoleArn,
 		S3BucketName:          s3BucketName,
-		CollectorHealthCheck:  "HEALTHY",
+		CollectorHealthCheck:  "ACTIVE",
 		AccountID:             b.accountID,
 		Region:                region,
 		CreatedDate:           time.Now().UTC(),
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) AddFleetAdvisorCollectorInternal(name string) {
 		CollectorName:         name,
 		CollectorReferencedID: collectorID,
 		CollectorVersion:      "1.0.0",
-		CollectorHealthCheck:  "HEALTHY",
+		CollectorHealthCheck:  "ACTIVE",
 		AccountID:             b.accountID,
 		Region:                b.region,
 		CreatedDate:           time.Now().UTC(),
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DeleteFleetAdvisorCollector(ctx context.Context, nameO
 		return nil
 	}
 
-	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrNotFound, nameOrID)
+	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrCollectorNotFound, nameOrID)
 }
 
 // DescribeFleetAdvisorCollectors returns all fleet advisor collectors.

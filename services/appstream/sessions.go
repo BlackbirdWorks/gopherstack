@@ -44,8 +44,15 @@ func (b *InMemoryBackend) nextSessionID() string {
 	return fmt.Sprintf("session-%010d", b.sessionSeq)
 }
 
-// DescribeSessions returns sessions filtered by stack, fleet, and/or user.
-func (b *InMemoryBackend) DescribeSessions(stackName, fleetName, userID string) ([]*Session, error) {
+// DescribeSessions returns sessions filtered by stack, fleet, user, and/or
+// authentication type. Every session this backend creates (CreateStreamingURL)
+// has AuthenticationType "API" -- it never models SAML or userpool-originated
+// sessions -- so a non-"API" authenticationType filter always yields an
+// empty result. InstanceId isn't modeled at all (this backend has no
+// streaming-instance concept) and so isn't filterable.
+func (b *InMemoryBackend) DescribeSessions(
+	stackName, fleetName, userID, authenticationType string,
+) ([]*Session, error) {
 	b.mu.RLock("DescribeSessions")
 	defer b.mu.RUnlock()
 
@@ -61,6 +68,10 @@ func (b *InMemoryBackend) DescribeSessions(stackName, fleetName, userID string) 
 		}
 
 		if userID != "" && s.UserID != userID {
+			continue
+		}
+
+		if authenticationType != "" && s.AuthenticationType != authenticationType {
 			continue
 		}
 

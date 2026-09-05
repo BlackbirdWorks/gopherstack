@@ -187,13 +187,15 @@ func (b *InMemoryBackend) UpdateTrigger(name string, update Trigger) error {
 	return nil
 }
 
-// DeleteTrigger deletes a Glue trigger by name.
+// DeleteTrigger deletes a Glue trigger by name. Per AWS's documented behavior
+// (api_op_DeleteTrigger.go: "If the trigger is not found, no exception is
+// thrown"), deleting an unknown name is a no-op, not an error.
 func (b *InMemoryBackend) DeleteTrigger(name string) error {
 	b.mu.Lock("DeleteTrigger")
 	defer b.mu.Unlock()
 
 	if !b.triggers.Has(name) {
-		return ErrNotFound
+		return nil
 	}
 
 	b.triggers.Delete(name)

@@ -280,6 +280,26 @@ func TestListStreams_Sorted(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, out.StreamNames)
 }
 
+// TestListStreams_DefaultLimit verifies that omitting Limit falls back to
+// AWS's documented default of 100 (api_op_ListStreams.go: "The maximum
+// number of streams to list. The default value is 100."), not the whole
+// account inventory.
+func TestListStreams_DefaultLimit(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	for i := range 105 {
+		require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+			StreamName: fmt.Sprintf("default-limit-stream-%03d", i),
+		}))
+	}
+
+	out, err := bk.ListStreams(context.Background(), &kinesis.ListStreamsInput{})
+	require.NoError(t, err)
+	assert.Len(t, out.StreamNames, 100)
+	assert.True(t, out.HasMoreStreams)
+}
+
 // TestListStreams_Pagination verifies cursor-based pagination using both
 // ExclusiveStartStreamName and the opaque NextToken. AWS returns names in
 // alphabetical order and sets NextToken to the last returned name when

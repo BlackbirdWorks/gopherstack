@@ -66,7 +66,7 @@ func pSeedSolutionVersion(t *testing.T, b *personalize.InMemoryBackend) string {
 	t.Helper()
 
 	solArn := pSeedSolution(t, b)
-	sv, err := b.CreateSolutionVersion(solArn, "FULL", nil)
+	sv, err := b.CreateSolutionVersion(solArn, "FULL", "", nil)
 	require.NoError(t, err)
 
 	return sv.SolutionVersionArn

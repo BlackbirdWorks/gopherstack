@@ -1,5 +1,7 @@
 package cloudfront
 
+import "sort"
+
 // This file implements an inverted token index over distribution raw configs so
 // that the ListDistributionsBy* control-plane operations resolve in O(k) (k =
 // number of distributions referencing the queried token) instead of scanning
@@ -123,8 +125,9 @@ func (b *InMemoryBackend) tokenReferencedByAnyDistribution(searchStr string) boo
 }
 
 // distributionsByConfigSearch returns copies of the distributions whose raw
-// config contains searchStr as a whole token. Must be called with the read lock
-// held.
+// config contains searchStr as a whole token, sorted by ID (a distribution ID
+// is unique and is the cursor key ListDistributionsBy* pagination sorts on).
+// Must be called with the read lock held.
 func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distribution {
 	ids := b.distSearchInverted[searchStr]
 	if len(ids) == 0 {
@@ -137,6 +140,8 @@ func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distr
 			out = append(out, b.copyDistribution(d))
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }

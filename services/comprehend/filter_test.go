@@ -127,15 +127,15 @@ func TestListResourcesFilterByStatus(t *testing.T) {
 	h := newHandler()
 	request(t, h, "CreateEndpoint", endpointBody("ep-active"))
 
-	// Every freshly created endpoint is ACTIVE (see initialResourceStatus in
-	// store.go); a Status filter for a different status must exclude it.
+	// Every freshly created endpoint is IN_SERVICE (see initialResourceStatus
+	// in store.go); a Status filter for a different status must exclude it.
 	out := request(t, h, "ListEndpoints", map[string]any{
 		"Filter": map[string]any{"Status": "FAILED"},
 	})
 	assert.Empty(t, out["EndpointPropertiesList"])
 
 	out = request(t, h, "ListEndpoints", map[string]any{
-		"Filter": map[string]any{"Status": "ACTIVE"},
+		"Filter": map[string]any{"Status": "IN_SERVICE"},
 	})
 	assert.Len(t, out["EndpointPropertiesList"], 1)
 }

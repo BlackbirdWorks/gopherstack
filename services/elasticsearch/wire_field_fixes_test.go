@@ -114,3 +114,53 @@ func TestDescribeElasticsearchDomainConfig_ColdStorageOptions_RealClient(t *test
 		"ColdStorageOptions must decode -- it is a nested object, not a flat ColdStorageEnabled key")
 	assert.True(t, aws.ToBool(out.DomainConfig.ElasticsearchClusterConfig.Options.ColdStorageOptions.Enabled))
 }
+
+// TestDissociatePackage_DomainPackageStatus_RealSDKClient proves
+// DomainPackageDetails.DomainPackageStatus (elasticsearchservice@v1.45.4
+// types/enums.go:189-198) decodes as the real
+// types.DomainPackageStatusDissociating member, not the non-member string
+// "DISSOCIATED" the handler previously emitted -- the enum only has
+// ASSOCIATING/ASSOCIATION_FAILED/ACTIVE/DISSOCIATING/DISSOCIATION_FAILED,
+// no terminal "DISSOCIATED". A typed client decodes any string into
+// DomainPackageStatus without error, so the wrong value produced no decode
+// failure.
+func TestDissociatePackage_DomainPackageStatus_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticsearch.NewInMemoryBackend("123456789012", rtTestRegion)
+	h := elasticsearch.NewHandler(backend)
+	client := newTestElasticsearchClient(t, h)
+	ctx := t.Context()
+
+	const domainName = "rt-dissociate-domain"
+
+	_, err := client.CreateElasticsearchDomain(ctx, &elasticsearchsdk.CreateElasticsearchDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "CreateElasticsearchDomain should succeed")
+
+	pkgOut, err := client.CreatePackage(ctx, &elasticsearchsdk.CreatePackageInput{
+		PackageName: aws.String("rt-dissociate-package"),
+		PackageType: types.PackageTypeTxtDictionary,
+		PackageSource: &types.PackageSource{
+			S3BucketName: aws.String("rt-dissociate-bucket"),
+			S3Key:        aws.String("dict.txt"),
+		},
+	})
+	require.NoError(t, err, "CreatePackage should succeed")
+
+	_, err = client.AssociatePackage(ctx, &elasticsearchsdk.AssociatePackageInput{
+		DomainName: aws.String(domainName),
+		PackageID:  pkgOut.PackageDetails.PackageID,
+	})
+	require.NoError(t, err, "AssociatePackage should succeed")
+
+	out, err := client.DissociatePackage(ctx, &elasticsearchsdk.DissociatePackageInput{
+		DomainName: aws.String(domainName),
+		PackageID:  pkgOut.PackageDetails.PackageID,
+	})
+	require.NoError(t, err, "DissociatePackage should succeed")
+
+	require.NotNil(t, out.DomainPackageDetails)
+	assert.Equal(t, types.DomainPackageStatusDissociating, out.DomainPackageDetails.DomainPackageStatus)
+}

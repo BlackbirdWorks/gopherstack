@@ -158,12 +158,14 @@ func (b *InMemoryBackend) InviteMembers(detectorID string, accountIDs []string) 
 }
 
 // ListMembers returns member accounts for a detector.
-func (b *InMemoryBackend) ListMembers(detectorID string, onlyAssociated bool) ([]*Member, error) {
+func (b *InMemoryBackend) ListMembers(
+	detectorID string, onlyAssociated bool, maxResults int32, nextToken string,
+) ([]*Member, string, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	var all []*Member
@@ -179,7 +181,15 @@ func (b *InMemoryBackend) ListMembers(detectorID string, onlyAssociated bool) ([
 
 	sort.Slice(all, func(i, j int) bool { return all[i].AccountID < all[j].AccountID })
 
-	return all, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(all, offset, size)
+
+	return page, next, nil
 }
 
 // StartMonitoringMembers starts monitoring member accounts.
@@ -414,7 +424,7 @@ func (b *InMemoryBackend) GetInvitationsCount() int {
 }
 
 // ListInvitations returns all pending invitations.
-func (b *InMemoryBackend) ListInvitations() []*Invitation {
+func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([]*Invitation, string) {
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
@@ -426,5 +436,15 @@ func (b *InMemoryBackend) ListInvitations() []*Invitation {
 		all = append(all, &cp)
 	}
 
-	return all
+	sort.Slice(all, func(i, j int) bool { return all[i].AccountID < all[j].AccountID })
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, ""
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(all, offset, size)
+
+	return page, next
 }

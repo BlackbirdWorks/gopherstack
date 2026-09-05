@@ -76,8 +76,8 @@ func TestCreateArchiveRule_AutoArchivesExistingActiveFindings(t *testing.T) {
 			_, err := b.CreateArchiveRule("auto-arc-analyzer", "auto-rule", nil)
 			require.NoError(t, err)
 
-			archived, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ARCHIVED", 0, "")
-			active, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ACTIVE", 0, "")
+			archived, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ARCHIVED", nil, 0, "")
+			active, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ACTIVE", nil, 0, "")
 			assert.Len(t, archived, tc.wantArchived)
 			assert.Len(t, active, tc.wantActive)
 		})

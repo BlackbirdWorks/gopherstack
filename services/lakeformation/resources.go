@@ -2,11 +2,26 @@ package lakeformation
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
+
+// betweenBoundCount is the number of StringValueList entries a BETWEEN
+// FilterCondition must carry (lower, upper).
+const betweenBoundCount = 2
+
+// FilterCondition is one condition of ListResources' FilterConditionList
+// (api_op_ListResources.go, lakeformation@v1.50.4).
+type FilterCondition struct {
+	Field              string
+	ComparisonOperator string
+	StringValueList    []string
+}
 
 // verificationStatusVerified is the ResourceInfo.VerificationStatus value the
 // emulator always reports: it never performs real IAM verification of the
@@ -126,13 +141,18 @@ func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, e
 }
 
 // ListResources returns a paginated list of registered resources.
-func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string) {
+func (b *InMemoryBackend) ListResources(
+	conditions []FilterCondition, maxResults int, nextToken string,
+) ([]*ResourceInfo, string) {
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
 
 	all := make([]*ResourceInfo, 0, b.resources.Len())
+
 	for _, v := range b.resources.All() {
-		all = append(all, copyResourceInfo(v))
+		if matchesFilterConditions(v, conditions) {
+			all = append(all, copyResourceInfo(v))
+		}
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -140,6 +160,104 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 	})
 
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
+}
+
+// matchesFilterConditions applies ListResources' FilterConditionList as an
+// AND across conditions, matching the plain-loop shape of the service's other
+// multi-condition filters (e.g. matchesAssessmentFilter in resiliencehub).
+func matchesFilterConditions(r *ResourceInfo, conditions []FilterCondition) bool {
+	for _, c := range conditions {
+		if !matchesFilterCondition(r, c) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func filterConditionFieldValue(r *ResourceInfo, field string) (string, bool) {
+	switch field {
+	case "RESOURCE_ARN":
+		return r.ResourceArn, true
+	case "ROLE_ARN":
+		return r.RoleArn, true
+	case "LAST_MODIFIED":
+		if r.LastModified == nil {
+			return "", false
+		}
+
+		return strconv.FormatInt(r.LastModified.Unix(), 10), true
+	default:
+		return "", false
+	}
+}
+
+func matchesFilterCondition(r *ResourceInfo, c FilterCondition) bool {
+	actual, ok := filterConditionFieldValue(r, c.Field)
+	if !ok {
+		return false
+	}
+
+	switch c.ComparisonOperator {
+	case "EQ":
+		return len(c.StringValueList) > 0 && actual == c.StringValueList[0]
+	case "NE":
+		return len(c.StringValueList) > 0 && actual != c.StringValueList[0]
+	case "CONTAINS":
+		return len(c.StringValueList) > 0 && strings.Contains(actual, c.StringValueList[0])
+	case "NOT_CONTAINS":
+		return len(c.StringValueList) > 0 && !strings.Contains(actual, c.StringValueList[0])
+	case "BEGINS_WITH":
+		return len(c.StringValueList) > 0 && strings.HasPrefix(actual, c.StringValueList[0])
+	case "IN":
+		return slices.Contains(c.StringValueList, actual)
+	case "LE", "LT", "GE", "GT", "BETWEEN":
+		return matchesOrderedFilterCondition(actual, c)
+	default:
+		return true
+	}
+}
+
+// matchesOrderedFilterCondition handles the numeric-ordering comparisons,
+// meaningful only for the LAST_MODIFIED field (an epoch-seconds string here).
+func matchesOrderedFilterCondition(actual string, c FilterCondition) bool {
+	av, err := strconv.ParseInt(actual, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	if c.ComparisonOperator == "BETWEEN" {
+		if len(c.StringValueList) < betweenBoundCount {
+			return false
+		}
+
+		lo, loErr := strconv.ParseInt(c.StringValueList[0], 10, 64)
+		hi, hiErr := strconv.ParseInt(c.StringValueList[1], 10, 64)
+
+		return loErr == nil && hiErr == nil && av >= lo && av <= hi
+	}
+
+	if len(c.StringValueList) == 0 {
+		return false
+	}
+
+	bv, err := strconv.ParseInt(c.StringValueList[0], 10, 64)
+	if err != nil {
+		return false
+	}
+
+	switch c.ComparisonOperator {
+	case "LE":
+		return av <= bv
+	case "LT":
+		return av < bv
+	case "GE":
+		return av >= bv
+	case "GT":
+		return av > bv
+	default:
+		return false
+	}
 }
 
 // resourceToKey returns a stable string key for a Resource pointer (used to

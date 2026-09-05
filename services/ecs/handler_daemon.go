@@ -5,7 +5,9 @@ package ecs
 
 import (
 	"context"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -583,6 +585,8 @@ type registerDaemonTaskDefinitionInput struct {
 	Memory               string                      `json:"memory,omitempty"`
 	ExecutionRoleArn     string                      `json:"executionRoleArn,omitempty"`
 	TaskRoleArn          string                      `json:"taskRoleArn,omitempty"`
+	IpcMode              string                      `json:"ipcMode,omitempty"`
+	PidMode              string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes              []daemonVolumeInput         `json:"volumes,omitempty"`
 	Tags                 []tagInput                  `json:"tags,omitempty"`
@@ -602,6 +606,8 @@ func (h *Handler) handleRegisterDaemonTaskDefinition(
 		Memory:               in.Memory,
 		ExecutionRoleArn:     in.ExecutionRoleArn,
 		TaskRoleArn:          in.TaskRoleArn,
+		IpcMode:              in.IpcMode,
+		PidMode:              in.PidMode,
 		ContainerDefinitions: in.ContainerDefinitions,
 		Volumes:              toDaemonVolumes(in.Volumes),
 		Tags:                 tagsFromInput(in.Tags),
@@ -628,6 +634,8 @@ type daemonTaskDefinitionView struct {
 	RegisteredBy            string                      `json:"registeredBy,omitempty"`
 	Status                  string                      `json:"status,omitempty"`
 	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
+	IpcMode                 string                      `json:"ipcMode,omitempty"`
+	PidMode                 string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes                 []daemonVolumeInput         `json:"volumes,omitempty"`
 	DeleteRequestedAt       float64                     `json:"deleteRequestedAt,omitempty"`
@@ -657,6 +665,8 @@ func toDaemonTaskDefinitionView(td *DaemonTaskDefinition) *daemonTaskDefinitionV
 		RegisteredBy:            td.RegisteredBy,
 		Status:                  td.Status,
 		TaskRoleArn:             td.TaskRoleArn,
+		IpcMode:                 td.IpcMode,
+		PidMode:                 td.PidMode,
 		Revision:                td.Revision,
 	}
 
@@ -730,6 +740,24 @@ type listDaemonTaskDefinitionsOutput struct {
 	DaemonTaskDefinitions []daemonTaskDefinitionSummaryView `json:"daemonTaskDefinitions"`
 }
 
+// lastRegisteredDaemonTaskDefPerFamily narrows tds to one entry per family:
+// the highest revision. tds must already be sorted ascending by (Family,
+// Revision) -- see handleListDaemonTaskDefinitions's SortFunc above -- so
+// each family's last occurrence is its highest revision.
+func lastRegisteredDaemonTaskDefPerFamily(tds []DaemonTaskDefinition) []DaemonTaskDefinition {
+	out := make([]DaemonTaskDefinition, 0, len(tds))
+
+	for i, td := range tds {
+		if i+1 < len(tds) && tds[i+1].Family == td.Family {
+			continue
+		}
+
+		out = append(out, td)
+	}
+
+	return out
+}
+
 func (h *Handler) handleListDaemonTaskDefinitions(
 	_ context.Context,
 	in *listDaemonTaskDefinitionsInput,
@@ -741,6 +769,22 @@ func (h *Handler) handleListDaemonTaskDefinitions(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	slices.SortFunc(tds, func(a, c DaemonTaskDefinition) int {
+		if n := strings.Compare(a.Family, c.Family); n != 0 {
+			return n
+		}
+
+		return a.Revision - c.Revision
+	})
+
+	if strings.EqualFold(in.Revision, "LAST_REGISTERED") {
+		tds = lastRegisteredDaemonTaskDefPerFamily(tds)
+	}
+
+	if strings.EqualFold(in.Sort, "DESC") {
+		slices.Reverse(tds)
 	}
 
 	views := make([]daemonTaskDefinitionSummaryView, 0, len(tds))
@@ -757,14 +801,6 @@ func (h *Handler) handleListDaemonTaskDefinitions(
 		}
 
 		views = append(views, v)
-	}
-
-	sort.Slice(views, func(i, j int) bool { return views[i].Arn < views[j].Arn })
-
-	if in.Sort == "DESC" {
-		for i, j := 0, len(views)-1; i < j; i, j = i+1, j-1 {
-			views[i], views[j] = views[j], views[i]
-		}
 	}
 
 	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)

@@ -92,9 +92,9 @@ func (h *Handler) handleDeleteAgentAlias(
 }
 
 func (h *Handler) handleListAgentAliases(
-	ctx context.Context, c *echo.Context, agentID string,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	maxResults, nextToken := bodyPageParams(body)
 
 	summaries, outToken, err := h.Backend.ListAgentAliases(ctx, agentID, maxResults, nextToken)
 	if err != nil {

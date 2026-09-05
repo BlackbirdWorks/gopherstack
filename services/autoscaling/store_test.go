@@ -183,7 +183,7 @@ func TestInMemoryBackend_Purge(t *testing.T) {
 
 				b.Purge(context.Background(), time.Now().Add(time.Hour))
 
-				groups, err := b.DescribeAutoScalingGroups(nil)
+				groups, err := b.DescribeAutoScalingGroups(nil, nil)
 				require.NoError(t, err)
 				assert.Empty(t, groups)
 			},

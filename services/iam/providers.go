@@ -408,14 +408,17 @@ func (b *InMemoryBackend) RemoveClientIDFromOpenIDConnectProvider(providerArn, c
 		}
 	}
 
-	return fmt.Errorf("%w: client ID %q not found in OIDC provider %q", ErrInvalidAction, clientID, providerArn)
+	// RemoveClientIDFromOpenIDConnectProvider is documented as idempotent: "it
+	// does not fail or return an error if you try to remove a client ID that
+	// does not exist" (iam@v1.58.1 api_op_RemoveClientIDFromOpenIDConnectProvider.go:15).
+	return nil
 }
 
 // AddClientIDToOpenIDConnectProvider appends a client ID to an existing OIDC provider.
 // If the client ID is already present, the call is idempotent.
 func (b *InMemoryBackend) AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error {
 	if clientID == "" {
-		return fmt.Errorf("%w: ClientID must not be empty", ErrInvalidAction)
+		return fmt.Errorf("%w: ClientID must not be empty", ErrInvalidInput)
 	}
 
 	b.mu.Lock("AddClientIDToOpenIDConnectProvider")

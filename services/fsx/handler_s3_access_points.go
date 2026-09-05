@@ -45,9 +45,10 @@ func (h *Handler) handleDetachAndDeleteS3AccessPoint(
 // --- DescribeS3AccessPointAttachments ---
 
 type describeS3AccessPointAttachmentsInput struct {
-	NextToken  string   `json:"NextToken,omitempty"`
-	Names      []string `json:"Names,omitempty"`
-	MaxResults int32    `json:"MaxResults,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
+	Names      []string     `json:"Names,omitempty"`
+	Filters    []wireFilter `json:"Filters,omitempty"`
+	MaxResults int32        `json:"MaxResults,omitempty"`
 }
 
 type describeS3AccessPointAttachmentsOutput struct {
@@ -59,7 +60,7 @@ func (h *Handler) handleDescribeS3AccessPointAttachments(
 	_ context.Context,
 	in *describeS3AccessPointAttachmentsInput,
 ) (*describeS3AccessPointAttachmentsOutput, error) {
-	aps, next, err := h.Backend.DescribeS3AccessPointAttachments(in.Names, in.MaxResults, in.NextToken)
+	aps, next, err := h.Backend.DescribeS3AccessPointAttachments(in.Names, in.Filters, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
 	}

@@ -94,14 +94,26 @@ type describeFleetAdvisorCollectorsInput struct {
 	Filters    []filterEntry `json:"Filters"`
 }
 
+// collectorHealthCheckJSON mirrors types.CollectorHealthCheck
+// (databasemigrationservice@v1.66.4 types/types.go:108) -- a nested object,
+// not the bare string this handler emitted pre-fix. This backend never
+// models a Fleet Advisor collector that fails its S3/role access checks, so
+// the three access booleans are always true alongside an ACTIVE status.
+type collectorHealthCheckJSON struct {
+	CollectorStatus                    string `json:"CollectorStatus"`
+	LocalCollectorS3Access             bool   `json:"LocalCollectorS3Access"`
+	WebCollectorGrantedRoleBasedAccess bool   `json:"WebCollectorGrantedRoleBasedAccess"`
+	WebCollectorS3Access               bool   `json:"WebCollectorS3Access"`
+}
+
 type fleetAdvisorCollectorJSON struct {
-	CollectorName         string `json:"CollectorName"`
-	CollectorReferencedID string `json:"CollectorReferencedId"`
-	CollectorVersion      string `json:"CollectorVersion"`
-	Description           string `json:"Description,omitempty"`
-	ServiceAccessRoleArn  string `json:"ServiceAccessRoleArn"`
-	S3BucketName          string `json:"S3BucketName"`
-	CollectorHealthCheck  string `json:"CollectorHealthCheck"`
+	CollectorName         string                   `json:"CollectorName"`
+	CollectorReferencedID string                   `json:"CollectorReferencedId"`
+	CollectorVersion      string                   `json:"CollectorVersion"`
+	Description           string                   `json:"Description,omitempty"`
+	ServiceAccessRoleArn  string                   `json:"ServiceAccessRoleArn"`
+	S3BucketName          string                   `json:"S3BucketName"`
+	CollectorHealthCheck  collectorHealthCheckJSON `json:"CollectorHealthCheck"`
 }
 
 type describeFleetAdvisorCollectorsOutput struct {
@@ -110,15 +122,26 @@ type describeFleetAdvisorCollectorsOutput struct {
 }
 
 func (h *Handler) handleDescribeFleetAdvisorCollectors(
-	ctx context.Context, _ *describeFleetAdvisorCollectorsInput,
+	ctx context.Context, in *describeFleetAdvisorCollectorsInput,
 ) (*describeFleetAdvisorCollectorsOutput, error) {
 	list, err := h.Backend.DescribeFleetAdvisorCollectors(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	nameFilter := extractFilterValue(in.Filters, "collector-name")
+	idFilter := extractFilterValue(in.Filters, "collector-referenced-id")
+
 	result := make([]fleetAdvisorCollectorJSON, 0, len(list))
 	for _, col := range list {
+		if nameFilter != "" && col.CollectorName != nameFilter {
+			continue
+		}
+
+		if idFilter != "" && col.CollectorReferencedID != idFilter {
+			continue
+		}
+
 		result = append(result, fleetAdvisorCollectorJSON{
 			CollectorName:         col.CollectorName,
 			CollectorReferencedID: col.CollectorReferencedID,
@@ -126,11 +149,18 @@ func (h *Handler) handleDescribeFleetAdvisorCollectors(
 			Description:           col.Description,
 			ServiceAccessRoleArn:  col.ServiceAccessRoleArn,
 			S3BucketName:          col.S3BucketName,
-			CollectorHealthCheck:  col.CollectorHealthCheck,
+			CollectorHealthCheck: collectorHealthCheckJSON{
+				CollectorStatus:                    col.CollectorHealthCheck,
+				LocalCollectorS3Access:             true,
+				WebCollectorGrantedRoleBasedAccess: true,
+				WebCollectorS3Access:               true,
+			},
 		})
 	}
 
-	return &describeFleetAdvisorCollectorsOutput{Collectors: result}, nil
+	data, nextMarker := dmsPaginate(result, in.NextToken, in.MaxRecords)
+
+	return &describeFleetAdvisorCollectorsOutput{Collectors: data, NextToken: nextMarker}, nil
 }
 
 type describeFleetAdvisorDatabasesInput struct {
@@ -144,30 +174,96 @@ type describeFleetAdvisorDatabasesOutput struct {
 	Databases []map[string]any `json:"Databases"`
 }
 
+// fleetAdvisorDatabaseFilters holds the five documented
+// DescribeFleetAdvisorDatabases filter values
+// (api_op_DescribeFleetAdvisorDatabases.go). server-ip-address and
+// database-ip-address both resolve against IPAddress: this backend models
+// one IP per discovered database, not a separate server/database pair.
+type fleetAdvisorDatabaseFilters struct {
+	id            string
+	name          string
+	engine        string
+	ip            string
+	collectorName string
+}
+
+func fleetAdvisorDatabaseFiltersFrom(filters []filterEntry) fleetAdvisorDatabaseFilters {
+	return fleetAdvisorDatabaseFilters{
+		id:            extractFilterValue(filters, "database-id"),
+		name:          extractFilterValue(filters, "database-name"),
+		engine:        extractFilterValue(filters, "database-engine"),
+		ip:            extractFilterValue(filters, "database-ip-address", "server-ip-address"),
+		collectorName: extractFilterValue(filters, "collector-name"),
+	}
+}
+
+func (f fleetAdvisorDatabaseFilters) matches(db *FleetAdvisorDatabase, collectorNames map[string]string) bool {
+	if f.id != "" && db.DatabaseID != f.id {
+		return false
+	}
+
+	if f.name != "" && db.DatabaseName != f.name {
+		return false
+	}
+
+	if f.engine != "" && db.EngineName != f.engine {
+		return false
+	}
+
+	if f.ip != "" && db.IPAddress != f.ip {
+		return false
+	}
+
+	return f.collectorName == "" || collectorNames[db.CollectorReferencedID] == f.collectorName
+}
+
+func fleetAdvisorDatabaseJSON(db *FleetAdvisorDatabase) map[string]any {
+	return map[string]any{
+		"DatabaseId":   db.DatabaseID,
+		"DatabaseName": db.DatabaseName,
+		"IpAddress":    db.IPAddress,
+		"SoftwareDetails": map[string]any{
+			"Engine": db.EngineName,
+		},
+		"Collectors": []map[string]any{
+			{"CollectorReferencedId": db.CollectorReferencedID},
+		},
+	}
+}
+
 func (h *Handler) handleDescribeFleetAdvisorDatabases(
-	ctx context.Context, _ *describeFleetAdvisorDatabasesInput,
+	ctx context.Context, in *describeFleetAdvisorDatabasesInput,
 ) (*describeFleetAdvisorDatabasesOutput, error) {
 	list, err := h.Backend.DescribeFleetAdvisorDatabases(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	dbs := make([]map[string]any, 0, len(list))
-	for _, db := range list {
-		dbs = append(dbs, map[string]any{
-			"DatabaseId":   db.DatabaseID,
-			"DatabaseName": db.DatabaseName,
-			"IpAddress":    db.IPAddress,
-			"SoftwareDetails": map[string]any{
-				"Engine": db.EngineName,
-			},
-			"Collectors": []map[string]any{
-				{"CollectorReferencedId": db.CollectorReferencedID},
-			},
-		})
+	filters := fleetAdvisorDatabaseFiltersFrom(in.Filters)
+
+	var collectorNames map[string]string
+	if filters.collectorName != "" {
+		collectors, colErr := h.Backend.DescribeFleetAdvisorCollectors(ctx)
+		if colErr != nil {
+			return nil, colErr
+		}
+
+		collectorNames = make(map[string]string, len(collectors))
+		for _, col := range collectors {
+			collectorNames[col.CollectorReferencedID] = col.CollectorName
+		}
 	}
 
-	return &describeFleetAdvisorDatabasesOutput{Databases: dbs}, nil
+	dbs := make([]map[string]any, 0, len(list))
+	for _, db := range list {
+		if filters.matches(db, collectorNames) {
+			dbs = append(dbs, fleetAdvisorDatabaseJSON(db))
+		}
+	}
+
+	data, nextMarker := dmsPaginate(dbs, in.NextToken, in.MaxRecords)
+
+	return &describeFleetAdvisorDatabasesOutput{Databases: data, NextToken: nextMarker}, nil
 }
 
 type describeFleetAdvisorLsaAnalysisInput struct {

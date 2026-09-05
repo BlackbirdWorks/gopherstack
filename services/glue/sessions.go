@@ -77,12 +77,15 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 	return out
 }
 
+// DeleteSession deletes a session. Its error switch (glue's deserializers.go)
+// has no EntityNotFoundException case, unlike GetSession's, so an unknown Id
+// surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteSession(id string) error {
 	b.mu.Lock("DeleteSession")
 	defer b.mu.Unlock()
 
 	if !b.sessions.Has(id) {
-		return fmt.Errorf("session %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("session %q not found: %w", id, ErrValidation)
 	}
 	b.sessions.Delete(id)
 	delete(b.sessionStatements, id)
@@ -90,13 +93,15 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 	return nil
 }
 
+// StopSession stops a session. Its error switch also has no
+// EntityNotFoundException case.
 func (b *InMemoryBackend) StopSession(id string) error {
 	b.mu.Lock("StopSession")
 	defer b.mu.Unlock()
 
 	s, ok := b.sessions.Get(id)
 	if !ok {
-		return fmt.Errorf("session %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("session %q not found: %w", id, ErrValidation)
 	}
 	s.Status = stateStopping
 

@@ -245,6 +245,11 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 		Action:    input.Action,
 		Principal: input.Principal,
 	}
+	if input.Condition != nil {
+		stmt.Condition = map[string]map[string]string{
+			input.Condition.Type: {input.Condition.Key: input.Condition.Value},
+		}
+	}
 	policy.Statements[input.StatementID] = stmt
 
 	return nil

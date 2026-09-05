@@ -265,17 +265,31 @@ func (b *InMemoryBackend) AddTableVersionInternal(dbName, tableName string, tv *
 	b.tableVersions.Put(&cp)
 }
 
-// SearchTables returns tables matching a case-insensitive substring of the table name.
-// An empty searchText returns all tables.
+// SearchTables returns tables matching searchText against the table name.
+// Per SearchTablesInput.SearchText's doc (api_op_SearchTables.go: "Specifying
+// a value in quotes filters based on an exact match to the value"), a value
+// wrapped in double quotes requires an exact (case-insensitive) match on
+// Name; otherwise it's a case-insensitive substring match. An empty
+// searchText returns all tables.
 func (b *InMemoryBackend) SearchTables(searchText string) []*Table {
 	b.mu.RLock("SearchTables")
 	defer b.mu.RUnlock()
 
-	lower := strings.ToLower(searchText)
+	quoted := len(searchText) >= 2 && strings.HasPrefix(searchText, `"`) && strings.HasSuffix(searchText, `"`)
+
+	target := searchText
+	if quoted {
+		target = searchText[1 : len(searchText)-1]
+	}
+
+	lower := strings.ToLower(target)
 	out := make([]*Table, 0)
 
 	for _, t := range b.tables.Snapshot() {
-		if lower == "" || strings.Contains(strings.ToLower(t.Name), lower) {
+		name := strings.ToLower(t.Name)
+
+		matches := lower == "" || (quoted && name == lower) || (!quoted && strings.Contains(name, lower))
+		if matches {
 			out = append(out, cloneTable(t))
 		}
 	}

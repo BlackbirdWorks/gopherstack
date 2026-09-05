@@ -124,13 +124,15 @@ func (b *InMemoryBackend) SetActivityEncryptionConfiguration(
 }
 
 // DeleteActivity deletes an activity and closes its pending task queue.
+// AWS: DeleteActivity's own error switch models only InvalidArn -- no
+// ActivityDoesNotExist -- so it is idempotent on a missing activity.
 func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 	b.mu.Lock("DeleteActivity")
 	defer b.mu.Unlock()
 
 	a, exists := b.activities.Get(activityArn)
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrActivityDoesNotExist, activityArn)
+		return nil
 	}
 
 	b.activities.Delete(activityArn)

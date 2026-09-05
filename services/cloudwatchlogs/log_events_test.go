@@ -2,6 +2,7 @@ package cloudwatchlogs_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 	"testing"
@@ -851,4 +852,70 @@ func TestCloudWatchLogsBackend_PutLogEvents_SequenceTokenIgnored(t *testing.T) {
 			assert.Equal(t, strconv.Itoa(tt.setupEvents+1), result.NextSequenceToken)
 		})
 	}
+}
+
+// TestCloudWatchLogsBackend_GetLogEvents_StaleTokenPastEnd verifies GetLogEvents
+// does not panic when nextToken names an offset beyond the current event count,
+// e.g. because retention swept older events out from under a token minted
+// before the sweep, or because of a corrupted/adversarial nextToken.
+func TestCloudWatchLogsBackend_GetLogEvents_StaleTokenPastEnd(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "stream")
+	_, _ = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "a", Timestamp: 1},
+		{Message: "b", Timestamp: 2},
+		{Message: "c", Timestamp: 3},
+	})
+
+	staleToken := base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(100)))
+
+	require.NotPanics(t, func() {
+		evts, _, _, err := b.GetLogEvents(
+			context.Background(),
+			"grp",
+			"stream",
+			nil,
+			nil,
+			2,
+			staleToken,
+			true,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, evts)
+	})
+}
+
+// TestCloudWatchLogsBackend_FilterLogEvents_StaleTokenPastEnd is the
+// FilterLogEvents analogue of the GetLogEvents test above: FilterLogEvents
+// computes startIdx/end in a different order (end is computed before
+// startIdx is clamped), but the clamp still lands before the slice
+// operation, so an out-of-range token degrades to an empty page rather than
+// panicking. This test pins that down instead of leaving it as inspection.
+func TestCloudWatchLogsBackend_FilterLogEvents_StaleTokenPastEnd(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "stream")
+	_, _ = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "a", Timestamp: 1},
+		{Message: "b", Timestamp: 2},
+		{Message: "c", Timestamp: 3},
+	})
+
+	staleToken := base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(100)))
+
+	require.NotPanics(t, func() {
+		evts, _, _, err := b.FilterLogEvents(context.Background(), cloudwatchlogs.FilterLogEventsParams{
+			GroupName: "grp",
+			NextToken: staleToken,
+		})
+		require.NoError(t, err)
+		assert.Empty(t, evts)
+	})
 }

@@ -385,6 +385,7 @@ func (b *InMemoryBackend) DescribeInstanceTopology(ids []string) []InstanceTopol
 		out = append(out, InstanceTopologyItem{
 			InstanceID:       inst.ID,
 			InstanceType:     inst.InstanceType,
+			GroupName:        inst.Placement.GroupName,
 			AvailabilityZone: az,
 			ZoneID:           az + "1",
 			NetworkNodes:     []string{"nn-" + inst.ID[:8]},
@@ -451,8 +452,14 @@ func (b *InMemoryBackend) UnmonitorInstances(instanceIDs []string) ([]Monitoring
 type NIAttributeResult struct {
 	NetworkInterfaceID string   `json:"networkInterfaceID,omitempty"`
 	Description        string   `json:"description,omitempty"`
+	AttachmentID       string   `json:"attachmentID,omitempty"`
+	AttachInstanceID   string   `json:"attachInstanceID,omitempty"`
+	AttachStatus       string   `json:"attachStatus,omitempty"`
 	GroupIDs           []string `json:"groupIDs,omitempty"`
+	AttachDeviceIndex  int      `json:"attachDeviceIndex,omitempty"`
 	SourceDestCheck    bool     `json:"sourceDestCheck,omitempty"`
+	AttachDeleteOnTerm bool     `json:"attachDeleteOnTermination,omitempty"`
+	HasAttachment      bool     `json:"hasAttachment,omitempty"`
 }
 
 // EnableSerialConsoleAccess enables serial console access for the account.

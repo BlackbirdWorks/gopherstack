@@ -171,7 +171,9 @@ func (h *Handler) handleListThingRegistrationTaskReports(c *echo.Context) error 
 
 	links, err := h.Backend.ListThingRegistrationTaskReports(taskID, reportType)
 	if err != nil {
-		return h.handleError(c, err)
+		// ListThingRegistrationTaskReports's own deserializeOpError switch
+		// declares no ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrRegistrationTaskNotFound)
 	}
 
 	pageSize, start := parseIoTPagination(c)

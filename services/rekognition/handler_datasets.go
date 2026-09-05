@@ -135,9 +135,13 @@ func (h *Handler) handleDescribeDataset(
 }
 
 type listDatasetEntriesReq struct {
-	DatasetArn string `json:"DatasetArn"`
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	HasErrors         *bool    `json:"HasErrors"`
+	Labeled           *bool    `json:"Labeled"`
+	DatasetArn        string   `json:"DatasetArn"`
+	NextToken         string   `json:"NextToken"`
+	SourceRefContains string   `json:"SourceRefContains"`
+	ContainsLabels    []string `json:"ContainsLabels"`
+	MaxResults        int32    `json:"MaxResults"`
 }
 
 type listDatasetEntriesResp struct {
@@ -152,7 +156,14 @@ func (h *Handler) handleListDatasetEntries(
 		return nil, fmt.Errorf("%w: DatasetArn is required", ErrValidation)
 	}
 
-	entries, nextToken, err := h.Backend.ListDatasetEntries(req.DatasetArn, req.MaxResults, req.NextToken)
+	filter := ListDatasetEntriesFilter{
+		ContainsLabels:    req.ContainsLabels,
+		HasErrors:         req.HasErrors,
+		Labeled:           req.Labeled,
+		SourceRefContains: req.SourceRefContains,
+	}
+
+	entries, nextToken, err := h.Backend.ListDatasetEntries(req.DatasetArn, filter, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}

@@ -2,11 +2,13 @@ package ecs_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -218,6 +220,94 @@ func TestECS_ListDaemonTaskDefinitions(t *testing.T) {
 	tds, ok = resp["daemonTaskDefinitions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tds, 1)
+}
+
+// TestECS_ListDaemonTaskDefinitions_Order pins gopherstack's default order
+// against the SDK doc: "By default (ASC), daemon task definitions are listed
+// in ascending order by family name and revision number" (ecs@v1.90.0
+// api_op_ListDaemonTaskDefinitions.go). Sorting the ARN as a plain string gets
+// this wrong once a family passes revision 9, since
+// "daemon-task-definition/a-app:10" < "daemon-task-definition/a-app:2".
+func TestECS_ListDaemonTaskDefinitions_Order(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	arns := make(map[string]string)
+	arns["b-app:1"] = registerDaemonTaskDef(t, h, "b-app")
+
+	for range 10 {
+		arn := registerDaemonTaskDef(t, h, "a-app")
+		arns[fmt.Sprintf("a-app:%d", len(arns))] = arn
+	}
+
+	wantAsc := make([]string, 0, 11)
+	for r := 1; r <= 10; r++ {
+		wantAsc = append(wantAsc, arns[fmt.Sprintf("a-app:%d", r)])
+	}
+
+	wantAsc = append(wantAsc, arns["b-app:1"])
+
+	out, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.DaemonTaskDefinitions, len(wantAsc))
+
+	gotAsc := make([]string, len(out.DaemonTaskDefinitions))
+	for i, td := range out.DaemonTaskDefinitions {
+		gotAsc[i] = aws.ToString(td.Arn)
+	}
+
+	assert.Equal(t, wantAsc, gotAsc)
+
+	wantDesc := make([]string, len(wantAsc))
+	for i, a := range wantAsc {
+		wantDesc[len(wantAsc)-1-i] = a
+	}
+
+	outDesc, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{
+		Sort: ecstypes.SortOrderDesc,
+	})
+	require.NoError(t, err)
+
+	gotDesc := make([]string, len(outDesc.DaemonTaskDefinitions))
+	for i, td := range outDesc.DaemonTaskDefinitions {
+		gotDesc[i] = aws.ToString(td.Arn)
+	}
+
+	assert.Equal(t, wantDesc, gotDesc)
+}
+
+// TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered proves the
+// LAST_REGISTERED Revision filter (ecs@v1.90.0
+// api_op_ListDaemonTaskDefinitions.go: "Specify LAST_REGISTERED to return
+// only the last registered revision for each daemon task definition
+// family") narrows each family down to its single highest revision, instead
+// of the filter being silently ignored and every revision coming back.
+func TestECS_ListDaemonTaskDefinitions_RevisionLastRegistered(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	registerDaemonTaskDef(t, h, "rev-family-a")
+	registerDaemonTaskDef(t, h, "rev-family-a")
+	lastA := registerDaemonTaskDef(t, h, "rev-family-a")
+
+	registerDaemonTaskDef(t, h, "rev-family-b")
+	lastB := registerDaemonTaskDef(t, h, "rev-family-b")
+
+	out, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{
+		Revision: ecstypes.DaemonTaskDefinitionRevisionFilterLastRegistered,
+	})
+	require.NoError(t, err)
+
+	got := make([]string, len(out.DaemonTaskDefinitions))
+	for i, td := range out.DaemonTaskDefinitions {
+		got[i] = aws.ToString(td.Arn)
+	}
+
+	assert.ElementsMatch(t, []string{lastA, lastB}, got)
 }
 
 // ----- CreateDaemon / DescribeDaemon / UpdateDaemon / DeleteDaemon / ListDaemons -----
@@ -551,6 +641,42 @@ func TestECS_ListDaemons(t *testing.T) {
 	daemons, ok = resp["daemonSummariesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, daemons)
+}
+
+// TestECS_ListDaemons_OmittedClusterScopesToDefault covers
+// ListDaemonsInput.ClusterArn's doc: "If you do not specify a cluster, the
+// default cluster is assumed." Omitting clusterArn must scope to the
+// "default" cluster only, not return daemons from every cluster.
+func TestECS_ListDaemons_OmittedClusterScopesToDefault(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tdArn := registerDaemonTaskDef(t, h, "other-cluster-family")
+	cpArn := createCapacityProviderForDaemon(t, h, "other-cluster-cp")
+
+	rec := doECSRequest(t, h, "CreateDaemon", map[string]any{
+		"daemonName":              "other-cluster-daemon",
+		"daemonTaskDefinitionArn": tdArn,
+		"capacityProviderArns":    []string{cpArn},
+		"clusterArn":              "other-cluster",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECSRequest(t, h, "ListDaemons", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	daemons, ok := resp["daemonSummariesList"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, daemons, "omitted clusterArn must scope to default cluster, not every cluster")
+
+	rec = doECSRequest(t, h, "ListDaemons", map[string]any{"clusterArn": "other-cluster"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	daemons, ok = resp["daemonSummariesList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, daemons, 1)
 }
 
 // ----- DescribeDaemonDeployments / ListDaemonDeployments / DescribeDaemonRevisions -----

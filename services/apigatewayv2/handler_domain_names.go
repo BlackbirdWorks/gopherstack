@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func extractDomainNamesOp(path, method string) string {
@@ -118,7 +119,10 @@ func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainNa
 			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
-		return c.JSON(http.StatusOK, listRoutingRulesOutput{RoutingRules: rules})
+		maxResults, nextToken := apigwPaginationParams(c)
+		p := page.New(rules, nextToken, maxResults, apigwDefaultPageSize)
+
+		return c.JSON(http.StatusOK, listRoutingRulesOutput{RoutingRules: p.Data, NextToken: p.Next})
 	}
 
 	return writeErr(c, http.StatusNotFound, msgNotFound)
@@ -169,7 +173,10 @@ func (h *Handler) handleGetDomainNames(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: items})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetDomainName(c *echo.Context, domainName string) error {

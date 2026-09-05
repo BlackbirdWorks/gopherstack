@@ -3,6 +3,7 @@ package bedrock
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,8 +105,43 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 	})
 }
 
+// parseListCustomModelDeploymentsQuery is structurally similar to
+// parseListProvisionedModelThroughputsQuery (same query-parsing shape) but
+// targets a distinct Input type and query key set.
+//
+//nolint:dupl // see doc comment above.
+func parseListCustomModelDeploymentsQuery(c *echo.Context) *ListCustomModelDeploymentsInput {
+	q := c.Request().URL.Query()
+
+	maxResults, _ := strconv.ParseInt(q.Get("maxResults"), 10, 32)
+
+	in := &ListCustomModelDeploymentsInput{
+		StatusEquals:   q.Get("statusEquals"),
+		ModelArnEquals: q.Get("modelArnEquals"),
+		NameContains:   q.Get("nameContains"),
+		SortBy:         q.Get("sortBy"),
+		SortOrder:      q.Get("sortOrder"),
+		NextToken:      q.Get("nextToken"),
+		MaxResults:     int32(maxResults),
+	}
+
+	if v := q.Get("createdAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreatedAfter = &t
+		}
+	}
+
+	if v := q.Get("createdBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreatedBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
-	deployments := h.Backend.ListCustomModelDeployments()
+	deployments, nextToken := h.Backend.ListCustomModelDeployments(parseListCustomModelDeploymentsQuery(c))
 	summaries := make([]map[string]any, 0, len(deployments))
 
 	for _, d := range deployments {
@@ -125,7 +161,12 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 
 	// Real key is modelDeploymentSummaries (bedrock@v1.66.4 deserializers.go,
 	// awsRestjson1_deserializeOpDocumentListCustomModelDeploymentsOutput).
-	return c.JSON(http.StatusOK, map[string]any{"modelDeploymentSummaries": summaries})
+	resp := map[string]any{"modelDeploymentSummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN string) error {

@@ -172,6 +172,60 @@ func TestGetCostCategories_NamesVsValues_RealClient(t *testing.T) {
 	assert.Contains(t, noName.CostCategoryNames, "Env")
 }
 
+// TestCreateCostCategoryDefinition_SplitChargeRulesAndEffectiveStart_RealClient
+// covers gopherstack-4shm's own class on CreateCostCategoryDefinitionInput
+// (real fields: api_op_CreateCostCategoryDefinition.go): SplitChargeRules
+// and EffectiveStart were both parsed off the wire (SplitChargeRules typed
+// even on this package's own wire struct) and then completely discarded --
+// handleCreateCostCategoryDefinition never passed either to the backend, so
+// a real client's split-charge configuration silently vanished, and a
+// caller-supplied EffectiveStart was always overridden with "now" instead
+// of honored. UpdateCostCategoryDefinition already threaded
+// SplitChargeRules correctly; Create did not.
+func TestCreateCostCategoryDefinition_SplitChargeRulesAndEffectiveStart_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateCostCategoryDefinition(
+		t.Context(),
+		&costexplorersdk.CreateCostCategoryDefinitionInput{
+			Name:           aws.String("Splitter"),
+			RuleVersion:    cetypes.CostCategoryRuleVersionCostCategoryExpressionV1,
+			Rules:          []cetypes.CostCategoryRule{{Value: aws.String("Shared")}},
+			EffectiveStart: aws.String("2023-06-01T00:00:00Z"),
+			SplitChargeRules: []cetypes.CostCategorySplitChargeRule{
+				{
+					Source:  aws.String("Shared"),
+					Method:  cetypes.CostCategorySplitChargeMethodProportional,
+					Targets: []string{"Engineering", "Sales"},
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t, "2023-06-01T00:00:00Z", aws.ToString(createOut.EffectiveStart),
+		"a caller-supplied EffectiveStart must be honored, not silently overridden with now",
+	)
+
+	describeOut, err := client.DescribeCostCategoryDefinition(
+		t.Context(),
+		&costexplorersdk.DescribeCostCategoryDefinitionInput{CostCategoryArn: createOut.CostCategoryArn},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.CostCategory)
+	require.Len(
+		t, describeOut.CostCategory.SplitChargeRules, 1,
+		"SplitChargeRules must round-trip, not be silently dropped on create",
+	)
+	got := describeOut.CostCategory.SplitChargeRules[0]
+	assert.Equal(t, "Shared", aws.ToString(got.Source))
+	assert.Equal(t, cetypes.CostCategorySplitChargeMethodProportional, got.Method)
+	assert.Equal(t, []string{"Engineering", "Sales"}, got.Targets)
+}
+
 // TestGetRightsizingRecommendation_Configuration_RealClient proves
 // GetRightsizingRecommendationOutput always echoes Configuration (with
 // AWS-documented server-applied defaults when the request omits it). Before
@@ -253,4 +307,228 @@ func TestGetSavingsPlansPurchaseRecommendation_CurrencyCodeKey_RealClient(t *tes
 		"the real member is CurrencyCode")
 	assert.NotContains(t, body, `"RecommendationTotalCount"`,
 		"types.SavingsPlansPurchaseRecommendationMetadata has no RecommendationTotalCount member")
+}
+
+// TestCreateAnomalyMonitor_MonitorSpecification_RealClient covers a
+// write-only-state bug found by the primary-method sweep: real
+// CreateAnomalyMonitorInput.AnomalyMonitor carries a MonitorSpecification
+// *types.Expression member (required for a CUSTOM monitor, or a DIMENSIONAL
+// monitor whose MonitorDimension is TAG/COST_CATEGORY -- see
+// costexplorer@v1.67.4 types/types.go's AnomalyMonitor doc comment, and its
+// serializer/deserializer at serializers.go:2953/deserializers.go:6476).
+// This field was previously entirely absent from this package's wire
+// structs and internal model: a real client's MonitorSpecification was
+// accepted by nothing, stored nowhere, and every GetAnomalyMonitors
+// response omitted it regardless of what was sent on Create.
+func TestCreateAnomalyMonitor_MonitorSpecification_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName: aws.String("CustomTagMonitor"),
+			MonitorType: cetypes.MonitorTypeCustom,
+			MonitorSpecification: &cetypes.Expression{
+				Tags: &cetypes.TagValues{
+					Key:    aws.String("team"),
+					Values: []string{"prod"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(createOut.MonitorArn))
+
+	getOut, err := client.GetAnomalyMonitors(t.Context(), &costexplorersdk.GetAnomalyMonitorsInput{
+		MonitorArnList: []string{aws.ToString(createOut.MonitorArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalyMonitors, 1)
+
+	got := getOut.AnomalyMonitors[0]
+	require.NotNil(t, got.MonitorSpecification,
+		"MonitorSpecification must round-trip through Create->Get, not be silently dropped")
+	require.NotNil(t, got.MonitorSpecification.Tags)
+	assert.Equal(t, "team", aws.ToString(got.MonitorSpecification.Tags.Key))
+	assert.Equal(t, []string{"prod"}, got.MonitorSpecification.Tags.Values)
+}
+
+// TestAnomalySubscription_ThresholdExpression_RealClient covers the sibling
+// write-only-state bug in the same family: real AnomalySubscription/
+// CreateAnomalySubscriptionInput/UpdateAnomalySubscriptionInput all carry a
+// ThresholdExpression *types.Expression member, the non-deprecated
+// replacement for Threshold ("you can specify either Threshold or
+// ThresholdExpression, but not both" -- costexplorer@v1.67.4
+// types/types.go). It was entirely absent from this package's wire structs
+// and internal model, so a real client using only ThresholdExpression (the
+// documented modern path) had it silently dropped on Create, missing on
+// every Get, and any Update value discarded too.
+func TestAnomalySubscription_ThresholdExpression_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	monOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName:      aws.String("Mon"),
+			MonitorType:      cetypes.MonitorTypeDimensional,
+			MonitorDimension: cetypes.MonitorDimensionService,
+		},
+	})
+	require.NoError(t, err)
+
+	thresholdExpr := &cetypes.Expression{
+		Dimensions: &cetypes.DimensionValues{
+			Key:    cetypes.DimensionAnomalyTotalImpactAbsolute,
+			Values: []string{"100"},
+		},
+	}
+
+	createOut, err := client.CreateAnomalySubscription(t.Context(), &costexplorersdk.CreateAnomalySubscriptionInput{
+		AnomalySubscription: &cetypes.AnomalySubscription{
+			SubscriptionName: aws.String("Sub"),
+			Frequency:        cetypes.AnomalySubscriptionFrequencyDaily,
+			MonitorArnList:   []string{aws.ToString(monOut.MonitorArn)},
+			Subscribers: []cetypes.Subscriber{
+				{Address: aws.String("a@example.com"), Type: cetypes.SubscriberTypeEmail},
+			},
+			ThresholdExpression: thresholdExpr,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(createOut.SubscriptionArn))
+
+	getOut, err := client.GetAnomalySubscriptions(t.Context(), &costexplorersdk.GetAnomalySubscriptionsInput{
+		SubscriptionArnList: []string{aws.ToString(createOut.SubscriptionArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalySubscriptions, 1)
+
+	got := getOut.AnomalySubscriptions[0]
+	require.NotNil(t, got.ThresholdExpression,
+		"ThresholdExpression must round-trip through Create->Get, not be silently dropped")
+	require.NotNil(t, got.ThresholdExpression.Dimensions)
+	assert.Equal(t, cetypes.DimensionAnomalyTotalImpactAbsolute, got.ThresholdExpression.Dimensions.Key)
+	assert.Equal(t, []string{"100"}, got.ThresholdExpression.Dimensions.Values)
+
+	// Update with a new ThresholdExpression must also round-trip, not be discarded.
+	newExpr := &cetypes.Expression{
+		Dimensions: &cetypes.DimensionValues{
+			Key:    cetypes.DimensionAnomalyTotalImpactPercentage,
+			Values: []string{"50"},
+		},
+	}
+	_, err = client.UpdateAnomalySubscription(t.Context(), &costexplorersdk.UpdateAnomalySubscriptionInput{
+		SubscriptionArn:     createOut.SubscriptionArn,
+		ThresholdExpression: newExpr,
+	})
+	require.NoError(t, err)
+
+	getOut2, err := client.GetAnomalySubscriptions(t.Context(), &costexplorersdk.GetAnomalySubscriptionsInput{
+		SubscriptionArnList: []string{aws.ToString(createOut.SubscriptionArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut2.AnomalySubscriptions, 1)
+	got2 := getOut2.AnomalySubscriptions[0]
+	require.NotNil(t, got2.ThresholdExpression)
+	assert.Equal(t, cetypes.DimensionAnomalyTotalImpactPercentage, got2.ThresholdExpression.Dimensions.Key)
+	assert.Equal(t, []string{"50"}, got2.ThresholdExpression.Dimensions.Values)
+}
+
+// TestGetAnomalyMonitors_DimensionalValueCount_RealClient covers a
+// write-only-state-style sibling bug found by sweeping AnomalyMonitor's
+// other real members alongside the MonitorSpecification fix above: real
+// types.AnomalyMonitor.DimensionalValueCount ("the value for evaluated
+// dimensions" -- costexplorer@v1.67.4 types/types.go) was entirely absent
+// from this package's wire struct and never computed, so a real client's
+// typed DimensionalValueCount was always the zero value regardless of
+// backend state. For a DIMENSIONAL monitor on the SERVICE or LINKED_ACCOUNT
+// dimension this emulator has a real, non-fabricated source to derive it
+// from: the count of that dimension's distinct values in the synthetic cost
+// ledger (the same data GetDimensionValues already reads,
+// syntheticServiceCatalog seeding 12 distinct SERVICE values).
+func TestGetAnomalyMonitors_DimensionalValueCount_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName:      aws.String("ServiceMonitor"),
+			MonitorType:      cetypes.MonitorTypeDimensional,
+			MonitorDimension: cetypes.MonitorDimensionService,
+		},
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetAnomalyMonitors(t.Context(), &costexplorersdk.GetAnomalyMonitorsInput{
+		MonitorArnList: []string{aws.ToString(createOut.MonitorArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalyMonitors, 1)
+	assert.EqualValues(
+		t,
+		12,
+		getOut.AnomalyMonitors[0].DimensionalValueCount,
+		"DimensionalValueCount must reflect the real distinct-SERVICE-value count, not be silently dropped",
+	)
+}
+
+// TestGetAnomalies_TotalImpactFilter_RealClient covers gopherstack-4shm's own
+// class: GetAnomaliesInput.TotalImpact (a real
+// types.TotalImpactFilter{NumericOperator, StartValue, EndValue} --
+// costexplorer@v1.67.4 api_op_GetAnomalies.go / types/types.go) was
+// previously typed as a bare map[string]any on this package's wire struct
+// and never read anywhere in handleGetAnomalies -- parsed off the wire,
+// then silently discarded, so GetAnomalies GREATER_THAN/BETWEEN dollar-
+// impact filtering never narrowed the result set regardless of what a real
+// client sent.
+func TestGetAnomalies_TotalImpactFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	h.Backend.AddAnomaly(ce.Anomaly{
+		AnomalyID:        "low-impact",
+		MonitorARN:       "arn:aws:ce::000000000000:anomalymonitor/test",
+		AnomalyStartDate: "2024-01-01",
+		AnomalyEndDate:   "2024-01-02",
+		TotalImpact:      50,
+	})
+	h.Backend.AddAnomaly(ce.Anomaly{
+		AnomalyID:        "high-impact",
+		MonitorARN:       "arn:aws:ce::000000000000:anomalymonitor/test",
+		AnomalyStartDate: "2024-01-01",
+		AnomalyEndDate:   "2024-01-02",
+		TotalImpact:      500,
+	})
+
+	out, err := client.GetAnomalies(t.Context(), &costexplorersdk.GetAnomaliesInput{
+		DateInterval: &cetypes.AnomalyDateInterval{StartDate: aws.String("2024-01-01")},
+		TotalImpact: &cetypes.TotalImpactFilter{
+			NumericOperator: cetypes.NumericOperatorGreaterThan,
+			StartValue:      100,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Anomalies, 1, "TotalImpact GREATER_THAN 100 must exclude the 50-impact anomaly")
+	assert.Equal(t, "high-impact", aws.ToString(out.Anomalies[0].AnomalyId))
+	assert.InDelta(t, 500, out.Anomalies[0].Impact.TotalImpact, 0)
+
+	betweenOut, err := client.GetAnomalies(t.Context(), &costexplorersdk.GetAnomaliesInput{
+		DateInterval: &cetypes.AnomalyDateInterval{StartDate: aws.String("2024-01-01")},
+		TotalImpact: &cetypes.TotalImpactFilter{
+			NumericOperator: cetypes.NumericOperatorBetween,
+			StartValue:      0,
+			EndValue:        100,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, betweenOut.Anomalies, 1, "TotalImpact BETWEEN 0 and 100 must exclude the 500-impact anomaly")
+	assert.Equal(t, "low-impact", aws.ToString(betweenOut.Anomalies[0].AnomalyId))
 }

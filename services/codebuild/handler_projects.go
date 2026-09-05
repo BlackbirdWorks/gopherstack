@@ -18,6 +18,7 @@ type projectConfigFields struct {
 	VpcConfig               *VpcConfig             `json:"vpcConfig"`
 	LogsConfig              *LogsConfig            `json:"logsConfig"`
 	Environment             *ProjectEnvironment    `json:"environment"`
+	BadgeEnabled            *bool                  `json:"badgeEnabled"`
 	Description             string                 `json:"description"`
 	EncryptionKey           string                 `json:"encryptionKey"`
 	ServiceRole             string                 `json:"serviceRole"`
@@ -61,6 +62,7 @@ func (f projectConfigFields) toProjectConfig(name string) ProjectConfig {
 		VpcConfig:               f.VpcConfig,
 		BuildBatchConfig:        f.BuildBatchConfig,
 		SourceVersion:           f.SourceVersion,
+		BadgeEnabled:            f.BadgeEnabled,
 	}
 }
 

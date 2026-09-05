@@ -100,16 +100,20 @@ func applyBranchOptionsCreate(branch *Branch, opts BranchOptions) {
 	branch.BackendEnvironmentARN = ptrconv.String(opts.BackendEnvironmentARN)
 	branch.PullRequestEnvironmentName = ptrconv.String(opts.PullRequestEnvironmentName)
 	branch.SourceBranch = ptrconv.String(opts.SourceBranch)
+	branch.ComputeRoleARN = ptrconv.String(opts.ComputeRoleARN)
+	branch.BackendStackARN = ptrconv.String(opts.BackendStackARN)
 	branch.EnableBasicAuth = ptrconv.Bool(opts.EnableBasicAuth)
 	branch.EnableNotification = ptrconv.Bool(opts.EnableNotification)
 	branch.EnablePullRequestPreview = ptrconv.Bool(opts.EnablePullRequestPreview)
 	branch.EnablePerformanceMode = ptrconv.Bool(opts.EnablePerformanceMode)
+	branch.EnableSkewProtection = ptrconv.Bool(opts.EnableSkewProtection)
 }
 
-// applyBranchOptionsUpdate applies opts to an existing branch, leaving any
-// field whose opts pointer is nil unchanged (real Amplify UpdateBranch
-// partial-update semantics).
-func applyBranchOptionsUpdate(branch *Branch, opts BranchOptions) {
+// applyBranchOptionsUpdateStrings applies opts's string-pointer fields to an
+// existing branch, leaving any field whose opts pointer is nil unchanged.
+// Split out of applyBranchOptionsUpdate to keep both functions under the
+// cyclomatic complexity budget.
+func applyBranchOptionsUpdateStrings(branch *Branch, opts BranchOptions) {
 	if opts.EnvironmentVariables != nil {
 		branch.EnvironmentVariables = opts.EnvironmentVariables
 	}
@@ -146,6 +150,21 @@ func applyBranchOptionsUpdate(branch *Branch, opts BranchOptions) {
 		branch.SourceBranch = *opts.SourceBranch
 	}
 
+	if opts.ComputeRoleARN != nil {
+		branch.ComputeRoleARN = *opts.ComputeRoleARN
+	}
+
+	if opts.BackendStackARN != nil {
+		branch.BackendStackARN = *opts.BackendStackARN
+	}
+}
+
+// applyBranchOptionsUpdate applies opts to an existing branch, leaving any
+// field whose opts pointer is nil unchanged (real Amplify UpdateBranch
+// partial-update semantics).
+func applyBranchOptionsUpdate(branch *Branch, opts BranchOptions) {
+	applyBranchOptionsUpdateStrings(branch, opts)
+
 	if opts.EnableBasicAuth != nil {
 		branch.EnableBasicAuth = *opts.EnableBasicAuth
 	}
@@ -160,6 +179,10 @@ func applyBranchOptionsUpdate(branch *Branch, opts BranchOptions) {
 
 	if opts.EnablePerformanceMode != nil {
 		branch.EnablePerformanceMode = *opts.EnablePerformanceMode
+	}
+
+	if opts.EnableSkewProtection != nil {
+		branch.EnableSkewProtection = *opts.EnableSkewProtection
 	}
 }
 

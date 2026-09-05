@@ -52,7 +52,7 @@ func (h *Handler) handleListAppAssessments(_ context.Context, r *http.Request, _
 	f := listAssessmentsFilter{
 		appArn: q.Get("appArn"), assessmentName: q.Get("assessmentName"),
 		complianceStatus: q.Get("complianceStatus"), invoker: q.Get("invoker"),
-		statuses: q["assessmentStatus"], reverseOrder: q.Get("reverseOrder") == "true",
+		statuses: q["assessmentStatus"], reverseOrder: q.Get("reverseOrder") == queryValueTrue,
 	}
 
 	p := h.Backend.ListAppAssessments(f, q.Get("nextToken"), queryMaxResults(q))

@@ -113,70 +113,9 @@ type adminLinkProviderForUserInput struct {
 
 type adminLinkProviderForUserOutput struct{}
 
-type identityProviderType struct {
-	ProviderDetails  map[string]string `json:"ProviderDetails,omitempty"`
-	CreationDate     *float64          `json:"CreationDate,omitempty"`
-	LastModifiedDate *float64          `json:"LastModifiedDate,omitempty"`
-	UserPoolID       string            `json:"UserPoolId,omitempty"`
-	ProviderName     string            `json:"ProviderName,omitempty"`
-	ProviderType     string            `json:"ProviderType,omitempty"`
-}
-
-type createIdentityProviderInput struct {
-	ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
-	UserPoolID      string            `json:"UserPoolId,omitempty"`
-	ProviderName    string            `json:"ProviderName,omitempty"`
-	ProviderType    string            `json:"ProviderType,omitempty"`
-}
-
-type createIdentityProviderOutput struct {
-	IdentityProvider *identityProviderType `json:"IdentityProvider,omitempty"`
-}
-
 type deleteIdentityProviderInput struct {
 	UserPoolID   string `json:"UserPoolId,omitempty"`
 	ProviderName string `json:"ProviderName,omitempty"`
 }
 
 type deleteIdentityProviderOutput struct{}
-
-type describeIdentityProviderInput struct {
-	UserPoolID   string `json:"UserPoolId,omitempty"`
-	ProviderName string `json:"ProviderName,omitempty"`
-}
-
-type describeIdentityProviderOutput struct {
-	IdentityProvider *identityProviderType `json:"IdentityProvider,omitempty"`
-}
-
-type getIdentityProviderByIdentifierInput struct {
-	UserPoolID    string `json:"UserPoolId,omitempty"`
-	IdpIdentifier string `json:"IdpIdentifier,omitempty"`
-}
-
-type getIdentityProviderByIdentifierOutput struct {
-	IdentityProvider *identityProviderType `json:"IdentityProvider,omitempty"`
-}
-
-type listIdentityProvidersInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-}
-
-type identityProviderSummary struct {
-	ProviderName string `json:"ProviderName,omitempty"`
-	ProviderType string `json:"ProviderType,omitempty"`
-}
-
-type listIdentityProvidersOutput struct {
-	Providers []identityProviderSummary `json:"Providers"`
-}
-
-type updateIdentityProviderInput struct {
-	ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
-	UserPoolID      string            `json:"UserPoolId,omitempty"`
-	ProviderName    string            `json:"ProviderName,omitempty"`
-}
-
-type updateIdentityProviderOutput struct {
-	IdentityProvider *identityProviderType `json:"IdentityProvider,omitempty"`
-}

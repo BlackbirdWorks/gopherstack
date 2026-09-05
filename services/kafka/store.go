@@ -159,6 +159,18 @@ func (b *InMemoryBackend) clusterOperationARN(region, clusterArn string) string 
 	)
 }
 
+// nodeARN builds an ARN for an MSK broker node, following the same
+// broker/{clusterArn}/{brokerId} pattern the sibling builders above use for
+// their own resource-nested-in-resource ARNs.
+func (b *InMemoryBackend) nodeARN(region, clusterArn string, brokerID int32) string {
+	return arn.Build(
+		"kafka",
+		region,
+		b.accountID,
+		fmt.Sprintf("broker/%s/%d", clusterArn, brokerID),
+	)
+}
+
 // topicKey returns the composite key used to store a topic in memory.
 func topicKey(clusterArn, topicName string) string {
 	return clusterArn + "|" + topicName

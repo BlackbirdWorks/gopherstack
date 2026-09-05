@@ -202,11 +202,12 @@ func TestTransactGetItems(t *testing.T) {
 	const tbl = "GetTable"
 
 	tests := []struct {
-		name     string
-		setup    func(*testing.T, *dynamodb.InMemoryDB)
-		items    []types.TransactGetItem
-		expected []types.ItemResponse
-		wantErr  bool
+		setup      func(*testing.T, *dynamodb.InMemoryDB)
+		name       string
+		errMessage string
+		items      []types.TransactGetItem
+		expected   []types.ItemResponse
+		wantErr    bool
 	}{
 		{
 			name:    "EmptyItems",
@@ -296,6 +297,26 @@ func TestTransactGetItems(t *testing.T) {
 			items:    []types.TransactGetItem{{}},
 			expected: []types.ItemResponse{{}},
 		},
+		{
+			name: "MalformedProjectionExpression",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "foo")
+			},
+			items: []types.TransactGetItem{
+				{
+					Get: &types.Get{
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
+						ProjectionExpression: aws.String("val["),
+					},
+				},
+			},
+			wantErr:    true,
+			errMessage: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -311,6 +332,9 @@ func TestTransactGetItems(t *testing.T) {
 			})
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.errMessage != "" {
+					assert.Contains(t, err.Error(), tt.errMessage)
+				}
 
 				return
 			}

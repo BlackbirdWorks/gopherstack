@@ -249,6 +249,7 @@ type domainStatusJSON struct { //nolint:govet // fieldalignment: readability ove
 	DomainProcessingStatus      string                             `json:"DomainProcessingStatus"`
 	AccessPolicies              string                             `json:"AccessPolicies"`
 	Processing                  bool                               `json:"Processing"`
+	Created                     bool                               `json:"Created"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -503,7 +504,16 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
 	ctx := h.reqContext(r)
-	names := h.Backend.ListDomainNames(ctx)
+
+	var names []string
+	// engineType is query-bound (serializers.go's SetQuery("engineType")). This
+	// service only ever manages Elasticsearch-engine domains -- OpenSearch
+	// domains are a distinct API (services/opensearch) -- so filtering for
+	// "OpenSearch" correctly returns none rather than every domain.
+	if r.URL.Query().Get("engineType") != "OpenSearch" {
+		names = h.Backend.ListDomainNames(ctx)
+	}
+
 	entries := make([]domainNameEntry, 0, len(names))
 
 	for _, name := range names {
@@ -938,6 +948,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		ElasticsearchVersion:   d.ElasticsearchVersion,
 		Endpoint:               d.Endpoint,
 		Processing:             false,
+		Created:                true,
 		DomainProcessingStatus: statusActiveCap,
 		AccessPolicies:         d.AccessPolicies,
 		AdvancedOptions:        advOpts,

@@ -3,12 +3,36 @@ package mediaconvert
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// jobMatchesInputFile reports whether any of j.Settings["inputs"][].fileInput
+// contains substr (SearchJobsInput.InputFile: "your input file URL or your
+// partial input file name"). Settings is stored as opaque map[string]any and
+// round-tripped verbatim (this service's established boundary, see PARITY.md
+// deferred), so this reads the one field path SearchJobs documents rather
+// than interpreting the settings tree generally.
+func jobMatchesInputFile(j *Job, substr string) bool {
+	inputs, _ := j.Settings["inputs"].([]any)
+	for _, raw := range inputs {
+		input, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		fileInput, _ := input["fileInput"].(string)
+		if strings.Contains(fileInput, substr) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // AddJobInternal inserts a job directly into the backend.
 func (b *InMemoryBackend) AddJobInternal(j *Job) {

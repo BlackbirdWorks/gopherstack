@@ -25,7 +25,7 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 	if replay.State != "RUNNING" && replay.State != replayStateStarting {
 		return nil, fmt.Errorf(
 			"%w: replay %s is not in a cancellable state (current: %s)",
-			ErrInvalidState,
+			ErrReplayNotCancellable,
 			replayName,
 			replay.State,
 		)
@@ -65,7 +65,7 @@ func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Rep
 // api_op_ListReplays.go), previously parsed nowhere in this backend.
 func (b *InMemoryBackend) ListReplays(
 	ctx context.Context,
-	namePrefix, eventSourceArn, state, nextToken string,
+	namePrefix, eventSourceArn, state, nextToken string, limit int,
 ) ([]Replay, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) ListReplays(
 	defer b.mu.RUnlock()
 
 	page, outToken := listNamedItems(
-		b.replaysTable(region), namePrefix, eventSourceArn, state, nextToken,
+		b.replaysTable(region), namePrefix, eventSourceArn, state, nextToken, limit,
 		func(r *Replay) string { return r.ReplayName },
 		func(r *Replay) string { return r.EventSourceArn },
 		func(r *Replay) string { return r.State },

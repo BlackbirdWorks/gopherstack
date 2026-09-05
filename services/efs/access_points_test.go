@@ -10,6 +10,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
+// TestDescribeAccessPoints_UnknownFileSystemID_ReturnsNotFound locks a real
+// AWS behavior: DescribeAccessPoints' own declared error set (efs@v1.44.4
+// deserializers.go, awsRestjson1_deserializeOpErrorDescribeAccessPoints)
+// includes FileSystemNotFound, so an unknown FileSystemId filter must raise
+// it -- not silently return an empty list, which is indistinguishable from
+// "this file system exists but has no access points".
+func TestDescribeAccessPoints_UnknownFileSystemID_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestEFSBackend()
+
+	_, _, err := b.DescribeAccessPoints(context.Background(), "fs-does-not-exist", "", "", 0)
+	require.ErrorIs(t, err, efs.ErrNotFound)
+}
+
 // TestAccessPointPosixUser verifies PosixUser is stored and returned.
 func TestAccessPointPosixUser(t *testing.T) {
 	t.Parallel()

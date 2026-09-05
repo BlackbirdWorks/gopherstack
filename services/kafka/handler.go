@@ -659,7 +659,10 @@ func encodeKafkaPageToken(offset int) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
-// decodeKafkaPageToken decodes a base64url-encoded JSON token. Returns 0 on any failure.
+// decodeKafkaPageToken decodes a base64url-encoded JSON token. Returns 0 on any
+// failure, including a negative offset: every call site only clamps the upper
+// bound via min(offset, len(all)) before slicing all[offset:], so a negative
+// offset must be rejected here rather than left to the caller.
 func decodeKafkaPageToken(token string) int {
 	if token == "" {
 		return 0
@@ -675,7 +678,7 @@ func decodeKafkaPageToken(token string) int {
 	}
 
 	err = json.Unmarshal(data, &t)
-	if err != nil {
+	if err != nil || t.O < 0 {
 		return 0
 	}
 
@@ -707,6 +710,14 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
+	// AWS: CreateTopic/DeleteTopic/UpdateTopic each model these specific
+	// codes in addition to the generic NotFoundException/ConflictException --
+	// check them first since they also satisfy the generic errors.Is checks
+	// below.
+	case errors.Is(err, ErrTopicExists):
+		return h.writeError(c, http.StatusConflict, "TopicExistsException", err.Error())
+	case errors.Is(err, ErrTopicNotFound):
+		return h.writeError(c, http.StatusNotFound, "UnknownTopicOrPartitionException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):

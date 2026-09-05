@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name string) error {
 
 	ap, ok := b.s3AccessPoints.Get(name)
 	if !ok {
-		return ErrS3AccessPointNotFound
+		return ErrS3AccessPointAttachmentNotFound
 	}
 
 	b.s3AccessPoints.Delete(name)
@@ -126,9 +126,15 @@ func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name string) error {
 	return nil
 }
 
-// DescribeS3AccessPointAttachments returns S3 access point attachments.
-func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // existing issue.
+// DescribeS3AccessPointAttachments returns S3 access point attachments,
+// optionally filtered by Name or Filters. Real
+// S3AccessPointAttachmentsFilterName (aws-sdk-go-v2/service/fsx@v1.68.4
+// types/enums.go) has 3 values: file-system-id, volume-id, type.
+// file-system-id requires resolving the attachment's owning volume --
+// storedS3AccessPoint only tracks VolumeID directly.
+func (b *InMemoryBackend) DescribeS3AccessPointAttachments(
 	names []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*S3AccessPointAttachment, string, error) {
@@ -145,13 +151,32 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // exi
 		for _, name := range names {
 			ap, ok := b.s3AccessPoints.Get(name)
 			if !ok {
-				return nil, "", ErrS3AccessPointNotFound
+				return nil, "", ErrS3AccessPointAttachmentNotFound
 			}
 
 			all = append(all, ap)
 		}
 	} else {
-		all = b.s3AccessPoints.All()
+		for _, ap := range b.s3AccessPoints.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				switch name {
+				case "volume-id":
+					return ap.VolumeID, true
+				case "type":
+					return ap.Type, true
+				case filterNameFileSystemID:
+					if vol, ok := b.volumes.Get(ap.VolumeID); ok {
+						return vol.FileSystemID, true
+					}
+
+					return "", true
+				default:
+					return "", false
+				}
+			}) {
+				all = append(all, ap)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	}

@@ -156,7 +156,7 @@ ops:
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: group.go's DeleteGroup already deletes every groupMembers row under that group's key prefix (was already fixed by the time of this audit, despite the stale gap note from the prior pass) -- locked with TestQuickSight_GroupMemberships/DeleteGroup_also_removes_its_memberships"}
   ListGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  SearchGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  SearchGroups: {wire: ok, errors: ok, state: ok, persist: ok, filter: fixed, note: "This pass (2026-08-29): handleSearchGroups read a \"Query\" body field that SearchGroupsInput doesn't have at all, instead of the real (required) Filters member (GROUP_NAME/StartsWith -- the only Name/Operator the real API defines, per GroupSearchFilter's own doc comment). MaxResults/NextToken were also read from the body, but this op query-binds both (max-results/next-token, confirmed against serializers.go's awsRestjson1_serializeOpHttpBindingsSearchGroupsInput) unlike its SearchTopics/SearchTopicsV2 siblings which really are body-bound -- a same-shaped param binding differently per op, verified per-op rather than assumed. Fixed both; now shares folderFiltersFromBody/maxResultsParam/nextTokenParam with every correctly-wired sibling Search op."}
   CreateGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -232,13 +232,13 @@ families:
   # NetworkInterfaceId/AvailabilityZone/Status from, so it correctly stays unmodeled.
   Folder: {status: ok, note: "CRUD + membership + permissions real (folders.go, handler_folders.go); found+fixed a genuine gap this pass: Folder.SharingModel was never tracked/returned (real DescribeFolderOutput.Folder.SharingModel silently dropped) -- CreateFolder now accepts SharingModel, defaults to ACCOUNT per CreateFolderInput's doc comment when omitted, and folderToMap returns it. See TestQuickSight_FolderCRUD/DescribeFolder_returns_folder and .../CreateFolder_omitted_SharingModel_defaults_to_ACCOUNT"}
   Template: {status: ok, note: "CRUD + versions/aliases/permissions real (templates.go, handler_templates.go); classifyTemplateAlias decomposed from a flagged nolint this pass, behavior preserved verbatim including DeleteTemplateAlias's id-not-alias quirk (locked in handler_paths_test.go). FIXED (gopherstack-0qzf): CreateTemplateInput.VersionDescription/UpdateTemplateInput.VersionDescription (api_op_CreateTemplate.go, api_op_UpdateTemplate.go) were accepted nowhere -- handler_templates.go never read the field from the request body and CreateTemplate/UpdateTemplate (templates.go) had no parameter for it, even though storedTemplateVersion.Description and the read-path map already had a slot that was dead code. Class (a). Now threaded through as VersionDescription -> TemplateVersion.Description, matching types.TemplateVersion.Description (types.go:20847). See TestQuickSight_Template_VersionDescription."}
-  Theme: {status: ok, note: "CRUD + versions/aliases/permissions real (themes.go, handler_themes.go); classifyThemeAlias decomposed from a flagged nolint this pass, same DeleteThemeAlias id-not-alias quirk preserved and locked. FIXED (gopherstack-0qzf): same VersionDescription-dropped-on-the-wire bug as Template, same fix (CreateThemeInput/UpdateThemeInput.VersionDescription -> types.ThemeVersion.Description, types.go:21181). Class (a). See TestQuickSight_Theme_VersionDescription."}
+  Theme: {status: ok, note: "CRUD + versions/aliases/permissions real (themes.go, handler_themes.go); classifyThemeAlias decomposed from a flagged nolint this pass, same DeleteThemeAlias id-not-alias quirk preserved and locked. FIXED (gopherstack-0qzf): same VersionDescription-dropped-on-the-wire bug as Template, same fix (CreateThemeInput/UpdateThemeInput.VersionDescription -> types.ThemeVersion.Description, types.go:21181). Class (a). See TestQuickSight_Theme_VersionDescription. RE-VERIFIED 2026-08-31 (bd gopherstack-6flj/21my, PARITY-gap targeting -- DescribeTheme/DescribeThemeAlias/DescribeThemePermissions named individually since none of the three appeared as a literal op name anywhere in this file before now, despite the family being audited): all three field-diffed against their own deserializers (awsRestjson1_deserializeOpDocumentDescribeTheme{,Alias,Permissions}Output) in quicksight@v1.123.1. Theme/ThemeVersion/ThemeAlias/ResourcePermission wire keys and types all correct, including CreatedTime/LastUpdatedTime epoch-seconds handling. No changes needed. Theme.Version.Errors (types.ThemeErrorList) remains unmodeled -- no error-state to derive it from (this backend never fails a theme creation), same 'omit, don't fabricate' convention as the rest of this family."}
   Topic: {status: ok, note: "CRUD + permissions + refresh schedules/reviewed answers real (topics.go, handler_topics.go); classifyTopicPaths decomposed from a flagged nolint this pass, behavior preserved verbatim. THIS PASS (v1.121.0 -> v1.123.1 SDK bump): added the 8 TopicV2 (\"Q topics\") ops -- CreateTopicV2/DescribeTopicV2/UpdateTopicV2/DeleteTopicV2/ListTopicsV2/SearchTopicsV2/DescribeTopicPermissionsV2/UpdateTopicPermissionsV2 (topics_v2.go, handler_topics_v2.go). Verified these operate on the SAME b.topics collection/TopicId namespace as the V1 ops, not a parallel store -- see topics_v2.go's doc comment and the per-op notes under ops: above. storedTopic gained CustomInstructions/PublishOption/DataSetsV2/DataSetRelations fields alongside V1's existing DataSets/UserExperienceVersion; Permissions/Arn/tags stay a single shared list per topic across both families. RE-AUDITED (gopherstack-0qzf), no code change: the two 'not fixed this pass, out of scope' findings logged under the SDK bump section below (SearchTopics reading MaxResults/NextToken from query params instead of the body, and DeleteTopic omitting Arn) are STALE -- both handleSearchTopics (uses intField/strField on the body) and handleDeleteTopic (returns keyArn: t.Arn) already do the correct thing in the current code; some earlier pass fixed them without updating this note. Family re-diffed clean."}
   VPCConnection: {status: ok, note: "CRUD real (vpcconnections.go). FIXED THIS PASS (gopherstack-i0n4): vpcConnectionToMap (handler_vpcconnections.go) was emitting a top-level SubnetIds field on both DescribeVPCConnection and ListVPCConnections. Confirmed against aws-sdk-go-v2/service/quicksight's types.VPCConnection/VPCConnectionSummary and the installed @aws-sdk/client-quicksight TypeScript defs (models_4.d.ts): neither the Describe nor List response type carries a SubnetIds field -- real AWS never echoes it back. SubnetIds IS a genuine field on Create/UpdateVPCConnectionRequest (models_3.d.ts/models_5.d.ts), so it's still accepted, stored on VPCConnection.SubnetIDs, and round-tripped for Create/Update purposes -- only the read-path (Describe/List) wire shape was wrong. Fixed by dropping keySubnetIDs from vpcConnectionToMap; TestQuickSight_VPCConnectionCRUD updated to assert SubnetIds is ABSENT from Describe/Update-then-Describe responses (it previously asserted presence, encoding the bug). Separately, NetworkInterfaces (AWS-populated once the VPC connection succeeds, and the only real place subnet placement is observable post-creation) remains unmodeled -- this backend's VPCConnection struct has no such field at all, and populating it would require fabricating NetworkInterfaceId/AvailabilityZone/Status this backend has no real ENI provisioning to derive them from, so it stays honestly absent rather than invented. The prior note here claimed this family was 'spot-checked in full depth... no other missing/incorrect fields found' -- that claim was false; this SubnetIds leak is proof a full-depth check was not actually done. Treat other families' 'spot-checked, fields match' claims in this file with corresponding caution until independently re-verified. RE-CONFIRMED (gopherstack-0qzf): NetworkInterfaces was independently re-checked as this task's assigned (d) candidate. types.NetworkInterface (types.go:14484) is NetworkInterfaceId/AvailabilityZone/Status/SubnetId/ErrorMessage -- all AWS-minted once a real ENI is provisioned for the VPC connection. This backend has no EC2/ENI integration for QuickSight VPC connections at all (no allocator, no cross-service state), and SubnetId is the only value with any caller-supplied basis (v.SubnetIDs); the rest would be pure invention with no derivation path, unlike CustomPromptInterface's IDs or VPCConnection's own SubnetIds field (which the caller supplies directly). Left absent; still class (d), still correctly documented, no code change."}
   IAMPolicyAssignment: {status: ok, note: "CRUD + list-for-user real (iampolicyassignments.go, handler_iampolicyassignments.go). FIXED (gopherstack-0qzf): two genuine gaps. (1) class (a), the worst class: handleListIAMPolicyAssignmentsForUser reused iamPolicyAssignmentListResponse, which wraps items under key \"IAMPolicyAssignments\" -- but real ListIAMPolicyAssignmentsForUserOutput carries \"ActiveAssignments\" ([]types.ActiveIAMPolicyAssignment: AssignmentName/PolicyArn only), confirmed against deserializers.go's ActiveAssignments case (~line 33917) vs. ListIAMPolicyAssignmentsOutput's separate IAMPolicyAssignments case (~line 33716, api_op_ListIAMPolicyAssignmentsForUser.go / api_op_ListIAMPolicyAssignments.go). A real SDK client calling this op got an empty result every time -- the field it read was never present. Fixed with a dedicated response builder. (2) class (b): DescribeIAMPolicyAssignmentOutput's nested IAMPolicyAssignment (types.go:12285) carries AwsAccountId; this backend's storedIAMPolicyAssignment/IAMPolicyAssignment had no slot for it at all. Fixed: accountID is now stored on Create and returned only on Describe (Create/UpdateIAMPolicyAssignmentOutput and the List summary type genuinely don't carry it, confirmed against the same file, so iamPolicyAssignmentToMap was deliberately left alone). See TestQuickSight_ListIAMPolicyAssignmentsForUser, TestQuickSight_IAMPolicyAssignmentCRUD. FIXED (gopherstack-g3jk): ListIAMPolicyAssignments itself (the sibling of the ListIAMPolicyAssignmentsForUser fix above) reused iamPolicyAssignmentToMap unscoped, leaking AssignmentId/PolicyArn/Identities -- types.IAMPolicyAssignmentSummary (types.go:12309-12318) declares only AssignmentName/AssignmentStatus. Added iamPolicyAssignmentSummaryToMap scoped to those two fields, the same distinction ListIAMPolicyAssignmentsForUser's fix already documented but this sibling op had missed. See TestQuickSight_ListIAMPolicyAssignments_SummaryScoping, a raw-body assertion (an SDK client can't prove this: its deserializer silently drops unrecognized members)."}
   CustomPermissions: {status: ok, note: "CRUD + role membership + role/user custom-permission sub-families real (custompermissions.go, handler_custompermissions.go). RE-VERIFIED (gopherstack-taqn): the 'spot-checked against types.CustomPermissions -- fields match exactly' claim that stood here was FALSE. Diffed customPermissionsToMap (handler_custompermissions.go) against types.CustomPermissions in both aws-sdk-go-v2/service/quicksight@v1.123.1 and the installed @aws-sdk/client-quicksight TS defs (models_3.d.ts): both sources agree the real type carries a Governance (*Governance) field that this backend's own CustomPermissions struct (types.go) doesn't even have a slot for -- not stored on Create, not accepted, not returned on Describe. A genuine, unfixed field gap, not previously found. FIXED (gopherstack-hnyl): isValidRole was a hand-copied 8-entry allowlist that invented two nonexistent roles, RESTRICTED_AUTHOR and RESTRICTED_READER (types.Role only has 6 members) -- UpdateRoleCustomPermission/CreateRoleMembership accepted role values the real API would reject. Now derives from types.Role.Values()."}
   RefreshSchedule: {status: ok, note: "DataSet refresh-schedule + refresh-properties CRUD real (refreshschedule.go, handler_refreshschedule.go); classifyDataSetSubRes/SubResID decomposed from classifyDataSetPaths's flagged nolint this pass, behavior preserved verbatim. FIXED (gopherstack-0qzf): two gaps. (1) class (a), the exact bug class pkgs/awstime exists to prevent: StartAfterDateTime is a *time.Time on both types.RefreshSchedule (types.go:17365) and CreateRefreshScheduleInput.Schedule/UpdateRefreshScheduleInput.Schedule, serialized as an epoch-seconds JSON number (confirmed against serializers.go:50284's smithytime.FormatEpochSeconds and deserializers.go:111058's smithytime.ParseEpochSeconds). This backend modeled it as a plain string: a real client's numeric StartAfterDateTime was silently read as \"\" by strField (write side), and any stored value was echoed back as a JSON string a real client's deserializer would reject outright (\"expected Timestamp to be a JSON Number, got string instead\") on the read side. Fixed by changing storedRefreshSchedule/RefreshSchedule.StartAfterDateTime to time.Time and adding a shared epochField body-parsing helper (handler_paths.go) alongside pkgs/awstime.Epoch for the response side. (2) class (b): DescribeRefreshScheduleOutput (api_op_DescribeRefreshSchedule.go) carries a top-level Arn in addition to the nested RefreshSchedule.Arn; only the nested one was returned. Fixed. See TestQuickSight_RefreshSchedule_StartAfterDateTime."}
-  AccountLevel: {status: ok, note: "large family: customizations, settings, subscription, IP restriction, key registration, public sharing, Q personalization/search config, SPICE capacity, default Q Business app, token-exchange grant, identity context, PredictQAResults (account.go, handler_account.go) -- all real, no stubs. RE-VERIFIED (gopherstack-taqn): the 'spot-checked AccountSettings/AccountInfo against SDK types, fields match' claim was only half true. AccountSettings (accountSettingsToMap) does genuinely match types.AccountSettings field-for-field (AccountName/DefaultNamespace/Edition/NotificationEmail/PublicSharingEnabled/TerminationProtectionEnabled, all 6 present). AccountInfo (handleDescribeAccountSubscription's response map) does NOT match: types.AccountInfo (confirmed against both aws-sdk-go-v2@v1.123.1 and the installed @aws-sdk/client-quicksight TS defs, models_0.d.ts) carries a 6th field, IAMIdentityCenterInstanceArn, that this backend's AccountSubscription struct (types.go) has no slot for at all -- a genuine, unfixed field gap. Only these two types named by the original claim were re-checked this pass; the family's other ~10 sub-resources (IPRestriction, key registration, Q personalization/search config, SPICE capacity, etc.) were not independently re-diffed and should not be assumed field-clean on the strength of this note. dispatchAccountConfig's flat switch decomposed into a sync.OnceValue map[op]handler-method table a prior pass, unrelated to this re-audit."}
+  AccountLevel: {status: ok, note: "large family: customizations, settings, subscription, IP restriction, key registration, public sharing, Q personalization/search config, SPICE capacity, default Q Business app, token-exchange grant, identity context, PredictQAResults (account.go, handler_account.go) -- all real, no stubs. RE-VERIFIED (gopherstack-taqn): the 'spot-checked AccountSettings/AccountInfo against SDK types, fields match' claim was only half true. AccountSettings (accountSettingsToMap) does genuinely match types.AccountSettings field-for-field (AccountName/DefaultNamespace/Edition/NotificationEmail/PublicSharingEnabled/TerminationProtectionEnabled, all 6 present). AccountInfo (handleDescribeAccountSubscription's response map) does NOT match: types.AccountInfo (confirmed against both aws-sdk-go-v2@v1.123.1 and the installed @aws-sdk/client-quicksight TS defs, models_0.d.ts) carries a 6th field, IAMIdentityCenterInstanceArn, that this backend's AccountSubscription struct (types.go) has no slot for at all -- a genuine, unfixed field gap. Only these two types named by the original claim were re-checked this pass; the family's other ~10 sub-resources (IPRestriction, key registration, Q personalization/search config, SPICE capacity, etc.) were not independently re-diffed and should not be assumed field-clean on the strength of this note. dispatchAccountConfig's flat switch decomposed into a sync.OnceValue map[op]handler-method table a prior pass, unrelated to this re-audit. RE-VERIFIED 2026-08-31 (bd gopherstack-6flj/21my, PARITY-gap targeting -- DescribeAccountSettings/DescribeDashboardsQAConfiguration/DescribeQPersonalizationConfiguration/DescribeQuickSightQSearchConfiguration named individually since none of the four appeared as a literal op name anywhere in this file before now, despite the family being audited): all four field-diffed against their own deserializers in quicksight@v1.123.1 (awsRestjson1, no case folding). AccountSettings wrapper key/fields, DashboardsQAStatus, PersonalizationMode, QSearchStatus all confirmed correct, no changes needed."}
   Embed: {status: ok, note: "GenerateEmbedUrlFor*, GetSessionEmbedUrl, GetDashboardEmbedUrl, GetIdentityContext (embedurl.go; internally named GenerateIdentityContext, matching its own doc comment) -- all real. RE-VERIFIED (gopherstack-taqn), this family's claim holds up: diffed all 6 ops' response maps against their real Output types (GenerateEmbedUrlForAnonymousUser/ForRegisteredUser/ForRegisteredUserWithIdentity, GetDashboardEmbedUrl, GetSessionEmbedUrl, GetIdentityContext) in aws-sdk-go-v2/service/quicksight@v1.123.1 -- every field (EmbedUrl/AnonymousUserArn/RequestId/Status/Context) is present, none extra, none missing. The behavioral claim also re-checked against embedurl.go directly: GenerateEmbedURLForAnonymousUser validates the namespace exists, GenerateEmbedURLForRegisteredUser validates the user exists when its ARN is parseable, GetDashboardEmbedURL validates the dashboard exists; GenerateEmbedURLForRegisteredUserWithIdentity performs no such lookup, but its own doc comment explains why (identity-enhanced sessions authenticate via signing credentials, not an explicit UserArn/accountID to validate) -- not a discrepancy. Every URL/token is freshly generated per call, matching real AWS's single-use, time-limited embed URLs."}
   Brand: {status: ok, note: "CRUD + assignment + published-version real (brands.go, handler_brands.go). RE-VERIFIED (gopherstack-taqn): the 'spot-checked against types.BrandDetail, fields match' claim was FALSE. Diffed brandToMap (handler_brands.go) against types.BrandDetail in aws-sdk-go-v2/service/quicksight@v1.123.1: three fields are missing from the emitted map. VersionStatus is the most notable -- the internal Brand struct (types.go) already tracks it as CurrentVersionStat, and a keyVersionStatus=\"VersionStatus\" JSON-key constant even exists in handler_brands.go, but it is never wired into brandToMap's returned map, so tracked data is silently dropped on every read. Errors ([]string) and Logo (*Logo) are missing too, but those are genuinely unbuildable: the internal Brand struct has no slot for either and no real per-brand error/logo state to derive them from, so that part is a structural gap, not a wiring bug like VersionStatus."}
   OAuthClientApplication: {status: ok, note: "CRUD real (oauth.go, handler_oauth.go). FIXED (gopherstack-0qzf): class (a). CreateOAuthClientApplicationInput.Tags (api_op_CreateOAuthClientApplication.go; OAuthClientApp ARNs are already taggable per arnCollectorFuncs) was the only Create handler in this backend NOT calling the tagsFromBody + b.tags[arn] pattern every sibling family (ActionConnector, VPCConnection, Template, Theme, Topic, Dashboard, Analysis, DataSet, DataSource, CustomPermissions, Folder, Agent, KnowledgeBase) already uses -- instead handleCreateOAuthClientApp's isOAuthAppModeledField catch-all dumped the raw \"Tags\" body value into the Extra passthrough bag, which oauthAppToMap then echoed back verbatim on every Describe/List call as a top-level Tags field. Confirmed against types.OAuthClientApplication/OAuthClientApplicationSummary (types.go:14837): neither has a Tags member -- real AWS never returns tags there; they only surface via ListTagsForResource. Fixed: Tags now excluded from the Extra bag and applied via the standard tagsFromBody path. See TestQuickSight_OAuthClientApp_CreateTags. Everything else in this family (ClientId/ClientSecret correctly never echoed, CreationStatus/UpdateStatus wire-accurate) re-verified clean. FIXED (gopherstack-wl0s, 2026-08-13): CreateOAuthClientApplication accepted a request omitting ClientId, ClientSecret, OAuthClientAuthenticationType, or OAuthTokenEndpointUrl -- all four are 'This member is required' per validateOpCreateOAuthClientApplicationInput. OAuthClientAuthenticationType/OAuthTokenEndpointUrl already round-tripped correctly through the Extra passthrough bag (matching the originating audit's claim); ClientId/ClientSecret are and remain write-only by design (no response-shape member exists for either), so their fix is presence-validation only, same as the other two, just without a round-trip to prove. OAuthClientAuthenticationType is additionally validated against types.OAuthClientAuthenticationType.Values() (currently just TOKEN) rather than a hand-copied check. All four now return InvalidParameterValueException (the code CreateOAuthClientApplication's own awsRestjson1_deserializeOpErrorCreateOAuthClientApplication switch declares) when absent. See validateCreateOAuthClientAppFields (handler_oauth.go) and TestQuickSight_CreateOAuthClientApp_PresenceValidation."}
@@ -248,7 +248,7 @@ families:
   Automation: {status: ok, note: "StartAutomationJob/DescribeAutomationJob real (automation.go, handler_automation.go). AUDITED (gopherstack-0qzf), no findings: StartAutomationJobInput has no InputPayload-adjacent fields this backend misses (confirmed against api_op_StartAutomationJob.go), DescribeAutomationJobOutput's conditional IncludeInputPayload/IncludeOutputPayload query-param gating is implemented correctly (handleDescribeAutomationJob). Genuinely clean."}
   DashboardSnapshotJob: {status: ok, note: "StartDashboardSnapshotJob(Schedule)/Describe*Result real (dashboardsnapshot.go, handler_assetbundle.go); classifyDashboardSubRes/SubResID/SubSubRes decomposed from classifyDashboardPaths's flagged nolint this pass, behavior preserved verbatim. AUDITED (gopherstack-0qzf), no findings: StartDashboardSnapshotJobInput's SnapshotConfiguration is stored/returned as an opaque pass-through document (matching the Dashboard.Definition precedent for deeply nested config this backend doesn't interpret), StartDashboardSnapshotJobScheduleOutput correctly carries no data fields (confirmed against api_op_StartDashboardSnapshotJobSchedule.go), and DescribeDashboardSnapshotJobResultOutput's Result wrapper (S3Uri) matches the real S3-download-URL shape. Genuinely clean."}
   Flow: {status: ok, note: "ListFlows/SearchFlows/GetFlowMetadata/permissions real (flow.go, handler_flow.go); as of the SDK's v1.121.0 bump CreateFlow/DescribeFlow/UpdateFlow/DeleteFlow now exist too and are implemented for real: CreateFlow generates a server-side FlowID (uuid.New, matching CreateFlowInput having no FlowId field), stores the caller's FlowDefinition document verbatim (map[string]any pass-through, like Dashboard.Definition elsewhere), and reports PublishState PUBLISHED (this backend has no draft/published divergence, matching the real op's documented auto-publish). DescribeFlow returns the FlowDetail shape (distinct field set from FlowSummary -- confirmed against types.FlowDetail: no RunCount/UserCount/LastPublishedAt/LastPublishedBy). StepAliases is always empty: real AWS derives it by parsing the flow definition's steps, which this backend stores opaquely rather than interpreting -- an honest omission, not fabricated. SeedFlow remains for tests that want FlowSummary-shaped fixtures without exercising Create. RE-AUDITED (gopherstack-0qzf), no findings: CreateFlowInput's ClientToken (idempotency-only, never echoed in any response, no observable effect either way) is the only unmodeled field; genuinely out of scope, not a wire-shape bug. Family confirmed clean."}
-  SelfUpgrade: {status: ok, note: "config + request list/update real (selfupgrade.go, handler_selfupgrade.go); classifyNsSelfUpgradeConfig/Requests/UpdateSelfUpgrade decomposed from classifyNsWithSubRes's flagged nolint this pass. FIXED (gopherstack-0qzf): class (b). types.SelfUpgradeRequestDetail (types.go:18593) carries UserName (the requester); this backend's SelfUpgradeRequestDetail (types.go) had no slot for it at all, so it was silently absent from every ListSelfUpgrades/UpdateSelfUpgrade response. Since there is no real CreateSelfUpgradeRequest API (requests only enter state via the test-only seedSelfUpgradeRequest/SeedSelfUpgradeRequest), this is bounded, caller-supplied data exactly like OriginalRole/RequestedRole/RequestNote already are -- not fabrication. Fixed. See TestQuickSight_ListAndUpdateSelfUpgrades."}
+  SelfUpgrade: {status: ok, note: "config + request list/update real (selfupgrade.go, handler_selfupgrade.go); classifyNsSelfUpgradeConfig/Requests/UpdateSelfUpgrade decomposed from classifyNsWithSubRes's flagged nolint this pass. FIXED (gopherstack-0qzf): class (b). types.SelfUpgradeRequestDetail (types.go:18593) carries UserName (the requester); this backend's SelfUpgradeRequestDetail (types.go) had no slot for it at all, so it was silently absent from every ListSelfUpgrades/UpdateSelfUpgrade response. Since there is no real CreateSelfUpgradeRequest API (requests only enter state via the test-only seedSelfUpgradeRequest/SeedSelfUpgradeRequest), this is bounded, caller-supplied data exactly like OriginalRole/RequestedRole/RequestNote already are -- not fabrication. Fixed. See TestQuickSight_ListAndUpdateSelfUpgrades. RE-VERIFIED 2026-08-31 (bd gopherstack-6flj/21my, PARITY-gap targeting -- DescribeSelfUpgradeConfiguration named individually since it never appeared as a literal op name in this file before now): wrapper key SelfUpgradeConfiguration/SelfUpgradeStatus field-diffed against awsRestjson1_deserializeDocumentSelfUpgradeConfiguration in quicksight@v1.123.1; correct, no changes needed."}
   Agent: {status: ok, note: "new family (SDK v1.121.0): CreateAgent/DescribeAgent/UpdateAgent/DeleteAgent/ListAgents/SearchAgents/permissions real (agents.go, handler_agents.go), field-diffed against types.Agent/AgentSummary/CreateAgentOutput/UpdateAgentOutput (all PascalCase, confirmed via deserializers.go -- CreateAgentOutput uniquely uses AgentName, not Name). UpdateAgent's action-connector/space attach-detach validates each ARN against arnExists (a real, derived check) before accepting it, reporting genuine per-ARN failures in FailedToAdd*/FailedToRemove* rather than always succeeding. BUILT THIS PASS (parity-5): CustomPromptInput is a tagged union (verified against serializers.go), not one opaque blob -- its ExistingPrompt member (types.CustomPromptProfile: ModelProfileId/QbsAwsAccountId/SubscriptionId) is caller-supplied, referencing an already-provisioned Amazon Q Business profile, so it is now genuinely stored (Agent.CustomPrompt) and echoed back as CustomPromptInterface on Create/Update/Describe -- zero fabrication, since none of the three IDs originate in this backend. Missing one of the three required fields is now InvalidParameterValueException (400), not silently accepted. Remaining documented, non-fabricated omission: the NewPrompt union member (asks AWS to mint a brand-new profile server-side) is accepted without error but produces no CustomPromptInterface, because its IDs would have to come from a live Amazon Q Business subscription this backend has no state for -- synthesizing them would be fabrication (parity-principles.md rule 1). See TestQuickSight_Agents/CustomPromptInput_ExistingPrompt_round-trips_on_create_and_update, .../CustomPromptInput_ExistingPrompt_missing_a_required_field_is_rejected, .../CustomPromptInput_NewPrompt_is_accepted_but_not_echoed_back (handler_flow_test.go)."}
   KnowledgeBase: {status: ok, note: "new family (SDK v1.121.0): CreateKnowledgeBase/DescribeKnowledgeBase/UpdateKnowledgeBase/DeleteKnowledgeBase/BatchDeleteKnowledgeBase/ListKnowledgeBases/SearchKnowledgeBases/permissions real (knowledgebases.go, handler_knowledgebases.go), field-diffed against types.KnowledgeBase/KnowledgeBaseSummary. Found and correctly implemented a real API quirk: UpdateKnowledgeBase and UpdateKnowledgeBasePermissions are POST, not PUT, unlike every other resource family's Update* op in this backend -- confirmed against serializers.go, not assumed. Configuration/AccessControlConfiguration/MediaExtractionConfiguration are opaque pass-through documents (map[string]any), matching the Dashboard.Definition precedent for deeply-nested config blobs this backend has no processing logic for. BatchDeleteKnowledgeBase partitions per-ID success/failure for real (an unknown ID is a genuine per-item error, not swallowed into a whole-request failure)."}
   Space: {status: ok, note: "new family (SDK v1.121.0): CreateSpace/DescribeSpace/UpdateSpace/DeleteSpace/ListSpaces/SearchSpaces/permissions/ListSpaceResources/UpdateSpaceResources real (spaces.go, handler_spaces.go). Field-diffed against deserializers.go and found the Space family's wire shape is NOT PascalCase like every other family in this backend: spaceId/spaceArn are camelCase on every op's envelope, the nested Space/SpaceSummary document is fully camelCase, and UpdateSpacePermissionsOutput is uniquely fully-lowercase even for permissions/requestId (confirmed key-by-key against the deserializer switch statements, not assumed) -- see handler_spaces.go's wire-shape note. UpdateSpaceResources validates each resource ARN against arnExists before attaching it, same real-failure pattern as Agent's association updates. One documented, non-fabricated omission: DescribeSpace's Contributors is always an empty list and Space carries no ConsumedSourceSize/ConsumedSourceDocCount fields, because both require per-user raw-file-size attribution from a real ingestion pipeline this backend doesn't have -- an honest omission, matching the VPCConnection.NetworkInterfaces precedent from the prior pass. SECOND item, CORRECTED this pass (gopherstack-r80d, required-output-member sweep -- gopherstack-lx5h's prior conclusion here was wrong and is superseded): ListSpacesOutput/SearchSpacesOutput both declare a required top-level spaceId (SpaceArn is optional, not required -- gopherstack-lx5h mischaracterized neither as fabrication-worthy, but conflated the two) alongside the required spaceSummaries list -- verified against api_op_ListSpaces.go:44-63/api_op_SearchSpaces.go:49-68 and both ops' own deserializers.go switches. gopherstack-lx5h left spaceId/spaceArn entirely absent, reasoning that emitting an empty string would "misrepresent a real value" -- but a required Smithy output member is a structural wire guarantee from AWS's real server: leaving it absent means a real aws-sdk-go-v2 client's *string decodes nil, the exact "zero value where AWS guarantees content" bug this sweep hunts, not an honest omission. This is the same shape as this session's opensearch NextToken fix: when a required field has no natural per-call value (no single space is in scope for an account-wide list/search), the correct move is present-but-empty, not absent -- absence is what breaks the client, not what protects the caller from a misleading value. handleListSpaces/handleSearchSpaces (handler_spaces.go) now emit spaceId:\"\"/spaceArn:\"\" alongside spaceSummaries+requestId(+nextToken)."}
@@ -292,6 +292,198 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 ---
 
 ## Notes
+
+### 2026-08-29 (filter/pagination-not-honoured sweep, partial)
+
+This service is large (277 `api_op_*.go` files; ~40 List/Search ops
+return a collection by output shape) and this pass did not audit it
+exhaustively -- see "what remains unworked" below. Time was spent
+verifying the established `Search*` pattern (`folderFiltersFromBody` +
+`maxResultsParam`/`nextTokenParam`, shared by `SearchDashboards`/
+`SearchAnalyses`/`SearchDataSets`/`SearchDataSources`/`SearchFolders`/
+`SearchFlows`/`SearchSpaces`/`SearchKnowledgeBases`/
+`SearchActionConnectors`/`SearchAgents`) and finding the one op that
+didn't follow it.
+
+**Found and fixed:** `SearchGroups` -- see its `ops:` entry above. Two
+bugs: the real (required) `Filters` member was never read (a
+nonexistent `"Query"` body field was read instead, so a real client's
+`GROUP_NAME`/`StartsWith` filter was silently dropped and every group in
+the namespace always came back), and `MaxResults`/`NextToken` were read
+from the JSON body when this op actually query-binds both
+(`max-results`/`next-token`) -- confirmed per-op against
+`serializers.go`, not assumed from the sibling `Search*` ops' pattern,
+since `SearchTopics`/`SearchTopicsV2` genuinely *are* body-bound for
+those same two parameters (also verified against `serializers.go`) --
+a live instance of the "same-named parameter binds differently per
+operation" trap this campaign has repeatedly flagged elsewhere.
+New tests `TestSearchGroups_Filters`/`TestSearchGroups_Pagination`
+(`list_filter_params_test.go`) drive the real SDK client and fail
+against the pre-fix code.
+
+**Checked and already correct, no change:** `SearchDashboards` (`Name`
+filter with `StringEquals`/`StringLike` operators and AND semantics
+across multiple filters, correctly implemented in `matchesNameFilter`/
+`matchesAllNameFilters`, folders.go; ownership-related filter names
+explicitly and correctly treated as pass-through since this backend
+doesn't track principals), `SearchTopics`/`SearchTopicsV2` (Filters/
+MaxResults/NextToken all body-bound and all read from the body
+correctly).
+
+**What remains unworked:** `SearchFlows`, `SearchSpaces`,
+`SearchKnowledgeBases`, `SearchActionConnectors`, `SearchAgents`,
+`SearchAnalyses`, `SearchDataSets`, `SearchDataSources`, `SearchFolders`
+were confirmed to call the shared `folderFiltersFromBody`/
+`maxResultsParam`/`nextTokenParam` pattern (so are unlikely to share
+`SearchGroups`' binding bug) but their filter *semantics* (which
+`Name`/`Operator` combinations each op's own backend method actually
+applies, matching the real per-op filter type such as
+`AnalysisSearchFilter`/`DataSetSearchFilter`) were not verified
+field-by-field this pass. Plain `List*` ops (`ListDataSets`,
+`ListDashboards`, `ListAnalyses`, `ListTemplates`, `ListThemes`,
+`ListNamespaces`, `ListVPCConnections`, and the rest -- these take only
+MaxResults/NextToken in the real API, no filter/sort member) were not
+individually re-verified for pagination correctness this pass beyond
+the general pattern already documented elsewhere in this file. This is
+reported as scope-remaining, not "audited and clean."
+
+### 2026-08-29 (pagination-arithmetic sweep)
+
+Follow-up to the note directly above: this pass audited exactly the
+gap it left open -- the arithmetic inside every plain `List*` op's
+`MaxResults`/`NextToken` pagination (not filter semantics, not
+`Search*` binding). Census: ~40 `List*` backend methods, none call
+`pkgs/page` -- every one hand-rolls its own cursor window, either via
+one of 8 small shared `paginate<Type>` helpers (agents.go, group.go,
+flow.go, actionconnector.go, iampolicyassignments.go, spaces.go,
+knowledgebases.go, userindexcapacity.go) or inline in the `List*`
+method itself (the majority).
+
+**Two bug classes found, both systemic (not per-op mistakes):**
+
+- **Class A (panic).** 7 helpers encode the cursor as a raw integer
+  offset (`encodePageToken`/`decodePageToken`, store.go) with no upper
+  bound check: `paginateFolders`, `paginateNamespaces`,
+  `ListTemplates`, `ListDashboardVersions`, `ListVPCConnections`,
+  `ListThemes`, `ListBrands`. A token issued before items were deleted
+  can decode to an offset past the new, shorter collection, and
+  `all[start:end]` panics (`slice bounds out of range`) instead of
+  returning an empty page. `pkgs/page.New` already has the guard
+  (`start >= len(all)` returns `Page{}`) these five never adopted.
+  Fixed by clamping `start` to `len(all)` (or the version count, for
+  `ListDashboardVersions`) right after decoding, matching `pkgs/page`'s
+  behavior without changing the wire-compatible token format (both use
+  the same `base64(strconv.Itoa(offset))` encoding).
+- **Class B (infinite loop).** 28 call sites (8 shared helpers + 20
+  inline `List*`/`ListXVersions`/`ListXAliases`/`ListXMembers`
+  methods) search linearly for the item named by an equality-matched
+  cursor and leave `start` at its zero value on a miss -- a client
+  whose cursor names a since-deleted item gets page one forever, never
+  terminating. Fixed uniformly: default `start` to `len(collection)`
+  (end, not beginning) when the cursor doesn't resolve, matching the
+  safe pattern `ssoadmin.paginateOrdered` already uses in this repo.
+- **Adjacent (unsorted collection).** 9 operations
+  (`ListAnalyses`, `ListDataSources`, `ListDataSets`, `ListDashboards`,
+  `ListUsers`, `ListIngestions`, `ListGroups`, `ListUserGroups`,
+  `ListGroupMemberships`) paginated a slice built straight from
+  `store.Table.All()` (or a raw map range) with no `sort.Slice`/
+  `sort.Strings` call -- `Table.All()`'s doc comment is explicit that
+  iteration order is unspecified. Two back-to-back calls with no
+  mutation in between could already drop or duplicate items purely
+  from Go's randomized map iteration, independent of the cursor bugs
+  above. Their `Search*` siblings already sorted (compared side by
+  side, e.g. `ListDataSets` vs `SearchDataSets` in dataset.go); fixed
+  by adding the same sort to each.
+
+**Verified clean, no bug:** `ssoadmin`'s three pagination helpers
+(`paginateStrings`/`paginateBy` use threshold search — `keyFn(item) >=
+cursor` — which cannot express Class A/B/C by construction;
+`paginateOrdered` uses equality search but already defaults to
+`len(items)` on a miss). Not touched.
+
+New tests: `pagination_arithmetic_test.go` -- table-driven boundary
+walk (N=7 items, page size 3, concatenation reproduces the exact
+collection), stale-cursor (Class A and B), and final-page/empty/exact
+checks against `ListGroups` (shared-helper + unsorted shape),
+`ListAnalyses` (inline + unsorted shape), `ListFolders` and
+`ListTemplates` (index-cursor/Class A shape). All four failed against
+the pre-fix code (confirmed panics/duplicated items in this pass), and
+pass after the fix. The full existing suite
+(`go test -race ./services/quicksight/...`) also still passes.
+Confirmed through the real typed client (`aws quicksight create-group`
+x5, `list-groups --max-results 2` across 3 pages, `delete-group` +
+re-list with the deleted item's stale token -> empty page, not page
+one again).
+
+**Not touched, left recorded:** the ~20 `Search*` ops' own filter
+*semantics* (as scoped out by the note above -- this pass only
+verified the pagination arithmetic downstream of whatever the filter
+step already returned). The unused `filter/-` alignment in the
+`CustomPermissions`/`RoleMemberships`/`FolderMembers`/
+`FoldersForResource` families' non-page-size list bodies was not
+re-examined; only their pagination cursors were in scope and were
+fixed as part of Class B above.
+
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 277 `awsRestjson1_deserializeOpError<Op>` switches from quicksight@v1.123.1's
+deserializers.go. quicksight's error-write mechanism is structurally different from most other
+gopherstack services: there is no per-sentinel wire-code lookup table — every handler calls a
+single shared `httpErr(c, err)` (handler_paths.go) that classifies by the sentinel's
+**category** (`awserr.ErrNotFound`/`ErrAlreadyExists`/`ErrConflict`/`ErrInvalidParameter`) and
+writes one of exactly 4 hardcoded wire codes (`ResourceNotFoundException`/`ConflictException`/
+`ConflictException`/`InvalidParameterValueException`) — plus a generic `InternalFailure`
+fallback. The specific `Code` string passed to each sentinel's `awserr.New(...)` call in
+errors.go is otherwise discarded on the wire.
+
+**This looked like a systemic bug and turned out not to be one — recorded because it took real
+verification to rule out.** ~57 ops model `ResourceExistsException` distinctly from
+`ConflictException` for their own "already exists" case (real AWS QuickSight uses both, for
+different conditions within the same op), and all 20 of the `errResourceExists`-coded sentinels
+in errors.go (`ErrFolderAlreadyExists`, `ErrTemplateAlreadyExists`, `ErrAgentAlreadyExists`, ...)
+would be wrongly flattened to `ConflictException` by `httpErr`'s hardcoded default. Checked every
+one: every single raise site already has a call-site-local workaround (`if errors.Is(err,
+ErrXAlreadyExists) { return writeError(c, http.StatusConflict, errResourceExistsCode,
+err.Error()) }` before falling through to `httpErr`) — confirmed by grepping each sentinel's
+raise site(s) against its workaround site(s) 1:1 (e.g. `ErrTopicAlreadyExists` has two raise
+sites, in `topics.go` and `topics_v2.go`, each with its own matching workaround in
+`handler_topics.go`/`handler_topics_v2.go`). Same for the one `PreconditionNotMetException`
+sentinel (`ErrAccountTerminationProtectionEnabled`, `handler_account.go:244`). Genuinely clean —
+not fixed, because there was nothing to fix.
+
+**Real bug found and fixed**: `GetFlowMetadata`, `GetFlowPermissions`, `UpdateFlowPermissions`
+raised `ErrFlowNotFound` (wire `ResourceNotFoundException`) for an unresolvable `FlowId` — the
+same sentinel their siblings `DescribeFlow`/`UpdateFlow`/`DeleteFlow` correctly use. But unlike
+those three, none of these ops model `ResourceNotFoundException` in their own deserializer; they
+model only `InvalidParameterValueException`, `AccessDeniedException`, `InternalFailureException`,
+`ThrottlingException` — a real, deliberate asymmetry in AWS's own Smithy model for this
+newer/permissions-scoped corner of the Flow API family. Repointed all three call sites to
+`ErrValidation` (wire `InvalidParameterValueException`). Two existing tests
+(`handler_flow_test.go`) asserted the wrong 404/`ResourceNotFoundException` behavior as correct
+and were fixed. Covered by `error_path_sweep_test.go` (real `aws-sdk-go-v2/service/quicksight`
+client, `errors.As` against `types.InvalidParameterValueException`).
+
+**Method note**: found by diffing, for each of the 277 ops, its own modeled code set against the
+4 codes `httpErr`/its workarounds can ever emit, and flagging any op with zero overlap on a
+condition gopherstack actually raises for it (27 ops model none of
+`ResourceNotFoundException`/`ConflictException`/`ResourceExistsException`/
+`InvalidParameterValueException`/`PreconditionNotMetException`; of those, only the three Flow
+permission ops had a live not-found raise site — the rest are List/Search ops with no natural
+not-found condition, or `BatchDeleteKnowledgeBase`, whose per-item failures are correctly
+reported in the success response body rather than as a top-level exception, confirmed by reading
+its backend method).
+
+**Not exhaustively re-verified**: given the sheer op count (277) and that the shared
+category-based mechanism narrows the space where a wrong-code bug can hide (mixing up which
+*specific* not-found/conflict sentinel to raise is wire-invisible here, unlike ssm/cognitoidp,
+since same-category sentinels collapse to the same code), this pass targeted the two highest-
+yield angles — the category-flattening theory (false alarm) and the no-core-code-modeled op list
+(real bug, fixed) — rather than tracing every op's full call graph as was done for ssm/cognitoidp.
+A deeper pass could still check for wrong-*category* selections (e.g. a condition raising
+`ErrAlreadyExists`/`ErrConflict` where the op's model wants `ErrInvalidParameter`, or vice versa)
+across the remaining ~250 ops not covered here.
+
+### Notes below this line predate the 2026-08-29 error-path sweep.
 
 Protocol: **REST-JSON (restjson1)**, not action-header dispatch -- routing is by HTTP
 method + URL path (`classifyRequest` in handler.go), unlike most gopherstack services
@@ -849,3 +1041,436 @@ and per-service results. One related-but-different anomaly was found in
 *both* `DescribePipeline` and `ListPipelines`, not just the List side) --
 flagged there, not fixed here, since it is a different bug shape than the
 one this pass targets.
+
+## 2026-08-30 sort-totality sweep (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Audited every `sort.Slice` call for whether its comparator is a *total*
+order, following on from the 2026-08-29 pagination-arithmetic sweep (which
+checked cursor arithmetic and confirmed every prior "40 hand-rolled
+paginators" bug, but never asked whether the sorts that do exist are total).
+Every collection here is a `store.Table[V]`, so `.All()` is unordered map
+iteration; a comparator with no secondary key can reorder tied records
+across two calls in the same paginated walk.
+
+Almost every sort in this service is over an ID/ARN field
+(`ActionConnectorID`, `AnalysisID`, `AgentID`, `BrandID`, `DataSourceID`,
+`DataSetID`, `IngestionID`, `JobID`, `DashboardID`, `FolderID`, `FlowID`,
+`UpgradeRequestID`, `KnowledgeBaseID`, `SpaceID`, `ThemeID`, `TopicID`,
+`ClientID`, `TemplateID`, `VPCConnectionID`) or a `Name`-shaped field that
+IS the table's own primary key within its scope
+(`namespaces`→`Name`, `groups`→`Namespace+GroupName` with `ListGroups`
+itself namespace-scoped, `users`→`Namespace+UserName` with `ListUsers`
+namespace-scoped, `customPermissions`→`Name`,
+`identityPropagationConfigs`→`Service`, `iamPolicyAssignments`→`Namespace+AssignmentName`
+with `ListIAMPolicyAssignments` namespace-scoped) — all confirmed against
+`store_setup.go`'s `keyFn` closures, all total by construction, nothing to
+fix. `folders.go`'s `ListFolderMembers` sorts on `(MemberType, MemberID)`,
+exactly the pair `folderMemberKey` uses beyond `FolderID` — also total.
+
+**Fixed (non-total sort found) — `ListUsersIndexCapacity`:** sorted on
+`UserName` alone, but `storedUser`'s key is `accountID/namespace/UserName`
+— UserName is only unique *within one namespace*. This op's own handler
+passes `namespace` straight from an optional request-body field, so
+`namespace == ""` is a real, reachable call shape (not a hypothetical) that
+scans every namespace at once; two different namespaces can each register a
+user named the same thing. Worse than an ordering flip: `paginateUserIndexCapacity`'s
+cursor is an *equality match* against `UserName`
+(`if u.UserName == nextToken`), so a tied `UserName` made every subsequent
+page's cursor resolve back to the *first* matching user and repeat — not
+just reordered results, a stuck cursor that never reaches the second tied
+user. Fixed by sorting on `(UserName, UserArn)` and switching the cursor
+itself to match on `UserArn` (globally unique, since it embeds the
+namespace) instead of `UserName`.
+`TestListUsersIndexCapacityCrossNamespaceSortIsTotal`
+(pagination_sort_totality_test.go) constructs the two-namespace tie and
+reproduces both symptoms (a record repeated across pages, and — guarded by
+an explicit page-count cap so the test fails cleanly rather than hanging —
+the walk never terminating) against unfixed code.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/quicksight/...`).
+
+**2026-08-30 (negative-continuation-token sweep)**: `store.go`'s `decodePageToken` accepted a
+token that base64-decoded to a negative integer and returned it verbatim; 6 of its 7 callers
+(`brands.go`, `folders.go`'s `paginateFolders`, `templates.go`, `vpcconnections.go`,
+`namespace.go`'s `paginateNamespaces`, `themes.go`) only clamp the upper bound (`if start >
+len(all) { start = len(all) }`), which does not catch a negative `start`, so
+`all[start:end]` panicked given `LTU=` (base64 for `-5`) as `next-token`. (The 7th caller,
+`dashboard.go`'s `ListDashboardVersions`, doesn't slice — it synthesizes version numbers from
+a counter range, so a negative `start` produced nonsensical negative `VersionNumber` entries
+rather than a panic; also fixed by the same decode-site change.) Fixed at the decode site, so
+all 7 callers inherit the fix. The existing `TestPaginationTokensAreOpaque` table in
+`pagination_test.go` covers all 7 of these operations but never supplied a hostile token.
+
+Proof: `TestPagination_NegativeOffsetToken` (`pagination_test.go`, table-driven over all 6
+slicing operations) confirmed panicking pre-fix for every subtest, passes now. Gates: `go
+build ./services/quicksight/...`, `go vet ./services/quicksight/...`, `go test -race -count=1
+./services/quicksight/...`, `golangci-lint run ./services/quicksight/...` (0 issues — one
+`err113` finding from the fix's first draft, a dynamic `fmt.Errorf`, was replaced with the
+existing `ErrValidation` sentinel). Work left uncommitted per this pass's instructions.
+
+## 2026-08-30 gopherstack-wlo1: error-envelope sweep, confirmed clean
+
+QuickSight is restjson1 (`aws-sdk-go-v2/service/quicksight@v1.123.1`:
+`awsRestjson1_` prefix). Read all 277 `deserializeOpError` functions in
+`deserializers.go` (277-of-277, not sampled): all identically call
+`restjson.GetErrorInfo(decoder)` after checking `X-Amzn-ErrorType`, and
+`GetErrorInfo` checks body key `Code` (untagged Go field, exact-matches
+JSON key `"Code"`) *before* falling back to `__type`. `handler_paths.go`'s
+`writeError` writes `{"Code": errCode, "Message": msg}` with no header --
+this satisfies the client's body fallback directly via the `Code` key,
+which is actually checked ahead of `__type` in the real SDK, so this
+service's different-looking envelope (`Code`, not `__type`) is just as
+correct as the `__type`-shaped ones used elsewhere in this campaign.
+Grepped every direct `http.Status{Bad,NotFound,Conflict,...}` use across
+all `handler_*.go` files (33 files hit): every one resolves to a call
+through `writeError`/`httpErr`, no bypass found. Spot-checked the
+AlreadyExists family (folders/templates/themes/topics use
+`ResourceExistsException`, not the generic `httpErr` ConflictException
+default) -- these are handled explicitly at each call site
+(`errors.Is(err, ErrXAlreadyExists)` before falling through to `httpErr`),
+so the more specific code is preserved; not a bug, just worth recording
+since `httpErr`'s own `ErrAlreadyExists` branch always emits
+`ConflictException`.
+
+No bug found. Added
+`TestErrorEnvelope_DescribeDataSetNotFoundDecodesToTypedError`
+(`error_envelope_test.go`), driving a real `quicksightsdk.Client` through
+`DescribeDataSet` for a nonexistent dataset: asserts `errors.As` unwraps to
+the concrete `*types.ResourceNotFoundException`, and separately asserts on
+the raw response bytes for the same case (raw HTTP request needs an
+`Authorization` header naming the SigV4 credential scope `quicksight`,
+since `RouteMatcher`'s `isQuickSightRequest` reads it directly off the
+header). Passed against unmodified code, confirming this service's error
+envelope was already wire-correct.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean.
+
+## 2026-08-31 gopherstack-uox6: Search filter value-semantics sweep
+
+Audited all 13 `Search*` operations' filter surface (`SearchActionConnectors`,
+`SearchAgents`, `SearchAnalyses`, `SearchDashboards`, `SearchDataSets`,
+`SearchDataSources`, `SearchFlows`, `SearchFolders`, `SearchGroups`,
+`SearchKnowledgeBases`, `SearchSpaces`, `SearchTopics`, `SearchTopicsV2`)
+member-by-member against each operation's own filter type and enum in
+`quicksight@v1.123.1 types/types.go`/`types/enums.go` -- not a sibling's, per
+this class's standing lesson. Six real bugs, all UNDER-matching (a documented,
+backed filter silently passed through as "everything matches").
+
+**Two filters entirely unread despite tracked backing data:**
+`SearchActionConnectors` checked only `ACTION_CONNECTOR_NAME`
+(`actionconnector.go`); `ACTION_CONNECTOR_TYPE` -- a plain field
+(`storedActionConnector.Type`), not an untracked ownership ARN -- fell
+through the ownership-pass-through default and matched every connector
+regardless of type. `SearchFlows` checked only `assetName` (`flow.go`);
+`assetDescription` (`types.FieldName`) fell through the same way despite
+`storedFlow.Description` being tracked.
+
+**Four more on `SearchKnowledgeBases`** (`knowledgebases.go`):
+`KNOWLEDGE_BASE_ID`, `DATASOURCE_ARN`, and `PRIMARY_OWNER` were unread despite
+being plain tracked fields; `KNOWLEDGE_BASE_SIZE_BYTES` was unread and its
+operator (`GREATER_THAN_OR_EQUALS`/`LESS_THAN_OR_EQUALS`, values
+`KnowledgeBaseSearchOperator` adds beyond `STRING_EQUALS`/`STRING_LIKE`) was
+never parsed at all.
+
+**Two operator-string mismatches, same root cause, both silent.**
+`KnowledgeBaseSearchOperator` and `SpaceSearchOperator` emit uppercase-
+underscore wire values (`"STRING_LIKE"`) -- unlike `FilterOperator`/
+`ComparisonOperator`/`SearchFilterOperator`/`TopicFilterOperator`, which all
+nine other Search ops use and which emit PascalCase (`"StringLike"`). The
+shared `matchesNameFilter` (`folders.go`) compared against the PascalCase
+constant unconditionally, so a real `STRING_LIKE` request for either op
+silently fell back to exact-equality comparison -- affecting the one filter
+each op DID implement (`KNOWLEDGE_BASE_NAME`, `SPACE_NAME`), on top of the
+unread-field bugs above. Fixed by parameterizing the shared comparison
+(`matchesStringOp(actual, op, value, likeOp string)`) so each caller supplies
+its own operation's wire spelling.
+
+**A separate, more fundamental bug underneath both of those: wrong wire-key
+casing, dropping every filter unconditionally.** `KnowledgeBaseSearchFilter`
+and `SpaceQuicksightSearchFilter` are the only two Search filter types in
+this service whose serializer emits lowercase `"name"`/`"operator"`/`"value"`
+(confirmed in `serializers.go`'s
+`awsRestjson1_serializeDocumentKnowledgeBaseSearchFilter`/
+`...SpaceQuicksightSearchFilter`) -- the other nine emit PascalCase
+`"Name"`/`"Operator"`/`"Value"`. `handleSearchKnowledgeBases`/
+`handleSearchSpaces` both called the shared `folderFiltersFromBody`, which
+reads the PascalCase keys, so every filter field -- Name, Operator, and Value
+alike -- parsed to `""` for both operations. An empty Name matches no
+handled case and falls through the ownership-pass-through default, so EVERY
+filter on EVERY `Search{KnowledgeBases,Spaces}` call, including the
+previously-"working" name filter, has always silently matched everything.
+This is the compound-axis shape from earlier in this class (a wrong key plus
+an empty-case default), except here the wrong key is a casing mismatch
+rather than singular-vs-plural, and it hid the operator-string bug above
+completely: the operator string was never even reached, because Operator
+decoded to `""` before it could be compared. Fixed with a dedicated
+`lowercaseFiltersFromBody` (`handler_folders.go`) used only by these two
+handlers.
+
+**Verified, not a bug: `SearchSpaces`' `CONTRIBUTED_BY`/`CONSUMED_SOURCE_SIZE`
+correctly pass through** -- `storedSpace` tracks neither a resource
+contributor nor a consumed-size figure, so there's no backing data to filter
+on. **`CREATED_BY` also correctly passes through**, but for a different
+reason: real `CreateSpaceInput` has no request field for it (confirmed
+against `api_op_CreateSpace.go`) -- it's principal-derived, same as the
+`DIRECT_QUICKSIGHT_OWNER` family every other Search op already leaves
+untracked, not a field this backend chose not to read.
+
+**Confirmed correct, not fixed:** the AND-across-filters combining rule
+(`matchesAllNameFilters`/the new per-operation matcher loops) has no
+documented override anywhere in this filter family and was left as-is.
+`SearchGroups` (`GROUP_NAME`/`StartsWith` only), `SearchAgents`,
+`SearchAnalyses`, `SearchDashboards`, `SearchDataSets`, `SearchDataSources`,
+`SearchTopics`/`SearchTopicsV2` were checked member-by-member against their
+own filter-name enums and are clean: each has exactly one non-ownership
+filter name and it's the one implemented. `SearchFolders` already handled
+both of its non-ownership names (`PARENT_FOLDER_ARN`, `FOLDER_NAME`).
+
+Two pre-existing tests (`handler_flow_test.go`'s "search filters by
+KNOWLEDGE_BASE_NAME"/"search filters by SPACE_NAME") asserted the bug
+without knowing it: both built their filter directly as a Go map with
+PascalCase keys and the old `"StringLike"` operator spelling, bypassing the
+real SDK's serializer entirely, so neither the wire-key-casing bug nor the
+operator-string bug was reachable from them. Corrected to the wire values a
+real client actually sends (lowercase keys, `"STRING_LIKE"`); same two
+assertions each, unchanged.
+
+New tests (`search_filter_semantics_test.go`), driven through the real
+`aws-sdk-go-v2` client, each seeding 2+ records that differ only on the
+filtered attribute and asserting both inclusion and exclusion:
+`TestSearchActionConnectors_TypeFilter`,
+`TestSearchActionConnectors_MultipleFiltersAND` (proves AND, not OR, across
+two filters naming different connectors), `TestSearchFlows_DescriptionFilter`,
+`TestSearchSpaces_IDFilter`, and `TestSearchKnowledgeBases_FilterSemantics`
+(five subtests: id, datasource-arn, primary-owner, size-bytes GTE/LTE, and
+the STRING_LIKE-substring regression). Every new test confirmed failing
+against unmodified code before the corresponding fix landed, verified in
+three separate revert/rebuild/restore passes (action connector type filter
+alone; the KB/Space wire-key-casing fix alone, which broke all KB/Space
+Search tests including the pre-existing name-filter ones; the KB/Space
+per-field matcher fix alone) with byte-identical restores confirmed by diff
+after each. `KNOWLEDGE_BASE_SIZE_BYTES` has no request-settable path to a
+non-zero value in this backend (`CreateKnowledgeBase` has no
+`KnowledgeBaseSizeBytes` parameter -- it's computed from ingestion, which
+this backend doesn't model), so that subtest distinguishes GTE/LTE by
+varying the filter's target value against a fixed size-0 record rather than
+varying the record.
+
+Coverage is a full slice of the Search family, not the whole service: the
+121 non-Search List/Describe operations (default handling, page-size
+defaults, other filter/parameter semantics) are unaudited by this pass.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1`, `golangci-lint run` -- all clean. Repo-wide
+`go vet ./...` could not complete (build cache disk at 100%, an environment
+issue unrelated to this diff -- `dashboard` package failed with "no space
+left on device"); the only out-of-scope importer of this package
+(`cli.go`, root package) was vetted directly instead (`go vet .` -- clean),
+and no exported signature changed in this diff, so no caller outside this
+package could be affected regardless.
+
+## 2026-08-31 gopherstack-uox6: List/Describe value-semantics sweep, 4 bugs
+
+Continuation of the pass above: the 13-operation Search family is done; this
+pass covers a slice of the 109 `List*`/`Describe*` operations (constant
+names in `handler*.go`/`interfaces.go`: 65 `opDescribe*`, 44 `opList*`;
+`bd`'s prior estimate of 121 was high, likely double-counting a few names
+under different labels).
+
+**Page-size axis, checked exhaustively across all 39 `List*` operations
+carrying `MaxResults`:** none document a numeric default in
+`quicksight@v1.123.1`'s doc comments -- only `ListActionConnectors`
+documents a bound ("Valid range is 1 to 100") with no default. This matches
+the Search family's own finding, so the uniform `defaultMaxResults = 100`
+clamp (`store.go`, 40 call sites) contradicts nothing documented anywhere in
+this service. Targeting swept every `List*`/`Describe*` doc comment for
+"if you omit"/"if not specified"/"by default"/"default" language
+(not just `MaxResults`) to find the real filter/enum/bool surface, since
+most `List*` operations here have no filter fields at all beyond
+`AwsAccountId`/`MaxResults`/`NextToken` -- confirmed by listing every
+request-struct field across all 39 and finding exactly four with a
+typed filter/enum/bool field beyond the common three
+(`ListIAMPolicyAssignments.AssignmentStatus`, `ListRoleMemberships.Role`,
+`ListThemes.Type`, `ListUsersIndexCapacity.{Filters,SortBy,SortOrder}`) plus
+six on `Describe*` operations found the same way
+(`DescribeAccountCustomization.Resolved`,
+`DescribeAutomationJob.{IncludeInputPayload,IncludeOutputPayload}`,
+`DescribeBrand.VersionId`, `DescribeFlow.PublishState`,
+`DescribeKeyRegistration.DefaultKeyOnly`,
+`DescribeRoleCustomPermission.Role`).
+
+**Bug 1: `ListThemes.Type` never read at all.** `handleListThemes`
+(`handler_themes.go`) called `Backend.ListThemes(accountID, maxResults,
+nextToken)` -- no `type` query parameter (confirmed against
+`awsRestjson1_serializeOpHttpBindingsListThemesInput`, which
+`encoder.SetQuery("type")`s it) reached the backend at all. `ALL (default) -
+Display all existing themes... CUSTOM... QUICKSIGHT` per
+`api_op_ListThemes.go`. This backend's `CreateTheme` always stores
+`Type: "CUSTOM"` (no seeded QUICKSIGHT starting theme), so `Type=QUICKSIGHT`
+is exactly the value no stored theme can legally carry -- before the fix it
+returned every CUSTOM theme anyway; after, it correctly returns none. Fixed
+by filtering `allThemesLocked`'s result in `Backend.ListThemes`
+(`themes.go`) on an added `themeType` parameter, empty/`"ALL"` meaning no
+filter.
+
+**Bug 2: `DescribeKeyRegistration.DefaultKeyOnly` never read.**
+`handleDescribeKeyRegistration` (`handler_account.go`) never read the
+"default-key-only" boolean query parameter (confirmed in serializers.go),
+so a client asking for only the default key got every registered key back
+regardless -- even though `RegisteredCustomerManagedKey.DefaultKey` is real,
+request-settable data via `UpdateKeyRegistration`. Fixed by threading a
+`defaultKeyOnly bool` through `Backend.DescribeKeyRegistration`
+(`account.go`) and filtering on `DefaultKey`.
+
+**Bug 3: `ListUsersIndexCapacity`'s `Filters`/`SortBy`/`SortOrder` never
+applied.** `handleListUsersIndexCapacity` (`handler_userindexcapacity.go`)
+read only `namespace`/`maxResults`/`nextToken` from the body. A comment on
+`Backend.ListUsersIndexCapacity` (`userindexcapacity.go`) explicitly
+justified this as "matching this backend's existing precedent of no-op
+unrecognized search-filter attributes" -- but `Filters`
+(`totalCapacityBytes` range, `userNameOrEmail` prefix) and `SortBy`/
+`SortOrder` are documented, backed fields, not unrecognized ones: the
+precedent this cited doesn't apply. `TotalCapacityBytes`/`Email`/`UserName`
+are real fields this backend already computes/tracks, so both filters have
+real data to act on. Fixed by adding a `UserIndexCapacityQuery` struct
+(`types.go`), parsing it from the body (`handler_userindexcapacity.go`), and
+applying it before pagination (`userindexcapacity.go`): the capacity range
+is inclusive on both bounds per `CapacityBytesRangeFilter`'s doc comment,
+the prefix matches username OR email per `UserNameOrEmailFilter`'s "starts-
+with match against username or email". `SortBy`
+(`UserIndexCapacitySortBy` has exactly one legal member,
+`TOTAL_CAPACITY_BYTES`) now switches the sort key from `UserName` to
+`TotalCapacityBytes`, honoring `SortOrder`'s documented "Defaults to DESC if
+not specified" -- this half has **no observable effect today** and is
+reported as such: this backend has no ingestion pipeline, so every user's
+`TotalCapacityBytes` is provably 0 (same reasoning `userIndexCapacityFor`'s
+existing comment already gives for `TotalSpaceCapacityBytes`), and the code
+change was verified by inspection rather than a test that could actually
+distinguish ASC from DESC. Not implemented: `Namespace` "Required when the
+userNameOrEmail filter is present" -- a missing-rejection/validation
+concern, kept on that separate axis rather than folded into this fix.
+
+**Bug 4: `DescribeAccountCustomization.Resolved` never read.**
+"The Resolved flag works with the other parameters to determine which view
+of Quick Sight customizations is returned... Omit this flag... to reveal
+customizations that are configured at different levels"
+(`api_op_DescribeAccountCustomization.go`). `handleDescribeAccountCustomization`
+(`handler_account.go`) only ever did an exact `accountID/namespace` key
+lookup, so a namespace-scoped `Resolved=true` request for a namespace with
+no customization of its own -- only an account-level default -- got
+`ErrAccountCustomizationNotFound` (404) where real AWS resolves to the
+account-level view. Fixed by adding a `resolved bool` parameter to
+`Backend.DescribeAccountCustomization` (`account.go`): when set and
+`namespace != ""`, it merges field-by-field, namespace value winning where
+non-empty, else falling back to the account-level value; unresolved lookups
+and the account level itself (`namespace == ""`, nothing to fall back to)
+are unchanged.
+
+**Confirmed correct, not fixed, verified against each operation's own
+input type and serializer, not a sibling's:**
+`ListIAMPolicyAssignments.AssignmentStatus` (`handler_iampolicyassignments.go`)
+already reads the `assignment-status` query parameter and filters
+correctly (`""` matches everything, matching `ListThemes`' documented `ALL`
+default -- no equivalent default is documented here, but empty already
+means "no filter" either way). `ListRoleMemberships.Role` and
+`DescribeRoleCustomPermission.Role` are required path-segment selectors
+(which role's memberships/permissions to fetch), not filters -- both
+correctly read from the URL path. `DescribeAutomationJob`'s
+`IncludeInputPayload`/`IncludeOutputPayload` correctly read their query
+parameters and default to excluded (matching the documented "If set to
+false, ... returned as null", and Go's zero-value `bool` already means
+`false`). `DescribeBrand.VersionId`'s documented "default value is the
+latest version" is correctly honored: `toBrand()` reads `CurrentVersionID`,
+which `UpdateBrand` bumps on every new version.
+
+**Recorded on the other axis, not fixed (structural, not a semantics
+bug):** `DescribeFlow.PublishState` is required and bound to the
+"publish-state" query parameter, but this backend stores one definition per
+flow with no draft/published divergence (`CreateFlow`'s existing comment:
+real AWS auto-publishes on create, matching this backend's single-state
+model) -- there is nothing for the parameter to select between, so it isn't
+read at all. The doc comment previously claimed it was "accepted... for
+wire fidelity", which was false (never read); corrected to state plainly
+that it isn't read and why that's structurally correct here, not an
+oversight.
+
+Coverage is a slice, stated plainly: of 109 `List*`/`Describe*` operations,
+this pass verified the page-size axis exhaustively (all 39 `MaxResults`
+operations) and the filter/enum/bool axis on the 10 operations found to
+carry one (4 bugs, 6 confirmed clean/structural). The remaining ~99
+operations -- almost all pure `AwsAccountId`/`MaxResults`/`NextToken`/
+resource-ID listings or single-resource describes with no filter surface,
+per the same sweep that found the ten above -- are unaudited by this pass.
+
+Tests: `list_describe_value_semantics_test.go` (new), driven through the
+real `aws-sdk-go-v2` client: `TestListThemes_TypeFilter`,
+`TestDescribeKeyRegistration_DefaultKeyOnly`,
+`TestListUsersIndexCapacity_PrefixFilter`,
+`TestListUsersIndexCapacity_CapacityBytesFilter` (boundary-tests MinBytes=0
+vs MinBytes=1 against a provably-always-0 capacity, the same technique the
+prior pass used for `KNOWLEDGE_BASE_SIZE_BYTES`), and
+`TestDescribeAccountCustomization_Resolved`. All five confirmed failing
+against unmodified code before the corresponding fix landed. No existing
+test was modified; two existing tests' call sites
+(`pagination_sort_totality_test.go`, `store_roundtrip_test.go`) were updated
+for the two interface-signature changes those tests call directly
+(`ListUsersIndexCapacity`, `DescribeAccountCustomization`) with no assertion
+changes.
+
+No pages fetched this pass -- everything resolved from the pinned
+`quicksight@v1.123.1` module cache.
+
+Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
+`go test -race -count=1` all clean. `golangci-lint run` found six issues
+introduced by this diff (gocognit on the filter-body parser, two golines
+line-length violations, four govet shadowed-`ok` warnings, two nestif
+nested-block warnings) -- all fixed by decomposing the parser into small
+named-return helpers and extracting the sort comparator. A first re-run
+still showed a `dupl` pair -- `themes.go`'s `UpdateTheme`/`DeleteTheme` vs
+`templates.go`'s `UpdateTemplate`/`DeleteTemplate` -- initially misreported
+here as pre-existing (`themes.go` IS modified by this diff; only
+`templates.go` was untouched, and the two files' bodies not changing
+doesn't mean the *pairing* dupl reports wasn't a consequence of lines
+shifting elsewhere). A clean-HEAD worktree check (`git worktree add
+--detach`, never a bare `git stash`) confirmed the real mechanism: at HEAD,
+dupl's clustering already merges `UpdateTheme`+`DeleteTheme`+
+`allThemesLocked`+...+`ListThemeAliases` into one larger match against the
+equivalent `templates.go` span (the existing `//nolint:dupl` on
+`ListThemeAliases`/`ListTemplateAliases` covers that merged report's
+attributed line, which is why it read as "clean" before). This diff's added
+lines inside `ListThemes` sit between the Update/Delete pair and the
+ListAliases pair, splitting that one merged match into two separate ones --
+the Update/Delete pair losing its coverage as a result. Fixed per this
+repo's own established convention for this exact shape (12+ existing
+`//nolint:dupl // list functions share structure but operate on different
+stored types` directives across this file family for same-CRUD-shape/
+different-stored-type pairs): added matching directives on `UpdateTemplate`
+(`templates.go:145`) and `UpdateTheme` (`themes.go:152`), reworded for
+"update/delete" rather than "list". Sharing via generics was considered and
+rejected: it would require a getter/setter interface spanning
+`storedTemplate`/`storedTheme` (and their version types) for a lint-only
+concern, a pattern this file family has consistently not adopted anywhere
+else. `golangci-lint run ./services/quicksight/...` now reports `0 issues.`
+-- confirmed no other `nolint` directive anywhere in the package is flagged
+unused (nolintlint fires on the whole package, not just `dupl`, so a clean
+run is the authoritative check). Repo-wide `go vet ./...` ran clean (disk
+at 19% this pass, no cache issue) both before and after this correction.
+All four interface-signature changes (`ListThemes`,
+`DescribeKeyRegistration`, `DescribeAccountCustomization`,
+`ListUsersIndexCapacity`) have no callers outside this package (confirmed
+by grep); the two in-package test call sites they broke were updated, not
+weakened -- no test assertions changed by either this pass or this
+correction.
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: 794 findings in every one of the 5 old runs and at
+HEAD, op.field key sets identical. ZERO DAMAGE.

@@ -863,7 +863,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "ACTIVE", ss.Status)
 
 	// List.
-	list, err := b.ListStackSets("")
+	list, err := b.ListStackSets("", "")
 	require.NoError(t, err)
 	assert.Len(t, list.Data, 1)
 
@@ -873,7 +873,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, nil, regions)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("my-ss", "")
+	instances, err := b.ListStackInstances("my-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Len(t, instances.Data, 4) // 2 accounts × 2 regions
 
@@ -891,7 +891,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions)
 	require.NoError(t, err)
 
-	remaining, err := b.ListStackInstances("my-ss", "")
+	remaining, err := b.ListStackInstances("my-ss", "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, remaining.Data)
 

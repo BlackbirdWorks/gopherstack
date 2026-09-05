@@ -72,7 +72,7 @@ func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) 
 
 // ListEventSources returns event sources optionally filtered by name prefix, with pagination.
 func (b *InMemoryBackend) ListEventSources(ctx context.Context,
-	namePrefix, nextToken string,
+	namePrefix, nextToken string, limit int,
 ) ([]EventSource, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) ListEventSources(ctx context.Context,
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

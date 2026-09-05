@@ -1,0 +1,191 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+)
+
+// lowResolutionThreshold gates the implausible-resolution guard --
+// cmd/reqfielddiff/cmd/reqfieldscan's identical discipline, and this
+// package's doc comment explains why it is not optional -- if a service
+// emits 200 error codes and this scan resolves 3 to operations, that is a
+// bug in this tool, not a finding about the service.
+const lowResolutionThreshold = 0.5
+
+// minOpsForResolutionGuard avoids firing the guard on a tiny service where a
+// low ratio is noise at small N.
+const minOpsForResolutionGuard = 5
+
+func coverageWarnings(sr serviceScan) []string {
+	var warnings []string
+
+	if sr.OpsGroundTruth == 0 {
+		return warnings
+	}
+
+	if sr.OpsResolved == 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"ZERO of %d operations with SDK ground truth resolved to an emulator handler at all -- "+
+				"treat this service as UNSCANNED, not clean; this scan likely doesn't recognise its "+
+				"dispatch or naming convention", sr.OpsGroundTruth))
+
+		return warnings
+	}
+
+	if sr.OpsGroundTruth >= minOpsForResolutionGuard {
+		ratio := float64(sr.OpsResolved) / float64(sr.OpsGroundTruth)
+		if ratio < lowResolutionThreshold {
+			warnings = append(warnings, fmt.Sprintf(
+				"only %d/%d (%.0f%%) of operations with SDK ground truth resolved to a handler -- "+
+					"treat this service's coverage as UNVERIFIED, not clean; likely a resolution gap "+
+					"in this tool, not a service this thin",
+				sr.OpsResolved, sr.OpsGroundTruth, pct(sr.OpsResolved, sr.OpsGroundTruth)))
+		}
+	}
+
+	return warnings
+}
+
+func pct(n, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+
+	const percent = 100
+
+	return float64(n) / float64(total) * percent
+}
+
+func writeJSON(path string, scans []serviceScan) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+
+	return enc.Encode(scans)
+}
+
+func printServiceScan(sr serviceScan) {
+	if len(sr.Findings) == 0 && len(sr.Warnings) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "## %s (%s)\n", sr.Dir, moduleList(sr.Modules))
+
+	for _, w := range sr.Warnings {
+		fmt.Fprintf(os.Stdout, "*** COVERAGE WARNING: %s ***\n", w)
+	}
+
+	fmt.Fprintf(os.Stdout, "operations with SDK ground truth: %d, resolved: %d, with an emission found: %d\n",
+		sr.OpsGroundTruth, sr.OpsResolved, sr.OpsWithEmission)
+
+	if len(sr.Findings) == 0 {
+		fmt.Fprintln(os.Stdout, "no class A findings (real code, wrong operation)")
+		fmt.Fprintln(os.Stdout)
+
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "class A findings (%d):\n", len(sr.Findings))
+	printCauseGroups(sr.Findings)
+
+	for _, f := range sr.Findings {
+		printFinding(f)
+	}
+
+	fmt.Fprintln(os.Stdout)
+}
+
+// causeKey groups findings sharing the same wrongly-emitted code AND the
+// same first-site emission mechanism -- the two shared-classifier collisions
+// this campaign has actually hit (gopherstack-0yva's 49 same-collision
+// findings here, an earlier 33-finding event) each had ONE root, and both
+// were obvious only after tracing every finding by hand. Requiring both
+// Code and Mechanism to match, not just Code alone, keeps two unrelated
+// collisions that happen to emit the same code from being blurred into one
+// bucket.
+type causeKey struct {
+	Code      string
+	Mechanism string
+}
+
+// printCauseGroups prints a one-line-per-cause summary before the full
+// finding list, so a bulk collision (many findings, one root) is visible
+// immediately rather than only after reading every finding. Silent when
+// every finding already has a distinct cause -- nothing to summarize.
+func printCauseGroups(findings []finding) {
+	groups := map[causeKey][]finding{}
+
+	for _, f := range findings {
+		mech := ""
+		if len(f.Sites) > 0 {
+			mech = f.Sites[0].Mechanism
+		}
+
+		key := causeKey{Code: f.Code, Mechanism: mech}
+		groups[key] = append(groups[key], f)
+	}
+
+	if len(groups) == len(findings) {
+		return
+	}
+
+	keys := make([]causeKey, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		if len(groups[keys[i]]) != len(groups[keys[j]]) {
+			return len(groups[keys[i]]) > len(groups[keys[j]])
+		}
+
+		if keys[i].Code != keys[j].Code {
+			return keys[i].Code < keys[j].Code
+		}
+
+		return keys[i].Mechanism < keys[j].Mechanism
+	})
+
+	fmt.Fprintln(os.Stdout, "  grouped by cause (code + mechanism):")
+
+	for _, k := range keys {
+		fs := groups[k]
+
+		ops := make([]string, 0, len(fs))
+		for _, f := range fs {
+			ops = append(ops, f.Op)
+		}
+
+		sort.Strings(ops)
+		fmt.Fprintf(os.Stdout, "    %d finding(s): code=%s mechanism=%s ops=%v\n", len(fs), k.Code, k.Mechanism, ops)
+	}
+}
+
+func printFinding(f finding) {
+	domain := f.Domain
+	if domain == "" {
+		domain = "-"
+	}
+
+	fmt.Fprintf(os.Stdout, "  op=%s domain=%s code=%s\n", f.Op, domain, f.Code)
+
+	for _, s := range f.Sites {
+		fmt.Fprintf(os.Stdout, "    %s:%d  [%s]\n", s.File, s.Line, s.Mechanism)
+	}
+
+	if len(f.AcceptedBy) > 0 {
+		fmt.Fprintf(os.Stdout, "    declared correctly by: %v\n", f.AcceptedBy)
+	}
+}
+
+func moduleList(mods []string) string {
+	return strings.Join(mods, ",")
+}

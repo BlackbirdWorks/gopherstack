@@ -157,7 +157,7 @@ func matchesAllDBClusterFilters(c DBCluster, filters map[string][]string) bool {
 	for name, values := range filters {
 		switch name {
 		case filterNameDBClusterID:
-			if !containsFold(values, c.DBClusterIdentifier) {
+			if !containsFoldIDOrARN(values, c.DBClusterIdentifier) {
 				return false
 			}
 		case "db-cluster-resource-id":

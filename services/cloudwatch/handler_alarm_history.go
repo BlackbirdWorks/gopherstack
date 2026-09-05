@@ -13,7 +13,7 @@ import (
 
 func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
-	alarmType := form.Get("AlarmType")
+	alarmTypes := parseMemberList(form, "AlarmTypes.")
 	historyItemType := form.Get("HistoryItemType")
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
@@ -28,7 +28,7 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 
 	p, err := h.Backend.DescribeAlarmHistory(
 		alarmName,
-		alarmType,
+		alarmTypes,
 		historyItemType,
 		nextToken,
 		startDate,

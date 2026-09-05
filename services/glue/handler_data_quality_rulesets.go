@@ -259,20 +259,16 @@ type getDataQualityRulesetEvaluationRunInput struct {
 	RunID string `json:"RunId"`
 }
 
-type getDataQualityRulesetEvaluationRunOutput struct {
-	DataQualityEvaluationRun *DataQualityEvaluationRun `json:"DataQualityEvaluationRun"`
-}
-
 func (h *Handler) handleGetDataQualityRulesetEvaluationRun(
 	_ context.Context,
 	in *getDataQualityRulesetEvaluationRunInput,
-) (*getDataQualityRulesetEvaluationRunOutput, error) {
+) (*DataQualityEvaluationRun, error) {
 	run, err := h.Backend.GetDataQualityRulesetEvaluationRun(in.RunID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getDataQualityRulesetEvaluationRunOutput{DataQualityEvaluationRun: run}, nil
+	return run, nil
 }
 
 // batchGetDataQualityRulesetEvaluationRunInput holds input for

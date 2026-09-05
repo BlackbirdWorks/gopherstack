@@ -99,6 +99,15 @@ type TrainingDataConfig struct {
 	IncludedDatasetColumns map[string][]string `json:"includedDatasetColumns,omitempty"`
 }
 
+// SolutionUpdateConfig mirrors types.SolutionUpdateConfig (types.go:2020) --
+// the narrower subset of SolutionConfig that UpdateSolution can change after
+// creation (AutoTrainingConfig/EventsConfig only; the other SolutionConfig
+// members are creation-time-only).
+type SolutionUpdateConfig struct {
+	AutoTrainingConfig *AutoTrainingConfig `json:"autoTrainingConfig,omitempty"`
+	EventsConfig       *EventsConfig       `json:"eventsConfig,omitempty"`
+}
+
 // CampaignConfig mirrors types.CampaignConfig (types.go:433).
 type CampaignConfig struct {
 	ItemExplorationConfig             map[string]string  `json:"itemExplorationConfig,omitempty"`

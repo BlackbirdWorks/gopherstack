@@ -104,7 +104,7 @@ func TestInMemoryBackend_ListTextTranslationJobs_DoesNotAdvance(t *testing.T) {
 	job := startJob(t, b, "list-no-advance")
 
 	for range 3 {
-		list, _ := b.ListTextTranslationJobs("", 0, "")
+		list, _ := b.ListTextTranslationJobs(translate.TextTranslationJobFilter{}, 0, "")
 		require.Len(t, list, 1)
 		assert.Equal(t, "SUBMITTED", list[0].JobStatus)
 	}

@@ -318,3 +318,41 @@ Proven with a real `aws-sdk-go-v2/service/shield` client's
   reproduced from the live deserializer, not taken on trust. Gates: `go build`, `go vet`,
   `go fix -diff` (empty), `gofmt -l` (empty), `go test -race` (ok, 1.1s),
   `golangci-lint run` (0 issues) all clean, no code changes made this session.
+- **2026-08-31, gopherstack-uox6 (value-semantics sweep, first pass on this service for
+  this class)**: the wire-shape audits above (this file's `ops`/`families` grades) check
+  that fields exist, are read, and round-trip -- a separate axis from whether a filter's
+  documented VALUE semantics are honored once read. `cmd/covledger -service shield`
+  reported no rows going into this pass; no contradicting evidence found in git log or
+  this file's prior notes. Checked all 12 List/Describe ops' filter and pagination
+  parameters against their own SDK doc comments (`aws-sdk-go-v2/service/shield@v1.37.4`).
+  Three real bugs found and fixed:
+  - `ListAttacks`'s `EndTime.ToExclusive` boundary was inclusive in code
+    (`attacks.go`'s `ListAttacks`: `ts > endTime` kept `ts == endTime`) where its own
+    field name says exclusive (`types.TimeRange.ToExclusive`, "Unix time in seconds") --
+    an attack starting exactly at the boundary was wrongly included. `FromInclusive`'s
+    boundary was already correct. Fixed to `ts >= endTime`.
+  - `ListProtections`/`ListProtectionGroups`/`ListAttacks` all documented "The default
+    setting is 20" for an omitted `MaxResults` (`api_op_List*.go` doc comments,
+    identical wording on all four Shield Advanced list ops including
+    `ListResourcesInProtectionGroup` below), but `clampMaxResults`'s `v <= 0` branch
+    returned the handler's internal page-size CAP (1000/1000/10000) instead -- a client
+    that omitted `MaxResults` got up to 50x-500x more items per page than real AWS, in
+    one page instead of paginated. Fixed: `clampMaxResults` now returns the new
+    `defaultListPageSize = 20` constant when `MaxResults` is omitted, and only clamps an
+    explicitly-supplied value to the existing per-op cap.
+  - `ListResourcesInProtectionGroup` implemented NO pagination at all --
+    `MaxResults`/`NextToken` weren't even parsed from the request, every member ARN was
+    always returned in one response, ignoring the same documented default-20 behavior as
+    its three siblings. Fixed: added the same offset-token pagination pattern used by
+    `ListProtections`/`ListProtectionGroups`/`ListAttacks`.
+
+  `ListProtections`'s `InclusionFilters` (`ProtectionNames`/`ResourceArns`/
+  `ResourceTypes`) and `ListProtectionGroups`'s `InclusionFilters`
+  (`ProtectionGroupIds`/`Patterns`/`ResourceTypes`/`Aggregations`) combining logic was
+  checked against the SDK's "exactly match all of the filter criteria that you provide"
+  wording and is correct: AND across filter categories, OR within a category's value
+  list; unrecognized `ResourceTypes` values correctly reject rather than match-all
+  (`resourceARNMatchesType`'s switch has no default-true case). `MaxResults` upper-bound
+  caps (1000/1000/10000) are gopherstack-internal choices, not contradicted by any
+  documented maximum (the SDK doc comments state only the default, no ceiling) --
+  left unchanged.

@@ -89,7 +89,7 @@ func TestCreateVpcPeeringConnection(t *testing.T) {
 			requesterID := tt.requesterVPCID
 
 			if tt.createVPC {
-				vpc, err := b.CreateVpc("10.0.0.0/16")
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 				require.NoError(t, err)
 
 				requesterID = vpc.ID
@@ -123,7 +123,7 @@ func TestDeleteVpcPeeringConnection(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vpc, err := b.CreateVpc("10.0.0.0/16")
+	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	pc, err := b.CreateVpcPeeringConnection(vpc.ID, "vpc-remote-12345678")
@@ -147,16 +147,16 @@ func TestCreateVpc_CIDRConflict(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateVpc("192.168.0.0/16")
+	_, err := b.CreateVpc("192.168.0.0/16", "default")
 	require.NoError(t, err)
 
 	// Exact same CIDR should conflict.
-	_, err = b.CreateVpc("192.168.0.0/16")
+	_, err = b.CreateVpc("192.168.0.0/16", "default")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ec2.ErrCIDRConflict)
 
 	// Overlapping CIDR should also conflict.
-	_, err = b.CreateVpc("192.168.1.0/24")
+	_, err = b.CreateVpc("192.168.1.0/24", "default")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ec2.ErrCIDRConflict)
 }

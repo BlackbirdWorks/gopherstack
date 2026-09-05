@@ -21,7 +21,7 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := t.Context()
 
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}, nil))
 
 	ws, err := b.CreateWorkspace(ctx, &workspaces.WorkspaceCreationSpec{
 		DirectoryID: "d-1234567890",
@@ -42,7 +42,15 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 	img, err := b.CreateWorkspaceImage("img1", "desc", ws.WorkspaceID, map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkspaceBundle("custom-bundle", "desc", img.ImageID, "STANDARD", map[string]string{"k": "v"})
+	_, err = b.CreateWorkspaceBundle(
+		"custom-bundle",
+		"desc",
+		img.ImageID,
+		"STANDARD",
+		50,
+		80,
+		map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateWorkspacesPool(

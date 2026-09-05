@@ -15,13 +15,15 @@ func TestHookResults(t *testing.T) {
 
 	h := newHandler()
 
-	// GetHookResult — unknown token returns SUCCEEDED (no error)
+	// GetHookResult — unknown HookResultId raises HookResultNotFound
+	// (cloudformation@v1.76.1 deserializeOpErrorGetHookResult models it;
+	// gopherstack used to swallow the miss and report SUCCEEDED).
 	rec := postForm(t, h, url.Values{
-		"Action":          []string{"GetHookResult"},
-		"HookResultToken": []string{"unknown-token"},
+		"Action":       []string{"GetHookResult"},
+		"HookResultId": []string{"unknown-id"},
 	}.Encode())
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "SUCCEEDED")
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "HookResultNotFound")
 
 	// ListHookResults
 	rec = postForm(t, h, url.Values{

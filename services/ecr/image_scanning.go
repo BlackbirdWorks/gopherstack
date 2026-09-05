@@ -81,7 +81,7 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 	// Findings, ENHANCED scans page EnhancedFindings.
 	var startIdx int
 	if nextToken != "" {
-		if parsed, err := strconv.Atoi(nextToken); err == nil {
+		if parsed, err := strconv.Atoi(nextToken); err == nil && parsed >= 0 {
 			startIdx = parsed
 		}
 	}

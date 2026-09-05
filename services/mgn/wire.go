@@ -413,7 +413,6 @@ type createLaunchConfigurationTemplateRequest struct {
 	SmallVolumeConf                     *launchTemplateDiskConfWire `json:"smallVolumeConf,omitempty"`
 	Tags                                map[string]string           `json:"tags,omitempty"`
 	BootMode                            string                      `json:"bootMode,omitempty"`
-	Ec2LaunchTemplateID                 string                      `json:"ec2LaunchTemplateID,omitempty"`
 	LaunchDisposition                   string                      `json:"launchDisposition,omitempty"`
 	MapAutoTaggingMpeID                 string                      `json:"mapAutoTaggingMpeID,omitempty"`
 	ParametersEncryptionKey             string                      `json:"parametersEncryptionKey,omitempty"`
@@ -447,7 +446,6 @@ type updateLaunchConfigurationTemplateRequest struct {
 	LargeVolumeConf                     *launchTemplateDiskConfWire `json:"largeVolumeConf,omitempty"`
 	SmallVolumeConf                     *launchTemplateDiskConfWire `json:"smallVolumeConf,omitempty"`
 	BootMode                            *string                     `json:"bootMode,omitempty"`
-	Ec2LaunchTemplateID                 *string                     `json:"ec2LaunchTemplateID,omitempty"`
 	PostLaunchActions                   *postLaunchActionsWire      `json:"postLaunchActions,omitempty"`
 	EnableMapAutoTagging                *bool                       `json:"enableMapAutoTagging,omitempty"`
 	Licensing                           *licensingWire              `json:"licensing,omitempty"`
@@ -1220,6 +1218,12 @@ type nmScopeRequest struct {
 	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
 }
 
+type startNMCodeGenerationRequest struct {
+	NetworkMigrationDefinitionID    string   `json:"networkMigrationDefinitionID"`
+	NetworkMigrationExecutionID     string   `json:"networkMigrationExecutionID"`
+	CodeGenerationOutputFormatTypes []string `json:"codeGenerationOutputFormatTypes,omitempty"`
+}
+
 type getNMMapperSegmentConstructRequest struct {
 	NetworkMigrationDefinitionID string `json:"networkMigrationDefinitionID"`
 	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
@@ -1235,11 +1239,23 @@ type listNMMapperSegmentConstructsRequest struct {
 	MaxResults                   int32  `json:"maxResults,omitempty"`
 }
 
+// nmJobFiltersWire mirrors the identical {jobIDs: []string} Filters shape
+// declared by ListNetworkMigrationAnalyses/CodeGenerations/Deployments/
+// Mappings/MappingUpdates -- the five listNMScopedRequest ops with a real
+// job-details Output; the other listNMScopedRequest ops (AnalysisResults,
+// CodeGenerationSegments, DeployedStacks, MapperSegments) either have no
+// Filters member at all or a differently-shaped one, so this field stays
+// nil and unused for those, which is harmless.
+type nmJobFiltersWire struct {
+	JobIDs []string `json:"jobIDs,omitempty"`
+}
+
 type listNMScopedRequest struct {
-	NetworkMigrationDefinitionID string `json:"networkMigrationDefinitionID"`
-	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
-	NextToken                    string `json:"nextToken,omitempty"`
-	MaxResults                   int32  `json:"maxResults,omitempty"`
+	Filters                      *nmJobFiltersWire `json:"filters,omitempty"`
+	NetworkMigrationDefinitionID string            `json:"networkMigrationDefinitionID"`
+	NetworkMigrationExecutionID  string            `json:"networkMigrationExecutionID"`
+	NextToken                    string            `json:"nextToken,omitempty"`
+	MaxResults                   int32             `json:"maxResults,omitempty"`
 }
 
 type genericItemsResponse struct {
@@ -1273,7 +1289,16 @@ type jobIDResponse struct {
 
 // ---- Network Migration: analysis, code generation, deployment, executions ----
 
+type codeGenerationOutputFormatStatusDetailsWire struct {
+	Status           string `json:"status,omitempty"`
+	StatusDetailList string `json:"statusDetailList,omitempty"`
+}
+
+type codeGenStatusMap map[string]codeGenerationOutputFormatStatusDetailsWire
+
 type networkMigrationJobDetailsWire struct {
+	CodeGenStatusMap codeGenStatusMap `json:"codeGenerationOutputFormatStatusDetailsMap,omitempty"`
+
 	CreatedAt                    *float64 `json:"createdAt,omitempty"`
 	EndedAt                      *float64 `json:"endedAt,omitempty"`
 	JobID                        string   `json:"jobID,omitempty"`

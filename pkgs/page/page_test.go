@@ -1,6 +1,7 @@
 package page_test
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -268,4 +269,22 @@ func TestDecodeHMACToken(t *testing.T) {
 	// token missing dot
 	importBase64URL := "YWJjZGVmZ2hpag==" // random base64
 	assert.Equal(t, 0, page.DecodeHMACToken(importBase64URL, secret))
+}
+
+func TestNew_NegativeTokenDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	all := []string{"a", "b", "c"}
+	tok := base64.StdEncoding.EncodeToString([]byte("-5"))
+
+	got := page.New(all, tok, 2, 2)
+
+	require.Equal(t, []string{"a", "b"}, got.Data)
+	require.NotEmpty(t, got.Next)
+}
+
+func TestDecodeToken_NegativeClampsToZero(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 0, page.DecodeToken(base64.StdEncoding.EncodeToString([]byte("-1"))))
 }

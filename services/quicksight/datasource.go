@@ -105,6 +105,7 @@ func (b *InMemoryBackend) ListDataSources(
 	defer b.mu.RUnlock()
 
 	all := b.dataSources.All()
+	sort.Slice(all, func(i, j int) bool { return all[i].DataSourceID < all[j].DataSourceID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -112,6 +113,7 @@ func (b *InMemoryBackend) ListDataSources(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, ds := range all {
 			if ds.DataSourceID == nextToken {
 				start = i

@@ -93,7 +93,7 @@ func (h *Handler) dispatchGetNetworkResources(
 		out[i] = networkResourceWire{
 			AccountID: h.Backend.accountID, AwsRegion: h.Backend.region, CoreNetworkID: item.CoreNetworkID,
 			Definition: item.Definition, ResourceArn: item.Arn, ResourceID: item.ResourceID,
-			ResourceType: item.ResourceType, Tags: tagsKV(item.Tags),
+			ResourceType: item.ResourceType, Tags: tagsKV(item.Tags), Metadata: item.Metadata,
 			DefinitionTimestamp: epochPtr(nowUTC()),
 		}
 	}

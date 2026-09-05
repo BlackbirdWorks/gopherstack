@@ -1,5 +1,32 @@
 ---
-# PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-06, gopherstack-xhi2) resolves
+# 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
+# (corenetworks.go:43,171 "InvalidPolicyDocument"), both verified clean false positives. The
+# string lives inside CoreNetworkPolicyError.ErrorCode, a *string field with no enum
+# (types/types.go) nested inside CoreNetworkPolicyException's Errors list -- opaque per-item
+# business data, not the wire error's type discriminator. The actual discriminator sent on the
+# wire (handler.go:247, confirmed correct) is the real "CoreNetworkPolicyException", which is
+# what CreateCoreNetwork/PutCoreNetworkPolicy's own deserializeOpError switches both model.
+# Matches the tool's documented "free-form ErrorCode field, no ground truth, not a bug" class,
+# just inside an error payload rather than a success response. No fix needed.
+#
+# PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-28, wrapper-key/write-only-state sweep)
+# found and fixed two real write-only-state bugs the prior wire_field_fixes_test.go pass
+# (gopherstack-6flj) had not caught: (1) EdgeLocation on VPC/Site-to-Site-VPN attachments and
+# Transit Gateway peerings was permanently blank -- none of the three real Create*Input shapes
+# accepts EdgeLocation as a caller parameter (confirmed against the pinned SDK's
+# api_op_Create{VpcAttachment,SiteToSiteVpnAttachment,TransitGatewayPeering}.go), so AWS derives it
+# from the referenced resource's own region; this backend never derived it, which also silently
+# broke ListAttachments'/ListPeerings' EdgeLocation filter (fixed via a new edgeLocationFromArn
+# helper in crossservice.go using aws-sdk-go-v2/aws/arn.Parse). (2) UpdateNetworkResourceMetadata
+# wrote into its own resourceMetadata table but GetNetworkResources's gatherers never read it back
+# -- networkResourceWire.Metadata already existed on the wire type but was permanently empty.
+# Both fixes are covered by new round-trip tests in wire_field_fixes_test.go (real aws-sdk-go-v2
+# client, fail-before/pass-after verified). enumcheck/zeroguard report no findings for this
+# service. `go build`, `go vet`, `go test -race -count=1`, and `golangci-lint run`, all scoped to
+# ./services/networkmanager/..., pass clean. See the per-op notes below for the fixed entries; the
+# prior pass's own summary follows unmodified.
+#
+# Prior pass (2026-08-06, gopherstack-xhi2) resolves
 # gopherstack-r9yz's open integration-test-coverage question the 2026-08-05 pass deliberately left
 # unresolved (see git history for that pass's frontmatter): added test/integration/
 # networkmanager_test.go (6 tests, real aws-sdk-go-v2 client against the Docker test container --
@@ -112,17 +139,17 @@ ops:
   AcceptAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAttachments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAttachments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation filter now actually matches -- every attachment's EdgeLocation was permanently empty before this pass (gopherstack-6flj)"}
   # Q1. VPC attachments (3)
-  CreateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver (this pass)"}
-  GetVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateVpcAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver; EdgeLocation (a real, always-set Attachment member -- CreateVpcAttachmentInput has no EdgeLocation input field) now derived from VpcArn's region segment instead of permanently empty, which also silently broke ListAttachments' EdgeLocation filter (this pass, gopherstack-6flj)"}
+  GetVpcAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateVpcAttachment)"}
   UpdateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # Q2. Connect attachments (2)
   CreateConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransportAttachmentId IS validated against this package's own attachments, unlike the EC2/DirectConnect ARNs elsewhere in this family (attachments.go:33-35)"}
   GetConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # Q3. Site-to-Site VPN attachments (2)
-  CreateSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver (this pass)"}
-  GetSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver; EdgeLocation now derived from VpnConnectionArn's region segment instead of permanently empty (this pass, gopherstack-6flj)"}
+  GetSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateSiteToSiteVpnAttachment)"}
   # Q4. Direct Connect Gateway attachments (3)
   CreateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver, wired through cli.go's wireNetworkManagerDirectConnect (this pass)"}
   GetDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -131,22 +158,22 @@ ops:
   CreateTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayRouteTableArn validated against services/ec2's real TGW route-table state via EC2Resolver (this pass); PeeringId validated against this package's own peerings"}
   GetTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # R. Peerings (4)
-  CreateTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass); TransitGatewayPeeringAttachmentId left empty rather than fabricated since the underlying EC2 resource is not modeled here"}
-  GetTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTransitGatewayPeering: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver; TransitGatewayPeeringAttachmentId left empty rather than fabricated since the underlying EC2 resource is not modeled here; EdgeLocation now derived from TransitGatewayArn's region segment instead of permanently empty, which also silently broke ListPeerings' EdgeLocation filter (this pass, gopherstack-6flj)"}
+  GetTransitGatewayPeering: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateTransitGatewayPeering)"}
   DeletePeering: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPeerings: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPeerings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation filter now actually matches -- every peering's EdgeLocation was permanently empty before this pass (gopherstack-6flj)"}
   # S. Route Analysis (2) -- PARITY.md's own pre-implementation audit called this "the single
   # riskiest fabrication surface"; the implementation resolved that honestly rather than faking it.
   StartRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real single-hop walk over EC2 Transit Gateway route-table state via EC2Resolver (this pass): resolves the anchor attachment, its associated real TGW route table, and a genuine longest-prefix-match against Destination.IpAddress, returning real CONNECTED/BLACKHOLE/INACTIVE/ROUTE_NOT_FOUND verdicts with a real PathComponent -- not a full multi-hop cross-TGW-peering walk with cycle detection (documented scope reduction, routeanalysis.go); falls back to the prior honest NOT_CONNECTED/TRANSIT_GATEWAY_ATTACHMENT_NOT_FOUND when no EC2Resolver is wired"}
   GetRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
   # T. Network introspection (5)
-  GetNetworkResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "real rollup over this backend's own modeled state across 8 resource kinds (introspection.go:47-234); Definition is this package's own already-known attributes serialized as JSON, not a real cross-service Describe call into services/ec2 (a documented simplification of AWS's real behavior)"}
+  GetNetworkResources: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real rollup over this backend's own modeled state across 8 resource kinds (introspection.go:47-234); Definition is this package's own already-known attributes serialized as JSON, not a real cross-service Describe call into services/ec2 (a documented simplification of AWS's real behavior); now also reads back UpdateNetworkResourceMetadata's stored Metadata per-ResourceArn -- the wire field existed but was never populated before this pass (gopherstack-6flj)"}
   GetNetworkResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "deliberately does not validate GlobalNetworkId existence, matching the real SDK's error set which has no ResourceNotFoundException for this one op (introspection.go:237-257)"}
   GetNetworkResourceRelationships: {wire: ok, errors: ok, state: ok, persist: ok, note: "real Device->Site/Link->Site/Device->Link/Attachment->CoreNetwork edges derived from modeled state (introspection.go:259-392)"}
   GetNetworkRoutes: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): echoes the resolved RouteTableType/Arn but always returns an empty route list -- no BGP session state exists anywhere in this repo to derive real routes from (introspection.go:394-417)"}
   GetNetworkTelemetry: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): Health.Status is deterministically UP for every Connection/ConnectPeer already AVAILABLE and nothing else -- no real device/BGP/IPsec telemetry data source exists anywhere in this repo, and no flapping/degraded values are ever invented (introspection.go:419-480)"}
   # U. Update network resource metadata (1)
-  UpdateNetworkResourceMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNetworkResourceMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "own Output.Metadata echo was already correct; the write-only-state gap was on the GetNetworkResources read side (see there), now fixed"}
   # V. Organizations integration (2)
   StartOrganizationServiceAccessUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "OrganizationId is a synthetic, deterministically-generated-once identifier -- this repo has no independent AWS Organizations backend to bind against (orgaccess.go)"}
   ListOrganizationServiceAccessStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "the one op in this 95-op surface with zero typed exception cases in the real SDK; handler never returns an apiError for it (orgaccess.go:43-51)"}
@@ -1195,3 +1222,92 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    have nowhere natural to hang this association, and will likely either drop the feature silently
    or bolt it on awkwardly later — worth designing the two halves' backend state with this one
    linkage in mind from the start, not as an afterthought.
+
+## 2026-08-31 error-envelope-shape / fabricated-error-code sweep
+
+**Scope**: error envelope shape (does an error deserialize into the typed
+exception a real SDK client branches on) and fabricated error codes (a code the
+emulator returns that the pinned SDK does not define for that specific
+operation), per-operation -- not the filter-semantics class other recent passes
+chased.
+
+**Envelope mechanism confirmed correct**: `handler.go`'s `handleError` sets the
+`X-Amzn-Errortype` header explicitly (case-insensitive per HTTP, matches the real
+SDK's `X-Amzn-ErrorType` lookup exactly) alongside a `{"Message": ...}` body.
+Per `smithy-go@v1.27.6`'s `ResolveProtocolErrorType`
+(`transport/http/protocol/internal/json/error.go`) and the pinned SDK's own
+`restjson.GetErrorInfo`, the header takes priority over any body field, so this
+service's envelope resolves correctly regardless of body shape.
+
+**`errcodeaudit`'s 2 findings re-verified, confirmed false positives (already
+recorded 2026-08-29, re-derived from source rather than trusted)**:
+`corenetworks.go:43,171`'s `"InvalidPolicyDocument"` literal lives inside
+`CoreNetworkPolicyError.ErrorCode`, a `*string` field with no enum
+(`types/types.go`) nested inside `CoreNetworkPolicyException.Errors` -- opaque
+per-item business data, not the wire error's type discriminator. Re-confirmed
+directly: `CoreNetworkPolicyError.ErrorCode *string`
+(`networkmanager@v1.44.4/types/types.go:643`), and `CreateCoreNetwork`'s own
+`deserializeOpError` switch matches on the outer `"CoreNetworkPolicyException"`
+string (`deserializers.go:1481`), never on the nested `ErrorCode` field. The
+actual discriminator this backend sends (`handler.go`'s `classifyError`,
+`errCoreNetworkPolicy -> "CoreNetworkPolicyException"`) is correct. No fix
+needed.
+
+**Per-operation ground truth extracted programmatically**: all 95 operations'
+`deserializeOpError<Op>` declared exception sets were extracted directly from
+`networkmanager@v1.44.4/deserializers.go` (pinned version; PARITY.md's existing
+per-op table above was written against v1.44.3 -- no material differences found
+in the 8 shared exception shapes or any op's declared set between the two
+patch versions). Cross-referenced against every `notFoundError`/
+`errConflictSentinel`/`errQuotaExceeded`/`errValidationSentinel`/
+`coreNetworkPolicyError` call site in the backend (~90 sites), mapping each to
+its enclosing `InMemoryBackend` method (1:1 with the operation name for every
+site reached).
+
+**2 real bugs found and fixed, both the same shape**: `CreateCoreNetwork` and
+`CreateConnection` both returned `ResourceNotFoundException` (via
+`notFoundError`) for an unresolved `GlobalNetworkId`, but neither operation's
+own deserializer switch declares `ResourceNotFoundException` at all --
+`CreateCoreNetwork`'s real set is `{AccessDeniedException, ConflictException,
+CoreNetworkPolicyException, InternalServerException,
+ServiceQuotaExceededException, ThrottlingException, ValidationException}`;
+`CreateConnection`'s is the same minus `CoreNetworkPolicyException`. A real
+client's deserializer never matches `ResourceNotFoundException` for either op
+and falls to `*smithy.GenericAPIError` (silent failure). Fixed: both now use
+`validationError` (renders `ValidationException`, reason
+`FieldValidationFailed` -- the only client-fault type either op declares).
+`CreateConnection` also validates `DeviceId`/`ConnectedDeviceId` the same way
+(2 more sites, same fix). Proven fail-before/pass-after with a real
+`aws-sdk-go-v2` client
+(`Test_CreateCoreNetwork_UnknownGlobalNetworkIsValidation`,
+`Test_CreateConnection_UnknownDeviceIsValidation`,
+`wire_error_code_unknown_global_network_test.go`).
+
+**A stale-but-defensible comment corrected, not just reverted**:
+`CreateConnection`'s existing comment already documented that
+`ResourceNotFoundException` isn't declared for this op and defended using
+`notFoundError` anyway as "the closest honest match available" -- a real,
+previously-recorded finding (PARITY.md family F), but the reasoning only
+weighed message honesty, not wire-shape correctness: `notFoundError`'s
+`ResourceNotFoundException` isn't in this op's declared set either, so it
+produced an untyped `GenericAPIError` for every real client regardless.
+`ValidationException` is the choice that actually decodes into a typed
+exception. Comment rewritten in place to record both the original finding and
+why the fix improves on it, rather than silently dropped.
+
+**Everything else checked held**: the remaining ~86 sentinel-usage call sites
+all map to operations whose real deserializer switch does declare the
+corresponding type, including the previously-documented narrow-set outliers
+`ListOrganizationServiceAccessStatus` (zero typed exceptions; its backend
+method never errors, confirmed unreachable-by-construction) and
+`GetNetworkResourceCounts` (no `ResourceNotFoundException`; its backend method
+deliberately never validates `GlobalNetworkId`, per its own existing "honesty
+bar" comment in `introspection.go` -- re-verified, still correct, not touched).
+
+**Fabricated error codes**: `cmd/errcodeaudit` returned only the 2
+`corenetworks.go` findings above, both confirmed false positives. No further
+fabrications found by the per-operation cross-reference above.
+
+Gates: `go build ./services/networkmanager/...` (clean), `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/networkmanager/...`
+(pass), `golangci-lint run ./services/networkmanager/...` (0 issues).

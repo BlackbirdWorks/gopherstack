@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateResource(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if name == "" {
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateResource(
 
 	for _, r := range b.resourcesByOrg.Get(orgID) {
 		if r.Name == name {
-			return nil, fmt.Errorf("%w: resource %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: resource %q already exists", ErrNameUnavailable, name)
 		}
 	}
 
@@ -138,10 +138,13 @@ func (b *InMemoryBackend) DeleteResource(orgID, entityID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, entityID)
 	if r == nil {
+		// DeleteResource's own error model declares no not-found type for
+		// the resource itself (only Organization*); no correct code exists
+		// to send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: resource %q not found", ErrNotFound, entityID)
 	}
 
@@ -176,7 +179,7 @@ func (b *InMemoryBackend) ListResources(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	rs := make([]*ResourceSummary, 0, len(b.resourcesByOrg.Get(orgID)))

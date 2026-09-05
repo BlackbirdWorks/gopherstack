@@ -3,6 +3,8 @@ package opensearch
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // StorageBackend defines the interface for OpenSearch backend implementations.
@@ -30,7 +32,9 @@ type StorageBackend interface {
 	AcceptInboundConnection(connectionID string) (*InboundConnection, error)
 	RejectInboundConnection(connectionID string) (*InboundConnection, error)
 	DeleteInboundConnection(connectionID string) (*InboundConnection, error)
-	DescribeInboundConnections() []*InboundConnection
+	DescribeInboundConnections(
+		connectionIDs []string, nextToken string, maxResults int,
+	) page.Page[*InboundConnection]
 
 	// Outbound cross-cluster connection operations
 	CreateOutboundConnection(
@@ -38,7 +42,9 @@ type StorageBackend interface {
 		localDomainInfo, remoteDomainInfo DomainInformation,
 		skipUnavailable, endpoint string,
 	) (*OutboundConnection, error)
-	DescribeOutboundConnections() []*OutboundConnection
+	DescribeOutboundConnections(
+		connectionIDs []string, nextToken string, maxResults int,
+	) page.Page[*OutboundConnection]
 	DeleteOutboundConnection(connectionID string) (*OutboundConnection, error)
 
 	// Data source operations
@@ -74,7 +80,9 @@ type StorageBackend interface {
 		encryptionOpts *PackageEncryptionOptions,
 	) (*Package, error)
 	DeletePackage(packageID string) (*Package, error)
-	DescribePackages(ids []string) ([]*Package, error)
+	DescribePackages(
+		filters map[string][]string, nextToken string, maxResults int,
+	) (page.Page[*Package], error)
 	GetPackageVersionHistory(packageID string) ([]*PackageVersionHistory, error)
 	UpdatePackage(packageID, description string) (*Package, error)
 	UpdatePackageScope(packageID, operation string, domainNames []string) (*Package, error)
@@ -106,7 +114,9 @@ type StorageBackend interface {
 	) (*DataSourceAttachment, error)
 	DetachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
 	DescribeDataSourceAttachment(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
-	ListDataSourceAttachments(applicationID string) []*DataSourceAttachment
+	ListDataSourceAttachments(
+		applicationID, nextToken string, maxResults int,
+	) (page.Page[*DataSourceAttachment], error)
 
 	// Capability operations
 	RegisterCapability(applicationID, capabilityName string) (*Capability, error)
@@ -123,14 +133,16 @@ type StorageBackend interface {
 		workspace *MigrationWorkspaceInput, exportOptions *ExportOptionsInput, conflictResolution string,
 	) (*Migration, error)
 	GetMigration(migrationID string) (*Migration, error)
-	ListMigrations(applicationID, statusFilter string) ([]*Migration, error)
+	ListMigrations(
+		applicationID, statusFilter, nextToken string, maxResults int,
+	) (page.Page[*Migration], error)
 
 	// Application operations
 	CreateApplication(
 		name string, appConfigs []AppConfig, dataSources []AppDataSource, tagMap map[string]string,
 	) (*Application, error)
 	GetApplication(id string) (*Application, error)
-	ListApplications() []*Application
+	ListApplications(statuses []string, nextToken string, maxResults int) page.Page[*Application]
 	UpdateApplication(id string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
 	DeleteApplication(id string) error
 	GetDefaultApplicationSetting() string
@@ -151,7 +163,9 @@ type StorageBackend interface {
 	// Domain maintenance
 	StartDomainMaintenance(domainName, action, nodeID string) (*DomainMaintenance, error)
 	GetDomainMaintenanceStatus(domainName, maintenanceID string) (*DomainMaintenance, error)
-	ListDomainMaintenances(domainName string) ([]*DomainMaintenance, error)
+	ListDomainMaintenances(
+		domainName, action, status, nextToken string, maxResults int,
+	) (page.Page[*DomainMaintenance], error)
 
 	// Index operations
 	CreateIndex(

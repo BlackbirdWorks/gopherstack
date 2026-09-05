@@ -110,7 +110,7 @@ type StorageBackend interface {
 	GrantAccess(instanceID string, validForInMinutes int32) (*TemporaryCredential, error)
 	DescribeServiceErrors(stackID, instanceID string, serviceErrorIDs []string) ([]map[string]any, error)
 	DescribeRaidArrays(instanceID, stackID string, raidArrayIDs []string) ([]map[string]any, error)
-	DescribeAgentVersions(stackID string) ([]*AgentVersion, error)
+	DescribeAgentVersions(stackID string, configManagerName, configManagerVersion string) ([]*AgentVersion, error)
 	DescribeOperatingSystems() ([]*OperatingSystem, error)
 
 	AccountID() string

@@ -1,5 +1,7 @@
 package securityhub
 
+import "sort"
+
 func (b *InMemoryBackend) DescribeOrganizationConfiguration() *OrgConfig {
 	b.mu.RLock("DescribeOrganizationConfiguration")
 	defer b.mu.RUnlock()
@@ -65,11 +67,17 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts(nextToken string, maxRes
 	b.mu.RLock("ListOrganizationAdminAccounts")
 	defer b.mu.RUnlock()
 
-	var all []*OrgAdminAccount //nolint:prealloc // existing issue.
+	all := make([]*OrgAdminAccount, 0, len(b.orgAdminAccounts))
 
 	for id, status := range b.orgAdminAccounts {
 		all = append(all, &OrgAdminAccount{AccountId: id, Status: status})
 	}
+
+	// b.orgAdminAccounts is a plain map: range order is unspecified and
+	// re-randomized per call, so an unsorted result would drop or duplicate
+	// accounts across two separate ListOrganizationAdminAccounts calls that
+	// straddle a page boundary (Class E).
+	sort.Slice(all, func(i, j int) bool { return all[i].AccountId < all[j].AccountId })
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
 }

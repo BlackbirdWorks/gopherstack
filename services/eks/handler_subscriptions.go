@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -181,6 +182,13 @@ func (h *Handler) handleDescribeEksAnywhereSubscription(c *echo.Context, id stri
 
 func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 	subs := h.Backend.ListEksAnywhereSubscriptions()
+
+	includeStatus := c.Request().URL.Query()["includeStatus"]
+	if len(includeStatus) > 0 {
+		subs = slices.DeleteFunc(subs, func(sub *AnywhereSubscription) bool {
+			return !slices.Contains(includeStatus, sub.Status)
+		})
+	}
 
 	result := make([]map[string]any, len(subs))
 	for i, sub := range subs {

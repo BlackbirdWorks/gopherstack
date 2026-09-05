@@ -4,8 +4,16 @@ import (
 	"context"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// userPoolClientsPageSize is this backend's default page size for
+// ListUserPoolClients; real AWS doesn't document an exact default, so this
+// is chosen generously (larger than any realistic per-pool app-client count)
+// so pagination only activates when a caller explicitly requests a smaller
+// MaxResults.
+const userPoolClientsPageSize = 100
 
 func (h *Handler) handleDeleteUserPoolClient(
 	_ context.Context,
@@ -152,8 +160,10 @@ func (h *Handler) handleListUserPoolClientsAccurate(
 		return nil, err
 	}
 
-	items := make([]userPoolClientSummaryJSON, 0, len(clients))
-	for _, c := range clients {
+	pg := page.New(clients, in.NextToken, in.MaxResults, userPoolClientsPageSize)
+
+	items := make([]userPoolClientSummaryJSON, 0, len(pg.Data))
+	for _, c := range pg.Data {
 		items = append(items, userPoolClientSummaryJSON{
 			ClientID:   c.ClientID,
 			ClientName: c.ClientName,
@@ -161,7 +171,7 @@ func (h *Handler) handleListUserPoolClientsAccurate(
 		})
 	}
 
-	return &listUserPoolClientsAccurateOutput{UserPoolClients: items}, nil
+	return &listUserPoolClientsAccurateOutput{UserPoolClients: items, NextToken: pg.Next}, nil
 }
 
 func (h *Handler) handleDeleteUserPoolClientSecret(

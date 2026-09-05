@@ -1,9 +1,8 @@
 package cloudfront
 
 import (
-	"bytes"
-	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -515,19 +514,26 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return res
 }
 
-// cfErrorXML returns an XML error response string.
+// cfErrorXML returns an XML error response string. code and message are
+// XML-escaped: message in particular often carries a raw err.Error() or a
+// caller-supplied value (e.g. handler_dispatch.go's "unknown operation: "
+// +operation), and an unescaped "<"/"&" there would both break the response's
+// well-formedness for a legitimate client and let a crafted value break out
+// of the <Message> element (CodeQL: reflected XSS via user-provided value).
 func cfErrorXML(code, message string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ErrorResponse xmlns="%s"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error></ErrorResponse>`,
-		cfNS, code, message)
+		cfNS, xmlEscape(code), xmlEscape(message))
 }
 
-// xmlResp writes an XML response with the given status code.
+// xmlResp writes an XML response with the given status code. body is written
+// verbatim -- it must already carry its own leading XML declaration (every
+// body builder in this package does). c.Blob is used to write the raw bytes
+// directly without injecting an extra declaration (c.XMLBlob prepends its own).
 func xmlResp(c *echo.Context, status int, body string) error {
-	c.Response().Header().Set("Content-Type", "text/xml")
 	c.Response().Header().Set("X-Amz-Cf-Id", generateID())
 
-	return c.XMLBlob(status, []byte(body))
+	return c.Blob(status, "text/xml", []byte(body))
 }
 
 // Handler returns the Echo handler function for CloudFront requests.
@@ -576,16 +582,7 @@ func extractResourceID(path, prefix string) string {
 
 // xmlEscape escapes a string for safe inclusion as XML character data.
 func xmlEscape(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	var buf bytes.Buffer
-	if err := xml.EscapeText(&buf, []byte(s)); err != nil {
-		return ""
-	}
-
-	return buf.String()
+	return html.EscapeString(s)
 }
 
 // --- Config-only ("/config") GET handlers ---

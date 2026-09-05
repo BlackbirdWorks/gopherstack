@@ -18,12 +18,26 @@ func (b *InMemoryBackend) mustDescribeReplicationTasks(ctx context.Context) []*R
 	return list
 }
 
+// ReplicationTaskCDCSettings carries the optional CDC/task-data members
+// CreateReplicationTask/ModifyReplicationTask accept beyond the original
+// identifier/endpoint/instance/migrationType/tableMappings/settings set --
+// see api_op_CreateReplicationTask.go / api_op_ModifyReplicationTask.go,
+// databasemigrationservice@v1.66.4. All three are also real top-level
+// types.ReplicationTask response members (CdcStartTime is request-only,
+// with no matching response field, and is not modeled here).
+type ReplicationTaskCDCSettings struct {
+	CdcStartPosition string
+	CdcStopPosition  string
+	TaskData         string
+}
+
 // CreateReplicationTask creates a new DMS replication task.
 func (b *InMemoryBackend) CreateReplicationTask(
 	ctx context.Context,
 	identifier, sourceEndpointArn, targetEndpointArn, replicationInstanceArn,
 	migrationType, tableMappings, settings string,
 	kv map[string]string,
+	cdcSettings ReplicationTaskCDCSettings,
 ) (*ReplicationTask, error) {
 	b.mu.Lock("CreateReplicationTask")
 	defer b.mu.Unlock()
@@ -75,6 +89,9 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		Region:                    region,
 		CreationTime:              time.Now().UTC(),
 		Tags:                      t,
+		CdcStartPosition:          cdcSettings.CdcStartPosition,
+		CdcStopPosition:           cdcSettings.CdcStopPosition,
+		TaskData:                  cdcSettings.TaskData,
 	}
 	b.replicationTasks.Put(rt)
 	if b.tasksByInstanceARN[replicationInstanceArn] == nil {
@@ -265,6 +282,7 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 func (b *InMemoryBackend) ModifyReplicationTask(
 	ctx context.Context,
 	arnOrID, migrationType, tableMappings, replicationTaskSettings string,
+	cdcSettings ReplicationTaskCDCSettings,
 ) (*ReplicationTask, error) {
 	b.mu.Lock("ModifyReplicationTask")
 	defer b.mu.Unlock()
@@ -292,6 +310,18 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 
 	if replicationTaskSettings != "" {
 		rt.ReplicationTaskSettings = replicationTaskSettings
+	}
+
+	if cdcSettings.CdcStartPosition != "" {
+		rt.CdcStartPosition = cdcSettings.CdcStartPosition
+	}
+
+	if cdcSettings.CdcStopPosition != "" {
+		rt.CdcStopPosition = cdcSettings.CdcStopPosition
+	}
+
+	if cdcSettings.TaskData != "" {
+		rt.TaskData = cdcSettings.TaskData
 	}
 
 	cp := *rt

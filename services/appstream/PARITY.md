@@ -37,7 +37,9 @@ ops:
   StartImageBuilder: {wire: fixed, errors: ok, state: ok, persist: ok, note: "InvalidAccountStatusException on already-RUNNING IS in real deserializer -- left unchanged. real StartImageBuilderOutput carries ONLY ImageBuilder -- a prior version invented a top-level StreamingURL field that no real SDK client would ever receive; removed it (and dropped the now-unused url return value from the backend method, which returns error only now)."}
   DescribeApplications: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request carries Arns (not Names); backend was doing a Name-keyed map lookup against the caller's ARN, so any real SDK client's Describe-after-Create always 404'd -- added findApplication() Name-or-Arn resolver"}
   DescribeAppBlocks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DescribeApplications bug class; added findAppBlock() resolver"}
-  DescribeImages: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request supports both Names and Arns filters; the Arns-only path was mis-resolved through the Name-keyed table -- added findImage() resolver so either identifier works"}
+  DescribeImages: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request supports both Names and Arns filters; the Arns-only path was mis-resolved through the Name-keyed table -- added findImage() resolver so either identifier works. FIXED 2026-08-30 (wrapper-key-sweep): the Type filter (VisibilityType, wire key \"Type\" per serializeCBOR_DescribeImagesInput) was declared on the real input and never read at all -- a Type=PUBLIC request silently got back every private image instead of an empty list (this backend only ever creates PRIVATE images). Now filtered."}
+  DescribeImagePermissions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (wrapper-key-sweep): SharedAwsAccountIds (wire key \"SharedAwsAccountIds\") was declared on the real input and never read -- filtering by an account an image was never shared with returned every shared account instead of an empty list. Now filtered."}
+  DescribeSessions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (wrapper-key-sweep): AuthenticationType (wire key \"AuthenticationType\") was declared on the real input and never read -- every session this backend creates (CreateStreamingURL) has AuthenticationType API, so a USERPOOL-filtered request silently got back the API session instead of an empty list. Now filtered. InstanceId remains unfilterable: this backend has no streaming-instance concept to filter on (undocumented-by-model-absence gap, not a misread key)."}
   AssociateApplicationFleet: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "real request carries ApplicationArn (not application Name); association was stored/looked-up under the raw ARN in a Name-keyed map -- resolved to canonical Name via findApplication() before storing"}
   DisassociateApplicationFleet: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same AssociateApplicationFleet bug class"}
   DescribeApplicationFleetAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ApplicationArn filter now resolved to canonical Name before matching map keys"}
@@ -75,10 +77,10 @@ families:
   Application: {status: fixed, note: "CRUD verified; Describe + Fleet-association ops now ARN-resolved (see ops above). FIXED: CreateApplication's required IconS3Location/InstanceFamilies were dropped entirely (see CreateApplication above)"}
   Entitlement: {status: fixed, note: "CreateEntitlement/DeleteEntitlement/DescribeEntitlements/UpdateEntitlement/AssociateApplicationToEntitlement/ListEntitledApplications audited -- keyed correctly by (Name+StackName) composite; ApplicationIdentifier stored opaquely with no cross-reference lookup, so no ARN-vs-Name failure mode exists there. FIXED: backend computed LastModifiedTime on every Create/Update but entitlementToResponse never emitted it -- real Entitlement has both CreatedTime and LastModifiedTime members; now both are on the wire"}
   DirectoryConfig: {status: fixed, note: "CRUD verified against real DirectoryConfig shape; Name-keyed, matches wire. FIXED: Create/UpdateDirectoryConfigInput both carry ServiceAccountCredentials (AccountName+AccountPassword) and CertificateBasedAuthProperties (CertificateAuthorityArn+Status) -- both were accepted by neither the request-decode struct nor the backend, so a real client's directory-join credentials were silently discarded and never returned on Describe. Now parsed, stored, and echoed back (real DirectoryConfig response shape does include AccountPassword verbatim, confirmed via botocore service-2.json -- not redacted like some other AWS services do for secrets)"}
-  Image: {status: ok, note: "CopyImage/CreateImportedImage/CreateUpdatedImage/DeleteImage verified Name-keyed (matches real Delete/Copy inputs); Describe now Name-or-Arn resolved"}
+  Image: {status: fixed, note: "CopyImage/CreateImportedImage/CreateUpdatedImage/DeleteImage verified Name-keyed (matches real Delete/Copy inputs); Describe now Name-or-Arn resolved. FIXED 2026-08-30: DescribeImages dropped the Type (VisibilityType) filter (see DescribeImages op above)"}
   ImageBuilder: {status: fixed, note: "CRUD + Start/Stop verified; Stop now idempotent (see ops above). FIXED: StartImageBuilder response invented a StreamingURL field (see StartImageBuilder op above); StreamingURL creation now carries real Expires/Validity"}
-  ImagePermissions: {status: ok, note: "Update/Delete/DescribeImagePermissions verified against real SharedImagePermissions shape"}
-  Session: {status: fixed, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields. FIXED: CreateStreamingURL now honors Validity and returns Expires (see ops above)"}
+  ImagePermissions: {status: fixed, note: "Update/Delete/DescribeImagePermissions verified against real SharedImagePermissions shape. FIXED 2026-08-30: DescribeImagePermissions dropped the SharedAwsAccountIds filter (see op above)"}
+  Session: {status: fixed, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields. FIXED: CreateStreamingURL now honors Validity and returns Expires (see ops above). FIXED 2026-08-30: DescribeSessions dropped the AuthenticationType filter (see op above)"}
   Theme: {status: fixed, note: "CRUD verified against real Theme shape. FIXED (gopherstack-afi1): CreateThemeForStack dropped 4 of its 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText) -- see CreateThemeForStack above. FIXED 2026-08-23: UpdateThemeForStack had the identical gap and is now fixed too -- see UpdateThemeForStack below."}
   User: {status: ok, note: "CRUD + Enable/Disable verified; ARN partition bug fixed (see CreateUser above)"}
   UserStackAssociation: {status: ok, note: "BatchAssociate/BatchDisassociate/Describe verified; correctly Name-keyed per real UserStackAssociation shape"}
@@ -420,3 +422,169 @@ coverage against the SDK's authoritative op list, complementary to the
 existing `TestAppStream_RPCv2CBOR/every_supported_operation_is_reachable_over_CBOR`
 in handler_test.go, which only checks internal self-consistency against
 `GetSupportedOperations()`. No stale PARITY.md entries found.
+
+## 2026-08-28 — wrapper-key-sweep: request-side fabricated members (acceptguard)
+
+`cmd/acceptguard` flagged two request-side bugs in `services/appstream/`
+where the handler decoded a member real AWS never sends:
+
+1. `CreateUser` read a top-level `Email` request field. Real
+   `CreateUserInput` has no `Email` member at all (`appstream@v1.64.5`
+   `api_op_CreateUser.go`) -- `UserName` is documented as "The email address
+   of the user"; it *is* the email, there is no separate field. `types.User`
+   (the response type) has no `Email` member either. Fixed by removing
+   `Email` end to end: the wire request/response structs, `storedUser`/`User`
+   models, and the `CreateUser` backend signature all dropped it.
+2. `CreateUsageReportSubscription` read top-level `S3BucketName`/`Schedule`
+   request fields. Real `CreateUsageReportSubscriptionInput` takes zero
+   parameters (`api_op_CreateUsageReportSubscription.go`) -- AWS derives the
+   bucket (creating or reusing one) and the schedule (the only enum value is
+   `DAILY`) server-side. A real client's marshaled body is always `{}`, so
+   `S3BucketName` was always empty on the response. Fixed by dropping both
+   parameters from the backend's `CreateUsageReportSubscription()` (now
+   takes no args) and deriving `S3BucketName` as
+   `"appstream-logs-<region>-<accountID>"` and `Schedule` as the constant
+   `"DAILY"`.
+
+Proven via a real `aws-sdk-go-v2/service/appstream` client round trip in
+`wire_field_fixes_test.go` (new). `TestCreateUsageReportSubscription_NoInputRealClient`
+genuinely fails pre-fix (`S3BucketName` empty on the real client's response,
+confirmed by hand-reverting `handler_user.go`/`interfaces.go`/`users.go`/
+`usage_report_subscriptions.go` together and re-running) and passes after.
+`TestCreateUser_UserNameIsEmailRealClient` passes both before and after --
+`CreateUserInput`'s Go struct never had an `Email` field to send incorrectly
+in the first place, so there is no request-shape difference a real typed
+client can observe; the fix there is dead-field removal, not a behavior
+change reachable through the wire. `handler_user.go`'s `userToResponse`
+previously echoed an invented `"Email"` key that no real client's generated
+`types.User` struct has any way to read.
+
+Several raw-body tests (`handler_test.go`'s `createUser` helper,
+`users_test.go` ×6, `usage_report_subscriptions_test.go` ×3,
+`persistence_test.go`) sent the fabricated `Email`/`S3BucketName`/`Schedule`
+request keys directly as raw JSON -- updated to match the real, narrower
+request shape; none asserted on the removed response values, so no test
+lost coverage.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/appstream/...`).
+
+## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
+
+`errtargetaudit -dir appstream` reported 2 class-A findings. Both verified
+against the pinned SDK's own per-op `rpc2_deserializeOpError*` switch
+(appstream@v1.64.5 deserializers.go):
+
+- `CreateEntitlement` (`entitlements.go`) emitted the shared
+  `ResourceAlreadyExistsException` sentinel (`ErrAlreadyExists`) on a
+  duplicate name/stack. `CreateEntitlement`'s own switch declares
+  `EntitlementAlreadyExistsException`, `LimitExceededException`,
+  `OperationNotPermittedException`, `ResourceNotFoundException` — not
+  `ResourceAlreadyExistsException`. **Fixed**: added a dedicated
+  `ErrEntitlementAlreadyExists` sentinel (wraps `awserr.ErrAlreadyExists`,
+  wire code `EntitlementAlreadyExistsException`) and overrode this one call
+  site; the shared `ErrAlreadyExists` sentinel is untouched. Checked all 14
+  other `ErrAlreadyExists` call sites (`app_blocks.go` ×2, `applications.go`,
+  `directory_configs.go`, `fleets.go`, `images.go` ×4, `stacks.go`,
+  `themes.go`, `users.go`, plus this one and `CreateUsageReportSubscription`
+  below) against their own declared sets: 12 of 14 legitimately declare
+  `ResourceAlreadyExistsException` (`CreateAppBlock`, `CreateAppBlockBuilder`,
+  `CreateDirectoryConfig`, `CreateFleet`, `CreateApplication`, `CreateStack`,
+  `CopyImage`, `CreateImportedImage`, `CreateUpdatedImage`,
+  `CreateImageBuilder`, `CreateThemeForStack`, `CreateUser`) — left alone.
+  Proven with a new real-client test,
+  `TestCreateEntitlement_EntitlementAlreadyExists_RealClient`
+  (`error_envelope_fixes_test.go`), asserting `errors.As` against
+  `*types.EntitlementAlreadyExistsException`; confirmed failing against the
+  unmodified sentinel (got a generic `smithy.GenericAPIError` for
+  `ResourceAlreadyExistsException` instead) before the fix.
+- `CreateUsageReportSubscription` (`usage_report_subscriptions.go`) also
+  emits `ErrAlreadyExists` when a subscription already exists. Its own
+  switch declares `InvalidAccountStatusException`, `InvalidRoleException`,
+  `LimitExceededException` — no conflict/already-exists type of any kind.
+  **Not fixed** — recorded rather than substituted; no correct code exists
+  to send for this condition in this operation's model.
+
+Gates: `go build ./services/appstream/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/appstream/...` (pass; 1 test
+added), `golangci-lint run ./services/appstream/...` (0 issues).
+
+## 2026-08-31 -- gopherstack-6flj/21my: ops never named in this file
+
+Computed the queue directly: every `List*`/`Describe*` op in
+`appstream@v1.64.5`'s `api_op_*.go` files whose literal name never appears
+anywhere in this PARITY.md. Seven such ops: `DescribeAppBlockBuilders`,
+`DescribeImageBuilders`, `DescribeSoftwareAssociations`,
+`DescribeThemeForStack`, `DescribeUsageReportSubscriptions`,
+`DescribeUserStackAssociations`, `DescribeUsers`. Protocol reconfirmed from
+this service's own deserializer: current traffic is rpc-v2-cbor
+(`rpc2_deserializeOpError*` throughout `deserializers.go`), using a
+schema-free per-field `if key == "..."` switch (not the older restjson1
+shape) inside `deserializeCBOR_<Op>Output`/`deserializeCBOR_<Type>` -- read
+directly rather than assumed, per this file's own protocol note above.
+
+All seven checked at both layers against their own `deserializeCBOR_*`
+functions:
+
+- `DescribeAppBlockBuilders` (wraps `AppBlockBuilders`), `DescribeImageBuilders`
+  (wraps `ImageBuilders`), `DescribeSoftwareAssociations` (wraps
+  `AssociatedResource`+`SoftwareAssociations`, item fields `SoftwareName`/
+  `Status` both correct against `types.SoftwareAssociations`), `DescribeThemeForStack`
+  (wraps `Theme`), `DescribeUsageReportSubscriptions` (wraps
+  `UsageReportSubscriptions`, item fields `S3BucketName`/`Schedule` both
+  correct), `DescribeUserStackAssociations` (wraps `UserStackAssociations`,
+  item fields `StackName`/`UserName`/`AuthenticationType`/
+  `SendEmailNotification` all correct), `DescribeUsers` (wraps `Users`, item
+  fields `UserName`/`Arn`/`FirstName`/`LastName`/`AuthenticationType`/
+  `Status`/`Enabled`/`CreatedTime` all correct) -- all seven wrapper keys
+  correct, no bug found in any of these five item shapes.
+
+**Two findings recorded, neither fixed (real but currently unobservable,
+or a different-axis gap):**
+
+1. `AppBlockBuilder`/`ImageBuilder` per-item shapes both emit a `Tags`
+   field (`appBlockBuilderToResponse`/`imageBuilderToResponse`,
+   handler_appblock.go/handler_image.go) that is **not a member of either
+   real type at all** -- confirmed against
+   `deserializeCBOR_AppBlockBuilder`/`deserializeCBOR_ImageBuilder`'s full
+   key switch (neither has a `"Tags"` case; AppStream tags live only via
+   `ListTagsForResource`, not embedded on the resource). Harmless: a real
+   client's CBOR decoder silently ignores an unrecognized key, same as the
+   sagemaker connection-ARN case recorded in the 2026-08-31 c2b2c6129
+   commit. Not removed this pass, recorded rather than fixed (matches this
+   campaign's precedent of disclosing rather than touching a dormant,
+   cost-free field).
+2. `ImageBuilder.ImageName` is emitted under the wire key `"ImageName"`;
+   the real `types.ImageBuilder` has no such member -- the real field is
+   `ImageArn` (`deserializers.go:7851`, `types/types.go`). This mismatch is
+   currently **unobservable**: `CreateImageBuilder`'s request-decode struct
+   (`createImageBuilderInput`, handler_image.go) never reads `ImageArn` or
+   `ImageName` from the request at all, even though real
+   `CreateImageBuilderInput` declares both (either identifies the source
+   image, `api_op_CreateImageBuilder.go:181,184`) -- so this backend's
+   `ImageBuilder.ImageName` field is always the empty string regardless of
+   what a real client sends. Fixing the wire key alone would still emit an
+   always-empty field; the real gap is that `CreateImageBuilder` never
+   captures a source-image identifier at all, a Create-side feature gap
+   distinct from this sweep's wrapper-key/per-item-name scope. Also found,
+   same op: `AppBlockBuilder`'s real type declares `VpcConfig` as a
+   **required** response member (`types/types.go:248`) that this service
+   does not model anywhere (no VPC concept in this backend at all, and
+   `CreateAppBlockBuilder` doesn't accept one either) -- disclosed as a
+   structural gap, not fixed (same class as the ImageBuilder source-image
+   gap: a feature absence, not a wire-shape defect on an otherwise-modeled
+   field).
+
+**No bugs fixed this pass.** No wrapper-key mismatch, no fixable per-item
+mismatch, no transposition, no case-only mismatch (CBOR/JSON-family, not
+applicable), no hard decode error or panic, no wrong Go type under a
+correct key found.
+
+No web pages fetched this pass (SDK lookups went through the pinned module
+cache only).
+
+Gates: `go build ./services/appstream/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/appstream/...` (pass, no new
+tests -- both findings above are disclosed-not-fixed, so no regression to
+guard), `golangci-lint run ./services/appstream/...` (0 issues). No source
+changes this pass.

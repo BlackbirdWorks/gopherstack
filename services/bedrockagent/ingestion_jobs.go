@@ -3,6 +3,8 @@ package bedrockagent
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"time"
 )
 
@@ -95,20 +97,102 @@ func (b *InMemoryBackend) StopIngestionJob(
 	return jobCopy(job), nil
 }
 
-// ListIngestionJobs returns paginated ingestion job summaries.
+// IngestionJobFilter mirrors types.IngestionJobFilter. The real SDK's only
+// defined Attribute/Operator values are STATUS/EQ (types/enums.go) -- no
+// other attribute or operator exists to honor.
+type IngestionJobFilter struct {
+	Attribute string
+	Operator  string
+	Values    []string
+}
+
+// IngestionJobSortBy mirrors types.IngestionJobSortBy. Valid AttributeName
+// values are STATUS and STARTED_AT (types/enums.go); Order is ASCENDING or
+// DESCENDING (types.SortOrder -- not the short ASC/DESC used by some of
+// this service's other sort-order enums).
+type IngestionJobSortBy struct {
+	Attribute string
+	Order     string
+}
+
+func matchesIngestionJobFilters(j *IngestionJob, filters []IngestionJobFilter) bool {
+	for _, f := range filters {
+		if f.Attribute != "STATUS" || f.Operator != "EQ" {
+			continue
+		}
+
+		if !slices.Contains(f.Values, j.Status) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sortIngestionJobs(jobs []*IngestionJob, sortBy *IngestionJobSortBy) {
+	if sortBy == nil {
+		return
+	}
+
+	desc := sortBy.Order == "DESCENDING"
+
+	sort.Slice(jobs, func(i, k int) bool {
+		var less bool
+
+		switch sortBy.Attribute {
+		case "STATUS":
+			less = jobs[i].Status < jobs[k].Status
+		case "STARTED_AT":
+			less = jobs[i].StartedAt.Before(jobs[k].StartedAt)
+		default:
+			return false
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+}
+
+// ListIngestionJobs returns paginated ingestion job summaries, filtered by
+// filters and sorted by sortBy.
 func (b *InMemoryBackend) ListIngestionJobs(
-	_ context.Context, kbID, dsID string, maxResults int, nextToken string,
+	_ context.Context, kbID, dsID string, filters []IngestionJobFilter, sortBy *IngestionJobSortBy,
+	maxResults int, nextToken string,
 ) ([]*IngestionJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	group := b.ingestionJobsByDataSource.Get(dsKey(kbID, dsID))
 	ids := tableIDs(group, func(j *IngestionJob) string { return j.IngestionJobID })
-	ids, outToken := paginate(ids, nextToken, maxResults)
 
-	out := make([]*IngestionJob, 0, len(ids))
+	matched := make([]*IngestionJob, 0, len(ids))
 
 	for _, id := range ids {
+		job, ok := b.ingestionJobs.Get(jobKey(kbID, dsID, id))
+		if ok && matchesIngestionJobFilters(job, filters) {
+			matched = append(matched, job)
+		}
+	}
+
+	// tableIDs would re-sort matched alphabetically by ID, destroying the
+	// order sortIngestionJobs just applied -- build matchedIDs directly to
+	// preserve it (or the deterministic ID-ascending default when sortBy is
+	// nil, since matched is still in that order from ids/tableIDs above).
+	sortIngestionJobs(matched, sortBy)
+
+	matchedIDs := make([]string, len(matched))
+	for i, j := range matched {
+		matchedIDs[i] = j.IngestionJobID
+	}
+
+	pageIDs, outToken := paginate(matchedIDs, nextToken, maxResults)
+
+	out := make([]*IngestionJob, 0, len(pageIDs))
+
+	for _, id := range pageIDs {
 		job, _ := b.ingestionJobs.Get(jobKey(kbID, dsID, id))
 		out = append(out, jobCopy(job))
 	}

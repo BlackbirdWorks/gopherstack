@@ -99,11 +99,68 @@ func matchesFindingFilter(f *Finding, filter map[string]FilterCriterion) bool {
 	return true
 }
 
+// sortFindingAttribute reports the value of the finding attribute named by
+// attributeName, matching the same set matchesFindingFilter honours
+// ("status", "resourceType", "resource", "id") -- an attribute this backend
+// does not track as a direct Finding field (e.g. "createdAt", "isPublic")
+// returns "", false, since there is no honest value to sort on.
+func sortFindingAttribute(f *Finding, attributeName string) (string, bool) {
+	switch attributeName {
+	case "status":
+		return string(f.Status), true
+	case "resourceType":
+		return f.ResourceType, true
+	case pathResource:
+		return f.ResourceArn, true
+	case "id":
+		return f.ID, true
+	default:
+		return "", false
+	}
+}
+
+// sortFindings orders findings by crit, falling back to the default
+// ascending-by-ID order when crit is nil or names an attribute this backend
+// does not track directly (see sortFindingAttribute).
+func sortFindings(findings []*Finding, crit *FindingSortCriteria) {
+	if crit == nil {
+		sort.Slice(findings, func(i, j int) bool {
+			return findings[i].ID < findings[j].ID
+		})
+
+		return
+	}
+
+	if len(findings) > 0 {
+		if _, ok := sortFindingAttribute(findings[0], crit.AttributeName); !ok {
+			sort.Slice(findings, func(i, j int) bool {
+				return findings[i].ID < findings[j].ID
+			})
+
+			return
+		}
+	}
+
+	desc := crit.OrderBy == "DESC"
+
+	sort.Slice(findings, func(i, j int) bool {
+		vi, _ := sortFindingAttribute(findings[i], crit.AttributeName)
+		vj, _ := sortFindingAttribute(findings[j], crit.AttributeName)
+
+		if desc {
+			return vi > vj
+		}
+
+		return vi < vj
+	})
+}
+
 // ListFindings returns findings for an analyzer, optionally filtered.
 func (b *InMemoryBackend) ListFindings(
 	analyzerName string,
 	filter map[string]FilterCriterion,
 	status string,
+	sortCrit *FindingSortCriteria,
 	maxResults int,
 	nextToken string,
 ) ([]*Finding, string, error) {
@@ -129,9 +186,7 @@ func (b *InMemoryBackend) ListFindings(
 		findings = append(findings, copyFinding(f))
 	}
 
-	sort.Slice(findings, func(i, j int) bool {
-		return findings[i].ID < findings[j].ID
-	})
+	sortFindings(findings, sortCrit)
 
 	// Simple token-based pagination by finding ID prefix.
 	start := 0
@@ -211,6 +266,7 @@ func (b *InMemoryBackend) GetFindingV2(analyzerArn, findingID string) (*Finding,
 func (b *InMemoryBackend) ListFindingsV2(
 	analyzerArn, status string,
 	filter map[string]FilterCriterion,
+	sortCrit *FindingSortCriteria,
 	maxResults int,
 	nextToken string,
 ) ([]*Finding, string, error) {
@@ -246,9 +302,7 @@ func (b *InMemoryBackend) ListFindingsV2(
 		findings = append(findings, copyFinding(f))
 	}
 
-	sort.Slice(findings, func(i, j int) bool {
-		return findings[i].ID < findings[j].ID
-	})
+	sortFindings(findings, sortCrit)
 
 	start := 0
 

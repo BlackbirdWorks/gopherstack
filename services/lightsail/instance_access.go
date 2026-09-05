@@ -246,12 +246,22 @@ func (b *InMemoryBackend) GetSetupHistory(resourceName, token string) (page.Page
 
 	var all []*SetupHistoryEntry
 	if resourceName != "" {
-		all = b.setupHistoryByResource.Get(resourceName)
+		// Index.Get returns the index's own backing slice (its doc comment:
+		// "the caller must not mutate it"); copy before sort.Slice reorders
+		// it in place, or concurrent readers of the same resourceName race
+		// on it.
+		all = append([]*SetupHistoryEntry(nil), b.setupHistoryByResource.Get(resourceName)...)
 	} else {
 		all = b.setupHistory.All()
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+
+		return all[i].OperationID < all[j].OperationID
+	})
 
 	out := make([]*SetupHistoryEntry, len(all))
 	for i, e := range all {

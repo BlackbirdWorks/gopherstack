@@ -62,6 +62,13 @@ func decode(token string) int {
 		return 0
 	}
 
+	// A negative index would slice below zero and panic; a forged or corrupted
+	// token is the only way to reach it, so treat it like any other malformed
+	// token rather than trusting the caller to clamp.
+	if idx < 0 {
+		return 0
+	}
+
 	return idx
 }
 

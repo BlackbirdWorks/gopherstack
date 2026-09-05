@@ -58,6 +58,32 @@ func TestRebootReplicationInstance(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
+// TestRebootReplicationInstance_ForceFailoverMutuallyExclusive covers
+// gopherstack-4shm's class: RebootReplicationInstanceInput.ForceFailover and
+// .ForcePlannedFailover (databasemigrationservice@v1.66.4
+// api_op_RebootReplicationInstance.go: "--force-planned-failover and
+// --force-failover can't both be set to true") were decoded but never read
+// at all -- a client setting both got no rejection.
+func TestRebootReplicationInstance_ForceFailoverMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddReplicationInstanceInternal("reboot-ff", "dms.t3.medium")
+
+	descRec := doDMS(t, h, "DescribeReplicationInstances", map[string]any{})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	ris := parseJSON(t, descRec)["ReplicationInstances"].([]any)
+	require.Len(t, ris, 1)
+	riArn := ris[0].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	rec := doDMS(t, h, "RebootReplicationInstance", map[string]any{
+		"ReplicationInstanceArn": riArn,
+		"ForceFailover":          true,
+		"ForcePlannedFailover":   true,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestDescribeReplicationInstances_PrivateIpAddresses(t *testing.T) {
 	t.Parallel()
 

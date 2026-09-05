@@ -69,7 +69,7 @@ func TestApplications_CRUD(t *testing.T) {
 			assert.NotEmpty(t, app.ID)
 			assert.Equal(t, tt.appName, app.Name)
 
-			apps := b.ListApplications()
+			apps := b.ListApplications(nil, "", 0).Data
 			if tt.wantInList {
 				require.NotEmpty(t, apps)
 				found := false
@@ -91,7 +91,7 @@ func TestApplications_CRUD(t *testing.T) {
 				err = b.DeleteApplication(app.ID)
 				require.NoError(t, err)
 
-				apps = b.ListApplications()
+				apps = b.ListApplications(nil, "", 0).Data
 				for _, a := range apps {
 					assert.NotEqual(t, app.ID, a.ID, "deleted app should not appear in list")
 				}
@@ -845,14 +845,19 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "list_unknown_application_returns_409",
+			// ListMigrations's own deserializer (opensearch@v1.75.4
+			// deserializers.go) has no ResourceNotFoundException case, unlike
+			// GetMigration/StartMigration -- an unknown application here is
+			// ValidationException (400), not the 409 the rest of this family
+			// uses.
+			name: "list_unknown_application_returns_400",
 			run: func(t *testing.T, h *opensearch.Handler) {
 				t.Helper()
 
 				resp := doRequest(t, h, http.MethodGet,
 					"/2021-01-01/opensearch/app-migrations?applicationId=no-such-app", nil)
 				defer resp.Body.Close()
-				assert.Equal(t, http.StatusConflict, resp.StatusCode)
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 			},
 		},
 		{

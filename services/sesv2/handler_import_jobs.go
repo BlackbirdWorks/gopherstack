@@ -129,11 +129,11 @@ func (h *Handler) handleGetImportJob(jobID string) (any, error) {
 
 // listImportJobsInput mirrors ListImportJobsInput -- real SES v2 serves
 // ListImportJobs as POST /v2/email/import-jobs/list with filter/pagination
-// in the JSON body, not query params (ImportDestinationType filter isn't
-// modelled by the backend yet, so only pagination is honored).
+// in the JSON body, not query params.
 type listImportJobsInput struct {
-	NextToken string `json:"NextToken"`
-	PageSize  int32  `json:"PageSize"`
+	ImportDestinationType string `json:"ImportDestinationType"`
+	NextToken             string `json:"NextToken"`
+	PageSize              int32  `json:"PageSize"`
 }
 
 func (h *Handler) handleListImportJobs(c *echo.Context) (any, error) {
@@ -142,7 +142,7 @@ func (h *Handler) handleListImportJobs(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	pg := h.Backend.ListImportJobs(in.NextToken, int(in.PageSize))
+	pg := h.Backend.ListImportJobs(in.ImportDestinationType, in.NextToken, int(in.PageSize))
 
 	items := make([]*importJobOutput, 0, len(pg.Data))
 	for _, j := range pg.Data {

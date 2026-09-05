@@ -231,7 +231,7 @@ func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID str
 	for _, item := range items {
 		resp.InstanceImageMetadataSet.Items = append(
 			resp.InstanceImageMetadataSet.Items,
-			instanceImageMetadataItem(item),
+			toInstanceImageMetadataItem(item, h.Backend.TagsForResource(item.InstanceID)),
 		)
 	}
 
@@ -243,6 +243,8 @@ type importImageResponse struct {
 	RequestID    string   `xml:"requestId"`
 	ImportTaskID string   `xml:"importTaskId"`
 	Status       string   `xml:"status"`
+	KmsKeyID     string   `xml:"kmsKeyId,omitempty"`
+	Encrypted    bool     `xml:"encrypted"`
 }
 
 type describeImportImageTasksResponse struct {
@@ -363,8 +365,10 @@ func (h *Handler) handleImportImage(vals url.Values, reqID string) (any, error) 
 	description := vals.Get("Description")
 	arch := vals.Get("Architecture")
 	platform := vals.Get("Platform")
+	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
+	kmsKeyID := vals.Get("KmsKeyId")
 
-	task, err := h.Backend.ImportImage(description, arch, platform)
+	task, err := h.Backend.ImportImage(description, arch, platform, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -373,6 +377,8 @@ func (h *Handler) handleImportImage(vals url.Values, reqID string) (any, error) 
 		RequestID:    reqID,
 		ImportTaskID: task.ImportTaskID,
 		Status:       task.Status,
+		Encrypted:    task.Encrypted,
+		KmsKeyID:     task.KmsKeyID,
 	}, nil
 }
 
@@ -396,6 +402,8 @@ func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) 
 			Architecture: t.Architecture,
 			Platform:     t.Platform,
 			Status:       t.Status,
+			Encrypted:    t.Encrypted,
+			KmsKeyID:     t.KmsKeyID,
 		})
 	}
 
@@ -516,16 +524,19 @@ type enableFastLaunchResponse struct {
 }
 
 // disableFastLaunchResponse matches DisableFastLaunchOutput (same shape as
-// EnableFastLaunchOutput). LaunchTemplate/MaxParallelLaunches/ResourceType/
+// EnableFastLaunchOutput): LaunchTemplate/MaxParallelLaunches/ResourceType/
 // SnapshotConfiguration are the parameters fast launch had before being
-// disabled; this backend doesn't persist that configuration, so those fields
-// are left absent rather than guessed.
+// disabled.
 type disableFastLaunchResponse struct {
-	XMLName   xml.Name `xml:"DisableFastLaunchResponse"`
-	RequestID string   `xml:"requestId"`
-	ImageID   string   `xml:"imageId,omitempty"`
-	OwnerID   string   `xml:"ownerId,omitempty"`
-	State     string   `xml:"state,omitempty"`
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	XMLName               xml.Name                      `xml:"DisableFastLaunchResponse"`
+	RequestID             string                        `xml:"requestId"`
+	ImageID               string                        `xml:"imageId,omitempty"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	State                 string                        `xml:"state,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
 }
 
 // parseFastLaunchLaunchTemplate reads LaunchTemplate.{LaunchTemplateId,
@@ -545,9 +556,6 @@ func parseFastLaunchLaunchTemplate(vals url.Values) *fastLaunchLaunchTemplateIte
 
 func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
-	if err := h.Backend.EnableFastLaunch(imageID); err != nil {
-		return nil, err
-	}
 
 	resourceType := vals.Get("ResourceType")
 	if resourceType == "" {
@@ -568,6 +576,28 @@ func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, er
 		}
 	}
 
+	launchTemplate := parseFastLaunchLaunchTemplate(vals)
+
+	cfg := FastLaunchConfig{
+		ResourceType:        resourceType,
+		MaxParallelLaunches: maxParallelLaunches,
+	}
+	if launchTemplate != nil {
+		cfg.HasLaunchTemplate = true
+		cfg.LaunchTemplateID = launchTemplate.LaunchTemplateID
+		cfg.LaunchTemplateName = launchTemplate.LaunchTemplateName
+		cfg.LaunchTemplateVersion = launchTemplate.Version
+	}
+
+	if snapshotConfig != nil {
+		cfg.HasSnapshotConfiguration = true
+		cfg.SnapshotTargetResourceCount = snapshotConfig.TargetResourceCount
+	}
+
+	if err := h.Backend.EnableFastLaunch(imageID, cfg); err != nil {
+		return nil, err
+	}
+
 	return &enableFastLaunchResponse{
 		RequestID:             reqID,
 		ImageID:               imageID,
@@ -575,23 +605,44 @@ func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, er
 		MaxParallelLaunches:   maxParallelLaunches,
 		OwnerID:               h.AccountID,
 		State:                 "enabling",
-		LaunchTemplate:        parseFastLaunchLaunchTemplate(vals),
+		LaunchTemplate:        launchTemplate,
 		SnapshotConfiguration: snapshotConfig,
 	}, nil
 }
 
 func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
-	if err := h.Backend.DisableFastLaunch(imageID); err != nil {
+
+	prev, err := h.Backend.DisableFastLaunch(imageID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &disableFastLaunchResponse{
+	resp := &disableFastLaunchResponse{
 		RequestID: reqID,
 		ImageID:   imageID,
 		OwnerID:   h.AccountID,
 		State:     "disabling",
-	}, nil
+	}
+	if prev != nil {
+		resp.ResourceType = prev.ResourceType
+		resp.MaxParallelLaunches = prev.MaxParallelLaunches
+		if prev.HasLaunchTemplate {
+			resp.LaunchTemplate = &fastLaunchLaunchTemplateItem{
+				LaunchTemplateID:   prev.LaunchTemplateID,
+				LaunchTemplateName: prev.LaunchTemplateName,
+				Version:            prev.LaunchTemplateVersion,
+			}
+		}
+
+		if prev.HasSnapshotConfiguration {
+			resp.SnapshotConfiguration = &fastLaunchSnapshotConfigItem{
+				TargetResourceCount: prev.SnapshotTargetResourceCount,
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) (any, error) {
@@ -610,7 +661,7 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 	for _, item := range items {
 		resp.FastLaunchImageSet.Items = append(
 			resp.FastLaunchImageSet.Items,
-			fastLaunchImageItem(item),
+			toFastLaunchImageItem(item, h.AccountID),
 		)
 	}
 
@@ -618,13 +669,25 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 }
 
 func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
+	sourceImageID := vals.Get("SourceImageId")
+
 	image, err := h.Backend.CopyImage(
-		vals.Get("SourceImageId"),
+		sourceImageID,
 		vals.Get("Name"),
 		vals.Get("Description"),
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Default: your user-defined AMI tags are not copied (ec2@v1.319.1
+	// api_op_CopyImage.go's CopyImageTags doc comment).
+	if vals.Get("CopyImageTags") == ec2BooleanTrue {
+		if srcTags := h.Backend.TagsForResource(sourceImageID); len(srcTags) > 0 {
+			if err = h.Backend.CreateTags([]string{image.ImageID}, srcTags); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return &copyImageResponse{
@@ -821,13 +884,14 @@ func imagesSupportedOperations() []string {
 }
 
 type amiItem struct {
-	ImageID        string `xml:"imageId"`
-	Name           string `xml:"name"`
-	Description    string `xml:"description,omitempty"`
-	Architecture   string `xml:"architecture"`
-	Platform       string `xml:"platform,omitempty"`
-	State          string `xml:"imageState"`
-	RootDeviceName string `xml:"rootDeviceName,omitempty"`
+	ImageID        string          `xml:"imageId"`
+	Name           string          `xml:"name"`
+	Description    string          `xml:"description,omitempty"`
+	Architecture   string          `xml:"architecture"`
+	Platform       string          `xml:"platform,omitempty"`
+	State          string          `xml:"imageState"`
+	RootDeviceName string          `xml:"rootDeviceName,omitempty"`
+	TagSet         []simpleTagItem `xml:"tagSet>item,omitempty"`
 }
 
 type amiItemSet struct {
@@ -900,10 +964,8 @@ func parseImagesPagination(vals url.Values) (int, int, error) {
 	return maxResults, offset, nil
 }
 
-func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
-	amis := h.Backend.DescribeImages()
-
-	// Collect requested image IDs from ImageId.1, ImageId.2, ... query params.
+// collectRequestedImageIDs reads ImageId.1, ImageId.2, ... query params.
+func collectRequestedImageIDs(vals url.Values) map[string]struct{} {
 	requested := make(map[string]struct{})
 
 	for i := 1; ; i++ {
@@ -914,6 +976,35 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 		requested[id] = struct{}{}
 	}
+
+	return requested
+}
+
+// filterVisibleImages excludes disabled AMIs by default (ec2@v1.319.1
+// api_op_DescribeImages.go's IncludeDisabled doc comment: "Default: No
+// disabled AMIs are included in the response") -- except an image named
+// explicitly by ImageId, which real AWS still returns (see
+// TestDescribeImages_DisabledState_RealClient, wire_field_fixes_test.go).
+func filterVisibleImages(idFiltered []*AMIStub, requested map[string]struct{}, includeDisabled bool) []*AMIStub {
+	if includeDisabled {
+		return idFiltered
+	}
+
+	visible := idFiltered[:0]
+
+	for _, a := range idFiltered {
+		_, explicit := requested[a.ImageID]
+		if a.State != stateDisabledImg || explicit {
+			visible = append(visible, a)
+		}
+	}
+
+	return visible
+}
+
+func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
+	amis := h.Backend.DescribeImages()
+	requested := collectRequestedImageIDs(vals)
 
 	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
 	idFiltered := make([]*AMIStub, 0, len(amis))
@@ -928,6 +1019,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 	filters := parseEC2Filters(vals)
 	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
+	idFiltered = filterVisibleImages(idFiltered, requested, vals.Get("IncludeDisabled") == ec2BooleanTrue)
 
 	filtered := make([]amiItem, 0, len(idFiltered))
 	for _, a := range idFiltered {
@@ -944,6 +1036,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			Platform:       a.Platform,
 			State:          st,
 			RootDeviceName: a.RootDeviceName,
+			TagSet:         tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
 		})
 	}
 

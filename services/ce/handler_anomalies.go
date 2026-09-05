@@ -8,9 +8,10 @@ import (
 )
 
 type anomalyMonitorInput struct {
-	MonitorName      string `json:"MonitorName"`
-	MonitorType      string `json:"MonitorType"`
-	MonitorDimension string `json:"MonitorDimension"`
+	MonitorSpecification *ceExpression `json:"MonitorSpecification,omitempty"`
+	MonitorName          string        `json:"MonitorName"`
+	MonitorType          string        `json:"MonitorType"`
+	MonitorDimension     string        `json:"MonitorDimension"`
 }
 
 type createAnomalyMonitorInput struct {
@@ -38,6 +39,7 @@ func (h *Handler) handleCreateAnomalyMonitor(
 		in.AnomalyMonitor.MonitorName,
 		in.AnomalyMonitor.MonitorType,
 		in.AnomalyMonitor.MonitorDimension,
+		in.AnomalyMonitor.MonitorSpecification,
 		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
@@ -75,12 +77,14 @@ type getAnomalyMonitorsInput struct {
 }
 
 type anomalyMonitorSummary struct {
-	CreationDate     *string `json:"CreationDate,omitempty"`
-	LastUpdatedDate  *string `json:"LastUpdatedDate,omitempty"`
-	MonitorArn       string  `json:"MonitorArn"`
-	MonitorName      string  `json:"MonitorName"`
-	MonitorType      string  `json:"MonitorType"`
-	MonitorDimension string  `json:"MonitorDimension,omitempty"`
+	CreationDate          *string       `json:"CreationDate,omitempty"`
+	LastUpdatedDate       *string       `json:"LastUpdatedDate,omitempty"`
+	MonitorSpecification  *ceExpression `json:"MonitorSpecification,omitempty"`
+	MonitorArn            string        `json:"MonitorArn"`
+	MonitorName           string        `json:"MonitorName"`
+	MonitorType           string        `json:"MonitorType"`
+	MonitorDimension      string        `json:"MonitorDimension,omitempty"`
+	DimensionalValueCount int32         `json:"DimensionalValueCount,omitempty"`
 }
 
 type getAnomalyMonitorsOutput struct {
@@ -101,10 +105,12 @@ func (h *Handler) handleGetAnomalyMonitors(
 
 	for _, mon := range monitors {
 		s := anomalyMonitorSummary{
-			MonitorArn:       mon.MonitorARN,
-			MonitorName:      mon.MonitorName,
-			MonitorType:      mon.MonitorType,
-			MonitorDimension: mon.MonitorDimension,
+			MonitorArn:            mon.MonitorARN,
+			MonitorName:           mon.MonitorName,
+			MonitorType:           mon.MonitorType,
+			MonitorDimension:      mon.MonitorDimension,
+			MonitorSpecification:  mon.MonitorSpecification,
+			DimensionalValueCount: h.dimensionalValueCount(mon),
 		}
 
 		if !mon.CreationDate.IsZero() {
@@ -121,6 +127,26 @@ func (h *Handler) handleGetAnomalyMonitors(
 	}
 
 	return &getAnomalyMonitorsOutput{AnomalyMonitors: items, NextPageToken: nextToken}, nil
+}
+
+// dimensionalValueCount computes types.AnomalyMonitor.DimensionalValueCount for a
+// DIMENSIONAL monitor on the SERVICE/LINKED_ACCOUNT dimension, the only dimensions
+// this emulator's cost ledger has real per-entry state for -- TAG/COST_CATEGORY
+// dimensions are scoped via MonitorSpecification instead of a ledger field, so
+// they stay 0 rather than fabricating a count.
+func (h *Handler) dimensionalValueCount(mon *AnomalyMonitor) int32 {
+	if mon.MonitorType != "DIMENSIONAL" {
+		return 0
+	}
+
+	switch mon.MonitorDimension {
+	case "SERVICE", "LINKED_ACCOUNT":
+		n := len(h.Backend.GetDimensionValues(mon.MonitorDimension))
+
+		return int32(n) //nolint:gosec // G115: bounded by syntheticServiceCatalog size
+	default:
+		return 0
+	}
 }
 
 type updateAnomalyMonitorInput struct {
@@ -160,11 +186,12 @@ type subscriberInput struct {
 }
 
 type anomalySubscriptionInput struct {
-	SubscriptionName string            `json:"SubscriptionName"`
-	Frequency        string            `json:"Frequency"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	Frequency           string            `json:"Frequency"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold"`
 }
 
 type createAnomalySubscriptionInput struct {
@@ -207,6 +234,7 @@ func (h *Handler) handleCreateAnomalySubscription(
 		in.AnomalySubscription.MonitorArnList,
 		subs,
 		in.AnomalySubscription.Threshold,
+		in.AnomalySubscription.ThresholdExpression,
 		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
@@ -245,13 +273,14 @@ type getAnomalySubscriptionsInput struct {
 }
 
 type anomalySubscriptionSummary struct {
-	SubscriptionArn  string            `json:"SubscriptionArn"`
-	SubscriptionName string            `json:"SubscriptionName"`
-	AccountID        string            `json:"AccountId,omitempty"`
-	Frequency        string            `json:"Frequency"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold,omitempty"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionArn     string            `json:"SubscriptionArn"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	AccountID           string            `json:"AccountId,omitempty"`
+	Frequency           string            `json:"Frequency"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold,omitempty"`
 }
 
 type getAnomalySubscriptionsOutput struct {
@@ -279,13 +308,14 @@ func (h *Handler) handleGetAnomalySubscriptions(
 		}
 
 		items = append(items, anomalySubscriptionSummary{
-			SubscriptionArn:  sub.SubscriptionARN,
-			SubscriptionName: sub.SubscriptionName,
-			AccountID:        sub.AccountID,
-			MonitorArnList:   sub.MonitorARNList,
-			Frequency:        sub.Frequency,
-			Threshold:        sub.Threshold,
-			Subscribers:      subscribers,
+			SubscriptionArn:     sub.SubscriptionARN,
+			SubscriptionName:    sub.SubscriptionName,
+			AccountID:           sub.AccountID,
+			MonitorArnList:      sub.MonitorARNList,
+			Frequency:           sub.Frequency,
+			Threshold:           sub.Threshold,
+			ThresholdExpression: sub.ThresholdExpression,
+			Subscribers:         subscribers,
 		})
 	}
 
@@ -293,12 +323,13 @@ func (h *Handler) handleGetAnomalySubscriptions(
 }
 
 type updateAnomalySubscriptionInput struct {
-	SubscriptionArn  string            `json:"SubscriptionArn"`
-	Frequency        string            `json:"Frequency"`
-	SubscriptionName string            `json:"SubscriptionName"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
-	Subscribers      []subscriberInput `json:"Subscribers"`
-	Threshold        float64           `json:"Threshold"`
+	ThresholdExpression *ceExpression     `json:"ThresholdExpression,omitempty"`
+	SubscriptionArn     string            `json:"SubscriptionArn"`
+	Frequency           string            `json:"Frequency"`
+	SubscriptionName    string            `json:"SubscriptionName"`
+	MonitorArnList      []string          `json:"MonitorArnList"`
+	Subscribers         []subscriberInput `json:"Subscribers"`
+	Threshold           float64           `json:"Threshold"`
 }
 
 type updateAnomalySubscriptionOutput struct {
@@ -320,7 +351,7 @@ func (h *Handler) handleUpdateAnomalySubscription(
 
 	sub, err := h.Backend.UpdateAnomalySubscription(
 		in.SubscriptionArn, in.Frequency, in.SubscriptionName,
-		in.MonitorArnList, subs, in.Threshold,
+		in.MonitorArnList, subs, in.Threshold, in.ThresholdExpression,
 	)
 	if err != nil {
 		return nil, err
@@ -334,13 +365,21 @@ type anomalyDateInterval struct {
 	EndDate   string `json:"EndDate"`
 }
 
+// totalImpactFilterInput mirrors aws-sdk-go-v2/service/costexplorer/types.TotalImpactFilter:
+// filters anomalies by their total dollar impact, e.g. GREATER_THAN 200.00.
+type totalImpactFilterInput struct {
+	NumericOperator string  `json:"NumericOperator"`
+	StartValue      float64 `json:"StartValue"`
+	EndValue        float64 `json:"EndValue"`
+}
+
 type getAnomaliesInput struct {
-	DateInterval  anomalyDateInterval `json:"DateInterval"`
-	MonitorArn    string              `json:"MonitorArn"`
-	Feedback      string              `json:"Feedback"`
-	TotalImpact   map[string]any      `json:"TotalImpact"`
-	NextPageToken string              `json:"NextPageToken"`
-	MaxResults    int                 `json:"MaxResults"`
+	TotalImpact   *totalImpactFilterInput `json:"TotalImpact"`
+	MonitorArn    string                  `json:"MonitorArn"`
+	Feedback      string                  `json:"Feedback"`
+	NextPageToken string                  `json:"NextPageToken"`
+	DateInterval  anomalyDateInterval     `json:"DateInterval"`
+	MaxResults    int                     `json:"MaxResults"`
 }
 
 type anomalyImpact struct {
@@ -377,10 +416,19 @@ func (h *Handler) handleGetAnomalies(
 		return nil, fmt.Errorf("%w: DateInterval.StartDate is required", ErrValidation)
 	}
 
+	var totalImpact *TotalImpactFilter
+	if in.TotalImpact != nil {
+		totalImpact = &TotalImpactFilter{
+			NumericOperator: in.TotalImpact.NumericOperator,
+			StartValue:      in.TotalImpact.StartValue,
+			EndValue:        in.TotalImpact.EndValue,
+		}
+	}
+
 	anomalies, nextToken := h.Backend.GetAnomalies(
 		in.MonitorArn, in.Feedback,
 		in.DateInterval.StartDate, in.DateInterval.EndDate,
-		in.MaxResults, in.NextPageToken,
+		in.MaxResults, in.NextPageToken, totalImpact,
 	)
 	items := make([]anomalySummary, 0, len(anomalies))
 

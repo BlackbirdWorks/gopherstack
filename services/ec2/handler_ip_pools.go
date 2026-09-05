@@ -372,6 +372,7 @@ func (h *Handler) handleDeletePublicIpv4Pool(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribePublicIpv4Pools(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PoolId")
 	pools := h.Backend.DescribePublicIpv4Pools(ids)
+	pools = applyIpv4PoolFilters(pools, parseEC2Filters(vals), h.Backend)
 
 	resp := &describePublicIpv4PoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {

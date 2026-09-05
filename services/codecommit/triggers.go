@@ -33,8 +33,12 @@ func (b *InMemoryBackend) PutRepositoryTriggers(repoName string, triggers []Repo
 	return nil
 }
 
-// TestRepositoryTriggers returns the names of triggers that succeeded.
-func (b *InMemoryBackend) TestRepositoryTriggers(repoName string) ([]string, error) {
+// TestRepositoryTriggers returns the names of triggers that succeeded. It
+// tests the trigger list passed IN THIS CALL, not whatever is currently
+// saved via PutRepositoryTriggers -- real AWS: "does not change or create a
+// repository trigger" (codecommit@v1.36.4
+// api_op_TestRepositoryTriggers.go), so the two are independent inputs.
+func (b *InMemoryBackend) TestRepositoryTriggers(repoName string, triggers []RepositoryTrigger) ([]string, error) {
 	b.mu.RLock("TestRepositoryTriggers")
 	defer b.mu.RUnlock()
 
@@ -42,7 +46,6 @@ func (b *InMemoryBackend) TestRepositoryTriggers(repoName string) ([]string, err
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	triggers := b.triggers[repoName]
 	names := make([]string, 0, len(triggers))
 	for _, t := range triggers {
 		names = append(names, t.Name)

@@ -226,3 +226,63 @@ func TestUserImportJob_EchoesCloudWatchLogsRoleArnAndPasswordHashingAlgorithm(t 
 	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
 	assert.NotZero(t, stopResp.UserImportJob.CompletionDate)
 }
+
+// TestListUserImportJobs_Pagination proves the op pages through every import
+// job exactly once instead of returning them all on a single page with no
+// cursor.
+func TestListUserImportJobs_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "import-pagination-pool")
+
+	names := []string{"job-a", "job-b", "job-c"}
+	for _, n := range names {
+		rec := doCognitoRequest(t, h, "CreateUserImportJob", map[string]any{
+			"UserPoolId": poolID,
+			"JobName":    n,
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+	}
+
+	type listOut struct {
+		PaginationToken string           `json:"PaginationToken,omitempty"`
+		UserImportJobs  []map[string]any `json:"UserImportJobs"`
+	}
+
+	rec1 := doCognitoRequest(t, h, "ListUserImportJobs", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
+
+	var page1 listOut
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.UserImportJobs, 2)
+	require.NotEmpty(t, page1.PaginationToken, "first page must return a cursor when more import jobs remain")
+
+	rec2 := doCognitoRequest(t, h, "ListUserImportJobs", map[string]any{
+		"UserPoolId":      poolID,
+		"MaxResults":      2,
+		"PaginationToken": page1.PaginationToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
+
+	var page2 listOut
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.UserImportJobs, 1)
+	require.Empty(t, page2.PaginationToken)
+
+	seen := map[string]bool{}
+	for _, j := range page1.UserImportJobs {
+		seen[j["JobId"].(string)] = true
+	}
+
+	for _, j := range page2.UserImportJobs {
+		id := j["JobId"].(string)
+		require.False(t, seen[id], "job %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(names))
+}

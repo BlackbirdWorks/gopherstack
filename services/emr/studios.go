@@ -175,8 +175,8 @@ func (b *InMemoryBackend) GetStudioSessionMapping(
 // ListStudioSessionMappings returns session mappings for a studio, optionally filtered by identity type.
 func (b *InMemoryBackend) ListStudioSessionMappings(
 	ctx context.Context,
-	studioID, identityType string,
-) []StudioSessionMapping {
+	studioID, identityType, marker string,
+) ([]StudioSessionMapping, string) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListStudioSessionMappings")
@@ -200,7 +200,9 @@ func (b *InMemoryBackend) ListStudioSessionMappings(
 		return result[i].IdentityID < result[j].IdentityID
 	})
 
-	return result
+	p := page.New(result, marker, listStudioMappingsPageSize, listStudioMappingsPageSize)
+
+	return p.Data, p.Next
 }
 
 // UpdateStudioSessionMapping changes the SessionPolicyArn on a mapping.

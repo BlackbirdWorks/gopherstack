@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -36,6 +37,42 @@ func setShardTimes(b *InMemoryBackend, streamName string, shardIdx int, startedA
 	}
 
 	return nil
+}
+
+// TestListShards_DefaultMaxResults verifies that omitting MaxResults falls
+// back to AWS's documented default of 1000 (api_op_ListShards.go: "The
+// maximum number of shards to return in a single call to ListShards ...
+// The default value is 1000."), not every shard in the stream.
+func TestListShards_DefaultMaxResults(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend()
+	ctx := context.Background()
+	require.NoError(t, b.CreateStream(ctx, &CreateStreamInput{
+		StreamName: "many-shards-stream",
+		ShardCount: 1,
+	}))
+
+	// Fabricate 1500 open shards directly -- reaching this count through real
+	// SplitShard calls would need 1500 real reshards, which this test doesn't
+	// need to exercise; only ListShards' page-size default is under test.
+	stream, ok := b.streams.Get(streamKey(b.region, "many-shards-stream"))
+	require.True(t, ok)
+	stream.mu.Lock("test.fabricateShards")
+	for i := 1; i < 1500; i++ {
+		stream.Shards = append(stream.Shards, &Shard{
+			ID:                fmt.Sprintf("fake-shard-%05d", i),
+			HashKeyRangeStart: "0",
+			HashKeyRangeEnd:   "1",
+			StartedAt:         time.Now(),
+		})
+	}
+	stream.mu.Unlock()
+
+	out, err := b.ListShards(ctx, &ListShardsInput{StreamName: "many-shards-stream"})
+	require.NoError(t, err)
+	assert.Len(t, out.Shards, 1000)
+	assert.NotEmpty(t, out.NextToken)
 }
 
 // TestListShards_ShardFilterType_AtTimestamp verifies AT_TIMESTAMP returns

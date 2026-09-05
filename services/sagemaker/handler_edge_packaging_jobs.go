@@ -164,6 +164,7 @@ type edgePackagingJobSummary struct {
 	EdgePackagingJobStatus string  `json:"EdgePackagingJobStatus"`
 	ModelName              string  `json:"ModelName,omitempty"`
 	ModelVersion           string  `json:"ModelVersion,omitempty"`
+	CompilationJobName     string  `json:"CompilationJobName,omitempty"`
 	CreationTime           float64 `json:"CreationTime"`
 	LastModifiedTime       float64 `json:"LastModifiedTime"`
 }
@@ -210,6 +211,7 @@ func (h *Handler) handleListEdgePackagingJobs(ctx context.Context, body []byte) 
 			EdgePackagingJobStatus: j.EdgePackagingJobStatus,
 			ModelName:              j.ModelName,
 			ModelVersion:           j.ModelVersion,
+			CompilationJobName:     j.CompilationJobName,
 			CreationTime:           epochSeconds(j.CreationTime),
 			LastModifiedTime:       epochSeconds(j.LastModifiedTime),
 		})

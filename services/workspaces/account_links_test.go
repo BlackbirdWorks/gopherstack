@@ -3,6 +3,10 @@ package workspaces_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -125,4 +129,50 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 			}
 		})
 	}
+}
+
+// TestListAccountLinks_Pagination proves the op pages through every account
+// link exactly once instead of returning them all on a single page with no
+// cursor.
+func TestListAccountLinks_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	targets := []string{"111111111111", "222222222222", "333333333333"}
+	for _, tgt := range targets {
+		_, err := client.CreateAccountLinkInvitation(ctx, &wssdk.CreateAccountLinkInvitationInput{
+			TargetAccountId: aws.String(tgt),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListAccountLinks(ctx, &wssdk.ListAccountLinksInput{
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.AccountLinks, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more links remain")
+
+	page2, err := client.ListAccountLinks(ctx, &wssdk.ListAccountLinksInput{
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.AccountLinks, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, l := range page1.AccountLinks {
+		seen[aws.ToString(l.AccountLinkId)] = true
+	}
+
+	for _, l := range page2.AccountLinks {
+		id := aws.ToString(l.AccountLinkId)
+		require.False(t, seen[id], "link %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(targets))
 }

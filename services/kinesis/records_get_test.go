@@ -921,13 +921,61 @@ func TestGetRecords_ZeroLimitUsesDefault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Limit=0 uses the default (1000).
+	// Limit=0 uses the default (10000).
 	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         0,
 	})
 	require.NoError(t, err)
 	assert.Len(t, rec.Records, 5, "all 5 records should be returned with default limit")
+}
+
+// TestGetRecords_ZeroLimitDefaultsTo10000 verifies that omitting Limit falls
+// back to AWS's documented default of 10,000 (api_op_GetRecords.go: "Specify
+// a value of up to 10,000 ... The default value is 10,000."), not some
+// smaller internal page size.
+func TestGetRecords_ZeroLimitDefaultsTo10000(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+		StreamName: "default-10000-stream",
+		ShardCount: 1,
+	}))
+
+	const (
+		totalRecords         = 10500
+		putRecordsBatchLimit = 500
+	)
+
+	for start := 0; start < totalRecords; start += putRecordsBatchLimit {
+		batch := make([]kinesis.PutRecordsEntry, 0, putRecordsBatchLimit)
+		for i := start; i < start+putRecordsBatchLimit && i < totalRecords; i++ {
+			batch = append(batch, kinesis.PutRecordsEntry{
+				PartitionKey: fmt.Sprintf("pk%d", i),
+				Data:         []byte("d"),
+			})
+		}
+		out, err := b.PutRecords(context.Background(), &kinesis.PutRecordsInput{
+			StreamName: "default-10000-stream",
+			Records:    batch,
+		})
+		require.NoError(t, err)
+		require.Zero(t, out.FailedRecordCount)
+	}
+
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
+		StreamName:        "default-10000-stream",
+		ShardID:           "shardId-000000000000",
+		ShardIteratorType: "TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.NoError(t, err)
+	assert.Len(t, rec.Records, 10000, "default page size must be AWS's documented 10000, not fewer")
 }
 
 func TestGetRecords_EmptyShard_MillisBehindZero(t *testing.T) {

@@ -117,10 +117,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := mediaconvert.NewInMemoryBackend("111122223333", "us-west-2")
 
 	rp := &mediaconvert.ReservationPlan{Status: "ACTIVE", Commitment: "ONE_YEAR", ReservedSlots: 3}
-	overrides := map[string]any{"engine": map[string]any{"version": "2"}}
 	queue, err := original.CreateQueueFull(
 		"queue-1", "primary queue", "RESERVED", "ACTIVE",
-		map[string]string{"team": "media"}, 5, rp, overrides,
+		map[string]string{"team": "media"}, 5, rp,
 	)
 	require.NoError(t, err)
 
@@ -172,7 +171,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "media", gotQueue.Tags["team"])
 	require.NotNil(t, gotQueue.ReservationPlan)
 	assert.Equal(t, 3, gotQueue.ReservationPlan.ReservedSlots)
-	require.NotNil(t, gotQueue.ServiceOverrides)
 
 	gotJobTemplate, err := fresh.GetJobTemplate(jobTemplate.Name)
 	require.NoError(t, err)
@@ -334,7 +332,7 @@ func TestPersistence_NewFieldsRoundTrip(t *testing.T) {
 	rp := &mediaconvert.ReservationPlan{ReservedSlots: 2, Status: "ACTIVE"}
 	maxFeeds := 6
 	q, err := b1.CreateQueueFull(
-		"snap-q2", "", "", "", nil, 4, rp, map[string]any{"x": true},
+		"snap-q2", "", "", "", nil, 4, rp,
 		mediaconvert.QueueCreateExtras{MaximumConcurrentFeeds: &maxFeeds},
 	)
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -53,9 +54,15 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 		rules = append(rules, CostCategoryRule(r))
 	}
 
+	splitChargeRules := make([]SplitChargeRule, 0, len(in.SplitChargeRules))
+	for _, r := range in.SplitChargeRules {
+		splitChargeRules = append(splitChargeRules, SplitChargeRule(r))
+	}
+
 	cat, err := h.Backend.CreateCostCategoryDefinition(
 		in.Name, in.RuleVersion, in.DefaultValue,
 		rules, resourceTagsToMap(in.ResourceTags),
+		splitChargeRules, in.EffectiveStart,
 	)
 	if err != nil {
 		return nil, err
@@ -114,6 +121,7 @@ type costCategorySummary struct {
 	EffectiveEnd     string                         `json:"EffectiveEnd,omitempty"`
 	ProcessingStatus []costCategoryProcessingStatus `json:"ProcessingStatus,omitempty"`
 	Rules            []costCategoryRule             `json:"Rules"`
+	SplitChargeRules []splitChargeRule              `json:"SplitChargeRules,omitempty"`
 }
 
 type describeCostCategoryDefinitionOutput struct {
@@ -133,9 +141,24 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 		return nil, err
 	}
 
+	// EffectiveOn selects which historical version of the cost category was
+	// effective on that date; this backend has no version history, only the
+	// current rule set's own EffectiveStart. The one honest, non-fabricated
+	// use of EffectiveOn without inventing prior versions: if it names a date
+	// before the category's own EffectiveStart, the category did not exist
+	// yet as of that date.
+	if in.EffectiveOn != "" && in.EffectiveOn < cat.EffectiveStart {
+		return nil, ErrNotFound
+	}
+
 	rules := make([]costCategoryRule, len(cat.Rules))
 	for i, r := range cat.Rules {
 		rules[i] = costCategoryRule(r)
+	}
+
+	splitChargeRules := make([]splitChargeRule, len(cat.SplitChargeRules))
+	for i, r := range cat.SplitChargeRules {
+		splitChargeRules[i] = splitChargeRule(r)
 	}
 
 	return &describeCostCategoryDefinitionOutput{
@@ -148,7 +171,8 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 			ProcessingStatus: []costCategoryProcessingStatus{
 				{Component: "COST_EXPLORER", Status: "APPLIED"},
 			},
-			Rules: rules,
+			Rules:            rules,
+			SplitChargeRules: splitChargeRules,
 		},
 	}, nil
 }
@@ -174,7 +198,7 @@ func (h *Handler) handleListCostCategoryDefinitions(
 	_ context.Context,
 	in *listCostCategoryDefinitionsInput,
 ) (*listCostCategoryDefinitionsOutput, error) {
-	cats, nextToken := h.Backend.ListCostCategoryDefinitions(in.MaxResults, in.NextToken)
+	cats, nextToken := h.Backend.ListCostCategoryDefinitions(in.MaxResults, in.NextToken, in.EffectiveOn)
 	refs := make([]costCategoryReference, 0, len(cats))
 
 	for _, cat := range cats {
@@ -307,35 +331,77 @@ func applyCostCategoriesSort(values []string, sortBy []ceSortDefinition) []strin
 	return reversed
 }
 
+// applyCostCategoriesSearchString case-insensitively substring-matches
+// values, mirroring GetDimensionValues/GetTags' SearchString handling. Real
+// AWS documents SearchString as filtering cost category names when
+// CostCategoryName is unset, or cost category values when it is set -- either
+// way it narrows the same values slice this function is given.
+func applyCostCategoriesSearchString(values []string, search string) []string {
+	if search == "" {
+		return values
+	}
+
+	needle := strings.ToLower(search)
+	kept := values[:0]
+
+	for _, v := range values {
+		if strings.Contains(strings.ToLower(v), needle) {
+			kept = append(kept, v)
+		}
+	}
+
+	return kept
+}
+
 func (h *Handler) handleGetCostCategories(
 	_ context.Context,
 	in *getCostCategoriesInput,
 ) (*getCostCategoriesOutput, error) {
+	// Real GetCostCategoriesInput requires TimePeriod. This emulator derives
+	// cost category names/values from stored CostCategory definitions rather
+	// than narrowing by TimePeriod, so this is a presence check only, same
+	// shape as GetDimensionValues/GetTags' required-field fix.
+	if in.TimePeriod == nil || in.TimePeriod[timePeriodKeyStart] == "" || in.TimePeriod[timePeriodKeyEnd] == "" {
+		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
+	}
+
 	if in.CostCategoryName == "" {
-		names := applyCostCategoriesSort(h.Backend.GetCostCategoryNames(), in.SortBy)
+		names := applyCostCategoriesSearchString(h.Backend.GetCostCategoryNames(), in.SearchString)
+		names = applyCostCategoriesSort(names, in.SortBy)
+		totalSize := len(names)
+		page, nextToken := paginateOrdered(names, in.MaxResults, in.NextPageToken, func(v string) string { return v })
 
 		return &getCostCategoriesOutput{
-			CostCategoryNames: names,
-			ReturnSize:        len(names),
-			TotalSize:         len(names),
+			CostCategoryNames: page,
+			NextPageToken:     nextToken,
+			ReturnSize:        len(page),
+			TotalSize:         totalSize,
 		}, nil
 	}
 
 	values := h.Backend.GetCostCategories(in.CostCategoryName)
 	values = applyCostCategoriesFilter(values, in.Filter)
+	values = applyCostCategoriesSearchString(values, in.SearchString)
 	values = applyCostCategoriesSort(values, in.SortBy)
+	totalSize := len(values)
+	page, nextToken := paginateOrdered(values, in.MaxResults, in.NextPageToken, func(v string) string { return v })
 
 	return &getCostCategoriesOutput{
-		CostCategoryValues: values,
-		ReturnSize:         len(values),
-		TotalSize:          len(values),
+		CostCategoryValues: page,
+		NextPageToken:      nextToken,
+		ReturnSize:         len(page),
+		TotalSize:          totalSize,
 	}, nil
 }
 
+// listCostCategoryResourceAssociationsInput is field-diffed against real AWS
+// CE's ListCostCategoryResourceAssociationsInput: it has exactly
+// CostCategoryArn/MaxResults/NextToken. "ResourceTagFilter" matched no real
+// member and was removed; MaxResults was entirely absent.
 type listCostCategoryResourceAssociationsInput struct {
-	CostCategoryArn   string `json:"CostCategoryArn"`
-	NextToken         string `json:"NextToken"`
-	ResourceTagFilter []any  `json:"ResourceTagFilter"`
+	CostCategoryArn string `json:"CostCategoryArn"`
+	NextToken       string `json:"NextToken"`
+	MaxResults      int    `json:"MaxResults"`
 }
 
 // costCategoryResourceAssociation mirrors aws-sdk-go-v2/service/costexplorer/types'
@@ -358,13 +424,23 @@ type listCostCategoryResourceAssociationsOutput struct {
 // and this emulator has no such resource-tag inventory to associate against -- there is
 // no state to disguise a no-op here, unlike the deterministic-mock query ops that read
 // the synthetic cost ledger. The wire shape (field names/nesting) is now field-diffed
-// against the real CostCategoryResourceAssociation type.
+// against the real CostCategoryResourceAssociation type. CostCategoryArn is left
+// unread/undocumented-as-erroring rather than guessed at: real AWS's own validators.go
+// has no required-field check for this op, and there is no confirmed evidence (doc page
+// or SDK source) of what a nonexistent ARN does here -- inventing a not-found error would
+// be exactly the unverified-behavior fabrication this campaign warns against. NextToken/
+// MaxResults are threaded through paginateList for a genuinely empty list (see
+// GetCostComparisonDrivers for the same shape).
 func (h *Handler) handleListCostCategoryResourceAssociations(
 	_ context.Context,
-	_ *listCostCategoryResourceAssociationsInput,
+	in *listCostCategoryResourceAssociationsInput,
 ) (*listCostCategoryResourceAssociationsOutput, error) {
+	page, nextToken := paginateList([]costCategoryResourceAssociation{}, in.MaxResults, in.NextToken,
+		func(costCategoryResourceAssociation) string { return "" })
+
 	return &listCostCategoryResourceAssociationsOutput{
-		CostCategoryResourceAssociations: []costCategoryResourceAssociation{},
+		CostCategoryResourceAssociations: page,
+		NextToken:                        nextToken,
 	}, nil
 }
 

@@ -19,7 +19,7 @@ func TestVpcClassicLink_CRUD(t *testing.T) { //nolint:paralleltest // existing i
 	var instanceID string
 
 	{
-		v, err := b.CreateVpc("10.50.0.0/16")
+		v, err := b.CreateVpc("10.50.0.0/16", "default")
 		require.NoError(t, err)
 
 		vpc = v
@@ -93,7 +93,7 @@ func TestVpcClassicLinkDNSSupport_CRUD(t *testing.T) { //nolint:paralleltest // 
 	var vpc *ec2.VPC
 
 	{
-		v, err := b.CreateVpc("10.60.0.0/16")
+		v, err := b.CreateVpc("10.60.0.0/16", "default")
 		require.NoError(t, err)
 
 		vpc = v
@@ -159,7 +159,7 @@ func TestVpcBlockPublicAccessExclusion_CRUD(t *testing.T) { //nolint:paralleltes
 	var vpc *ec2.VPC
 
 	{
-		v, err := b.CreateVpc("10.70.0.0/16")
+		v, err := b.CreateVpc("10.70.0.0/16", "default")
 		require.NoError(t, err)
 
 		vpc = v

@@ -63,6 +63,70 @@ func TestUpdateAndListPermissions(t *testing.T) {
 	require.Empty(t, after.Permissions)
 }
 
+// TestListPermissions_FiltersExcludeNonMatching seeds a user, a second user,
+// and a group so that each filter has a wrong answer to return: a test with
+// only one grant on the workspace cannot tell "filtered correctly" apart
+// from "returned everything".
+func TestListPermissions_FiltersExcludeNonMatching(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	id := createActiveWorkspace(t, client, minimalCreateWorkspaceInput())
+
+	const (
+		userA  = "10a20b30-4c5d-4e6f-8a9b-0c1d2e3f4a5b"
+		userB  = "20a20b30-4c5d-4e6f-8a9b-0c1d2e3f4a5c"
+		groupG = "30a20b30-4c5d-4e6f-8a9b-0c1d2e3f4a5d"
+	)
+
+	upd, err := client.UpdatePermissions(t.Context(), &grafanasdk.UpdatePermissionsInput{
+		WorkspaceId: aws.String(id),
+		UpdateInstructionBatch: []types.UpdateInstruction{
+			{
+				Action: types.UpdateActionAdd, Role: types.RoleAdmin,
+				Users: []types.User{{Id: aws.String(userA), Type: types.UserTypeSsoUser}},
+			},
+			{
+				Action: types.UpdateActionAdd, Role: types.RoleEditor,
+				Users: []types.User{{Id: aws.String(userB), Type: types.UserTypeSsoUser}},
+			},
+			{
+				Action: types.UpdateActionAdd, Role: types.RoleAdmin,
+				Users: []types.User{{Id: aws.String(groupG), Type: types.UserTypeSsoGroup}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, upd.Errors)
+
+	byUser, err := client.ListPermissions(t.Context(), &grafanasdk.ListPermissionsInput{
+		WorkspaceId: aws.String(id), UserId: aws.String(userA),
+	})
+	require.NoError(t, err)
+	require.Len(t, byUser.Permissions, 1, "userId filter must exclude userB and groupG")
+	require.Equal(t, userA, aws.ToString(byUser.Permissions[0].User.Id))
+
+	byGroup, err := client.ListPermissions(t.Context(), &grafanasdk.ListPermissionsInput{
+		WorkspaceId: aws.String(id), GroupId: aws.String(groupG),
+	})
+	require.NoError(t, err)
+	require.Len(t, byGroup.Permissions, 1, "groupId filter must exclude userA and userB")
+	require.Equal(t, groupG, aws.ToString(byGroup.Permissions[0].User.Id))
+	require.Equal(t, types.UserTypeSsoGroup, byGroup.Permissions[0].User.Type)
+
+	byGroupType, err := client.ListPermissions(t.Context(), &grafanasdk.ListPermissionsInput{
+		WorkspaceId: aws.String(id), UserType: types.UserTypeSsoGroup,
+	})
+	require.NoError(t, err)
+	require.Len(t, byGroupType.Permissions, 1, "userType=SSO_GROUP must exclude both SSO_USER grants")
+
+	byUserType, err := client.ListPermissions(t.Context(), &grafanasdk.ListPermissionsInput{
+		WorkspaceId: aws.String(id), UserType: types.UserTypeSsoUser,
+	})
+	require.NoError(t, err)
+	require.Len(t, byUserType.Permissions, 2, "userType=SSO_USER must exclude the SSO_GROUP grant")
+}
+
 func TestUpdatePermissions_PartialFailure(t *testing.T) {
 	t.Parallel()
 

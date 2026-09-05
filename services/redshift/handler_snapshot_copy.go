@@ -74,6 +74,8 @@ type describeSnapshotCopyGrantsResponse struct {
 
 func (h *Handler) handleDescribeSnapshotCopyGrants(vals url.Values) (any, error) {
 	name := vals.Get("SnapshotCopyGrantName")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	grants, err := h.Backend.DescribeSnapshotCopyGrants(name)
 	if err != nil {
@@ -83,6 +85,10 @@ func (h *Handler) handleDescribeSnapshotCopyGrants(vals url.Values) (any, error)
 	members := make([]xmlSnapshotCopyGrant, 0, len(grants))
 
 	for _, g := range grants {
+		if !anyTagMatchesFilter(g.Tags, tagKeys, tagValues) {
+			continue
+		}
+
 		members = append(members, xmlSnapshotCopyGrant{
 			SnapshotCopyGrantName: g.SnapshotCopyGrantName,
 			KMSKeyID:              g.KMSKeyID,

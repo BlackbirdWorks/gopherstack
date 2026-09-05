@@ -392,18 +392,20 @@ type errorClass struct {
 // status. The real FIS API model defines exactly four exception shapes service-wide
 // (ValidationException, ResourceNotFoundException, ConflictException,
 // ServiceQuotaExceededException) — there are no per-resource "XyzNotFoundException"
-// or "TooManyTagsException" shapes, and every operation's generated deserializer in
-// aws-sdk-go-v2/service/fis only recognizes these four __type strings. Emitting any
-// other type name causes real SDK clients to fall back to a generic, untyped error
-// even where the operation supports a typed one, breaking `errors.As` checks against
-// the modeled exception types.
+// or "TooManyTagsException" shapes. Most operations' generated deserializers in
+// aws-sdk-go-v2/service/fis recognize a subset of these four __type strings; three
+// (TagResource, UntagResource, ListTagsForResource) recognize none of them — their
+// deserializers have an empty switch, so no type string reaches a typed error client
+// side for those three regardless of what is sent. ResourceNotFoundException/404 is
+// still emitted for a missing ARN on those three as the closest faithful guess, since
+// no typed shape exists to prefer instead.
 //
 // Per the SDK's per-operation deserializers: every not-found condition (template,
 // experiment, action, target resource type, safety lever, target account
-// configuration, or a generically tagged resource) maps to ResourceNotFoundException;
-// StopExperiment does not model ConflictException, so stopping a non-running
-// experiment maps to ValidationException; and ServiceQuotaExceededException carries
-// HTTP 402 (Payment Required), not 429.
+// configuration, or a generically tagged resource) maps to ResourceNotFoundException
+// where the operation declares it; StopExperiment does not model ConflictException,
+// so stopping a non-running experiment maps to ValidationException; and
+// ServiceQuotaExceededException carries HTTP 402 (Payment Required), not 429.
 func classifyError(err error) errorClass {
 	switch {
 	case errors.Is(err, ErrValidation), errors.Is(err, ErrTooManyTags), errors.Is(err, ErrExperimentNotRunning):
@@ -689,6 +691,11 @@ func paginateWithToken(_ []string, q url.Values) (int, int) {
 // paginateWithToken's existing contract.
 func paginatePage[T any](items []T, ids []string, q url.Values) ([]T, string) {
 	maxResults, start := paginateWithToken(ids, q)
+
+	// A stale or tampered nextToken can decode to an offset past the current
+	// item count (e.g. the list shrank between calls); clamp before slicing
+	// so it degrades to an empty page instead of panicking.
+	start = min(start, len(items))
 
 	end := min(start+maxResults, len(items))
 

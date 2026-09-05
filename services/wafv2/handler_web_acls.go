@@ -172,13 +172,27 @@ func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: web ACL %q has scope %s, not %s", ErrWebACLNotFound, w.ID, w.Scope, req.Scope)
 	}
 
-	return h.marshalWebACL(w)
+	return h.marshalWebACL(ctx, w)
 }
 
 // marshalWebACL builds the canonical WebACL JSON response.
-func (h *Handler) marshalWebACL(w *WebACL) ([]byte, error) {
+func (h *Handler) marshalWebACL(ctx context.Context, w *WebACL) ([]byte, error) {
 	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
+
+	// Capacity ("web ACL capacity units... currently being used by this web
+	// ACL", wafv2@v1.77.3 types/types.go) is real, always-populated AWS data
+	// this backend can derive with its existing per-statement WCU cost model
+	// (capacity.go, the same one CheckCapacity uses) rather than fabricating
+	// a value. Ignoring the error is safe: CheckCapacity never returns one.
+	capacity, _ := h.Backend.CheckCapacity(ctx, w.Scope, w.Rules)
+
+	// LabelNamespace grammar ("awswaf:<account ID>:webacl:<web ACL name>:")
+	// confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_WebACL.html
+	// (the pinned SDK's own doc comment has its <placeholder> substitutions
+	// stripped by a codegen artifact) -- deterministic from data this
+	// backend already has, not fabricated.
+	labelNamespace := fmt.Sprintf("awswaf:%s:webacl:%s:", h.Backend.AccountID(), w.Name)
 
 	defaultActionJSON := w.DefaultAction
 	if len(defaultActionJSON) == 0 {
@@ -204,6 +218,8 @@ func (h *Handler) marshalWebACL(w *WebACL) ([]byte, error) {
 		"DefaultAction":     defaultActionMap,
 		keyVisibilityConfig: visConfig,
 		keyRules:            rules,
+		keyCapacity:         capacity,
+		keyLabelNamespace:   labelNamespace,
 	}
 
 	if len(w.TokenDomains) > 0 {
@@ -279,6 +295,14 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := validateVisibilityConfig(req.VisibilityConfig); err != nil {
 		return nil, err
 	}
@@ -339,6 +363,14 @@ func (h *Handler) handleDeleteWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
 	if err := h.Backend.DeleteWebACL(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
@@ -385,7 +417,11 @@ func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, bod
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.DeleteFirewallManagerRuleGroups(ctx, req.WebACLArn)
+	if req.WebACLLockToken == "" {
+		return nil, fmt.Errorf("%w: WebACLLockToken is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.DeleteFirewallManagerRuleGroups(ctx, req.WebACLArn, req.WebACLLockToken)
 	if err != nil {
 		return nil, err
 	}

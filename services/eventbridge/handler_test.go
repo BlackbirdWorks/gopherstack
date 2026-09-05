@@ -733,8 +733,14 @@ func TestErrAlreadyExistsMapping(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
-// TestErrInvalidStateMapping verifies ErrInvalidState maps to HTTP 400.
-func TestErrInvalidStateMapping(t *testing.T) {
+// TestCancelReplay_TerminalStateMapping verifies a terminal-state CancelReplay
+// maps to HTTP 400 IllegalStatusException, not InvalidStateException --
+// CancelReplay's own deserializeOpError switch (eventbridge deserializers.go)
+// declares IllegalStatusException; InvalidStateException is correct only for
+// ActivateEventSource/CreateEventBus/DeactivateEventSource (gopherstack-uox6
+// sweep). Asserting only the status here would not have caught the
+// wrong-code bug this test used to pin (both codes map to 400).
+func TestCancelReplay_TerminalStateMapping(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
@@ -744,4 +750,8 @@ func TestErrInvalidStateMapping(t *testing.T) {
 
 	rec := makeRequestWithHandler(t, handler, e, "CancelReplay", `{"ReplayName":"r1"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp service.JSONErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "IllegalStatusException", errResp.Type)
 }

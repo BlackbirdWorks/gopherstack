@@ -68,12 +68,8 @@ func matchesJSONPattern(msgBody, pattern string) bool {
 	}
 
 	for field, ruleRaw := range patternMap {
-		msgVal, ok := msgMap[field]
-		if !ok {
-			return false
-		}
-
-		if !fieldMatchesRule(msgVal, ruleRaw) {
+		msgVal, exists := msgMap[field]
+		if !fieldMatchesRule(msgVal, exists, ruleRaw) {
 			return false
 		}
 	}
@@ -82,17 +78,19 @@ func matchesJSONPattern(msgBody, pattern string) bool {
 }
 
 // fieldMatchesRule checks whether msgVal satisfies the EventBridge rule array.
-// The rule is expected to be a JSON array of matchers. Currently only plain
-// string values are supported; each string is compared for equality with the
-// string representation of msgVal.
-func fieldMatchesRule(msgVal, ruleRaw json.RawMessage) bool {
+// exists reports whether the field was present in the message at all --
+// needed because {"exists": false} (eb-event-patterns-content-based-filtering.html,
+// "Exists matching", Pipe support: Yes) matches precisely when the field is
+// absent, so evaluation cannot short-circuit on absence the way every other
+// operator does.
+func fieldMatchesRule(msgVal json.RawMessage, exists bool, ruleRaw json.RawMessage) bool {
 	var rules []json.RawMessage
 	if err := json.Unmarshal(ruleRaw, &rules); err != nil {
 		return false
 	}
 
 	for _, rule := range rules {
-		if matchesRule(msgVal, rule) {
+		if matchesRule(msgVal, exists, rule) {
 			return true
 		}
 	}
@@ -102,12 +100,27 @@ func fieldMatchesRule(msgVal, ruleRaw json.RawMessage) bool {
 
 // matchesRule evaluates a single rule against a message field value.
 // Supported rule shapes:
-//   - "string"                   — exact string equality
-//   - {"prefix": "pfx"}          — string prefix match
-//   - {"suffix": "sfx"}          — string suffix match
+//   - "string"                    — exact string equality
+//   - {"prefix": "pfx"}           — string prefix match
+//   - {"suffix": "sfx"}           — string suffix match
+//   - {"anything-but": "a"}       — value must not equal the given string
 //   - {"anything-but": ["a","b"]} — value must not equal any listed string
-//   - {"exists": true/false}      — field presence (handled at call site; always true here)
-func matchesRule(msgVal, rule json.RawMessage) bool {
+//   - {"exists": true/false}      — field presence
+//
+// msgExists is false whenever the field was absent from the message; every
+// operator besides exists requires a value to compare against, so absence
+// fails them all except an explicit {"exists": false}.
+func matchesRule(msgVal json.RawMessage, msgExists bool, rule json.RawMessage) bool {
+	if ruleObj, ok := existsRuleObject(rule); ok {
+		if want, wantOK := existsWant(ruleObj); wantOK {
+			return msgExists == want
+		}
+	}
+
+	if !msgExists {
+		return false
+	}
+
 	// Try plain string equality.
 	var ruleStr string
 	if err := json.Unmarshal(rule, &ruleStr); err == nil {
@@ -143,10 +156,52 @@ func matchesRule(msgVal, rule json.RawMessage) bool {
 	}
 
 	if anythingButRaw, ok := ruleObj["anything-but"]; ok {
-		var excluded []string
-		if err := json.Unmarshal(anythingButRaw, &excluded); err == nil {
-			return !slices.Contains(excluded, msgStr)
-		}
+		return !matchesAnythingBut(anythingButRaw, msgStr)
+	}
+
+	return false
+}
+
+// existsRuleObject unmarshals rule as a JSON object, returning ok=false for
+// any other shape (plain string, array, ...).
+func existsRuleObject(rule json.RawMessage) (map[string]json.RawMessage, bool) {
+	var ruleObj map[string]json.RawMessage
+	if err := json.Unmarshal(rule, &ruleObj); err != nil {
+		return nil, false
+	}
+
+	return ruleObj, true
+}
+
+// existsWant extracts {"exists": true/false}'s boolean, ok=false if the key
+// is absent or not a bool.
+func existsWant(ruleObj map[string]json.RawMessage) (bool, bool) {
+	existsRaw, hasKey := ruleObj["exists"]
+	if !hasKey {
+		return false, false
+	}
+
+	var want bool
+	if err := json.Unmarshal(existsRaw, &want); err != nil {
+		return false, false
+	}
+
+	return want, true
+}
+
+// matchesAnythingBut reports whether msgStr equals the anything-but rule
+// value, which per the docs (eb-filtering-anything-but) may be a single
+// string or a list of strings -- "state": [ { "anything-but": "initializing" } ]
+// is the documented single-value form, distinct from the list form.
+func matchesAnythingBut(anythingButRaw json.RawMessage, msgStr string) bool {
+	var single string
+	if err := json.Unmarshal(anythingButRaw, &single); err == nil {
+		return msgStr == single
+	}
+
+	var excluded []string
+	if err := json.Unmarshal(anythingButRaw, &excluded); err == nil {
+		return slices.Contains(excluded, msgStr)
 	}
 
 	return false

@@ -175,6 +175,7 @@ func (b *InMemoryBackend) ListSelfUpgrades(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, r := range all {
 			if r.UpgradeRequestID == nextToken {
 				start = i

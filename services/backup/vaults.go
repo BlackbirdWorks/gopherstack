@@ -373,11 +373,13 @@ func (b *InMemoryBackend) ListBackupVaultsFiltered(f ListVaultsFilter) ([]*Vault
 	all := b.vaults.All()
 	list := make([]*Vault, 0, len(all))
 	for _, v := range all {
-		// Filter by vault type: logically air-gapped vaults have MinRetentionDays > 0.
-		if f.VaultType == VaultTypeAirGapped && v.MinRetentionDays == 0 {
-			continue
-		}
-		if f.VaultType == VaultTypeBackupVault && v.MinRetentionDays > 0 {
+		// types.VaultType (aws-sdk-go-v2/service/backup@v1.59.4 enums.go) has a
+		// third value, RESTORE_ACCESS_BACKUP_VAULT, that no entry in b.vaults
+		// ever carries (restore access vaults live in a separate table).
+		// Comparing directly against v.VaultType -- rather than special-casing
+		// the two values this store does produce -- excludes those vaults by
+		// construction instead of falling through and matching everything.
+		if f.VaultType != "" && f.VaultType != v.VaultType {
 			continue
 		}
 		cp := *v

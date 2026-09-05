@@ -335,3 +335,13 @@ func (b *InMemoryBackend) AssociationExecutionCount(assocID string) int {
 
 	return len(b.associationExecutionsStore(b.Region())[assocID])
 }
+
+// AddAutomationExecutionInternal seeds an automation execution directly into
+// the backend for testing, bypassing StartAutomationExecution's real-time
+// StartTime assignment so callers can construct StartTime ties.
+func (b *InMemoryBackend) AddAutomationExecutionInternal(exec AutomationExecution) {
+	b.mu.Lock("AddAutomationExecutionInternal")
+	defer b.mu.Unlock()
+	r := b.Region()
+	b.automationExecutionsStore(r).Put(&exec)
+}

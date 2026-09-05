@@ -439,3 +439,65 @@ func TestUpdateVpcOrigin_MalformedBodyHandled(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
+
+// TestListVpcOrigins_ItemShape_RealClient is a regression test for gopherstack-21my:
+// ListVpcOrigins' item struct tagged its ARN field `xml:"ARN"`, but the real
+// VpcOriginSummary deserializer (cloudfront@v1.67.4 deserializers.go,
+// awsRestxml_deserializeDocumentVpcOriginSummary) matches on "Arn" -- a case-only
+// mismatch that decodes today only because the XML decoder folds case, and was
+// inconsistent with this same service's vpcOriginResponseXML (Get), which already
+// used the correct "Arn" casing. The summary also omitted OriginEndpointArn and
+// AccountId entirely even though both are backed by real state (the origin's own
+// EndpointArn and the backend's single AccountID()). Seeds two origins with
+// distinguishable ARNs and asserts both come back correctly matched by Id.
+func TestListVpcOrigins_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	mk := func(name, endpointARN string) *cfsdk.CreateVpcOriginOutput {
+		out, err := client.CreateVpcOrigin(t.Context(), &cfsdk.CreateVpcOriginInput{
+			VpcOriginEndpointConfig: &types.VpcOriginEndpointConfig{
+				Name:                 aws.String(name),
+				Arn:                  aws.String(endpointARN),
+				OriginProtocolPolicy: types.OriginProtocolPolicyHttpsOnly,
+				HTTPPort:             aws.Int32(80),
+				HTTPSPort:            aws.Int32(443),
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("list-shape-vpc-1", "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/first")
+	second := mk("list-shape-vpc-2", "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/second")
+
+	listed, err := client.ListVpcOrigins(t.Context(), &cfsdk.ListVpcOriginsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.VpcOriginList)
+	require.Len(t, listed.VpcOriginList.Items, 2)
+
+	byID := make(map[string]types.VpcOriginSummary, 2)
+	for _, item := range listed.VpcOriginList.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.VpcOrigin.Id]
+	require.True(t, ok)
+	require.NotNil(t, item1.Arn)
+	assert.Equal(t, *first.VpcOrigin.Arn, *item1.Arn)
+	require.NotNil(t, item1.OriginEndpointArn)
+	assert.Equal(t, "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/first",
+		*item1.OriginEndpointArn)
+	require.NotNil(t, item1.AccountId)
+	assert.Equal(t, "123456789012", *item1.AccountId)
+
+	item2, ok := byID[*second.VpcOrigin.Id]
+	require.True(t, ok)
+	require.NotNil(t, item2.OriginEndpointArn)
+	assert.Equal(t, "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/second",
+		*item2.OriginEndpointArn)
+}

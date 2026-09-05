@@ -86,7 +86,7 @@ func (h *Handler) handleCopyDBClusterParameterGroup(ctx context.Context, vals ur
 
 func (h *Handler) handleDescribeDBClusterParameters(ctx context.Context, vals url.Values) (any, error) {
 	groupName := vals.Get("DBClusterParameterGroupName")
-	params, err := h.Backend.DescribeDBClusterParameters(ctx, groupName)
+	params, err := h.Backend.DescribeDBClusterParameters(ctx, groupName, vals.Get("Source"))
 	if err != nil {
 		return nil, err
 	}

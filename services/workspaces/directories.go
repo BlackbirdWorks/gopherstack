@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -45,12 +46,19 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 		}
 
 		result = append(result, &WorkspaceDirectory{
-			DirectoryID:   id,
-			DirectoryName: ds.Properties["DirectoryName"],
-			DirectoryType: ds.Properties["DirectoryType"],
-			Alias:         ds.Properties["Alias"],
-			State:         state,
-			SubnetIDs:     subnetIDs,
+			DirectoryID:                    id,
+			DirectoryName:                  ds.Properties["DirectoryName"],
+			DirectoryType:                  ds.Properties["DirectoryType"],
+			Alias:                          ds.Properties["Alias"],
+			State:                          state,
+			SubnetIDs:                      subnetIDs,
+			IPGroupIDs:                     b.directoryIPGroupIDsLocked(id),
+			EndpointEncryptionMode:         ds.Properties["EndpointEncryptionMode"],
+			CertificateBasedAuthProperties: certBasedAuthPropertiesFromDS(ds),
+			SamlProperties:                 samlPropertiesFromDS(ds),
+			SelfservicePermissions:         selfservicePermissionsFromDS(ds),
+			WorkspaceAccessProperties:      workspaceAccessPropertiesFromDS(ds),
+			WorkspaceCreationProperties:    workspaceCreationPropertiesFromDS(ds),
 		})
 	}
 
@@ -74,6 +82,150 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 	}
 
 	return result, newToken, nil
+}
+
+// directoryIPGroupIDsLocked returns the sorted IP group IDs associated with
+// a directory (real WorkspaceDirectory.IpGroupIds, wire key "ipGroupIds" --
+// unusually lowercase-led for this awsjson1.1 API, deserializers.go:18124).
+// Caller must hold at least b.mu.RLock.
+func (b *InMemoryBackend) directoryIPGroupIDsLocked(directoryID string) []string {
+	groups := b.directoryIpGroups[directoryID]
+	if len(groups) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(groups))
+	for gid := range groups {
+		ids = append(ids, gid)
+	}
+
+	sort.Strings(ids)
+
+	return ids
+}
+
+// certBasedAuthPropertiesFromDS reads back what ModifyCertificateBasedAuthProperties
+// stored under the "CertAuth_" key prefix. Returns nil (omitted on the wire)
+// if the directory was never touched by that op, matching real AWS's
+// pointer-typed CertificateBasedAuthProperties member.
+func certBasedAuthPropertiesFromDS(ds *storedDirSettings) *CertificateBasedAuthProperties {
+	status, hasStatus := ds.Properties["CertAuth_Status"]
+	arn, hasArn := ds.Properties["CertAuth_CertificateAuthorityArn"]
+
+	if !hasStatus && !hasArn {
+		return nil
+	}
+
+	return &CertificateBasedAuthProperties{Status: status, CertificateAuthorityArn: arn}
+}
+
+// samlPropertiesFromDS reads back what ModifySamlProperties stored under the
+// "Saml_" key prefix. See certBasedAuthPropertiesFromDS for the nil-when-unset rule.
+func samlPropertiesFromDS(ds *storedDirSettings) *SamlProperties {
+	status, hasStatus := ds.Properties["Saml_Status"]
+	url, hasURL := ds.Properties["Saml_UserAccessUrl"]
+	relayState, hasRelayState := ds.Properties["Saml_RelayStateParameterName"]
+
+	if !hasStatus && !hasURL && !hasRelayState {
+		return nil
+	}
+
+	return &SamlProperties{Status: status, UserAccessUrl: url, RelayStateParameterName: relayState}
+}
+
+// selfservicePermissionsFromDS reads back what ModifySelfservicePermissions
+// stored under the "SelfSvc_" key prefix. See certBasedAuthPropertiesFromDS
+// for the nil-when-unset rule.
+func selfservicePermissionsFromDS(ds *storedDirSettings) *SelfservicePermissions {
+	keys := []string{
+		"SelfSvc_RestartWorkspace", "SelfSvc_IncreaseVolumeSize", "SelfSvc_ChangeComputeType",
+		"SelfSvc_SwitchRunningMode", "SelfSvc_RebuildWorkspace",
+	}
+	if !dsHasAnyKey(ds, keys) {
+		return nil
+	}
+
+	return &SelfservicePermissions{
+		RestartWorkspace:   ds.Properties["SelfSvc_RestartWorkspace"],
+		IncreaseVolumeSize: ds.Properties["SelfSvc_IncreaseVolumeSize"],
+		ChangeComputeType:  ds.Properties["SelfSvc_ChangeComputeType"],
+		SwitchRunningMode:  ds.Properties["SelfSvc_SwitchRunningMode"],
+		RebuildWorkspace:   ds.Properties["SelfSvc_RebuildWorkspace"],
+	}
+}
+
+// workspaceAccessPropertiesFromDS reads back what
+// ModifyWorkspaceAccessProperties stored under the "Access_" key prefix. See
+// certBasedAuthPropertiesFromDS for the nil-when-unset rule.
+func workspaceAccessPropertiesFromDS(ds *storedDirSettings) *WorkspaceAccessProperties {
+	keys := []string{
+		"Access_DeviceTypeWindows", "Access_DeviceTypeOsx", "Access_DeviceTypeWeb",
+		"Access_DeviceTypeIos", "Access_DeviceTypeAndroid", "Access_DeviceTypeChromeOs",
+		"Access_DeviceTypeZeroClient", "Access_DeviceTypeLinux",
+	}
+	if !dsHasAnyKey(ds, keys) {
+		return nil
+	}
+
+	return &WorkspaceAccessProperties{
+		DeviceTypeWindows:    ds.Properties["Access_DeviceTypeWindows"],
+		DeviceTypeOsx:        ds.Properties["Access_DeviceTypeOsx"],
+		DeviceTypeWeb:        ds.Properties["Access_DeviceTypeWeb"],
+		DeviceTypeIos:        ds.Properties["Access_DeviceTypeIos"],
+		DeviceTypeAndroid:    ds.Properties["Access_DeviceTypeAndroid"],
+		DeviceTypeChromeOs:   ds.Properties["Access_DeviceTypeChromeOs"],
+		DeviceTypeZeroClient: ds.Properties["Access_DeviceTypeZeroClient"],
+		DeviceTypeLinux:      ds.Properties["Access_DeviceTypeLinux"],
+	}
+}
+
+// workspaceCreationPropertiesFromDS reads back what
+// ModifyWorkspaceCreationProperties stored under its "Creation_" key
+// prefix. See certBasedAuthPropertiesFromDS for the nil-when-unset rule.
+func workspaceCreationPropertiesFromDS(ds *storedDirSettings) *WorkspaceCreationProperties {
+	keys := []string{
+		"Creation_DefaultOu", "Creation_CustomSecurityGroupId", "Creation_EnableInternetAccess",
+		"Creation_EnableMaintenanceMode", "Creation_UserEnabledAsLocalAdministrator",
+	}
+	if !dsHasAnyKey(ds, keys) {
+		return nil
+	}
+
+	return &WorkspaceCreationProperties{
+		DefaultOu:                       ds.Properties["Creation_DefaultOu"],
+		CustomSecurityGroupId:           ds.Properties["Creation_CustomSecurityGroupId"],
+		EnableInternetAccess:            dsBoolPtr(ds, "Creation_EnableInternetAccess"),
+		EnableMaintenanceMode:           dsBoolPtr(ds, "Creation_EnableMaintenanceMode"),
+		UserEnabledAsLocalAdministrator: dsBoolPtr(ds, "Creation_UserEnabledAsLocalAdministrator"),
+	}
+}
+
+// dsBoolPtr parses ds.Properties[key] as a bool, returning nil if the key was
+// never set (matching the nil-when-unset rule certBasedAuthPropertiesFromDS
+// documents) or holds an unparseable value.
+func dsBoolPtr(ds *storedDirSettings, key string) *bool {
+	v, ok := ds.Properties[key]
+	if !ok {
+		return nil
+	}
+
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return nil
+	}
+
+	return &b
+}
+
+// dsHasAnyKey reports whether ds.Properties contains at least one of keys.
+func dsHasAnyKey(ds *storedDirSettings, keys []string) bool {
+	for _, k := range keys {
+		if _, ok := ds.Properties[k]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // advanceDirCursor removes all directories that sort before the decoded nextToken cursor.
@@ -102,7 +254,11 @@ func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*Workspace
 // Returns ResourceAlreadyExistsException when the directory is already
 // registered, matching real AWS: you cannot re-register an already-registered
 // directory.
-func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error {
+func (b *InMemoryBackend) RegisterWorkspaceDirectory(
+	directoryID string,
+	subnetIDs []string,
+	tags map[string]string,
+) error {
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
@@ -117,6 +273,10 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetI
 
 	if len(subnetIDs) > 0 {
 		ds.Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
+	}
+
+	if len(tags) > 0 {
+		b.tags[directoryID] = cloneTags(tags)
 	}
 
 	return nil

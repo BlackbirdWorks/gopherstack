@@ -174,7 +174,11 @@ func (b *InMemoryBackend) DeleteRestoreTestingPlan(planName string) error {
 	defer b.mu.Unlock()
 
 	if !b.restoreTestingPlans.Has(planName) {
-		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+		// DeleteRestoreTestingPlan's own deserializeOpError switch (unlike
+		// almost every sibling op) declares no ResourceNotFoundException
+		// case at all -- InvalidRequestException is the only client-fault
+		// type available for this operation.
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrInvalidRequest, planName)
 	}
 
 	b.restoreTestingPlans.Delete(planName)
@@ -387,6 +391,119 @@ func (b *InMemoryBackend) ListScanJobs() []*ScanJob {
 	sort.Slice(out, func(i, j int) bool { return out[i].ScanJobID < out[j].ScanJobID })
 
 	return out
+}
+
+// ListScanJobSummaries returns scan job counts grouped by State, real
+// ScanJobSummary's own required grouping key (backup@v1.59.4
+// api_op_ListScanJobSummaries.go, ScanJobSummary: AccountId, Count, Region,
+// ResourceType, ScanResultStatus, State, StartTime, EndTime).
+// AggregationPeriod (per-day/per-week time-bucketed counts),
+// ResourceType-level grouping, and MalwareScanner/ScanResultStatus (this
+// backend's ScanJob never tracks a scan result outcome, see the ScanJob
+// type doc) are not modeled -- kept consistent with the same State-only
+// grouping precedent ListBackupJobSummaries/ListCopyJobSummaries already
+// use for their own sibling ops.
+func (b *InMemoryBackend) ListScanJobSummaries() []map[string]any {
+	b.mu.RLock("ListScanJobSummaries")
+	defer b.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, j := range b.scanJobs.All() {
+		counts[j.Status]++
+	}
+
+	summaries := make([]map[string]any, 0, len(counts))
+	for state, count := range counts {
+		summaries = append(summaries, map[string]any{
+			keyState:         state,
+			keySummaryCount:  count,
+			keySummaryRegion: b.region,
+			keyAccountID:     b.accountID,
+		})
+	}
+
+	return summaries
+}
+
+// ListScanJobsFilter contains optional filter parameters for listing scan
+// jobs, mirroring ListScanJobsInput (api_op_ListScanJobs.go, backup@v1.59.4).
+// ByScanResultStatus is not included: this backend's ScanJob has no field
+// to hold a scan result status (StartScanJob never receives or fabricates
+// one).
+type ListScanJobsFilter struct {
+	CompleteAfter    *time.Time
+	CompleteBefore   *time.Time
+	AccountID        string
+	BackupVaultName  string
+	MalwareScanner   string
+	RecoveryPointArn string
+	ResourceArn      string
+	ResourceType     string
+	State            string
+	NextToken        string
+	MaxResults       int
+}
+
+// scanJobAccountMatches implements ByAccountId (api_op_ListScanJobs.go):
+// "If used from an Amazon Web Services Organizations management account,
+// passing * returns all jobs across the organization" -- "*" is a wildcard,
+// not a literal account ID.
+func scanJobAccountMatches(j *ScanJob, f ListScanJobsFilter) bool {
+	return f.AccountID == "" || f.AccountID == wildcardAccountID || j.AccountID == f.AccountID
+}
+
+func scanJobMatchesFieldFilters(j *ScanJob, f ListScanJobsFilter) bool {
+	if !scanJobAccountMatches(j, f) {
+		return false
+	}
+
+	switch {
+	case f.BackupVaultName != "" && j.BackupVaultName != f.BackupVaultName:
+		return false
+	case f.MalwareScanner != "" && j.MalwareScanner != f.MalwareScanner:
+		return false
+	case f.RecoveryPointArn != "" && j.RecoveryPointArn != f.RecoveryPointArn:
+		return false
+	case f.ResourceArn != "" && j.ResourceArn != f.ResourceArn:
+		return false
+	case f.ResourceType != "" && j.ResourceType != f.ResourceType:
+		return false
+	case f.State != "" && j.Status != f.State:
+		return false
+	}
+
+	return true
+}
+
+func scanJobMatchesFilter(j *ScanJob, f ListScanJobsFilter) bool {
+	if !scanJobMatchesFieldFilters(j, f) {
+		return false
+	}
+
+	if j.CompletionTime == nil {
+		return f.CompleteAfter == nil && f.CompleteBefore == nil
+	}
+
+	return inTimeRange(*j.CompletionTime, f.CompleteAfter, f.CompleteBefore)
+}
+
+// ListScanJobsFiltered returns scan jobs matching the filter.
+func (b *InMemoryBackend) ListScanJobsFiltered(f ListScanJobsFilter) ([]*ScanJob, string) {
+	b.mu.RLock("ListScanJobsFiltered")
+	defer b.mu.RUnlock()
+
+	all := b.scanJobs.All()
+	out := make([]*ScanJob, 0, len(all))
+	for _, j := range all {
+		if !scanJobMatchesFilter(j, f) {
+			continue
+		}
+		cp := *j
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ScanJobID < out[j].ScanJobID })
+
+	return paginateByID(out, func(j *ScanJob) string { return j.ScanJobID }, f.MaxResults, f.NextToken)
 }
 
 // ---- Legal Holds ----

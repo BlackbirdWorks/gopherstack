@@ -510,14 +510,14 @@ func TestModelVersionsAndFlywheelIteration(t *testing.T) {
 	id := started["FlywheelIterationId"].(string)
 	// "GetFlywheelIteration" is not a real Comprehend operation -- the real name
 	// is DescribeFlywheelIteration (see handler.go's buildOperations comment).
-	inProgress := request(t, handler, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": id})
+	evaluating := request(t, handler, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": id})
 	assert.Equal(
 		t,
-		"IN_PROGRESS",
-		inProgress["FlywheelIterationProperties"].(map[string]any)["FlywheelIterationStatus"],
+		"EVALUATING",
+		evaluating["FlywheelIterationProperties"].(map[string]any)["Status"],
 	)
 	completed := request(t, handler, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": id})
-	assert.Equal(t, "COMPLETED", completed["FlywheelIterationProperties"].(map[string]any)["FlywheelIterationStatus"])
+	assert.Equal(t, "COMPLETED", completed["FlywheelIterationProperties"].(map[string]any)["Status"])
 	history := request(t, handler, "ListFlywheelIterationHistory", map[string]any{"FlywheelArn": flywheelARN})
 	assert.Len(t, history["FlywheelIterationPropertiesList"], 1)
 }

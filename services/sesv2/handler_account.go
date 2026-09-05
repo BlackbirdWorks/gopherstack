@@ -41,11 +41,14 @@ func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes(c *echo.Context) (
 	return &emptyDeleteOutput{}, nil
 }
 
+// UseCaseDescription is the real, deprecated PutAccountDetailsInput member
+// (aws-sdk-go-v2/service/sesv2@v1.66.4 api_op_PutAccountDetails.go:60-63);
+// "UseCaseName" is not a real member and was silently dropping this field.
 type putAccountDetailsInput struct {
-	MailType        string `json:"MailType"`
-	WebsiteURL      string `json:"WebsiteURL"`
-	ContactLanguage string `json:"ContactLanguage"`
-	UseCaseName     string `json:"UseCaseName"`
+	MailType           string `json:"MailType"`
+	WebsiteURL         string `json:"WebsiteURL"`
+	ContactLanguage    string `json:"ContactLanguage"`
+	UseCaseDescription string `json:"UseCaseDescription"`
 }
 
 func (h *Handler) handlePutAccountDetails(c *echo.Context) (any, error) {
@@ -59,7 +62,7 @@ func (h *Handler) handlePutAccountDetails(c *echo.Context) (any, error) {
 		MailType:        in.MailType,
 		WebsiteURL:      in.WebsiteURL,
 		ContactLanguage: in.ContactLanguage,
-		UseCaseName:     in.UseCaseName,
+		UseCaseName:     in.UseCaseDescription,
 	}); err != nil {
 		return nil, err
 	}

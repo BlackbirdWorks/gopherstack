@@ -931,6 +931,7 @@ func toNetworkMigrationDefinitionSummaryWire(d *NetworkMigrationDefinition) netw
 
 func toNMJobDetailsWire(j *NetworkMigrationJob) networkMigrationJobDetailsWire {
 	return networkMigrationJobDetailsWire{
+		CodeGenStatusMap:             codeGenerationOutputFormatStatusDetailsMapWire(j),
 		CreatedAt:                    epochPtr(j.CreatedAt),
 		EndedAt:                      epochPtr(j.EndedAt),
 		JobID:                        j.JobID,
@@ -939,6 +940,28 @@ func toNMJobDetailsWire(j *NetworkMigrationJob) networkMigrationJobDetailsWire {
 		Status:                       j.Status,
 		StatusDetails:                j.StatusDetails,
 	}
+}
+
+// codeGenerationOutputFormatStatusDetailsMapWire builds
+// CodeGenerationOutputFormatStatusDetailsMap for a CodeGeneration job once it
+// has left PENDING/STARTED -- one entry per requested output format, its
+// Status mirroring the job's own (this backend never partially fails one
+// format, so all entries share it). nil for every other job family and for
+// a still-running CodeGeneration job, since no per-format outcome exists yet.
+func codeGenerationOutputFormatStatusDetailsMapWire(
+	j *NetworkMigrationJob,
+) codeGenStatusMap {
+	if len(j.CodeGenerationOutputFormatTypes) == 0 ||
+		(j.Status != NMStatusSucceeded && j.Status != NMStatusFailed) {
+		return nil
+	}
+
+	m := make(codeGenStatusMap, len(j.CodeGenerationOutputFormatTypes))
+	for _, t := range j.CodeGenerationOutputFormatTypes {
+		m[t] = codeGenerationOutputFormatStatusDetailsWire{Status: j.Status}
+	}
+
+	return m
 }
 
 func toNMExecutionWire(e *NetworkMigrationExecution) networkMigrationExecutionWire {

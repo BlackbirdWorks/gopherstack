@@ -387,6 +387,43 @@ func TestHandler_DiscoverInstancesUnhealthyFilter(t *testing.T) {
 	assert.Len(t, resp["Instances"].([]any), 1)
 }
 
+// TestHandler_DiscoverInstancesHealthStatusIgnoredWithoutHealthCheck verifies
+// the DiscoverInstancesInput.HealthStatus doc comment's documented override:
+// "This parameter is ignored for services that don't have a health check
+// configured, and all instances are returned." A service created with
+// neither HealthCheckConfig nor HealthCheckCustomConfig can never have an
+// UNHEALTHY instance, so an UNHEALTHY filter must still return every
+// instance rather than narrowing to none.
+func TestHandler_DiscoverInstancesHealthStatusIgnoredWithoutHealthCheck(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	nsID := createNamespaceHelper(t, h, "ns-no-healthcheck")
+	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":        "svc-no-healthcheck",
+		"NamespaceId": nsID,
+	})
+	var svcResp map[string]any
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
+
+	doSDRequest(t, h, "RegisterInstance", map[string]any{
+		"ServiceId": svcID, "InstanceId": "i1", "Attributes": map[string]string{},
+	})
+
+	rec := doSDRequest(t, h, "DiscoverInstances", map[string]any{
+		"NamespaceName": "ns-no-healthcheck",
+		"ServiceName":   "svc-no-healthcheck",
+		"HealthStatus":  "UNHEALTHY",
+	})
+	require.Equal(t, 200, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp["Instances"].([]any), 1, "HealthStatus must be ignored when the service has no health check")
+}
+
 // TestHandler_DiscoverInstancesEmptyWhenNamespaceNotFound verifies graceful empty result.
 func TestHandler_DiscoverInstancesEmptyWhenNamespaceNotFound(t *testing.T) {
 	t.Parallel()

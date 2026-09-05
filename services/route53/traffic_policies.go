@@ -3,6 +3,8 @@ package route53
 import (
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -196,8 +198,14 @@ func (b *InMemoryBackend) UpdateTrafficPolicyComment(
 	)
 }
 
-// ListTrafficPolicies returns the latest version of each traffic policy with its version count.
-func (b *InMemoryBackend) ListTrafficPolicies() ([]*TrafficPolicySummary, error) {
+// ListTrafficPolicies returns a page with the latest version of each traffic
+// policy and its version count, paginated by TrafficPolicyIdMarker
+// (route53@v1.65.6 api_op_ListTrafficPolicies.go). Sorted by ID, which is
+// unique, so the sort admits no ties despite the b.trafficPolicies map walk.
+func (b *InMemoryBackend) ListTrafficPolicies(
+	marker string,
+	maxItems int,
+) (page.Page[*TrafficPolicySummary], error) {
 	b.mu.RLock("ListTrafficPolicies")
 	defer b.mu.RUnlock()
 
@@ -217,17 +225,28 @@ func (b *InMemoryBackend) ListTrafficPolicies() ([]*TrafficPolicySummary, error)
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
-// ListTrafficPolicyVersions returns all versions of a traffic policy.
-func (b *InMemoryBackend) ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error) {
+// ListTrafficPolicyVersions returns a page of a traffic policy's versions,
+// paginated by TrafficPolicyVersionMarker (route53@v1.65.6
+// api_op_ListTrafficPolicyVersions.go). b.trafficPolicies[id] is an
+// append-only slice (never a map), already in ascending version order and
+// deterministic across calls.
+func (b *InMemoryBackend) ListTrafficPolicyVersions(
+	id, marker string,
+	maxItems int,
+) (page.Page[*TrafficPolicy], error) {
 	b.mu.RLock("ListTrafficPolicyVersions")
 	defer b.mu.RUnlock()
 
 	versions, ok := b.trafficPolicies[id]
 	if !ok || len(versions) == 0 {
-		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+		return page.Page[*TrafficPolicy]{}, fmt.Errorf(
+			"%w: traffic policy %s not found",
+			ErrTrafficPolicyNotFound,
+			id,
+		)
 	}
 
 	result := make([]*TrafficPolicy, len(versions))
@@ -236,7 +255,7 @@ func (b *InMemoryBackend) ListTrafficPolicyVersions(id string) ([]*TrafficPolicy
 		result[i] = &cp
 	}
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
 // AddTrafficPolicyInternal adds a traffic policy directly into the backend for testing.

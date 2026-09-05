@@ -103,7 +103,7 @@ func TestWorkMail_Organizations_Lifecycle(t *testing.T) {
 				rec := doOp(t, h, "CreateOrganization", `{"Alias":"duporg"}`)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				m := decodeJSON(t, rec)
-				assert.Contains(t, m["__type"].(string), "AlreadyExists")
+				assert.Equal(t, "NameAvailabilityException", m["__type"])
 			},
 		},
 	}

@@ -194,3 +194,52 @@ func TestMountTargetDescription_NoFabricatedSecurityGroups(t *testing.T) {
 	require.True(t, ok, "DescribeMountTargetSecurityGroups must still carry the bare SecurityGroups list")
 	assert.ElementsMatch(t, []any{"sg-1", "sg-2"}, sgs)
 }
+
+// TestCreateFileSystem_BackupRoundTrips covers a write-only-state bug: real
+// CreateFileSystemInput (aws-sdk-go-v2/service/efs@v1.44.4
+// api_op_CreateFileSystem.go) has a Backup *bool request member ("Specifies
+// whether automatic backups are enabled on the file system that you are
+// creating... Default is false. However, if you specify an
+// AvailabilityZoneName, the default is true") that gopherstack's
+// createFileSystemBody had no field for at all -- a real SDK client setting
+// Backup: true on CreateFileSystem had it silently accepted and discarded,
+// with DescribeBackupPolicy always reporting DISABLED regardless.
+func TestCreateFileSystem_BackupRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newWireTestClient(t)
+
+	fsOut, err := client.CreateFileSystem(t.Context(), &efssdk.CreateFileSystemInput{
+		CreationToken: aws.String("backup-wire-token"),
+		Backup:        aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	pol, err := client.DescribeBackupPolicy(t.Context(), &efssdk.DescribeBackupPolicyInput{
+		FileSystemId: fsOut.FileSystemId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, efssdktypes.StatusEnabled, pol.BackupPolicy.Status)
+}
+
+// TestCreateFileSystem_OneZoneDefaultsBackupEnabled covers the same field's
+// documented default-flip: when Backup is omitted but AvailabilityZoneName
+// is set (a One Zone file system), real AWS defaults Backup to true rather
+// than false.
+func TestCreateFileSystem_OneZoneDefaultsBackupEnabled(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newWireTestClient(t)
+
+	fsOut, err := client.CreateFileSystem(t.Context(), &efssdk.CreateFileSystemInput{
+		CreationToken:        aws.String("backup-onezone-token"),
+		AvailabilityZoneName: aws.String(testRegion + "a"),
+	})
+	require.NoError(t, err)
+
+	pol, err := client.DescribeBackupPolicy(t.Context(), &efssdk.DescribeBackupPolicyInput{
+		FileSystemId: fsOut.FileSystemId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, efssdktypes.StatusEnabled, pol.BackupPolicy.Status)
+}

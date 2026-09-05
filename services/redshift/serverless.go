@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 )
 
@@ -525,3 +526,22 @@ func randomHex(n int) string {
 }
 
 func serverlessDefaultPageSize() int { return slDefaultPageSize }
+
+// decodeServerlessPageToken parses a Redshift Serverless pagination token (a
+// plain decimal offset) into a non-negative slice start index. A negative or
+// non-numeric token is treated as offset 0: every List op in this file group
+// clamps only the upper bound (`startIdx >= len(list)`) before slicing
+// list[startIdx:end], so a negative offset must be rejected here rather than
+// left to each caller.
+func decodeServerlessPageToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	n, err := strconv.Atoi(token)
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
+}

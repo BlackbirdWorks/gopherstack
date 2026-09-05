@@ -172,7 +172,7 @@ func TestHandler_MergePullRequestByFastForward(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergePullRequestBySquash(t *testing.T) {
@@ -191,7 +191,7 @@ func TestHandler_MergePullRequestBySquash(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergePullRequestByThreeWay(t *testing.T) {
@@ -210,7 +210,7 @@ func TestHandler_MergePullRequestByThreeWay(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pr := resp["pullRequest"].(map[string]any)
-	assert.Equal(t, "MERGED", pr["pullRequestStatus"])
+	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
 
 func TestHandler_MergeBranchesByFastForward(t *testing.T) {
@@ -479,6 +479,41 @@ func TestHandler_CreateUnreferencedMergeCommit(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["commitId"])
+}
+
+// TestHandler_CreateUnreferencedMergeCommit_MergeOptionRequired verifies
+// mergeOption is enforced as required, matching
+// CreateUnreferencedMergeCommitInput.MergeOption's "This member is
+// required" doc comment (codecommit@v1.36.4
+// api_op_CreateUnreferencedMergeCommit.go) -- the handler previously parsed
+// mergeOption off the wire and never validated or forwarded it at all.
+func TestHandler_CreateUnreferencedMergeCommit_MergeOptionRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "unref-repo-missing-mo"})
+
+	rec := doRequest(t, h, "CreateUnreferencedMergeCommit", map[string]any{
+		"repositoryName":             "unref-repo-missing-mo",
+		"sourceCommitSpecifier":      "abc",
+		"destinationCommitSpecifier": "def",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateUnreferencedMergeCommit_InvalidMergeOption(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "unref-repo-bad-mo"})
+
+	rec := doRequest(t, h, "CreateUnreferencedMergeCommit", map[string]any{
+		"repositoryName":             "unref-repo-bad-mo",
+		"sourceCommitSpecifier":      "abc",
+		"destinationCommitSpecifier": "def",
+		"mergeOption":                "NOT_A_REAL_OPTION",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_CreateUnreferencedMergeCommit_Success(t *testing.T) {

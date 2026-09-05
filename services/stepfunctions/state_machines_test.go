@@ -267,9 +267,11 @@ func TestDeleteStateMachine(t *testing.T) {
 			createSM: true,
 		},
 		{
-			name:      "NotFound",
+			// AWS: DeleteStateMachine's own error switch models only InvalidArn
+			// and ValidationException -- no StateMachineDoesNotExist -- so it is
+			// idempotent on a missing state machine.
+			name:      "NotFoundIsIdempotent",
 			deleteArn: "arn:aws:states:us-east-1:123:stateMachine:nonexistent",
-			wantErr:   stepfunctions.ErrStateMachineDoesNotExist,
 		},
 	}
 
@@ -498,13 +500,15 @@ func TestDeleteStateMachine_RemovesStateMachine(t *testing.T) {
 	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineDoesNotExist)
 }
 
+// AWS: DeleteStateMachine's own error switch models only InvalidArn and
+// ValidationException -- no StateMachineDoesNotExist -- so it is idempotent
+// on a missing state machine.
 func TestDeleteStateMachine_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
 	err := b.DeleteStateMachine("arn:aws:states:us-east-1:123:stateMachine:ghost")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineDoesNotExist)
+	require.NoError(t, err)
 }
 
 func TestUpdateStateMachine_UpdatesDefinition(t *testing.T) {
@@ -896,13 +900,15 @@ func TestCreateStateMachineAlreadyExists(t *testing.T) {
 }
 
 // TestRefinement1_DeleteStateMachineNotFound verifies deleting nonexistent SM returns error.
+// AWS: DeleteStateMachine's own error switch models only InvalidArn and
+// ValidationException -- no StateMachineDoesNotExist -- so it is idempotent
+// on a missing state machine.
 func TestDeleteStateMachineNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
 	err := b.DeleteStateMachine("arn:aws:states:us-east-1:123:stateMachine:nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineDoesNotExist)
+	require.NoError(t, err)
 }
 
 // TestRefinement1_DescribeStateMachineNotFound verifies describing nonexistent SM returns error.

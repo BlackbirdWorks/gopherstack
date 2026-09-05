@@ -4,6 +4,20 @@ sdk_module: aws-sdk-go-v2/service/mediastore@v1.32.4
 last_audit_commit: 67b92e0b9
 last_audit_date: 2026-08-20
 overall: A            # all three prior gaps genuinely closed in code this pass, with tests
+                      # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings, both
+                      # verified NOT live bugs. handler.go:167's "BadRequestException" fires only
+                      # when X-Amz-Target is missing/malformed -- unreachable by any real SDK
+                      # client (which always sets it correctly), so this is a dispatch-level
+                      # routing-fallback false positive, same class as the tool's already-suppressed
+                      # "matches no operation" cases, just triggered by a header-prefix guard
+                      # instead of an op-string switch default. writeBackendError's generic
+                      # awserr.ErrNotFound fallback (-> fabricated "ResourceNotFoundException", not
+                      # a real mediastore type) is dead code: both mediastore sentinels wrapping
+                      # ErrNotFound/ErrAlreadyExists not already caught by an earlier specific case
+                      # (ContainerNotFoundException/PolicyNotFoundException/
+                      # CorsPolicyNotFoundException/ContainerInUseException) don't exist -- every
+                      # currently-defined sentinel is caught before reaching it. Left unchanged, no
+                      # replacement code invented (mediastore has no generic not-found type either).
 ops:
   CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContainer: {wire: ok, errors: ok, state: ok, persist: ok}

@@ -299,7 +299,7 @@ func (h *Handler) handleSearchSpaces(c *echo.Context) error {
 	}
 
 	items, next, err := h.Backend.SearchSpaces(
-		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+		accountID, lowercaseFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
 	)
 	if err != nil {
 		return httpErr(c, err)

@@ -52,23 +52,41 @@ func (b *InMemoryBackend) ListSandboxes() []string {
 	return ids
 }
 
-// StartSandbox creates a new sandbox for a project.
+// StartSandbox creates a new sandbox for a project, inheriting its
+// environment/source/VPC/timeout configuration the same way StartBuild
+// inherits them onto a Build (aws-sdk-go-v2/service/codebuild@v1.72.4's
+// types.Sandbox carries the identical set of project-derived fields as
+// types.Build).
 func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 	b.mu.Lock("StartSandbox")
 	defer b.mu.Unlock()
 
-	if !b.projects.Has(projectName) {
+	proj, ok := b.projects.Get(projectName)
+	if !ok {
 		return nil, ErrNotFound
 	}
 
 	id := uuid.NewString()
 	sandboxArn := arn.Build("codebuild", b.region, b.accountID, "sandbox/"+id)
+	env := proj.Environment
+	src := proj.Source
 	sb := &Sandbox{
-		ID:          id,
-		Arn:         sandboxArn,
-		ProjectName: projectName,
-		Status:      "READY",
-		StartTime:   float64(time.Now().Unix()),
+		ID:                      id,
+		Arn:                     sandboxArn,
+		ProjectName:             projectName,
+		Status:                  "READY",
+		StartTime:               float64(time.Now().Unix()),
+		Environment:             &env,
+		Source:                  &src,
+		VpcConfig:               proj.VpcConfig,
+		FileSystemLocations:     proj.FileSystemLocations,
+		SecondarySources:        proj.SecondarySources,
+		SecondarySourceVersions: proj.SecondarySourceVersions,
+		ServiceRole:             proj.ServiceRole,
+		EncryptionKey:           proj.EncryptionKey,
+		SourceVersion:           proj.SourceVersion,
+		TimeoutInMinutes:        proj.TimeoutInMinutes,
+		QueuedTimeoutInMinutes:  proj.QueuedTimeoutInMinutes,
 	}
 	b.sandboxes.Put(sb)
 

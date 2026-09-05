@@ -92,7 +92,7 @@ func (db *InMemoryDB) ScanWithContext(
 
 	// Process scan outside the lock; pass the table's own key schema separately
 	// so that GSI/LSI scans can include the base-table PK in LastEvaluatedKey.
-	items, lastKey, scannedCount := db.doScan(
+	items, lastKey, scannedCount, err := db.doScan(
 		ctx,
 		itemsCopy,
 		ttlAttr,
@@ -103,6 +103,9 @@ func (db *InMemoryDB) ScanWithContext(
 		keySchema,
 		projection,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount, snapshotTable)
 }
@@ -237,7 +240,7 @@ func (db *InMemoryDB) doScan(
 	pkDef, skDef models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
 	projection *models.Projection,
-) ([]map[string]any, map[string]any, int32) {
+) ([]map[string]any, map[string]any, int32, error) {
 	_ = ctx // ctx reserved for future use (e.g., metrics, cancellation)
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
@@ -271,17 +274,23 @@ func (db *InMemoryDB) doScan(
 		tableKeySchema,
 	)
 
-	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
+	projector, err := ParseProjector(proj, input.ExpressionAttributeNames)
+	if err != nil {
+		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
+	}
 
 	// Pre-parse the filter expression once to avoid re-parsing per item in the hot loop.
-	parsedFilter, _ := ParseConditionStr(filter)
+	parsedFilter, err := ParseConditionStr(filter)
+	if err != nil {
+		return nil, nil, 0, NewValidationException("Invalid FilterExpression: " + err.Error())
+	}
 
 	indexKeySchema := []models.KeySchemaElement{pkDef}
 	if skDef.AttributeName != "" {
 		indexKeySchema = append(indexKeySchema, skDef)
 	}
 
-	return scanPage(
+	results, lastKey, scannedCount := scanPage(
 		candidate,
 		parsedFilter,
 		eav,
@@ -294,6 +303,8 @@ func (db *InMemoryDB) doScan(
 		projection,
 		limit,
 	)
+
+	return results, lastKey, scannedCount, nil
 }
 
 // scanPage iterates candidate items up to 1MB or limit, applying filter and projection.

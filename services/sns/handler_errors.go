@@ -11,6 +11,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// errCodeInvalidParameter is the SNS wire code for types.InvalidParameterException.
+const errCodeInvalidParameter = "InvalidParameter"
+
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
 	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
@@ -70,17 +73,30 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 func errorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
-		errors.Is(err, ErrPhoneNumberNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		return "NotFound"
+	case errors.Is(err, ErrPhoneNumberNotFound):
+		// DeleteSMSSandboxPhoneNumber and VerifySMSSandboxPhoneNumber both
+		// declare "ResourceNotFound" (not "NotFound") in their own
+		// deserializeOpError<Op> switch -- matches this sentinel's own
+		// message text, unlike the shared "NotFound" bucket above.
+		return "ResourceNotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
 	case errors.Is(err, ErrPlatformApplicationAlreadyExists):
-		return "PlatformApplicationAlreadyExists"
+		// CreatePlatformApplication's own deserializeOpError models only
+		// AuthorizationError, InternalError, InvalidParameter -- no
+		// "already exists" shape exists in the pinned SNS module.
+		return errCodeInvalidParameter
 	case errors.Is(err, ErrSandboxPhoneAlreadyExists):
-		return "AlreadyExists"
+		// CreateSMSSandboxPhoneNumber's own deserializeOpError models no
+		// "already exists" shape either; UserError ("a request parameter
+		// does not comply with the associated constraints") is the nearest
+		// modelled fit for the uniqueness violation. UNCONFIRMED against
+		// AWS prose docs -- see PARITY.md.
+		return "UserError"
 	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
-		return "InvalidParameter"
+		return errCodeInvalidParameter
 	case errors.Is(err, ErrEndpointDisabled):
 		return "EndpointDisabled"
 	case errors.Is(err, ErrOptedOut):

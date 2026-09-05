@@ -189,7 +189,7 @@ func (b *InMemoryBackend) ListAliases(
 	})
 
 	startIdx := parseMarker(input.Marker)
-	limit := int32(defaultListLimit)
+	limit := int32(default50ListLimit)
 
 	if input.Limit != nil {
 		if *input.Limit < 1 || *input.Limit > 1000 {

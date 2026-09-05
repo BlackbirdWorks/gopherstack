@@ -125,7 +125,11 @@ func (h *Handler) handleDescribeParameters(ctx context.Context, c *echo.Context,
 
 	sort.Slice(objs, func(i, j int) bool { return objs[i].Name < objs[j].Name })
 
-	return c.JSON(http.StatusOK, describeParametersResponse{Parameters: objs})
+	page, nextToken := paginateItems(
+		objs, req.NextToken, req.MaxResults, func(p parameterObject) string { return p.Name },
+	)
+
+	return c.JSON(http.StatusOK, describeParametersResponse{Parameters: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleResetParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {

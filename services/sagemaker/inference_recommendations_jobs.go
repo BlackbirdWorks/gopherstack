@@ -19,7 +19,7 @@ import (
 
 var (
 	// ErrInferenceRecommendationsJobNotFound is returned when the job does not exist.
-	ErrInferenceRecommendationsJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrInferenceRecommendationsJobNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrInferenceRecommendationsJobAlreadyExists is returned when the job already exists.
 	ErrInferenceRecommendationsJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )

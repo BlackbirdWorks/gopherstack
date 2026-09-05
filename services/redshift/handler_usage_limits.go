@@ -92,6 +92,8 @@ type describeUsageLimitsResponse struct {
 func (h *Handler) handleDescribeUsageLimits(vals url.Values) (any, error) {
 	clusterID := vals.Get("ClusterIdentifier")
 	featureType := vals.Get("FeatureType")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	limits, err := h.Backend.DescribeUsageLimits(clusterID, featureType)
 	if err != nil {
@@ -101,6 +103,10 @@ func (h *Handler) handleDescribeUsageLimits(vals url.Values) (any, error) {
 	members := make([]xmlUsageLimit, 0, len(limits))
 
 	for _, ul := range limits {
+		if !anyTagMatchesFilter(ul.Tags, tagKeys, tagValues) {
+			continue
+		}
+
 		ulCopy := ul
 		members = append(members, usageLimitToXML(&ulCopy))
 	}

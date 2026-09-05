@@ -37,7 +37,7 @@ type StorageBackend interface {
 		id, clusterID, instanceClass string,
 		opts DBInstanceCreateOptions,
 	) (*DBInstance, error)
-	DescribeDBInstances(ctx context.Context, id, clusterFilter string) ([]DBInstance, error)
+	DescribeDBInstances(ctx context.Context, id string, clusterFilter []string) ([]DBInstance, error)
 	DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error)
 	ModifyDBInstance(
 		ctx context.Context,
@@ -102,7 +102,9 @@ type StorageBackend interface {
 		ctx context.Context,
 		resourceID, applyAction, optInType string,
 	) (*ResourcePendingMaintenanceActions, error)
-	DescribePendingMaintenanceActions(ctx context.Context, resourceFilter string) []ResourcePendingMaintenanceActions
+	DescribePendingMaintenanceActions(
+		ctx context.Context, resourceFilter []string,
+	) []ResourcePendingMaintenanceActions
 	DescribeEvents(ctx context.Context, filter EventsFilter) []Event
 	CopyDBClusterParameterGroup(
 		ctx context.Context,
@@ -127,7 +129,7 @@ type StorageBackend interface {
 	CreateEventSubscription(
 		ctx context.Context,
 		name, snsTopicARN, sourceType string,
-		sourceIDs []string,
+		sourceIDs, eventCategories []string,
 		enabled bool,
 	) (*EventSubscription, error)
 	CreateGlobalCluster(

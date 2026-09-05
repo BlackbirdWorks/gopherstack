@@ -126,9 +126,8 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 
 	if in.PullRequestStatus != "" &&
 		in.PullRequestStatus != prStatusOpen &&
-		in.PullRequestStatus != prStatusClosed &&
-		in.PullRequestStatus != prStatusMerged {
-		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN, CLOSED, or MERGED", ErrValidation)
+		in.PullRequestStatus != prStatusClosed {
+		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
 	}
 
 	ids, err := h.Backend.ListPullRequests(in.RepositoryName, in.PullRequestStatus, in.AuthorARN)
@@ -161,6 +160,10 @@ func (h *Handler) handleGetPullRequestApprovalStates(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
 
+	if req.RevisionID == "" {
+		return nil, fmt.Errorf("%w: revisionId is required", errInvalidRequest)
+	}
+
 	approvals, err := h.Backend.GetPullRequestApprovalStates(req.PullRequestID)
 	if err != nil {
 		return nil, err
@@ -181,6 +184,10 @@ func (h *Handler) handleGetPullRequestOverrideState(body []byte) (any, error) {
 	}
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
+	}
+
+	if req.RevisionID == "" {
+		return nil, fmt.Errorf("%w: revisionId is required", errInvalidRequest)
 	}
 
 	overridden, overrider, err := h.Backend.GetPullRequestOverrideState(req.PullRequestID)
@@ -207,6 +214,10 @@ func (h *Handler) handleOverridePullRequestApprovalRules(body []byte) (any, erro
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
 
+	if req.RevisionID == "" {
+		return nil, fmt.Errorf("%w: revisionId is required", errInvalidRequest)
+	}
+
 	return map[string]any{}, h.Backend.OverridePullRequestApprovalRules(req.PullRequestID, req.OverrideStatus, "")
 }
 
@@ -221,6 +232,10 @@ func (h *Handler) handleUpdatePullRequestApprovalState(body []byte) (any, error)
 	}
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
+	}
+
+	if req.RevisionID == "" {
+		return nil, fmt.Errorf("%w: revisionId is required", errInvalidRequest)
 	}
 
 	return map[string]any{}, h.Backend.UpdatePullRequestApprovalState(req.PullRequestID, "", req.ApprovalState)
@@ -431,6 +446,10 @@ func (h *Handler) handleEvaluatePullRequestApprovalRules(body []byte) (any, erro
 	}
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
+	}
+
+	if req.RevisionID == "" {
+		return nil, fmt.Errorf("%w: revisionId is required", errInvalidRequest)
 	}
 
 	evals, err := h.Backend.EvaluatePullRequestApprovalRules(req.PullRequestID)

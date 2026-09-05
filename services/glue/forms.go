@@ -66,13 +66,15 @@ func (b *InMemoryBackend) GetFormType(id string) (*FormType, error) {
 // DeleteFormType deletes a form type. Per AWS's documented behavior
 // (confirmed in deserializers.go's error switch for DeleteFormType, which
 // lists ConflictException), a form type cannot be deleted while it is still
-// referenced by an asset type's Forms.
+// referenced by an asset type's Forms. DeleteFormType's error switch has no
+// EntityNotFoundException case (unlike GetFormType's), so an unknown
+// Identifier surfaces as InvalidInputException instead.
 func (b *InMemoryBackend) DeleteFormType(id string) error {
 	b.mu.Lock("DeleteFormType")
 	defer b.mu.Unlock()
 
 	if !b.formTypes.Has(id) {
-		return fmt.Errorf("form type %q not found: %w", id, ErrNotFound)
+		return fmt.Errorf("form type %q not found: %w", id, ErrValidation)
 	}
 
 	for _, at := range b.assetTypes.All() {

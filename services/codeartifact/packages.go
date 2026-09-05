@@ -5,7 +5,19 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 )
+
+// originConfigOrDefault returns v, or "ALLOW" if v is unset -- matching
+// PackageOriginRestrictions's real default before PutPackageOriginConfiguration
+// is ever called (see Package.OriginConfigPublish's doc comment).
+func originConfigOrDefault(v string) string {
+	if v == "" {
+		return "ALLOW"
+	}
+
+	return v
+}
 
 // --- Package methods ---
 
@@ -84,11 +96,83 @@ func (b *InMemoryBackend) DeletePackage(
 	return &cp, nil
 }
 
-// ListPackages lists packages in a repository.
+// listPackagesFilters holds every query-bound ListPackagesInput filter
+// (serializers.go's awsRestjson1_serializeOpHttpBindingsListPackagesInput):
+// format/namespace/packagePrefix narrow which PackageVersions count as a
+// distinct package, publish/upstream narrow by the package's own
+// PackageOriginConfiguration.
+type listPackagesFilters struct {
+	format        string
+	namespace     string
+	packagePrefix string
+	publish       string
+	upstream      string
+}
+
+func (f listPackagesFilters) matchesVersion(pv *PackageVersion) bool {
+	if f.format != "" && pv.Format != f.format {
+		return false
+	}
+	if f.namespace != "" && pv.Namespace != f.namespace {
+		return false
+	}
+
+	return f.packagePrefix == "" || strings.HasPrefix(pv.PackageName, f.packagePrefix)
+}
+
+// matchesOrigin checks publish/upstream against pkg's origin configuration.
+// PackageOriginConfiguration defaults to ALLOW/ALLOW until explicitly set
+// (see Package.OriginConfigPublish's doc comment), so an empty stored value
+// still needs to match a "publish"/"upstream" filter of ALLOW.
+func (f listPackagesFilters) matchesOrigin(pkg *Package) bool {
+	if f.publish != "" && originConfigOrDefault(pkg.OriginConfigPublish) != f.publish {
+		return false
+	}
+
+	return f.upstream == "" || originConfigOrDefault(pkg.OriginConfigUpstream) == f.upstream
+}
+
+func containsPackage(packages []*Package, pv *PackageVersion) bool {
+	for _, existing := range packages {
+		if existing.Name == pv.PackageName && existing.Format == pv.Format && existing.Namespace == pv.Namespace {
+			return true
+		}
+	}
+
+	return false
+}
+
+// packageWithOrigin builds a Package summary for pv, filling in its real
+// stored origin configuration (if PutPackageOriginConfiguration was ever
+// called for it) rather than leaving OriginConfigPublish/Upstream blank.
+func (b *InMemoryBackend) packageWithOrigin(region, domainName, repoName string, pv *PackageVersion) *Package {
+	pkg := &Package{
+		DomainName:  domainName,
+		DomainOwner: b.accountID,
+		Repository:  repoName,
+		Format:      pv.Format,
+		Namespace:   pv.Namespace,
+		Name:        pv.PackageName,
+	}
+
+	key := regionKey(region, packageKey(domainName, repoName, pv.Format, pv.Namespace, pv.PackageName))
+	if stored, ok := b.packages.Get(key); ok {
+		pkg.OriginConfigPublish = stored.OriginConfigPublish
+		pkg.OriginConfigUpstream = stored.OriginConfigUpstream
+	}
+
+	return pkg
+}
+
+// ListPackages lists packages in a repository, applying every
+// listPackagesFilters entry.
 func (b *InMemoryBackend) ListPackages(
-	ctx context.Context, domainName, repoName, format, namespace string,
+	ctx context.Context, domainName, repoName, format, namespace, packagePrefix, publish, upstream string,
 ) ([]*Package, error) {
 	region := getRegion(ctx, b.region)
+	filters := listPackagesFilters{
+		format: format, namespace: namespace, packagePrefix: packagePrefix, publish: publish, upstream: upstream,
+	}
 
 	b.mu.RLock("ListPackages")
 	defer b.mu.RUnlock()
@@ -103,36 +187,16 @@ func (b *InMemoryBackend) ListPackages(
 		if pv.DomainName != domainName || pv.Repository != repoName {
 			continue
 		}
-
-		if format != "" && pv.Format != format {
+		if !filters.matchesVersion(pv) || containsPackage(result, pv) {
 			continue
 		}
 
-		if namespace != "" && pv.Namespace != namespace {
+		pkg := b.packageWithOrigin(region, domainName, repoName, pv)
+		if !filters.matchesOrigin(pkg) {
 			continue
 		}
 
-		// Deduplicate by package name.
-		found := false
-
-		for _, existing := range result {
-			if existing.Name == pv.PackageName && existing.Format == pv.Format && existing.Namespace == pv.Namespace {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
-			result = append(result, &Package{
-				DomainName:  domainName,
-				DomainOwner: b.accountID,
-				Repository:  repoName,
-				Format:      pv.Format,
-				Namespace:   pv.Namespace,
-				Name:        pv.PackageName,
-			})
-		}
+		result = append(result, pkg)
 	}
 
 	sort.Slice(result, func(i, j int) bool {

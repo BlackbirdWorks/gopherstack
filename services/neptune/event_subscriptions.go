@@ -74,7 +74,7 @@ func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
 func (b *InMemoryBackend) CreateEventSubscription(
 	ctx context.Context,
 	name, snsTopicARN, sourceType string,
-	sourceIDs []string,
+	sourceIDs, eventCategories []string,
 	enabled bool,
 ) (*EventSubscription, error) {
 	if name == "" {
@@ -95,6 +95,8 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	}
 	ids := make([]string, len(sourceIDs))
 	copy(ids, sourceIDs)
+	cats := make([]string, len(eventCategories))
+	copy(cats, eventCategories)
 	sub := &EventSubscription{
 		region:               region,
 		CustSubscriptionID:   name,
@@ -103,6 +105,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		Status:               subscriptionStatusActive,
 		SourceType:           sourceType,
 		SourceIDs:            ids,
+		EventCategoriesList:  cats,
 		Enabled:              enabled,
 		CustomerAwsID:        b.accountID,
 	}

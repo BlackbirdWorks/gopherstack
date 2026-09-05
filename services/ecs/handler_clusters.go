@@ -8,12 +8,25 @@ import (
 
 // ----- Cluster handlers -----
 
+type clusterServiceConnectDefaultsInput struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+func toClusterServiceConnectDefaults(in *clusterServiceConnectDefaultsInput) *ClusterServiceConnectDefaults {
+	if in == nil {
+		return nil
+	}
+
+	return &ClusterServiceConnectDefaults{Namespace: in.Namespace}
+}
+
 type createClusterInput struct {
-	ClusterName                     string                `json:"clusterName"`
-	Settings                        []clusterSettingView  `json:"settings,omitempty"`
-	CapacityProviders               []string              `json:"capacityProviders,omitempty"`
-	DefaultCapacityProviderStrategy []cpStrategyItemInput `json:"defaultCapacityProviderStrategy,omitempty"`
-	Tags                            []Tag                 `json:"tags,omitempty"`
+	ServiceConnectDefaults          *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	ClusterName                     string                              `json:"clusterName"`
+	Settings                        []clusterSettingView                `json:"settings,omitempty"`
+	CapacityProviders               []string                            `json:"capacityProviders,omitempty"`
+	DefaultCapacityProviderStrategy []cpStrategyItemInput               `json:"defaultCapacityProviderStrategy,omitempty"`
+	Tags                            []Tag                               `json:"tags,omitempty"`
 }
 
 type createClusterOutput struct {
@@ -35,6 +48,7 @@ func (h *Handler) handleCreateCluster(
 		CapacityProviders:               in.CapacityProviders,
 		DefaultCapacityProviderStrategy: toCPStrategyItems(in.DefaultCapacityProviderStrategy),
 		Tags:                            in.Tags,
+		ServiceConnectDefaults:          toClusterServiceConnectDefaults(in.ServiceConnectDefaults),
 	})
 	if err != nil {
 		return nil, err
@@ -174,18 +188,19 @@ type failureView struct {
 }
 
 type clusterView struct {
-	ClusterArn                        string                `json:"clusterArn"`
-	ClusterName                       string                `json:"clusterName"`
-	Status                            string                `json:"status"`
-	DefaultCapacityProviderStrategy   []cpStrategyItemInput `json:"defaultCapacityProviderStrategy"`
-	Settings                          []clusterSettingView  `json:"settings,omitempty"`
-	CapacityProviders                 []string              `json:"capacityProviders"`
-	Tags                              []Tag                 `json:"tags,omitempty"`
-	CreatedAt                         float64               `json:"createdAt"`
-	ActiveServicesCount               int                   `json:"activeServicesCount"`
-	PendingTasksCount                 int                   `json:"pendingTasksCount"`
-	RegisteredContainerInstancesCount int                   `json:"registeredContainerInstancesCount"`
-	RunningTasksCount                 int                   `json:"runningTasksCount"`
+	ServiceConnectDefaults            *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	ClusterArn                        string                              `json:"clusterArn"`
+	ClusterName                       string                              `json:"clusterName"`
+	Status                            string                              `json:"status"`
+	DefaultCapacityProviderStrategy   []cpStrategyItemInput               `json:"defaultCapacityProviderStrategy"`
+	Settings                          []clusterSettingView                `json:"settings,omitempty"`
+	CapacityProviders                 []string                            `json:"capacityProviders"`
+	Tags                              []Tag                               `json:"tags,omitempty"`
+	CreatedAt                         float64                             `json:"createdAt"`
+	ActiveServicesCount               int                                 `json:"activeServicesCount"`
+	PendingTasksCount                 int                                 `json:"pendingTasksCount"`
+	RegisteredContainerInstancesCount int                                 `json:"registeredContainerInstancesCount"`
+	RunningTasksCount                 int                                 `json:"runningTasksCount"`
 }
 
 func toClusterView(c Cluster) clusterView {
@@ -199,6 +214,12 @@ func toClusterView(c Cluster) clusterView {
 		RegisteredContainerInstancesCount: c.RegisteredContainerInstancesCount,
 		RunningTasksCount:                 c.RunningTasksCount,
 		DefaultCapacityProviderStrategy:   []cpStrategyItemInput{},
+	}
+
+	if c.ServiceConnectDefaults != nil {
+		v.ServiceConnectDefaults = &clusterServiceConnectDefaultsInput{
+			Namespace: c.ServiceConnectDefaults.Namespace,
+		}
 	}
 
 	if c.CapacityProviders != nil {
@@ -314,12 +335,13 @@ func (h *Handler) handleUpdateClusterSettings(
 // The real UpdateClusterRequest has only cluster, settings, configuration, and
 // serviceConnectDefaults -- no capacityProviders or
 // defaultCapacityProviderStrategy, which are managed exclusively via the
-// separate PutClusterCapacityProviders operation. configuration and
-// serviceConnectDefaults are not modeled by this backend.
+// separate PutClusterCapacityProviders operation. configuration is still not
+// modeled by this backend.
 
 type updateClusterInput struct {
-	Cluster  string               `json:"cluster"`
-	Settings []clusterSettingView `json:"settings,omitempty"`
+	ServiceConnectDefaults *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	Cluster                string                              `json:"cluster"`
+	Settings               []clusterSettingView                `json:"settings,omitempty"`
 }
 
 type updateClusterOutput struct {
@@ -331,7 +353,8 @@ func (h *Handler) handleUpdateCluster(
 	in *updateClusterInput,
 ) (*updateClusterOutput, error) {
 	input := UpdateClusterInput{
-		Cluster: in.Cluster,
+		Cluster:                in.Cluster,
+		ServiceConnectDefaults: toClusterServiceConnectDefaults(in.ServiceConnectDefaults),
 	}
 
 	for _, s := range in.Settings {

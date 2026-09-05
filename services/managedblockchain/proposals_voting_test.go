@@ -244,6 +244,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 
 			netBody := map[string]any{
 				"Name":                "vote-net",
+				"ClientRequestToken":  "tok-votenet",
 				"MemberConfiguration": testMemberConfiguration("m0"),
 			}
 
@@ -267,6 +268,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 				invitationID := createTestInvitation(t, b, networkID, "vote-net")
 				memRec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
 					"InvitationId":        invitationID,
+					"ClientRequestToken":  fmt.Sprintf("tok-votemember-%d", i),
 					"MemberConfiguration": testMemberConfiguration(fmt.Sprintf("m%d", i)),
 				})
 				require.Equal(t, http.StatusOK, memRec.Code)
@@ -278,8 +280,9 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 
 			// Create proposal
 			rec = doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/proposals", map[string]any{
-				"MemberId":    firstMemberID,
-				"Description": "test",
+				"MemberId":           firstMemberID,
+				"ClientRequestToken": "tok-voteproposal",
+				"Description":        "test",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -336,6 +339,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			// Create network with 100% threshold so one vote approves
 			rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 				"Name":                "approve-net",
+				"ClientRequestToken":  "tok-approvenet",
 				"MemberConfiguration": testMemberConfiguration("m1"),
 				"VotingPolicy": map[string]any{
 					"ApprovalThresholdPolicy": map[string]any{
@@ -354,7 +358,8 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			memberID := netResp["MemberId"].(string)
 
 			rec = doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/proposals", map[string]any{
-				"MemberId": memberID,
+				"MemberId":           memberID,
+				"ClientRequestToken": "tok-approve-proposal",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -396,6 +401,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	// 3 members, GREATER_THAN 33%: 1/3 YES = 33.33% > 33 with float (but 33 > 33 = false with integer).
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "float-precision-net",
+		"ClientRequestToken":  "tok-floatprec-net",
 		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
@@ -415,8 +421,17 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 
 	addMem := func(name string) {
 		invitationID := createTestInvitation(t, b, netID, "float-precision-net")
-		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"InvitationId": invitationID, "MemberConfiguration": testMemberConfiguration(name)})
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/networks/"+netID+"/members",
+			map[string]any{
+				"InvitationId":        invitationID,
+				"ClientRequestToken":  "tok-addmem",
+				"MemberConfiguration": testMemberConfiguration(name),
+			},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
@@ -426,7 +441,11 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 
 	// Create proposal.
 	propRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals",
-		map[string]any{"MemberId": ownerMemberID, "Description": "float precision test"})
+		map[string]any{
+			"MemberId":           ownerMemberID,
+			"ClientRequestToken": "tok-floatprec-prop",
+			"Description":        "float precision test",
+		})
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
@@ -464,6 +483,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	// Create a network (1 member = only 1 vote needed for unanimous approval).
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "actions-net",
+		"ClientRequestToken":  "tok-actionsnet",
 		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
@@ -492,8 +512,9 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 
 	// Create proposal with an Invitation action.
 	propRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
-		"MemberId":    ownerMemberID,
-		"Description": "invite new member",
+		"MemberId":           ownerMemberID,
+		"ClientRequestToken": "tok-invite-action-prop",
+		"Description":        "invite new member",
 		"Actions": map[string]any{
 			"Invitations": []map[string]any{
 				{"Principal": "987654321098"},
@@ -538,6 +559,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "reject-net",
+		"ClientRequestToken":  "tok-rejectnet",
 		"MemberConfiguration": testMemberConfiguration("m0"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
@@ -557,8 +579,17 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 
 	addMem := func(name string) string {
 		invitationID := createTestInvitation(t, b, netID, "reject-net")
-		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"InvitationId": invitationID, "MemberConfiguration": testMemberConfiguration(name)})
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/networks/"+netID+"/members",
+			map[string]any{
+				"InvitationId":        invitationID,
+				"ClientRequestToken":  "tok-addmem",
+				"MemberConfiguration": testMemberConfiguration(name),
+			},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var r map[string]any
@@ -572,7 +603,9 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	m3ID := addMem("m3")
 
 	propRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals",
-		map[string]any{"MemberId": m0ID, "Description": "rejection threshold test"})
+		map[string]any{
+			"MemberId": m0ID, "ClientRequestToken": "tok-rejectprop", "Description": "rejection threshold test",
+		})
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any

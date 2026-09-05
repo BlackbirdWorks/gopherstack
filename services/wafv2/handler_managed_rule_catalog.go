@@ -4,7 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
+
+// defaultManagedRuleGroupVersion is this catalog's single hardcoded version
+// for a versioning-supported managed rule group -- matching
+// ListAvailableManagedRuleGroupVersions' own CurrentDefaultVersion value.
+const defaultManagedRuleGroupVersion = "Version_1.0"
 
 // handleDescribeAllManagedProducts returns the catalog of managed products.
 func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
@@ -71,14 +77,33 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 	// Look up catalog entry.
 	for _, mrg := range getManagedRuleGroups() {
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name {
-			return json.Marshal(map[string]any{
+			resp := map[string]any{
 				keyCapacity:       mrg.Capacity,
 				keyRules:          buildRuleList(mrg.Rules),
 				"SnsTopicArn":     "",
 				"AvailableLabels": buildLabelList(mrg.Rules),
 				"ConsumedLabels":  []any{},
-				"Description":     mrg.Description,
-			})
+				// LabelNamespace grammar "awswaf:managed:<vendor>:<rule group
+				// name>:" confirmed via
+				// https://docs.aws.amazon.com/waf/latest/APIReference/API_DescribeManagedRuleGroup.html
+				// -- deterministic from catalog data, not fabricated.
+				"LabelNamespace": fmt.Sprintf("awswaf:managed:%s:%s:", mrg.VendorName, mrg.Name),
+			}
+
+			// VersionName: echoes the request's VersionName if given, else
+			// the vendor's default version -- this catalog only tracks one
+			// hardcoded version per versioning-supported group,
+			// "Version_1.0", matching ListAvailableManagedRuleGroupVersions'
+			// own CurrentDefaultVersion. Left absent for a non-versioned
+			// group: this catalog has no version data for those at all, and
+			// inventing one would be fabrication.
+			if req.VersionName != "" {
+				resp["VersionName"] = req.VersionName
+			} else if mrg.VersioningSupported {
+				resp["VersionName"] = defaultManagedRuleGroupVersion
+			}
+
+			return json.Marshal(resp)
 		}
 	}
 
@@ -241,9 +266,9 @@ func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]by
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name && mrg.VersioningSupported {
 			return json.Marshal(map[string]any{
 				"Versions": []map[string]any{
-					{"Name": "Version_1.0", "LastUpdateTimestamp": nil},
+					{"Name": defaultManagedRuleGroupVersion, "LastUpdateTimestamp": nil},
 				},
-				"CurrentDefaultVersion": "Version_1.0",
+				"CurrentDefaultVersion": defaultManagedRuleGroupVersion,
 			})
 		}
 	}
@@ -265,9 +290,19 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	groups := make([]map[string]any, 0, len(getManagedRuleGroups()))
+	catalog := getManagedRuleGroups()
+	sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
 
-	for _, mrg := range getManagedRuleGroups() {
+	page, nextMarker := paginateByName(
+		catalog,
+		func(mrg managedRuleGroupInfo) string { return mrg.Name },
+		req.NextMarker,
+		req.Limit,
+	)
+
+	groups := make([]map[string]any, 0, len(page))
+
+	for _, mrg := range page {
 		groups = append(groups, map[string]any{
 			keyVendorName:         mrg.VendorName,
 			keyName:               mrg.Name,
@@ -276,13 +311,20 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		})
 	}
 
-	return json.Marshal(map[string]any{"ManagedRuleGroups": groups})
+	resp := map[string]any{"ManagedRuleGroups": groups}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // listMobileSdkReleasesRequest is the request body for ListMobileSdkReleases.
+// Scope is deliberately not modeled: ListMobileSdkReleasesInput has no such
+// member (api_op_ListMobileSdkReleases.go, wafv2@v1.77.3) -- mobile SDK
+// releases aren't REGIONAL/CLOUDFRONT-scoped.
 type listMobileSdkReleasesRequest struct {
 	Platform   string `json:"Platform"`
-	Scope      string `json:"Scope"`
 	NextMarker string `json:"NextMarker"`
 	Limit      int    `json:"Limit"`
 }
@@ -295,17 +337,30 @@ func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
 	}
 
 	releases := getMobileSdkReleases(req.Platform)
+	sort.Slice(releases, func(i, j int) bool { return releases[i].ReleaseVersion < releases[j].ReleaseVersion })
 
-	summaries := make([]map[string]any, 0, len(releases))
+	page, nextMarker := paginateByName(
+		releases,
+		func(r mobileSdkReleaseInfo) string { return r.ReleaseVersion },
+		req.NextMarker,
+		req.Limit,
+	)
 
-	for _, r := range releases {
+	summaries := make([]map[string]any, 0, len(page))
+
+	for _, r := range page {
 		summaries = append(summaries, map[string]any{
 			"ReleaseVersion": r.ReleaseVersion,
 			"Timestamp":      r.Timestamp,
 		})
 	}
 
-	return json.Marshal(map[string]any{"ReleaseSummaries": summaries})
+	resp := map[string]any{"ReleaseSummaries": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // managedRuleCatalogDispatchOps returns the managed-rule-group and mobile-SDK catalog

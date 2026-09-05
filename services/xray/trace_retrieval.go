@@ -28,9 +28,11 @@ func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) error {
 	return nil
 }
 
-// GetRetrievedTracesGraph returns the status and services for a retrieval token.
-// Returns ErrTraceRetrievalNotFound if the token was never created by StartTraceRetrieval.
-func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error) {
+// GetRetrievedTracesGraph returns the status and a service graph built from
+// the traces the retrieval token matched (b.retrievedTraces, the same store
+// ListRetrievedTraces reads). Returns ErrTraceRetrievalNotFound if the token
+// was never created by StartTraceRetrieval.
+func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []map[string]any, error) {
 	b.mu.RLock("GetRetrievedTracesGraph")
 	defer b.mu.RUnlock()
 
@@ -39,11 +41,27 @@ func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string
 		return "", nil, fmt.Errorf("%w: retrieval token %s not found", ErrTraceRetrievalNotFound, retrievalToken)
 	}
 
-	return tr.Status, nil, nil
+	filtered := map[string][]*Segment{}
+
+	for _, t := range b.retrievedTraces[retrievalToken] {
+		if segs := b.traceSegments.Get(t.TraceID); len(segs) > 0 {
+			filtered[t.TraceID] = segs
+		}
+	}
+
+	if len(filtered) == 0 {
+		return tr.Status, []map[string]any{}, nil
+	}
+
+	return tr.Status, buildServiceGraph(filtered), nil
 }
 
-// StartTraceRetrieval creates a new retrieval job for the given trace IDs and returns a token.
-func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
+// StartTraceRetrieval creates a new retrieval job for the given trace IDs and
+// returns a token. Only traces whose StartTime falls within [rangeStart,
+// rangeEnd] (inclusive, per api_op_StartTraceRetrieval.go's doc comments) are
+// included in the retrieval's results, matching real X-Ray's required
+// StartTime/EndTime request time range.
+func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string, rangeStart, rangeEnd time.Time) string {
 	b.mu.Lock("StartTraceRetrieval")
 	defer b.mu.Unlock()
 
@@ -59,7 +77,8 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 	b.traceRetrievals.Put(retrieval)
 	b.retrievalTimes[token] = now
 
-	// Pre-populate results using stored traces that match the requested IDs.
+	// Pre-populate results using stored traces that match the requested IDs
+	// and fall within the requested time range.
 	if b.retrievedTraces == nil {
 		b.retrievedTraces = make(map[string][]*Trace)
 	}
@@ -67,10 +86,17 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 	results := make([]*Trace, 0, len(traceIDs))
 
 	for _, id := range traceIDs {
-		if t, ok := b.traces.Get(id); ok {
-			cp := *t
-			results = append(results, &cp)
+		t, ok := b.traces.Get(id)
+		if !ok {
+			continue
 		}
+
+		if t.StartTime.Before(rangeStart) || t.StartTime.After(rangeEnd) {
+			continue
+		}
+
+		cp := *t
+		results = append(results, &cp)
 	}
 
 	b.retrievedTraces[token] = results

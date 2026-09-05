@@ -215,7 +215,7 @@ func matchesScheduledInstanceFilters(filters map[string][]string, az, instanceTy
 		switch name {
 		case "availability-zone":
 			field = az
-		case "instance-type":
+		case filterKeyInstanceType:
 			field = instanceType
 		case "platform":
 			field = platform

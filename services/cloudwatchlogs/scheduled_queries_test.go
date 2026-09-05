@@ -67,7 +67,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 			},
 			op:       "update_first",
 			newState: "INVALID",
-			wantErr:  cloudwatchlogs.ErrValidation,
+			wantErr:  cloudwatchlogs.ErrValidationException,
 		},
 	}
 
@@ -142,7 +142,7 @@ func TestCloudWatchLogsBackend_GetScheduledQuery(t *testing.T) {
 		},
 		{
 			name:    "empty_arn",
-			wantErr: cloudwatchlogs.ErrValidation,
+			wantErr: cloudwatchlogs.ErrValidationException,
 		},
 	}
 
@@ -220,7 +220,7 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 		},
 		{
 			name:    "empty_arn",
-			wantErr: cloudwatchlogs.ErrValidation,
+			wantErr: cloudwatchlogs.ErrValidationException,
 		},
 	}
 

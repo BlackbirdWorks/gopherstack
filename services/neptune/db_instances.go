@@ -123,7 +123,8 @@ func (b *InMemoryBackend) CreateDBInstance(
 // The clusterFilter (when non-empty) restricts results to instances of that cluster.
 func (b *InMemoryBackend) DescribeDBInstances(
 	ctx context.Context,
-	id, clusterFilter string,
+	id string,
+	clusterFilter []string,
 ) ([]DBInstance, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBInstances")
@@ -140,7 +141,7 @@ func (b *InMemoryBackend) DescribeDBInstances(
 	instances := b.instancesInRegion(region)
 	result := make([]DBInstance, 0, len(instances))
 	for _, inst := range instances {
-		if clusterFilter != "" && inst.DBClusterIdentifier != clusterFilter {
+		if len(clusterFilter) > 0 && !slices.Contains(clusterFilter, inst.DBClusterIdentifier) {
 			continue
 		}
 		result = append(result, *inst)

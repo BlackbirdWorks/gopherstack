@@ -14,7 +14,7 @@ import (
 
 var (
 	// ErrTrainingJobNotFound is returned when a training job does not exist.
-	ErrTrainingJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	ErrTrainingJobNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
 	// ErrTrainingJobAlreadyExists is returned when a training job already exists.
 	ErrTrainingJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )

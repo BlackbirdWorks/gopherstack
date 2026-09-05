@@ -80,12 +80,18 @@ func (b *InMemoryBackend) GetResourcePolicies(resourceARNs []string) []string {
 }
 
 // ListResources returns resources (resource-type associations) for shares, filtered
-// by resourceOwner ("SELF" or "OTHER-ACCOUNTS"), share ARN, and resource type.
+// by resourceOwner ("SELF" or "OTHER-ACCOUNTS"), share ARNs (any-of; empty means no
+// filter), and resource type.
 func (b *InMemoryBackend) ListResources(
-	resourceOwner, shareARN, resourceType string,
+	resourceOwner string, shareARNs []string, resourceType string,
 ) []*ResourceShareAssociation {
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
+
+	shareARNSet := make(map[string]struct{}, len(shareARNs))
+	for _, s := range shareARNs {
+		shareARNSet[s] = struct{}{}
+	}
 
 	result := make([]*ResourceShareAssociation, 0, len(b.associations))
 
@@ -98,8 +104,10 @@ func (b *InMemoryBackend) ListResources(
 			continue
 		}
 
-		if shareARN != "" && a.ResourceShareARN != shareARN {
-			continue
+		if len(shareARNSet) > 0 {
+			if _, ok := shareARNSet[a.ResourceShareARN]; !ok {
+				continue
+			}
 		}
 
 		if resourceOwner != "" && !b.ownerMatchesFilter(a.ResourceShareARN, resourceOwner) {

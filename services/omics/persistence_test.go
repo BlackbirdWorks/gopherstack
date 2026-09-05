@@ -264,16 +264,23 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Workflow + workflowVersions.
-	workflow, err := original.CreateWorkflow("wf-1", "desc", "", "", "WDL", map[string]string{"env": "test"})
+	workflow, err := original.CreateWorkflow(omics.CreateWorkflowInput{
+		Name: "wf-1", Description: "desc", Engine: "WDL", Tags: map[string]string{"env": "test"},
+	})
 	require.NoError(t, err)
 
-	wfVersion, err := original.CreateWorkflowVersion(workflow.ID, "v1", "desc", map[string]string{"env": "test"})
+	wfVersion, err := original.CreateWorkflowVersion(omics.CreateWorkflowVersionInput{
+		WorkflowID: workflow.ID, VersionName: "v1", Description: "desc", Tags: map[string]string{"env": "test"},
+	})
 	require.NoError(t, err)
 
 	// Run + runTasks (StartRun auto-creates one task).
-	run, err := original.StartRun(
-		workflow.ID, "role-arn", "run-1", "", "", "", "", nil, map[string]string{"env": "test"},
-	)
+	run, err := original.StartRun(omics.StartRunInput{
+		WorkflowID: workflow.ID,
+		RoleARN:    "role-arn",
+		Name:       "run-1",
+		Tags:       map[string]string{"env": "test"},
+	})
 	require.NoError(t, err)
 
 	tasks, _, err := original.ListRunTasks(run.ID, nil, 10, "")
@@ -313,7 +320,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// RunCache.
-	runCache, err := original.CreateRunCache("run-cache-1", "s3://bucket/cache", map[string]string{"env": "test"})
+	runCache, err := original.CreateRunCache("run-cache-1", "s3://bucket/cache", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	// RunBatch.

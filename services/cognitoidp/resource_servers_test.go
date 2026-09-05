@@ -367,3 +367,64 @@ func TestHandler_DeleteResourceServer(t *testing.T) {
 		})
 	}
 }
+
+// TestListResourceServers_Pagination proves the op pages through every
+// resource server exactly once instead of returning them all on a single
+// page with no cursor.
+func TestListResourceServers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "rs-pagination-pool")
+
+	ids := []string{"https://a.example.com", "https://b.example.com", "https://c.example.com"}
+	for _, id := range ids {
+		rec := doCognitoRequest(t, h, "CreateResourceServer", map[string]any{
+			"UserPoolId": poolID,
+			"Identifier": id,
+			"Name":       id,
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+	}
+
+	type listOut struct {
+		NextToken       string           `json:"NextToken,omitempty"`
+		ResourceServers []map[string]any `json:"ResourceServers"`
+	}
+
+	rec1 := doCognitoRequest(t, h, "ListResourceServers", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
+
+	var page1 listOut
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.ResourceServers, 2)
+	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more resource servers remain")
+
+	rec2 := doCognitoRequest(t, h, "ListResourceServers", map[string]any{
+		"UserPoolId": poolID,
+		"MaxResults": 2,
+		"NextToken":  page1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
+
+	var page2 listOut
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.ResourceServers, 1)
+	require.Empty(t, page2.NextToken)
+
+	seen := map[string]bool{}
+	for _, rs := range page1.ResourceServers {
+		seen[rs["Identifier"].(string)] = true
+	}
+
+	for _, rs := range page2.ResourceServers {
+		id := rs["Identifier"].(string)
+		require.False(t, seen[id], "resource server %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(ids))
+}

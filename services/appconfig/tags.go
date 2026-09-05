@@ -55,9 +55,9 @@ type TaggedEntry struct {
 }
 
 // TaggedResources returns every AppConfig resource ARN (applications,
-// environments, configuration profiles, deployment strategies, extensions,
-// extension associations, experiment definitions) that currently has at
-// least one tag applied via TagResource.
+// environments, configuration profiles, deployment strategies, deployments,
+// extensions, extension associations, experiment definitions) that
+// currently has at least one tag applied via TagResource.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()

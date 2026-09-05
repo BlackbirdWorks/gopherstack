@@ -37,7 +37,6 @@ const (
 	keyPullRequestID    = "pullRequestId"
 	keyAbsolutePath     = "absolutePath"
 	keyApprovalRuleID   = "approvalRuleId"
-	prStatusMerged      = "MERGED"
 	fileModeNormal      = "NORMAL"
 )
 

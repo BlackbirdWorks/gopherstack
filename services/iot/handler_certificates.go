@@ -294,6 +294,16 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 
 func (h *Handler) handleListCertificates(c *echo.Context) error {
 	certs := h.Backend.ListCertificates()
+
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
+	sort.Slice(certs, func(i, j int) bool {
+		if ascending {
+			return certs[i].CreatedAt.Before(certs[j].CreatedAt)
+		}
+
+		return certs[i].CreatedAt.After(certs[j].CreatedAt)
+	})
+
 	out := make([]map[string]any, 0, len(certs))
 
 	for _, cert := range certs {
@@ -309,7 +319,15 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"certificates": out})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"certificates": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateCertificate(c *echo.Context) error {
@@ -384,6 +402,11 @@ func (h *Handler) handleDescribeCertificateProvider(c *echo.Context) error {
 
 func (h *Handler) handleListCertificateProviders(c *echo.Context) error {
 	providers := h.Backend.ListCertificateProviders()
+
+	if c.QueryParam("isAscendingOrder") != keyBoolTrue {
+		reverseSlice(providers)
+	}
+
 	out := make([]map[string]string, 0, len(providers))
 	for _, cp := range providers {
 		out = append(out, map[string]string{
@@ -548,6 +571,28 @@ func (h *Handler) handleDescribeCACertificate(c *echo.Context) error {
 
 func (h *Handler) handleListCACertificates(c *echo.Context) error {
 	certs := h.Backend.ListCACertificates()
+
+	if templateName := c.QueryParam("templateName"); templateName != "" {
+		filtered := certs[:0:0]
+
+		for _, ca := range certs {
+			if ca.RegistrationConfig.TemplateName == templateName {
+				filtered = append(filtered, ca)
+			}
+		}
+
+		certs = filtered
+	}
+
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
+	sort.Slice(certs, func(i, j int) bool {
+		if ascending {
+			return certs[i].CreationDate < certs[j].CreationDate
+		}
+
+		return certs[i].CreationDate > certs[j].CreationDate
+	})
+
 	summaries := make([]map[string]any, len(certs))
 	for i, ca := range certs {
 		summaries[i] = map[string]any{
@@ -558,7 +603,15 @@ func (h *Handler) handleListCACertificates(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyCertificates: summaries})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{keyCertificates: page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
@@ -605,6 +658,16 @@ func (h *Handler) handleListCertificatesByCA(c *echo.Context) error {
 	}
 
 	certs := h.Backend.ListCertificatesByCA(caID)
+
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
+	sort.Slice(certs, func(i, j int) bool {
+		if ascending {
+			return certs[i].CreatedAt.Before(certs[j].CreatedAt)
+		}
+
+		return certs[i].CreatedAt.After(certs[j].CreatedAt)
+	})
+
 	summaries := make([]map[string]any, len(certs))
 	for i, cert := range certs {
 		summaries[i] = map[string]any{
@@ -616,7 +679,15 @@ func (h *Handler) handleListCertificatesByCA(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyCertificates: summaries})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{keyCertificates: page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleCancelCertificateTransfer(c *echo.Context) error {
@@ -755,7 +826,7 @@ func (h *Handler) handleRejectCertificateTransfer(c *echo.Context) error {
 func (h *Handler) handleListOutgoingCertificates(c *echo.Context) error {
 	certs := h.Backend.ListOutgoingCertificates()
 
-	ascending := c.QueryParam("isAscendingOrder") == "true"
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
 	sort.Slice(certs, func(i, j int) bool {
 		if ascending {
 			return certs[i].CreationDate < certs[j].CreationDate

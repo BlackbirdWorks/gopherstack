@@ -20,6 +20,13 @@ var (
 	)
 	// ErrMissingNetworkName is returned when the network name is missing.
 	ErrMissingNetworkName = errors.New("Name is required for CreateNetwork")
+	// ErrMissingClientRequestToken is returned when ClientRequestToken is missing from
+	// CreateNetwork/CreateMember/CreateNode/CreateProposal/CreateAccessor. The real
+	// aws-sdk-go-v2 client-side validator (validators.go, all 5 ops, v1.34.4) marks it
+	// required and the SDK's idempotency-token middleware always fills it in when a caller
+	// leaves it unset, so a real SDK client never omits it; a raw HTTP caller bypassing that
+	// middleware can, and real AWS rejects that request.
+	ErrMissingClientRequestToken = errors.New("ClientRequestToken is required")
 	// ErrMissingMemberName is returned when the member name is missing.
 	ErrMissingMemberName = errors.New("Name is required for member configuration")
 	// ErrMissingNetworkID is returned when the network ID is missing from a path.

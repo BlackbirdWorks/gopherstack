@@ -165,6 +165,43 @@ func TestSearchJobs_OrderDescending(t *testing.T) {
 	assert.Len(t, jobs, 2, "descending order returns all jobs")
 }
 
+// TestSearchJobs_InputFileFilter verifies SearchJobs honors the inputFile
+// query parameter (SearchJobsInput.InputFile, aws-sdk-go-v2/service/
+// mediaconvert@v1.97.1 api_op_SearchJobs.go: "provide your input file URL or
+// your partial input file name"), matched against each job's
+// settings.inputs[].fileInput.
+func TestSearchJobs_InputFileFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	recMatch := doRequest(t, h, http.MethodPost, "/2017-08-29/jobs", map[string]any{
+		"role": "arn:aws:iam::" + testAccountID + ":role/R",
+		"settings": map[string]any{
+			"inputs": []any{
+				map[string]any{"fileInput": "s3://bucket/path/movie.mp4"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusCreated, recMatch.Code)
+
+	createTestJob(t, h) // no matching input file
+
+	resp, code := parseJSONResponse(t, h, http.MethodGet, "/2017-08-29/search?inputFile=movie.mp4", nil)
+	assert.Equal(t, http.StatusOK, code)
+
+	jobs, _ := resp["jobs"].([]any)
+	require.Len(t, jobs, 1)
+
+	job, _ := jobs[0].(map[string]any)
+	settings, _ := job["settings"].(map[string]any)
+	inputs, _ := settings["inputs"].([]any)
+	require.Len(t, inputs, 1)
+
+	input, _ := inputs[0].(map[string]any)
+	assert.Equal(t, "s3://bucket/path/movie.mp4", input["fileInput"])
+}
+
 // TestSearchJobs_FilterByStatus verifies SearchJobs reflects janitor-advanced statuses.
 func TestSearchJobs_FilterByStatus(t *testing.T) {
 	t.Parallel()

@@ -79,9 +79,9 @@ func (h *Handler) handleDisassociateAgentKB(
 }
 
 func (h *Handler) handleListAgentKBs(
-	ctx context.Context, c *echo.Context, agentID, agentVersion string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	maxResults, nextToken := bodyPageParams(body)
 
 	assocs, outToken, err := h.Backend.ListAgentKnowledgeBases(ctx, agentID, agentVersion, maxResults, nextToken)
 	if err != nil {

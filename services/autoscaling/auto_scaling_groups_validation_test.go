@@ -222,7 +222,7 @@ func TestInMemoryBackend_SuspendProcessesValidation(t *testing.T) {
 				err := b.SuspendProcesses("sp-asg", []string{"Launch", "Terminate", "HealthCheck"})
 				require.NoError(t, err)
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"sp-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sp-asg"}, nil)
 				require.Len(t, groups, 1)
 				assert.Contains(t, groups[0].SuspendedProcesses, "Launch")
 				assert.Contains(t, groups[0].SuspendedProcesses, "Terminate")
@@ -303,7 +303,7 @@ func TestInMemoryBackend_ResumeProcesses(t *testing.T) {
 				err := b.ResumeProcesses("rp-asg", []string{"Launch"})
 				require.NoError(t, err)
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"rp-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"rp-asg"}, nil)
 				assert.NotContains(t, groups[0].SuspendedProcesses, "Launch")
 				assert.Contains(t, groups[0].SuspendedProcesses, "Terminate")
 				assert.Contains(t, groups[0].SuspendedProcesses, "HealthCheck")
@@ -320,7 +320,7 @@ func TestInMemoryBackend_ResumeProcesses(t *testing.T) {
 				err := b.ResumeProcesses("rp-all-asg", []string{})
 				require.NoError(t, err)
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"rp-all-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"rp-all-asg"}, nil)
 				assert.Empty(t, groups[0].SuspendedProcesses)
 			},
 		},
@@ -465,7 +465,7 @@ func TestInMemoryBackend_ApplyDesiredCapacityChange(t *testing.T) {
 			err := b.SetDesiredCapacity(groupName, tt.newDesired)
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{groupName})
+			groups, err := b.DescribeAutoScalingGroups([]string{groupName}, nil)
 			require.NoError(t, err)
 			assert.Len(t, groups[0].Instances, tt.wantInstances)
 		})

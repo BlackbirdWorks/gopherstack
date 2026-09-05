@@ -165,6 +165,46 @@ func TestFilter_PatternOperators(t *testing.T) {
 			msgBody:   `{"status":"cancelled"}`,
 			wantMatch: false,
 		},
+		{
+			// AWS event-pattern docs' own example: `"state": [ { "anything-but": "initializing" } ]`
+			// -- a single string, not a list.
+			name:      "anything_but_single_value_matches_when_not_excluded",
+			pattern:   `{"status":[{"anything-but":"cancelled"}]}`,
+			msgBody:   `{"status":"paid"}`,
+			wantMatch: true,
+		},
+		{
+			name:      "anything_but_single_value_no_match_when_excluded",
+			pattern:   `{"status":[{"anything-but":"cancelled"}]}`,
+			msgBody:   `{"status":"cancelled"}`,
+			wantMatch: false,
+		},
+		{
+			// docs: `"ProductName": [ { "exists": true } ]` matches when the field is present.
+			name:      "exists_true_matches_present_field",
+			pattern:   `{"type":[{"exists":true}]}`,
+			msgBody:   `{"type":"order"}`,
+			wantMatch: true,
+		},
+		{
+			name:      "exists_true_no_match_absent_field",
+			pattern:   `{"type":[{"exists":true}]}`,
+			msgBody:   `{"other":"x"}`,
+			wantMatch: false,
+		},
+		{
+			// docs: `"ProductName": [ { "exists": false } ]` matches when the field is absent.
+			name:      "exists_false_matches_absent_field",
+			pattern:   `{"type":[{"exists":false}]}`,
+			msgBody:   `{"other":"x"}`,
+			wantMatch: true,
+		},
+		{
+			name:      "exists_false_no_match_present_field",
+			pattern:   `{"type":[{"exists":false}]}`,
+			msgBody:   `{"type":"order"}`,
+			wantMatch: false,
+		},
 	}
 
 	for _, tt := range tests {

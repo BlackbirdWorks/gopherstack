@@ -461,7 +461,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 
 		task, ok := b.tasks.Get(taskArn)
 		if !ok || clusterKey(task.ClusterArn) != clusterName {
-			ferr = fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
+			ferr = fmt.Errorf("%w: task %s not found", ErrInvalidParameter, taskArn)
 
 			return
 		}
@@ -567,6 +567,10 @@ func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
 	return b.ListTasksFiltered(ListTasksInput{Cluster: cluster})
 }
 
+// ListTasksFiltered returns task ARNs matching the given filters.
+// Per ListTasksInput.DesiredStatus's doc ("The default status filter is
+// RUNNING"), an unset DesiredStatus narrows to RUNNING tasks rather than
+// matching every status.
 func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
@@ -577,14 +581,18 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
+	wantDesiredStatus := input.DesiredStatus
+	if wantDesiredStatus == "" {
+		wantDesiredStatus = statusRunning
+	}
+
 	clusterTasks := b.tasksByCluster.Get(clusterName)
 	arns := make([]string, 0, len(clusterTasks))
 	for _, task := range clusterTasks {
 		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
 			continue
 		}
-		if input.DesiredStatus != "" &&
-			!strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
+		if !strings.EqualFold(task.DesiredStatus, wantDesiredStatus) {
 			continue
 		}
 		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
@@ -606,13 +614,13 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 }
 
 // StartTask places tasks on specific container instances (as opposed to RunTask which auto-places).
-func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
+func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, error) {
 	if input.TaskDefinition == "" {
-		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
+		return nil, nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
 	if len(input.ContainerInstances) == 0 {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: at least one container instance is required",
 			ErrInvalidParameter,
 		)
@@ -621,8 +629,9 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
 	var (
-		ferr  error
-		tasks []Task
+		ferr     error
+		tasks    []Task
+		failures []Failure
 	)
 
 	func() {
@@ -641,8 +650,19 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 		clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 		tasks = make([]Task, 0, len(input.ContainerInstances))
+		failures = make([]Failure, 0, len(input.ContainerInstances))
 
 		for _, ciArn := range input.ContainerInstances {
+			if _, found := b.containerInstances.Get(scopedKey(clusterName, ciArn)); !found {
+				failures = append(failures, Failure{
+					Arn:    ciArn,
+					Reason: statusMissing,
+					Detail: fmt.Sprintf("container instance %s not found", ciArn),
+				})
+
+				continue
+			}
+
 			taskID := uuid.New().String()
 			taskArn := arn.Build(
 				"ecs",
@@ -671,10 +691,10 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	}()
 
 	if ferr != nil {
-		return nil, ferr
+		return nil, nil, ferr
 	}
 
-	return tasks, nil
+	return tasks, failures, nil
 }
 
 // GetTaskProtection returns the protection state for the given tasks on a cluster.
@@ -807,7 +827,7 @@ func (b *InMemoryBackend) ExecuteCommand(
 
 	t, ok := b.tasks.Get(task)
 	if !ok || clusterKey(t.ClusterArn) != clusterName {
-		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, task)
+		return nil, fmt.Errorf("%w: task %s not found", ErrInvalidParameter, task)
 	}
 
 	if t.LastStatus != statusRunning {

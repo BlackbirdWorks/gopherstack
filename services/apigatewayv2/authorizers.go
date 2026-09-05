@@ -672,36 +672,40 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 		return nil, ErrAuthorizerNotFound
 	}
 
-	if input.Name != "" {
-		a.Name = input.Name
+	if input.Name != nil {
+		if *input.Name == "" {
+			return nil, fmt.Errorf("%w: name cannot be empty", ErrBadRequest)
+		}
+
+		a.Name = *input.Name
 	}
 
 	if input.AuthorizerType != "" {
 		a.AuthorizerType = input.AuthorizerType
 	}
 
-	if input.AuthorizerURI != "" {
-		a.AuthorizerURI = input.AuthorizerURI
+	if input.AuthorizerURI != nil {
+		a.AuthorizerURI = *input.AuthorizerURI
 	}
 
 	if len(input.IdentitySource) > 0 {
 		a.IdentitySource = input.IdentitySource
 	}
 
-	if input.AuthorizerCredentialsArn != "" {
-		a.AuthorizerCredentialsArn = input.AuthorizerCredentialsArn
+	if input.AuthorizerCredentialsArn != nil {
+		a.AuthorizerCredentialsArn = *input.AuthorizerCredentialsArn
 	}
 
-	if input.AuthorizerResultTTLInSeconds != 0 {
-		a.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
+	if input.AuthorizerResultTTLInSeconds != nil {
+		a.AuthorizerResultTTLInSeconds = *input.AuthorizerResultTTLInSeconds
 	}
 
-	if input.AuthorizerPayloadFormatVersion != "" {
-		a.AuthorizerPayloadFormatVersion = input.AuthorizerPayloadFormatVersion
+	if input.AuthorizerPayloadFormatVersion != nil {
+		a.AuthorizerPayloadFormatVersion = *input.AuthorizerPayloadFormatVersion
 	}
 
-	if input.EnableSimpleResponses {
-		a.EnableSimpleResponses = input.EnableSimpleResponses
+	if input.EnableSimpleResponses != nil {
+		a.EnableSimpleResponses = *input.EnableSimpleResponses
 	}
 
 	if input.JwtConfiguration != nil {

@@ -162,20 +162,6 @@ type emailMfaConfigJSON struct {
 	Subject string `json:"Subject,omitempty"`
 }
 
-type adminSetUserMFAPreferenceInput struct {
-	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`
-	SoftwareTokenMfaSettings *mfaSettings `json:"SoftwareTokenMfaSettings,omitempty"`
-	UserPoolID               string       `json:"UserPoolId,omitempty"`
-	Username                 string       `json:"Username,omitempty"`
-}
-
-type mfaSettings struct {
-	Enabled      bool `json:"Enabled,omitempty"`
-	PreferredMfa bool `json:"PreferredMfa,omitempty"`
-}
-
-type adminSetUserMFAPreferenceOutput struct{}
-
 type mfaOptionType struct {
 	DeliveryMedium string `json:"DeliveryMedium,omitempty"`
 	AttributeName  string `json:"AttributeName,omitempty"`
@@ -189,39 +175,9 @@ type adminSetUserSettingsInput struct {
 
 type adminSetUserSettingsOutput struct{}
 
-type associateSoftwareTokenInput struct {
-	AccessToken string `json:"AccessToken,omitempty"`
-	Session     string `json:"Session,omitempty"`
-}
-
-type associateSoftwareTokenOutput struct {
-	SecretCode string `json:"SecretCode,omitempty"`
-	Session    string `json:"Session,omitempty"`
-}
-
-type setUserMFAPreferenceInput struct {
-	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`
-	SoftwareTokenMfaSettings *mfaSettings `json:"SoftwareTokenMfaSettings,omitempty"`
-	AccessToken              string       `json:"AccessToken,omitempty"`
-}
-
-type setUserMFAPreferenceOutput struct{}
-
 type setUserSettingsInput struct {
 	AccessToken string          `json:"AccessToken,omitempty"`
 	MFAOptions  []mfaOptionType `json:"MFAOptions,omitempty"`
 }
 
 type setUserSettingsOutput struct{}
-
-type verifySoftwareTokenInput struct {
-	AccessToken        string `json:"AccessToken,omitempty"`
-	UserCode           string `json:"UserCode,omitempty"`
-	FriendlyDeviceName string `json:"FriendlyDeviceName,omitempty"`
-	Session            string `json:"Session,omitempty"`
-}
-
-type verifySoftwareTokenOutput struct {
-	Status  string `json:"Status,omitempty"`
-	Session string `json:"Session,omitempty"`
-}

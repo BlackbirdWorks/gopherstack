@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -116,7 +117,15 @@ func (h *Handler) handleStartTraceRetrieval(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: TraceIds is required", errInvalidRequest)
 	}
 
-	token := h.Backend.StartTraceRetrieval(in.TraceIDs)
+	if in.StartTime == 0 || in.EndTime == 0 {
+		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
+	}
+
+	token := h.Backend.StartTraceRetrieval(
+		in.TraceIDs,
+		time.Unix(int64(in.StartTime), 0),
+		time.Unix(int64(in.EndTime), 0),
+	)
 
 	return json.Marshal(map[string]any{
 		"RetrievalToken": token,
@@ -167,14 +176,16 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
 	}
 
-	status, _, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
+	status, services, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
 	if err != nil {
 		return nil, err
 	}
 
+	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
+
 	return json.Marshal(map[string]any{
 		"RetrievalStatus": status,
-		keyServices:       []any{},
-		keyNextToken:      "",
+		keyServices:       pg.Data,
+		keyNextToken:      pg.Next,
 	})
 }

@@ -68,12 +68,17 @@ func (b *InMemoryBackend) DescribeEndpointAuthorization(
 			continue
 		}
 
+		// Account's documented side of the grantor/grantee pair is the
+		// opposite of what the flag name suggests (api_op_DescribeEndpointAuthorization.go:
+		// "If Grantee parameter is true, then the Account value is of the
+		// grantor" -- by elimination, Grantee=false means Account is of the
+		// grantee).
 		if account != "" {
-			if grantee && ea.Grantee != account {
+			if grantee && ea.Grantor != account {
 				continue
 			}
 
-			if !grantee && ea.Grantor != account {
+			if !grantee && ea.Grantee != account {
 				continue
 			}
 		}

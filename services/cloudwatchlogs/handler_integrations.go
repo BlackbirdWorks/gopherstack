@@ -240,7 +240,7 @@ func (h *Handler) handleDisassociateSourceFromS3TableIntegration(
 ) (any, error) {
 	var in disassociateSourceFromS3TableIntegrationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	if err := h.Backend.DisassociateSourceFromS3TableIntegration(in.Identifier); err != nil {
@@ -279,7 +279,7 @@ func (h *Handler) handleListSourcesForS3TableIntegration(
 ) (any, error) {
 	var input listSourcesForS3TableIntegrationInput
 	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
 	b := cwlBackend(h)

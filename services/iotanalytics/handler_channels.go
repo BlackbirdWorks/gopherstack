@@ -95,7 +95,7 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 
 	resp := describeChannelResponse{Channel: detail}
 
-	if c.Request().URL.Query().Get("includeStatistics") == "true" {
+	if queryBool(c, "includeStatistics") {
 		resp.Statistics = &channelStatistics{
 			Size: &channelStatisticsSize{
 				EstimatedSizeInBytes: 0,
@@ -145,7 +145,10 @@ func (h *Handler) handleSampleChannelData(c *echo.Context, channelName string) e
 		}
 	}
 
-	payloads, err := h.Backend.SampleChannelData(channelName, maxMessages)
+	startTime, hasStart := parseQueryDateTime(c.Request().URL.Query().Get("startTime"))
+	endTime, hasEnd := parseQueryDateTime(c.Request().URL.Query().Get("endTime"))
+
+	payloads, err := h.Backend.SampleChannelData(channelName, maxMessages, hasStart, startTime, hasEnd, endTime)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

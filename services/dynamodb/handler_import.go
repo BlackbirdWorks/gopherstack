@@ -51,6 +51,7 @@ type importTableDescriptionWire struct {
 	ClientToken           string                             `json:"ClientToken,omitempty"`
 	CloudWatchLogGroupArn string                             `json:"CloudWatchLogGroupArn,omitempty"`
 	InputFormat           string                             `json:"InputFormat,omitempty"`
+	InputCompressionType  string                             `json:"InputCompressionType,omitempty"`
 	FailureCode           string                             `json:"FailureCode,omitempty"`
 	FailureMessage        string                             `json:"FailureMessage,omitempty"`
 	StartTime             float64                            `json:"StartTime,omitempty"`
@@ -89,6 +90,7 @@ func importDescriptionWireFromSDK(d *types.ImportTableDescription) importTableDe
 	w.ClientToken = ptrconv.String(d.ClientToken)
 	w.CloudWatchLogGroupArn = ptrconv.String(d.CloudWatchLogGroupArn)
 	w.InputFormat = string(d.InputFormat)
+	w.InputCompressionType = string(d.InputCompressionType)
 	w.FailureCode = ptrconv.String(d.FailureCode)
 	w.FailureMessage = ptrconv.String(d.FailureMessage)
 	w.ImportedItemCount = d.ImportedItemCount

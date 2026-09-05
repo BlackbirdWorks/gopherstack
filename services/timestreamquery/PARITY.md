@@ -556,3 +556,26 @@ $ awk 'length > 120 {print}' services/timestreamquery/*.go
 touched by this pass, plus unrelated concurrent changes under `services/scheduler/` and
 `.claude/` from other activity in this shared checkout that this session did not make
 and did not touch.
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service timestreamquery` reported no rows for every class. This
+pass checks a different axis than the wire-shape entries above: whether a
+correctly-read filter field is applied with the RIGHT algorithm (documented
+modifier honoured, right comparison, right combining rule), not just
+whether it's read at all.
+
+This service has NO surface for that check. Read every List/Describe input
+struct in `aws-sdk-go-v2/service/timestreamquery@v1.39.4`:
+`ListScheduledQueriesInput` declares only `MaxResults`/`NextToken`, no
+filter field at all; `DescribeAccountSettings`/`DescribeEndpoints` take no
+input; `DescribeScheduledQuery` is a bare-ARN lookup. No `types.Filter`-
+shaped struct exists anywhere in this package. No `MaxResults` doc comment
+states a specific default number (`ListScheduledQueriesInput.MaxResults`
+checked directly), so the internal `listScheduledQueriesPaged` default of
+100 (`scheduled_queries.go:449-451`) contradicts nothing documented.
+
+Zero bugs found -- not because the surface was checked and came back clean,
+but because the surface does not exist, same structural verdict as
+cloudfront/apigateway/cloudformation/elbv2 earlier in this campaign. No
+files changed.

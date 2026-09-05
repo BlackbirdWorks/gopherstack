@@ -163,6 +163,9 @@ func resourceMap(resource *Resource, spec resourceSpec) map[string]any {
 	if resource.VersionName != "" {
 		out["VersionName"] = resource.VersionName
 	}
+	if resource.Type == resourceTypeEndpoint {
+		applyEndpointConvergence(out)
+	}
 	if isTrainingResourceType(resource.Type) && resource.Status == statusTrained {
 		// TrainingStartTime/TrainingEndTime and ClassifierMetadata/
 		// RecognizerMetadata only exist on the real DocumentClassifierProperties/
@@ -180,6 +183,33 @@ func resourceMap(resource *Resource, spec resourceSpec) map[string]any {
 	}
 
 	return out
+}
+
+// applyEndpointConvergence synthesizes the "current" EndpointProperties
+// fields this emulator never actually tracks separately from the caller's
+// requested values. There is no async provisioning lag here (matching every
+// other fast-forward-to-terminal-state simplification in this service), so:
+//   - CurrentInferenceUnits (a real member, types/types.go:1230-1284, never
+//     populated before this fix -- resourceMap only ever echoed the request's
+//     own DesiredInferenceUnits key back verbatim) mirrors DesiredInferenceUnits.
+//   - A DesiredModelArn/DesiredDataAccessRoleArn from UpdateEndpoint applies
+//     immediately to ModelArn/DataAccessRoleArn rather than sitting alongside
+//     a stale current value forever: UpdateResource's generic maps.Copy of the
+//     raw request body onto resource.Configuration previously left the
+//     original ModelArn field untouched, so DescribeEndpoint after a real
+//     model swap kept reporting the OLD model.
+func applyEndpointConvergence(out map[string]any) {
+	if du, ok := out["DesiredInferenceUnits"]; ok {
+		out["CurrentInferenceUnits"] = du
+	}
+	if desiredModel, ok := out["DesiredModelArn"]; ok {
+		out["ModelArn"] = desiredModel
+		delete(out, "DesiredModelArn")
+	}
+	if desiredRole, ok := out["DesiredDataAccessRoleArn"]; ok {
+		out["DataAccessRoleArn"] = desiredRole
+		delete(out, "DesiredDataAccessRoleArn")
+	}
 }
 
 // Deterministic synthetic training-metrics constants. Real NLP accuracy

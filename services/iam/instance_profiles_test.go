@@ -7,6 +7,9 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -383,4 +386,55 @@ func TestDeleteInstanceProfile_SucceedsAfterRoleRemoved(t *testing.T) {
 
 	_, getErr := b.GetInstanceProfile("MyProfile")
 	require.ErrorIs(t, getErr, iam.ErrInstanceProfileNotFound)
+}
+
+// TestListInstanceProfiles_ItemShape_RealClient is a regression test for gopherstack-21my:
+// InstanceProfileXML (models.go, shared by Create/Get/List/ListForRole via
+// toInstanceProfileXML, handler_instance_profiles.go) omitted Tags entirely, even though
+// the real InstanceProfile deserializer (awsAwsquery_deserializeDocumentInstanceProfile)
+// reads it and the tags are backed by real state (stored under the same "ip:"-prefixed
+// key TagInstanceProfile/ListInstanceProfileTags already read and write). This affects
+// every instance profile response, not just List -- confirmed by them all sharing one
+// builder -- but the fix is exercised here through ListInstanceProfiles. Seeds two
+// profiles with distinguishable tags and asserts both round-trip.
+func TestListInstanceProfiles_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	client := newTestIAMClient(t, h)
+
+	mk := func(name, tagKey, tagVal string) *iamsdk.CreateInstanceProfileOutput {
+		out, err := client.CreateInstanceProfile(t.Context(), &iamsdk.CreateInstanceProfileInput{
+			InstanceProfileName: aws.String(name),
+			Tags: []types.Tag{
+				{Key: aws.String(tagKey), Value: aws.String(tagVal)},
+			},
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("list-shape-ip-1", "env", "prod")
+	second := mk("list-shape-ip-2", "env", "staging")
+
+	listed, err := client.ListInstanceProfiles(t.Context(), &iamsdk.ListInstanceProfilesInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.InstanceProfiles, 2)
+
+	byName := make(map[string]types.InstanceProfile, 2)
+	for _, item := range listed.InstanceProfiles {
+		byName[aws.ToString(item.InstanceProfileName)] = item
+	}
+
+	item1, ok := byName[aws.ToString(first.InstanceProfile.InstanceProfileName)]
+	require.True(t, ok)
+	require.Len(t, item1.Tags, 1)
+	assert.Equal(t, "env", aws.ToString(item1.Tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(item1.Tags[0].Value))
+
+	item2, ok := byName[aws.ToString(second.InstanceProfile.InstanceProfileName)]
+	require.True(t, ok)
+	require.Len(t, item2.Tags, 1)
+	assert.Equal(t, "staging", aws.ToString(item2.Tags[0].Value))
 }

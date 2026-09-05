@@ -39,7 +39,7 @@ func (h *Handler) handleListRecommendationTemplates(_ context.Context, r *http.R
 	q := r.URL.Query()
 	f := listTemplatesFilter{
 		assessmentArn: q.Get("assessmentArn"), name: q.Get("name"), templateArn: q.Get("recommendationTemplateArn"),
-		statuses: q["status"], reverseOrder: q.Get("reverseOrder") == "true",
+		statuses: q["status"], reverseOrder: q.Get("reverseOrder") == queryValueTrue,
 	}
 
 	p := h.Backend.ListRecommendationTemplates(f, q.Get("nextToken"), queryMaxResults(q))

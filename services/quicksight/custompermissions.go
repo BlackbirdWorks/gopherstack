@@ -147,6 +147,7 @@ func (b *InMemoryBackend) ListCustomPermissions(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, cp := range all {
 			if cp.Name == nextToken {
 				start = i
@@ -271,6 +272,7 @@ func (b *InMemoryBackend) ListRoleMemberships(
 
 	start := 0
 	if nextToken != "" {
+		start = len(members)
 		for i, m := range members {
 			if m == nextToken {
 				start = i

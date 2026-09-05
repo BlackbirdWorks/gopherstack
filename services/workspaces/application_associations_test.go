@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -365,4 +368,79 @@ func TestWorkspaceApplicationAssociations_Validation(t *testing.T) {
 			"AssociationStatus is not a field on the real WorkspaceResourceAssociation type",
 		)
 	})
+}
+
+// TestDescribeApplicationAssociations_Pagination proves the op pages through
+// every workspace associated with an application exactly once instead of
+// returning them all on a single page with no cursor.
+func TestDescribeApplicationAssociations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	_, regErr := client.RegisterWorkspaceDirectory(ctx, &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-00000000"),
+		WorkspaceDirectoryName: aws.String("dir"),
+	})
+	require.NoError(t, regErr)
+
+	const appID = "app-pagination-test"
+
+	users := []string{"alice", "bob", "carol"}
+	for _, u := range users {
+		out, err := client.CreateWorkspaces(ctx, &wssdk.CreateWorkspacesInput{
+			Workspaces: []types.WorkspaceRequest{
+				{
+					BundleId:    aws.String("wsb-00000000"),
+					DirectoryId: aws.String("d-00000000"),
+					UserName:    aws.String(u),
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.PendingRequests, 1)
+
+		_, err = client.AssociateWorkspaceApplication(ctx, &wssdk.AssociateWorkspaceApplicationInput{
+			WorkspaceId:   out.PendingRequests[0].WorkspaceId,
+			ApplicationId: aws.String(appID),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.DescribeApplicationAssociations(ctx, &wssdk.DescribeApplicationAssociationsInput{
+		ApplicationId: aws.String(appID),
+		AssociatedResourceTypes: []types.ApplicationAssociatedResourceType{
+			types.ApplicationAssociatedResourceTypeWorkspace,
+		},
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Associations, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more associations remain")
+
+	page2, err := client.DescribeApplicationAssociations(ctx, &wssdk.DescribeApplicationAssociationsInput{
+		ApplicationId: aws.String(appID),
+		AssociatedResourceTypes: []types.ApplicationAssociatedResourceType{
+			types.ApplicationAssociatedResourceTypeWorkspace,
+		},
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Associations, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, a := range page1.Associations {
+		seen[aws.ToString(a.AssociatedResourceId)] = true
+	}
+
+	for _, a := range page2.Associations {
+		id := aws.ToString(a.AssociatedResourceId)
+		require.False(t, seen[id], "workspace %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(users))
 }

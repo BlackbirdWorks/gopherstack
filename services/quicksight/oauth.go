@@ -139,6 +139,7 @@ func (b *InMemoryBackend) ListOAuthClientApplications(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, app := range all {
 			if app.ClientID == nextToken {
 				start = i

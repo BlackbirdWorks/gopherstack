@@ -137,6 +137,14 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 			path:       "/v1/list-associated-packages?domain=nope&package-group=/npm/*",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name: "package_group_not_found",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lap2-domain")
+			},
+			path:       "/v1/list-associated-packages?domain=lap2-domain&package-group=/npm/*",
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -159,6 +167,42 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_ListAssociatedPackages_Preview verifies the SDK-documented
+// preview=true behavior: matching against a package group pattern that does
+// not exist yet, as opposed to the default (preview omitted/false) which
+// must 404 for a nonexistent group -- see ListAssociatedPackagesInput.Preview
+// in aws-sdk-go-v2's api_op_ListAssociatedPackages.go ("will return a list
+// of packages that would be associated with a package group, even if it
+// does not exist").
+func TestHandler_ListAssociatedPackages_Preview(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "lappreview-domain")
+	setupRepo(t, h, "lappreview-domain", "lappreview-repo")
+
+	doRawRequest(
+		t,
+		h,
+		"/v1/package/version/publish?domain=lappreview-domain&repository=lappreview-repo&format=npm"+
+			"&package=react&version=18.0.0&asset=react.tgz",
+		[]byte("content"),
+	)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/list-associated-packages?domain=lappreview-domain&package-group=/npm/*&preview=true",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pkgs, _ := resp["packages"].([]any)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "react", pkgs[0].(map[string]any)["package"])
 }
 
 // TestHandler_ListAssociatedPackages_MostSpecificMatch verifies packages are attributed to

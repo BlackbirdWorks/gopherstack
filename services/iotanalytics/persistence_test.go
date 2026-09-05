@@ -108,7 +108,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, iotanalytics.TagDTO{Key: "env", Value: "test"}, tags[0])
 
 	// channelMessages raw map.
-	msgs, err := fresh.SampleChannelData("ch1", 10)
+	msgs, err := fresh.SampleChannelData("ch1", 10, false, 0, false, 0)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, []byte("hello"), msgs[0])

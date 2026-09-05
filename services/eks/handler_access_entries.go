@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -192,6 +193,19 @@ func (h *Handler) handleListAccessEntries(c *echo.Context, clusterName string) e
 	arns, err := h.Backend.ListAccessEntries(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	if policyARN := c.Request().URL.Query().Get("associatedPolicyArn"); policyARN != "" {
+		arns = slices.DeleteFunc(arns, func(principalARN string) bool {
+			policies, lookupErr := h.Backend.ListAssociatedAccessPolicies(clusterName, principalARN)
+			if lookupErr != nil {
+				return true
+			}
+
+			return !slices.ContainsFunc(policies, func(p *AccessPolicyAssociation) bool {
+				return p.PolicyARN == policyARN
+			})
+		})
 	}
 
 	maxResults, nextToken := eksPaginationParams(c)

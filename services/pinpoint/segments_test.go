@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,6 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 		wantSegmentType   string
 		wantStatus        int
 		wantHasDimensions bool
-		wantHasImport     bool
 	}{
 		{
 			name:            "minimal_segment",
@@ -88,7 +88,10 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 			wantHasDimensions: true,
 		},
 		{
-			name: "segment_with_import_definition",
+			// The real WriteSegmentRequest has no ImportDefinition member
+			// (pinpoint@v1.42.4 types/types.go:7240) -- it's only ever
+			// derived from CreateImportJob. CreateSegment must ignore it.
+			name: "segment_with_import_definition_ignored",
 			body: map[string]any{
 				"Name": "imported",
 				"ImportDefinition": map[string]any{
@@ -98,8 +101,7 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 				},
 			},
 			wantStatus:      http.StatusCreated,
-			wantSegmentType: "IMPORT",
-			wantHasImport:   true,
+			wantSegmentType: "DIMENSIONAL",
 		},
 		{
 			name: "segment_with_segment_groups",
@@ -155,9 +157,7 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 				assert.NotNil(t, resp["Dimensions"])
 			}
 
-			if tc.wantHasImport {
-				assert.NotNil(t, resp["ImportDefinition"])
-			}
+			assert.Nil(t, resp["ImportDefinition"], "CreateSegment can never set ImportDefinition")
 		})
 	}
 }
@@ -187,7 +187,10 @@ func TestSegmentUpdate_DimensionsRoundTrip(t *testing.T) {
 			wantVersion:     2,
 		},
 		{
-			name: "update_adds_import_definition",
+			// The real WriteSegmentRequest has no ImportDefinition member
+			// (pinpoint@v1.42.4 types/types.go:7240) -- UpdateSegment must
+			// ignore it, not flip the segment to IMPORT type.
+			name: "update_ignores_import_definition",
 			updateBody: map[string]any{
 				"ImportDefinition": map[string]any{
 					"S3Url":   "s3://bucket/data.json",
@@ -195,7 +198,7 @@ func TestSegmentUpdate_DimensionsRoundTrip(t *testing.T) {
 					"Format":  "JSON",
 				},
 			},
-			wantSegmentType: "IMPORT",
+			wantSegmentType: "DIMENSIONAL",
 			wantVersion:     2,
 		},
 		{
@@ -469,32 +472,35 @@ func TestSegmentJobsDeeper(t *testing.T) {
 // Campaign full lifecycle: AdditionalTreatments
 // ──────────────────────────────────────────────────
 
+// TestSegment_ImportType drives CreateImportJob, the only real way to get an
+// IMPORT-type segment with a populated ImportDefinition -- the real
+// WriteSegmentRequest has no ImportDefinition member (pinpoint@v1.42.4
+// types/types.go:7240), so CreateSegment/UpdateSegment can never set it
+// directly.
 func TestSegment_ImportType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		importDef  map[string]any
 		name       string
+		roleArn    string
+		s3Url      string
+		format     string
 		wantFormat string
 		wantS3Url  string
 	}{
 		{
-			name: "csv_import",
-			importDef: map[string]any{
-				"RoleArn": "arn:aws:iam::123456789012:role/S3ImportRole",
-				"S3Url":   "s3://my-bucket/segments/users.csv",
-				"Format":  "CSV",
-			},
+			name:       "csv_import",
+			roleArn:    "arn:aws:iam::123456789012:role/S3ImportRole",
+			s3Url:      "s3://my-bucket/segments/users.csv",
+			format:     "CSV",
 			wantFormat: "CSV",
 			wantS3Url:  "s3://my-bucket/segments/users.csv",
 		},
 		{
-			name: "json_import",
-			importDef: map[string]any{
-				"RoleArn": "arn:aws:iam::123456789012:role/S3ImportRole",
-				"S3Url":   "s3://my-bucket/segments/users.json",
-				"Format":  "JSON",
-			},
+			name:       "json_import",
+			roleArn:    "arn:aws:iam::123456789012:role/S3ImportRole",
+			s3Url:      "s3://my-bucket/segments/users.json",
+			format:     "JSON",
 			wantFormat: "JSON",
 			wantS3Url:  "s3://my-bucket/segments/users.json",
 		},
@@ -507,20 +513,22 @@ func TestSegment_ImportType(t *testing.T) {
 			h := newHandlerForTest(t)
 			appID := createTestApp(t, h, "seg-import-app")
 
-			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
+			jobRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/jobs/import",
 				map[string]any{
-					"Name":             "import-segment",
-					"ImportDefinition": tc.importDef,
+					"RoleArn": tc.roleArn,
+					"S3Url":   tc.s3Url,
+					"Format":  tc.format,
 				})
-			require.Equal(t, http.StatusCreated, createRec.Code)
+			require.Equal(t, http.StatusCreated, jobRec.Code)
 
-			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
-
-			assert.Equal(t, "IMPORT", cr["SegmentType"])
+			var jr map[string]any
+			require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr))
+			definition := jr["Definition"].(map[string]any)
+			segID := definition["SegmentId"].(string)
+			require.NotEmpty(t, segID)
 
 			getRec := doPinpointRequest(t, h, http.MethodGet,
-				"/v1/apps/"+appID+"/segments/"+cr["Id"].(string), nil)
+				"/v1/apps/"+appID+"/segments/"+segID, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var s map[string]any
@@ -665,22 +673,21 @@ func TestSegment_UpdatePreservesType(t *testing.T) {
 	h := newHandlerForTest(t)
 	appID := createTestApp(t, h, "seg-type-preserve-app")
 
-	// Create import segment
-	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
+	// Create the import segment the real way: CreateImportJob, not
+	// CreateSegment's ImportDefinition (the real WriteSegmentRequest has no
+	// such member -- pinpoint@v1.42.4 types/types.go:7240).
+	jobRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/jobs/import",
 		map[string]any{
-			"Name": "type-preserve-seg",
-			"ImportDefinition": map[string]any{
-				"RoleArn": "arn:aws:iam::123456789012:role/R",
-				"S3Url":   "s3://bucket/file.csv",
-				"Format":  "CSV",
-			},
+			"RoleArn": "arn:aws:iam::123456789012:role/R",
+			"S3Url":   "s3://bucket/file.csv",
+			"Format":  "CSV",
 		})
-	require.Equal(t, http.StatusCreated, createRec.Code)
+	require.Equal(t, http.StatusCreated, jobRec.Code)
 
-	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
-	segID := cr["Id"].(string)
-	assert.Equal(t, "IMPORT", cr["SegmentType"])
+	var jr map[string]any
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr))
+	segID := jr["Definition"].(map[string]any)["SegmentId"].(string)
+	require.NotEmpty(t, segID)
 
 	// Update name only — type should remain IMPORT
 	putRec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/segments/"+segID,
@@ -940,4 +947,61 @@ func TestGetSegmentVersion_UnknownVersionNotFound(t *testing.T) {
 	var errResp map[string]any
 	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
 	assert.Equal(t, "NotFoundException", errResp["__type"])
+}
+
+// TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages proves GetSegments loses
+// (or repeats) segments at a page boundary when several segments in the same app share a
+// Name. Segment names have no uniqueness constraint (CreateSegment never checks for an
+// existing Name), yet GetSegments sorts solely by Name with no secondary key, over a
+// *store.Table map walk whose iteration order varies between calls; handleGetSegments
+// then pages that resort with an offset cursor (applyPageParams). Looped since this
+// depends on map iteration reshuffling a tie group between the calls backing page 1 and
+// page 2, which does not reproduce on every run.
+func TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "segment-pg-tie-app")
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
+				map[string]any{"Name": "dup-segment-name"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			created[resp["Id"].(string)] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+		path := "/v1/apps/" + appID + "/segments?page-size=2"
+
+		for range dupCount + 1 {
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, _ := resp["Item"].([]any)
+			for _, item := range items {
+				s, isMap := item.(map[string]any)
+				require.True(t, isMap)
+				seen[s["Id"].(string)] = true
+			}
+
+			nextToken, hasToken := resp["NextToken"].(string)
+			if !hasToken {
+				break
+			}
+
+			path = "/v1/apps/" + appID + "/segments?page-size=2&token=" + url.QueryEscape(nextToken)
+		}
+
+		assert.Equal(t, created, seen, "paged GetSegments dropped or duplicated same-named segments across pages")
+	}
 }

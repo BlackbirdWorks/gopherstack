@@ -2,8 +2,175 @@
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.319.1   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit:                                # unknown: pass was instructed not to commit and had no git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-07
-overall: A   # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage
+last_audit_date: 2026-08-30
+overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
+             # branch): regenerated the prior pass's "18 remaining" list from scratch --
+             # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
+             # and the map-literal `"OpName": h.handleOpName`), restricted to Describe*/List*,
+             # non-test files only -- 192 such registrations. `LC_ALL=C comm -23` against every
+             # (Describe|List)[A-Za-z]+ token appearing anywhere in this file's prose returned
+             # only 3 names (DescribeTransitGatewayConnectPeers/PeeringAttachments/RouteTables),
+             # not 16 or 18 -- a false negative: the prior pass's own note names those three via
+             # a slash-joined "DescribeTransitGatewayConnects/ConnectPeers/PeeringAttachments/
+             # RouteTables" sentence that a whole-token regex can't split, so they read as
+             # "already named" even though they're genuinely covered elsewhere (confirmed still
+             # real, in wire_field_fixes_ec2sweep36_test.go). Mechanical comm-diffing doesn't
+             # work here because this file's prose names virtually every op somewhere (including
+             # in "not yet audited" sentences) -- "named" isn't "recorded as verified". Fell back
+             # to reading the prior pass's own explicit "18 of the 37 remain genuinely unreached
+             # this pass (not audited)" sentence directly: it lists 20 raw names, 4 of which
+             # (DescribeIamInstanceProfileAssociations, DescribeLaunchTemplates,
+             # DescribeLaunchTemplateVersions, DescribePrincipalIdFormat) already had a bug fixed
+             # and were parenthetically excluded from the "not audited" framing even though still
+             # listed -- leaving 16, which matches the task's given list exactly (not 18; trusting
+             # the regenerated/cross-checked list per instructions, and saying so). Audited all
+             # 16: DescribeAggregateIdFormat, DescribeInstanceEventNotificationAttributes,
+             # DescribeFpgaImageAttribute, and DescribeNetworkInterfaceAttribute were CONFIRMED
+             # CORRECT (the first two take no parameters beyond DryRun on the real wire --
+             # nothing to misread; FpgaImageAttribute/NetworkInterfaceAttribute both correctly
+             # read their scalar FpgaImageId/NetworkInterfaceId + Attribute keys and switch on the
+             # real enum, returning only the matching block, with NetworkInterfaceAttribute's
+             # groupSet/associatePublicIpAddress gap already honestly documented in-code).
+             # DescribeIpamPools/DescribeIpamScopes/DescribeAwsNetworkPerformanceMetricSubscriptions/
+             # DescribeExportTasks/DescribeVpnConcentrators all correctly read their FlatKey ID
+             # lists but never read their declared Filters -- NOT fixed: unlike every other target
+             # below, the pinned SDK's generated doc comment for these five gives no per-filter
+             # name at all ("One or more filters." / "the filters for the export tasks." / "One or
+             # more filters to limit the results."), so implementing named filter matching here
+             # would mean fabricating filter semantics never verified against the wire; recorded as
+             # a real, deliberately-unfixed gap rather than faked. FIXED 7 unread-Filters bugs, all
+             # confirmed to fail against pre-fix code first, all with SDK-doc-enumerated filter
+             # names AND backend fields to back them: (1) DescribeClassicLinkInstances (group-id,
+             # vpc-id, tag: -- ClassicLinkInstance already tracks Groups/VpcID).
+             # (2) DescribeSecondaryNetworks (owner-id, secondary-network-id/-arn, state, type,
+             # ipv4-cidr-block-association.*, tag:). (3) DescribeSecondarySubnets (owner-id,
+             # secondary-network-id/-type, secondary-subnet-id/-arn, state,
+             # ipv4-cidr-block-association.*, tag:). (4) DescribeSecondaryInterfaces (owner-id,
+             # status, secondary-interface-id/-arn/-type, secondary-network-id/-type,
+             # secondary-subnet-id, attachment.instance-id,
+             # private-ipv4-addresses.private-ip-address, tag:). (5) DescribeServiceLinkVirtualInterfaces
+             # (owner-id, outpost-lag-id, outpost-arn, state, vlan,
+             # service-link-virtual-interface-id, tag:). (6) DescribeInstanceSqlHaHistoryStates
+             # (haStatus, sqlServerLicenseUsage, tag:). (7) DescribeImageUsageReportEntries
+             # (account-id, resource-type, creation-time with the documented "*" day-wildcard).
+             # tag-key is documented on all seven but deliberately left unimplemented, matching
+             # this file's pre-existing convention (no existing applyXxxFilters function
+             # implements tag-key either). New code: handler_filters.go gained
+             # applyClassicLinkInstanceFilters/applySecondaryInterfaceFilters/
+             # applySecondaryNetworkFilters/applySecondarySubnetFilters/
+             # applyServiceLinkVirtualInterfaceFilters/applySQLHaHistoryFilters/
+             # applyImageUsageReportEntryFilters (+ an anyContains helper for list-membership
+             # filters), wired into the five ops' existing handlers
+             # (handler_vpc_config.go/handler_secondary_net.go/handler_sql_ha.go/
+             # handler_image_ops.go); no Backend interface signature changed. No new Go-type
+             # mismatches found across any of the 16 -- every scalar/list/enum already matched its
+             # real wire type. New tests: wire_field_fixes_ec2sweep42_test.go (7 real-client
+             # tests, one per fix, each confirmed to fail against pre-fix code by reverting the
+             # handler/filter files to HEAD and re-running before restoring the fix). Gates:
+             # build/vet/race all clean; `golangci-lint run` initially flagged cyclop (2,
+             # decomposed the two ipv4-cidr-block-association.* switches into small per-field
+             # helpers) and goconst (5, extracted filterKeyOwnerID/filterKeySecondaryNetID/
+             # filterKeyResourceType/filterKeyAttachInstanceID constants, reusing
+             # filterKeyResourceType in the pre-existing handler_tags.go too) and golines (1, in
+             # the new test file) -- all fixed without nolints; 0 issues on the final run,
+             # verified as caused by this pass's own new code (the flagged lines were all in this
+             # pass's new functions/file). Repo-wide `go vet ./...` also run since instructed to
+             # for this scope (no signature changed, so not strictly required) -- confirms 0
+             # ec2-related findings; the acmpca build failures it surfaces are pre-existing and
+             # out of this pass's scope (another agent's target directory).
+             # ---- prior pass's note follows ----
+             # unrecorded-Describe/List sweep (this pass, gopherstack wrapper-key-sweep branch):
+             # regenerated the list of implemented Describe/List operations this file had never
+             # recorded as verified (grepped every "OpName": h.handleOpName / ops["OpName"] =
+             # h.handleOpName dispatch-table registration, stripped anything ending in "Response",
+             # subtracted names already named anywhere in this file -- 37 operations, not the 45
+             # a prior estimate used). Covered 19 of the 37 with real aws-sdk-go-v2-client-driven
+             # tests asserting decoded response content (not just err==nil). FIXED 8 previously
+             # unread/misread request parameters, all confirmed to fail against pre-fix code first:
+             # (1) DescribePrincipalIdFormat read "PrincipalArn", a key that does not exist
+             # anywhere on DescribePrincipalIdFormatInput (api_op_DescribePrincipalIdFormat.go --
+             # the op always describes the calling principal), while never reading the real
+             # Resource.N filter that IS on the wire (serializeOpDocumentDescribePrincipalIdFormatInput
+             # FlatKey "Resource"); every resource type's ID-format status always came back
+             # regardless of the filter. Backend.DescribePrincipalIDFormat's signature changed from
+             # (principalARN string) to (resources []string) -- it now delegates straight to the
+             # pre-existing DescribeIDFormat(resources) rather than discarding its argument; no
+             # external callers (repo-wide grep + go vet ./... both confirmed). (2)
+             # DescribeIamInstanceProfileAssociations unconditionally read Filter.1.Value.1 as the
+             # instance-id filter value BEFORE checking whether Filter.1.Name was actually
+             # "instance-id" -- a lone "state" filter sent as Filter.1 (both "instance-id" and
+             # "state" are real, documented filters here) was misread as an instance-id filter
+             # matching no real instance, silently dropping every association; also implements the
+             # "state" filter itself (previously entirely unhandled) as a post-hoc filter over the
+             # existing IamInstanceProfileAssociation.State field, no backend signature change. (3)
+             # DescribeLaunchTemplates read only LaunchTemplateName.N, silently ignoring
+             # LaunchTemplateId.N even though both are separately FlatKey-declared on the wire --
+             # a client filtering by specific template IDs got every template back unfiltered. (4)
+             # DescribeLaunchTemplateVersions read only the scalar LaunchTemplateId, ignoring the
+             # alternative LaunchTemplateName identifier (a real client identifying the template by
+             # name alone always got "LaunchTemplateId is required") and the Versions/MinVersion/
+             # MaxVersion range parameters entirely; now resolves LaunchTemplateName via the
+             # existing DescribeLaunchTemplates(names) path and filters the (structurally always
+             # single) returned version against Versions/MinVersion/MaxVersion -- this backend
+             # stores one version snapshot per template, not a real multi-version history, so the
+             # filter is applied to that one item rather than a real per-version data set (documented
+             # in gaps). (5) DescribeImageUsageReports ignored its url.Values entirely -- ReportId.N
+             # and ImageId.N are both real FlatKey lists on the wire
+             # (serializeOpDocumentDescribeImageUsageReportsInput) but were never read; now filtered
+             # post-hoc against the existing UsageReport.ReportID/ImageID fields. (6)
+             # DescribeVpcEndpointServices also ignored its url.Values entirely -- ServiceName.N is
+             # a real FlatKey list; requesting specific service names always returned the full
+             # static per-region catalogue. ServiceRegion.N/Filters remain undocumented gaps: this
+             # backend has no per-service attribute catalogue or cross-region service data to filter
+             # against. (7)/(8) DescribeCustomerGateways/DescribeVpnGateways never read Filters at
+             # all (declared on the wire, CustomerGateway/VpnGateway structs already carry
+             # State/Type/BgpAsn/IPAddress/AttachedVPCID/AttachmentState) -- added
+             # applyCustomerGatewayFilters/applyVpnGatewayFilters (handler_filters.go, following the
+             # file's existing applyXxxFilters convention) covering every real documented filter this
+             # backend has backing data for (bgp-asn/customer-gateway-id/ip-address/state/type/tag:
+             # and attachment.state/attachment.vpc-id/state/type/vpn-gateway-id/tag: respectively);
+             # amazon-side-asn/availability-zone/tag-key are documented but not tracked by these
+             # structs, left unimplemented rather than fabricated. CONFIRMED CORRECT (real
+             # ID-filter/decoded-response assertions, not err==nil): DescribeAccountAttributes,
+             # DescribeDeclarativePoliciesReports, DescribeVpcClassicLink (singular VpcId.N) and
+             # DescribeVpcClassicLinkDnsSupport (plural VpcIds.N -- the field name predicts neither
+             # direction, confirmed both ways in the same pass), DescribeVpcPeeringConnections,
+             # DescribeIpams, DescribeVpcEncryptionControls, DescribeFpgaImages,
+             # DescribeInstanceSqlHaStates. PARITY.md CORRECTION: DescribeTransitGatewayConnects/
+             # ConnectPeers/PeeringAttachments/RouteTables were already fixed (TransitGatewayAttachmentIds.N
+             # / TransitGatewayConnectPeerIds.N / TransitGatewayRouteTableIds.N plural keys) and
+             # covered by real-client tests in wire_field_fixes_ec2sweep36_test.go -- this file
+             # simply never recorded them as verified; re-ran those 4 tests this pass to confirm
+             # they still pass, no new test written (would have been a pure duplicate). 18 of the 37
+             # remain genuinely unreached this pass (not audited): DescribeAggregateIdFormat,
+             # DescribeAwsNetworkPerformanceMetricSubscriptions, DescribeClassicLinkInstances,
+             # DescribeExportTasks, DescribeFpgaImageAttribute, DescribeIamInstanceProfileAssociations
+             # (request-param bug fixed above; response-shape/other params not re-audited beyond
+             # that), DescribeImageUsageReportEntries, DescribeInstanceEventNotificationAttributes,
+             # DescribeInstanceSqlHaHistoryStates, DescribeIpamPools, DescribeIpamScopes,
+             # DescribeLaunchTemplates/DescribeLaunchTemplateVersions (bugs fixed above; Filters
+             # parameter itself not re-audited), DescribeNetworkInterfaceAttribute,
+             # DescribePrincipalIdFormat (bug fixed above; MaxResults/NextToken not audited),
+             # DescribeSecondaryInterfaces, DescribeSecondaryNetworks, DescribeSecondarySubnets,
+             # DescribeServiceLinkVirtualInterfaces, DescribeVpnConcentrators. Gates: build/vet
+             # (repo-wide, since Backend.DescribePrincipalIDFormat's signature changed)/race/
+             # golangci-lint all 0 issues, no banned nolints; new test file
+             # wire_field_fixes_ec2sweep41_test.go.
+             # ---- prior pass's note follows ----
+             # write-only-state sweep (this pass, targeted): ModifyInstancePlacementInput.GroupName
+             # was a plain string guarded by != "" (not *string like the real SDK's
+             # ModifyInstancePlacementInput, api_op_ModifyInstancePlacement.go), whose doc says
+             # "To remove an instance from a placement group, specify an empty string (\"\")" --
+             # a client's documented, explicit clear was silently dropped, leaving the instance in
+             # its old placement group. Now *string with a nil check (instance_attrs.go). Response
+             # side (instancePlacementItem.GroupName, handler_instances_lifecycle.go) intentionally
+             # kept `xml:"groupName,omitempty"` -- most instances never touch a placement group at
+             # all, and stripping omitempty would put a spurious empty <groupName/> tag on every
+             # DescribeInstances response for the overwhelmingly common case, trading a rare-clear
+             # edge case for a much larger deviation from real AWS's shape. Round-trip test:
+             # wire_field_fixes_test.go (TestModifyInstancePlacement_GroupNameCanBeCleared).
+             # ---- prior pass's note follows ----
+             # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage
              # consolidation and TGW/NAT/VPC-endpoint field-diffs claimed by the passes below
              # are real and still hold (read the code directly against the pinned SDK, not just
              # the notes) -- confirmed, all still correct. Found and fixed one more real,
@@ -161,6 +328,7 @@ families:
   key_pairs: {status: ok, note: "phantom-triage pass (parity-5, 2026-07-31): 'ExportKeyPair' was advertised in GetSupportedOperations() AND dispatched (Action=ExportKeyPair), but is not a real EC2 operation — real AWS exposes public-key material for a key pair via DescribeKeyPairs with IncludePublicKey=true (types.KeyPairInfo.PublicKey), not a separate action. gopherstack's DescribeKeyPairs does not implement IncludePublicKey (see gaps). Deleted the fabricated action/handler/backend-method/interface-entry outright (no real op was already wired to redirect it to, unlike the transit-gateway fix below) rather than delisting-only, since it was never reachable by any genuine AWS SDK client — Action=ExportKeyPair does not exist on the real client, so nothing a real client could send is lost. Also removed: 'ModifyTransitGatewayAttribute', a near-miss duplicate of the already-correctly-wired real op ModifyTransitGateway (same Description-only semantics, same backing store) — deleting it changes nothing reachable by a real client, ModifyTransitGateway already covers it. See TestModifyTransitGateway (handler_transit_gateways_test.go) for the real op's existing coverage. UPDATE (gopherstack-8pce, 2026-08-07): closed the IncludePublicKey gap this note flagged, found and fixed a real tag-storage-key drift bug (the DescribeKeyPairs tag: filter looked tags up under a key CreateTags never wrote to), and added KeyPairId/KeyType/CreateTime/TagSet — see the top-of-file pass note for full detail."}
   tgw_policy_table_entries: {status: ok, note: "NEW (2026-08-05, SDK bump ec2 v1.317->v1.319.1, gopherstack-8pce follow-up): implemented Create/Modify/DeleteTransitGatewayPolicyTableEntry, the 3 of the 13 newly-exposed ops in this family. A prior pass's GetTransitGatewayPolicyTableEntries doc comment claimed 'Real AWS exposes no API to create policy table entries directly' — that was true when written but is now WRONG: the v1.319 bump adds exactly that API. Corrected the comment and GetTransitGatewayPolicyTableEntries itself, which previously validated the table existed and always returned an empty list; it now returns the real stored entries (was a disguised, now-incorrect stub given the new Create op — caught by the 'a resource created by a Create operation must be visible to the matching Describe' rule). New backend.TransitGatewayPolicyTableEntry model + tgwPolicyTableEntries store.Table, keyed policyTableID+ruleNumber (mirrors the pre-existing tgwMeteringPolicyEntries pattern exactly). Field-diffed against the installed SDK's serializers.go/deserializers.go/validators.go: wire params are flat (PolicyRule.SourceCidrBlock/SourcePortRange/DestinationCidrBlock/DestinationPortRange/Protocol/MetaData.MetaDataKey/MetaDataValue, TargetRouteTableId, PolicyRuleNumber, TransitGatewayPolicyTableId), response element names are policyRuleNumber/targetRouteTableId/state/policyRule (nested destinationCidrBlock/destinationPortRange/metaData/protocol/sourceCidrBlock/sourcePortRange) — all lowerCamelCase, ISO8601 timestamps (this op has none). CreateTransitGatewayPolicyTableEntry validates TransitGatewayPolicyTableId/PolicyRuleNumber/TargetRouteTableId are required (matching validateOpCreateTransitGatewayPolicyTableEntryInput) and that TargetRouteTableId refers to a real, existing TGW route table (real invariant: an entry must route to somewhere that exists) — not just accepting any string. ModifyTransitGatewayPolicyTableEntry implements 'unspecified fields retain their current value' field-by-field (matching this file's existing ModifyTransitGatewayPrefixListReference/ModifyTransitGatewayMeteringPolicy convention), re-validating TargetRouteTableId existence when provided. DeleteTransitGatewayPolicyTable now also cascades to entries (previously only cascaded associations). Not-found for a nonexistent rule number reuses ErrInvalidParameter (matching the sibling TransitGatewayMeteringPolicyEntry convention exactly, rather than inventing a new sentinel for an AWS error code this pass could not verify against any documented example). Tests: TestTGWPeripherals_PolicyTableEntryLifecycle/_PolicyTableEntriesValidation/_DeletePolicyTableCascadesEntries/_PolicyTableEntrySnapshotRestore (backend), TestTGWPeripheralsHandler_PolicyTableEntryLifecycle (wire, via postForm/dispatchHandler proving the exact query-param and XML-response shapes above)."}
   application_status_checks: {status: ok, note: "NEW (2026-08-05, SDK bump ec2 v1.317->v1.319.1, gopherstack-8pce follow-up): implemented all 10 newly-exposed ops (Create/Modify/Delete/DescribeApplicationStatusChecks, Associate/DisassociateApplicationStatusCheck, DescribeApplicationStatusCheckAssociations, Enable/DisableApplicationStatusCheckSuppression, DescribeApplicationStatus). Understanding, confirmed by reading every operation's doc comment plus types.go/serializers.go/deserializers.go/validators.go in the installed SDK: an ApplicationStatusCheck is a reusable HTTP(S) health-check DEFINITION (protocol/port/path/thresholds/interval/timeout), created independently of any instance; Associate/DisassociateApplicationStatusCheck attach it to instances directly by ID or indirectly via a tag key/value (current AND future instances with that tag are covered); Enable/DisableApplicationStatusCheckSuppression temporarily excludes an instance's checks from affecting its aggregated status; DescribeApplicationStatus returns the real target of the whole family — each instance's single AGGREGATED status, derived only from checks whose Aggregation='included' (checks with Aggregation='excluded' run independently and never affect it, per the real doc comment). CRUD/association/suppression state is fully real: CreateApplicationStatusCheck applies the real, doc-comment-documented AWS defaults (Path=/, Interval=60, Timeout=6, FailureThreshold=2, SuccessThreshold=5, StatusCodeMatcher=200, InitializationGracePeriodSeconds=300, Aggregation=included) and enforces the real, documented 50-check-per-account limit and Timeout<Interval/Path-starts-with-/ constraints; DeleteApplicationStatusCheck marks Deleted+DeletionTime rather than removing the row outright (real AWS retains a deleted check during an undocumented grace period, visible via IncludeAll=true — this backend retains indefinitely rather than inventing an unspecified grace-period duration, a real gap, not a fabrication) and cascades to every association targeting it; Associate/DisassociateApplicationStatusCheck enforce the real 'exactly one of InstanceIds/TargetTagAssociations, not both' InvalidParameterCombination rule and report real per-target Successful/UnsuccessfulResults (field-diffed: note SuccessfulAssociationResponseObject's AssociationType vocabulary is 'INSTANCE_ID'/'EC2TAG', a DIFFERENT wire vocabulary from ApplicationStatusCheckAssociationObject's 'instance-id'/'tag' used by DescribeApplicationStatusCheckAssociations — an easy-to-miss trap this pass caught by reading both deserializers directly rather than assuming one covers the other); Enable/DisableApplicationStatusCheckSuppression validate the instance exists and compute a real ResumeAt from DurationSeconds (0/absent = indefinite, matching the documented behaviour). DescribeApplicationStatus is the one op a mock backend cannot honestly fully implement: real AWS derives it from actually running HTTP health checks against the instance's application, which this backend does not and cannot do. Per this task's explicit no-fabrication rule, it NEVER returns 'ok'/'impaired'/'initializing' (all three require a real check result this backend does not have) — it returns only the subset of the real ApplicationStatusEnum that is honestly, fully derivable from tracked state: 'suppressed' (a real active ApplicationStatusSuppression exists), 'not-applicable' (real AWS's own documented meaning: no included-aggregation check applies to the instance — verified true here, not approximated), or 'insufficient-data' (an included check IS associated but this backend has never run it, so there is genuinely zero result data — the honest, not fabricated, answer for that value's own documented meaning). See gaps for what remains unmodeled. New sentinels: ErrApplicationStatusCheckNotFound (InvalidApplicationStatusCheckId.NotFound), ErrInvalidParameterCombination (InvalidParameterCombination, new — not previously used anywhere in this file), ErrTooManyApplicationStatusChecks (ApplicationStatusCheckLimitExceeded). New ID prefix 'asc-' (resourceTypePrefixes: 'application-status-check', the real AWS ResourceType string) plus 3 new store.Table-backed maps (applicationStatusChecks/applicationStatusCheckAssociations/applicationStatusSuppressions), all registered via the existing b.registry Snapshot/Restore mechanism — no persistence.go changes needed. Tests: application_status_checks_test.go (12 backend tests: create validation/defaults/quota, modify-retains-unset-fields, delete-cascade+IncludeAll retention, describe filters, instance+tag association lifecycle including partial-success Successful/Unsuccessful reporting, suppression, the dedicated 'never fabricates' status test, snapshot/restore round trip) and handler_application_status_checks_test.go (4 wire tests via postForm/dispatchHandler proving the exact query-param names — InstanceId.N not InstanceIds.N, PolicyRule-style nested TargetTagAssociation.N.Key/.Value — and XML response element names field-diffed above)."}
+  unrecorded_describe_ops_sweep41: {status: ok, note: "SWEEP (this pass): 19 of the 37 Describe/List ops this file had never recorded as verified, real-client-driven (wire_field_fixes_ec2sweep41_test.go). FIXED 8 request-param bugs — DescribePrincipalIdFormat (fabricated PrincipalArn key, ignored real Resource.N filter; Backend.DescribePrincipalIDFormat's signature changed from principalARN string to resources []string), DescribeIamInstanceProfileAssociations (Filter.1.Value.1 read unconditionally as instance-id before checking Filter.1.Name, misreading a lone \"state\" filter; \"state\" filter now also implemented), DescribeLaunchTemplates (LaunchTemplateId.N never read, only LaunchTemplateName.N), DescribeLaunchTemplateVersions (LaunchTemplateName/Versions/MinVersion/MaxVersion never read, only the scalar LaunchTemplateId), DescribeImageUsageReports (ReportId.N/ImageId.N never read at all), DescribeVpcEndpointServices (ServiceName.N never read at all), DescribeCustomerGateways and DescribeVpnGateways (Filters never read at all — new applyCustomerGatewayFilters/applyVpnGatewayFilters in handler_filters.go). CONFIRMED CORRECT: DescribeAccountAttributes, DescribeDeclarativePoliciesReports, DescribeVpcClassicLink (singular VpcId.N) + DescribeVpcClassicLinkDnsSupport (plural VpcIds.N — same field name, opposite wire key, both confirmed), DescribeVpcPeeringConnections, DescribeIpams, DescribeVpcEncryptionControls, DescribeFpgaImages, DescribeInstanceSqlHaStates. CORRECTION: DescribeTransitGatewayConnects/ConnectPeers/PeeringAttachments/RouteTables were already fixed and real-client-tested in wire_field_fixes_ec2sweep36_test.go; this file simply never recorded them. 18 of the 37 remain unaudited this pass: DescribeAggregateIdFormat, DescribeAwsNetworkPerformanceMetricSubscriptions, DescribeClassicLinkInstances, DescribeExportTasks, DescribeFpgaImageAttribute, DescribeImageUsageReportEntries, DescribeInstanceEventNotificationAttributes, DescribeInstanceSqlHaHistoryStates, DescribeIpamPools, DescribeIpamScopes, DescribeNetworkInterfaceAttribute, DescribeSecondaryInterfaces, DescribeSecondaryNetworks, DescribeSecondarySubnets, DescribeServiceLinkVirtualInterfaces, DescribeVpnConcentrators (plus MaxResults/NextToken and the remaining Filters surface on several of the ops fixed/confirmed above were not separately re-audited). See top-of-file pass note for full detail."}
 gaps:
   - "Application Status Checks (2026-08-05, gopherstack-8pce follow-up): HealthCheckPaths (cross-AZ/Local-Zone
     health-check source/destination ENI paths) is not modeled at all — CreateApplicationStatusCheck silently
@@ -1918,3 +2086,1632 @@ and three `prealloc` findings by hand, not via `-fix`), `go test
 entry -- all 30 `registerCapacityFamilyOps` ops outside
 `handler_capacity_reservations.go`, plus the 2 `handler_accept_ops.go` ops,
 were read and field-diffed. Work left **uncommitted** for the orchestrator.
+
+**2026-08-29 -- ERROR PATH audited (wrong-error-code sweep, class: sentinel
+maps to a code the SDK's own per-op deserializer doesn't model, so a real
+client's `errors.As` into a typed exception silently falls through to a
+generic error). Structurally clean -- 0 bugs, 0/785 ops at risk by
+construction.** Extracted every `awsEc2query_deserializeOpError<Op>` in
+`aws-sdk-go-v2/service/ec2@v1.319.1/deserializers.go` (785 functions, one per
+routed action) and confirmed none contain a single `case`/`EqualFold` branch
+-- each is unconditionally `switch { default: return &smithy.GenericAPIError{
+Code: errorCode, ... } }`. There is also no `types/errors.go` in this SDK
+package -- EC2 models **zero** typed per-operation exceptions in this pinned
+version. Every EC2 error, for every op, becomes a `smithy.GenericAPIError`
+carrying whatever `Code` string the server sent; a real client can never
+`errors.As` into an op-specific typed exception for this service at all, so
+the "code not modeled by this op" bug class found in iam/dynamodb/s3/sts and
+in cloudformation this same sweep cannot occur here -- there is no per-op
+model to be inconsistent with. `handler.go`'s shared `errCodeLookup` table
+(sentinel -> XML `Code` string) is therefore the entire error surface;
+auditing individual call sites for wire-string accuracy against real AWS
+would be a general parity sweep, not this bug class, and was left alone per
+scope. No source changes.
+
+Gates: `go vet ./services/ec2/...` clean (no source changed; full
+`go build`/`golangci-lint`/`go test` gates not re-run for a read-only
+audit with no diff).
+
+**2026-08-29 pass -- request-wrapper-key sweep, IPAM/Local Gateway/VPC
+Endpoint/Network Insights families (21 ops)**: diffed the 202 implemented
+`Describe*`/`List*` operation strings in `services/ec2/*.go` against every op
+name mentioned anywhere in this file, giving ~123 never-verified-in-PARITY
+candidates; picked a 21-op tranche across four related families and read
+each handler's request-parsing code against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+
+IPAM family (7, `handler_ipam_discovery.go`/`handler_ipam.go`/
+`handler_ipam_policy.go`): DescribeIpamByoasn, DescribeIpamExternalResourceVerificationTokens,
+DescribeIpamPolicies, DescribeIpamPrefixListResolvers,
+DescribeIpamPrefixListResolverTargets, DescribeIpamResourceDiscoveries,
+DescribeIpamResourceDiscoveryAssociations.
+
+Local Gateway family (6, `handler_local_gateway.go`): DescribeLocalGateways,
+DescribeLocalGatewayVirtualInterfaces, DescribeLocalGatewayVirtualInterfaceGroups,
+DescribeLocalGatewayRouteTables, DescribeLocalGatewayRouteTableVpcAssociations,
+DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations.
+
+VPC Endpoint family (4, `handler_vpc_endpoints.go`): DescribeVpcEndpointAssociations,
+DescribeVpcEndpointConnections, DescribeVpcEndpointServicePermissions,
+DescribeVpcEndpointConnectionNotifications.
+
+Network Insights family (4, `handler_network_insights.go`): DescribeNetworkInsightsPaths,
+DescribeNetworkInsightsAnalyses, DescribeNetworkInsightsAccessScopes,
+DescribeNetworkInsightsAccessScopeAnalyses.
+
+All 21 ops' ID-list request keys (`parseMemberList`'s singular-flattened
+prefixes, e.g. `LocalGatewayId.N`, `IpamPolicyId.N`,
+`NetworkInsightsAccessScopeId.N`) checked correct against each op's own
+`object.FlatKey(...)` call -- no ID-key bug in this tranche. Found and fixed
+4 real bugs, all class-1 (silent empty/ignored filter, no error):
+
+1. **`DescribeVpcEndpointConnections`** (`handler_vpc_endpoints.go`) read a
+   `ServiceId.N` indexed list that does not exist on the wire at all --
+   `DescribeVpcEndpointConnectionsInput` has no ServiceId/ServiceIds field
+   (`api_op_DescribeVpcEndpointConnections.go`: only DryRun/Filters/MaxResults/
+   NextToken); a real client narrows by service only via a `service-id`
+   `Filter` (serializers.go:82487). The service-id filter was always
+   silently ignored -- every call returned every connection. Fixed: read
+   `parseEC2Filters(vals)["service-id"]` instead.
+2. **`DescribeVpcEndpointConnectionNotifications`** (`handler_vpc_endpoints.go`)
+   read `ConnectionNotificationId` as an indexed list
+   (`parseMemberList(vals, "ConnectionNotificationId")` -> looks for
+   `ConnectionNotificationId.1`), but the real field is a scalar `*string`
+   serialized as a bare `ConnectionNotificationId` key (serializers.go:82458)
+   -- a key a real client's single-ID lookup never matches. Fixed: read
+   `vals.Get("ConnectionNotificationId")` as a scalar, wrapped into a
+   1-element slice for the existing `[]string`-taking backend method.
+3. **`DescribeNetworkInsightsAnalyses`** (`handler_network_insights.go`)
+   never read `NetworkInsightsPathId`, a real scalar filter field distinct
+   from the `NetworkInsightsAnalysisIds` list (serializers.go:79838,
+   `object.Key("NetworkInsightsPathId")`) -- narrowing analyses to one path
+   was silently ignored. Fixed: `Backend.DescribeNetworkInsightsAnalyses`
+   gained a `pathID string` parameter (interface signature change, only
+   in-package callers, `go vet ./...` run repo-wide clean).
+4. **`DescribeNetworkInsightsAccessScopeAnalyses`** (same file) never read
+   `NetworkInsightsAccessScopeId`, the real scalar filter field distinct from
+   `NetworkInsightsAccessScopeAnalysisIds` (serializers.go:79751). Fixed the
+   same way: `Backend.DescribeNetworkInsightsAccessScopeAnalyses` gained a
+   `scopeID string` parameter.
+
+Left alone, not fabricated: all 6 Local Gateway ops and all 7 IPAM ops
+declare a real `Filters []types.Filter` field that none of their handlers
+apply at all (only ID lists) -- e.g. `DescribeLocalGateways` supports
+`local-gateway-id`/`outpost-arn`/`owner-id`/`state` filters
+(`api_op_DescribeLocalGateways.go`) and applies none of them. This is a
+missing-feature gap (no filter-matching code exists to read a wrong key),
+not this pass's "reads an existing wire key under the wrong name" bug class
+-- named here rather than invented as a fix, since building real per-field
+filter semantics for 13 ops is a separate, much larger pass.
+`DescribeVpcEndpointAssociations`/`DescribeVpcEndpointServicePermissions`
+have the same gap (Filters declared, never read) for the same reason.
+
+Existing tests: none of this tranche's 21 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side), so no
+wrong/blind/insufficiently-specific existing test to correct.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep33_test.go`, 4
+`*_RealClient` tests against the real `ec2sdk.Client`, each confirmed
+failing pre-fix by running before the corresponding source change):
+`TestDescribeVpcEndpointConnections_ServiceIdFilter_RealClient`,
+`TestDescribeVpcEndpointConnectionNotifications_IdFilter_RealClient`,
+`TestDescribeNetworkInsightsAnalyses_PathIdFilter_RealClient`,
+`TestDescribeNetworkInsightsAccessScopeAnalyses_ScopeIdFilter_RealClient`.
+
+Not reached this pass: the ~102 other never-verified-in-PARITY ops (of the
+~123 candidate set), including DescribeSubnets, DescribeDhcpOptions,
+DescribeInternetGateways (response-side already covered by
+`wire_field_fixes_test.go`'s tag test but not this request-key class),
+DescribeVpnConnections/VpnGateways/CustomerGateways, DescribeInstanceStatus,
+DescribeInstanceTypes, DescribeFleets/FleetHistory/FleetInstances,
+DescribeSpotPriceHistory, the whole `DescribeTrafficMirrorFilterRules` /
+Route Server / Verified Access logging-config / VPC block-public-access
+surface, and more -- see the full 123-op diff method above to regenerate.
+
+Gates: `go build ./services/ec2/...`, `go vet ./...` (repo-wide, two backend
+signatures changed), `go test -race -count=1 ./services/ec2/...` (full
+suite green), `golangci-lint run ./services/ec2/...` (0 issues, run last).
+No banned nolints.
+
+**2026-08-29 pass -- request-wrapper-key sweep, core VPC/subnet/instance
+networking (21 ops)**: covered the tranche named in the task -- DescribeSubnets,
+DescribeDhcpOptions, DescribeInternetGateways, DescribeEgressOnlyInternetGateways,
+DescribeNatGateways, DescribeNetworkAcls, DescribePrefixLists,
+DescribeManagedPrefixLists, DescribePublicIpv4Pools, DescribeInstanceStatus,
+DescribeInstanceTypes, DescribeInstanceTypeOfferings, DescribeBundleTasks,
+DescribeAddressTransfers, DescribeByoipCidrs -- plus 6 adjacent core-networking
+ops also unverified in this file: DescribeNetworkInterfaces, DescribeRouteTables,
+DescribeVpcs, DescribeVpcAttribute, DescribeCarrierGateways, DescribeFlowLogs.
+Each handler's request-parsing code read against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, including tracing
+`object.FlatKey`/`Array` through `aws-sdk-go-v2@v1.43.4/aws/protocol/query/{object,array}.go`
+to confirm `FlatKey` list elements use the flattened `<Name>.N` key regardless
+of the child serializer's own `Array("Item")` call.
+
+All 21 ops' ID-list keys (`InstanceId.N`, `SubnetId.N`, `DhcpOptionsId.N`,
+`InternetGatewayId.N`, `EgressOnlyInternetGatewayId.N`, `NatGatewayId.N`,
+`NetworkAclId.N`, `PrefixListId.N`, `PoolId.N`, `InstanceType.N`, `BundleId.N`,
+`AllocationId.N`, `NetworkInterfaceId.N`, `RouteTableId.N`, `VpcId.N`/`VpcId`,
+`CarrierGatewayId.N`, `FlowLogId.N`) and the shared `Filter.N.Name`/
+`Filter.N.Value.M` filter-parsing convention (`parseEC2Filters`) checked
+correct against each op's own serializer. No wrong-key, wrong-cardinality, or
+hard-decode-error bug found in this tranche (signatures 1/2/4 all clean).
+
+One informational finding, not fixed: **`DescribeByoipCidrs`**
+(`handler_accept_ops.go:518`) reads `vals.Get("State")` and passes it to
+`Backend.DescribeByoipCidrs(state)` as an optional state filter, but
+`DescribeByoipCidrsInput` (`api_op_DescribeByoipCidrs.go`) has no `State`
+field and no `Filters` field at all -- only `MaxResults`, `DryRun`,
+`NextToken`. A real client has no way to filter this operation by state, so
+`State` is always empty for real traffic and the handler's
+empty-state-means-no-filter behavior already matches real AWS exactly. Left
+alone: unlike `DescribeVpcEndpointConnections`'s `ServiceId` (sweep33), there
+is no real key to redirect this read to -- removing the dead `State` read
+would be a code-cleanliness change, not a wire-shape fix, so out of scope
+here.
+
+Missing-feature gaps (Filters field declared on the wire, no filter-matching
+code exists to read a wrong key, so not this class) -- kept distinct, not
+fabricated as bugs: `DescribeDhcpOptions`, `DescribeEgressOnlyInternetGateways`,
+`DescribePrefixLists` (`prefix-list-id`/`prefix-list-name`),
+`DescribeManagedPrefixLists`, `DescribePublicIpv4Pools` (`tag`/`tag-key`),
+`DescribeBundleTasks`, `DescribeInstanceTypes`, `DescribeCarrierGateways`,
+`DescribeFlowLogs` all declare `Filters`/`Filter` and never apply it.
+`DescribeInstanceStatus` additionally never reads `IncludeAllInstances` or
+`IncludeManagedResources` (both real boolean fields;
+`Backend.DescribeInstanceStatus` always returns every instance regardless of
+state, so the AWS default of running-only is also unimplemented) -- same
+missing-feature category, no read attempt exists to misdirect.
+`DescribeNetworkAcls` only applies the `vpc-id` filter of its documented set.
+`DescribeSubnets`, `DescribeInternetGateways`, `DescribeNatGateways`,
+`DescribeInstanceTypeOfferings`, `DescribeNetworkInterfaces`, `DescribeVpcs`,
+`DescribeRouteTables` all apply `Filters` through `parseEC2Filters` with
+correct wire keys (filter *name* coverage/completeness is a separate,
+larger gap, not audited here).
+
+Existing tests: none of this tranche's 21 ops had a wrong, blind, or
+insufficiently-specific existing test for this specific request-key class.
+`TestDescribeInstanceTypeOfferings_Filters_RealClient`
+(`wire_field_fixes_ec2sweep11_test.go`) already covers that op's Filters
+correctly (asserts the decoded response is properly narrowed, not just
+`err == nil`).
+
+No new tests added -- no fixable bug found in this tranche.
+
+**Update (gopherstack-j2v5 pass, 2026-08-30): the missing-feature gap above is
+now fixed for 10 of the 11 ops it listed.** `DescribeDhcpOptions`,
+`DescribeEgressOnlyInternetGateways`, `DescribePrefixLists`,
+`DescribeManagedPrefixLists`, `DescribePublicIpv4Pools`, `DescribeBundleTasks`,
+`DescribeCarrierGateways`, and `DescribeFlowLogs` now apply every filter name
+their own SDK doc comment lists AND this backend's struct actually stores
+(`handler_filters.go`'s new `apply*Filters`/`*MatchesFilter` functions);
+names naming untracked data (e.g. `owner-id` on `DhcpOptions`/`PrefixList`,
+which have no per-resource owner field; `entry.icmp.*`/`entry.ipv6-cidr` on
+`NetworkACL`'s `NACLEntry`, which has no ICMP or IPv6 fields) are left
+unimplemented, documented inline at each function. `DescribeNetworkAcls` now
+applies its full documented filter set, not just `vpc-id`.
+`DescribeInstanceStatus` now reads `IncludeAllInstances` (defaults to
+running-only when no explicit `InstanceId` list is given, matching real AWS)
+and applies its filters; `IncludeManagedResources` is still left unread --
+this backend has no managed-instance concept to hide or reveal.
+**`DescribeInstanceTypes` is the one op left genuinely unfixed**: unlike the
+other ten, its documented filter names (`hypervisor`, `bare-metal`,
+`ebs-info.*`, `instance-storage-info.*`, etc.) all describe instance-type
+*attributes*, and this backend has no instance-type attribute catalog at
+all -- `handleDescribeInstanceTypes` (`handler_instances_lifecycle.go`) only
+ever echoes back the `InstanceType.N` values a caller asked for (or a single
+fallback), so there is no real data to filter against without fabricating
+an attribute table. Left as a missing feature, not a bug.
+
+Not reached this pass: DescribeInstanceTypeOfferings/DescribeInstanceStatus/
+DescribeInstanceTypes' Go pagination and instance-type-catalog fidelity concerns
+are out of this class's scope. The other 74 ops from the ~123-candidate diff
+remain unverified (Fleets, Spot, Traffic Mirror, Verified Access, VPC
+block-public-access, Reserved Instances, Hosts, Placement Groups, and more --
+see the diff method in the 2026-08-29 IPAM/Local Gateway pass above to
+regenerate).
+
+Gates: `go build ./services/ec2/...`, `go vet ./services/ec2/...` (no backend
+signatures changed, so repo-wide vet not required), `go test -race -count=1
+./services/ec2/...` (full suite green), `golangci-lint run ./services/ec2/...`
+(0 new issues; one pre-existing `golines` finding in a concurrently-edited
+file from the other in-flight ec2 agent's tranche, not touched here).
+
+**2026-08-29 pass -- request-wrapper-key sweep, Fleet/Spot/Traffic
+Mirror/Verified Access/newer-feature families (20 ops)**: regenerated the
+202 implemented `Describe*`/`List*` operation strings (grep, `Response`-
+suffixed XML-element false positives stripped) and diffed against every op
+name already mentioned anywhere in this file; picked a 20-op tranche from
+the families this file's own "not reached" notes above name as still
+outstanding (Fleets, Spot, Traffic Mirror, Verified Access) plus four
+completely never-mentioned newer-feature ops (Outposts, VPC block-public-
+access, AMI store-image). Read each handler's request-parsing code against
+its own `awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+Note: Capacity Reservations/Capacity Blocks (named in the task brief as a
+target family) turned out to be fully field-diffed already by the 2026-08-23
+`gopherstack-6cuc` passes above (all 38 `registerCapacityFamilyOps` ops,
+line-for-line against the SDK) -- confirmed by reading those notes before
+picking ops, not re-audited here, and not counted toward this tranche's 20.
+Likewise `DescribeSpotFleetRequests`/`DescribeSpotFleetInstances`/
+`DescribeSpotFleetRequestHistory` were already audited clean in `ec2sweep24`
+("all 10 spot-fleet ... ops were audited against the real SDK this pass") --
+excluded here in favor of the still-outstanding non-fleet Spot ops.
+
+Fleet family (3, `handler_fleet.go`/`fleet.go`): `DescribeFleets` (clean --
+`FleetId.N` correct against serializers.go:77611), `DescribeFleetHistory`,
+`DescribeFleetInstances`. NOTE (added 2026-08-30, see that pass below): this
+entry verified only the *request-side* `FleetId.N` shape for all three ops --
+it did not check what the *response* actually contained. All three response
+sets were unconditionally empty at the time (`CreateFleet` never launched or
+recorded an instance against a fleet), so a correctly-shaped request read
+still returned a hardcoded-empty result. Read literally this note is still
+true (the request parsing genuinely was clean), but it should not be read as
+"the Fleet family is done" -- it wasn't checking the thing that was actually
+broken. Fixed in the 2026-08-30 pass below.
+
+Spot family (3, non-SpotFleet): `DescribeSpotInstanceRequests`
+(`handler_spot_instances.go`, clean -- `SpotInstanceRequestId.N` correct
+against serializers.go:81133), `DescribeSpotPriceHistory`
+(`handler_spot_instances.go`), `DescribeSpotDatafeedSubscription`
+(`handler_spot_fleet.go`, clean -- real `DescribeSpotDatafeedSubscriptionInput`
+has only `DryRun`, confirmed against `api_op_DescribeSpotDatafeedSubscription.go`).
+
+Traffic Mirror family (4, `handler_traffic_mirror.go`): `DescribeTrafficMirrorFilters`
+(clean -- `TrafficMirrorFilterId.N`, serializers.go:81401),
+`DescribeTrafficMirrorFilterRules` (clean -- `TrafficMirrorFilterId` is
+correctly read as a scalar via `vals.Get`, matching the real
+`object.Key("TrafficMirrorFilterId")` at serializers.go:81360; see gaps for
+the unread `TrafficMirrorFilterRuleIds` list), `DescribeTrafficMirrorSessions`
+(clean -- `TrafficMirrorSessionId.N`, serializers.go:81437),
+`DescribeTrafficMirrorTargets` (clean -- `TrafficMirrorTargetId.N`,
+serializers.go:81473).
+
+Verified Access family (5, `handler_verified_access.go`/
+`handler_verified_access_policy.go`): `DescribeVerifiedAccessEndpoints`
+(clean -- `VerifiedAccessEndpointId.N`, serializers.go:81941; see gaps for
+the two unread scalar `VerifiedAccessGroupId`/`VerifiedAccessInstanceId`
+narrowing params), `DescribeVerifiedAccessGroups` (clean --
+`VerifiedAccessGroupId.N`, serializers.go:81987; see gaps for the unread
+scalar `VerifiedAccessInstanceId`), `DescribeVerifiedAccessInstanceLoggingConfigurations`
+(clean -- `VerifiedAccessInstanceId.N`, serializers.go:82028),
+`DescribeVerifiedAccessInstances` (clean -- `VerifiedAccessInstanceId.N`,
+serializers.go:82064), `DescribeVerifiedAccessTrustProviders` (clean --
+`VerifiedAccessTrustProviderId.N`, serializers.go:82100).
+
+Newer-feature singles (5): `DescribeInstanceConnectEndpoints`
+(`handler_instances.go`, clean -- `InstanceConnectEndpointId.N`,
+serializers.go:78211), `DescribeOutpostLags` (`handler_secondary_net.go`,
+clean -- `OutpostLagId.N`, serializers.go:80007),
+`DescribeVpcBlockPublicAccessExclusions` (`handler_vpc_config.go`, clean --
+`ExclusionId.N`, serializers.go:82286), `DescribeVpcBlockPublicAccessOptions`
+(`handler_vpc_config.go`, clean -- real input has only `DryRun`, confirmed
+against `api_op_DescribeVpcBlockPublicAccessOptions.go`), `DescribeStoreImageTasks`
+(`handler_image_ops.go`, clean -- `ImageId.N`, serializers.go:81249).
+
+**1 real bug found and fixed, class 2 (wrong cardinality)**:
+`DescribeSpotPriceHistory` (`handler_spot_instances.go`) read
+`AvailabilityZone` via `parseMemberList(vals, "AvailabilityZone")`, an
+indexed-list reader looking for `AvailabilityZone.1`, `.2`, ... but the real
+`DescribeSpotPriceHistoryInput.AvailabilityZone` is a scalar `*string`
+serialized as a bare `AvailabilityZone` key (`object.Key("AvailabilityZone")`,
+serializers.go:81147-81149) -- a key a real client's single-AZ filter never
+matches in indexed form. The filter was always silently ignored;
+`GenerateSpotPriceHistory` fell back to its 3-AZ default
+(`region+"a"/"b"/"c"`) every time, so a real client narrowing to one AZ got
+records from all three instead. Fixed: read `vals.Get("AvailabilityZone")`
+as a scalar, wrapped into a 1-element slice only when non-empty (matching
+the existing `[]string`-taking `GenerateSpotPriceHistory` signature -- no
+`Backend`/exported signature changed).
+
+Missing-feature gaps (real key on the wire, no read code exists at all to be
+wrong -- kept distinct from the bug above, not fabricated as fixes):
+`DescribeSpotPriceHistory` also never reads `EndTime` or `AvailabilityZoneId`
+(both real scalar fields; `GenerateSpotPriceHistory` has no end-time bound or
+AZ-ID concept). `DescribeTrafficMirrorFilterRules` never reads the real
+`TrafficMirrorFilterRuleIds` list (narrowing to specific rule IDs within a
+filter). `DescribeVerifiedAccessEndpoints` never reads its two real scalar
+narrowing params, `VerifiedAccessGroupId`/`VerifiedAccessInstanceId`;
+`DescribeVerifiedAccessGroups` never reads its real scalar
+`VerifiedAccessInstanceId`. All Fleet/Spot/Traffic-Mirror/Verified-Access/
+Outpost-Lag/VPC-block-public-access/store-image ops in this tranche that
+declare a `Filters []types.Filter` field apply none of it -- the same
+already-documented, repo-wide missing-feature category as every prior
+request-wrapper-key-sweep tranche, not this pass's bug class.
+
+Structural gap, not fabricated (distinct from a missing-feature gap: there is
+no backing state to read a wrong key FROM): `DescribeFleetHistory` and
+`DescribeFleetInstances` (`handler_fleet.go`) are hardcoded stubs --
+`handleDescribeFleetHistory`/`handleDescribeFleetInstances` both take
+`_ url.Values` and always return an empty envelope, never reading the real
+required `FleetId`. Confirmed this is not a misdirected-key bug: `Backend.CreateFleet`
+(`fleet.go`) never launches or tracks any instance against a fleet at all
+(the `Fleet` struct has no launched-instance or history-event fields), so
+there is no real per-fleet instance/history data these ops could honestly
+return even with a correct `FleetId` read -- building it would mean modeling
+EC2 Fleet's launch/history state machine from scratch, a materially larger
+feature addition, not a wire-key fix. Left alone and named here rather than
+invented around.
+
+Existing tests: none of this tranche's 20 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side) for this
+bug class; the two bare dispatch-smoke-test references to
+`DescribeSpotPriceHistory` (`handler_core_test.go`, `handler_sdk_route_table_test.go`)
+only assert `200 OK`/`GetSupportedOperations` membership, never decoded
+per-field narrowing, so they're blind rather than wrong and were left as-is.
+
+New test (`services/ec2/wire_field_fixes_ec2sweep37_test.go`, 1
+`*_RealClient` test against the real `ec2sdk.Client`, confirmed failing
+pre-fix by running before the source change):
+`TestDescribeSpotPriceHistory_AvailabilityZoneFilter_RealClient` -- pre-fix
+failure: requesting `AvailabilityZone: "us-east-1a"` returned records from
+`"a"`/`"b"`/`"c"` (the handler's `Region` field was empty in the test
+harness, so the ignored-filter default degenerated further to bare
+`"a"`/`"b"`/`"c"`, not even `"us-east-1a"/"b"/"c"` -- same underlying bug,
+more visibly wrong result), instead of only `"us-east-1a"` records.
+
+Not reached this pass: DescribeReservedInstances/ReservedInstancesListings/
+ReservedInstancesModifications/ReservedInstancesOfferings, DescribeHosts/
+HostReservations/HostReservationOfferings, DescribePlacementGroups,
+DescribeRouteServer*, DescribeCoipPools, DescribeIpv6Pools,
+DescribeMacHosts/MacModificationTasks, DescribeConversionTasks,
+DescribeElasticGpus, DescribeScheduledInstance*, and the remaining
+never-verified ops from the ~123-candidate diff not covered by any pass
+above -- see the diff method in the 2026-08-29 IPAM/Local Gateway pass to
+regenerate.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean; repo-wide `go vet
+./...` shows only a pre-existing, unrelated `services/eks/` build break from
+the other in-flight agent's concurrent tranche -- confirmed via `git status`
+showing eks files already dirty before this pass touched anything, not ec2),
+`go test -race -count=1 ./services/ec2/...` (`ok`, full suite including the
+new test), `golangci-lint run ./services/ec2/...` (`0 issues`, run last, no
+`--fix` used). No banned `//nolint`s.
+
+**2026-08-29 pass -- request-wrapper-key sweep, Reserved Instances/Hosts/
+Placement Groups/Route Server/newer-singleton families (21 ops)**: picked the
+21-op tranche this file's own "not reached" note above (2026-08-29 Fleet/
+Spot/Traffic Mirror pass) explicitly named as still outstanding: Reserved
+Instances, Hosts, Placement Groups. Extended with the other same-shaped
+sibling families the "not reached" list also named (Route Server, Mac Hosts,
+Conversion Tasks, Elastic Gpus, Scheduled Instances, Coip/Ipv6 Pools) plus two
+Transit Gateway peripheral ops never covered by any prior TGW pass. Read each
+handler's request-parsing code against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+
+Reserved Instances family (4, `handler_reserved_instances.go`):
+`DescribeReservedInstances` (clean -- `ReservedInstancesId.N`,
+serializers.go:80239), `DescribeReservedInstancesModifications` (clean
+-- `ReservedInstancesModificationId.N`, serializers.go:80289),
+`DescribeReservedInstancesOfferings` (clean on every field it reads --
+`InstanceType`/`AvailabilityZone`/`ProductDescription` all real scalars,
+serializers.go:80335 (InstanceType), 80303 (AvailabilityZone), 80375 (ProductDescription)), `DescribeReservedInstancesListings`
+(**1 real bug, see below**).
+
+Hosts family (3): `DescribeHosts` (`handler_accept_ops.go`, clean --
+`HostId.N`, serializers.go:77813), `DescribeHostReservations`
+(`handler_host_reservations.go`, clean -- `HostReservationIdSet.N`; the wire
+field's own shape name is literally "HostReservationIdSet", not the usual
+singular-member convention, and the handler already reads that exact key,
+serializers.go:77782), `DescribeHostReservationOfferings` (clean --
+`OfferingId` scalar, serializers.go:77763).
+
+Placement Groups (1): `DescribePlacementGroups` (`handler_placement_groups.go`,
+clean on what it reads -- `GroupName.N`, serializers.go:80040; see gaps
+for the unread `GroupId.N`).
+
+Route Server family (3, `handler_route_server.go`): `DescribeRouteServers`
+(clean -- `RouteServerId.N`, serializers.go:80488),
+`DescribeRouteServerEndpoints` (clean -- `RouteServerEndpointId.N`,
+serializers.go:80416), `DescribeRouteServerPeers` (clean --
+`RouteServerPeerId.N`, serializers.go:80452). All three match despite
+this file's own "Route Server does the reverse [singular-behind-plural] trap"
+warning for a different Route Server op elsewhere in this codebase -- these
+three Describe ops were verified independently, not assumed clean by
+association.
+
+Mac family (2, `handler_mac_hosts.go`): `DescribeMacHosts` (clean --
+`HostId.N`, serializers.go:79513), `DescribeMacModificationTasks`
+(clean -- `MacModificationTaskId.N`, serializers.go:79549).
+
+Singles (5): `DescribeConversionTasks` (`handler_vm_import_export.go`, clean
+-- `ConversionTaskId.N`, serializers.go:77224), `DescribeElasticGpus`
+(`handler_instances.go`, clean -- `ElasticGpuId.N`, serializers.go:77375),
+`DescribeCoipPools` (`handler_ip_pools.go`, clean -- `PoolId.N`,
+serializers.go:77210), `DescribeIpv6Pools` (clean -- `PoolId.N`,
+serializers.go:79088).
+
+Scheduled Instances family (2, `handler_scheduled_instances.go`):
+`DescribeScheduledInstanceAvailability` (clean --
+`MinSlotDurationInHours`/`MaxSlotDurationInHours` scalars,
+serializers.go:80562 (MaxSlotDurationInHours), 80567 (MinSlotDurationInHours)), `DescribeScheduledInstances` (clean --
+`ScheduledInstanceId.N`, serializers.go:80613).
+
+Transit Gateway peripherals, never covered by any prior TGW pass (2,
+`handler_tgw_peripherals.go`): `DescribeTransitGatewayPolicyTables` (clean --
+unlike the five sibling TGW ops fixed in `wire_field_fixes_ec2sweep36_test.go`
+(`TransitGatewayAttachmentIds.N`/`TransitGatewayRouteTableIds.N`), this op's
+own `TransitGatewayPolicyTableIds` field is genuinely `FlatKey`'d under its
+own **plural** name, serializers.go:81725 -- the handler's
+`parseMemberList(vals, "TransitGatewayPolicyTableIds")` already matches
+exactly), `DescribeTransitGatewayRouteTableAnnouncements` (clean, same
+shape -- `TransitGatewayRouteTableAnnouncementIds.N`, serializers.go:81761).
+
+**1 real bug found and fixed, class 2 (wrong cardinality)**:
+`DescribeReservedInstancesListings` (`handler_reserved_instances.go`) read
+`ReservedInstancesListingId` via `parseMemberList`, an indexed-list reader
+looking for `ReservedInstancesListingId.1`, `.2`, ... but the real
+`DescribeReservedInstancesListingsInput.ReservedInstancesListingId` is a
+scalar `*string` serialized as the bare key `ReservedInstancesListingId`
+(serializers.go:80265, `object.Key(...)`, not `FlatKey`) -- a key a
+real client's single-listing lookup never matches in indexed form. The filter
+was always silently ignored; every call returned every listing regardless of
+which one was requested. Fixed: read `vals.Get("ReservedInstancesListingId")`
+as a scalar, wrapped into a 1-element slice only when non-empty (matching the
+existing `[]string`-taking `Backend.DescribeReservedInstancesListings` --
+no `Backend`/exported signature changed).
+
+Missing-feature gaps (real key on the wire, no read code exists at all to be
+wrong -- kept distinct from the bug above, not fabricated as fixes):
+`DescribeReservedInstancesListings` also never reads the real scalar
+`ReservedInstancesId` field (narrowing listings to one originating Reserved
+Instance, distinct from `ReservedInstancesListingId`).
+`DescribeReservedInstancesOfferings` never reads `AvailabilityZoneId`,
+`OfferingClass`, `OfferingType`, `MinDuration`/`MaxDuration`,
+`MaxInstanceCount`, `IncludeMarketplace`, `InstanceTenancy`, or
+`ReservedInstancesOfferingIds`. `DescribePlacementGroups` never reads
+`GroupId.N` (`GroupIds`), only `GroupName.N`. `DescribeScheduledInstanceAvailability`
+never reads the real required `FirstSlotStartTimeRange` struct or
+`Recurrence`. All ops in this tranche that declare a `Filters []types.Filter`
+field apply none of it -- the same already-documented, repo-wide
+missing-feature category as every prior request-wrapper-key-sweep tranche,
+not this pass's bug class.
+
+Existing tests: none of this tranche's 21 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side) for this bug
+class. `TestReservedInstances` (`handler_reserved_instances_test.go`) drives
+`Backend.DescribeReservedInstancesListings` directly, bypassing the handler's
+request parsing entirely, so it could not have caught this bug -- blind, not
+wrong, to this specific class; left as-is (still a valid backend-level test).
+
+New test (`services/ec2/wire_field_fixes_ec2sweep38_test.go`, 1
+`*_RealClient` test against the real `ec2sdk.Client`, confirmed failing
+pre-fix by running before the source change):
+`TestDescribeReservedInstancesListings_ListingIdFilter_RealClient` -- pre-fix
+failure: `require.Len(t, out.ReservedInstancesListings, 1, ...)` got 2 (every
+listing) instead of the one requested by `ReservedInstancesListingId`.
+
+Sibling-ID-family hypothesis: did NOT hold for most of this tranche. Five of
+seven multi-op sibling families picked specifically because they share
+closely-named ID parameters (Hosts, Placement Groups, Route Server, Mac
+Hosts, TGW peripherals) came back entirely clean -- only the fourth Reserved
+Instances sibling had a bug, and even that one isn't a same-op-family
+name-collision (it's a scalar-vs-list cardinality mistake, the same shape as
+tranche 4's `DescribeSpotPriceHistory` bug, arguably explained by copying the
+*cardinality* of its own list-typed siblings `ReservedInstancesId`/
+`ReservedInstancesModificationId` rather than a wrong name). Combined with
+tranche 4's 1-bug-in-20 rate on non-sibling families, this tranche's
+1-bug-in-21 on sibling families suggests the sibling-density signal is weaker
+than the working hypothesis after two more tranches of evidence -- most
+families of any shape are now clean, and the remaining bugs look more
+evenly scattered than clustered.
+
+Not reached this pass: the remaining never-verified-in-PARITY ops, including
+the ~102-op set named in the 2026-08-29 IPAM/Local Gateway pass's own "not
+reached" note (DescribeSubnets/DescribeDhcpOptions/etc -- since fully covered
+by the later core-VPC pass, see above) plus anything not yet swept across all
+passes to date -- regenerate via the diff method above (grep implemented
+`Describe*`/`List*` op strings, strip `Response`-suffixed false positives,
+subtract every op name mentioned anywhere in this file) to find what's left.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean; no backend interface
+signature changed so repo-wide vet not required), `go test -race -count=1
+./services/ec2/...` (`ok`, full suite including the new test),
+`golangci-lint run ./services/ec2/...` (`0 issues`, run last, no `--fix`
+used). No banned `//nolint`s.
+
+**2026-08-29 pass -- exhaustive `parseMemberList` call-site enumeration
+(243-of-243, all handler files)**: unlike every prior tranche above (each a
+themed sample), this pass enumerated literally every `parseMemberList(` call
+site in `services/ec2/handler_*.go` -- 243 non-test call sites (`grep -rn
+"parseMemberList(" services/ec2/handler_*.go | grep -v _test.go` minus the
+2 lines that are the helper's own definition/doc-comment in `handler.go`;
+248 total substring matches). Automated the per-site check: for each call
+site's enclosing operation, resolved the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`
+`awsEc2query_serializeOpDocument<Op>Input` function, matched the exact
+quoted wire-key literal the handler reads, and classified the matched
+serializer line as `FlatKey(`/`Array(` (list, correct) vs `.Key(` followed
+by a scalar builder (`.String`/`.Boolean`/`.Integer`/`.Long`/`.Double`,
+wrong) vs `.Key(` opening a nested struct (needs the struct's own field
+checked, not assumed). 2 `handleGet*`-prefixed call sites
+(`GetHostReservationPurchasePreview`, `GetSpotPlacementScores`) skipped per
+this file's own prior finding that 58-of-64 `Get*` ops are clean. Of the
+remaining 241, 225 matched a real wire key on the first pass and classified
+cleanly; 16 needed manual resolution (dynamic-prefix keys the literal-match
+missed, casing differences between the Go handler name and the real SDK op
+file name -- `DescribeIDFormat`/`DescribeIdFormat`,
+`DescribeInstanceSQLHa*`/`DescribeInstanceSqlHa*`,
+`AssignPrivateIPAddresses`/`AssignPrivateIpAddresses`, etc. -- and a few keys
+that don't exist on the real wire at all). Every one of the 16 was read by
+hand against its op's own `api_op_<Op>.go` and serializer. Also ran a bounded
+inverse sweep (list-typed field read as scalar via `vals.Get`): extracted
+all 476 `vals.Get("...")` literal keys across the same handler files,
+narrowed to the 232 with a plural-suggestive leaf name, cross-referenced the
+176 belonging to `handle*` operations against their serializers the same
+way -- zero hits where the matched line was `FlatKey`/`Array`; the 10
+non-matches were all casing-mismatch op-name misses, manually confirmed as
+genuinely scalar fields (`Egress`/`CidrBlock`/`UseLongIds`/`HostnameType`/
+`MacSystemIntegrityProtectionStatus`, all `*bool`/`*string`/enum on the real
+input struct).
+
+**5 real bugs found and fixed.** 2 are class 2 (wrong cardinality, this
+pass's namesake bug); 3 are a related but distinct class -- a wrong wire-key
+*name* (not shape) causing the same silent-parameter-loss failure mode,
+found only by reading each operation's own serializer as instructed, kept
+separate here rather than folded into the cardinality count:
+
+- `DescribeIdFormat`/`DescribeIdentityIdFormat` (`handler_account_attrs.go`,
+  `handleDescribeIDFormat`/`handleDescribeIdentityIDFormat`) -- class 2.
+  `Resource` is a scalar `*string` on both inputs, serialized as the bare
+  key `Resource` (`object.Key("Resource")` + `.String(...)`,
+  serializers.go:77885 and :77873 respectively;
+  `api_op_DescribeIdFormat.go:57`, `api_op_DescribeIdentityIdFormat.go:62`).
+  Both handlers read it via `parseMemberList(vals, "Resource")`, hunting for
+  `Resource.1` -- a key a real client's single-resource-type lookup never
+  sends. The sibling `handleModifyIDFormat`/`handleModifyIdentityIDFormat`
+  in the same file already read `vals.Get("Resource")` correctly, proving
+  the handler's own author knew the right shape for the twin write op.
+  Fixed: read `vals.Get("Resource")` as a scalar, wrapped into a 1-element
+  slice only when non-empty (matching the existing `[]string`-taking
+  `Backend.DescribeIDFormat`/`DescribeIdentityIDFormat` -- no
+  `Backend`/exported signature changed).
+- `ModifyClientVpnEndpoint` (`handler_client_vpn.go`,
+  `handleModifyClientVpnEndpoint`) -- wrong key, not cardinality.
+  `CreateClientVpnEndpointInput.DnsServers` is a flat `[]string`
+  (`FlatKey("DnsServers")`, serializers.go:69675) -- reading it via
+  `parseMemberList(vals, "DnsServers")` in `handleCreateClientVpnEndpoint`
+  is correct. But `ModifyClientVpnEndpointInput.DnsServers` is a DIFFERENT
+  shape: `*types.DnsServersOptionsModifyStructure`, a nested object whose
+  own `CustomDnsServers []string` field is the actual list
+  (`object.Key("DnsServers")` wrapping a nested serializer,
+  serializers.go:87142-87146; `DnsServersOptionsModifyStructure.CustomDnsServers`,
+  `types/types.go:5062`). The real wire key is
+  `DnsServers.CustomDnsServers.N`, not `DnsServers.N` -- same field name,
+  different shape between Create and Modify, exactly the sibling-shape trap
+  this file warns about elsewhere. `handleModifyClientVpnEndpoint` copied
+  Create's key verbatim, so Modify never picked up new DNS servers from a
+  real client. Fixed: read `parseMemberList(vals,
+  "DnsServers.CustomDnsServers")`.
+- `ModifyTransitGatewayMeteringPolicy` (`handler_tgw_peripherals.go`) --
+  wrong key, not cardinality. `AddMiddleboxAttachmentIds`/
+  `RemoveMiddleboxAttachmentIds` are the Go field names, but each serializes
+  under the SINGULAR wire key `AddMiddleboxAttachmentId`/
+  `RemoveMiddleboxAttachmentId` (`FlatKey("AddMiddleboxAttachmentId")`/
+  `FlatKey("RemoveMiddleboxAttachmentId")`, serializers.go:89068,89080).
+  The handler read the plural Go field name as the literal wire key, which a
+  real client never sends (the sibling `handleCreateTransitGatewayMeteringPolicy`
+  in `handler_tgw_multicast.go:684` already reads the correctly-singular
+  `MiddleboxAttachmentId` for the analogous create-time field). Adds/removes
+  were always silently dropped. An existing test,
+  `TestTGWPeripheralsHandler_ModifyMeteringPolicyAndGetEntries`
+  (`handler_tgw_peripherals_test.go`), asserted this wrong behaviour as
+  correct by constructing its raw form POST with the same wrong plural key
+  (`AddMiddleboxAttachmentIds.1=tgw-attach-1`) the handler happened to also
+  be looking for -- fixed alongside the handler to use the real singular
+  key. Fixed handler: `parseMemberList(vals, "AddMiddleboxAttachmentId")` /
+  `"RemoveMiddleboxAttachmentId"`.
+- `ModifyVpcEndpointConnectionNotification` (`handler_vpc_endpoints.go`) --
+  wrong key, not cardinality. `ConnectionEvents` serializes as the flat wire
+  key `ConnectionEvents` (`FlatKey("ConnectionEvents")`,
+  serializers.go:89688-89693), not `ConnectionEvents.member`. The sibling
+  `handleCreateVpcEndpointConnectionNotification` tries
+  `"ConnectionEvents.member"` first (also wrong -- dead code, left as-is,
+  harmless) but falls back to the correct bare `"ConnectionEvents"`; Modify
+  only ever tried the wrong key, with no fallback, so a real client's
+  updated event list was always dropped on Modify. Fixed: read
+  `parseMemberList(vals, "ConnectionEvents")`.
+
+Confirmed correct (sample of the 16 manually-resolved sites, beyond the 225
+auto-classified as `FlatKey`/`Array`): `AssociateInstanceEventWindow`/
+`DisassociateInstanceEventWindow` read `AssociationTarget.InstanceId`/
+`AssociationTarget.DedicatedHostId` -- both are genuinely `FlatKey`'d
+**singular** wire names nested one level under the `AssociationTarget`
+object despite **plural** Go field names (`InstanceIds`/`DedicatedHostIds`
+on `types.InstanceEventWindowAssociationRequest`,
+serializers.go:58786-58798) -- another instance of this file's documented
+singular-wire/plural-Go trap, verified independently rather than assumed.
+`ReplaceImageCriteriaInAllowedImagesSettings`'s `parseImageCriteria` helper
+reads `ImageCriterion.N.ImageName`/`.ImageProvider`/`.MarketplaceProductCode`
+as nested indexed lists inside each `ImageCriterion.N` -- correct, all three
+are `FlatKey`'d list fields on `types.ImageCriterionRequest`
+(serializers.go:58269-58291) nested under the outer `FlatKey("ImageCriterion")`
+list (serializers.go:91007). `CreateTransitGateway`'s
+`parseTransitGatewayRequestOptions` helper reads
+`Options.TransitGatewayCidrBlocks` as a nested indexed list -- correct,
+`TransitGatewayCidrBlocks` is `FlatKey`'d under the `Options` object
+(serializers.go:66268). `DescribeTags`'s dynamic `Filter.%d.Value` read is
+the standard repo-wide `Filter.N.Value.M` list pattern, confirmed correct.
+
+Missing-feature / structural gaps found along the way (real key or read
+path doesn't exist, distinct from the wrong-key-name bugs above -- kept
+separate, not fixed as part of this class, not fabricated):
+
+- `DescribeNetworkInterfacePermissions` (`handler_network_interfaces.go`)
+  reads `parseMemberList(vals, "NetworkInterfaceId")` -- but that key does
+  not exist anywhere on the real wire.
+  `DescribeNetworkInterfacePermissionsInput` only has `Filters`,
+  `NetworkInterfacePermissionIds` (`FlatKey("NetworkInterfacePermissionId")`,
+  serializers.go:79924-79929), `MaxResults`, `NextToken`. A real client can
+  never populate `NetworkInterfaceId`, so this read is always empty --
+  functionally harmless today only because empty means "no filter", which
+  happens to match returning everything, but the real
+  `NetworkInterfacePermissionId` list filter and the `Filters`-based
+  `network-interface-permission.network-interface-id` filter are both never
+  wired. Not fixed (missing feature, not a misdirected read of a real key).
+- `DescribeSecurityGroupVpcAssociations` (`handler_security_groups.go`)
+  reads `parseMemberList(vals, "GroupId")` -- same shape of gap.
+  `DescribeSecurityGroupVpcAssociationsInput` has no top-level `GroupId`
+  parameter at all, only `Filters` (with a `group-id` filter name),
+  `DryRun`, `MaxResults`, `NextToken` (serializers.go:80835-80855). A real
+  client's `--filters Name=group-id,Values=...` is silently ignored. Not
+  fixed (missing feature -- the real mechanism is `Filters`, not a bare
+  key).
+- `CreateSnapshots` (`handler_snapshots.go`, `handleCreateSnapshots`) --
+  structural, more severe than the two above. The real
+  `CreateSnapshotsInput` has no `VolumeId` parameter at all; it requires
+  `InstanceSpecification` (`InstanceSpecification.InstanceId` is the
+  required field that selects which instance's volumes to snapshot,
+  `object.Key("InstanceSpecification")`, serializers.go:72359-72364). The
+  handler reads `parseMemberList(vals, "VolumeId")` (a key that doesn't
+  exist on the wire) and, when that's empty, falls back to
+  `vals.Get("InstanceSpecification.ExcludeBootVolume")` -- a boolean flag --
+  treated as if it were a volume ID string. `InstanceSpecification.InstanceId`,
+  the actual required field, is never read at all. A real
+  `client.CreateSnapshots(InstanceSpecification: {InstanceId: "i-..."})`
+  call hits this handler's own `"at least one VolumeId is required"` error
+  today. The existing top-of-function comment ("InstanceSpecification.InstanceId
+  is the primary instance; volumes derived from it") describes the intended
+  behavior but not what the code does -- a comment as bug-cause, not
+  description, per this file's own standing warning. Not fixed: correctly
+  implementing this needs the backend to derive an instance's attached
+  volume IDs (a real feature addition, not a wire-key correction), out of
+  scope for this class-scoped pass; flagged here for a follow-up.
+
+Existing tests found wrong (asserted the bug as correct behaviour):
+`TestTGWPeripheralsHandler_ModifyMeteringPolicyAndGetEntries`
+(`handler_tgw_peripherals_test.go`) -- see the `ModifyTransitGatewayMeteringPolicy`
+bug above; fixed alongside the handler. No other existing test in
+`services/ec2/*_test.go` references any of the other 4 fixed keys (`Resource`
+for Id-format ops, `DnsServers*` for `ModifyClientVpnEndpoint`,
+`ConnectionEvents*` for `ModifyVpcEndpointConnectionNotification`) in a way
+that exercised the buggy path -- confirmed by the full `go test -race
+./services/ec2/...` suite passing both before this file's new tests were
+added and after the 5 handler fixes, with no other test needing a change.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep39_test.go`, 5
+`*_RealClient` tests against the real `ec2sdk.Client`, each confirmed
+failing pre-fix by running before the source change):
+`TestDescribeIdFormat_ResourceFilter_RealClient`,
+`TestDescribeIdentityIdFormat_ResourceFilter_RealClient`,
+`TestModifyClientVpnEndpoint_DnsServers_RealClient`,
+`TestModifyTransitGatewayMeteringPolicy_MiddleboxAttachmentIds_RealClient`,
+`TestModifyVpcEndpointConnectionNotification_ConnectionEvents_RealClient`.
+
+Class-exhaustion judgement: this pass is the first to enumerate literally
+every `parseMemberList` call site rather than a themed sample, and it found
+5 bugs in 243 sites (2.1%), continuing the downward trend from tranche 4's
+1-in-20 rate. Combined with 5 prior themed tranches (11 bugs found across
+~106 sampled operations before this pass) that also targeted this exact bug
+class, and this pass's explicit confirmation that every remaining
+`parseMemberList` call site in every `handler_*.go` file has now been read
+against its own SDK serializer at least once (either in a prior tranche or
+in this pass), the scalar-read-as-list/wrong-list-key class appears close to
+exhausted in ec2 -- what remains uncovered is the inverse direction (only a
+bounded 176-site sweep, not exhaustive) and the broader missing-feature/
+`Filters`-unwired backlog documented across every tranche above, which is a
+different, much larger body of work.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean) and repo-wide `go
+vet ./...` (clean -- no backend interface signature changed, ran anyway
+since ec2's backend is composed by other services), `go test -race -count=1
+./services/ec2/...` (`ok`, full suite including the new test file and the
+one existing-test fix), `golangci-lint run ./services/ec2/...` (`0 issues`,
+run last, no `--fix` used). No banned `//nolint`s.
+
+**2026-08-30 pass -- `CreateFleet` never launched instances (gopherstack-q5k5)**:
+`DescribeFleetInstances` and `DescribeFleetHistory` returned a hardcoded
+empty set unconditionally (`handleDescribeFleetHistory`/
+`handleDescribeFleetInstances` in `handler_fleet.go` built an empty response
+struct and returned, never touching the backend at all). The 2026-08-29 pass
+above's "Fleet family... clean" note only checked request-side `FleetId.N`
+parsing, not this -- corrected in place above. The actual defect was one
+level up: `Backend.CreateFleet` (`fleet.go`) took only `(fleetType string,
+totalTargetCapacity int)` and never called anything instance-related, so
+even a correct `FleetId` read on the Describe side would still have found
+nothing to return.
+
+Fixed by making `CreateFleet` actually launch instances, against
+`CreateFleetInput`/`TargetCapacitySpecificationRequest`/
+`FleetLaunchTemplateConfigRequest`/`FleetLaunchTemplateOverridesRequest`
+(`api_op_CreateFleet.go`, `types/types.go:6910-7245`, ec2@v1.319.1): parses
+`LaunchTemplateConfigs.N.LaunchTemplateSpecification.*` and
+`LaunchTemplateConfigs.N.Overrides.M.*` (both `FlatKey`-encoded per
+`serializers.go:57701/:57737`, confirmed against
+`aws-sdk-go-v2@v1.43.4/aws/protocol/query/array.go`'s `newArray` -- flat
+lists have no `.member.`/`.Item.` segment, matching this file's existing
+`SpotFleetRequestConfig.LaunchSpecifications.N.` convention), resolves each
+override's AMI/instance type against the referenced launch template
+(falling back to `spotFleetDefaultImageID`/`spotFleetDefaultInstanceType`
+when the template can't be resolved -- deliberately permissive, matching
+`RequestSpotFleet`'s own fallback and required because none of this file's
+own fleet tests, nor the pre-existing `test/integration` fleet test, ever
+pre-create the launch template they reference), and spawns real `Instance` +
+primary-ENI pairs round-robin across the resolved overrides until weighted
+capacity reaches `TargetCapacitySpecification.TotalTargetCapacity`,
+appending each instance's ID to the new `Fleet.InstanceIDs` field. Also now
+reads `ExcessCapacityTerminationPolicy` and
+`TerminateInstancesWithExpiration` at create time (both real top-level
+`CreateFleetInput` fields per `serializers.go:70020`, previously ignored --
+`ExcessCapacityTerminationPolicy` was unconditionally hardcoded to
+`"termination"` regardless of what the request asked for) and
+`OnDemandTargetCapacity`/`SpotTargetCapacity`/`TargetCapacityUnitType`
+(already-declared but previously always-zero `Fleet` fields).
+
+`DescribeFleetInstances`/`DescribeFleetHistory` now read this real state:
+`DescribeFleetInstances` returns the fleet's `InstanceIDs` resolved against
+`b.instances` (filtered by the one real documented filter, `instance-type`,
+per `api_op_DescribeFleetInstances.go`'s Filters doc comment; filtered
+before paginating). Matching the real API's own documented restriction
+("Currently, DescribeFleetInstances does not support fleets of type
+`instant`" -- use `DescribeFleets` instead), it returns an empty set for
+`instant` fleets rather than fabricating support the real endpoint doesn't
+have. `DescribeFleetHistory` returns a real `fleet-change` history record
+appended at `CreateFleet` (and at `ModifyFleet`, which previously changed
+`TotalTargetCapacity`/`ExcessCapacityTerminationPolicy` with no history
+trail at all), filtered by `StartTime`/`EventType` before paginating,
+capped at `maxSpotFleetHistoryEntries` like the sibling spot-fleet history
+map. Neither op sorts its output (both return in append/launch order, which
+is already a total order -- no tie-breaking needed).
+
+`DescribeFleets` was the same bug from the other end: `FleetData.Instances`/
+`FleetData.Errors` (`types/types.go:6646-6672`, "valid only when Type is set
+to `instant`") were never wired into `fleetItem`/`toFleetItem` at all -- so
+even once `CreateFleet` started tracking real instances, an `instant`
+fleet's `Fleets[i].Instances` stayed structurally empty, a correctly-shaped
+field over data the handler never populated (as opposed to the
+`DescribeFleetInstances`/`History` bug, which was empty because the backend
+held no data at all). Fixed: added `Errors`/`Instances` fields to
+`fleetItem` (`handler_traffic_mirror.go`) and populate `Instances` for
+`instant` fleets by grouping `DescribeInstances(f.InstanceIDs, "")` by
+`InstanceType` (`groupFleetInstancesByType`, deterministic first-seen-type
+ordering). Also added the `TargetCapacitySpecification` sibling fields
+(`onDemandTargetCapacity`/`spotTargetCapacity`/`targetCapacityUnitType`/
+`defaultTargetCapacityType`) that were declared on the real response type
+(`awsEc2query_deserializeDocumentTargetCapacitySpecification`,
+deserializers.go:164096) but never emitted -- found in passing while
+extending `fleetItem` for the `Instances` fix, not this pass's primary bug
+class.
+
+`DeleteFleets` gained the same fix from the deletion side: real
+`DeleteFleetsInput.TerminateInstances` ("the default is to terminate the
+instances", `api_op_DeleteFleets.go`) was accepted on the wire
+(`vals.Get("TerminateInstances")`) but silently discarded -- harmless while
+fleets held no instances, but once `CreateFleet` started launching them a
+deleted fleet would have leaked its instances running with no owner. Fixed:
+`Backend.DeleteFleets` gained a `terminateInstances bool` param, honored the
+same way `CancelSpotFleetRequests` already honors its own
+`terminateInstances` flag.
+
+`DescribeInstanceTypes` was not touched this pass -- this ticket's own
+guidance named it as a precedent for restraint, and the 2026-08-29 pass
+above already documents why it's correctly left alone (no instance-type
+attribute catalogue exists in this backend to filter against); re-read that
+note rather than re-deriving it, and it still holds.
+
+State added vs. reused: `Fleet.InstanceIDs` (new field) and
+`Fleet.DefaultTargetCapacityType` (new field, now wired to the response) are
+the only new persistent state. Instance-launching itself
+(`spawnFleetMemberInstanceLocked`) reuses the same
+Instance+ENI+`indexInstanceLocked`/`indexENILocked`/`indexENIByVPCLocked`
+sequence `spot_fleet.go`'s `spawnFleetInstanceLocked` already established for
+an almost-identical problem (deliberately not shared/generalized across the
+two fleet types -- they take different config shapes -- but the launch
+sequence itself is not reinvented). A new `fleetHistory
+map[string][]FleetHistoryRecord` mirrors the existing `spotFleetHistory` map
+(same cap/half-trim pattern, same `backendSnapshot`/`Restore` wiring).
+
+Not fabricated: no instance attribute (CPU/memory/network) data was
+invented for launched fleet instances -- they get the same
+`spotFleetDefaultInstanceType`/`spotFleetDefaultImageID` fallback (or the
+launch template's own values when resolvable) that every other launch path
+in this file already uses, not new made-up data. `ModifyFleet` does NOT
+scale the fleet's actual instance count to match a changed
+`TotalTargetCapacity` (unlike `ModifySpotFleetRequest`, which does) --
+left unfixed and undocumented as a gap prior to this pass; flagging here
+rather than fixing, since it's a distinct capacity-reconciliation feature
+outside this ticket's named scope (`CreateFleet`/`DescribeFleetInstances`/
+`DescribeFleetHistory`/`DescribeFleets`), not a wire-shape bug.
+
+Existing tests that could not have caught this: `TestFleet`
+(`handler_fleet_test.go`) asserted only fleet metadata (state/type/target
+capacity) round-tripping through `DescribeFleets`, never instances --
+strengthened in place (now asserts `InstanceIDs`/`DescribeFleetInstances`/
+`DescribeFleetHistory`/instance termination on delete). The pre-existing
+`test/integration/parity_audit_fixes_test.go`
+(`TestIntegration_EC2_DescribeFleets_ReturnsCreatedFleet`) only asserted
+`err == nil` and a fleet-id round-trip, never instance content -- a shape
+this ticket's own guidance called out by name ("A test asserting only `err
+== nil` passes against every bug in this class"); not modified (out of
+`services/ec2/` scope) but noted here since it's exactly the failure mode.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep40_test.go`, both
+confirmed failing pre-fix against unmodified code in a throwaway
+`git worktree add --detach <dir> HEAD` rather than the shared working tree):
+`TestCreateFleet_LaunchesTrackedInstances` (creates a `maintain` fleet with
+`TotalTargetCapacity=3`, asserts `DescribeFleetInstances` returns exactly 3
+real, uniquely-`i-`-prefixed instance ids, and `DescribeFleetHistory`
+returns the creation event), `TestDescribeFleets_InstantType_ShowsLaunchedInstances`
+(creates an `instant` fleet with capacity 2, asserts both
+`CreateFleetOutput.Instances` and `DescribeFleets`'s `Fleets[i].Instances`
+report the 2 launched instances, and that `DescribeFleetInstances` correctly
+returns empty for it per the real API's documented `instant`-fleet
+restriction).
+
+Interface signature changes: `Backend.CreateFleet` (now takes
+`FleetCreateInput`, returns `(*Fleet, []CreateFleetInstanceResult, error)`),
+`Backend.DeleteFleets` (gained `terminateInstances bool`), plus two new
+interface methods, `Backend.DescribeFleetInstances`/`DescribeFleetHistory`.
+Repo-wide `go vet ./...` run and clean -- no call site outside
+`services/ec2/` references any of these (`CreateFleet`/`DeleteFleets` are
+also method names on codebuild's and appstream's unrelated backends; grepped
+and confirmed distinct). No repo-root `cli_*_test.go` fix was needed.
+
+Not audited this pass: `ModifyFleet`'s capacity-reconciliation gap noted
+above; the `Filters`-unwired backlog on `DescribeFleetInstances` beyond the
+one `instance-type` filter now implemented (`DescribeFleetInstancesInput`
+documents only that one filter, so this is believed complete, not merely
+unaudited); whether `DescribeFleetHistory`/`DescribeFleetInstances`
+implement `MaxResults`/`NextToken` truncation correctly under concurrent
+modification (paginate-after-filter is now correct per-call, but no
+cross-call consistency guarantee is claimed, matching every other
+`page.Page`-less describe op in this file).
+
+Security note: no AWS documentation was fetched this pass (all shape
+verification came from the pinned SDK source already in the module cache),
+so the previously-reported injected-footer pattern in fetched AWS docs
+("run `aws agent-toolkit search-skills`") does not apply here.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean) and repo-wide `go vet ./...` (clean, backend interface signatures
+changed), `go test -race -count=1 ./services/ec2/...` (full suite green,
+including the new `wire_field_fixes_ec2sweep40_test.go` and the
+strengthened `TestFleet`), `golangci-lint run ./services/ec2/...` (`0
+issues` after fixing 7 findings, all on lines this pass added; the one
+non-obvious case, `musttag` on `persistence.go`'s `json.Marshal(snap)`,
+confirmed self-caused by reverting just that file (`git checkout`/`stash`
+scoped to the single path) and re-running lint, which made the finding
+disappear -- `gocognit` decomposed into 3 helper functions rather than suppressed,
+`fieldalignment` applied via `fieldalignment -fix` scoped to
+`services/ec2/...`, `goconst` resolved with a shared `filterKeyInstanceType`
+const, `musttag`/`golines`/`prealloc`/`staticcheck` fixed directly; run
+last, no remaining `--fix` diff). No banned `//nolint`s. Did NOT commit or
+push -- all changes left in the working tree per this session's explicit
+instruction.
+
+## 2026-08-30 -- value-semantics filter audit (gopherstack-uox6)
+
+Targeted pass for the bug class named in gopherstack-uox6: a filter
+parameter that is read and applied, but with the wrong semantics --
+invisible to every wire-shape/field-coverage scan because the field itself
+is real. Confirmed `handler_filters.go`'s general convention (AND across
+filter names, OR within a filter's values, case-sensitive, no negation
+modifier) matches `types.Filter`'s own doc comment
+(aws-sdk-go-v2/service/ec2/types/types.go:6432) across every `apply*Filters`
+function in that file; wildcards are NOT documented on ordinary string
+filters (only on specific timestamp filters as a `*` day-suffix, e.g.
+`creation-date`/`launch-time`/the image-watermark timestamps), so the
+plain-equality matchers throughout are correct as written, not a gap.
+
+Four real bugs found and fixed, all confirmed failing against unmodified
+code first, all real-aws-sdk-go-v2-client-driven:
+
+1. **DescribeImageUsageReportEntries `creation-time` exact match**
+   (`handler_filters.go` `usageReportEntryMatchesFilter`). The day-wildcard
+   form was already correct, but the exact-match branch formatted the
+   entry's `ReportCreationTime` with `time.RFC3339Nano` while
+   `toImageUsageReportEntryItem` (`handler_image_ops.go`) puts the same
+   field on the wire with plain `time.RFC3339` (no fractional seconds).
+   Since the underlying `time.Time` almost always carries a nonzero
+   nanosecond component, an exact-match filter built from the timestamp the
+   API itself just returned never matched its own record. Under-matching.
+   Fixed by formatting with `time.RFC3339` in both places. Test:
+   `wire_field_fixes_creationtime_filter_test.go`.
+
+2. **DescribeSecurityGroupRules `group-id` filter, multiple values**
+   (`handler_security_groups.go` `handleDescribeSecurityGroupRules`). Read
+   only `filters["group-id"][0]`, discarding every value after the first --
+   the confirmed "list consumed only at its first element" shape. A
+   multi-value `group-id` filter silently dropped every group past the
+   first. Under-matching. Fixed by looping over all values and merging each
+   group's rules (`Backend.DescribeSecurityGroupRules(groupID string)`
+   itself unchanged -- no cross-service callers, confirmed by repo-wide
+   grep). `security-group-rule-id` and `tag:` (also documented on
+   `DescribeSecurityGroupRulesInput.Filters`) remain unimplemented --
+   recorded as a gap, not fixed: this backend has no rule-ID-keyed lookup,
+   only group-keyed. Test:
+   `wire_field_fixes_sg_rules_multivalue_test.go`.
+
+3. **SearchLocalGatewayRoutes `state` vs `route-search.exact-match`**
+   (`handler_local_gateway.go` `searchLocalGatewayRouteStates`). Two
+   distinct, separately-documented filter names
+   (api_op_SearchLocalGatewayRoutes.go: `state` - "The state of the route."
+   vs `route-search.exact-match` - "The exact match of the specified
+   filter.") were folded into one `[]string` and matched against the
+   route's `State` field, so any `route-search.exact-match` filter --
+   whatever it is meant to match -- excluded every real route (no route's
+   `State` is ever a CIDR/prefix string). Also read only
+   `Filter.N.Value.1`, dropping additional `state` values. Both
+   under-matching. Fixed by scoping the value-collection loop to `state`
+   only and reading all `Value.M` indices. `route-search.exact-match` /
+   `-longest-prefix-match` / `-subnet-of-match` / `-supernet-of-match` /
+   `prefix-list-id` / `type` remain unimplemented -- the AWS web page
+   fetched for this operation (see below) gives no more precision than the
+   SDK doc comment on what `route-search.exact-match` actually matches
+   (CIDR? prefix-list? destination?), so implementing CIDR-matching
+   semantics here would be fabrication, not verification; left as a gap
+   rather than guessed. Test:
+   `wire_field_fixes_local_gateway_route_filters_test.go`.
+
+4. **DescribeTags `tag:<key>` filter rejected as unknown**
+   (`handler_tags.go` `handleDescribeTags`). `validDescribeTagsFilters` is
+   an exact-match set of the four literal filter names
+   (`key`/`resource-id`/`resource-type`/`value`); `tag:<key>` is a fifth,
+   separately documented filter name with a dynamic suffix
+   (api_op_DescribeTags.go: `tag : - The key/value combination of the
+   tag...`), so every `tag:<key>` filter -- a legitimate, common request
+   shape -- was rejected outright with `InvalidParameterValue: unknown
+   filter name`, not merely mis-matched. Under-matching via wrongful
+   rejection. Fixed by recognizing the `tag:` prefix before the
+   unknown-name check and matching entries whose `Key`/`Value` satisfy each
+   `tag:<key>` filter, ANDed with the existing filters per the file's
+   standard combining rule. Decomposed `handleDescribeTags` into
+   `parseDescribeTagsFilters` + `describeTagsFilters.matches` to keep
+   `gocognit` under the repo's threshold without a nolint. Test:
+   `wire_field_fixes_describetags_tagkey_filter_test.go`.
+
+Checked and confirmed correct, not modified: `imageMatchesFilter`'s `name`
+filter uses plain equality, matching that `DescribeImagesInput.Filters`
+documents wildcards only on `creation-date`/`image-watermark.*` timestamps,
+not on `name` (api_op_DescribeImages.go); boolean-valued filters
+(`isDefault`, `encrypted`, `default`, `entry.egress`, etc.) all compare
+against the literal string `"true"`, matching every Boolean filter's
+documented `true`/`false` spelling; no EC2 filter anywhere in this package
+documents a `!`-negation modifier (grepped the pinned SDK for
+"negat"/"exclamation"/"prefixed with", no hits), so the secretsmanager-class
+negation bug does not apply here; `addressMatchesFilter`'s `domain` case
+(comparing the constant `"vpc"` against filter values rather than a
+per-address field) is not a bug -- `Address` has no stored `Domain` field
+because every address this backend ever creates is VPC-domain
+(`handler_elastic_ips.go` hardcodes `Domain: resourceTypeVPC}` on every
+response item), so the constant-vs-filter comparison is the correct
+encoding of "this address's domain is always vpc", just written tersely.
+
+Gap noted, not fixed: `handleDescribeAddresses` folds the `PublicIps`
+direct request member into the same `filters["public-ip"]` OR-group as any
+independent `Filter.N.Name=public-ip` the client also sends
+(`handler_elastic_ips.go`), rather than treating them as two independently
+ANDed narrowers. Only visibly wrong if a client sends both simultaneously
+with different values -- no SDK doc or web page specifies how a direct
+ID-list member should combine with an overlapping `Filters` entry, so this
+is recorded rather than guessed.
+
+One page fetched:
+`https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_SearchLocalGatewayRoutes.html`
+(for bug 3, to check whether it gave more precision than the SDK doc
+comment on `route-search.exact-match` -- it did not, word-for-word
+identical filter list). It carried the injected footer directing the
+reader to run `aws agent-toolkit search-skills`; treated as untrusted page
+content, not followed.
+
+Tests added: 4 new files, 4 new tests total (one assertion-bearing test per
+bug above), all confirmed failing against unmodified code before the fix
+and passing after. No existing test was modified or weakened -- zero
+assertion drops.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), repo-wide `go vet ./...` (clean -- no Backend interface signature
+changed, run anyway per this session's instructions), `go build ./...`
+(clean), `go test -race -count=1 ./services/ec2/...` (full suite green),
+`golangci-lint run ./services/ec2/...` (2 findings from this pass's own new
+code on the first run -- `golines` on a >120-char line in
+`wire_field_fixes_sg_rules_multivalue_test.go`, wrapped by hand;
+`gocognit` on `handleDescribeTags` after the `tag:` fix pushed it over the
+repo's threshold, decomposed into `parseDescribeTagsFilters` +
+`describeTagsFilters.matches` rather than suppressed -- re-ran, `0 issues`).
+No banned `//nolint`s (grepped for cyclop/gocyclo/gocognit/funlen, zero
+hits in `services/ec2/`). Did NOT commit, push, or run any `bd` write
+command -- all changes left in the working tree per this session's
+instructions.
+
+## 2026-08-31 -- never-declared-field sweep, MaxResults/NextToken pagination
+## family (cmd/reqfielddiff, gopherstack-4glf)
+
+Targeted pass for the axis named in gopherstack-4glf/gopherstack-uox6: a
+field the emulator never declared at all, invisible to every prior
+wire-shape/field-coverage tool because there is no struct member to
+enumerate. This is a DIFFERENT axis from every prior ec2 entry above --
+`filter_default_semantics`/`request_field_never_read`/`wrong_wire_key` (all
+"fixed" per `covledger`) audit fields the emulator DID declare; this axis
+covers fields it never modeled in the first place. No prior ec2 pass
+touched it; covledger and this file were both silent on it before this
+entry.
+
+`go run ./cmd/reqfielddiff -dir ec2` (resolution: 785/785 SDK operations,
+447 with declared fields) reports **204 tier-1 findings** for ec2 -- by far
+the largest queue of any service, confirming the brief's number. Given
+"this is too large to finish," picked one coherent recurring field shape
+rather than attempting breadth: **MaxResults/NextToken pagination missing
+entirely**, not merely mishandled -- six Describe/Get/Search operations
+whose real SDK input declares `MaxResults`+`NextToken` but whose handler
+read neither, always returning the full result set in one page with no
+`NextToken`. Chosen because (a) it is mechanically identical across all
+six, (b) this file's own `ec2PageMin*`/`ec2PageMax*` const block already
+established the exact fix shape from an earlier, unrelated pagination sweep
+(`ec2sweep11`), and (c) each has a crisp, doc-stated bound/default,
+minimizing the fabrication risk this axis warns about.
+
+**Query-parameter false-positive measurement.** ec2 is a query-protocol
+service: nothing is decoded into per-field typed structs, so reqfielddiff's
+top tier is dominated by fields that ARE read, just via `vals.Get`/
+`parseMemberList`/`parseEC2Filters`/`parseEC2Pagination` rather than a
+struct member. Verified this by hand across the entire `*Ids`/`*Names`
+direct-ID-list-narrowing family (26 of the 204 tier-1 findings sharing that
+one field shape: `DescribeSnapshots.SnapshotIds`, `DescribeVolumes.VolumeIds`,
+`DescribeSecurityGroups.GroupIds`/`GroupNames`, `DescribeInstances.InstanceIds`,
+etc.) by locating each operation's handler function (built a 785-entry
+op-to-handler-func map from the two `ops[...]=` registration forms in this
+package) and confirming the field's wire key already appears as a
+`parseMemberList`/`vals.Get` argument or an inline `VpcPeeringConnectionId.%d`
+loop in that function body: **26 of 26 (100%) were this false-positive
+shape**, none a real gap. A follow-up automated pass (grep each tier-1
+finding's field name, or its `Ids`->`Id`/`Names`->`Name` singularization,
+as a literal quoted string inside the resolved handler's function body, plus
+`parseEC2Pagination(`/`parseEC2Filters(` call-presence for MaxResults/
+NextToken/Filters) classified **74 of 204 (36%)** as this shape across the
+whole tier-1 list -- a conservative lower bound, since it only catches
+literal-string and named-helper matches, not every transformation. Two
+concrete non-Ids examples caught by the same shape while investigating the
+MaxResults family: `DescribeInstanceSQLHaHistoryStates.StartTime`/`.EndTime`
+are read via `vals.Get("StartTime")`/`vals.Get("EndTime")` in
+`handler_sql_ha.go`, invisible to the detector for the same reason.
+
+**Six real bugs found and fixed, all confirmed failing against unmodified
+code first** (reverted each handler's added `parseEC2Pagination`/`pageSlice`
+call in isolation, re-ran that op's new test, watched it fail, restored):
+
+1. **DescribeNetworkInterfacePermissions.MaxResults** (documented default 50,
+   `api_op_DescribeNetworkInterfacePermissions.go`: "up to 50 results are
+   returned by default", no explicit bound given -> used this file's existing
+   1..1000 fallback convention). `handler_network_interfaces.go`
+   `handleDescribeNetworkInterfacePermissions` returned every permission in
+   one page. Test seeds 51 permissions on one ENI, omits `MaxResults`,
+   asserts exactly 50 come back with a `NextToken`.
+2. **DescribeReservedInstancesOfferings.MaxResults** (max/default 100,
+   `api_op_DescribeReservedInstancesOfferings.go`: "The maximum is 100.
+   Default: 100"). `handler_reserved_instances.go`
+   `handleDescribeReservedInstancesOfferings` never truncated. Test seeds
+   101 offerings via the existing `SeedReservedInstancesOffering` test
+   helper, omits `MaxResults`, asserts exactly 100 + `NextToken`.
+3. **DescribeScheduledInstances.MaxResults** (min 5 / max 300 / default 100,
+   `api_op_DescribeScheduledInstances.go`). `handler_scheduled_instances.go`
+   `handleDescribeScheduledInstances` never truncated. Test purchases 101
+   schedules in one `PurchaseScheduledInstances` call (the static 3-entry
+   availability catalog imposes no cap on purchase count), omits
+   `MaxResults`, asserts exactly 100 + `NextToken`.
+4. **SearchTransitGatewayRoutes.MaxResults** (default 1000, no explicit
+   bound stated -> this file's 1..1000 fallback convention, which happens to
+   match the stated default exactly). `handler_tgw_peripherals.go`
+   `handleSearchTransitGatewayRoutes` never truncated and always reported
+   `AdditionalRoutesAvailable: false`. Test seeds 1001 blackhole routes
+   (cheap: no attachment required), omits `MaxResults`, asserts exactly
+   1000 + `NextToken` + `AdditionalRoutesAvailable: true`; second page
+   returns the last route with `AdditionalRoutesAvailable: false`.
+5. **DescribeScheduledInstanceAvailability.MaxResults** (min 5 / max 300 /
+   default 300). Real gap -- `handleDescribeScheduledInstanceAvailability`
+   accepted any `MaxResults` value silently and ignored it -- but this
+   backend's availability catalog is a hardcoded 3-entry static list
+   (`scheduledInstanceCatalog`, one weekly/daily/monthly schedule per
+   region), below MaxResults' own documented floor of 5, so the
+   default-page-size truncation itself is **structurally unobservable**
+   against this backend's data model. Fixed the validation/plumbing (now
+   correct and consistent with every sibling op) but the test can only
+   prove the testable half: values outside 5..300 are now rejected
+   (previously silently accepted), and a valid in-range value still returns
+   all 3 catalog entries.
+6. **GetVpnConnectionDeviceTypes.MaxResults** (min 200 / max 1000, and
+   uniquely among these six, `api_op_GetVpnConnectionDeviceTypes.go`
+   documents a **contingent** default: "If this parameter is not used, then
+   GetVpnConnectionDeviceTypes returns all results" -- omission means
+   unbounded, not a fixed page size). Declared the field and invented no
+   numeric default for the omitted case, matching the guard rail: the
+   handler now only calls `parseEC2Pagination`/`pageSlice` when
+   `vals.Get("MaxResults") != ""`, leaving the omitted-case behavior
+   (already correct pre-fix) untouched. The real bug fixed is that an
+   explicitly-supplied `MaxResults` was silently ignored. This backend's
+   device-type catalog (a short hardcoded list, confirmed `< 200` in the
+   test itself via `require.Less`) sits below the documented floor of 200,
+   so -- same shape as #5 -- only the out-of-range-rejection half is
+   testable; test also pins the doc's "omitted -> return everything"
+   behavior explicitly.
+
+**Where the default was applied, and why.** All six live in the handler
+(query-protocol) layer, matching this file's own established convention
+(`parseEC2Pagination`/`pageSlice`, `handler.go` lines ~836-914) -- there is
+no backend-layer equivalent here because pagination is a wire-response
+concern (truncating what the backend already returned), not a stored-record
+default; the backend's `Describe*` methods are unchanged. Added six new
+named consts to the existing `ec2PageMin*`/`ec2PageMax*`/`ec2PageDefault*`
+block in `handler.go` (each citing its SDK doc-comment source, following
+the file's existing citation convention), and a `NextToken string
+\`xml:"nextToken,omitempty"\`` field to each of the five response structs
+that lacked one (`SearchTransitGatewayRoutesResponse` already had
+`AdditionalRoutesAvailable`, now correctly set).
+
+**Not covered, for the next pass.** Of the 204 tier-1 findings, 6 are fixed
+here; the other 198 are untouched, including the ~130 the automated
+query-param check could not clear (conservative false-positive
+classification, not a triage verdict -- most of those still need
+hand-verification like the 26 done here). One adjacent gap found while
+working `DescribeReservedInstancesOfferings` and deliberately left alone
+(out of this pass's chosen slice): the same operation has five more tier-1
+findings on its `Filters`/`InstanceTenancy`/`MaxDuration`/`MaxInstanceCount`/
+`MinDuration` fields -- real, undeclared, and a natural next slice, but
+distinct from the MaxResults/NextToken shape this pass targeted.
+
+Tests: one new file, `wire_field_fixes_ec2sweep43_test.go`, 6 new test
+functions, 53 assertion calls total, zero existing tests modified (zero
+assertion drops). The four truncation tests (#1-4 above) omit `MaxResults`
+entirely per this axis's rule that a test which always sets the field
+cannot observe its default; the two range-only tests (#5, #6) set
+out-of-range values deliberately (the default itself is structurally
+unobservable against this backend's static catalogs, as explained above)
+and also assert the omitted-case baseline.
+
+One AWS API reference page was consulted only via the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1` module-cache source (no web fetch this
+pass) for every doc-comment cited above.
+
+Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), `go vet ./...` repo-wide (clean -- no `Backend` interface signature
+changed), `go build ./...` (clean), `go test -race -count=1
+./services/ec2/...` (full suite green, including the six confirmed-failing-
+pre-fix new tests), `golangci-lint run ./services/ec2/...` (10 findings on
+first run, all self-caused by this pass's own new code -- `golines` on the
+test file and two long const-comment lines in `handler.go`, `fieldalignment`
+on the five response structs that gained a bare `string` field -- fixed
+with `golines -w -m 120` and `fieldalignment -fix` scoped to
+`services/ec2/...`, then hand-shortened the two over-long const comments;
+re-ran, `0 issues`). No banned `//nolint`s (grepped for
+cyclop/gocyclo/gocognit/funlen in `services/ec2/`, zero hits); the one
+pre-existing `//nolint:gochecknoglobals` in `handler.go` (on
+`errCodeLookup`, `git diff` confirms untouched by this pass's hunks) is
+unrelated and still needed. Did NOT commit, push, or run any `bd` write
+command -- all changes left in the working tree per this session's
+instructions.
+
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD.
+`cmd/reqfielddiff`: findings ranged 2115-2126 across the 5 old runs (2099
+at HEAD), with 46 op.field keys moving, all in one direction: present in
+some old (misresolved) run, absent at HEAD. Zero keys appeared at HEAD
+that were absent from every old run, so no evidence of the dangerous
+direction here.
+
+All 46 belong to ops where an exported `*InMemoryBackend` method
+case-folds onto the same name as the real, correctly-registered
+`ops["<Op>"] = h.handle<Op>` dispatch-table entry (the acronym-casing
+mechanism from gopherstack-id70's parent finding: `NetworkAcl`/`NetworkACL`,
+`IdFormat`/`IDFormat`, `VpcClassicLinkDnsSupport`/`VpcClassicLinkDNSSupport`,
+`InstanceSqlHa`/`InstanceSQLHa`, `PrivateDnsNameOptions`/`PrivateDNSNameOptions`,
+`PublicIpDnsNameOptions`/`PublicIPDNSNameOptions`, `EbsDefaultKmsKeyId`/
+`EbsDefaultKmsKeyID`, `VpcEndpointServicePrivateDnsVerification`/
+`VpcEndpointServicePrivateDNSVerification`). Read every one of the 46
+handler bodies directly (`handler_network_acls.go`, `handler_account_attrs.go`,
+`handler_instance_attrs.go`, `handler_sql_ha.go`, `handler_vpc_config.go`,
+`handler_volumes.go`, `handler_vpc_endpoint_services.go`): every field is
+genuinely read via `vals.Get("<Name>")` or the recognized
+`parseMemberList(vals, ...)`/`parseOptionalInt32(vals, ...)`/
+`parseOptionalBool(vals, ...)` helper shapes. All 46 were the old tool
+falsely reporting a handled field as missing (over-reporting, the safe
+direction). No bugs found; no code changed.
+
+## 2026-08-31 -- never-declared-field sweep, security-group name resolution
+## and Copy/Import Encrypted/KmsKeyId family (cmd/reqfielddiff, gopherstack-uox6)
+
+`go run ./cmd/reqfielddiff -dir ec2` reports 128 tier-1 findings, confirmed
+against the orchestrator's own re-run before this pass started. Worked a
+slice of 15, chosen for having existing backend state to honour truthfully
+rather than by tier order:
+
+**Fixed (13 fields, 10 operations):**
+
+- `AuthorizeSecurityGroupIngress.GroupName`, `RevokeSecurityGroupIngress.
+  GroupName`, `DeleteSecurityGroup.GroupName`,
+  `UpdateSecurityGroupRuleDescriptionsIngress.GroupName`,
+  `UpdateSecurityGroupRuleDescriptionsEgress.GroupName` -- all five declare
+  GroupName as an alternative to GroupId for default-VPC groups
+  (ec2@v1.319.1 doc comments) but only ever read GroupId, rejecting a
+  name-only request outright. `handler_security_groups.go` gained
+  `resolveSecurityGroupID`, reusing the name-lookup
+  `handleDescribeSecurityGroups` already did for its own filtering.
+- `ImportImage.Encrypted`/`KmsKeyId`, `ImportSnapshot.Encrypted`/`KmsKeyId`
+  -- echoed straight back on the immediate response AND the matching
+  Describe*ImportTasks list item (`ImportImageTask`/`SnapshotTaskDetail`
+  both carry the pair in types.go) but neither was read, so every import
+  silently came back unencrypted regardless of the request. `RoleName` on
+  both operations was deliberately left alone: it never appears in
+  `ImportImageOutput`, `ImportSnapshotOutput` or `SnapshotTaskDetail`, and
+  this backend simulates no IAM role assumption for import tasks, so
+  storing it would be unobservable by any client -- recorded, not
+  fabricated.
+- `CopySnapshot.Encrypted`/`KmsKeyId` -- the backend already inherited
+  Encrypted/KmsKeyID from the source snapshot when the caller said nothing
+  (the SDK's own contingent default, already correct); the gap was an
+  explicit `Encrypted=true` override of an unencrypted source, now honoured
+  in `CopySnapshot`, with `KmsKeyId` falling back to the existing
+  `defaultEBSKmsKeyAlias` convention (`handler_volumes.go`'s
+  `CreateVolume`) only when the caller sets Encrypted without a key.
+- `CopyImage.CopyImageTags` -- default false ("Your user-defined AMI tags
+  are not copied"), now copies the source image's tags via the existing
+  generic `CreateTags`/`TagsForResource` subsystem. `DescribeImages` never
+  echoed an image's `TagSet` at all before this fix (checked: no `Tags`
+  field on `amiItem`), so honouring `CopyImageTags` would have been
+  unobservable without also wiring that in -- both fixed together.
+- `DescribeImages.IncludeDisabled` -- default excludes disabled AMIs
+  (`b.imageDisabled`, already tracked and already surfaced as
+  `State="disabled"`); a general listing now filters them out unless
+  `IncludeDisabled=true`. An image named explicitly by `ImageId` is still
+  returned regardless -- that's the pre-existing, already-tested behavior
+  of `TestDescribeImages_DisabledState_RealClient`
+  (`wire_field_fixes_test.go`), preserved rather than weakened.
+  `IncludeDeprecated` deliberately left alone: its own doc carries an
+  ownership exception ("If you are the AMI owner, all deprecated AMIs
+  appear in the response regardless") this single-account emulator has no
+  `OwnerID` field to evaluate -- recorded rather than approximated.
+
+**Recorded, not fixed (reasoning, not fabrication):**
+
+- `CopyImage.Encrypted`/`KmsKeyId` -- `AMIStub` tracks no block-device
+  mapping or per-image encryption state at all (only
+  `ID/Name/Description/Architecture/Platform/RootDeviceName/State/
+  SourceImageID`), and `DescribeImages`'s response has no encryption
+  surface either. Honouring these would mean inventing a new response
+  concept this backend's image model doesn't have anywhere -- the
+  "simulating a capability that does not exist here" case.
+- `StopInstances.Force`/`Hibernate`/`SkipOsShutdown`,
+  `TerminateInstances.SkipOsShutdown` -- none of the three is echoed by
+  `StopInstancesOutput`/`TerminateInstancesOutput` (checked the pinned
+  SDK: both outputs return only a `StateChange` list), and this backend
+  models no distinct code path (graceful-vs-forced filesystem shutdown,
+  hibernation state, OS shutdown scripts) any of the three could route
+  through. No legal input changes the outcome.
+- `DeregisterImage.DeleteAssociatedSnapshots` -- already recorded with the
+  same reasoning at this handler (`handler_images.go`'s
+  `handleDeregisterImage` doc comment, pre-existing): `AMIStub` has no
+  block-device-mapping/snapshot linkage to report against.
+
+**False positives from an unrecognized form-read shape (examined, not
+fixed):** `DescribeImages.ImageIds` is already read -- via a bare
+`for i := 1; ; i++ { vals.Get(fmt.Sprintf("ImageId.%d", i)) }` loop, not a
+call to a named `parseMemberList`-shaped helper, so the tool's
+helper-call recognizer never matches it. 1 of the ~20 findings read
+closely this pass was this shape (5%); the remaining four `DescribeImages`
+findings examined (`Owners`, `IncludeDeprecated` twice-considered,
+`IncludeDisabled`) were genuine gaps, not this false-positive class.
+
+**Tests:** 5 new `_test.go` files (`wire_field_fixes_uox6_*.go`), 18 new
+test functions driving the real `aws-sdk-go-v2` client, all confirmed
+failing against unmodified source before the fix. Every documented-default
+test (`*_EncryptedOmitted_DefaultsFalse`, `*_EncryptedNoKmsKeyId_
+UsesDefaultEBSKey`, `*_CopyImageTagsOmitted_DoesNotCopyTags`,
+`*_EncryptedOmitted_InheritsSource`) omits the field entirely rather than
+setting it false/empty, so it can actually observe the default. No
+existing assertion was weakened; one pre-existing test
+(`TestDescribeImages_DisabledState_RealClient`) drove the "explicit
+ImageId still returns disabled" carve-out in the `IncludeDisabled` fix
+rather than being touched, and still passes unmodified.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, since `CopySnapshot`,
+`ImportImage`, `ImportSnapshot` backend signatures changed -- six existing
+test call sites across five files updated for the new params, no
+production caller outside `services/ec2/` exists), `go test -race -count=1
+./services/ec2/...`, `golangci-lint run ./services/ec2/...` (0 issues,
+re-ran, `0 issues`). No banned `//nolint`s (grepped for
+cyclop/gocyclo/gocognit/funlen in `services/ec2/`, zero hits, unchanged).
+Did NOT commit, push, or run any `bd` write command -- all changes left in
+the working tree per this session's instructions.
+
+## 2026-08-31 -- never-declared-field sweep continuation, source-group-name
+## authorize/revoke and VPC tenancy (cmd/reqfielddiff, gopherstack-uox6)
+
+Re-ran `go run ./cmd/reqfielddiff -dir ec2` at the start of this pass: 117
+tier-1 findings (down from the 128 the prior pass measured -- 13 fixed, and
+two of those fixes are still visible in the tool's output as documented
+tool-artifacts, so the net drop is smaller than 13). Confirmed the prior
+pass's two known artifacts are genuinely fixed, not real gaps:
+`AuthorizeSecurityGroupIngress.SourceSecurityGroupName` and
+`UpdateSecurityGroupRuleDescriptionsIngress/Egress.GroupName` both route
+through `resolveSecurityGroupID`, a method the tool's helper-call matcher
+can't see (blind spot 7, as recorded). Also re-confirmed
+`CopyImage.Encrypted`/`KmsKeyId` and `ImportImage`/`ImportSnapshot.RoleName`
+are the prior pass's intentional declines, still correctly undeclared.
+
+Worked a further slice of 4 fields, again choosing ones with existing
+backend state to honour truthfully:
+
+**Fixed (4 fields, 3 operations):**
+
+- `AuthorizeSecurityGroupIngress.SourceSecurityGroupName`,
+  `RevokeSecurityGroupIngress.SourceSecurityGroupName` -- the classic
+  single-rule form ("[Default VPC] The name of the source security
+  group... The rule grants full ICMP, UDP, and TCP access. To create a rule
+  with a specific protocol and port range, specify a set of IP permissions
+  instead.", ec2@v1.319.1 api_op_AuthorizeSecurityGroupIngress.go /
+  api_op_RevokeSecurityGroupIngress.go) was never read at all --
+  `parseIPPermissions` only ever parsed the `IpPermissions.N.*` list form,
+  so a caller using the top-level field got a call that silently added or
+  removed nothing. `handler_security_groups.go` gained
+  `sourceGroupNameRule`, resolving the name via the same
+  `DescribeSecurityGroups` lookup `resolveSecurityGroupID` already used,
+  and building a single `Protocol: "-1"` rule when `IpPermissions` is
+  empty. The Egress siblings (`AuthorizeSecurityGroupEgress`,
+  `RevokeSecurityGroupEgress`) declare the same field but document it "Not
+  supported. Use IP permissions instead." -- correctly left alone; real
+  AWS ignores it there too.
+- `CreateVpc.InstanceTenancy` -- documented default "default"
+  (ec2@v1.319.1 api_op_CreateVpc.go), never read, and defaulted to
+  `vpcTenancyDefault` in `handleCreateVpc`. This uncovered a larger,
+  pre-existing gap in the sibling `ModifyVpcTenancy`: it already stored a
+  tenancy per VPC in `b.vpcTenancy`, but nothing ever rendered it --
+  `DescribeVpcs`/`CreateVpc` responses had no `instanceTenancy` element at
+  all, so even a caller that successfully called `ModifyVpcTenancy` had no
+  way to observe the result. Added `Backend.VpcTenancy(vpcID)` (falls back
+  to "default" for VPCs with nothing recorded, e.g. ones from
+  `CreateDefaultVpc`) and wired `instanceTenancy` onto `vpcItem`, rendered
+  from both `handleCreateVpc` and `handleDescribeVpcs`. Same "a flag is
+  only meaningful if the thing it controls is visible" lesson as the prior
+  pass's `CopyImageTags` fix.
+- `DeleteTags.Tags` -- documented as optional: "If you omit this
+  parameter, we delete all user-defined tags for the specified resources...
+  We do not delete Amazon Web Services-generated tags" (ec2@v1.319.1
+  api_op_DeleteTags.go). `InMemoryBackend.DeleteTags` treated `len(keys) ==
+  0` as a pure no-op instead -- a caller omitting Tags to wipe a resource's
+  tags silently did nothing. Now deletes every stored key when `keys` is
+  empty; kept the (currently unreachable, since this backend never stores
+  an `aws:`-prefixed tag) `aws:` exclusion to match the documented
+  behavior exactly rather than only what's reachable today. This finding
+  still appears in the tool's tier-1 output after the fix: `DeleteTags`
+  reads it via `parseEC2TagKeys`'s bare `for i := 1; i <= max; i++ {
+  vals.Get(fmt.Sprintf("Tag.%d.Key", i)) }` loop (blind spot 6), a form the
+  tool's matcher doesn't recognize -- confirmed genuinely fixed by the
+  tests below, not a real remaining gap.
+
+**Recorded, not fixed (reasoning, not fabrication):**
+
+- `CreateImage.NoReboot` -- "If you don't specify this parameter, Amazon
+  EC2 attempts to shut down and reboot the instance before creating the
+  image." `InMemoryBackend.CreateImage` never touches instance state at
+  all (no stop/reboot simulated, checked `deepdive_ops.go`), so there is no
+  distinct code path for `NoReboot` to select between -- same reasoning as
+  the prior pass's four stop-behaviour flags, and `CreateImageOutput` only
+  ever returns an `ImageId`, giving no field to observe a difference on
+  either.
+- `CreateKeyPair.KeyFormat`/`KeyType` -- "Default: pem"/"Default: rsa".
+  `InMemoryBackend.CreateKeyPair` (`key_pairs.go`) unconditionally
+  generates an RSA key via `crypto/rsa`; there is no ED25519 generation
+  path and no PPK (PuTTY private key) encoder anywhere in this codebase.
+  `CreateKeyPairOutput` doesn't even echo either field back (checked the
+  pinned SDK type: only `KeyFingerprint`/`KeyMaterial`/`KeyName`/
+  `KeyPairId`/`Tags`), so returning an RSA/PEM key while silently ignoring
+  a caller's `ed25519`/`ppk` request would misrepresent what was generated
+  with no way for a test to even catch it via the response shape --
+  declined rather than fabricated. `DescribeKeyPairs`' existing `KeyType`
+  item field is left as-is (always empty for a `CreateKeyPair`-made key, a
+  pre-existing gap orthogonal to this one).
+
+**Out-of-scope caller repaired:** `CreateVpc`'s signature gained a
+`tenancy string` parameter, breaking one caller outside `services/ec2/`:
+`services/cloudformation/resources_extended.go`'s `createEC2VPC` (AWS::EC2
+::VPC resource creator). Read the real `InstanceTenancy` CloudFormation
+property via the existing `strProp` helper (same pattern already used for
+`CidrBlock` two lines above) rather than hardcoding "default", since the
+property already exists on the real resource type. `go build ./...` and
+`go vet ./services/ec2/...` clean; a pre-existing, unrelated compile break
+in `services/cloudformation/handler_stack_sets.go` (`op.CreatedAt`
+undefined) was observed via `go vet ./...` but is caused by another
+in-flight session's edits to that file (confirmed via `git status` showing
+it modified outside this session's diff) -- not touched, not caused by
+this pass.
+
+**Tests:** 3 new `_test.go` files
+(`wire_field_fixes_uox6_sourcegroupname_test.go`,
+`wire_field_fixes_uox6_vpctenancy_test.go`,
+`wire_field_fixes_uox6_deletetags_test.go`), 7 new test functions driving
+the real `aws-sdk-go-v2` client on decoded responses, all confirmed failing
+against unmodified source (or a surgical revert of just the defaulting
+logic, keeping struct members, for the two pure-addition cases) before the
+fix. `TestCreateVpc_InstanceTenancy_DefaultsToDefault` and
+`TestDeleteTags_OmittedTagsDeletesAll` both omit the field entirely to
+observe the default. One pre-existing test,
+`TestInMemoryBackend_CreateDeleteDescribeTags/delete_empty_keys_is_noop`
+(`handler_tags_test.go`), asserted the bug itself ("Empty keys: should be a
+no-op, tag must remain") -- renamed to
+`delete_omitted_keys_deletes_all_user_tags` and rewritten to assert the
+documented behavior, adding a second untouched resource to the same case
+so selectivity (only the targeted resource's tags are wiped) is still
+checked. Assertion count for that one case: 3 before (Len + Equal + True),
+3 after (same shape, corrected expected values) -- no drop. All other
+`TestInMemoryBackend_CreateDeleteDescribeTags` subtests, and all of
+`wire_field_fixes_uox6_sgname_test.go`'s existing assertions, untouched;
+~40 other test files across the package had one mechanical
+`b.CreateVpc("x.x.x.x/nn")` -> `b.CreateVpc("x.x.x.x/nn", "default")` call-
+site update each (`CreateVpc` gained a required `tenancy` parameter), no
+assertions touched.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...` (0 issues; repo-wide
+`go vet ./...` fails only in `services/cloudformation` for the pre-existing,
+unrelated reason above), `go test -race -count=1 ./services/ec2/...` (pass),
+`golangci-lint run ./services/ec2/...` (0 issues after `fieldalignment -fix`
+reordered `vpcItem` and `golines -m 120 -w` reformatted one over-length
+`require.Len` call). `golangci-lint run ./services/cloudformation/...`
+clean on the one file this pass touched
+(`resources_extended.go`); the 3 issues it reports elsewhere are in files
+this pass didn't edit. No banned `//nolint`s introduced; the one
+pre-existing `//nolint:lll` in `handler_vpcs.go` and one pre-existing
+`//nolint:nilerr` in `resources_extended.go` are both untouched by this
+diff (confirmed via `git diff` -- neither line appears in the changed
+hunks). Did NOT commit, push, or run any `bd` write command -- all changes
+left in the working tree per this session's instructions.
+
+## 2026-08-31 -- response wrapper-key mechanical sweep (gopherstack-6flj continuation)
+
+Targeted the specific class this issue names -- a response field emitted
+under an XML element name (or Go type) the real deserializer doesn't
+expect, either silently dropping the whole collection or hard-erroring the
+decode -- across the full `Describe*`/`List*` surface, since the ec2
+tranche of this issue had only covered 14 major ops layer-1 and ~130
+remained unaccounted for by name.
+
+METHOD, LAYER 1 (top-level wrapper key): rather than hand-read all ~192
+ops, wrote two small extractors (kept in the session scratchpad, not
+committed): one walks every `describe*Response`/`list*Response` Go struct
+in `services/ec2/*.go` and pulls the outer XML tag wrapping its item list
+(handling the nested-anonymous-struct idiom this codebase uses
+consistently, e.g. `Foo struct { Items []X \`xml:"item"\` } \`xml:"fooSet"\`
+`); the other walks every `awsEc2query_deserializeOpDocumentDescribe*Output`
+/`List*Output` function in the pinned `ec2@v1.319.1/deserializers.go` and
+pulls each `case strings.EqualFold("key", ...)` that dispatches to a nested
+(list/struct) deserializer rather than a scalar `decoder.Value()`. Cross-
+referenced by operation name, case-insensitively (case-only differences are
+harmless here per this issue's own note -- XML decode folds case).
+
+RESULT: zero mismatches across 145 ops the extractor could parse
+mechanically. Two apparent mismatches surfaced and were hand-verified as
+extractor artifacts, not bugs: `DescribeApplicationStatus` (script matched
+an inner `instanceSet` sub-key instead of the true outer
+`applicationStatusesResponseType` wrapper -- the real one, read from the
+struct by hand, matches exactly) and the initial pre-fix version of the
+extractor itself, which for the first ~30 ops compared the wrong nesting
+level entirely (same class of bug as the thing being hunted -- caught by
+re-deriving from the raw struct text before trusting the tool's own
+output). The other 47 ops the extractor couldn't parse (singular
+`Describe*Attribute`/`Describe*Status`-shaped non-list responses, and a
+handful of list responses using a named type alias instead of the
+anonymous-struct idiom) were read by hand instead: `DescribeByoipCidrs`,
+`DescribeCapacityReservationFleets`, `DescribeCapacityReservations`,
+`DescribeHosts`, `DescribeInstanceStatus`, `DescribeInstanceTypes`,
+`DescribeInternetGateways`, `DescribeLaunchTemplates`,
+`DescribeLaunchTemplateVersions`, `DescribeNatGateways`,
+`DescribeNetworkAcls`, `DescribeSpotFleetInstances`,
+`DescribeSpotFleetRequestHistory`, `DescribeSpotFleetRequests`,
+`DescribeSpotInstanceRequests`, `DescribeSpotPriceHistory`,
+`DescribeVolumeStatus`, `DescribeVpcBlockPublicAccessOptions`,
+`DescribeVpcEndpointServicePermissions`, `DescribeVpcEndpoints`,
+`DescribePlacementGroups` -- all confirmed matching their own SDK output
+struct's top-level key exactly (the remaining ~26 of the 47 are the
+already-known-clean `Describe*Attribute` singular ops plus the 14 major ops
+this issue's earlier ec2 batch already verified).
+
+METHOD, LAYER 2 (per-item field names/types, hand-read against the pinned
+deserializer, no mechanical tool -- this class needs judgement a script
+can't apply): `DescribeTransitGatewayAttachments`/
+`DescribeTransitGatewayVpcAttachments` (both: correct keys and types
+throughout; `types.TransitGatewayAttachment`/`TransitGatewayVpcAttachment`
+each carry several members -- `Association`, `CreationTime`,
+`ResourceOwnerId`, `TransitGatewayOwnerId` on the former,
+`Options`/`TransitGatewayVpcAttachmentOptions` (Dns/Ipv6/ApplianceMode/
+SecurityGroupReferencing support) on the latter -- this backend's
+`TransitGatewayAttachmentSummary`/`TransitGatewayVpcAttachment` structs
+don't track any of them at all, a missing-state gap requiring new backend
+fields across four source maps, not a wrapper-key bug; recorded, not
+fixed), `DescribeVerifiedAccessInstances`/`DescribeVerifiedAccessEndpoints`
+(correct keys/types; `CreationTime`/`LastUpdatedTime`/`FipsEnabled`/
+`CidrEndpointsCustomSubDomain` on the instance and `Tags` on the endpoint
+are real members this backend doesn't track -- same missing-state
+category, recorded not fixed), `DescribeRouteServers`/
+`DescribeRouteServerEndpoints`/`DescribeRouteServerPeers` (already fixed by
+an earlier session in this campaign, commit `16e1eff9f` -- re-verified the
+`routeServerEndpointItem.FailureReason`/`routeServerPeerItem.FailureReason`
+flat-scalar fix is still correct against the pinned deserializer, and the
+in-code comment explaining it is accurate, not a stale/false artifact),
+`DescribeSpotFleetRequests` (walked the full
+`SpotFleetRequestConfigData`/`SpotFleetLaunchSpecification` case lists --
+every emitted field name and the `WeightedCapacity` float<->string
+round-trip both correct), `DescribeVpcEndpointServices` (dual-wrapper
+`serviceNameSet`/`serviceDetailSet` both correct, `serviceDetailItem`'s 8
+emitted fields all real members of `types.ServiceDetail`; the ~7 unemitted
+members -- `PrivateDnsName(s)`, `ServiceRegion`,
+`SupportedIpAddressTypes`, etc -- already covered by this file's existing
+`vpc_endpoints` note as unmodeled, not new), `DescribeVpcEndpointServicePermissions`
+(the single emitted `principal` field is correct and real, but
+`types.AllowedPrincipal` also declares `PrincipalType`/`ServiceId`/
+`ServicePermissionId`/`Tags`; `Backend.DescribeVpcEndpointServicePermissions`
+returns bare `[]string`, tracking none of the other four -- missing-state,
+not wrapper-key), `DescribeSecurityGroupRules` (re-verified the
+`3fe584c90` fix still holds -- `sgRuleDetailItem`'s 8 fields all correct
+keys/types; `types.SecurityGroupRule` additionally declares `CidrIpv6`,
+`GroupOwnerId`, `PrefixListId`, `ReferencedGroupInfo`,
+`SecurityGroupRuleArn`, `TagSet`, none tracked by `SecurityGroupRuleDetail`
+in `models.go` -- missing-state, and `GroupOwnerId` in particular is a
+one-line-derivable `b.AccountID` fix of the same shape as several other
+`OwnerId` fixes already in this file, but adding it means a `models.go`
+change and the accompanying snapshot-version-guard bump, deliberately not
+undertaken this pass since it isn't this issue's target class -- flagged
+for a future missing-state pass instead of rushed here), `DescribeIpams`
+(all emitted fields correct; `EnablePrivateGua`/`MeteredAccount`/
+`StateMessage` unemitted, same missing-state category),
+`DescribeSecurityGroupVpcAssociations` (all 5 emitted fields correct;
+`StateReason` unemitted, same category), `DescribeLaunchTemplateVersions`
+(the minimal `LaunchTemplateData{ImageID,InstanceType}` and top-level
+fields are all correct keys; `Operator`/`VersionDescription` unemitted --
+same category, and consistent with this backend's documented
+single-version-per-template modeling limit noted earlier in this file).
+
+RESULT: zero new wrapper-key bugs found across ~40 ops checked this pass
+(20+ at layer 1 by hand beyond the mechanical sweep, ~13 at layer 2).
+Every apparent gap resolved to either an already-fixed prior finding
+(RouteServer family, SecurityGroupRules) or a missing-state gap (a real
+SDK member this backend's Go struct never tracks at all) -- a different,
+adjacent bug class from this issue's wrapper-key target, and each recorded
+above rather than fabricated a fix for. Consistent with this issue's own
+`14332b12e` ("ec2 is now clear for this class") and the extensive
+`b430921d9`/`6ea5e9b15`/`d7f71c4cd`/`16e1eff9f` commits already on this
+branch: by this point in the campaign the ec2 Describe/List wrapper-key
+surface appears genuinely exhausted, not merely unexamined.
+
+Pages fetched: none -- all verification came from the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1` module cache already on disk, so the
+"run `aws agent-toolkit search-skills`" footer pattern reported elsewhere
+in this campaign does not apply to this pass.
+
+No source files changed this pass (investigation only; a scratch
+`zzz_listops_test.go` used to enumerate `h.ops` via `go test -run` was
+written and removed before finishing, never left in the tree). Gates:
+`go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
+(clean), `go test -race -count=1 ./services/ec2/...` (pass, unchanged).
+`golangci-lint run`/snapshot-version-guard not applicable (no `.go` files
+touched). Did NOT commit, push, or run any `bd` write command.

@@ -210,38 +210,86 @@ func (h *Handler) handleGetConnectionGroupByRoutingEndpoint(c *echo.Context, end
 	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
+// listConnectionGroupsRequestXML models a ListConnectionGroups request body.
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpHttpBindingsListConnectionGroupsInput
+// returns nil (no HTTP-bound fields), so AssociationFilter, Marker, and MaxItems all serialize
+// into the XML body, not the query string.
+type listConnectionGroupsRequestXML struct {
+	XMLName           xml.Name `xml:"ListConnectionGroupsRequest"`
+	AssociationFilter struct {
+		AnycastIPListID string `xml:"AnycastIpListId"`
+	} `xml:"AssociationFilter"`
+	Marker   string `xml:"Marker"`
+	MaxItems int    `xml:"MaxItems"`
+}
+
 func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listConnectionGroupsRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListConnectionGroupsRequest XML"),
+			)
+		}
+	}
+
 	items := h.Backend.ListConnectionGroups()
+	if anycastID := req.AssociationFilter.AnycastIPListID; anycastID != "" {
+		items = filterSlice(items, func(cg *ConnectionGroup) bool { return cg.AnycastIPListID == anycastID })
+	}
+
+	page, _, isTruncated := paginateByMarkerValue(
+		items,
+		func(cg *ConnectionGroup) string { return cg.ID },
+		req.Marker,
+		req.MaxItems,
+	)
 
 	type cgSummary struct {
-		XMLName         xml.Name `xml:"ConnectionGroupSummary"`
-		ID              string   `xml:"Id"`
-		Name            string   `xml:"Name"`
-		ARN             string   `xml:"ARN"`
-		ETag            string   `xml:"ETag"`
-		RoutingEndpoint string   `xml:"RoutingEndpoint"`
-		Status          string   `xml:"Status"`
+		XMLName          xml.Name `xml:"ConnectionGroupSummary"`
+		ID               string   `xml:"Id"`
+		Name             string   `xml:"Name"`
+		ARN              string   `xml:"Arn"`
+		ETag             string   `xml:"ETag"`
+		RoutingEndpoint  string   `xml:"RoutingEndpoint"`
+		Status           string   `xml:"Status"`
+		AnycastIPListID  string   `xml:"AnycastIpListId,omitempty"`
+		CreatedTime      string   `xml:"CreatedTime"`
+		LastModifiedTime string   `xml:"LastModifiedTime"`
+		Enabled          bool     `xml:"Enabled"`
+		IsDefault        bool     `xml:"IsDefault"`
 	}
 	// Real ListConnectionGroupsOutput (api_op_ListConnectionGroups.go) is
 	// ConnectionGroups []ConnectionGroupSummary + NextMarker, no Quantity/Items
 	// wrapper: awsRestxml_deserializeOpDocumentListConnectionGroupsOutput reads
 	// a direct <ConnectionGroups> child holding repeated <ConnectionGroupSummary>
-	// elements (cloudfront@v1.67.4 deserializers.go), so the previous
-	// <ConnectionGroupList><Items>...</Items><Quantity>N</Quantity> shape left a
-	// real client decoding an always-empty list regardless of what was stored.
+	// elements (cloudfront@v1.67.4 deserializers.go).
 	type cgList struct {
 		XMLName          xml.Name    `xml:"ListConnectionGroupsResult"`
 		XMLNS            string      `xml:"xmlns,attr"`
+		NextMarker       string      `xml:"NextMarker,omitempty"`
 		ConnectionGroups []cgSummary `xml:"ConnectionGroups>ConnectionGroupSummary"`
 	}
-	summaries := make([]cgSummary, 0, len(items))
-	for _, cg := range items {
+	summaries := make([]cgSummary, 0, len(page))
+	for _, cg := range page {
 		summaries = append(summaries, cgSummary{
 			ID: cg.ID, Name: cg.Name, ARN: cg.ARN, ETag: cg.ETag,
 			RoutingEndpoint: cg.RoutingEndpoint, Status: cg.Status,
+			AnycastIPListID: cg.AnycastIPListID, CreatedTime: cg.CreatedTime,
+			LastModifiedTime: cg.LastModifiedTime, Enabled: cg.Enabled, IsDefault: cg.IsDefault,
 		})
 	}
 	list := cgList{XMLNS: cfNS, ConnectionGroups: summaries}
+	if isTruncated && len(page) > 0 {
+		list.NextMarker = page[len(page)-1].ID
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
@@ -360,42 +408,91 @@ func (h *Handler) handleDescribeConnectionFunction(c *echo.Context, id string) e
 	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
+// listConnectionFunctionsRequestXML models a ListConnectionFunctions request body.
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpHttpBindingsListConnectionFunctionsInput
+// returns nil (no HTTP-bound fields), so Marker, MaxItems, and Stage all serialize into the XML
+// body, not the query string -- unlike sibling op ListFunctions, whose Stage is query-bound.
+type listConnectionFunctionsRequestXML struct {
+	XMLName  xml.Name `xml:"ListConnectionFunctionsRequest"`
+	Marker   string   `xml:"Marker"`
+	Stage    string   `xml:"Stage"`
+	MaxItems int      `xml:"MaxItems"`
+}
+
 func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listConnectionFunctionsRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListConnectionFunctionsRequest XML"),
+			)
+		}
+	}
+
 	items := h.Backend.ListConnectionFunctions()
+	if req.Stage != "" {
+		items = filterSlice(items, func(fn *ConnectionFunction) bool { return fn.Stage == req.Stage })
+	}
+
+	// Name alone is not a unique cursor key (ConnectionFunction names may repeat, see
+	// ListConnectionFunctions); Name+tab+ID matches the tiebreak that list applies and
+	// keeps same-named functions from being dropped when a tie group straddles a page
+	// boundary. Tab (not NUL) because Marker round-trips through the XML request/response
+	// body and NUL is not a valid XML 1.0 character.
+	page, _, isTruncated := paginateByMarkerValue(
+		items,
+		func(fn *ConnectionFunction) string { return fn.Name + "\t" + fn.ID },
+		req.Marker,
+		req.MaxItems,
+	)
 
 	type cfnConfig struct {
 		Comment string `xml:"Comment"`
 		Runtime string `xml:"Runtime"`
 	}
 	type cfnSummary struct {
-		XMLName xml.Name  `xml:"ConnectionFunctionSummary"`
-		ID      string    `xml:"Id"`
-		ARN     string    `xml:"ConnectionFunctionArn"`
-		Name    string    `xml:"Name"`
-		Config  cfnConfig `xml:"ConnectionFunctionConfig"`
-		Stage   string    `xml:"Stage"`
-		Status  string    `xml:"Status"`
+		XMLName          xml.Name  `xml:"ConnectionFunctionSummary"`
+		ID               string    `xml:"Id"`
+		ARN              string    `xml:"ConnectionFunctionArn"`
+		Name             string    `xml:"Name"`
+		Config           cfnConfig `xml:"ConnectionFunctionConfig"`
+		Stage            string    `xml:"Stage"`
+		Status           string    `xml:"Status"`
+		CreatedTime      string    `xml:"CreatedTime"`
+		LastModifiedTime string    `xml:"LastModifiedTime"`
 	}
 	// Real ListConnectionFunctionsOutput (api_op_ListConnectionFunctions.go) is
 	// ConnectionFunctions []ConnectionFunctionSummary + NextMarker, no
 	// Quantity/Items wrapper: awsRestxml_deserializeOpDocumentListConnectionFunctionsOutput
 	// reads a direct <ConnectionFunctions> child holding repeated
-	// <ConnectionFunctionSummary> elements (cloudfront@v1.67.4 deserializers.go), so the
-	// previous <ConnectionFunctionList><Items>...</Items><Quantity>N</Quantity> shape left
-	// a real client decoding an always-empty list regardless of what was stored.
+	// <ConnectionFunctionSummary> elements (cloudfront@v1.67.4 deserializers.go).
 	type cfnList struct {
 		XMLName             xml.Name     `xml:"ListConnectionFunctionsResult"`
 		XMLNS               string       `xml:"xmlns,attr"`
+		NextMarker          string       `xml:"NextMarker,omitempty"`
 		ConnectionFunctions []cfnSummary `xml:"ConnectionFunctions>ConnectionFunctionSummary"`
 	}
-	summaries := make([]cfnSummary, 0, len(items))
-	for _, fn := range items {
+	summaries := make([]cfnSummary, 0, len(page))
+	for _, fn := range page {
 		summaries = append(summaries, cfnSummary{
 			ID: fn.ID, ARN: fn.ARN, Name: fn.Name, Stage: fn.Stage, Status: fn.Status,
-			Config: cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+			Config:           cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+			CreatedTime:      fn.CreatedTime,
+			LastModifiedTime: fn.LastModifiedTime,
 		})
 	}
 	list := cfnList{XMLNS: cfNS, ConnectionFunctions: summaries}
+	if isTruncated && len(page) > 0 {
+		last := page[len(page)-1]
+		list.NextMarker = last.Name + "\t" + last.ID
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)

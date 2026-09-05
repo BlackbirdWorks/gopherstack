@@ -1,6 +1,7 @@
 // Command checkpins verifies that every services/<svc>/PARITY.md sdk_module
-// front-matter pin (aws-sdk-go-v2/service/<name>@v<version>) matches the
-// version go.mod actually requires for that module. A stale pin silently
+// front-matter pin (aws-sdk-go-v2/service/<name>@v<version>, or
+// azure-sdk-for-go/sdk/<path>@v<version> for Azure-backed services) matches
+// the version go.mod actually requires for that module. A stale pin silently
 // undermines every wire-shape claim in the file, since those claims were
 // checked against the pinned version, not whatever go.mod carries now.
 //
@@ -35,6 +36,7 @@ const (
 	goModPath       = "go.mod"
 
 	sdkServiceModulePrefix = "github.com/aws/aws-sdk-go-v2/service/"
+	sdkAzureModulePrefix   = "github.com/Azure/azure-sdk-for-go/sdk/"
 	sdkModuleFieldPrefix   = "sdk_module:"
 )
 
@@ -42,6 +44,14 @@ const (
 // "aws-sdk-go-v2/service/dlm@v1.39.4", capturing the module name and the
 // version including its leading "v".
 var pinRe = regexp.MustCompile(`^aws-sdk-go-v2/service/([A-Za-z0-9_-]+)@(v[0-9][0-9A-Za-z.\-+]*)$`)
+
+// azurePinRe matches an sdk_module value shaped like
+// "azure-sdk-for-go/sdk/storage/azblob@v1.8.0" -- azure-sdk-for-go publishes
+// its service clients as nested submodules (sdk/<area>/<name>) rather than
+// aws-sdk-go-v2's flat sdk/service/<name>, so the captured "module" group
+// can itself contain a "/" and must be matched against the same nested path
+// in go.mod (see loadGoModVersions).
+var azurePinRe = regexp.MustCompile(`^azure-sdk-for-go/sdk/([A-Za-z0-9_/-]+)@(v[0-9][0-9A-Za-z.\-+]*)$`)
 
 func main() {
 	if err := run(); err != nil {
@@ -105,9 +115,11 @@ func discoverServiceSlugs(dir string) ([]string, error) {
 }
 
 // loadGoModVersions parses go.mod and returns the pinned version (with its
-// leading "v") of every aws-sdk-go-v2/service/<name> requirement, keyed by
-// <name>. Uses golang.org/x/mod/modfile rather than hand-parsing so both
-// block-style and single-line `require` statements are covered correctly.
+// leading "v") of every aws-sdk-go-v2/service/<name> and
+// azure-sdk-for-go/sdk/<path> requirement, keyed by <name>/<path>
+// respectively. Uses golang.org/x/mod/modfile rather than hand-parsing so
+// both block-style and single-line `require` statements are covered
+// correctly.
 func loadGoModVersions(path string) (map[string]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -121,11 +133,15 @@ func loadGoModVersions(path string) (map[string]string, error) {
 
 	versions := make(map[string]string, len(f.Require))
 	for _, req := range f.Require {
-		name, ok := strings.CutPrefix(req.Mod.Path, sdkServiceModulePrefix)
-		if !ok {
+		if name, ok := strings.CutPrefix(req.Mod.Path, sdkServiceModulePrefix); ok {
+			versions[name] = req.Mod.Version
+
 			continue
 		}
-		versions[name] = req.Mod.Version
+
+		if name, ok := strings.CutPrefix(req.Mod.Path, sdkAzureModulePrefix); ok {
+			versions[name] = req.Mod.Version
+		}
 	}
 
 	return versions, nil
@@ -248,16 +264,20 @@ func splitValueComment(rest string) (string, string) {
 }
 
 // parsePinValue parses a raw sdk_module value (already stripped of its
-// trailing comment) into a module name and version.
+// trailing comment) into a module name and version. It tries the AWS shape
+// first, then the Azure shape (see pinRe/azurePinRe).
 func parsePinValue(value string) (string, string, bool) {
 	v := strings.Trim(strings.TrimSpace(value), `"'`)
 
-	m := pinRe.FindStringSubmatch(v)
-	if m == nil {
-		return "", "", false
+	if m := pinRe.FindStringSubmatch(v); m != nil {
+		return m[1], m[2], true
 	}
 
-	return m[1], m[2], true
+	if m := azurePinRe.FindStringSubmatch(v); m != nil {
+		return m[1], m[2], true
+	}
+
+	return "", "", false
 }
 
 // isModuleCacheOnly reports whether commentText documents the

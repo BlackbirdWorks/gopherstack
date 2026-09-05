@@ -51,22 +51,22 @@ overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams no
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-11 pass — write-time Timestamp acceptance window (2 weeks past / 2 hours future) now enforced, closing bd gopherstack-pyv. Prior pass's fixes (fabricated UnprocessedMetricData field removed, all-or-nothing semantics, Values/Counts array support, NaN/Inf/range validation) remain correct, unchanged. NEW 2026-08-07 (bd gopherstack-lrmf) — after storing the batch, records matching a running metric stream's IncludeFilters/ExcludeFilters are now actually serialized (CloudWatch Metric Streams JSON output format) and delivered via deliverMetricStreams to the wired FirehosePutter, not just used to bump LastUpdateDate. Firehose wiring itself is deferred (cli.go), so delivery is a real, tested, but currently-unwired code path — see families.metric-streams-delivery."}
+  PutMetricData: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-07-11 pass — write-time Timestamp acceptance window (2 weeks past / 2 hours future) now enforced, closing bd gopherstack-pyv. Prior pass's fixes (fabricated UnprocessedMetricData field removed, all-or-nothing semantics, Values/Counts array support, NaN/Inf/range validation) remain correct, unchanged. NEW 2026-08-07 (bd gopherstack-lrmf) — after storing the batch, records matching a running metric stream's IncludeFilters/ExcludeFilters are now actually serialized (CloudWatch Metric Streams JSON output format) and delivered via deliverMetricStreams to the wired FirehosePutter, not just used to bump LastUpdateDate. Firehose wiring itself is deferred (cli.go), so delivery is a real, tested, but currently-unwired code path — see families.metric-streams-delivery. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   GetMetricStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: period-aligned buckets, Average/Sum/Min/Max/SampleCount, extended-statistic percentiles via collectRawBuckets, anomaly band annotation"}
   GetMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: metric-math expressions (topo-sorted), ScanBy asc/desc, MaxDatapoints pagination with resumable cursor, PartialData/ArithmeticError messages, cross-account AccountId returns empty not error"}
-  ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced"}
-  PutMetricAlarm: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListMetrics: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
+  PutMetricAlarm: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "CBOR error code FIXED 2026-08-29 — see error-codes family note. Metrics (metric-math alarms) FIXED 2026-08-30 (gopherstack-p1ph) — cborPutMetricAlarm never read the 'Metrics' member; the dead legacy XML handlePutMetricAlarm parsed it via parseMetricDataQueriesFromForm but no real client reaches that path. Now parsed via parseMetricDataQueries(input, \"Metrics\") (generalized from the existing GetMetricData.MetricDataQueries parser — both share the _MetricDataQueries wire shape per schemas.go) and echoed back on DescribeAlarms/DescribeAlarmsForMetric via new buildMetricDataQueriesCBOR. Proven with a real aws-sdk-go-v2 write-then-read round trip (metric_math_alarm_p1ph_test.go). MetricStat.Unit remains unmodeled (repo's MetricStat struct has no Unit field, matching the legacy XML parser's pre-existing gap) — not fixed, noted in Notes."}
   PutCompositeAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlarmRule AND/OR/NOT parsing with cycle + depth-limit detection proven correct"}
-  PutLogAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment."}
+  PutLogAlarm: {wire: ok, errors: fixed, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   DescribeAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns three lists (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms), single combined MaxRecords/NextToken pagination window extended across all three. FIXED THIS PASS (bd gopherstack-yvb7): includeComposite previously defaulted to true when AlarmTypes was omitted, contradicting DescribeAlarmsInput.AlarmTypes's own doc comment (\"If you omit this parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the account\", confirmed against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go). Now includeComposite := typeSet[\"CompositeAlarm\"] -- composite alarms, like log alarms, are excluded by default and returned only when AlarmTypes explicitly requests them. wire restored to ok; see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes for the before/after and the list of tests updated to assert the corrected default."}
   DescribeAlarmsForMetric: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAlarmHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — log alarm Put/state-change/action history entries are correctly tagged AlarmType=LogAlarm (threaded through appendHistory the same way the prior pass fixed composite-alarm mistagging); AlarmType=LogAlarm filtering proven correct and proven to exclude other alarm types' history. Prior pass's fix (Action-history entries for composite alarms were hardcoded AlarmType=MetricAlarm) remains correct, unchanged."}
+  DescribeAlarmHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — log alarm Put/state-change/action history entries are correctly tagged AlarmType=LogAlarm (threaded through appendHistory the same way the prior pass fixed composite-alarm mistagging); AlarmType=LogAlarm filtering proven correct and proven to exclude other alarm types' history. Prior pass's fix (Action-history entries for composite alarms were hardcoded AlarmType=MetricAlarm) remains correct, unchanged. FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — pagination was not reproducible across calls: b.alarmHistory is a map[string][]AlarmHistoryItem walked by DescribeAlarmHistory in unspecified (Go map) order, and the result was sorted only by Timestamp, which is not unique (two history items recorded in the same instant, e.g. for different alarms, tie). sort.Slice is unstable, so paging in small windows dropped or duplicated a tied record at the page boundary between two otherwise-identical calls. Fixed by adding a monotonic per-item seq (AlarmHistoryItem.seq, unexported/unpersisted) assigned in appendHistory and used as the sort tiebreak; Restore reindexes seq deterministically (sorted alarm name, then stored per-alarm order) since the field isn't part of the JSON snapshot. See TestDescribeAlarmHistory_PaginationStableAcrossTiedTimestamps (alarm_history_pagination_internal_test.go), hand-reverted to confirm it fails against the unfixed sort (drops/duplicates on the first of 30 iterations), then restored."}
   DeleteAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also deletes log alarms (b.logAlarms.Delete) and cleans up their history/tags via GetAlarmARNs, which now includes log alarm ARNs too. A log alarm PutLogAlarm creates that no op could later delete would have been an orphan/parity bug; verified it isn't."}
   SetAlarmState: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also accepts log alarm names (setAlarmStateLocked checks b.alarms/b.compositeAlarms/b.logAlarms in that order), decomposed into per-type applyMetricAlarmStateLocked/applyCompositeAlarmStateLocked/applyLogAlarmStateLocked helpers to keep the 3-way branch's complexity down. fires actions only on real transition, correct action-list selection per new state, composite re-evaluation cascades (unchanged, still correct)."}
   EnableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also toggles log alarms' ActionsEnabled."}
   DisableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also toggles log alarms' ActionsEnabled."}
   GetDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Only the default dataset is supported (real doc comment: implicit, exists without being created) — DatasetIdentifier accepts \"default\" or the full dataset ARN, anything else is ResourceNotFoundException. Field-diffed against types (Arn/DatasetId always present, KmsKeyArn omitted entirely when no key associated, matching the real 'response omits the KmsKeyArn field' doc language, not an empty string)."}
-  AssociateDatasetKmsKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). KmsKeyArn validated against a fully-qualified-key-ARN-only regex (rejects bare key IDs and alias/alias-ARN forms) per AssociateDatasetKmsKeyInput's own doc comment (\"Key IDs, aliases, and alias ARNs are not accepted\") — deliberately NOT this repo's more permissive validateKmsKeyID pattern (services/comprehend/store.go), which accepts aliases for fields that documented aliases as valid; this field does not. Create-or-replace semantics (re-associating overwrites the prior key) match the doc comment."}
+  AssociateDatasetKmsKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). KmsKeyArn validated against a fully-qualified-key-ARN-only regex (rejects bare key IDs and alias/alias-ARN forms) per AssociateDatasetKmsKeyInput's own doc comment (\"Key IDs, aliases, and alias ARNs are not accepted\") — deliberately NOT this repo's more permissive validateKmsKeyID pattern (services/comprehend/store.go), which accepts aliases for fields that documented aliases as valid; this field does not. Create-or-replace semantics (re-associating overwrites the prior key) match the doc comment. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   DisassociateDatasetKmsKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Fails with ResourceNotFoundException when the dataset has no KMS key currently associated, matching the doc comment exactly (not InvalidParameterValue or a silent no-op)."}
   GetOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Status modeled as a real two-state machine (Running/Stopped, types.OTelEnrichmentStatus's only two values), defaulting to Stopped before StartOTelEnrichment is ever called — no enrichment output data (resource ARN/tag labels, PromQL query results) is fabricated anywhere, since gopherstack has no telemetry-enrichment pipeline to actually produce it; this op only tracks whether the account-level setting is on."}
   StartOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Sets status to Running; both Input/Output are empty structs in the real SDK, matched exactly (no fields on the wire either direction)."}
@@ -78,14 +78,14 @@ ops:
   GetDashboard: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "create-or-update semantics confirmed against the real op (no separate Update op exists); re-PUTting an existing MuteName updates in place"}
+  PutAlarmMuteRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "create-or-update semantics confirmed against the real op (no separate Update op exists); re-PUTting an existing MuteName updates in place. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   GetAlarmMuteRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 33) — MuteTargets was gated on len(rule.AlarmNames)>0, so a real client that legally set MuteTargets with an explicit empty AlarmNames array (validateMuteTargets only null-checks it) got the entire wrapper omitted, indistinguishable from a rule with no MuteTargets set at all. Now gated on rule.AlarmNames != nil. See Notes."}
   DeleteAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAlarmMuteRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAnomalyDetectors: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutInsightRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07 pass — RuleDefinition is now validated as well-formed JSON (must decode to a JSON object); previously any non-JSON string was accepted and stored verbatim (insight_rule_validation.go). DEEPENED 2026-08-07 (bd gopherstack-lrmf) — RuleDefinition now also enforces the real Contributor Insights Rule Syntax's structural rules: Schema.Name (CloudWatchLogRule/CloudWatchLogRule2)/Version (1), LogFormat (JSON/CLF), LogGroupNames (non-empty string array), Contribution.Keys (1-4 string entries), and AggregateOn's Count/Sum enum with the required Contribution.ValueOf when summing — verified against AWS's published Contributor Insights Rule Syntax reference (not a generated SDK type; RuleDefinition is opaque there too, see Notes). Deliberately NOT enforced: whether AggregateOn is restricted to a specific Schema.Name (a pre-existing integration test exercises AggregateOn=Count against the base CloudWatchLogRule schema successfully, so this is not cross-checked), Contribution.Filters' per-match-type field shape, and CLF's Fields position-mapping requirement, to avoid diverging from real AWS on rules this pass could not verify against a generated type. PutManagedInsightRules deliberately bypasses this validation (it stores a plain TemplateName string, not JSON, in Definition — verified this is the correct real-AWS shape distinction, not an oversight). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing RuleName re-validates and updates in place."}
+  PutInsightRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-07 pass — RuleDefinition is now validated as well-formed JSON (must decode to a JSON object); previously any non-JSON string was accepted and stored verbatim (insight_rule_validation.go). DEEPENED 2026-08-07 (bd gopherstack-lrmf) — RuleDefinition now also enforces the real Contributor Insights Rule Syntax's structural rules: Schema.Name (CloudWatchLogRule/CloudWatchLogRule2)/Version (1), LogFormat (JSON/CLF), LogGroupNames (non-empty string array), Contribution.Keys (1-4 string entries), and AggregateOn's Count/Sum enum with the required Contribution.ValueOf when summing — verified against AWS's published Contributor Insights Rule Syntax reference (not a generated SDK type; RuleDefinition is opaque there too, see Notes). Deliberately NOT enforced: whether AggregateOn is restricted to a specific Schema.Name (a pre-existing integration test exercises AggregateOn=Count against the base CloudWatchLogRule schema successfully, so this is not cross-checked), Contribution.Filters' per-match-type field shape, and CLF's Fields position-mapping requirement, to avoid diverging from real AWS on rules this pass could not verify against a generated type. PutManagedInsightRules deliberately bypasses this validation (it stores a plain TemplateName string, not JSON, in Definition — verified this is the correct real-AWS shape distinction, not an oversight). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing RuleName re-validates and updates in place. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   DeleteInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -93,7 +93,7 @@ ops:
   GetInsightRuleReport: {wire: partial, errors: ok, state: ok, persist: ok, note: "DISCLOSED 2026-08-21 (gopherstack-r80d batch 33) — types.InsightRuleContributor.Datapoints is required but was never emitted at all (no key), matching the existing top-level MetricDatapoints limitation (this backend has no per-timestamp breakdown, only a range-wide sum). Now emitted as an honest empty list. NOT provable via a real aws-sdk-go-v2 client round trip: the rpc-v2-cbor deserializer collapses a present-but-zero-length list to nil identically to an absent key (confirmed for this field and for MuteTargets.AlarmNames), so fixed for wire correctness but not counted as a proven bug. See Notes."}
   ListManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutMetricStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07 pass — FirehoseArn/RoleArn/OutputFormat are all 'This member is required' in PutMetricStreamInput (true on every call, not just create, since Put is a full-replace not a patch) but were previously unenforced; OutputFormat now validated against the 3 real enum values (json/opentelemetry0.7/opentelemetry1.0); IncludeFilters+ExcludeFilters-together now rejected per the documented mutual exclusion (metric_stream_validation.go). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing Name updates in place. DELIVERY IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf) — see PutMetricData row and families note below. FIXED 2026-08-21 (gopherstack-r80d batch 33) — StatisticsConfigurations now parsed and stored; see GetMetricStream row and Notes."}
+  PutMetricStream: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-07 pass — FirehoseArn/RoleArn/OutputFormat are all 'This member is required' in PutMetricStreamInput (true on every call, not just create, since Put is a full-replace not a patch) but were previously unenforced; OutputFormat now validated against the 3 real enum values (json/opentelemetry0.7/opentelemetry1.0); IncludeFilters+ExcludeFilters-together now rejected per the documented mutual exclusion (metric_stream_validation.go). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing Name updates in place. DELIVERY IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf) — see PutMetricData row and families note below. FIXED 2026-08-21 (gopherstack-r80d batch 33) — StatisticsConfigurations now parsed and stored; see GetMetricStream row and Notes. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   GetMetricStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 33) — StatisticsConfigurations (whose members AdditionalStatistics/IncludeMetrics are both required, cloudwatch@v1.66.3 types/types.go:3270) was structurally absent from gopherstack's MetricStream model entirely: never parsed on PutMetricStream, never stored, never emitted here. A real client configuring additional statistics had that configuration silently discarded. Now threaded through end to end. See Notes."}
   ListMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -128,7 +128,7 @@ families:
   metric-streams-delivery: {status: ok, note: "NEW 2026-08-07 (bd gopherstack-lrmf). deliverMetricStreams (metric_stream_delivery.go) filters PutMetricData's batch per running stream's IncludeFilters/ExcludeFilters (reusing the exact filterExcludesMetric/filterIncludesMetric logic already used to decide whether ANY delivery was owed), serializes matches into the public CloudWatch Metric Streams JSON record format (metric_stream_name/account_id/region/namespace/metric_name/dimensions/timestamp/value{max,min,sum,count}/unit -- not a generated SDK type, this is Firehose's payload contract, documented at AWS's CloudWatch-Metric-Streams-formats-json reference), and delivers via a new FirehosePutter interface (SetFirehosePutter, mirroring SNSPublisher/LambdaInvoker). Only OutputFormat=json is serialized; opentelemetry0.7/opentelemetry1.0 are real OTLP protobuf formats this backend has no encoder for (documented gap, not fabricated). SetFirehosePutter is not wired to the local firehose backend in cli.go (forbidden in this pass's scope) -- delivery is a real, unit-tested code path (mockFirehosePutter) that is a documented no-op until wired, not a silent failure disguised as success."}
   alarm-evaluation-state-machine: {status: ok, note: "FIXED this pass — breachesThreshold was missing the LessThanLowerThreshold comparison operator entirely (fell through to default:false, so alarms configured with it never fired). All 4 TreatMissingData modes (missing/notBreaching/breaching/ignore) proven correct in countBreachingPeriods/evaluateMetricAlarmState, including ignore's 'maintain current state when no data' rule and M-of-N DatapointsToAlarm."}
   alarm-action-dispatch: {status: ok, note: "FIXED this pass — composite-alarm action history mistagged AlarmType=MetricAlarm (see DescribeAlarmHistory). SNS/Lambda/EC2-automate/AutoScaling-policy ARN routing, best-effort delivery (failures logged, other actions still run), EC2 InstanceId dimension extraction all proven correct. Actual SNS/Lambda/EC2/ASG client wiring lives in cli.go (out of scope per task boundary) — only the in-package dispatch/selection logic was audited/fixed."}
-  error-codes: {status: ok, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams. New PutMetricStream/PutDashboard/PutInsightRule validation errors this pass correctly route through errors.Is(err, ErrValidation) to InvalidParameterValue/DashboardInvalidInputError rather than falling through to InternalFailure."}
+  error-codes: {status: fixed, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams. New PutMetricStream/PutDashboard/PutInsightRule validation errors this pass correctly route through errors.Is(err, ErrValidation) to InvalidParameterValue/DashboardInvalidInputError rather than falling through to InternalFailure. FIXED 2026-08-29 (error-code protocol sweep) — the bare codes above are the AWSQueryError compatibility aliases cloudwatch's schemas.go embeds on each exception (e.g. InvalidParameterValueException's alias is InvalidParameterValue), resolved only when a client negotiates query-compat mode. gopherstack's XML path (handler_*.go, h.xmlError) correctly uses these bare aliases. But rpcv2cbor_*.go (h.cborError) was ALSO using the bare aliases as the CBOR __type body field, and the real aws-sdk-go-v2 client (which speaks rpc-v2-cbor exclusively, non-query-compatible) resolves __type by exact shape name via smithy-go's TypeRegistry, not the alias — so errors.As(&types.InvalidParameterValueException{}) never matched even though gopherstack-7fyf (below) had already fixed __type's transport. Corrected to the Exception/Fault-suffixed shape names on all reachable CBOR call sites: PutMetricData (InvalidParameterCombinationException/LimitExceededFault/InvalidParameterValueException, via new putMetricDataCBORErrorCode), ListMetrics, PutMetricAlarm, PutAlarmMuteRule, PutInsightRule, PutMetricStream, PutLogAlarm, and the three dataset ops (via new datasetCBORErrorStatus). Proven with real aws-sdk-go-v2 client round trips in error_path_sweep_test.go. NOT fixed: ~21 'X is required' cborError call sites across the same files still emit the bare alias — confirmed unreachable (the corresponding Input field is 'This member is required' and validators.go rejects client-side before any request is sent, e.g. sdk_alarm_mute_rule_test.go:17's comment for PutAlarmMuteRule's Name/Rule.Schedule), so left alone per this sweep's own restraint rule rather than guessed-and-unverified. Also NOT fixed: PutMetricData's InvalidParameterCombinationException path (Value+StatisticValues both set) is separately unreachable via the CBOR client for an unrelated reason — cborDecodeDatum (rpcv2cbor_metrics.go) short-circuits on the first shape it decodes (Values, then StatisticValues, then Value) and never records that another shape was also present in the CBOR map, so datumShapeCount can never observe more than one shape through this path; the code fix was still made (correct once that separate decode-order bug is fixed) but has no passing regression test for that specific combination."}
   persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules; field names unchanged by this pass. The metricFilters table (and its persistence_test.go round-trip coverage) was REMOVED this pass along with the rest of the invented PutMetricFilter family -- see Notes; it was never wired into backendSnapshot's real persistence anyway (only a test-only round-trip existed), so no live snapshot format is affected."}
 gaps:                      # known divergences NOT fixed — link bd issue ids
   # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
@@ -823,3 +823,172 @@ distinguishes the two rather than just rejecting everything.
 success path. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/cloudwatch/...` (pass), `golangci-lint run ./services/cloudwatch/...` (0 issues,
 0 new nolints). No exported signature changed.
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+**Protocol confirmed first, per the campaign's explicit warning for this
+service:** `cloudwatch@v1.66.3`'s pinned SDK client sets
+`options.Protocol = rpcv2.NewCBOR(...)` (`api_client.go:214`) and has no
+`serializers.go` at all -- request/response field mapping instead comes from
+the generated `schemas` package (`AddMember("FieldName", ...)` calls) plus
+each type's own `Serialize`/`SerializeMembers` methods. `handler.go`
+confirms real dispatch: `isCBORRequest(r)` routes to `handleCBOR`/
+`dispatchCBOR` (`handler.go:243-254,344-346`); the form-encoded
+`vals url.Values` handlers (`handler_alarms.go`, `handler_metrics.go`, etc.)
+are the classic Query/XML path, reachable only by a hand-built legacy
+request, never by a real `aws-sdk-go-v2` client at this pinned version. **All
+verification effort this pass went into the CBOR path**, since that's the
+only one both live and modeled by the pinned SDK.
+
+**Every list-cardinality read on the CBOR path checked against its
+operation's real Go input struct + `schemas.go` member name, 0 bugs found.**
+~35 call sites across `cborStrList` (8 distinct fields --
+`AlarmNames`/`AlarmActions`/`OKActions`/`InsufficientDataActions`/
+`AlarmTypes`/`DashboardNames`/`LogGroupIdentifiers`/`MetricNames`/
+`AdditionalStatistics`/`Statistics`/`ExtendedStatistics`/`Statuses`/`Names`,
+each op's own struct checked rather than inferred from a sibling),
+`cborDimensions` (7 sites, always the literal `"Dimensions"` key, matching
+`types.Dimension.{Name,Value}`), `cborFloatList` (`MetricDatum.Values`/
+`Counts`), `parseMetricDataQueries` (`GetMetricData.MetricDataQueries` plus
+the nested `MetricStat.{Stat,Period,Metric}`/`Metric.{Namespace,MetricName,
+Dimensions}` chain), `cborMetricStreamFilters`/
+`cborMetricStreamStatisticsConfigurations` (`PutMetricStream`'s nested
+`IncludeFilters`/`ExcludeFilters`/`StatisticsConfigurations`, down to
+`IncludeMetrics[].{MetricName,Namespace}`), `cborMuteTargetAlarmNames`
+(`MuteTargets.AlarmNames`, confirmed against `schemas.MuteTargets_AlarmNames`),
+plain `Tags`/`TagKeys` on the three tag ops, `MetricData` on `PutMetricData`,
+and `ManagedRules` on `PutManagedInsightRules`. Every key matched exactly;
+no cardinality mistakes (no scalar-getter used on a list field or vice
+versa) found anywhere in this set.
+
+**FIXED 2026-08-30 (gopherstack-p1ph):** `PutMetricAlarmInput.Metrics
+[]types.MetricDataQuery` (metric-math alarms) is a real, modeled field that
+`cborPutMetricAlarm` never read at all -- while the **dead** legacy XML
+`handlePutMetricAlarm` (`handler_alarms.go:51`) parsed it via
+`parseMetricDataQueriesFromForm`, so the unreachable path had strictly more
+feature coverage than the one real clients hit. Confirmed from the pinned
+SDK schema that `PutMetricAlarmInput`'s `"Metrics"` member and
+`GetMetricDataInput`'s `"MetricDataQueries"` member both point at the same
+`_MetricDataQueries` shape (schemas.go:4205,4487), so `parseMetricDataQueries`
+(previously hardcoded to the `"MetricDataQueries"` key) was generalized to
+take the key as a parameter and is now called with `"Metrics"` from
+`cborPutMetricAlarm` too. The read side (`buildMetricAlarmCBOR`, shared by
+`DescribeAlarms` and `DescribeAlarmsForMetric`) gained a new
+`buildMetricDataQueriesCBOR` so a write-then-read round trip through a real
+`aws-sdk-go-v2` client preserves the full nested structure (`Id`,
+`Expression`, `Label`, `AccountId`, `ReturnData`, and `MetricStat.{Metric.
+{Namespace,MetricName,Dimensions},Period,Stat}`). Proven by
+`metric_math_alarm_p1ph_test.go`'s `TestPutMetricAlarm_Metrics_RealClient_RoundTrip`,
+which failed against unmodified code (0 metrics came back) before the fix.
+Still unread on the CBOR path, deliberately left alone: `MetricStat.Unit` --
+this repo's own `MetricStat` model (`models.go`) has no `Unit` field at all,
+a gap that predates this fix and matches the legacy XML parser's identical
+omission, so adding it would be a new feature, not this bug's fix.
+
+**Dead legacy XML/Query path, spot-checked but not exhaustively
+cross-referenced:** the pinned SDK has no serializer for this protocol at
+all (it's not what `aws-sdk-go-v2` cloudwatch@v1.55+ ever sends), so there
+is no "real SDK" to check these call sites against the way the campaign
+otherwise requires. Read `parseMemberList`/`parseCWTagsFromForm`/
+`parseCWTagKeysFromForm`/`parseDimensionsFromForm` (the direct form-path
+analogs of the CBOR helpers above) and confirmed they consistently iterate
+every `.member.N` entry (no shape-2 truncation-at-first-element bug), but
+did not verify their key spelling against anything authoritative, since
+nothing authoritative for this protocol is pinned in this repo. Given they
+are unreachable by any real typed client, this is deliberately left
+unresolved rather than guessed at.
+
+**Coverage: N-of-N for the CBOR path (~35 of 35 list-cardinality sites);
+the dead XML path was read for the same shape-2 pattern but explicitly not
+graded pass/fail against a serializer that doesn't exist for it.** No code
+changes in this service this pass -- the live path enumeration found
+nothing to fix, which is itself informative given how much of this bug
+class showed up when the same method was pointed at ec2's Query/XML surface.
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Census: `contributors.go`/`interfaces.go`/`alarm_mute_rules.go`/`alarm_history.go`/
+`metrics.go`/`metric_streams.go`/`anomaly_detectors.go`/`insight_rules.go`/
+`dashboards.go` all call `pkgs/page.New` directly — clamped offset tokens, no
+independent arithmetic. Two genuinely hand-rolled cursors exist: `paginateAlarmResults`
+(`alarms.go`, `DescribeAlarms`'s combined metric/composite/log-alarm page window) clamps
+its offset via `min(page.DecodeToken(nextToken), combinedTotal)` before ever indexing —
+safe against Class A, and being purely positional (not identity-matched) it cannot
+express Class B/C either. `paginateMetricData`/`decodeMetricDataToken` (`metricdata.go`,
+`GetMetricData`'s datapoint-budget pagination) decodes a `{ResultIndex, PointOffset}`
+cursor, clamps both to `>= 0`, and its consuming loop (`for i := cursor.ResultIndex;
+i < len(all); i++`) degrades to an empty, cursor-less result when `ResultIndex` is
+past the end rather than panicking or looping. `pagination.go`'s
+`signPageToken`/`parseSignedPageToken` are unused by any current op (grep-confirmed) —
+dead code, not a live bug surface. Verdict: correct, no bug found.
+
+Added `pagination_arithmetic_test.go`: a real `aws-sdk-go-v2` typed-client boundary
+walk over `DescribeAlarms` (N=7 metric alarms, page=3 via `MaxRecords`,
+`assert.ElementsMatch` against the full set) — the one hand-rolled cursor in this
+service without pre-existing typed-client-level pagination coverage.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/cloudwatch/...`).
+
+## 2026-08-30 -- gopherstack-uox6: value-semantics filter audit (iam/cloudwatch/resourcegroupstaggingapi pass)
+
+Audited filter/matcher VALUE SEMANTICS (not shape) across alarms, alarm history,
+condition-style matchers, metric-stream filters, and the alarm-evaluation threshold
+operators, per bd gopherstack-uox6's "a parameter that is read, applied, and wrong"
+class. One bug found and fixed; several matchers verified member-by-member and left
+alone.
+
+**Bug: `DescribeAlarmHistory`'s `AlarmTypes` filter was dead on the only reachable
+wire.** `cborDescribeAlarmHistory` (`rpcv2cbor_alarm_history.go`) read a singular
+`"AlarmType"` CBOR key that no real client ever sends -- `aws-sdk-go-v2` serializes
+`DescribeAlarmHistoryInput.AlarmTypes` (a list) under the key `"AlarmTypes"`
+(`cloudwatch@v1.66.3/api_op_DescribeAlarmHistory.go:53,92`). The backend's own
+`DescribeAlarmHistory(alarmName, alarmType string, ...)` then treated the
+permanently-empty result as "match every type", so the operation's documented default
+("If you omit this parameter, only metric alarms are returned") was inverted:
+composite/log alarm history always leaked into an unfiltered call, and any explicit
+`AlarmTypes` filter a real client sent was silently ignored. Same shape as
+`DescribeAlarms`' AlarmTypes default bug (gopherstack-yvb7), now found in its sibling
+operation. Fixed: backend signature is now `alarmTypes []string`, matching
+`DescribeAlarms`' `toSet`/`includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]`
+pattern; the live CBOR handler now reads `cborStrList(input, "AlarmTypes")`; the dead
+legacy XML handler was updated for consistency to `parseMemberList(form,
+"AlarmTypes.")`. Test: `alarm_history_alarmtypes_realclient_test.go`, a real
+`aws-sdk-go-v2` client round trip asserting both directions (composite alarm absent
+from an unfiltered call; metric alarm absent from an explicit `AlarmTypes:
+[CompositeAlarm]` call) -- confirmed failing against the unmodified code first.
+
+**Verified correct, left alone:** `alarm_eval.go`'s `breachesThreshold` -- all seven
+`ComparisonOperator` enum members (incl. the three anomaly-detection operators)
+checked member-by-member against `types/enums.go`; strict vs. or-equal-to boundaries
+match each operator's own name exactly. `GetMetricStatistics`/`GetMetricData`'s bucket
+window (`metrics.go:400`, `populateBuckets`) -- confirmed StartTime inclusive / EndTime
+exclusive against the SDK doc comment's explicit "The value specified is
+inclusive"/"exclusive" wording. `PutMetricData`'s Timestamp acceptance window
+(two-weeks-past / two-hours-future, `validMetricTimestamp`) -- inclusive both ends,
+matching the AWS API page's "as much as" wording. `metric_streams.go`'s
+`streamAllowsMetric`/`filterIncludesMetric`/`filterExcludesMetric` -- OR-across-filters,
+OR-across-MetricNames, empty-MetricNames-means-whole-namespace, and the
+IncludeFilters/ExcludeFilters mutual-exclusivity validation, all correct.
+`ListMetrics`' `RecentlyActive=PT3H` window -- inclusive boundary, consistent with
+every other recency check in `metrics.go`.
+
+**Gap, not implemented:** `DescribeAlarmsForMetric`'s own doc says "To filter the
+results, specify a statistic, period, or unit" but the backend never reads
+Statistic/Period/ExtendedStatistic/Unit at all (shape gap, not a wrong-semantics bug --
+out of this pass's scope). Its `Dimensions` matcher (`dimsContainAll`) does a
+subset/superset match; the SDK doc comment ("If the metric has any associated
+dimensions, you must specify them in order for the call to succeed") is genuinely
+ambiguous about whether an exact dimension-set match is required -- left as documented
+existing behaviour rather than guessed at. `DescribeAlarmHistory`'s `AlarmContributorId`
+and `ScanBy` parameters are also unread (shape gaps, not fixed this pass).
+
+`iam` and `resourcegroupstaggingapi` matchers audited this pass (IAM condition
+operators in `conditions.go`, `PathPrefix`/`OnlyAttached`/`PolicyUsageFilter` in
+`handler_list_filters.go`, `resourcegroupstaggingapi`'s `TagFilters`/
+`ResourceTypeFilters` AND/OR combining in `get_resources.go`) came back clean --
+see those services' own PARITY.md entries.
+
+Gates: `go build`, `go vet`, `go test -race -count=1` all clean on
+`./services/cloudwatch/...`; repo-wide `go build ./...`/`go vet ./...` clean (no
+cross-service callers of the changed `DescribeAlarmHistory` signature).

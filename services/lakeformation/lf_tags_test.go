@@ -135,7 +135,7 @@ func TestListLFTags_AllCatalogs(t *testing.T) {
 			require.NoError(t, b.CreateLFTag("cat1", "env", []string{"prod", "dev"}))
 			require.NoError(t, b.CreateLFTag("cat2", "tier", []string{"gold", "silver"}))
 
-			tags, _ := b.ListLFTags("", 0, "")
+			tags, _ := b.ListLFTags("", "", 0, "")
 			assert.Len(t, tags, tt.wantCount)
 		})
 	}

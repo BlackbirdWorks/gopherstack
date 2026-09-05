@@ -25,18 +25,18 @@ ops:
   DeleteAccountAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same AccountAssignmentDeletionStatus TargetId/TargetType fix as CreateAccountAssignment"}
   DescribeAccountAssignmentCreationStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TargetId/TargetType fix"}
   DescribeAccountAssignmentDeletionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TargetId/TargetType fix"}
-  ListAccountAssignmentCreationStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unpaginated (MaxResults ignored, NextToken always nil) and returned the full singular-status shape instead of the real slim AccountAssignmentOperationStatusMetadata (CreatedDate/RequestId/Status only). Both fixed; pagination preserves the backend's CreatedDate-descending order via new paginateOrdered helper (does not re-sort like paginateBy)."}
-  ListAccountAssignmentDeletionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same slim-metadata-shape + pagination fix as ListAccountAssignmentCreationStatus"}
+  ListAccountAssignmentCreationStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unpaginated (MaxResults ignored, NextToken always nil) and returned the full singular-status shape instead of the real slim AccountAssignmentOperationStatusMetadata (CreatedDate/RequestId/Status only). Both fixed; pagination preserves the backend's CreatedDate-descending order via new paginateOrdered helper (does not re-sort like paginateBy). FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — paginateOrdered's resume cursor (RequestID) is genuinely unique, but the sort feeding it wasn't: ListAccountAssignmentCreationStatus sorted b.creationStatuses.All() (a store.Table map walk, unspecified order) by CreatedDate descending only, and CreatedDate can tie (e.g. bulk-provisioning several assignments in the same instant). Because listProvisioningStatusMetadata re-fetches and re-sorts from scratch on every request, a tied pair could land in a different relative order between two calls even with nothing changed, and paginateOrdered's resume-by-key scan would then find a different split point -- dropping or duplicating a tied record (mirrors the elbv2 listener/rule marker-fed-by-tie-prone-sort bug from an earlier pass). Fixed by tiebreaking on RequestID (the store.Table's own key) after CreatedDate. See TestListAccountAssignmentCreationStatus_PaginationStableAcrossTiedCreatedDate (account_assignment_status_pagination_internal_test.go), hand-reverted to confirm it fails against the unfixed sort (duplicated a record 3x on the first of 30 iterations), then restored."}
+  ListAccountAssignmentDeletionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same slim-metadata-shape + pagination fix as ListAccountAssignmentCreationStatus. FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — same CreatedDate-tie-over-map-walk bug as ListAccountAssignmentCreationStatus (b.deletionStatuses.All()), fixed identically with a RequestID tiebreak. See TestListAccountAssignmentDeletionStatus_PaginationStableAcrossTiedCreatedDate, hand-reverted to confirm it fails against the unfixed sort, then restored."}
   ListAccountAssignmentsForPrincipal: {wire: ok, errors: ok, state: ok, persist: ok, note: "Filter.AccountId and MaxResults/NextToken pagination were both ignored (real op supports both); now implemented"}
   ProvisionPermissionSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "PermissionSetProvisioningStatus shape confirmed correct (uses AccountId, unlike AccountAssignmentOperationStatus -- these two 'status' shapes diverge on the real API and had been conflated into one Go view type)"}
   DescribePermissionSetProvisioningStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same shape confirmed correct"}
-  ListPermissionSetProvisioningStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unpaginated and returned the full status shape instead of the real slim PermissionSetProvisioningStatusMetadata (CreatedDate/RequestId/Status only); fixed with paginateOrdered (preserves CreatedDate-descending order)"}
+  ListPermissionSetProvisioningStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unpaginated and returned the full status shape instead of the real slim PermissionSetProvisioningStatusMetadata (CreatedDate/RequestId/Status only); fixed with paginateOrdered (preserves CreatedDate-descending order). FIXED (2026-08-30 wrapper-key-sweep pagination-reproducibility pass) — same CreatedDate-tie-over-map-walk bug as ListAccountAssignmentCreationStatus (b.provisioningStatuses.All()), fixed identically with a RequestID tiebreak. See TestListPermissionSetProvisioningStatus_PaginationStableAcrossTiedCreatedDate, hand-reverted to confirm it fails against the unfixed sort, then restored."}
   ListPermissionSetsProvisionedToAccount: {wire: ok, errors: ok, state: fixed, persist: ok, note: "MaxResults/NextToken were ignored (prior pass); now paginated. FIXED this pass (gopherstack-dbwi): ProvisioningStatus filter (LATEST_PERMISSION_SET_PROVISIONED/LATEST_PERMISSION_SET_NOT_PROVISIONED) was accepted and silently ignored; now real, backed by a new PermissionSet.ModifiedDate (internal bookkeeping, bumped by every content-changing op) compared against a new provisionedAt map (stamped by CreateAccountAssignment's implicit provisioning and explicit ProvisionPermissionSet). ssoadminSnapshotVersion bumped 2->3 for both new persisted fields."}
   ListAccountsForProvisionedPermissionSet: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Same ProvisioningStatus filter fix as ListPermissionSetsProvisionedToAccount, same underlying drift-tracking mechanism."}
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response wrapped the full application under an invented 'Application' object; real CreateApplicationOutput is exactly {ApplicationArn, IdentityStoreArn, InstanceArn} flat, and IdentityStoreArn was never returned. Fixed; backend now derives ApplicationAccount/CreatedFrom/IdentityStoreArn."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: entire response was nested one level too deep under an invented 'Application' wrapper (plus a fabricated 'Tags' member) -- a real aws-sdk-go-v2 client parsing this would get every DescribeApplicationOutput field nil. Real shape is flat: ApplicationAccount/ApplicationArn/ApplicationProviderArn/CreatedDate/CreatedFrom/Description/IdentityStoreArn/InstanceArn/Name/PortalOptions/Status, no Tags. Fixed; tags now only reachable via ListTagsForResource like every other taggable resource."}
   UpdateApplication: {wire: ok, errors: ok, state: ok, persist: fixed, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions (SignInOptions only, no Visibility, unlike Create-side types.PortalOptions), and the handler wholesale-replaced app.PortalOptions with a freshly-decoded struct on EVERY UpdateApplication call, even ones that never mentioned PortalOptions at all — silently zeroing Visibility and SignInOptions every time. Fixed: PortalOptions is now a nil-able pointer at decode time and the backend merges only SignInOptions into the existing PortalOptions, leaving Visibility untouched. See TestUpdateApplication_PreservesVisibility."}
-  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed"}
+  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed. FIXED 2026-08-29 (wrapper-key sweep): ListApplicationsInput.Filter (ApplicationAccount/ApplicationProvider, types.ListApplicationsFilter, serializers.go:5111) was a real wire field the handler's request struct didn't even declare -- json.Unmarshal silently dropped it, so every call returned every application in the instance regardless of the filter. Now reads Filter.ApplicationAccount/Filter.ApplicationProvider and matches against Application.ApplicationAccount/ApplicationProviderArn. See TestListApplications_Filter."}
   DescribeApplicationAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response nested under an invented 'ApplicationAssignment' wrapper; real DescribeApplicationAssignmentOutput is flat {ApplicationArn, PrincipalId, PrincipalType}. Fixed."}
   ListApplicationAssignments: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were ignored; now paginated"}
   ListApplicationAssignmentsForPrincipal: {wire: ok, errors: ok, state: ok, persist: ok, note: "Filter.ApplicationArn and MaxResults/NextToken pagination were both ignored; now implemented"}
@@ -359,3 +359,43 @@ zquj's own warning that grep-derived scopes in this campaign have been
 wrong by as much as 11x, that gap is expected and is exactly why this
 sweep verified per-op against the real deserializer rather than trusting
 either number.
+
+## 2026-08-30 (wrapper-key sweep): exhaustive request-field-read audit, no new bugs
+
+Method: derived the operation list from the handler.go dispatch table
+(`handler.go` map-literal registrations, `(*Handler).handle*` entries) rather than
+trusting this file's prose or a naive whole-token regex over PARITY.md -- 79 dispatched
+ops, matching the zquj sweep's independently-derived count. For every request struct
+(named or `var req struct{...}`/`var body struct{...}` anonymous, both patterns used in
+this handler) across every non-test `.go` file, cross-referenced each JSON-tagged field
+against a combined-text search of the whole non-test package for `.FieldName` usage
+anywhere -- catching the "declared field never read at all" shape without trusting any
+single file's local context (a per-file-only version of this scan false-positived on
+structs whose fields are used in a different file). Confirmed protocol directly from the
+pinned SDK: `awsAwsjson11_*` prefix throughout `ssoadmin@v1.43.1/deserializers.go` --
+plain JSON-RPC 1.1 over `X-Amz-Target`, no legacy/query path reachable by any real client
+for this service.
+
+**Result: zero unread request fields found.** Every request struct's fields (including
+the six `Filter.*`/pagination fields already fixed by prior passes -- `ListApplications`'
+`Filter.ApplicationAccount`/`Filter.ApplicationProvider`, `ListAccountAssignmentsForPrincipal`'s
+`Filter.AccountId`, `ListApplicationAssignmentsForPrincipal`'s `Filter.ApplicationArn`, both
+`ProvisioningStatus` filters) are consumed. Consistent with this file's own extensive prior
+sweep history (2026-07-24 through 2026-08-30) already having driven this specific bug class to
+zero; this pass's contribution is an independent re-derivation confirming that, not new fixes.
+
+**Negative checks, explicitly:**
+- **Listing that never consults its store**: none -- every `handle(List|Describe|Get)*`
+  function reaches `h.Backend.*`, scripted check across every `handler_*.go`, zero
+  exceptions.
+- **Handler that discards its entire request**: none -- every `handle*(ctx, in *Type)`
+  function references at least one `in.Field`, scripted check, zero exceptions.
+- **Ordering / tie-prone sorts**: the three `ProvisioningStatus`-metadata list ops'
+  CreatedDate-tie-over-map-walk bug (see ops table, "wrapper-key-sweep
+  pagination-reproducibility pass" above) is this service's real instance of the class and
+  is already fixed this same day. `listPermissionSetSubItems`/`paginateBy`-backed lists sort
+  by each resource's own Name/Arn (unique), so no further tiebreak is needed.
+
+No code changed this pass. Gates: `go build ./services/ssoadmin/...`, `go vet
+./services/ssoadmin/...` and `go vet ./...` (repo-wide), `go test -race -count=1
+./services/ssoadmin/...`, `golangci-lint run ./services/ssoadmin/...`.

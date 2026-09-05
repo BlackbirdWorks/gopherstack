@@ -3,6 +3,7 @@ package managedblockchain_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,17 +27,19 @@ func TestHandler_CreateAccessor(t *testing.T) {
 		{
 			name: "success",
 			body: map[string]any{
-				"AccessorType": "BILLING_TOKEN",
-				"NetworkType":  "ETHEREUM_MAINNET",
+				"AccessorType":       "BILLING_TOKEN",
+				"NetworkType":        "ETHEREUM_MAINNET",
+				"ClientRequestToken": "tok-accessor",
 			},
 			wantStatus: http.StatusOK,
 			wantKey:    "AccessorId",
 		},
 		{
-			name:       "empty body still creates accessor",
+			// Real AWS's client-side validator marks ClientRequestToken required
+			// (validators.go, v1.34.4); a raw HTTP caller omitting it is rejected.
+			name:       "empty body is rejected for missing ClientRequestToken",
 			body:       map[string]any{},
-			wantStatus: http.StatusOK,
-			wantKey:    "AccessorId",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid json",
@@ -100,7 +103,8 @@ func TestHandler_GetAccessor(t *testing.T) {
 			h := newTestHandler(t)
 
 			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
-				"AccessorType": "BILLING_TOKEN",
+				"AccessorType":       "BILLING_TOKEN",
+				"ClientRequestToken": "tok-accessor-crud",
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -143,7 +147,8 @@ func TestHandler_DeleteAccessor(t *testing.T) {
 			h := newTestHandler(t)
 
 			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
-				"AccessorType": "BILLING_TOKEN",
+				"AccessorType":       "BILLING_TOKEN",
+				"ClientRequestToken": "tok-accessor-crud",
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -181,9 +186,10 @@ func TestHandler_ListAccessors(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			for range tt.createCount {
+			for i := range tt.createCount {
 				rec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
-					"AccessorType": "BILLING_TOKEN",
+					"AccessorType":       "BILLING_TOKEN",
+					"ClientRequestToken": fmt.Sprintf("tok-listaccessor-%d", i),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -218,9 +224,10 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 
 			// Create.
 			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
-				"AccessorType": "BILLING_TOKEN",
-				"NetworkType":  "ETHEREUM_MAINNET",
-				"Tags":         map[string]string{"env": "test"},
+				"AccessorType":       "BILLING_TOKEN",
+				"NetworkType":        "ETHEREUM_MAINNET",
+				"ClientRequestToken": "tok-accessor-tags",
+				"Tags":               map[string]string{"env": "test"},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -447,8 +454,9 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 
 			// CreateAccessor
 			rec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
-				"AccessorType": "BILLING_TOKEN",
-				"NetworkType":  "ETHEREUM_MAINNET",
+				"AccessorType":       "BILLING_TOKEN",
+				"NetworkType":        "ETHEREUM_MAINNET",
+				"ClientRequestToken": "tok-accessor-roundtrip",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 

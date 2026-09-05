@@ -141,7 +141,12 @@ func (h *Handler) handleListPolicyStores(
 	_ context.Context,
 	in *listPolicyStoresInput,
 ) (*listPolicyStoresOutput, error) {
-	stores, nextToken := h.Backend.ListPolicyStores(in.NextToken, in.MaxResults)
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = defaultListPageSize
+	}
+
+	stores, nextToken := h.Backend.ListPolicyStores(in.NextToken, maxResults)
 	items := make([]policyStoreView, 0, len(stores))
 
 	for i := range stores {

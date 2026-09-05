@@ -438,8 +438,8 @@ func scanExpiredTxnTokensRLocked(db *InMemoryDB, now time.Time) ([]string, bool)
 
 	var expired []string
 
-	for token, expiry := range db.txnTokens {
-		if now.After(expiry) {
+	for token, rec := range db.txnTokens {
+		if now.After(rec.expiry) {
 			expired = append(expired, token)
 		}
 	}
@@ -503,27 +503,27 @@ func scanStaleTxnPendingRLocked(db *InMemoryDB, now time.Time) ([]string, bool) 
 
 // evictOldestTokens removes the n oldest entries from m (oldest = earliest expiry time).
 // Must be called with db.mu held.
-func evictOldestTokens(m map[string]time.Time, n int) {
+func evictOldestTokens(m map[string]txnTokenRecord, n int) {
 	if n <= 0 {
 		return
 	}
 
 	// Find the nth smallest expiry time using partial selection — O(len(m)) space.
 	times := make([]time.Time, 0, len(m))
-	for _, t := range m {
-		times = append(times, t)
+	for _, rec := range m {
+		times = append(times, rec.expiry)
 	}
 
 	threshold := nthSmallest(times, n)
 
 	evicted := 0
 
-	for k, t := range m {
+	for k, rec := range m {
 		if evicted >= n {
 			break
 		}
 
-		if !t.After(threshold) {
+		if !rec.expiry.After(threshold) {
 			delete(m, k)
 			evicted++
 		}

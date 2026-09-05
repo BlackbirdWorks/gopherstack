@@ -52,12 +52,12 @@ func (b *InMemoryBackend) GetImpersonationRole(orgID, roleID string) (*Impersona
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	role, ok := b.impersonation.Get(orgKey(orgID, roleID))
 	if !ok {
-		return nil, fmt.Errorf("%w: impersonation role %q not found", ErrNotFound, roleID)
+		return nil, fmt.Errorf("%w: impersonation role %q not found", ErrResourceNotFound, roleID)
 	}
 
 	return role, nil
@@ -103,9 +103,12 @@ func (b *InMemoryBackend) DeleteImpersonationRole(orgID, roleID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.impersonation.Delete(orgKey(orgID, roleID)) {
+		// DeleteImpersonationRole's own error model declares no not-found type
+		// for the role itself (only Organization*); no correct code exists to
+		// send here (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf("%w: impersonation role %q not found", ErrNotFound, roleID)
 	}
 
@@ -122,7 +125,7 @@ func (b *InMemoryBackend) ListImpersonationRoles(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	byOrg := b.impersonationByOrg.Get(orgID)
@@ -177,10 +180,10 @@ func (b *InMemoryBackend) AssumeImpersonationRole(orgID, roleID string) (string,
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return "", 0, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return "", 0, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	if !b.impersonation.Has(orgKey(orgID, roleID)) {
-		return "", 0, fmt.Errorf("%w: impersonation role %q not found", ErrNotFound, roleID)
+		return "", 0, fmt.Errorf("%w: impersonation role %q not found", ErrResourceNotFound, roleID)
 	}
 
 	const ttl = int64(3600)

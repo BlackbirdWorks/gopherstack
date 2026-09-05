@@ -75,12 +75,17 @@ func (r *eventRing) restoreFromSlice(events []CacheEvent) {
 // appendEventLocked records a new event. Must be called with b.mu write-locked.
 func (b *InMemoryBackend) appendEventLocked(sourceIdentifier, sourceType, message string) {
 	b.events.push(CacheEvent{
-		Date:             time.Now(),
+		Date:             b.now(),
 		SourceIdentifier: sourceIdentifier,
 		SourceType:       sourceType,
 		Message:          message,
 	})
 }
+
+// defaultEventsWindow is DescribeEvents's documented default lookback
+// (api_op_DescribeEvents.go: "By default, only the events occurring within
+// the last hour are returned").
+const defaultEventsWindow = time.Hour
 
 // DescribeEvents returns a paginated list of recorded events, optionally filtered by source and time.
 func (b *InMemoryBackend) DescribeEvents(
@@ -92,10 +97,18 @@ func (b *InMemoryBackend) DescribeEvents(
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
 
-	// If duration (seconds) is specified, derive startTime from it.
+	// Duration is documented in minutes (api_op_DescribeEvents.go: "The
+	// number of minutes worth of events to retrieve"), not seconds. Absent
+	// both Duration and StartTime, only the last hour is returned by
+	// default -- omitting every time bound must narrow the window, not
+	// return every event ever recorded.
 	effectiveStart := startTime
-	if duration > 0 {
-		effectiveStart = time.Now().Add(-time.Duration(duration) * time.Second)
+
+	switch {
+	case duration > 0:
+		effectiveStart = b.now().Add(-time.Duration(duration) * time.Minute)
+	case effectiveStart.IsZero():
+		effectiveStart = b.now().Add(-defaultEventsWindow)
 	}
 
 	all := b.events.all()
@@ -107,7 +120,7 @@ func (b *InMemoryBackend) DescribeEvents(
 		if sourceType != "" && e.SourceType != sourceType {
 			continue
 		}
-		if !effectiveStart.IsZero() && e.Date.Before(effectiveStart) {
+		if e.Date.Before(effectiveStart) {
 			continue
 		}
 		if !endTime.IsZero() && e.Date.After(endTime) {

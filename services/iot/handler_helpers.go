@@ -51,13 +51,11 @@ func respondConflict(c *echo.Context, msg string) error {
 func writeIoTError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrThingNotFound),
-		errors.Is(err, ErrRuleNotFound),
 		errors.Is(err, ErrPolicyNotFound),
 		errors.Is(err, ErrThingTypeNotFound),
 		errors.Is(err, ErrThingGroupNotFound),
 		errors.Is(err, ErrCertificateNotFound),
 		errors.Is(err, ErrCertificateProviderNotFound),
-		errors.Is(err, ErrTopicRuleDestinationNotFound),
 		errors.Is(err, ErrPolicyVersionNotFound),
 		errors.Is(err, ErrRegistrationTaskNotFound),
 		errors.Is(err, ErrManagedJobTemplateNotFound),
@@ -66,7 +64,17 @@ func writeIoTError(c *echo.Context, err error) error {
 		errors.Is(err, ErrResourceNotFound):
 
 		return respondNotFound(c, err.Error())
-	case errors.Is(err, ErrValidation):
+	// ErrRuleNotFound/ErrTopicRuleDestinationNotFound are deliberately NOT
+	// grouped above: none of GetTopicRule/DeleteTopicRule/DisableTopicRule/
+	// EnableTopicRule/ReplaceTopicRule/GetTopicRuleDestination/
+	// UpdateTopicRuleDestination/DeleteTopicRuleDestination's own
+	// deserializeOpError switches (iot@v1.77.4/deserializers.go) declare a
+	// ResourceNotFoundException case -- this family's real vocabulary has
+	// no not-found type at all; InvalidRequestException is the only
+	// declared client-fault type available.
+	case errors.Is(err, ErrValidation),
+		errors.Is(err, ErrRuleNotFound),
+		errors.Is(err, ErrTopicRuleDestinationNotFound):
 
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
@@ -91,6 +99,47 @@ func writeIoTError(c *echo.Context, err error) error {
 }
 
 func respondErr(c *echo.Context, err error) error {
+	return writeIoTError(c, err)
+}
+
+// respondAsInvalidRequest renders err as InvalidRequestException (400) when
+// it wraps sentinel, falling through to the shared writeIoTError mapping
+// otherwise. Several operations' own deserializeOpError switches (per-op,
+// read directly from iot@v1.77.4/deserializers.go) declare no
+// ResourceNotFoundException/DeleteConflictException/
+// InvalidStateTransitionException case at all even though the backend
+// signals the condition via the generic ErrResourceNotFound/
+// ErrThingGroupNotFound/ErrDeleteConflict/ErrInvalidStateTransition
+// sentinels those helpers use for operations elsewhere that DO declare the
+// richer type -- InvalidRequestException is the only client-fault type
+// those specific operations declare. Kept as a per-call-site override
+// rather than a change to writeIoTError's own mapping because the same
+// sentinels are shared by other operations that genuinely need the richer
+// type.
+func respondAsInvalidRequest(c *echo.Context, err, sentinel error) error {
+	if errors.Is(err, sentinel) {
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
+	}
+
+	return writeIoTError(c, err)
+}
+
+// respondAsConflictCode renders err as the given AWS wire code (HTTP 409)
+// when it wraps sentinel, falling through to the shared writeIoTError
+// mapping otherwise. Same rationale as respondAsInvalidRequest: a
+// per-call-site override, because ErrAlreadyExists (writeIoTError's
+// default: ResourceAlreadyExistsException) is shared with operations
+// elsewhere that genuinely declare that code -- CreateCommand/
+// CreatePackage/CreatePackageVersion/CreateJobTemplate declare
+// ConflictException instead (iot@v1.77.4 deserializers.go, confirmed
+// per-op), and StartAuditMitigationActionsTask/
+// StartDetectMitigationActionsTask declare TaskAlreadyExistsException, a
+// code writeIoTError has never rendered.
+func respondAsConflictCode(c *echo.Context, err, sentinel error, code string) error {
+	if errors.Is(err, sentinel) {
+		return c.JSON(http.StatusConflict, awsErrBody{code, err.Error()})
+	}
+
 	return writeIoTError(c, err)
 }
 

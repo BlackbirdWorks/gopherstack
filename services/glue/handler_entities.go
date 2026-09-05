@@ -98,6 +98,12 @@ type listEntitiesOutput struct {
 	Entities  []EntityDescriptor `json:"Entities"`
 }
 
+// defaultListEntitiesLimit is this backend's page size for ListEntities.
+// glue@v1.152.0 api_op_ListEntities.go declares NextToken on input and
+// output but no MaxResults, so the real op's page size is server-fixed
+// rather than caller-supplied.
+const defaultListEntitiesLimit = 100
+
 func (h *Handler) handleListEntities(
 	_ context.Context,
 	in *listEntitiesInput,
@@ -110,5 +116,7 @@ func (h *Handler) handleListEntities(
 		return nil, err
 	}
 
-	return &listEntitiesOutput{Entities: entities}, nil
+	page, next := paginateSlice(entities, in.NextToken, defaultListEntitiesLimit)
+
+	return &listEntitiesOutput{Entities: page, NextToken: next}, nil
 }

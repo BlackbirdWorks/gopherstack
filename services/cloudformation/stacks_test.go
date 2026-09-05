@@ -2,8 +2,11 @@ package cloudformation_test
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -372,6 +375,176 @@ func TestBackend_DeleteStack(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)
 		})
 	}
+}
+
+// TestBackend_DeleteStack_ResourceDeleteFails proves DeleteStack reports the
+// real outcome when a resource actually fails to delete, instead of always
+// reporting DELETE_COMPLETE. A non-empty S3 bucket refuses DeleteBucket with
+// BucketNotEmpty (s3/buckets.go), the same way real AWS does; CloudFormation
+// must surface that as DELETE_FAILED (types.StackStatusDeleteFailed in the
+// pinned SDK), not silently report the stack -- and the bucket -- gone.
+func TestBackend_DeleteStack_ResourceDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	backends := newServiceBackends()
+	backend := cloudformation.NewInMemoryBackendWithConfig(
+		"000000000000",
+		"us-east-1",
+		cloudformation.NewResourceCreator(backends),
+	)
+
+	_, err := backend.CreateStack(
+		t.Context(), "leaky-stack", simpleTemplate, nil, cloudformation.StackOptions{},
+	)
+	require.NoError(t, err)
+
+	res, err := backend.DescribeStackResource("leaky-stack", "MyBucket")
+	require.NoError(t, err)
+	bucketName := res.PhysicalID
+
+	_, err = backends.S3.Backend.PutObject(t.Context(), &awss3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String("still-here.txt"),
+		Body:   strings.NewReader("data"),
+	})
+	require.NoError(t, err)
+
+	err = backend.DeleteStack(t.Context(), "leaky-stack")
+	require.NoError(t, err, "DeleteStack itself is fire-and-forget in real AWS; failure surfaces via StackStatus")
+
+	stack, err := backend.DescribeStack("leaky-stack")
+	require.NoError(t, err, "a DELETE_FAILED stack must remain describable")
+	assert.Equal(t, "DELETE_FAILED", stack.StackStatus)
+
+	_, headErr := backends.S3.Backend.HeadBucket(t.Context(), &awss3.HeadBucketInput{
+		Bucket: aws.String(bucketName),
+	})
+	assert.NoError(t, headErr, "the bucket that failed to delete must still exist")
+}
+
+// TestBackend_CreateStack_RollbackDeleteFails proves that when CreateStack's
+// automatic rollback itself can't delete an already-created resource, the
+// stack is reported as ROLLBACK_FAILED (types.StackStatusRollbackFailed),
+// not the ROLLBACK_COMPLETE it would report if the rollback delete's error
+// were silently discarded.
+func TestBackend_CreateStack_RollbackDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	backends := newServiceBackends()
+	creator := cloudformation.NewResourceCreator(backends)
+	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+
+	const bucketName = "rollback-fail-bucket"
+	tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{"BucketName":"` + bucketName + `"}},` +
+		`"MyQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+	// MyBucket sorts before MyQueue in topoSortResources' alphabetical
+	// tie-break, so MyBucket is already created by the time this hook sees
+	// MyQueue -- poisoning MyBucket here reliably makes the rollback delete
+	// (triggered by MyQueue's simulated failure) fail too.
+	creator.InjectCreateHook(func(resourceType string) error {
+		if resourceType != "AWS::SQS::Queue" {
+			return nil
+		}
+
+		_, putErr := backends.S3.Backend.PutObject(t.Context(), &awss3.PutObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String("still-here.txt"),
+			Body:   strings.NewReader("data"),
+		})
+		require.NoError(t, putErr)
+
+		return errSimulatedCreate
+	})
+
+	stack, err := backend.CreateStack(t.Context(), "create-rollback-fail", tmpl, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "ROLLBACK_FAILED", stack.StackStatus)
+
+	res, resErr := backend.DescribeStackResource("create-rollback-fail", "MyBucket")
+	require.NoError(t, resErr, "the bucket that failed to roll back must remain a tracked resource")
+	assert.Equal(t, bucketName, res.PhysicalID)
+}
+
+// TestBackend_UpdateStack_StaleResourceDeleteFails proves that when UpdateStack
+// removes a resource from the template but the underlying delete fails, the
+// update is reported as UPDATE_FAILED and the resource stays registered,
+// instead of UPDATE_COMPLETE silently dropping a resource that is still live.
+func TestBackend_UpdateStack_StaleResourceDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	backends := newServiceBackends()
+	backend := cloudformation.NewInMemoryBackendWithConfig(
+		"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
+	)
+
+	const bucketName = "stale-delete-fail-bucket"
+	original := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{"BucketName":"` + bucketName + `"}}}}`
+	updated := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"Placeholder":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+	_, err := backend.CreateStack(t.Context(), "stale-fail-stack", original, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+
+	_, err = backends.S3.Backend.PutObject(t.Context(), &awss3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String("still-here.txt"),
+		Body:   strings.NewReader("data"),
+	})
+	require.NoError(t, err)
+
+	stack, err := backend.UpdateStack(t.Context(), "stale-fail-stack", updated, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "UPDATE_FAILED", stack.StackStatus)
+
+	res, resErr := backend.DescribeStackResource("stale-fail-stack", "MyBucket")
+	require.NoError(t, resErr, "a bucket that failed to delete must remain a tracked resource")
+	assert.Equal(t, bucketName, res.PhysicalID)
+}
+
+// TestBackend_RollbackUpdateResources_DeleteFails white-box tests
+// rollbackUpdateResources directly: when a newly-created resource can't be
+// deleted during an update rollback, the stack must land on
+// UPDATE_ROLLBACK_FAILED (types.StackStatusUpdateRollbackFailed) and keep the
+// resource registered, not silently report UPDATE_ROLLBACK_COMPLETE. Driven
+// white-box (via RollbackUpdateResourcesForTest) rather than through a real
+// UpdateStack call because updateResources creates newly-added resources by
+// iterating a Go map, so which of two new resources is created first --
+// and therefore whether one is even in `created` when the other fails --
+// isn't deterministic through the public API.
+func TestBackend_RollbackUpdateResources_DeleteFails(t *testing.T) {
+	t.Parallel()
+
+	backends := newServiceBackends()
+	backend := cloudformation.NewInMemoryBackendWithConfig(
+		"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
+	)
+
+	const bucketName = "update-rollback-fail-bucket"
+	tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{"BucketName":"` + bucketName + `"}}}}`
+
+	_, err := backend.CreateStack(t.Context(), "update-rollback-fail", tmpl, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+
+	_, err = backends.S3.Backend.PutObject(t.Context(), &awss3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String("still-here.txt"),
+		Body:   strings.NewReader("data"),
+	})
+	require.NoError(t, err)
+
+	backend.RollbackUpdateResourcesForTest(t.Context(), "update-rollback-fail", []string{"MyBucket"})
+
+	stack, err := backend.DescribeStack("update-rollback-fail")
+	require.NoError(t, err)
+	assert.Equal(t, "UPDATE_ROLLBACK_FAILED", stack.StackStatus)
+
+	res, resErr := backend.DescribeStackResource("update-rollback-fail", "MyBucket")
+	require.NoError(t, resErr, "the bucket that failed to roll back must remain a tracked resource")
+	assert.Equal(t, bucketName, res.PhysicalID)
 }
 
 func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {

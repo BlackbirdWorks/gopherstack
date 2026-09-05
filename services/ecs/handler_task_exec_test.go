@@ -65,6 +65,47 @@ func TestECS_ListTasks(t *testing.T) {
 	assert.Len(t, arns, 3)
 }
 
+// TestECS_ListTasks_DesiredStatusDefaultsToRunning covers ListTasksInput's
+// documented default: "The default status filter is RUNNING" -- omitting
+// desiredStatus must narrow to RUNNING tasks, not return every task
+// regardless of status.
+func TestECS_ListTasks_DesiredStatusDefaultsToRunning(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tdArn := registerTestTaskDef(t, h, "list-task-status-def")
+
+	rec := doECSRequest(t, h, "RunTask", map[string]any{
+		"taskDefinition": tdArn,
+		"count":          2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var runResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
+	tasks := runResp["tasks"].([]any)
+	require.Len(t, tasks, 2)
+	stoppedArn := tasks[0].(map[string]any)["taskArn"].(string)
+
+	rec = doECSRequest(t, h, "StopTask", map[string]any{"task": stoppedArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECSRequest(t, h, "ListTasks", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	arns := resp["taskArns"].([]any)
+	assert.Len(t, arns, 1, "omitted desiredStatus must default to RUNNING only")
+	assert.NotContains(t, arns, stoppedArn)
+
+	rec = doECSRequest(t, h, "ListTasks", map[string]any{"desiredStatus": "STOPPED"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	arns = resp["taskArns"].([]any)
+	assert.Equal(t, []any{stoppedArn}, arns)
+}
+
 func TestECS_Backend_StopTask_ClusterNotFound(t *testing.T) {
 	t.Parallel()
 

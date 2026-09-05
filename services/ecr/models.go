@@ -18,11 +18,20 @@ const (
 	mutabilityImmutable = "IMMUTABLE"
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
+	imageStatusArchived = "ARCHIVED"
+	storageClassArchive = "ARCHIVE"
 	msgNoScanFindings   = "The scan completed successfully with no findings."
 
 	scanTypeEnhanced            = "ENHANCED"
 	replicationStatusComplete   = "COMPLETE"
 	replicationStatusInProgress = "IN_PROGRESS"
+
+	// lifecycleDefaultCountUnit is the countUnit lifecycle-policy selections
+	// fall back to when the policy text omits it (AWS's age/pull/transition-
+	// based count types are always expressed in days in every documented
+	// example -- docs.aws.amazon.com/AmazonECR/latest/userguide/
+	// lifecycle_policy_examples.html).
+	lifecycleDefaultCountUnit = "days"
 )
 
 // Repository represents an ECR repository.
@@ -228,10 +237,13 @@ type LifecyclePolicyPreviewResult struct {
 // here to avoid colliding with gopherstack's top-level preview-request type
 // above).
 type LifecyclePolicyPreviewEntry struct {
-	ImagePushedAt       time.Time
-	ImageDigest         string
-	StorageClass        string
-	ActionType          string
+	ImagePushedAt time.Time
+	ImageDigest   string
+	StorageClass  string
+	ActionType    string
+	// TargetStorageClass is only present when ActionType is "TRANSITION"
+	// (types.LifecyclePolicyRuleAction.TargetStorageClass).
+	TargetStorageClass  string
 	ImageTags           []string
 	AppliedRulePriority int
 }

@@ -9,6 +9,10 @@ import (
 // handleDescribeAgentVersions handles DescribeAgentVersions requests.
 func (h *Handler) handleDescribeAgentVersions(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		ConfigurationManager *struct {
+			Name    string `json:"Name"`
+			Version string `json:"Version"`
+		} `json:"ConfigurationManager"`
 		StackID string `json:"StackId"`
 	}
 
@@ -18,7 +22,13 @@ func (h *Handler) handleDescribeAgentVersions(_ context.Context, body []byte) (a
 		}
 	}
 
-	versions, err := h.Backend.DescribeAgentVersions(req.StackID)
+	var cmName, cmVersion string
+	if req.ConfigurationManager != nil {
+		cmName = req.ConfigurationManager.Name
+		cmVersion = req.ConfigurationManager.Version
+	}
+
+	versions, err := h.Backend.DescribeAgentVersions(req.StackID, cmName, cmVersion)
 	if err != nil {
 		return nil, err
 	}

@@ -125,11 +125,14 @@ func TestErrorFormat_UsesAWSFormat(t *testing.T) {
 			wantType:   "ResourceNotFoundException",
 		},
 		{
+			// GetTopicRule's own deserializeOpError switch declares no
+			// ResourceNotFoundException case; InvalidRequestException is
+			// the real type. See wire_error_code_topic_rule_test.go.
 			name:       "RuleNotFound",
 			method:     http.MethodGet,
 			path:       "/rules/missing-rule",
-			wantStatus: http.StatusNotFound,
-			wantType:   "ResourceNotFoundException",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidRequestException",
 		},
 	}
 

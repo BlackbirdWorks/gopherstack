@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
+
+// isFailedCreateStatus reports whether status is one of the terminal
+// "CreateStack did not succeed" outcomes: the failure itself
+// (statusCreateFailed) or either outcome of the automatic rollback that
+// follows it.
+func isFailedCreateStatus(status string) bool {
+	return status == statusCreateFailed || status == statusRollbackComplete || status == statusRollbackFailed
+}
 
 type StackOptions struct {
 	RollbackConfiguration *RollbackConfiguration
@@ -82,6 +91,8 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 		reasonUserInitiated,
 	)
 
+	var failedLogicalIDs []string
+
 	for logicalID, res := range b.resources[stack.StackID] {
 		b.addEvent(
 			stack.StackID,
@@ -93,7 +104,15 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			"",
 		)
 		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
-			_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+				failedLogicalIDs = append(failedLogicalIDs, fmt.Sprintf("%s: %v", logicalID, delErr))
+				b.addEvent(
+					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
+					statusDeleteFailed, delErr.Error(),
+				)
+
+				continue
+			}
 		}
 		b.addEvent(
 			stack.StackID,
@@ -104,6 +123,21 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			statusDeleteComplete,
 			"",
 		)
+		delete(b.resources[stack.StackID], logicalID)
+	}
+
+	// AWS never rolls DELETE_FAILED back to DELETE_COMPLETE: the stack, its
+	// remaining resources, and its events all stay describable so the caller
+	// can retry DeleteStack after fixing the underlying resource.
+	if len(failedLogicalIDs) > 0 {
+		stack.StackStatus = statusDeleteFailed
+		stack.StackStatusReason = strings.Join(failedLogicalIDs, "; ")
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusDeleteFailed, stack.StackStatusReason,
+		)
+
+		return nil
 	}
 
 	now := time.Now()
@@ -261,12 +295,16 @@ func (b *InMemoryBackend) createStackLocked(
 		b.createStackFromTemplate(ctx, stack, params)
 	}
 
-	if stack.StackStatus != statusCreateFailed && stack.StackStatus != statusRollbackComplete {
+	if !isFailedCreateStatus(stack.StackStatus) {
 		stack.StackStatus = statusCreateComplete
 		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateComplete, "")
 	}
 
 	// OnFailure=DELETE: remove the stack entirely when creation fails.
+	// Deliberately excludes statusRollbackFailed: automatic rollback already
+	// failed to delete a resource, so this unconditional-success path can't
+	// honestly report DELETE_COMPLETE either -- leave the stack as
+	// ROLLBACK_FAILED for the caller to inspect and retry.
 	if opts.OnFailure == "DELETE" &&
 		(stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
 		stack.StackStatus = statusDeleteInProgress
@@ -337,7 +375,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	}
 
 	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
-	if stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete {
+	if isFailedCreateStatus(stack.StackStatus) {
 		return
 	}
 
@@ -428,9 +466,16 @@ func (b *InMemoryBackend) provisionResources(
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
-			b.rollbackCreateResources(ctx, stack, created)
-			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
-			stack.StackStatus = statusRollbackComplete
+
+			if b.rollbackCreateResources(ctx, stack, created) {
+				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+				stack.StackStatus = statusRollbackComplete
+			} else {
+				reason := "rollback failed to delete one or more resources"
+				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
+				stack.StackStatus = statusRollbackFailed
+				stack.StackStatusReason = reason
+			}
 
 			return physicalIDs
 		}
@@ -454,16 +499,21 @@ func (b *InMemoryBackend) provisionResources(
 }
 
 // rollbackCreateResources deletes all resources that were created during a
-// failed CreateStack provisioning pass, in reverse order.
+// failed CreateStack provisioning pass, in reverse order. It reports whether
+// every deletion succeeded; a resource that fails to delete is left in place
+// (matching real AWS, which leaves a ROLLBACK_FAILED stack's undeleted
+// resources describable for a retry) rather than being silently dropped.
 func (b *InMemoryBackend) rollbackCreateResources(
 	ctx context.Context,
 	stack *Stack,
 	created []string,
-) {
+) bool {
+	ok := true
+
 	for _, v := range slices.Backward(created) {
 		logicalID := v
-		res, ok := b.resources[stack.StackID][logicalID]
-		if !ok {
+		res, exists := b.resources[stack.StackID][logicalID]
+		if !exists {
 			continue
 		}
 
@@ -476,7 +526,17 @@ func (b *InMemoryBackend) rollbackCreateResources(
 			statusDeleteInProgress,
 			"",
 		)
-		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+
+		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+			ok = false
+			b.addEvent(
+				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
+				statusDeleteFailed, delErr.Error(),
+			)
+
+			continue
+		}
+
 		b.addEvent(
 			stack.StackID,
 			stack.StackName,
@@ -488,6 +548,8 @@ func (b *InMemoryBackend) rollbackCreateResources(
 		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
+
+	return ok
 }
 
 // topoSortResources returns the logical resource IDs in an order that respects
@@ -775,7 +837,9 @@ func (b *InMemoryBackend) updateResources(
 			)
 			if cerr != nil {
 				b.rollbackUpdateResources(ctx, stack, prevResources, created)
-				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
+				if stack.StackStatus != statusUpdateRollbackFailed {
+					stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
+				}
 
 				return false
 			}
@@ -788,13 +852,25 @@ func (b *InMemoryBackend) updateResources(
 
 		if uerr := b.updateExistingResource(ctx, stack, logicalID, res, existing); uerr != nil {
 			b.rollbackUpdateResources(ctx, stack, prevResources, created)
-			stack.StackStatusReason = fmt.Sprintf("resource %s update: %v", logicalID, uerr)
+			if stack.StackStatus != statusUpdateRollbackFailed {
+				stack.StackStatusReason = fmt.Sprintf("resource %s update: %v", logicalID, uerr)
+			}
 
 			return false
 		}
 	}
 
-	b.deleteStaleResources(ctx, stack, tmpl)
+	if !b.deleteStaleResources(ctx, stack, tmpl) {
+		reason := "failed to delete one or more resources removed from the template"
+		stack.StackStatus = statusUpdateFailed
+		stack.StackStatusReason = reason
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, reason,
+		)
+
+		return false
+	}
 
 	return true
 }
@@ -908,8 +984,11 @@ func (b *InMemoryBackend) updateExistingResource(
 	return nil
 }
 
-// deleteStaleResources removes logical IDs present in the stack but absent from the new template.
-func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack, tmpl *Template) {
+// deleteStaleResources removes logical IDs present in the stack but absent
+// from the new template. It reports whether every stale resource was
+// actually deleted; a resource that fails to delete is left registered
+// rather than dropped, so it stays visible via DescribeStackResources.
+func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack, tmpl *Template) bool {
 	var stale []string
 	for logicalID := range b.resources[stack.StackID] {
 		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
@@ -918,6 +997,8 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 	}
 
 	sort.Strings(stale)
+
+	ok := true
 
 	for _, logicalID := range stale {
 		res := b.resources[stack.StackID][logicalID]
@@ -931,7 +1012,15 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 			"",
 		)
 		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
-			_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+				ok = false
+				b.addEvent(
+					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
+					statusDeleteFailed, delErr.Error(),
+				)
+
+				continue
+			}
 		}
 		b.addEvent(
 			stack.StackID,
@@ -944,12 +1033,16 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
+
+	return ok
 }
 
 // rollbackUpdateResources undoes a partially-applied update: it deletes every
-// resource that was newly created in this update pass and restores resources that
-// were modified to their pre-update snapshots, then sets the stack status to
-// UPDATE_ROLLBACK_COMPLETE.
+// resource that was newly created in this update pass and restores resources
+// that were modified to their pre-update snapshots, then sets the stack
+// status to UPDATE_ROLLBACK_COMPLETE -- or UPDATE_ROLLBACK_FAILED when a
+// newly-created resource can't actually be deleted, leaving it registered
+// rather than dropping it from DescribeStackResources.
 func (b *InMemoryBackend) rollbackUpdateResources(
 	ctx context.Context,
 	stack *Stack,
@@ -962,9 +1055,11 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 		cfnStackType, statusUpdateRollbackInProgress, "",
 	)
 
+	rollbackOK := true
+
 	for _, logicalID := range created {
-		res, ok := b.resources[stack.StackID][logicalID]
-		if !ok {
+		res, exists := b.resources[stack.StackID][logicalID]
+		if !exists {
 			continue
 		}
 
@@ -977,7 +1072,17 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 			statusDeleteInProgress,
 			"",
 		)
-		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+
+		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+			rollbackOK = false
+			b.addEvent(
+				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
+				statusDeleteFailed, delErr.Error(),
+			)
+
+			continue
+		}
+
 		b.addEvent(
 			stack.StackID,
 			stack.StackName,
@@ -992,6 +1097,18 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 
 	// Restore resources that existed before the update.
 	maps.Copy(b.resources[stack.StackID], prevResources)
+
+	if !rollbackOK {
+		reason := "rollback failed to delete one or more resources"
+		stack.StackStatus = statusUpdateRollbackFailed
+		stack.StackStatusReason = reason
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateRollbackFailed, reason,
+		)
+
+		return
+	}
 
 	stack.StackStatus = statusUpdateRollbackComplete
 	b.addEvent(

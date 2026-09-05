@@ -67,7 +67,7 @@ func TestWireAutoScalingEC2_ScaleOutCreatesRealEC2Instance(t *testing.T) {
 	// --- Scale-in: reducing DesiredCapacity must terminate the removed instance in EC2 too. ---
 	require.NoError(t, asgBk.SetDesiredCapacity("wiring-test-asg", 1))
 
-	groups, err := asgBk.DescribeAutoScalingGroups([]string{"wiring-test-asg"})
+	groups, err := asgBk.DescribeAutoScalingGroups([]string{"wiring-test-asg"}, nil)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	require.Len(t, groups[0].Instances, 1)

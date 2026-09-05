@@ -267,7 +267,7 @@ type StorageBackend interface {
 		collaborationID, changeRequestID string,
 	) (*CollaborationChangeRequest, error)
 	ListCollaborationChangeRequests(
-		collaborationID, maxResults, nextToken string,
+		collaborationID, status, maxResults, nextToken string,
 	) ([]*CollaborationChangeRequest, string, error)
 	UpdateCollaborationChangeRequest(
 		collaborationID, changeRequestID, action string,

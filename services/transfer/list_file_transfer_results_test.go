@@ -91,3 +91,61 @@ func TestListFileTransferResults_SingleFile_RealClient(t *testing.T) {
 	require.Len(t, out.FileTransferResults, 1)
 	assert.Equal(t, "/only/file.txt", aws.ToString(out.FileTransferResults[0].FilePath))
 }
+
+// TestListFileTransferResults_SDKRoundTrip_Pagination drives the real SDK client across two
+// pages of ListFileTransferResults and asserts the pages are disjoint and the marker
+// round-trips. Before the fix, handleListFileTransferResults ignored MaxResults/NextToken
+// (both real ListFileTransferResultsInput members) and always returned every file transferred
+// in one unbounded page.
+func TestListFileTransferResults_SDKRoundTrip_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
+	ctx := t.Context()
+
+	conn, err := client.CreateConnector(ctx, &transfersdk.CreateConnectorInput{
+		Url:        aws.String("sftp://example.com"),
+		AccessRole: aws.String("arn:aws:iam::123456789012:role/transfer"),
+	})
+	require.NoError(t, err)
+
+	files := []string{"/a/one.txt", "/a/two.txt", "/a/three.txt", "/a/four.txt"}
+
+	started, err := client.StartFileTransfer(ctx, &transfersdk.StartFileTransferInput{
+		ConnectorId:   conn.ConnectorId,
+		SendFilePaths: files,
+	})
+	require.NoError(t, err)
+
+	page1, err := client.ListFileTransferResults(ctx, &transfersdk.ListFileTransferResultsInput{
+		ConnectorId: conn.ConnectorId,
+		TransferId:  started.TransferId,
+		MaxResults:  aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.FileTransferResults, 2)
+	require.NotNil(t, page1.NextToken)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListFileTransferResults(ctx, &transfersdk.ListFileTransferResultsInput{
+		ConnectorId: conn.ConnectorId,
+		TransferId:  started.TransferId,
+		MaxResults:  aws.Int32(2),
+		NextToken:   page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.FileTransferResults, 2)
+
+	seen := make(map[string]bool, 4)
+	for _, r := range page1.FileTransferResults {
+		seen[aws.ToString(r.FilePath)] = true
+	}
+
+	for _, r := range page2.FileTransferResults {
+		assert.False(t, seen[aws.ToString(r.FilePath)], "page 2 repeated file %s from page 1", aws.ToString(r.FilePath))
+		seen[aws.ToString(r.FilePath)] = true
+	}
+
+	assert.Len(t, seen, 4)
+}

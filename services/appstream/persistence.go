@@ -18,7 +18,7 @@ import (
 // format had no version field at all, so an old snapshot decodes with
 // Version == 0, which is guaranteed to mismatch appstreamSnapshotVersion and
 // is discarded the same way any other incompatible snapshot is.
-const appstreamSnapshotVersion = 1
+const appstreamSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the AppStream backend.
 //

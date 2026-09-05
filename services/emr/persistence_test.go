@@ -70,8 +70,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := emr.NewInMemoryBackend("111122223333", "us-west-2")
 
 	cluster, err := original.RunJobFlow(t.Context(), emr.RunJobFlowParams{
-		Name:         "chan-1",
-		ReleaseLabel: "emr-7.3.0",
+		Name:           "chan-1",
+		ReleaseLabel:   "emr-7.3.0",
+		SessionEnabled: true,
 		Instances: emr.RunJobFlowInstances{
 			InstanceGroups: []emr.InstanceGroupSpec{
 				{Name: "core", InstanceRole: "CORE", InstanceType: "m5.xlarge", InstanceCount: 2},

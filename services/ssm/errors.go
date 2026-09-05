@@ -5,17 +5,21 @@ import (
 )
 
 var (
-	ErrParameterNotFound                  = errors.New("ParameterNotFound")
-	ErrParameterVersionNotFound           = errors.New("ParameterVersionNotFound")
-	ErrParameterAlreadyExists             = errors.New("ParameterAlreadyExists")
-	ErrInvalidKeyID                       = errors.New("InvalidKeyId")
-	ErrCiphertextTooShort                 = errors.New("ciphertext too short")
-	ErrValidationException                = errors.New("ValidationException")
-	ErrDocumentAlreadyExists              = errors.New("DocumentAlreadyExists")
-	ErrDocumentNotFound                   = errors.New("DocumentNotFound")
-	ErrInvalidDocumentVersion             = errors.New("InvalidDocumentVersion")
-	ErrCommandNotFound                    = errors.New("CommandNotFound")
-	ErrActivationNotFound                 = errors.New("ActivationNotFound")
+	ErrParameterNotFound        = errors.New("ParameterNotFound")
+	ErrParameterVersionNotFound = errors.New("ParameterVersionNotFound")
+	ErrParameterAlreadyExists   = errors.New("ParameterAlreadyExists")
+	ErrInvalidKeyID             = errors.New("InvalidKeyId")
+	ErrCiphertextTooShort       = errors.New("ciphertext too short")
+	ErrValidationException      = errors.New("ValidationException")
+	ErrDocumentAlreadyExists    = errors.New("DocumentAlreadyExists")
+	ErrDocumentNotFound         = errors.New("DocumentNotFound")
+	ErrInvalidDocumentVersion   = errors.New("InvalidDocumentVersion")
+	ErrCommandNotFound          = errors.New("CommandNotFound")
+	// ErrInvalidActivationID is returned when an ActivationId doesn't match any
+	// known activation (DeleteActivation). "ActivationNotFound" is not a real
+	// AWS SSM error code — DeleteActivation's own deserializer
+	// (ssm@v1.73.4 deserializers.go) models InvalidActivationId for this case.
+	ErrInvalidActivationID                = errors.New("InvalidActivationId")
 	ErrAssociationNotFound                = errors.New("AssociationDoesNotExist")
 	ErrMaintenanceWindowNotFound          = errors.New("DoesNotExistException")
 	ErrMaintenanceWindowExecutionNotFound = errors.New("DoesNotExistException")
@@ -57,4 +61,10 @@ var (
 	// delete a document while it is still shared, and must stop sharing it
 	// first.
 	ErrDocumentStillShared = errors.New("InvalidDocumentOperation")
+	// ErrInvalidResourceID is returned by the resource-tagging ops
+	// (AddTagsToResource/RemoveTagsFromResource/ListTagsForResource) when the
+	// target resource doesn't exist. Their own deserializers model
+	// InvalidResourceId for this, not the per-resource NotFound sentinel
+	// (e.g. ErrParameterNotFound) that GetParameter/PutParameter use.
+	ErrInvalidResourceID = errors.New("InvalidResourceId")
 )

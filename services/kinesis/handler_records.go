@@ -52,6 +52,7 @@ type jsonPutRecordsResp struct {
 type jsonRecord struct {
 	PartitionKey                string  `json:"PartitionKey"`
 	SequenceNumber              string  `json:"SequenceNumber"`
+	EncryptionType              string  `json:"EncryptionType,omitempty"`
 	Data                        []byte  `json:"Data"`
 	ApproximateArrivalTimestamp float64 `json:"ApproximateArrivalTimestamp"`
 }
@@ -184,6 +185,7 @@ func (h *Handler) handleGetRecords(
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
+			EncryptionType:              r.EncryptionType,
 			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
 		}
 	}

@@ -406,6 +406,30 @@ func parsePagination(vals url.Values) (string, int) {
 	return m, ps
 }
 
+// applyMarkerPage applies the shared marker-based pagination scheme every
+// Describe* op in this service uses: skip past marker (an item's own key),
+// then cut to pageSize, returning the last returned item's key as the next
+// marker when more remain.
+func applyMarkerPage[T any](items []T, marker string, pageSize int, keyOf func(T) string) ([]T, string) {
+	if marker != "" {
+		for i, it := range items {
+			if keyOf(it) == marker {
+				items = items[i+1:]
+
+				break
+			}
+		}
+	}
+
+	var nextMarker string
+	if len(items) > pageSize {
+		nextMarker = keyOf(items[pageSize-1])
+		items = items[:pageSize]
+	}
+
+	return items, nextMarker
+}
+
 // parseMembers extracts indexed form values (e.g. "Names.member.1").
 func parseMembers(vals url.Values, prefix string) []string {
 	result := make([]string, 0)

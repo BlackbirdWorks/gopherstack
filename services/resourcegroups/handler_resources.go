@@ -119,9 +119,10 @@ func (h *Handler) handleListGroupResources(
 
 // handleListGroupingStatuses lists the grouping/ungrouping statuses for a group.
 type listGroupingStatusesInput struct {
-	Group      string `json:"Group"`
-	NextToken  string `json:"NextToken"`
-	MaxResults int    `json:"MaxResults"`
+	Group      string                       `json:"Group"`
+	NextToken  string                       `json:"NextToken"`
+	Filters    []ListGroupingStatusesFilter `json:"Filters"`
+	MaxResults int                          `json:"MaxResults"`
 }
 
 // groupingStatusItemWire is the AWS wire shape of a GroupingStatusesItem.
@@ -151,7 +152,7 @@ func (h *Handler) handleListGroupingStatuses(
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	statuses, nextToken, err := h.Backend.ListGroupingStatuses(ctx, in.Group, in.NextToken, in.MaxResults)
+	statuses, nextToken, err := h.Backend.ListGroupingStatuses(ctx, in.Group, in.Filters, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}

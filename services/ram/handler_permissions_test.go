@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -146,6 +147,16 @@ func TestListPermissions_TypeFilter_WithCustom(t *testing.T) {
 		{
 			name:           "no filter returns all",
 			permissionType: "",
+			wantCount:      ram.BuiltInPermissionCount + 2,
+		},
+		{
+			// Real ListPermissionsInput.PermissionType is types.PermissionTypeFilter,
+			// whose only three enum members (ram@v1.39.4 types/enums.go:72-74) are
+			// "ALL", "AWS_MANAGED", "CUSTOMER_MANAGED" -- ALL explicitly requesting
+			// both types must return the same set as omitting the filter, not zero
+			// results (ALL never equals a stored permission's own PermissionType).
+			name:           "ALL filter returns all, same as omitting it",
+			permissionType: "ALL",
 			wantCount:      ram.BuiltInPermissionCount + 2,
 		},
 	}
@@ -449,6 +460,37 @@ func TestListPermissions_ResourceTypeFilter(t *testing.T) {
 	}
 }
 
+// TestListPermissions_ResourceTypeFilter_CaseInsensitive proves ListPermissions'
+// resourceType filter honors its documented case-insensitivity ("This parameter is not
+// case sensitive. For example, to list only permissions that apply to Amazon EC2
+// subnets, specify ec2:subnet." -- ram@v1.39.4 api_op_ListPermissions.go), rather than
+// comparing the filter value against a stored permission's exact-cased ResourceType.
+func TestListPermissions_ResourceTypeFilter_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRAMRequest(t, h, "/listpermissions", map[string]any{
+		"resourceType": "ec2:subnet",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Permissions []struct {
+			ResourceType string `json:"resourceType"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(
+		t, resp.Permissions,
+		"resourceType filter must match case-insensitively, per the doc's own example",
+	)
+
+	for _, p := range resp.Permissions {
+		assert.True(t, strings.EqualFold("ec2:subnet", p.ResourceType))
+	}
+}
+
 func TestGetPermission_BuiltIn_HasPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -610,10 +652,11 @@ func TestDeletePermission_InUseRejected(t *testing.T) {
 	err = h.Backend.AssociateResourceSharePermission(rs.ARN, p.ARN, false, nil)
 	require.NoError(t, err)
 
-	// HTTP delete should return 400 PermissionInUseException.
+	// HTTP delete should return 400 OperationNotPermittedException --
+	// DeletePermission's own error model has no InUse-shaped exception.
 	rec := doRAMRequest(t, h, "/deletepermission?permissionArn="+p.ARN, nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "PermissionInUseException")
+	assert.Contains(t, rec.Body.String(), "OperationNotPermittedException")
 }
 
 func TestPermissionNotFound_UsesUnknownResourceException(t *testing.T) {

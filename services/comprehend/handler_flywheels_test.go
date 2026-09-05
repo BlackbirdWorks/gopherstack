@@ -29,7 +29,7 @@ func TestFlywheelIterationFieldShapes(t *testing.T) {
 	require.True(t, ok, "DescribeFlywheelIteration must return FlywheelIterationProperties")
 	assert.NotEmpty(t, props["FlywheelArn"], "iteration properties must have FlywheelArn")
 	assert.NotEmpty(t, props["FlywheelIterationId"], "iteration properties must have FlywheelIterationId")
-	assert.NotEmpty(t, props["FlywheelIterationStatus"], "iteration properties must have FlywheelIterationStatus")
+	assert.NotEmpty(t, props["Status"], "iteration properties must have Status")
 	assert.NotEmpty(t, props["CreationTime"], "iteration properties must have CreationTime")
 
 	histResp := request(t, h, "ListFlywheelIterationHistory", map[string]any{"FlywheelArn": fwArn})

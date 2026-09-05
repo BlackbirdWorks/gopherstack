@@ -4,13 +4,33 @@ service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.90.4
 last_audit_commit: 7c297a53  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
 last_audit_date: 2026-08-13
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
+# N-of-N). Handler.handleError is one global 4-sentinel table applied to all
+# ops -- found systemic bug: ErrValidation's code was "InvalidParameterValueException",
+# which does not exist anywhere in this SDK (0 occurrences); fixed to
+# "InvalidParameterException", the code every op that models parameter
+# validation actually uses (both errors.go and the handler.go literal fixed).
+# Also fixed 4 wrong-code call sites where a real code was used but the
+# specific op does not model it: CreateFargateProfile's cluster-not-found and
+# duplicate-profile paths, CreateCapability's cluster-not-found path, and
+# CreateNodegroup's cluster-not-found path all emitted ResourceNotFoundException/
+# ResourceInUseException, unmodeled by those 3 ops -- now ErrValidation
+# (InvalidParameterException), the only client-fault code each models.
+# TagResource/UntagResource/ListTagsForResource route through a dedicated
+# handleTagError instead of the global table: their own switches model only
+# BadRequestException/NotFoundException, an entirely different exception
+# family from the rest of this service. See error_sentinel_fixes_test.go
+# (real-SDK errors.As assertions, each confirmed failing pre-fix).
+# fargate_profiles_test.go/node_groups_test.go had 3 pre-existing tests
+# asserting the old wrong status codes as correct; corrected alongside the fix.
 overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): fixed the y1zn-deferred kubernetesNetworkConfig/networkingConfig split. Merged ElasticLoadBalancing *ElasticLoadBalancingConfig into the KubernetesNetworkConfig model/JSON struct as a sibling of IPFamily/ServiceIPv4CIDR/ServiceIPv6CIDR (matching types.KubernetesNetworkConfigRequest/Response, eks@v1.90.4 types/types.go:1597,1645); deleted the separate NetworkingConfig type and Cluster.NetworkingConfig field entirely, across clusters.go (ClusterOptionalConfig, resolveClusterOptionalConfig -- now returns 3 values not 4, new cloneKubernetesNetworkConfig helper for the nested-pointer deep copy), models.go, and handler_clusters.go (kubernetesNetworkConfigJSON gained ElasticLoadBalancing, networkingConfigJSON type deleted, createClusterBody.NetworkingConfig field deleted, buildClusterOptConfig's NetworkingConfig-building block deleted, appendClusterOptionalInfra's separate networkingConfig emission deleted, clusterNetConfigJSON now emits elasticLoadBalancing as part of the same object). A real client's ElasticLoadBalancing setting inside kubernetesNetworkConfig now round-trips both directions. Locked by TestCreateDescribeCluster_ElasticLoadBalancing_RealClient (real SDK client, both CreateCluster and DescribeCluster) and TestNetworkingConfig_RoundTrip (rewritten -- the old version sent/asserted the wrong top-level 'networkingConfig' key, ratifying the bug). gopherstack-tp8x (2026-08-21, follow-up): the Cluster shape change above went in without bumping eksSnapshotVersion, so a pre-fix snapshot's Cluster.NetworkingConfig.ElasticLoadBalancing would have silently vanished on restore into the new shape instead of the mismatch being caught. Bumped eksSnapshotVersion 1->2 (persistence.go) to force discard of any snapshot from before this shape changed."}
   DescribeCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateCluster's gopherstack-tp8x note -- same clusterNetConfigJSON fix, shared by both ops."}
-  ListClusters: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page)"}
+  ListClusters: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page). gopherstack ignored-parameter sweep (2026-08-29): Include (blank vs 'all') was declared by ListClustersInput but never read -- every cluster, including ones registered via RegisterCluster, was always returned. Now blank Include excludes clusters with a non-nil ConnectorConfig (connected/external clusters); Include=[all] includes them, matching the SDK doc. Backend ListClusters signature gained an includeExternal bool param"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClusterConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
   UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
@@ -33,7 +53,7 @@ ops:
   DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable. gopherstack-g479 (2026-08-21): configurationSchema was ALSO a nested JSON object where the real member (deserializers.go, case \"configurationSchema\": value.(string)) is the schema as a raw JSON string; failed with 'expected String to be of type string, got map[string]interface {} instead' pre-fix. Found via a new go/types-based map-literal kind scanner."}
   CreateAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt (real aws-sdk-go-v2/service/eks/types.AccessEntry.ModifiedAt was entirely unmodeled); set on create and every update"}
-  ListAccessEntries: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
+  ListAccessEntries: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): AssociatedPolicyArn was declared by ListAccessEntriesInput ('only the access entries associated to that access policy are returned') but never read -- every access entry in the cluster was always returned. Now filters via a per-entry ListAssociatedAccessPolicies lookup"}
   DeleteAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Also now sets ModifiedAt"}
   AssociateAccessPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -46,7 +66,7 @@ ops:
   DeleteFargateProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt/ExternalId/Policy/DisableSessionTags -- all real aws-sdk-go-v2/service/eks/types.PodIdentityAssociation fields that were entirely unmodeled"}
   DescribePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same field additions as CreatePodIdentityAssociation"}
-  ListPodIdentityAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination"}
+  ListPodIdentityAssociations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): Namespace/ServiceAccount were declared by ListPodIdentityAssociationsInput but never read -- every association in the cluster was always returned regardless"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
   AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation. gopherstack-i8lo (2026-08-22): oidc.identityProviderConfigName (OidcIdentityProviderConfigRequest, eks@v1.90.4 types/types.go:2120, required) was decoded but never validated -- a missing name silently defaulted to clientId instead of being rejected; ClientId/IssuerUrl (types.go:2115,2132) were already validated. Now rejects a missing identityProviderConfigName with InvalidParameterException."}
@@ -60,20 +80,22 @@ ops:
   UpdateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was PUT; real method is POST to the same leaf path. ModifiedAt now set on every update; Health/Configuration were added to the model (see CreateCapability note) -- Configuration remains a passthrough map (no per-capability-type ArgoCd/Ack/Kro schema validation)"}
   CreateEksAnywhereSubscription: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "path was /subscriptions; real path is /eks-anywhere-subscriptions — was completely unreachable. Also now validates the required 'term' field (unit must be MONTHS, duration must be 12 or 36 -- verified against types.EksAnywhereSubscriptionTerm) and models autoRenew/effectiveDate/expirationDate, none of which were previously modeled at all"}
   DescribeEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
-  ListEksAnywhereSubscriptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
+  ListEksAnywhereSubscriptions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): IncludeStatus was declared by ListEksAnywhereSubscriptionsInput but never read -- every subscription was always returned regardless of status"}
   DeleteEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
   UpdateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT; real method is POST to the same leaf path"}
   DescribeInsight: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "content is synthetic/fabricated (pre-existing; AWS's real insight analysis cannot be emulated) but is now reachable at the correct path"}
-  ListInsights: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates. Was also emitting the FULL Insight shape (recommendation, plus the invented clusterName that neither Insight nor InsightSummary carries on the wire — the cluster is already identified by the URL path); real ListInsights returns types.InsightSummary, which omits recommendation/additionalInfo/categorySpecificSummary/resources entirely -- verified against types.InsightSummary. DescribeInsight's response still includes the invented clusterName (separate pre-existing bug, out of scope for this pass). kubernetesVersion/name (InsightSummary members) have no honest source in this backend's Insight model and are left absent rather than fabricated"}
+  ListInsights: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates. Was also emitting the FULL Insight shape (recommendation, plus the invented clusterName that neither Insight nor InsightSummary carries on the wire — the cluster is already identified by the URL path); real ListInsights returns types.InsightSummary, which omits recommendation/additionalInfo/categorySpecificSummary/resources entirely -- verified against types.InsightSummary. DescribeInsight's response still includes the invented clusterName (separate pre-existing bug, out of scope for this pass). kubernetesVersion/name (InsightSummary members) have no honest source in this backend's Insight model and are left absent rather than fabricated. gopherstack ignored-parameter sweep (2026-08-29): the body's 'filter' key (InsightsFilter.categories/statuses/kubernetesVersions) was not parsed at all. Now filters by categories/statuses (both modeled on this backend's synthetic Insight); kubernetesVersions is left unapplied -- Insight has no version field to filter against, and fabricating one was rejected"}
   StartInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was routed/shaped as a per-insight, per-refresh-id nested resource (/insights/{id}/refresh); real API is a cluster-level singleton at /clusters/{name}/insights-refresh with no id at all. Response was also wrongly nested under an 'insightsRefresh' envelope key; real fields (message/status/startedAt/endedAt) are at the response root"}
   DescribeInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "same fixes as StartInsightsRefresh"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended to find Capability ARNs too"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "genuinely has no maxResults/nextToken in the real API (ListTagsForResourceInput has neither field) -- not a gap"}
   DescribeUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListUpdates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
+  ListUpdates: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): NodegroupName was declared by ListUpdatesInput but never read; added Update.NodegroupName (backend-internal, json:\"-\", not part of the real wire shape) populated by UpdateNodegroupVersion/UpdateNodegroupConfig, and ListUpdates now filters by it. AddonName/CapabilityName remain unfixed -- no Update record is ever created for UpdateAddon/UpdateCapability in this backend (they return the mutated Addon/Capability directly, not an async Update the way the real API does), so there is nothing yet to filter; fixing those needs a separate, larger change to UpdateAddon/UpdateCapability's response shape"}
   CancelUpdate: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "implemented for real: POST /clusters/{name}/updates/{updateId}/cancel-update. Real EKS only performs cancellation for VersionRollback update types that are still InProgress (Kubernetes version rollback on EKS Auto Mode clusters, per the op's doc comment); any other type/status now returns InvalidRequestException (new ErrInvalidRequest sentinel) rather than silently no-opping or 404ing. On success sets Status=Cancelled and a Cancellation{Status,Reason} record, matching types.Update.Cancellation/types.Cancellation. No public op creates a VersionRollback update in this SDK version (it is an AWS-internal transition), so the success path is only reachable by seeding an update via the existing exported StoreUpdate — tests exercise this directly"}
 gaps:
+  - "ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return the mutated resource directly), so there is no addon/capability-scoped Update to filter over yet"
+  - "ListInsights.Filter.kubernetesVersions is unimplemented: Insight has no version field on this backend's synthetic model"
   - "Capability Configuration remains an untyped passthrough map — no per-CapabilityType (ArgoCd/Ack/Kro) schema validation of Configuration/UpdateCapabilityConfiguration, unlike the real API's discriminated CapabilityConfigurationResponse/UpdateCapabilityConfiguration union types"
   - "Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation -- there is no real cluster to analyze)"
   - "types.InsightSummary/types.Insight's kubernetesVersion and name members have no honest source in this backend's Insight model and are left absent from both DescribeInsight and ListInsights rather than fabricated"
@@ -329,3 +351,127 @@ Confirmed via hand-revert: reverting `handler_identity_providers.go` to
 `git show HEAD:services/eks/handler_identity_providers.go` made the new
 `missing_config_name` subtest fail (`expected: 400, actual: 200`); restored
 and `md5sum`-verified identical to the fix.
+
+## Map-walk pagination sweep (2026-08-30, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns)
+
+Audited every `sort.Slice` call and every `pkgs/page.New` call site (the
+handler-level offset-index pager `eksPaginationParams`/`eksPageResponse`
+feed) in `services/eks` for the "sort on a tie-prone field over
+`store.Table.All()` (a map walk, unstable between calls), no unique
+tiebreak" bug class. Discriminator: `.All()` is the bug source;
+`store.Index.Get(clusterName)` (used by every cluster-scoped List* in this
+service) is insertion-ordered and stable across calls, so a tie-prone sort
+over it is provably harmless.
+
+**Structurally almost entirely clean**: of 13 `page.New` call sites
+(fargate profiles, access entries, access policies, associated access
+policies, identity provider configs, addons, insights, clusters, pod
+identity associations, capabilities, updates, node groups, subscriptions),
+12 read from a `store.Index.Get(clusterName)` lookup (stable, matches the
+discriminator), a `store.Table.Snapshot()` (`ListClusters` — deterministic
+key-sorted, not `.All()`), a raw per-key slice lookup (associated access
+policies), or a fully hardcoded static/derived list (`ListAccessPolicies`,
+`ListInsights` — no backing store at all). None of these sort on a
+non-unique key over an unstable source.
+
+**One bug found and fixed**: `ListEksAnywhereSubscriptions`
+(subscriptions.go) is the *only* eks List op that reads
+`b.subscriptions.All()` (a genuine `store.Table` map walk) rather than an
+index — subscriptions have no cluster to scope an index by. It sorted by
+`Name` alone; `CreateEksAnywhereSubscription` never checks Name for
+uniqueness (unlike real AWS, which does — a separate, pre-existing parity
+gap not fixed here, out of scope), so two subscriptions can legitimately
+share a Name. Proven via a new `AddSubscriptionInternal`-seeded test
+(`subscriptions_test.go`) constructing 12 same-named subscriptions and
+walking pages of 5 through the real HTTP handler 30x; failed on iteration 0
+against unmodified code (7 of 12 survived one walk). Fixed: added `ID` (the
+table's own key, `uuid`-derived, always unique) as the tiebreak.
+
+Gates: `go build ./services/eks/...`, `go vet ./services/eks/...`,
+`go test -race -count=1 ./services/eks/...` (pass), `golangci-lint run
+./services/eks/...` (0 issues).
+
+## 2026-08-30 enumcheck typed-response-struct extension: 34 findings, all false positives
+
+`cmd/enumcheck` was extended to see an enum value carried on a named
+response struct's own composite literal, not only a `map[string]any` entry.
+Run against `services/eks`, it surfaced 34 needs-review findings, all under
+one wire key ("status" or "type") that is genuinely ambiguous SDK-wide —
+shared by 11 (status) or 5 (type) unrelated real enums in
+`eks@v1.90.4/types/enums.go`. Hand-checked every distinct value against the
+enum its owning field's name actually indicates (`Cluster.Status` →
+`ClusterStatus`, `Addon.Status` → `AddonStatus`, `Update.Status`/`.Type` →
+`UpdateStatus`/`UpdateType`, `InsightsRefresh.Status` →
+`InsightsRefreshStatus`, `AnywhereSubscription.Status` →
+`EksAnywhereSubscriptionStatus`, etc.): every value is a real, legal member
+of its true single candidate (e.g. `"InProgress"` = `UpdateStatusInProgress`,
+`"AddonUpdate"` = `UpdateTypeAddonUpdate`, `"COMPLETED"` =
+`InsightsRefreshStatusCompleted`) — it only fails the ambiguous-key tier's
+"legal in every candidate" check because the other ~10 unrelated enums
+sharing the wire key don't declare that member. No bug found; nothing
+changed in this service.
+
+## 2026-08-31 cmd/errtargetaudit sweep: 49 findings, all false positives (tool mechanism identified)
+
+`go run ./cmd/errtargetaudit -dir eks` (65/65 operations resolved, no
+coverage warning) reported 49 class-A findings — 48 operations "sending"
+`NotFoundException`, one (`TagResource`) "sending" `InvalidParameterException`
+— against real ground truth confirmed per-op in
+`aws-sdk-go-v2/service/eks@v1.90.4/deserializers.go`
+(`awsRestjson1_deserializeOpError<Op>` shape): every one of the 48 does
+legitimately declare `ResourceNotFoundException`, not `NotFoundException`
+(only `ListTagsForResource`/`TagResource`/`UntagResource` — the older tagging
+API family — genuinely declare `NotFoundException`); `TagResource` genuinely
+declares no `InvalidParameterException` (only `BadRequestException`/
+`NotFoundException`).
+
+**Traced to the actual runtime behavior first, not just the tool's static
+resolution.** `handler.go`'s central `handleError` maps
+`errors.Is(err, ErrNotFound)` → `"ResourceNotFoundException"` for every
+non-tag operation — correct. `handler_tags.go`'s separate `handleTagError`
+maps the *same* `ErrNotFound` identifier → `"NotFoundException"` for
+`TagResource`/`UntagResource`/`ListTagsForResource` only — also correct,
+with its own dated comment explaining why (the tagging API's deserializer
+models a different exception family). Both are genuinely correct at their
+own call sites; a real client hitting any of the 48 flagged operations
+receives `ResourceNotFoundException`, matching what that operation declares.
+
+**Root cause of the false positives: the tool's `sentinelCodes` builds one
+flat map keyed by sentinel *identifier name* across the whole package**
+(`cmd/errtargetaudit/classifiers.go`'s `sentinelCodes`/`addSwitchSentinelCodes`).
+Both `handleError` and `handleTagError` contain an
+`errors.Is(err, ErrNotFound)` branch; since both use the identifier
+`ErrNotFound`, the second file scanned overwrote the first's entry for the
+whole package, so every one of the 48 non-tag call sites got attributed the
+*tag* mapper's code. The `TagResource` finding is the mirror case: the
+`constructorCode` classifier resolved `validateTagMap`'s `return
+ErrValidation` to the *service-wide* `ErrValidation`→`InvalidParameterException`
+entry (correct for the resource-family ops that legitimately use it), but at
+`TagResource`'s actual call site (`handler_tags.go`'s
+`handleTagResource`) `validateTagMap`'s error is never dispatched through
+`errors.Is`/`handleError` at all — it's caught by a bare `!= nil` check and
+answered with a hardcoded `"BadRequestException"` literal, so
+`ErrValidation`'s mapped code is unreachable from this operation regardless
+of what the sentinel resolves to.
+
+This is a **new, more precise instance** of the shared-mapper/unreachable-
+branch false-positive shape from the prior calibration pass (`gopherstack-uox6`'s
+CLASS-A ERROR SWEEP 4): not one mapper with an unreachable branch, but *two
+separate mapper functions* colliding on the same sentinel identifier, where
+the tool has no way to know which mapper a given operation's dispatch chain
+actually reaches. Filed as a P2 tool-precision issue rather than acted on
+further here (this pass's scope is the three named services, not the tool).
+
+**Verdict: eks is clean.** No source changes. All 49 findings verified false
+via the mechanism above, not dismissed by pattern alone — re-running the
+tool post-investigation (no code changed) reproduces the identical 49,
+confirming the tool's static resolution, not eks's runtime behavior, is the
+source.
+
+No web pages fetched this pass — everything came from the pinned SDK module
+cache.
+
+Gates: no source changes to eks; `go build ./services/eks/...`, `go vet
+./services/eks/...`, `go test -race -count=1 ./services/eks/...`,
+`golangci-lint run ./services/eks/...` all re-confirmed clean (unchanged from
+before this pass).

@@ -73,10 +73,12 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 				t.Fatal("expected non-empty distribution ID from create")
 			}
 
-			// Found: the distribution referencing the ID must appear in the list.
+			// Found: the distribution referencing the ID must appear in the list. These three
+			// operations return DistributionIdList (bare IDs), not DistributionList (full
+			// DistributionSummary objects) -- cloudfront@v1.67.4 api_op_ListDistributionsBy*.go.
 			foundResp := cfOK(t, h, http.MethodGet, tc.listPath(tc.configValue), "")
-			if !strings.Contains(foundResp, "DistributionList") {
-				t.Fatalf("expected DistributionList, got: %s", foundResp)
+			if !strings.Contains(foundResp, "DistributionIdList") {
+				t.Fatalf("expected DistributionIdList, got: %s", foundResp)
 			}
 			if strings.Contains(foundResp, "<Quantity>0</Quantity>") {
 				t.Fatalf("expected non-empty list for matching id, got: %s", foundResp)
@@ -87,8 +89,8 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 
 			// Not found: an unrelated ID must return an empty list, not an error.
 			notFoundResp := cfOK(t, h, http.MethodGet, tc.listPath("no-such-id-xyz"), "")
-			if !strings.Contains(notFoundResp, "DistributionList") {
-				t.Fatalf("expected DistributionList for empty result, got: %s", notFoundResp)
+			if !strings.Contains(notFoundResp, "DistributionIdList") {
+				t.Fatalf("expected DistributionIdList for empty result, got: %s", notFoundResp)
 			}
 			if !strings.Contains(notFoundResp, "<Quantity>0</Quantity>") {
 				t.Fatalf("expected empty list for non-matching id, got: %s", notFoundResp)
@@ -411,7 +413,10 @@ func TestListDistributionsByTrustStore(t *testing.T) {
 	if !strings.Contains(resp, "DistributionList") {
 		t.Errorf("expected DistributionList, got: %s", resp)
 	}
-	if strings.Contains(resp, "<Quantity>0</Quantity>") {
+	// The list's own Quantity (immediately before IsTruncated) must be checked, not any nested
+	// Quantity -- the DistributionSummary item shape now carries several (Origins, Restrictions,
+	// Aliases), all legitimately 0 for this minimal distribution.
+	if strings.Contains(resp, "<Quantity>0</Quantity><IsTruncated>") {
 		t.Errorf("expected non-empty list, got: %s", resp)
 	}
 
@@ -541,10 +546,12 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 	</DistributionConfig>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 
-	// List by key group - should find the distribution
+	// List by key group - should find the distribution. ListDistributionsByKeyGroup returns
+	// DistributionIdList (bare IDs), not DistributionList -- cloudfront@v1.67.4
+	// api_op_ListDistributionsByKeyGroup.go: Output.DistributionIdList.
 	resp := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/key-group-abc123", "")
-	if !strings.Contains(resp, "DistributionList") {
-		t.Errorf("expected DistributionList, got: %s", resp)
+	if !strings.Contains(resp, "DistributionIdList") {
+		t.Errorf("expected DistributionIdList, got: %s", resp)
 	}
 	// Should have quantity > 0
 	if strings.Contains(resp, "<Quantity>0</Quantity>") {
@@ -553,8 +560,8 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 
 	// Different key group should return empty list
 	resp2 := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/nonexistent-key-group", "")
-	if !strings.Contains(resp2, "DistributionList") {
-		t.Errorf("expected DistributionList for empty result, got: %s", resp2)
+	if !strings.Contains(resp2, "DistributionIdList") {
+		t.Errorf("expected DistributionIdList for empty result, got: %s", resp2)
 	}
 }
 
@@ -829,4 +836,128 @@ func TestListDistributionsPagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListDistributionsByWebACLId_ItemShape_RealClient is a regression test for
+// gopherstack-21my: ListDistributionsByWebACLId (and the five siblings that share
+// the same writeDistributionList/marshalDistributionList code path --
+// ByAnycastIpListId, ByConnectionFunction, ByConnectionMode, ByTrustStore,
+// ByRealtimeLogConfig) emitted a DistributionSummary item with only
+// Id/ARN/Status/DomainName, dropping every other DistributionSummary member --
+// including ETag and Aliases, both backed by real state -- even though this
+// service's own ListDistributions op already builds the full item shape for the
+// identical DistributionSummary wire type. Seeds two distributions with
+// distinguishable Comment/PriceClass/HttpVersion/Aliases, associates both with
+// the same web ACL, and asserts every field round-trips through the real SDK
+// client rather than decoding to its zero value.
+func TestListDistributionsByWebACLId_ItemShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	// A slash-free WebACLId (WAF Classic-style) is used deliberately: the ARN form
+	// (WAFV2) trips an unrelated routing bug in extractResourceID (handler.go), which
+	// cuts a URI-label identifier at its first "/" -- out of this test's scope, filed
+	// separately (gopherstack-21my final report).
+	const webACLArn = "a1b2c3d4-5678-90ab-cdef-example11111"
+
+	mk := func(ref, comment string, priceClass types.PriceClass, alias string) *cfsdk.CreateDistributionOutput {
+		out, err := client.CreateDistribution(t.Context(), &cfsdk.CreateDistributionInput{
+			DistributionConfig: &types.DistributionConfig{
+				CallerReference: aws.String(ref),
+				Comment:         aws.String(comment),
+				Enabled:         aws.Bool(true),
+				PriceClass:      priceClass,
+				HttpVersion:     types.HttpVersionHttp2,
+				Origins: &types.Origins{
+					Quantity: aws.Int32(1),
+					Items: []types.Origin{
+						{Id: aws.String("origin1"), DomainName: aws.String("example.com")},
+					},
+				},
+				DefaultCacheBehavior: &types.DefaultCacheBehavior{
+					TargetOriginId:       aws.String("origin1"),
+					ViewerProtocolPolicy: types.ViewerProtocolPolicyAllowAll,
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		_, err = client.AssociateAlias(t.Context(), &cfsdk.AssociateAliasInput{
+			TargetDistributionId: out.Distribution.Id,
+			Alias:                aws.String(alias),
+		})
+		require.NoError(t, err)
+
+		_, err = client.AssociateDistributionWebACL(t.Context(), &cfsdk.AssociateDistributionWebACLInput{
+			Id:        out.Distribution.Id,
+			WebACLArn: aws.String(webACLArn),
+		})
+		require.NoError(t, err)
+
+		return out
+	}
+
+	first := mk("ref-webacl-shape-1", "first distribution", types.PriceClassPriceClass100, "one.example.com")
+	second := mk("ref-webacl-shape-2", "second distribution", types.PriceClassPriceClass200, "two.example.com")
+
+	listed, err := client.ListDistributionsByWebACLId(t.Context(), &cfsdk.ListDistributionsByWebACLIdInput{
+		WebACLId: aws.String(webACLArn),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, listed.DistributionList)
+	require.Len(t, listed.DistributionList.Items, 2)
+
+	byID := make(map[string]types.DistributionSummary, 2)
+	for _, item := range listed.DistributionList.Items {
+		require.NotNil(t, item.Id)
+		byID[*item.Id] = item
+	}
+
+	item1, ok := byID[*first.Distribution.Id]
+	require.True(t, ok)
+	assert.Equal(t, "first distribution", aws.ToString(item1.Comment))
+	assert.Equal(t, types.PriceClassPriceClass100, item1.PriceClass)
+	assert.Equal(t, types.HttpVersionHttp2, item1.HttpVersion)
+	assert.True(t, aws.ToBool(item1.Enabled))
+	assert.NotEmpty(t, aws.ToString(item1.ETag), "ETag must round-trip, not decode empty")
+	require.NotNil(t, item1.Aliases)
+	require.Len(t, item1.Aliases.Items, 1)
+	assert.Equal(t, "one.example.com", item1.Aliases.Items[0])
+
+	item2, ok := byID[*second.Distribution.Id]
+	require.True(t, ok)
+	assert.Equal(t, "second distribution", aws.ToString(item2.Comment))
+	assert.Equal(t, types.PriceClassPriceClass200, item2.PriceClass)
+	require.NotNil(t, item2.Aliases)
+	require.Len(t, item2.Aliases.Items, 1)
+	assert.Equal(t, "two.example.com", item2.Aliases.Items[0])
+}
+
+// TestListConflictingAliases_AccountID_RealClient covers the per-item AccountId field: the
+// backend has an AccountID() accessor (used correctly by ListVpcOrigins and
+// ListDistributionsByOwnedResource for the same real field), but handleListConflictingAliases
+// hardcoded AccountId to "" instead of reading it.
+func TestListConflictingAliases_AccountID_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "555566667777", "us-east-1")
+	client := newTestCloudFrontClient(t, cloudfront.NewHandler(backend))
+
+	first, err := backend.CreateDistribution("ca-acct-owner", "", true, nil)
+	require.NoError(t, err)
+	other, err := backend.CreateDistribution("ca-acct-other", "", true, nil)
+	require.NoError(t, err)
+	require.NoError(t, backend.AssociateAlias(other.ID, "ca-acct.example.com"))
+
+	out, listErr := client.ListConflictingAliases(t.Context(), &cfsdk.ListConflictingAliasesInput{
+		Alias:          aws.String("ca-acct.example.com"),
+		DistributionId: aws.String(first.ID),
+	})
+	require.NoError(t, listErr)
+	require.NotNil(t, out.ConflictingAliasesList)
+	require.Len(t, out.ConflictingAliasesList.Items, 1)
+
+	assert.Equal(t, "555566667777", aws.ToString(out.ConflictingAliasesList.Items[0].AccountId))
 }

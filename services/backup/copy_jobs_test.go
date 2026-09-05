@@ -10,7 +10,7 @@ import (
 func TestListCopyJobsFiltered(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
-	srcVault := mustVault(t, b, "src-vault")
+	mustVault(t, b, "src-vault")
 	dstVault := mustVault(t, b, "dst-vault")
 	dstVault2 := mustVault(t, b, "dst-vault2")
 
@@ -57,11 +57,16 @@ func TestListCopyJobsFiltered(t *testing.T) {
 			wantIDs:   []string{j1.CopyJobID},
 		},
 		{
-			name: "filter by source vault",
+			// Real AWS has no "by source vault" filter for ListCopyJobs
+			// (ListCopyJobsInput, backup@v1.59.4) -- the actual field is
+			// BySourceRecoveryPointArn, which filters by the individual
+			// recovery point copied, not its containing vault.
+			name: "filter by source recovery point",
 			filter: backup.ListCopyJobsFilter{
-				SourceBackupVaultArn: srcVault.BackupVaultArn,
+				SourceRecoveryPointArn: "arn:aws:backup:::rp/rp-1",
 			},
-			wantCount: 2,
+			wantCount: 1,
+			wantIDs:   []string{j1.CopyJobID},
 		},
 		{
 			name:      "filter by state COMPLETED",

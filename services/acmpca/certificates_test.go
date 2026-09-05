@@ -136,7 +136,7 @@ func TestInMemoryBackend_CertificateValidation(t *testing.T) {
 				require.NoError(t, err)
 
 				err = b.RevokeCertificate(context.Background(), ca.ARN, "doesNotMatter", "INVALID_REASON")
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrInvalidRequest)
 			},
 		},
 		{
@@ -154,7 +154,7 @@ func TestInMemoryBackend_CertificateValidation(t *testing.T) {
 				require.NoError(t, err)
 
 				_, err = b.IssueCertificate(context.Background(), ca.ARN, "", 365)
-				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+				require.ErrorIs(t, err, acmpca.ErrMalformedCSR)
 			},
 		},
 	}

@@ -157,14 +157,83 @@ func severityScore(label string) float64 {
 	}
 }
 
+// sortFindings orders matched by ListFindingsInput.SortCriteria
+// (api_op_ListFindings.go, inspector2@v1.54.1: field + sortOrder "ASC"/
+// "DESC"). Only the SortField values that map onto data this backend
+// actually models are honored: AWS_ACCOUNT_ID, FINDING_TYPE, SEVERITY,
+// FIRST_OBSERVED_AT, LAST_OBSERVED_AT, FINDING_STATUS, RESOURCE_TYPE,
+// EPSS_SCORE. The remaining SortField values (ECR_IMAGE_*,
+// NETWORK_PROTOCOL, COMPONENT_TYPE, VULNERABILITY_ID, VULNERABILITY_SOURCE,
+// INSPECTOR_SCORE, VENDOR_SEVERITY) need per-package/per-resource finding
+// detail this backend's Finding model does not carry -- a structural gap,
+// not an unread parameter -- so an unrecognized or absent field falls back
+// to the prior stable FindingArn-ascending order.
+func sortFindings(matched []*Finding, field, order string) {
+	desc := order == "DESC"
+
+	// primary compares only the requested field. Every field below but
+	// FindingArn itself admits ties (many findings can share a severity,
+	// status, type, account, timestamp, ...), and matched is built from
+	// store.Table.Range -- a raw Go map iteration with no fixed order of its
+	// own -- so tied entries could otherwise land in a different relative
+	// order on every call. less appends FindingArn (unique) as a tiebreak so
+	// the overall order is total and reproducible across the repeated calls
+	// pagination makes.
+	primary := func(i, j int) bool { return matched[i].FindingArn < matched[j].FindingArn }
+
+	switch field {
+	case "AWS_ACCOUNT_ID":
+		primary = func(i, j int) bool { return matched[i].AccountID < matched[j].AccountID }
+	case "FINDING_TYPE":
+		primary = func(i, j int) bool { return matched[i].Type < matched[j].Type }
+	case "SEVERITY":
+		primary = func(i, j int) bool { return matched[i].Severity.Score < matched[j].Severity.Score }
+	case "FIRST_OBSERVED_AT":
+		primary = func(i, j int) bool { return matched[i].FirstObservedAt.Before(matched[j].FirstObservedAt) }
+	case "LAST_OBSERVED_AT":
+		primary = func(i, j int) bool { return matched[i].LastObservedAt.Before(matched[j].LastObservedAt) }
+	case "FINDING_STATUS":
+		primary = func(i, j int) bool { return matched[i].Status < matched[j].Status }
+	case "RESOURCE_TYPE":
+		primary = func(i, j int) bool { return matched[i].ResourceType < matched[j].ResourceType }
+	case "EPSS_SCORE":
+		primary = func(i, j int) bool { return matched[i].EpssScore < matched[j].EpssScore }
+	}
+
+	less := func(i, j int) bool {
+		if primary(i, j) {
+			return true
+		}
+
+		if primary(j, i) {
+			return false
+		}
+
+		return matched[i].FindingArn < matched[j].FindingArn
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if desc {
+			return less(j, i)
+		}
+
+		return less(i, j)
+	})
+}
+
 // findingFilterCriteria captures the subset of the Inspector2 filterCriteria
 // shape that ListFindings evaluates. Each slice is a set of string filters with
 // a comparison and value, matching the AWS StringFilter wire shape.
 type findingFilterCriteria struct {
-	severities   []stringFilter
-	findingTypes []stringFilter
-	statuses     []stringFilter
-	accountIDs   []stringFilter
+	severities    []stringFilter
+	findingTypes  []stringFilter
+	statuses      []stringFilter
+	accountIDs    []stringFilter
+	resourceIDs   []stringFilter
+	resourceTypes []stringFilter
+	titles        []stringFilter
+	findingArns   []stringFilter
+	fixAvailable  []stringFilter
 }
 
 type stringFilter struct {
@@ -183,6 +252,11 @@ func parseFindingFilterCriteria(criteria map[string]any) findingFilterCriteria {
 	fc.findingTypes = extractStringFilters(criteria, "findingType")
 	fc.statuses = extractStringFilters(criteria, "findingStatus")
 	fc.accountIDs = extractStringFilters(criteria, "awsAccountId")
+	fc.resourceIDs = extractStringFilters(criteria, "resourceId")
+	fc.resourceTypes = extractStringFilters(criteria, "resourceType")
+	fc.titles = extractStringFilters(criteria, "title")
+	fc.findingArns = extractStringFilters(criteria, "findingArn")
+	fc.fixAvailable = extractStringFilters(criteria, "fixAvailable")
 
 	return fc
 }
@@ -248,7 +322,12 @@ func (fc findingFilterCriteria) matches(f *Finding) bool {
 	return matchStringFilters(fc.severities, f.Severity.Label) &&
 		matchStringFilters(fc.findingTypes, f.Type) &&
 		matchStringFilters(fc.statuses, f.Status) &&
-		matchStringFilters(fc.accountIDs, f.AccountID)
+		matchStringFilters(fc.accountIDs, f.AccountID) &&
+		matchStringFilters(fc.resourceIDs, f.ResourceID) &&
+		matchStringFilters(fc.resourceTypes, f.ResourceType) &&
+		matchStringFilters(fc.titles, f.Title) &&
+		matchStringFilters(fc.findingArns, f.FindingArn) &&
+		matchStringFilters(fc.fixAvailable, f.FixAvailable)
 }
 
 // ListFindings returns a page of seeded findings filtered by the supplied
@@ -256,7 +335,7 @@ func (fc findingFilterCriteria) matches(f *Finding) bool {
 // the prior always-empty contract for callers that never seed). Pagination uses
 // the finding ARN as a stable cursor over the sorted result set.
 func (b *InMemoryBackend) ListFindings(
-	maxResults int32, nextToken string, criteria map[string]any,
+	maxResults int32, nextToken string, criteria map[string]any, sortField, sortOrder string,
 ) ([]*Finding, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
@@ -274,18 +353,26 @@ func (b *InMemoryBackend) ListFindings(
 		return true
 	})
 
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].FindingArn < matched[j].FindingArn
-	})
+	sortFindings(matched, sortField, sortOrder)
 
 	pageSize := int(maxResults)
 	if pageSize <= 0 {
 		pageSize = defaultFindingsPageSize
 	}
 
+	// matched is sorted by sortField, which is only guaranteed to be
+	// FindingArn (this cursor's own field) when the caller didn't request a
+	// different SortCriteria -- with any other field the list isn't ordered
+	// by FindingArn at all, so a threshold search on the token wouldn't be
+	// valid. An unresolved token (from a forged/stale value; findings have no
+	// delete operation) therefore defaults to the end of the collection
+	// rather than index 0, which would otherwise restart pagination at page
+	// one.
 	start := 0
 
 	if nextToken != "" {
+		start = len(matched)
+
 		for i, f := range matched {
 			if f.FindingArn == nextToken {
 				start = i

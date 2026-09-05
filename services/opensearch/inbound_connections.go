@@ -2,7 +2,47 @@ package opensearch
 
 import (
 	"fmt"
+	"slices"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// maxDescribeConnectionsResults is the documented MaxResults ceiling for
+// DescribeInboundConnections/DescribeOutboundConnections (opensearch@v1.75.4
+// API_DescribeInboundConnections.html: "Valid Range: Maximum value of 100").
+const maxDescribeConnectionsResults = 100
+
+// filterAndPageConnections applies the connection-id filter and
+// MaxResults/NextToken pagination shared by DescribeInboundConnections and
+// DescribeOutboundConnections against their own (already status-filtered)
+// connection slice.
+func filterAndPageConnections[T any](
+	all []T, idOf func(T) string, connectionIDs []string, nextToken string, maxResults int,
+) page.Page[T] {
+	filtered := make([]T, 0, len(all))
+
+	for _, c := range all {
+		if len(connectionIDs) > 0 && !slices.Contains(connectionIDs, idOf(c)) {
+			continue
+		}
+
+		filtered = append(filtered, c)
+	}
+
+	sort.Slice(filtered, func(i, j int) bool { return idOf(filtered[i]) < idOf(filtered[j]) })
+
+	limit := maxResults
+
+	switch {
+	case limit <= 0:
+		limit = len(filtered)
+	case limit > maxDescribeConnectionsResults:
+		limit = maxDescribeConnectionsResults
+	}
+
+	return page.New(filtered, nextToken, limit, limit)
+}
 
 // AcceptInboundConnection accepts an inbound cross-cluster connection by ID,
 // transitioning it (and, if present, its mirrored outbound counterpart) to
@@ -109,14 +149,20 @@ func (b *InMemoryBackend) purgeExpiredInboundLocked() {
 	}
 }
 
-// DescribeInboundConnections returns all inbound connections, excluding any
-// whose deleting window has elapsed.
-func (b *InMemoryBackend) DescribeInboundConnections() []*InboundConnection {
+// DescribeInboundConnections returns inbound connections excluding any whose
+// deleting window has elapsed, filtered and paginated per the request.
+// connectionIDs comes from Filter entries named "connection-id" -- the only
+// Filter Name documented anywhere in api_op_DescribeInboundConnections.go or
+// API_Filter.html for this operation (neither enumerates a Name value set);
+// an empty slice matches everything.
+func (b *InMemoryBackend) DescribeInboundConnections(
+	connectionIDs []string, nextToken string, maxResults int,
+) page.Page[*InboundConnection] {
 	b.mu.RLock("DescribeInboundConnections")
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]*InboundConnection, 0, b.inboundConnections.Len())
+	all := make([]*InboundConnection, 0, b.inboundConnections.Len())
 
 	for _, c := range b.inboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
@@ -124,8 +170,10 @@ func (b *InMemoryBackend) DescribeInboundConnections() []*InboundConnection {
 		}
 
 		cp := *c
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out
+	return filterAndPageConnections(
+		all, func(c *InboundConnection) string { return c.ConnectionID }, connectionIDs, nextToken, maxResults,
+	)
 }

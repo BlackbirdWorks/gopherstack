@@ -7,8 +7,31 @@ var (
 	ErrCANotFound = errors.New("ResourceNotFoundException")
 	// ErrCertNotFound is returned when an issued certificate is not found.
 	ErrCertNotFound = errors.New("ResourceNotFoundException")
-	// ErrInvalidParameter is returned when an invalid parameter is provided.
-	ErrInvalidParameter = errors.New("InvalidParameterException")
+	// ErrInvalidArgs is returned when an operation argument fails validation.
+	// acm-pca's own deserializeOpError models InvalidArgsException, not the
+	// fabricated InvalidParameterException gopherstack previously emitted
+	// (gopherstack-r3pr): see aws-sdk-go-v2/service/acmpca deserializers.go,
+	// e.g. awsAwsjson11_deserializeOpErrorCreateCertificateAuthority.
+	ErrInvalidArgs = errors.New("InvalidArgsException")
+	// ErrInvalidArn is returned when a CA/certificate/resource ARN fails
+	// validation or lookup, matching InvalidArnException (modeled by nearly
+	// every acm-pca operation's deserializeOpError).
+	ErrInvalidArn = errors.New("InvalidArnException")
+	// ErrInvalidRequest is returned when the request action cannot be
+	// performed or is prohibited, matching InvalidRequestException
+	// (RevokeCertificate, ImportCertificateAuthorityCertificate).
+	ErrInvalidRequest = errors.New("InvalidRequestException")
+	// ErrInvalidPolicy is returned when a resource policy is invalid or
+	// missing a required statement, matching InvalidPolicyException
+	// (PutPolicy).
+	ErrInvalidPolicy = errors.New("InvalidPolicyException")
+	// ErrMalformedCertificate is returned when an imported certificate fails
+	// to decode/parse, matching MalformedCertificateException
+	// (ImportCertificateAuthorityCertificate).
+	ErrMalformedCertificate = errors.New("MalformedCertificateException")
+	// ErrMalformedCSR is returned when a certificate signing request fails
+	// to decode/parse, matching MalformedCSRException (IssueCertificate).
+	ErrMalformedCSR = errors.New("MalformedCSRException")
 	// ErrInvalidState is returned when the CA is in an invalid state for the operation.
 	ErrInvalidState = errors.New("InvalidStateException")
 	// ErrPermissionNotFound is returned when a CA permission is not found.

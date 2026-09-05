@@ -23,6 +23,7 @@ func TestHandler_ListNetworks_Pagination(t *testing.T) {
 	for i := range 5 {
 		rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 			"Name":                fmt.Sprintf("net-%d", i),
+			"ClientRequestToken":  fmt.Sprintf("tok-net-%d", i),
 			"MemberConfiguration": testMemberConfiguration("m1"),
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -94,6 +95,7 @@ func TestHandler_ListMembers_Pagination(t *testing.T) {
 		invitationID := createTestInvitation(t, b, networkID, "test-net")
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
 			"InvitationId":        invitationID,
+			"ClientRequestToken":  fmt.Sprintf("tok-mem-%d", i),
 			"MemberConfiguration": testMemberConfiguration(fmt.Sprintf("member-%d", i)),
 		})
 		require.Equal(t, http.StatusOK, rec.Code)

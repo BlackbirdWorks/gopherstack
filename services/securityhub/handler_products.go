@@ -95,6 +95,10 @@ func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map
 
 func (h *Handler) handleDisableImportFindingsForProduct(c *echo.Context, productSubscriptionArn string) error {
 	if err := h.Backend.DisableImportFindingsForProduct(productSubscriptionArn); err != nil {
+		if errors.Is(err, ErrHubNotEnabled) {
+			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+		}
+
 		if errors.Is(err, ErrNotFound) {
 			return typedErrorResponse(
 				c,

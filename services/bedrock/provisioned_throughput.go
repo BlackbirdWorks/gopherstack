@@ -41,9 +41,12 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 	}
 
 	if _, exists := b.pmtsByName[name]; exists {
+		// CreateProvisionedModelThroughput's deserializer declares no
+		// ConflictException (bedrock@v1.66.4 deserializers.go) -- ErrValidation
+		// is the closest type it does declare.
 		return nil, fmt.Errorf(
 			"%w: provisioned model throughput %s already exists",
-			ErrAlreadyExists,
+			ErrValidation,
 			name,
 		)
 	}
@@ -97,9 +100,14 @@ func (b *InMemoryBackend) GetProvisionedModelThroughput(
 	return &cp, nil
 }
 
-// ListProvisionedModelThroughputs returns provisioned model throughputs with optional pagination.
+// ListProvisionedModelThroughputs returns provisioned model throughputs
+// matching in's filters, sorted and paginated. in may be nil, matching an
+// unfiltered call. Structurally similar to ListModelCopyJobs/
+// ListModelImportJobs/ListCustomModelDeployments (same filter/sort/paginate
+// shape) but over a distinct resource type and filter set; see
+// matchesProvisionedModelThroughputFilter.
 func (b *InMemoryBackend) ListProvisionedModelThroughputs(
-	nextToken string,
+	in *ListProvisionedModelThroughputsInput,
 ) ([]*ProvisionedModelThroughput, string) {
 	b.mu.RLock("ListProvisionedModelThroughputs")
 	defer b.mu.RUnlock()
@@ -107,16 +115,62 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs(
 	list := make([]*ProvisionedModelThroughput, 0, b.provisionedModelThroughputs.Len())
 
 	for _, pmt := range b.provisionedModelThroughputs.All() {
+		if !matchesProvisionedModelThroughputFilter(pmt, in) {
+			continue
+		}
+
 		cp := *pmt
 		list = append(list, &cp)
 	}
 
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].ProvisionedModelArn < list[j].ProvisionedModelArn },
-	)
+	descending := in != nil && in.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, k int) bool {
+		if !list[i].CreationTime.Equal(list[k].CreationTime) {
+			if descending {
+				return list[i].CreationTime.After(list[k].CreationTime)
+			}
 
-	return paginateBedrockSlice(list, nextToken)
+			return list[i].CreationTime.Before(list[k].CreationTime)
+		}
+
+		return list[i].ProvisionedModelArn < list[k].ProvisionedModelArn
+	})
+
+	if in == nil {
+		list, _ = paginate(list, 0, "")
+
+		return list, ""
+	}
+
+	return paginate(list, int(in.MaxResults), in.NextToken)
+}
+
+// matchesProvisionedModelThroughputFilter reports whether a provisioned
+// model throughput satisfies the list filters (statusEquals, modelArnEquals,
+// nameContains, creationTimeAfter/Before).
+func matchesProvisionedModelThroughputFilter(
+	pmt *ProvisionedModelThroughput, in *ListProvisionedModelThroughputsInput,
+) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && pmt.Status != in.StatusEquals {
+		return false
+	}
+	if in.ModelArnEquals != "" && pmt.ModelArn != in.ModelArnEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(pmt.ProvisionedModelName, in.NameContains) {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !pmt.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !pmt.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // UpdateProvisionedModelThroughput updates a provisioned model throughput's desired
@@ -144,9 +198,12 @@ func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
 
 	if newName != "" && newName != pmt.ProvisionedModelName {
 		if _, exists := b.pmtsByName[newName]; exists {
+			// UpdateProvisionedModelThroughput's deserializer declares no
+			// ConflictException (bedrock@v1.66.4 deserializers.go) --
+			// ErrValidation is the closest type it does declare.
 			return nil, fmt.Errorf(
 				"%w: provisioned model throughput %s already exists",
-				ErrAlreadyExists,
+				ErrValidation,
 				newName,
 			)
 		}

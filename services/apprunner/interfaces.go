@@ -62,7 +62,7 @@ type StorageBackend interface {
 	DescribeVpcIngressConnection(arn string) (*VpcIngressConnection, error)
 	DeleteVpcIngressConnection(arn string) (*VpcIngressConnection, error)
 	ListVpcIngressConnections(
-		serviceArnFilter, connectionArnFilter string,
+		serviceArnFilter, vpcEndpointIDFilter string,
 		maxResults int32,
 		nextToken string,
 	) ([]*VpcIngressConnectionSummary, string, error)

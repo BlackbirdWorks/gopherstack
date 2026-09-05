@@ -627,6 +627,7 @@ func buildURLARN(region, accountID, functionName string) string {
 func (b *InMemoryBackend) UpdateFunctionURLConfig(
 	functionName, authType string,
 	cors *FunctionURLCors,
+	invokeMode string,
 ) (*FunctionURLConfig, error) {
 	b.mu.Lock("UpdateFunctionURLConfig")
 	defer b.mu.Unlock()
@@ -642,6 +643,10 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(
 
 	if cors != nil {
 		cfg.Cors = cors
+	}
+
+	if invokeMode != "" {
+		cfg.InvokeMode = invokeMode
 	}
 
 	cfg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)

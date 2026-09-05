@@ -18,7 +18,7 @@ func (h *Handler) handleDeleteGitHubAccountToken(
 	in *deleteGitHubAccountTokenInput,
 ) (*deleteGitHubAccountTokenOutput, error) {
 	if in.TokenName == "" {
-		return nil, fmt.Errorf("%w: tokenName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: tokenName is required", ErrGitHubTokenNameRequired)
 	}
 
 	if err := h.Backend.DeleteGitHubAccountToken(in.TokenName); err != nil {

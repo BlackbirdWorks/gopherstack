@@ -155,11 +155,15 @@ func (g *storedInputSecurityGroup) toSummary() *InputSecurityGroupSummary {
 	rules := make([]WhitelistRule, len(g.WhitelistRules))
 	copy(rules, g.WhitelistRules)
 
+	tags := make(map[string]string, len(g.Tags))
+	maps.Copy(tags, g.Tags)
+
 	return &InputSecurityGroupSummary{
 		ARN:            g.ARN,
 		ID:             g.ID,
 		State:          g.State,
 		WhitelistRules: rules,
+		Tags:           tags,
 	}
 }
 
@@ -263,13 +267,18 @@ func (m *storedMultiplex) toSummary() *MultiplexSummary {
 	zones := make([]string, len(m.AvailabilityZones))
 	copy(zones, m.AvailabilityZones)
 
+	tags := make(map[string]string, len(m.Tags))
+	maps.Copy(tags, m.Tags)
+
 	return &MultiplexSummary{
-		ARN:               m.ARN,
-		ID:                m.ID,
-		Name:              m.Name,
-		State:             m.State,
-		AvailabilityZones: zones,
-		ProgramCount:      len(m.Programs),
+		ARN:                    m.ARN,
+		ID:                     m.ID,
+		Name:                   m.Name,
+		State:                  m.State,
+		AvailabilityZones:      zones,
+		ProgramCount:           len(m.Programs),
+		TransportStreamBitrate: m.Settings.TransportStreamBitrate,
+		Tags:                   tags,
 	}
 }
 

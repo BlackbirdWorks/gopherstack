@@ -80,7 +80,7 @@ func TestEC2Core_Handler_VpnGatewayCRUD(t *testing.T) {
 	assert.Len(t, vgws2, 1)
 
 	// Attach.
-	vpc, _ := bk.CreateVpc("10.0.0.0/16")
+	vpc, _ := bk.CreateVpc("10.0.0.0/16", "default")
 	err2 := bk.AttachVpnGateway(vgw.VpnGatewayID, vpc.ID)
 	require.NoError(t, err2)
 

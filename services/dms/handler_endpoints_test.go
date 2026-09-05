@@ -353,6 +353,28 @@ func TestDescribeSchemas(t *testing.T) {
 	assert.Contains(t, schemas, "public")
 }
 
+// TestRefreshSchemas_ReplicationInstanceArnRequired covers gopherstack-4shm's
+// class: RefreshSchemasInput.ReplicationInstanceArn is "This member is
+// required" (databasemigrationservice@v1.66.4 api_op_RefreshSchemas.go) but
+// was decoded and never read at all -- a request omitting it got a 200
+// instead of a validation error.
+func TestRefreshSchemas_ReplicationInstanceArnRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "pg-src-2",
+		"EndpointType":       "source",
+		"EngineName":         "postgres",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	epARN := parseJSON(t, rec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	rec = doDMS(t, h, "RefreshSchemas", map[string]any{"EndpointArn": epARN})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestDeleteEndpointInUse(t *testing.T) {
 	t.Parallel()
 

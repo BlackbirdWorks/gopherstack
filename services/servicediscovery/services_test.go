@@ -217,6 +217,41 @@ func TestBackend_ListServices_FilterByNamespace(t *testing.T) {
 	assert.Equal(t, "svc-in-ns", filtered[0].Name)
 }
 
+// TestBackend_ListServices_FilterByNamespaceARN verifies ListServices'
+// NAMESPACE_ID filter accepts the namespace ARN form, not just the bare ID.
+// aws-sdk-go-v2/service/servicediscovery's types.ServiceFilter doc comment:
+// "NAMESPACE_ID: Specify one namespace ID or ARN. Specify the namespace ARN
+// for namespaces that are shared with your Amazon Web Services account".
+func TestBackend_ListServices_FilterByNamespaceARN(t *testing.T) {
+	t.Parallel()
+
+	b := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
+
+	opID, err := b.CreateHTTPNamespace("ns-arn-filter", "", nil)
+	require.NoError(t, err)
+
+	op, err := b.GetOperation(opID)
+	require.NoError(t, err)
+
+	nsID := op.Targets["NAMESPACE"]
+
+	ns, err := b.GetNamespace(nsID)
+	require.NoError(t, err)
+	require.NotEmpty(t, ns.ARN)
+
+	_, err = b.CreateService("svc-in-ns", nsID, "", "", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateService("svc-no-ns", "", "", "", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	filtered := b.ListServices(servicediscovery.ListServicesFilter{
+		NamespaceID: servicediscovery.FilterValue{Values: []string{ns.ARN}},
+	})
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "svc-in-ns", filtered[0].Name)
+}
+
 // TestHandler_ServiceTagsViaListTagsForResource verifies that CreateDate is
 // included in GetService/CreateService responses, that neither ever returns a
 // Tags field (matching real Cloud Map's types.Service shape), and that tags

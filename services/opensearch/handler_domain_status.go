@@ -56,7 +56,13 @@ func (h *Handler) dispatchDomainGetHealthRoutes(
 			return true
 		}
 
-		h.writeJSON(r, w, map[string]any{"DryRunProgressStatus": dr})
+		h.writeJSON(r, w, map[string]any{
+			"DryRunProgressStatus": dr,
+			"DryRunResults": dryRunResultsJSON{
+				DeploymentType: "DynamicUpdate",
+				Message:        "Deployment type is not fully validated in this dry run.",
+			},
+		})
 	default:
 		return false
 	}

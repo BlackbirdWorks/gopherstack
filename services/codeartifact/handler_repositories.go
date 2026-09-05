@@ -166,13 +166,17 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
-	// repository-prefix is a real ListRepositoriesInDomainInput filter member
-	// (serializers.go's SetQuery("repository-prefix")) that was silently
-	// discarded -- every call returned every repository in the domain
-	// regardless of the filter.
+	// repository-prefix and administrator-account are real
+	// ListRepositoriesInDomainInput filter members (serializers.go's
+	// SetQuery("repository-prefix")/SetQuery("administrator-account")) that
+	// were silently discarded -- every call returned every repository in the
+	// domain regardless of either filter.
 	repositoryPrefix := q.Get("repository-prefix")
+	administratorAccount := q.Get("administrator-account")
 
-	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName, repositoryPrefix)
+	all, err := h.Backend.ListRepositoriesInDomain(
+		c.Request().Context(), domainName, repositoryPrefix, administratorAccount,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

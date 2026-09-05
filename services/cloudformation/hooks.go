@@ -1,5 +1,7 @@
 package cloudformation
 
+import "fmt"
+
 func (b *InMemoryBackend) RecordHandlerProgress(bearerToken, operationStatus string) error {
 	b.mu.Lock("RecordHandlerProgress")
 	defer b.mu.Unlock()
@@ -8,12 +10,12 @@ func (b *InMemoryBackend) RecordHandlerProgress(bearerToken, operationStatus str
 	return nil
 }
 
-func (b *InMemoryBackend) GetHookResult(hookResultToken string) (string, error) {
+func (b *InMemoryBackend) GetHookResult(hookResultID string) (string, error) {
 	b.mu.RLock("GetHookResult")
 	defer b.mu.RUnlock()
-	r, ok := b.hookResults.Get(hookResultToken)
+	r, ok := b.hookResults.Get(hookResultID)
 	if !ok {
-		return "SUCCEEDED", nil
+		return "", fmt.Errorf("%w: %s", ErrHookResultNotFound, hookResultID)
 	}
 
 	return r.HookStatus, nil

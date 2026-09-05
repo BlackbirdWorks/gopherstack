@@ -50,13 +50,16 @@ func (b *InMemoryBackend) GetUsageProfile(name string) (*UsageProfile, error) {
 	return &cp, nil
 }
 
-// DeleteUsageProfile removes a usage profile.
+// DeleteUsageProfile removes a usage profile. Its error switch (glue's
+// deserializers.go) has no EntityNotFoundException case, unlike
+// GetUsageProfile/UpdateUsageProfile's, so an unknown Name surfaces as
+// InvalidInputException.
 func (b *InMemoryBackend) DeleteUsageProfile(name string) error {
 	b.mu.Lock("DeleteUsageProfile")
 	defer b.mu.Unlock()
 
 	if !b.usageProfiles.Has(name) {
-		return ErrUsageProfileNotFound
+		return fmt.Errorf("usage profile %q not found: %w", name, ErrValidation)
 	}
 
 	b.usageProfiles.Delete(name)

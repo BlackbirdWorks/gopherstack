@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ListConnectors(
 	b.mu.RLock("ListConnectors")
 	defer b.mu.RUnlock()
 
-	snap := b.cspmConnectors.All()
+	snap := b.cspmConnectors.Snapshot()
 	all := make([]*CspmConnector, 0, len(snap))
 
 	for _, c := range snap {

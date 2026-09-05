@@ -44,7 +44,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *route53.InMemoryBackend, _ string) {
 				t.Helper()
 
-				zones, err := b.ListHostedZones("", 0)
+				zones, err := b.ListHostedZones("", 0, "", "")
 				require.NoError(t, err)
 				assert.Empty(t, zones.Data)
 			},
@@ -201,13 +201,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, ksk.KeyManagementServiceArn, ksks[0].KeyManagementServiceArn)
 
 	// CIDR collections (verified via ListCidrLocations/ListCidrBlocks).
-	locations, err := fresh.ListCidrLocations(col.ID)
+	locations, err := fresh.ListCidrLocations(col.ID, "", 0)
 	require.NoError(t, err)
-	require.Contains(t, locations, "loc-1")
+	require.Contains(t, locations.Data, "loc-1")
 
-	blocks, err := fresh.ListCidrBlocks(col.ID, "loc-1")
+	blocks, err := fresh.ListCidrBlocks(col.ID, "loc-1", "", 0)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"192.0.2.0/24"}, blocks)
+	assert.Equal(t, []string{"192.0.2.0/24"}, blocks.Data)
 
 	// query logging configs (verified via the byZone-indexed accessor).
 	gotQLC, err := fresh.GetQueryLoggingConfig(qlc.ID)
@@ -229,10 +229,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tpi.Name, gotTPI.Name)
 
-	byZone, err := fresh.ListTrafficPolicyInstancesByHostedZone(zone.ID)
+	byZone, err := fresh.ListTrafficPolicyInstancesByHostedZone(zone.ID, "", 0)
 	require.NoError(t, err)
-	require.Len(t, byZone, 1)
-	assert.Equal(t, tpi.ID, byZone[0].ID)
+	require.Len(t, byZone.Data, 1)
+	assert.Equal(t, tpi.ID, byZone.Data[0].ID)
 
 	// VPC associations and authorizations (raw maps).
 	assocs, err := fresh.ListVPCAssociations(zone.ID)
@@ -240,10 +240,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, assocs, 1)
 	assert.Equal(t, "vpc-full-state", assocs[0].VPCID)
 
-	auths, err := fresh.ListVPCAssociationAuthorizations(zone.ID)
+	auths, err := fresh.ListVPCAssociationAuthorizations(zone.ID, "", 0)
 	require.NoError(t, err)
-	require.Len(t, auths, 1)
-	assert.Equal(t, auth.VPCID, auths[0].VPCID)
+	require.Len(t, auths.Data, 1)
+	assert.Equal(t, auth.VPCID, auths.Data[0].VPCID)
 
 	// changes (keyed via the "/change/" TrimPrefix key function).
 	gotChange, err := fresh.GetChange(bareChangeID)

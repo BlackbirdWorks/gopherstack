@@ -74,25 +74,53 @@ type serviceRegistryInput struct {
 	ContainerPort int    `json:"containerPort,omitempty"`
 }
 
+type metricConfigurationInput struct {
+	MetricNames       []string `json:"metricNames"`
+	ResolutionSeconds int      `json:"resolutionSeconds"`
+}
+
+type monitoringConfigurationInput struct {
+	MetricConfigurations []metricConfigurationInput `json:"metricConfigurations,omitempty"`
+}
+
+func toMonitoringConfiguration(in *monitoringConfigurationInput) *MonitoringConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := &MonitoringConfiguration{
+		MetricConfigurations: make([]MetricConfiguration, 0, len(in.MetricConfigurations)),
+	}
+
+	for _, mc := range in.MetricConfigurations {
+		out.MetricConfigurations = append(out.MetricConfigurations, MetricConfiguration(mc))
+	}
+
+	return out
+}
+
 type createServiceInput struct {
-	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
-	DeploymentController        *deploymentControllerInput        `json:"deploymentController,omitempty"`
-	NetworkConfiguration        *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
-	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
-	ServiceName                 string                            `json:"serviceName"`
-	Cluster                     string                            `json:"cluster,omitempty"`
-	TaskDefinition              string                            `json:"taskDefinition"`
-	LaunchType                  string                            `json:"launchType,omitempty"`
-	SchedulingStrategy          string                            `json:"schedulingStrategy,omitempty"`
-	PropagateTags               string                            `json:"propagateTags,omitempty"`
-	Tags                        []Tag                             `json:"tags,omitempty"`
-	LoadBalancers               []loadBalancerInput               `json:"loadBalancers,omitempty"`
-	ServiceRegistries           []serviceRegistryInput            `json:"serviceRegistries,omitempty"`
-	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
-	DesiredCount                int                               `json:"desiredCount"`
-	EnableExecuteCommand        bool                              `json:"enableExecuteCommand,omitempty"`
+	DeploymentConfiguration       *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	DeploymentController          *deploymentControllerInput        `json:"deploymentController,omitempty"`
+	NetworkConfiguration          *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
+	ServiceConnectConfiguration   *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
+	HealthCheckGracePeriodSeconds *int                              `json:"healthCheckGracePeriodSeconds,omitempty"`
+	Monitoring                    *monitoringConfigurationInput     `json:"monitoring,omitempty"`
+	ServiceName                   string                            `json:"serviceName"`
+	Cluster                       string                            `json:"cluster,omitempty"`
+	TaskDefinition                string                            `json:"taskDefinition"`
+	LaunchType                    string                            `json:"launchType,omitempty"`
+	SchedulingStrategy            string                            `json:"schedulingStrategy,omitempty"`
+	PropagateTags                 string                            `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                            `json:"availabilityZoneRebalancing,omitempty"`
+	Tags                          []Tag                             `json:"tags,omitempty"`
+	LoadBalancers                 []loadBalancerInput               `json:"loadBalancers,omitempty"`
+	ServiceRegistries             []serviceRegistryInput            `json:"serviceRegistries,omitempty"`
+	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	DesiredCount                  int                               `json:"desiredCount"`
+	EnableExecuteCommand          bool                              `json:"enableExecuteCommand,omitempty"`
 }
 
 type createServiceOutput struct {
@@ -104,24 +132,27 @@ func (h *Handler) handleCreateService(
 	in *createServiceInput,
 ) (*createServiceOutput, error) {
 	svc, err := h.Backend.CreateService(CreateServiceInput{
-		ServiceName:                 in.ServiceName,
-		Cluster:                     in.Cluster,
-		TaskDefinition:              in.TaskDefinition,
-		LaunchType:                  in.LaunchType,
-		SchedulingStrategy:          in.SchedulingStrategy,
-		PropagateTags:               in.PropagateTags,
-		Tags:                        in.Tags,
-		LoadBalancers:               toLoadBalancers(in.LoadBalancers),
-		ServiceRegistries:           toServiceRegistries(in.ServiceRegistries),
-		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
-		DeploymentController:        toDeploymentController(in.DeploymentController),
-		NetworkConfiguration:        toNetworkConfiguration(in.NetworkConfiguration),
-		CapacityProviderStrategy:    toCPStrategyItems(in.CapacityProviderStrategy),
-		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
-		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
-		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
-		DesiredCount:                in.DesiredCount,
-		EnableExecuteCommand:        in.EnableExecuteCommand,
+		ServiceName:                   in.ServiceName,
+		Cluster:                       in.Cluster,
+		TaskDefinition:                in.TaskDefinition,
+		LaunchType:                    in.LaunchType,
+		SchedulingStrategy:            in.SchedulingStrategy,
+		PropagateTags:                 in.PropagateTags,
+		AvailabilityZoneRebalancing:   in.AvailabilityZoneRebalancing,
+		Tags:                          in.Tags,
+		LoadBalancers:                 toLoadBalancers(in.LoadBalancers),
+		ServiceRegistries:             toServiceRegistries(in.ServiceRegistries),
+		DeploymentConfiguration:       toDeploymentConfiguration(in.DeploymentConfiguration),
+		DeploymentController:          toDeploymentController(in.DeploymentController),
+		NetworkConfiguration:          toNetworkConfiguration(in.NetworkConfiguration),
+		CapacityProviderStrategy:      toCPStrategyItems(in.CapacityProviderStrategy),
+		PlacementConstraints:          toPlacementConstraints(in.PlacementConstraints),
+		PlacementStrategy:             toPlacementStrategies(in.PlacementStrategy),
+		ServiceConnectConfiguration:   toServiceConnectConfiguration(in.ServiceConnectConfiguration),
+		HealthCheckGracePeriodSeconds: in.HealthCheckGracePeriodSeconds,
+		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
+		DesiredCount:                  in.DesiredCount,
+		EnableExecuteCommand:          in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err
@@ -184,19 +215,23 @@ func (h *Handler) handleDescribeServices(
 }
 
 type updateServiceInput struct {
-	EnableExecuteCommand        *bool                             `json:"enableExecuteCommand,omitempty"`
-	DesiredCount                *int                              `json:"desiredCount,omitempty"`
-	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
-	NetworkConfiguration        *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
-	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
-	Cluster                     string                            `json:"cluster,omitempty"`
-	Service                     string                            `json:"service"`
-	TaskDefinition              string                            `json:"taskDefinition,omitempty"`
-	PropagateTags               string                            `json:"propagateTags,omitempty"`
-	LoadBalancers               []loadBalancerInput               `json:"loadBalancers,omitempty"`
-	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	EnableExecuteCommand          *bool                             `json:"enableExecuteCommand,omitempty"`
+	DesiredCount                  *int                              `json:"desiredCount,omitempty"`
+	HealthCheckGracePeriodSeconds *int                              `json:"healthCheckGracePeriodSeconds,omitempty"`
+	DeploymentConfiguration       *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	NetworkConfiguration          *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
+	ServiceConnectConfiguration   *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
+	Monitoring                    *monitoringConfigurationInput     `json:"monitoring,omitempty"`
+	Cluster                       string                            `json:"cluster,omitempty"`
+	Service                       string                            `json:"service"`
+	TaskDefinition                string                            `json:"taskDefinition,omitempty"`
+	PropagateTags                 string                            `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                            `json:"availabilityZoneRebalancing,omitempty"`
+	LoadBalancers                 []loadBalancerInput               `json:"loadBalancers,omitempty"`
+	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	ForceNewDeployment            bool                              `json:"forceNewDeployment,omitempty"`
 }
 
 type updateServiceOutput struct {
@@ -208,19 +243,23 @@ func (h *Handler) handleUpdateService(
 	in *updateServiceInput,
 ) (*updateServiceOutput, error) {
 	svc, err := h.Backend.UpdateService(UpdateServiceInput{
-		Cluster:                     in.Cluster,
-		Service:                     in.Service,
-		PropagateTags:               in.PropagateTags,
-		LoadBalancers:               toLoadBalancers(in.LoadBalancers),
-		NetworkConfiguration:        toNetworkConfiguration(in.NetworkConfiguration),
-		TaskDefinition:              in.TaskDefinition,
-		DesiredCount:                in.DesiredCount,
-		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
-		CapacityProviderStrategy:    toCPStrategyItems(in.CapacityProviderStrategy),
-		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
-		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
-		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
-		EnableExecuteCommand:        in.EnableExecuteCommand,
+		Cluster:                       in.Cluster,
+		Service:                       in.Service,
+		PropagateTags:                 in.PropagateTags,
+		AvailabilityZoneRebalancing:   in.AvailabilityZoneRebalancing,
+		LoadBalancers:                 toLoadBalancers(in.LoadBalancers),
+		NetworkConfiguration:          toNetworkConfiguration(in.NetworkConfiguration),
+		TaskDefinition:                in.TaskDefinition,
+		DesiredCount:                  in.DesiredCount,
+		HealthCheckGracePeriodSeconds: in.HealthCheckGracePeriodSeconds,
+		DeploymentConfiguration:       toDeploymentConfiguration(in.DeploymentConfiguration),
+		CapacityProviderStrategy:      toCPStrategyItems(in.CapacityProviderStrategy),
+		PlacementConstraints:          toPlacementConstraints(in.PlacementConstraints),
+		PlacementStrategy:             toPlacementStrategies(in.PlacementStrategy),
+		ServiceConnectConfiguration:   toServiceConnectConfiguration(in.ServiceConnectConfiguration),
+		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
+		EnableExecuteCommand:          in.EnableExecuteCommand,
+		ForceNewDeployment:            in.ForceNewDeployment,
 	})
 	if err != nil {
 		return nil, err
@@ -404,44 +443,48 @@ type serviceConnectConfigurationView struct {
 }
 
 type serviceView struct {
-	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
-	DeploymentConfiguration     *deploymentConfigurationView     `json:"deploymentConfiguration,omitempty"`
-	DeploymentController        *deploymentControllerView        `json:"deploymentController,omitempty"`
-	NetworkConfiguration        *networkConfigurationView        `json:"networkConfiguration,omitempty"`
-	ClusterArn                  string                           `json:"clusterArn"`
-	TaskDefinition              string                           `json:"taskDefinition"`
-	Status                      string                           `json:"status"`
-	LaunchType                  string                           `json:"launchType,omitempty"`
-	SchedulingStrategy          string                           `json:"schedulingStrategy,omitempty"`
-	PropagateTags               string                           `json:"propagateTags,omitempty"`
-	ServiceArn                  string                           `json:"serviceArn"`
-	ServiceName                 string                           `json:"serviceName"`
-	LoadBalancers               []loadBalancerView               `json:"loadBalancers"`
-	ServiceRegistries           []serviceRegistryView            `json:"serviceRegistries"`
-	CapacityProviderStrategy    []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []placementConstraintView        `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []placementStrategyView          `json:"placementStrategy,omitempty"`
-	Deployments                 []deploymentView                 `json:"deployments,omitempty"`
-	Tags                        []Tag                            `json:"tags,omitempty"`
-	CreatedAt                   float64                          `json:"createdAt"`
-	DesiredCount                int                              `json:"desiredCount"`
-	PendingCount                int                              `json:"pendingCount"`
-	RunningCount                int                              `json:"runningCount"`
-	EnableExecuteCommand        bool                             `json:"enableExecuteCommand,omitempty"`
+	ServiceConnectConfiguration   *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
+	DeploymentConfiguration       *deploymentConfigurationView     `json:"deploymentConfiguration,omitempty"`
+	DeploymentController          *deploymentControllerView        `json:"deploymentController,omitempty"`
+	NetworkConfiguration          *networkConfigurationView        `json:"networkConfiguration,omitempty"`
+	HealthCheckGracePeriodSeconds *int                             `json:"healthCheckGracePeriodSeconds,omitempty"`
+	ClusterArn                    string                           `json:"clusterArn"`
+	TaskDefinition                string                           `json:"taskDefinition"`
+	Status                        string                           `json:"status"`
+	LaunchType                    string                           `json:"launchType,omitempty"`
+	SchedulingStrategy            string                           `json:"schedulingStrategy,omitempty"`
+	PropagateTags                 string                           `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                           `json:"availabilityZoneRebalancing,omitempty"`
+	ServiceArn                    string                           `json:"serviceArn"`
+	ServiceName                   string                           `json:"serviceName"`
+	LoadBalancers                 []loadBalancerView               `json:"loadBalancers"`
+	ServiceRegistries             []serviceRegistryView            `json:"serviceRegistries"`
+	CapacityProviderStrategy      []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints          []placementConstraintView        `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []placementStrategyView          `json:"placementStrategy,omitempty"`
+	Deployments                   []deploymentView                 `json:"deployments,omitempty"`
+	Tags                          []Tag                            `json:"tags,omitempty"`
+	CreatedAt                     float64                          `json:"createdAt"`
+	DesiredCount                  int                              `json:"desiredCount"`
+	PendingCount                  int                              `json:"pendingCount"`
+	RunningCount                  int                              `json:"runningCount"`
+	EnableExecuteCommand          bool                             `json:"enableExecuteCommand,omitempty"`
 }
 
 func toServiceView(s Service) serviceView {
 	v := serviceView{
-		ServiceArn:              s.ServiceArn,
-		ServiceName:             s.ServiceName,
-		ClusterArn:              s.ClusterArn,
-		TaskDefinition:          s.TaskDefinition,
-		Status:                  s.Status,
-		LaunchType:              s.LaunchType,
-		SchedulingStrategy:      s.SchedulingStrategy,
-		PropagateTags:           s.PropagateTags,
-		CreatedAt:               float64(s.CreatedAt.Unix()),
-		DeploymentConfiguration: toDeploymentConfigurationView(s.DeploymentConfiguration),
+		ServiceArn:                    s.ServiceArn,
+		ServiceName:                   s.ServiceName,
+		ClusterArn:                    s.ClusterArn,
+		TaskDefinition:                s.TaskDefinition,
+		Status:                        s.Status,
+		LaunchType:                    s.LaunchType,
+		SchedulingStrategy:            s.SchedulingStrategy,
+		PropagateTags:                 s.PropagateTags,
+		AvailabilityZoneRebalancing:   s.AvailabilityZoneRebalancing,
+		HealthCheckGracePeriodSeconds: s.HealthCheckGracePeriodSeconds,
+		CreatedAt:                     float64(s.CreatedAt.Unix()),
+		DeploymentConfiguration:       toDeploymentConfigurationView(s.DeploymentConfiguration),
 		ServiceConnectConfiguration: toServiceConnectConfigurationView(
 			s.ServiceConnectConfiguration,
 		),

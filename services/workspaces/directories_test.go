@@ -21,8 +21,8 @@ func TestDescribeWorkspaceDirectories_PaginatesResults(t *testing.T) {
 	h := workspaces.NewHandler(b)
 
 	// Register two directories.
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-aaa", nil))
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-bbb", nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-aaa", nil, nil))
+	require.NoError(t, b.RegisterWorkspaceDirectory("d-bbb", nil, nil))
 
 	// Fetch all.
 	rec := doTargetRequest(t, h, "DescribeWorkspaceDirectories", map[string]any{})

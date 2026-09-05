@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // AddPermissionInternal inserts a permission directly, bypassing validation.
@@ -41,7 +42,7 @@ func (b *InMemoryBackend) CreatePermission(
 	permARN := b.permissionARN(name)
 
 	if p, ok := b.permissions.Get(permARN); ok && !p.Deleted {
-		return nil, fmt.Errorf("%w: permission %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: permission %s already exists", ErrPermissionAlreadyExists, name)
 	}
 
 	now := time.Now()
@@ -155,7 +156,7 @@ func (b *InMemoryBackend) ListPermissions(resourceType string) []*Permission {
 			continue
 		}
 
-		if resourceType != "" && p.ResourceType != resourceType {
+		if resourceType != "" && !strs.Equal(p.ResourceType, resourceType) {
 			continue
 		}
 

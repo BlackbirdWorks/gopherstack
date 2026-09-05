@@ -14,7 +14,7 @@ func (b *InMemoryBackend) PutEmailMonitoringConfiguration(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	b.emailMonitoring.Put(&EmailMonitoringConfiguration{
 		RoleARN:     roleARN,
@@ -31,7 +31,7 @@ func (b *InMemoryBackend) DeleteEmailMonitoringConfiguration(orgID string) error
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	b.emailMonitoring.Delete(orgID)
 
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) DescribeEmailMonitoringConfiguration(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	cfg, ok := b.emailMonitoring.Get(orgID)
 	if !ok {

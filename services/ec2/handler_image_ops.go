@@ -389,7 +389,9 @@ func (h *Handler) handleDeleteImageUsageReport(vals url.Values, reqID string) (a
 func (h *Handler) handleDescribeImageUsageReportEntries(vals url.Values, reqID string) (any, error) {
 	reportIDs := parseMemberList(vals, "ReportId")
 	imageIDs := parseMemberList(vals, "ImageId")
-	entries := h.Backend.DescribeImageUsageReportEntries(reportIDs, imageIDs)
+	entries := applyImageUsageReportEntryFilters(
+		h.Backend.DescribeImageUsageReportEntries(reportIDs, imageIDs), parseEC2Filters(vals),
+	)
 
 	resp := &describeImageUsageReportEntriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, e := range entries {

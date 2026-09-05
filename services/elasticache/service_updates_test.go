@@ -25,7 +25,7 @@ func TestBackend_DescribeUpdateActions_Empty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	p, err := b.DescribeUpdateActions(context.Background(), "", "", 0)
+	p, err := b.DescribeUpdateActions(context.Background(), "", "", 0, nil, nil, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -198,7 +198,7 @@ func TestBackend_DescribeUpdateActionsFull_FilterByUpdateName(t *testing.T) {
 	_, err = b.BatchApplyUpdateAction(context.Background(), []string{"ua-filter-rg"}, nil, "patch-b")
 	require.NoError(t, err)
 
-	data, _, err := b.DescribeUpdateActionsFull("patch-a", "", 0)
+	data, _, err := b.DescribeUpdateActionsFull("patch-a", "", 0, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	assert.Equal(t, "patch-a", data[0].ServiceUpdateName)

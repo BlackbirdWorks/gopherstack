@@ -3,7 +3,20 @@ service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.45.4   # version audited against (pinned in go.mod)
 last_audit_commit: bfc0729e6                    # HEAD before this pass's changes
 last_audit_date: 2026-08-20
-overall: A                # OutboundWebIdentityFederationDisabledException genuinely wired
+overall: A                # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
+                           # (handler.go:335,337 "Sender"/"Receiver"), both verified clean false
+                           # positives. These are the Query-protocol XML error envelope's <Type>
+                           # field (SOAP-fault-actor classification: Sender=client fault,
+                           # Receiver=server fault), not exception codes -- confirmed against
+                           # awsxml.GetErrorResponseComponents (deserializers.go), which extracts
+                           # only Code/Message/RequestID from the XML body for typed dispatch; Type
+                           # is never read for errors.As matching by any op. STS DOES model typed
+                           # exceptions elsewhere (12 in types/errors.go: ExpiredTokenException,
+                           # MalformedPolicyDocumentException, etc.) -- confirmed correctly mapped
+                           # to their real ErrorCode() strings (which differ from the Go type names,
+                           # e.g. InvalidIdentityTokenException.ErrorCode()=="InvalidIdentityToken"),
+                           # not the type names themselves. No fix needed.
+                           # OutboundWebIdentityFederationDisabledException genuinely wired
                            # this pass (see GetWebIdentityToken below); the one remaining gap
                            # (JWTPayloadSizeExceededException) is a proven impossibility --
                            # AWS publishes no byte threshold anywhere searched (SDK doc
@@ -545,3 +558,21 @@ request's HTTP method to PUT post-signing, keeping the form-encoded body
 and Content-Type intact. Hand-reverted `handler.go` to `git show HEAD`,
 confirmed the test fails with `apiErr.ErrorCode() == "UnknownError"`,
 restored the fix, `md5sum`-confirmed byte-identical.
+
+## 2026-08-29: error-path re-verification (failure-side wire shape) -- no new findings
+
+Independent re-run of this session's error-path campaign (HTTP status / AWS
+error code / whether an operation actually models that code, per its own
+`awsAwsquery_deserializeOpError<Op>` switch in `deserializers.go`,
+sts@v1.45.4). This class was already fully audited by the 2026-08-20
+wrapper-key/nested-shape sweep above ("cross-checked the full per-op
+typed-error switch list in each `deserializeOpError<Op>` function against
+`handler.go`'s `mapErrorToCode`"); `git log --since=2026-08-20 -- services/sts/`
+shows no commits touching error-path logic since. Independently re-extracted
+all 11 ops' declared code sets from the pinned SDK and re-diffed against
+`handler.go`'s `mapValidationErrorToCode`/`mapNamedExceptionToCode` --
+confirms the prior finding: zero live bugs, and the one previously-disclosed
+gap (`ErrIDPRejectedClaim` coalesced into `AccessDenied` in
+`mapNamedExceptionToCode`, `handler.go:310`) remains dead code -- still
+never constructed anywhere in `services/sts/*.go` (grep-confirmed), so
+there is no live wire response for it to be a bug in yet. No changes made.

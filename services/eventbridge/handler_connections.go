@@ -176,13 +176,17 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 		},
 		"ListConnections": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
-				NamePrefix string `json:"NamePrefix"`
-				NextToken  string `json:"NextToken"`
+				NamePrefix      string `json:"NamePrefix"`
+				ConnectionState string `json:"ConnectionState"`
+				NextToken       string `json:"NextToken"`
+				Limit           int    `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			conns, next, err := h.Backend.ListConnections(ctx, input.NamePrefix, input.NextToken)
+			conns, next, err := h.Backend.ListConnections(
+				ctx, input.NamePrefix, input.ConnectionState, input.NextToken, input.Limit,
+			)
 			if err != nil {
 				return nil, err
 			}

@@ -46,17 +46,26 @@ type EngineVersion struct {
 }
 
 // WorkGroupConfiguration holds configuration for a workgroup.
+//
+// IdentityCenterConfiguration/ManagedQueryResultsConfiguration/
+// QueryResultsS3AccessGrantsConfiguration remain deliberately unmodeled --
+// see the gaps: entry in PARITY.md.
 type WorkGroupConfiguration struct {
-	CustomerContentEncryptionConfiguration *CustomerEncCfg     `json:"CustomerContentEncryptionConfiguration,omitempty"`
-	ResultConfiguration                    ResultConfiguration `json:"ResultConfiguration,omitzero"`
-	EngineVersion                          EngineVersion       `json:"EngineVersion,omitzero"`
-	AdditionalConfiguration                string              `json:"AdditionalConfiguration,omitempty"`
-	ExecutionRole                          string              `json:"ExecutionRole,omitempty"`
-	BytesScannedCutoffPerQuery             int64               `json:"BytesScannedCutoffPerQuery,omitempty"`
-	EnableMinEnc                           bool                `json:"EnableMinimumEncryptionConfiguration,omitempty"`
-	EnforceWGCfg                           bool                `json:"EnforceWorkGroupConfiguration,omitempty"`
-	PublishCWMetrics                       bool                `json:"PublishCloudWatchMetricsEnabled,omitempty"`
-	RequesterPays                          bool                `json:"RequesterPaysEnabled,omitempty"`
+	// CustomerContentEncryptionConfiguration is split from the aligned block
+	// below to keep its line under the lll limit once combined with its tag.
+	CustomerContentEncryptionConfiguration *CustomerEncCfg `json:"CustomerContentEncryptionConfiguration,omitempty"`
+
+	EngineConfiguration        *EngineConfiguration     `json:"EngineConfiguration,omitempty"`
+	MonitoringConfiguration    *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
+	ResultConfiguration        ResultConfiguration      `json:"ResultConfiguration,omitzero"`
+	EngineVersion              EngineVersion            `json:"EngineVersion,omitzero"`
+	AdditionalConfiguration    string                   `json:"AdditionalConfiguration,omitempty"`
+	ExecutionRole              string                   `json:"ExecutionRole,omitempty"`
+	BytesScannedCutoffPerQuery int64                    `json:"BytesScannedCutoffPerQuery,omitempty"`
+	EnableMinEnc               bool                     `json:"EnableMinimumEncryptionConfiguration,omitempty"`
+	EnforceWGCfg               bool                     `json:"EnforceWorkGroupConfiguration,omitempty"`
+	PublishCWMetrics           bool                     `json:"PublishCloudWatchMetricsEnabled,omitempty"`
+	RequesterPays              bool                     `json:"RequesterPaysEnabled,omitempty"`
 }
 
 // WorkGroupConfigurationUpdates mirrors types.WorkGroupConfigurationUpdates,
@@ -69,16 +78,21 @@ type WorkGroupConfiguration struct {
 // replacing the whole struct silently erased everything else, e.g.
 // ResultConfiguration or EngineVersion, on every single-field update).
 type WorkGroupConfigurationUpdates struct {
-	CustomerContentEncryptionConfiguration *CustomerEncCfg      `json:"CustomerContentEncryptionConfiguration,omitempty"`
-	ResultConfiguration                    *ResultConfiguration `json:"ResultConfigurationUpdates,omitempty"`
-	EngineVersion                          *EngineVersion       `json:"EngineVersion,omitempty"`
-	AdditionalConfiguration                *string              `json:"AdditionalConfiguration,omitempty"`
-	ExecutionRole                          *string              `json:"ExecutionRole,omitempty"`
-	BytesScannedCutoffPerQuery             *int64               `json:"BytesScannedCutoffPerQuery,omitempty"`
-	EnableMinEnc                           *bool                `json:"EnableMinimumEncryptionConfiguration,omitempty"`
-	EnforceWGCfg                           *bool                `json:"EnforceWorkGroupConfiguration,omitempty"`
-	PublishCWMetrics                       *bool                `json:"PublishCloudWatchMetricsEnabled,omitempty"`
-	RequesterPays                          *bool                `json:"RequesterPaysEnabled,omitempty"`
+	// CustomerContentEncryptionConfiguration is split from the aligned block
+	// below to keep its line under the lll limit once combined with its tag.
+	CustomerContentEncryptionConfiguration *CustomerEncCfg `json:"CustomerContentEncryptionConfiguration,omitempty"`
+
+	ResultConfiguration        *ResultConfiguration     `json:"ResultConfigurationUpdates,omitempty"`
+	EngineVersion              *EngineVersion           `json:"EngineVersion,omitempty"`
+	EngineConfiguration        *EngineConfiguration     `json:"EngineConfiguration,omitempty"`
+	MonitoringConfiguration    *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
+	AdditionalConfiguration    *string                  `json:"AdditionalConfiguration,omitempty"`
+	ExecutionRole              *string                  `json:"ExecutionRole,omitempty"`
+	BytesScannedCutoffPerQuery *int64                   `json:"BytesScannedCutoffPerQuery,omitempty"`
+	EnableMinEnc               *bool                    `json:"EnableMinimumEncryptionConfiguration,omitempty"`
+	EnforceWGCfg               *bool                    `json:"EnforceWorkGroupConfiguration,omitempty"`
+	PublishCWMetrics           *bool                    `json:"PublishCloudWatchMetricsEnabled,omitempty"`
+	RequesterPays              *bool                    `json:"RequesterPaysEnabled,omitempty"`
 }
 
 // MergeInto applies only the members u actually carries onto cfg, leaving
@@ -92,6 +106,12 @@ func (u *WorkGroupConfigurationUpdates) MergeInto(cfg *WorkGroupConfiguration) {
 	}
 	if u.EngineVersion != nil {
 		cfg.EngineVersion = *u.EngineVersion
+	}
+	if u.EngineConfiguration != nil {
+		cfg.EngineConfiguration = u.EngineConfiguration
+	}
+	if u.MonitoringConfiguration != nil {
+		cfg.MonitoringConfiguration = u.MonitoringConfiguration
 	}
 	if u.AdditionalConfiguration != nil {
 		cfg.AdditionalConfiguration = *u.AdditionalConfiguration
@@ -323,10 +343,21 @@ type Notebook struct {
 	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
 }
 
-// EngineConfiguration is the engine configuration for a session.
+// Classification is a named set of configuration properties applied to a
+// session's engine (aws-sdk-go-v2/service/athena/types.Classification).
+type Classification struct {
+	Properties map[string]string `json:"Properties,omitempty"`
+	Name       string            `json:"Name,omitempty"`
+}
+
+// EngineConfiguration is the engine configuration for a session or workgroup.
+// Real types.EngineConfiguration is shared verbatim between Session and
+// WorkGroupConfiguration (a single generated type, confirmed via
+// athena@v1.60.4/types/types.go), so this one model backs both.
 type EngineConfiguration struct {
 	AdditionalConfigs      map[string]string `json:"AdditionalConfigs,omitempty"`
 	SparkProperties        map[string]string `json:"SparkProperties,omitempty"`
+	Classifications        []Classification  `json:"Classifications,omitempty"`
 	DefaultExecutorDpuSize int32             `json:"DefaultExecutorDpuSize,omitempty"`
 	MaxConcurrentDpus      int32             `json:"MaxConcurrentDpus,omitempty"`
 	CoordinatorDpuSize     int32             `json:"CoordinatorDpuSize,omitempty"`
@@ -397,10 +428,11 @@ type Session struct {
 
 // SessionSummary is the list view of a session.
 type SessionSummary struct {
-	SessionID       string        `json:"SessionId"`
-	Description     string        `json:"Description,omitempty"`
-	NotebookVersion string        `json:"NotebookVersion,omitempty"`
-	Status          SessionStatus `json:"Status,omitzero"`
+	EngineVersion   *EngineVersion `json:"EngineVersion,omitempty"`
+	SessionID       string         `json:"SessionId"`
+	Description     string         `json:"Description,omitempty"`
+	NotebookVersion string         `json:"NotebookVersion,omitempty"`
+	Status          SessionStatus  `json:"Status,omitzero"`
 }
 
 // CalculationStatistics holds calculation runtime stats. Progress is a

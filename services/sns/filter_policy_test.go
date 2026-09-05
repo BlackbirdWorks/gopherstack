@@ -451,7 +451,7 @@ func TestNumericBadOperatorAtSubscribeTime(t *testing.T) {
 func TestNumericValidOperatorsAccepted(t *testing.T) {
 	t.Parallel()
 
-	validOps := []string{"=", "<>", ">", ">=", "<", "<="}
+	validOps := []string{"=", ">", ">=", "<", "<="}
 	b := newA1679Backend(t)
 
 	for i, op := range validOps {
@@ -463,6 +463,25 @@ func TestNumericValidOperatorsAccepted(t *testing.T) {
 			"arn:aws:sqs:us-east-1:000000000000:q", policy)
 		require.NoErrorf(t, err, "operator %q should be accepted", op)
 	}
+}
+
+// TestNumericOperatorNotEqualRejectedAtSubscribeTime verifies that "<>" is
+// rejected at subscribe time. AWS's numeric-value-matching page documents
+// exactly five numeric operators -- =, <, <=, >, >= -- and no "<>" form
+// (docs.aws.amazon.com/sns/latest/dg/numeric-value-matching.html); gopherstack
+// previously whitelisted "<>" as a sixth, accepted-and-applied operator that
+// the real service does not support.
+func TestNumericOperatorNotEqualRejectedAtSubscribeTime(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("num-ne-op-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q",
+		`{"price":[{"numeric":["<>",10]}]}`)
+	require.Error(t, err, `"<>" is not a documented SNS numeric operator and must be rejected`)
 }
 
 // TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy exceeding

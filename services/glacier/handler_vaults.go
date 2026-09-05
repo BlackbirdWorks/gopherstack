@@ -95,13 +95,15 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		}
 	}
 
-	// Support `limit` to cap the number of results returned. AWS: 1-50.
+	// Support `limit` to cap the number of results returned. AWS: 1-50, default 10.
 	limitStr := c.QueryParam("limit")
 
-	var nextMarker *string
+	n := defaultListVaultsLimit
 
 	if limitStr != "" {
-		n, err := strconv.Atoi(limitStr)
+		var err error
+
+		n, err = strconv.Atoi(limitStr)
 		if err != nil || n < minListLimit || n > maxListVaultsLimit {
 			return h.writeError(
 				c,
@@ -115,12 +117,14 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 				),
 			)
 		}
+	}
 
-		if n < len(items) {
-			last := encodeMarker(items[n-1].VaultName)
-			nextMarker = &last
-			items = items[:n]
-		}
+	var nextMarker *string
+
+	if n < len(items) {
+		last := encodeMarker(items[n-1].VaultName)
+		nextMarker = &last
+		items = items[:n]
 	}
 
 	return c.JSON(http.StatusOK, listVaultsResponse{

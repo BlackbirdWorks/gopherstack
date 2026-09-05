@@ -335,13 +335,21 @@ func classifyError(reqErr error) (string, int) {
 			"StateMachineVersionDoesNotExist",
 			http.StatusNotFound,
 		},
-		{ErrStateMachineAliasDoesNotExist, "StateMachineAliasDoesNotExist", http.StatusNotFound},
+		// AWS: Describe/Update/DeleteStateMachineAlias each model
+		// ResourceNotFound for a missing alias -- "StateMachineAliasDoesNotExist"
+		// names no type anywhere in this SDK.
+		{ErrStateMachineAliasDoesNotExist, "ResourceNotFound", http.StatusNotFound},
 		{ErrExecutionDoesNotExist, "ExecutionDoesNotExist", http.StatusNotFound},
 		{ErrActivityDoesNotExist, "ActivityDoesNotExist", http.StatusNotFound},
-		{ErrMapRunDoesNotExist, "MapRunDoesNotExist", http.StatusNotFound},
+		// AWS: Describe/UpdateMapRun each model ResourceNotFound for a missing
+		// map run -- "MapRunDoesNotExist" names no type anywhere in this SDK.
+		{ErrMapRunDoesNotExist, "ResourceNotFound", http.StatusNotFound},
 		{ErrTaskTokenNotFound, "TaskDoesNotExist", http.StatusNotFound},
 		{ErrStateMachineAlreadyExists, "StateMachineAlreadyExists", http.StatusConflict},
-		{ErrStateMachineAliasAlreadyExists, "StateMachineAliasAlreadyExists", http.StatusConflict},
+		// AWS: CreateStateMachineAlias models ConflictException for a duplicate
+		// alias name -- "StateMachineAliasAlreadyExists" names no type anywhere
+		// in this SDK.
+		{ErrStateMachineAliasAlreadyExists, "ConflictException", http.StatusConflict},
 		{ErrExecutionAlreadyExists, "ExecutionAlreadyExists", http.StatusConflict},
 		{ErrActivityAlreadyExists, "ActivityAlreadyExists", http.StatusConflict},
 		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
@@ -353,6 +361,9 @@ func classifyError(reqErr error) (string, int) {
 		{ErrInvalidRoleArn, "InvalidArn", http.StatusBadRequest},
 		{ErrInvalidRoutingConfiguration, "InvalidRoutingConfiguration", http.StatusBadRequest},
 		{ErrTagPolicyViolation, "TagPolicyViolation", http.StatusBadRequest},
+		// AWS: TagResource models TooManyTags for exceeding the per-resource tag
+		// limit.
+		{ErrTooManyTags, "TooManyTags", http.StatusBadRequest},
 		{ErrTaskTokenAlreadyExists, "TaskTokenAlreadyExists", http.StatusBadRequest},
 		{ErrValidation, "ValidationException", http.StatusBadRequest},
 		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},

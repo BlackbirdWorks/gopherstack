@@ -159,16 +159,35 @@ type serviceJobSummary struct {
 }
 
 type listServiceJobsInput struct {
-	JobQueue  string `json:"jobQueue"`
-	JobStatus string `json:"jobStatus,omitempty"`
+	MaxResults *int32               `json:"maxResults,omitempty"`
+	NextToken  *string              `json:"nextToken,omitempty"`
+	JobQueue   string               `json:"jobQueue"`
+	JobStatus  string               `json:"jobStatus,omitempty"`
+	Filters    []keyValuesPairInput `json:"filters,omitempty"`
 }
 
 type listServiceJobsOutput struct {
+	NextToken      *string             `json:"nextToken,omitempty"`
 	JobSummaryList []serviceJobSummary `json:"jobSummaryList"`
 }
 
 func (h *Handler) handleListServiceJobs(ctx context.Context, in *listServiceJobsInput) (*listServiceJobsOutput, error) {
-	list, err := h.Backend.ListServiceJobs(ctx, in.JobQueue, in.JobStatus)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	filters := make([]KeyValueFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, KeyValueFilter(f))
+	}
+
+	list, outToken, err := h.Backend.ListServiceJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +210,12 @@ func (h *Handler) handleListServiceJobs(ctx context.Context, in *listServiceJobs
 		})
 	}
 
-	return &listServiceJobsOutput{JobSummaryList: summaries}, nil
+	out := &listServiceJobsOutput{JobSummaryList: summaries}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 // updateServiceJobInput mirrors aws-sdk-go-v2/service/batch's

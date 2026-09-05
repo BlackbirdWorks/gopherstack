@@ -127,7 +127,7 @@ func TestImportExportImage(t *testing.T) { //nolint:paralleltest // existing iss
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	t.Run("import image creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		task, err := b.ImportImage("test import", "x86_64", "Linux/UNIX")
+		task, err := b.ImportImage("test import", "x86_64", "Linux/UNIX", false, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, task.ImportTaskID)
 		assert.Equal(t, "completed", task.Status)
@@ -160,14 +160,15 @@ func TestFastLaunch(t *testing.T) { //nolint:paralleltest // existing issue.
 	imageID := "ami-testfast"
 
 	t.Run("enable fast launch", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.EnableFastLaunch(imageID))
+		require.NoError(t, b.EnableFastLaunch(imageID, ec2.FastLaunchConfig{}))
 		items := b.DescribeFastLaunchImages([]string{imageID})
 		require.Len(t, items, 1)
 		assert.Equal(t, "enabled", items[0].State)
 	})
 
 	t.Run("disable fast launch", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DisableFastLaunch(imageID))
+		_, err := b.DisableFastLaunch(imageID)
+		require.NoError(t, err)
 		items := b.DescribeFastLaunchImages([]string{imageID})
 		assert.Empty(t, items)
 	})

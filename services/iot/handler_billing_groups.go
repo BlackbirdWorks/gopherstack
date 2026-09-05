@@ -141,7 +141,9 @@ func (h *Handler) handleUpdateBillingGroup(c *echo.Context) error {
 func (h *Handler) handleDeleteBillingGroup(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/billing-groups/")
 	if err := h.Backend.DeleteBillingGroup(name); err != nil {
-		return respondErr(c, err)
+		// DeleteBillingGroup's own deserializeOpError switch declares no
+		// ResourceNotFoundException case.
+		return respondAsInvalidRequest(c, err, ErrResourceNotFound)
 	}
 
 	return c.NoContent(http.StatusOK)

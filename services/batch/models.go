@@ -64,22 +64,39 @@ type UpdatePolicy struct {
 }
 
 // ComputeEnvironment represents a Batch compute environment.
+//
+// UnmanagedvCpus (CreateComputeEnvironmentInput/UpdateComputeEnvironmentInput/
+// types.ComputeEnvironmentDetail) is only meaningful for UNMANAGED compute
+// environments; the real SDK client only rejects a nil pointer, not zero, so
+// this must round-trip a real 0 too -- kept as *int32 (not plain int32)
+// since real AWS omits this field entirely for MANAGED compute environments
+// rather than emitting zero.
+//
+// ContainerOrchestrationType ("ECS (default) or EKS",
+// types.ComputeEnvironmentDetail) is deterministic from whether
+// EksConfiguration was set at creation -- computed once and stored, not
+// re-derived, since it cannot change after creation either.
+//
+// UUID ("Unique identifier for the compute environment",
+// types.ComputeEnvironmentDetail.Uuid) is an opaque AWS-generated
+// identifier, generated once at creation like every other resource's Id in
+// this service.
 type ComputeEnvironment struct {
-	Tags             map[string]string `json:"tags"`
-	ComputeResources *ComputeResources `json:"computeResources,omitempty"`
-	EksConfiguration *EksConfiguration `json:"eksConfiguration,omitempty"`
-	UpdatePolicy     *UpdatePolicy     `json:"updatePolicy,omitempty"`
-	// region is the store.Table composite-key qualifier (see regionKey); it is
-	// unexported so it is never marshaled by a plain json.Marshal(ComputeEnvironment)
-	// and is instead carried through persistence via regionalDTO (see persistence.go).
-	region                 string
-	ServiceRole            string `json:"serviceRole,omitempty"`
-	ComputeEnvironmentArn  string `json:"computeEnvironmentArn"`
-	Type                   string `json:"type"`
-	State                  string `json:"state"`
-	Status                 string `json:"status"`
-	StatusReason           string `json:"statusReason,omitempty"`
-	ComputeEnvironmentName string `json:"computeEnvironmentName"`
+	Tags                       map[string]string `json:"tags"`
+	ComputeResources           *ComputeResources `json:"computeResources,omitempty"`
+	EksConfiguration           *EksConfiguration `json:"eksConfiguration,omitempty"`
+	UpdatePolicy               *UpdatePolicy     `json:"updatePolicy,omitempty"`
+	UnmanagedvCpus             *int32            `json:"unmanagedvCpus,omitempty"`
+	ComputeEnvironmentArn      string            `json:"computeEnvironmentArn"`
+	ServiceRole                string            `json:"serviceRole,omitempty"`
+	Type                       string            `json:"type"`
+	State                      string            `json:"state"`
+	Status                     string            `json:"status"`
+	StatusReason               string            `json:"statusReason,omitempty"`
+	ComputeEnvironmentName     string            `json:"computeEnvironmentName"`
+	ContainerOrchestrationType string            `json:"containerOrchestrationType,omitempty"`
+	UUID                       string            `json:"uuid,omitempty"`
+	region                     string
 }
 
 // ComputeEnvironmentOrder pairs a compute environment with its ordering in a job queue.

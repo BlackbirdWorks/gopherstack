@@ -163,7 +163,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleOut(t *testing.T) {
 
 				require.NoError(t, b.SetDesiredCapacity("asg-scale-out", 3))
 
-				groups, err := b.DescribeAutoScalingGroups([]string{"asg-scale-out"})
+				groups, err := b.DescribeAutoScalingGroups([]string{"asg-scale-out"}, nil)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				assert.Len(t, groups[0].Instances, 3)
@@ -302,7 +302,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleIn(t *testing.T) {
 
 				require.NoError(t, b.SetDesiredCapacity(g.AutoScalingGroupName, 1))
 
-				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName})
+				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName}, nil)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				assert.Len(t, groups[0].Instances, 1)
@@ -325,7 +325,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleIn(t *testing.T) {
 				require.Len(t, launcher.terminated, 1)
 				assert.Equal(t, []string{target}, launcher.terminated[0])
 
-				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName})
+				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName}, nil)
 				require.NoError(t, err)
 				assert.Len(t, groups[0].Instances, 2)
 			},
@@ -349,7 +349,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleIn(t *testing.T) {
 				require.Len(t, launcher.launches, 1)
 				assert.Equal(t, 1, launcher.launches[0].count)
 
-				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName})
+				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName}, nil)
 				require.NoError(t, err)
 				assert.Len(t, groups[0].Instances, 3)
 

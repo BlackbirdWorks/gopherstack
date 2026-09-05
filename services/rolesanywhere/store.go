@@ -172,11 +172,18 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // ---- pagination helpers ----
 
 // paginate returns the start and end indices for a page of results.
-// T must be a pointer type. getID extracts the ID used as a page token.
+// T must be a pointer type. getID extracts the ID used as a page token. Most
+// callers (via listByRegionIndex for CRLs/profiles/trust anchors) sort all by
+// a display Name distinct from getID's ID field, so a threshold search on the
+// ID isn't valid here -- an unresolved token instead defaults to the end of
+// the slice (an empty final page) rather than index 0, which would otherwise
+// restart pagination at page one.
 func paginate[T any](all []T, pageToken string, maxResults int, getID func(T) string) (int, int) {
 	start := 0
 
 	if pageToken != "" {
+		start = len(all)
+
 		for i, item := range all {
 			if getID(item) == pageToken {
 				start = i

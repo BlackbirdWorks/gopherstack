@@ -128,7 +128,6 @@ type CreateLaunchConfigurationTemplateInput struct {
 	SmallVolumeConf                     *LaunchTemplateDiskConf
 	Tags                                map[string]string
 	BootMode                            string
-	Ec2LaunchTemplateID                 string
 	LaunchDisposition                   string
 	MapAutoTaggingMpeID                 string
 	ParametersEncryptionKey             string
@@ -166,7 +165,6 @@ func (b *InMemoryBackend) CreateLaunchConfigurationTemplate(
 		LargeVolumeConf:                     in.LargeVolumeConf,
 		SmallVolumeConf:                     in.SmallVolumeConf,
 		BootMode:                            in.BootMode,
-		Ec2LaunchTemplateID:                 in.Ec2LaunchTemplateID,
 		LaunchDisposition:                   in.LaunchDisposition,
 		MapAutoTaggingMpeID:                 in.MapAutoTaggingMpeID,
 		ParametersEncryptionKey:             in.ParametersEncryptionKey,
@@ -245,7 +243,6 @@ type UpdateLaunchConfigurationTemplateInput struct {
 	LargeVolumeConf                     *LaunchTemplateDiskConf
 	SmallVolumeConf                     *LaunchTemplateDiskConf
 	BootMode                            *string
-	Ec2LaunchTemplateID                 *string
 	LaunchDisposition                   *string
 	MapAutoTaggingMpeID                 *string
 	TargetInstanceTypeRightSizingMethod *string
@@ -302,10 +299,6 @@ func applyLaunchTemplateUpdateShapes(tmpl *LaunchConfigurationTemplate, in Updat
 
 	if in.BootMode != nil {
 		tmpl.BootMode = *in.BootMode
-	}
-
-	if in.Ec2LaunchTemplateID != nil {
-		tmpl.Ec2LaunchTemplateID = *in.Ec2LaunchTemplateID
 	}
 }
 

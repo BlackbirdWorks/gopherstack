@@ -435,6 +435,7 @@ func (h *Handler) pollSubscribeToShardTick(
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
+			EncryptionType:              r.EncryptionType,
 			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
 		}
 	}

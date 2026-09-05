@@ -144,7 +144,9 @@ func TestRetrievalJobAsyncLifecycle(t *testing.T) {
 	}
 }
 
-// TestSortedListJobs verifies ListJobs returns jobs sorted by JobID.
+// TestSortedListJobs verifies ListJobs returns jobs sorted ascending by
+// CreationDate (initiation time), matching the real API's documented behavior --
+// NOT by JobID, which is a crypto/rand string uncorrelated with creation order.
 func TestSortedListJobs(t *testing.T) {
 	t.Parallel()
 
@@ -153,7 +155,7 @@ func TestSortedListJobs(t *testing.T) {
 		jobCount   int
 		wantSorted bool
 	}{
-		{name: "jobs_sorted_by_id", jobCount: 3, wantSorted: true},
+		{name: "jobs_sorted_by_creation_date", jobCount: 3, wantSorted: true},
 	}
 
 	for _, tt := range tests {
@@ -176,7 +178,7 @@ func TestSortedListJobs(t *testing.T) {
 			require.Len(t, jobs, tt.jobCount)
 
 			for i := 1; i < len(jobs); i++ {
-				assert.LessOrEqual(t, jobs[i-1].JobID, jobs[i].JobID)
+				assert.LessOrEqual(t, jobs[i-1].CreationDate, jobs[i].CreationDate)
 			}
 		})
 	}

@@ -3,6 +3,38 @@ service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-08
+# 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
+# NextToken/PaginationToken actually SET one before the collection can exceed a page?). Enumerated
+# all 16 SDK ops whose Input/Output declare a continuation token. This service's dispatch table
+# layers multiple op-maps per family (groupsOpsA/B, identityProvidersOpsA/B/C,
+# resourceServersOpsA/B, userPoolClientsOpsA/B/C, ...) with later maps.Copy calls in handler.go
+# overwriting earlier ones on key collision -- for every op below, verified which registration
+# actually wins before auditing its handler (the "duplicate wire-key" risk this file's own history
+# already flags for cognitoidp). 5 genuine bugs found and fixed, 3 of them (ListUserImportJobs,
+# ListResourceServers, ListUserPoolClients) previously known and explicitly left `deferred` (see
+# below) because the wire structs didn't even declare the field, not just leave it unpopulated --
+# all three now do. Also fixed: ListIdentityProviders (field WAS already declared -- the
+# `identity_providers` row below claimed "no gaps found" from a field diff that checked item
+# shape, not pagination) and AdminListGroupsForUser (field never declared). All 5 fixed via
+# pkgs/page.New at the handler layer (the winning handler in each duplicate-registration case),
+# reusing each backend's existing deterministic sort. 9 ops confirmed already correct: AdminListDevices,
+# AdminListUserAuthEvents, ListDevices, ListGroups (via handleListGroupsFull -> ListGroupsPage),
+# ListTerms, ListUserPools, ListUsers, ListUsersInGroup (via handleListUsersInGroupFull ->
+# ListUsersInGroupPage), ListWebAuthnCredentials.
+#
+# CORRECTION 2026-08-29 (pagination-arithmetic sweep): "confirmed already correct" above was
+# checked for cursor-population/wire-shape only, not pagination arithmetic. 7 of these 9 --
+# AdminListDevices, ListDevices, ListGroups, ListUsersInGroup, ListWebAuthnCredentials, ListUsers,
+# ListUserPools -- turned out to have a genuine Class B (infinite loop on a stale cursor) bug in
+# their own hand-rolled equality-scan cursor. None of them use pkgs/page. Fixed this pass; see the
+# dated pagination-arithmetic section near the end of this file. ListTerms (real pkgs/page.New
+# user) and AdminListUserAuthEvents (real bug too, but its authEvents store is never populated by
+# any code path in this emulator, so it was unreachable in practice -- fixed anyway) are covered
+# there too. 2 left unfixed as provably bounded:
+# ListUserPoolClientSecrets (real AWS's documented 2-active-secrets limit, enforced here as
+# maxExtraClientSecrets) and ListUserPoolReplicas (this backend enforces "at most one [replica] is
+# allowed per user directory", matching real Cognito's current one-secondary-region limit --
+# user_pool_replicas.go:68-71).
 overall: A                # 2026-08-08 (gopherstack-kxow): restored from B to A -- terms/, the
                        # sole reason for the prior B (its entire wire model was invented and
                        # unreachable by any real SDK client), is now a full, field-diffed
@@ -85,7 +117,7 @@ ops:
   AdminUserGlobalSignOut: {wire: ok, errors: ok, state: ok, persist: ok, note: "revokes refresh tokens + stamps tokenRevokedBefore so already-issued access tokens are rejected too"}
   GlobalSignOut: {wire: ok, errors: ok, state: ok, persist: ok, note: "same revocation mechanism as AdminUserGlobalSignOut"}
   RevokeToken: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
+  ListUsers: {wire: ok, errors: ok, state: fixed, persist: ok, note: "CORRECTION 2026-08-29 (pagination-arithmetic sweep): the 'pkgs/page-style pagination' note above was wrong -- handleListUsers hand-rolls its own equality-scan cursor inline (handler_users.go), does not call pkgs/page at all, and had a Class B infinite-loop bug on a stale cursor. See the pagination-arithmetic section below."}
   ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-22 (gopherstack-zquj): same adminUserJSON \"UserAttributes\"-vs-\"Attributes\" bug as AdminCreateUser (this type backs both ops' item shape). See Notes below."}
   ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (prior pass, gopherstack-8fw). THIS PASS (gopherstack-n7gh follow-up): an unknown username now also tries the UserMigration_ForgotPassword Lambda trigger (user_migration.go's tryUserMigrationForgotPassword) before falling back to PreventUserExistenceErrors masking / UserNotFoundException, matching the documented 'user migration during forgot-password flow' trigger source. Per AWS docs, no password is sent in this event (request.password is omitted entirely, not sent empty) since the user has none yet."}
   ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, same rationale as ConfirmSignUp (this pass, closes remainder of gopherstack-aib)"}
@@ -103,16 +135,16 @@ ops:
   GetUserPoolMfaConfig/SetUserPoolMfaConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   jwks_well_known: {wire: ok, errors: ok, state: ok, persist: ok, note: "RS256, real RSA-2048 per pool, JWKS + GetSigningCertificate both derive from the same key"}
   AdminGetUserAuthFactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4, new SDK op. Field-diffed AdminGetUserAuthFactorsOutput against the SDK: Username/ConfiguredUserAuthFactors/PreferredMfaSetting/UserMFASettingList all present. Factors are derived from real user state, not fabricated: PASSWORD from user.PasswordHash != \"\"; SMS_OTP from UserMFASettingList containing SMS_MFA or any legacy MFAOptions[].DeliveryMedium == SMS; SOFTWARE_TOKEN from user.TOTPVerified or SOFTWARE_TOKEN_MFA in UserMFASettingList; WEB_AUTHN from a non-empty webauthnCredentials entry for the user. Shares its PASSWORD/SMS_OTP/WEB_AUTHN derivation with the existing GetUserAuthFactors via a new commonAuthFactorSetLocked helper (users.go) -- GetUserAuthFactors' own behavior/output is unchanged, only the shared plumbing was extracted. FIXED 2026-08-23 (manifest-harvest pass, bd: none filed): the SOFTWARE_TOKEN derivation was moved into commonAuthFactorSetLocked itself, so GetUserAuthFactors now derives it too -- both GetUserAuthFactorsOutput and AdminGetUserAuthFactorsOutput share the exact same types.AuthFactorType enum (PASSWORD/EMAIL_OTP/SMS_OTP/WEB_AUTHN/SOFTWARE_TOKEN, cognitoidentityprovider@v1.67.4 types/enums.go:184-192) so there was no reason for the self-service op to omit a factor the admin op derives from the same user record. This was real state the backend already tracked (user.TOTPVerified / SOFTWARE_TOKEN_MFA in UserMFASettingList) and never surfaced through GetUserAuthFactors -- the item this note itself previously deferred as items_still_open. Proven via new TestInMemoryBackend_GetUserAuthFactors_SoftwareToken (users_test.go), hand-reverted to confirm it fails against the pre-fix code (asserts SOFTWARE_TOKEN present, pre-fix returns only PASSWORD), restored, md5sum byte-identical. EMAIL_OTP remains unmodeled by both ops -- this backend has no EmailMfaSettings state anywhere (verified: zero matches for EmailMfaSettings/EmailMFASettings in services/cognitoidp), a genuine modelling gap, not a bug -- not added."}
-  user_import_jobs: {status: fixed, note: "FIXED 2026-08-21 (gopherstack-muzq): StartUserImportJob correctly stamps InProgress, and StopUserImportJob correctly reaches Stopped -- but the self-completion path (a real import job finishes on its own once its CSV is processed, per UserImportJobStatusType's InProgress->Succeeded/Failed transitions, cognitoidp@v1.67.4 types/enums.go) did not exist: nothing but an explicit client Stop ever wrote to Status again. TestUserImportJob_CRUD only ever asserted InProgress right after Start then moved straight to Stop, so a machine that never self-advances was indistinguishable from a correct one. Confirmed no other advancing path anywhere in the package. Reused the package's own existing Janitor (janitor.go, a worker.Group ticker that already sweeps expired refresh tokens/MFA sessions) rather than inventing new infrastructure: added AdvanceUserImportJobStatuses(minAge) (user_import.go), mirroring bedrock's AdvanceCustomizationJobStatuses(minAge) shape, wired into Janitor.SweepOnce. New test TestUserImportJob_SelfCompletesToSucceeded (user_import_test.go) drives the janitor directly and asserts DescribeUserImportJob eventually reports Succeeded with no Stop call. Hand-reverted user_import.go+janitor.go to git show HEAD, confirmed the new test fails (Condition never satisfied, status stuck InProgress), restored, md5sum byte-identical. op-by-op re-walk THIS PASS (gopherstack-n7gh follow-up): field-diffed userImportJobType against types.UserImportJobType and found CreateUserImportJobInput's required CloudWatchLogsRoleArn and optional PasswordHashingAlgorithm were accepted by no input field at all (silently dropped -- class a) -- fixed, now stored and echoed. Also added CreationDate/StartDate/CompletionDate (CreatedAt was already tracked internally but never echoed; StartedAt/CompletedAt added, set by StartUserImportJob/StopUserImportJob), PreSignedUrl (fabricated the same way domains.go fabricates CloudFrontDistribution/S3Bucket -- an AWS-internal value no caller can validate), and FailedUsers/ImportedUsers/SkippedUsers=0 (honest: this backend has no real CSV-processing pipeline, so zero imported/failed/skipped is literally true, not fabricated). DEFERRED, not fixed: ListUserImportJobsInput.MaxResults is a required real field this backend's listUserImportJobsInput doesn't even declare -- no pagination is implemented (matches the same gap in resource_servers, see below); ListUserImportJobs returns everything in one page regardless of MaxResults."}
+  user_import_jobs: {status: fixed, note: "FIXED 2026-08-21 (gopherstack-muzq): StartUserImportJob correctly stamps InProgress, and StopUserImportJob correctly reaches Stopped -- but the self-completion path (a real import job finishes on its own once its CSV is processed, per UserImportJobStatusType's InProgress->Succeeded/Failed transitions, cognitoidp@v1.67.4 types/enums.go) did not exist: nothing but an explicit client Stop ever wrote to Status again. TestUserImportJob_CRUD only ever asserted InProgress right after Start then moved straight to Stop, so a machine that never self-advances was indistinguishable from a correct one. Confirmed no other advancing path anywhere in the package. Reused the package's own existing Janitor (janitor.go, a worker.Group ticker that already sweeps expired refresh tokens/MFA sessions) rather than inventing new infrastructure: added AdvanceUserImportJobStatuses(minAge) (user_import.go), mirroring bedrock's AdvanceCustomizationJobStatuses(minAge) shape, wired into Janitor.SweepOnce. New test TestUserImportJob_SelfCompletesToSucceeded (user_import_test.go) drives the janitor directly and asserts DescribeUserImportJob eventually reports Succeeded with no Stop call. Hand-reverted user_import.go+janitor.go to git show HEAD, confirmed the new test fails (Condition never satisfied, status stuck InProgress), restored, md5sum byte-identical. op-by-op re-walk THIS PASS (gopherstack-n7gh follow-up): field-diffed userImportJobType against types.UserImportJobType and found CreateUserImportJobInput's required CloudWatchLogsRoleArn and optional PasswordHashingAlgorithm were accepted by no input field at all (silently dropped -- class a) -- fixed, now stored and echoed. Also added CreationDate/StartDate/CompletionDate (CreatedAt was already tracked internally but never echoed; StartedAt/CompletedAt added, set by StartUserImportJob/StopUserImportJob), PreSignedUrl (fabricated the same way domains.go fabricates CloudFrontDistribution/S3Bucket -- an AWS-internal value no caller can validate), and FailedUsers/ImportedUsers/SkippedUsers=0 (honest: this backend has no real CSV-processing pipeline, so zero imported/failed/skipped is literally true, not fabricated). FIXED (2026-08-30, cursor sweep): the deferred pagination gap noted below is closed -- listUserImportJobsInput/Output now declare PaginationToken/MaxResults (real AWS field names, not NextToken -- confirmed from api_op_ListUserImportJobs.go) and handleListUserImportJobs pages via pkgs/page.New. Proven via TestListUserImportJobs_Pagination + hand-revert."}
   devices: {status: ok, note: "op-by-op re-walk THIS PASS: field-diffed deviceType against types.DeviceType and confirmed absence carefully -- the real DeviceType has exactly 5 fields (DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate) and NO DeviceStatus field at all; device remembered status is write-only via AdminUpdateDeviceStatus/UpdateDeviceStatus's DeviceRememberedStatus and is never readable back through Get/List/AdminGet/AdminList in real Cognito. This backend's deviceType.DeviceStatus is therefore an EXTRA fabricated field not on the real wire -- flagged, NOT fixed: several existing tests (devices_test.go) assert on it, a real AWS SDK JSON client harmlessly ignores unknown response keys, and removing it would only lose test-observable state for a purely cosmetic gain. Documented as a trap below rather than silently left as-is. Evidence, checked 2026-08-13 against aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4 types/types.go:677-698: struct DeviceType has exactly DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate, no DeviceStatus member; the awsAwsjson11_deserializeDocumentDeviceType default case (deserializers.go) discards unrecognized keys, confirming the extra field is additive-only, not a wire break. Re-derive by diffing that struct against whatever cognitoidentityprovider version go.mod pins next -- do not assume this verdict survives an SDK bump unchecked."}
   webauthn: {status: ok, note: "op-by-op re-walk THIS PASS found and fixed two real bugs. (1) The response wire key was wrong: this backend emitted \"FriendlyName\", but the real WebAuthnCredentialDescription's JSON key (confirmed in deserializers.go) is \"FriendlyCredentialName\" -- meaning no real aws-sdk-go-v2 client could ever read this field back; a classic wrong-shape bug parity-principles.md warns about, caught only by reading the actual struct/deserializer, not the handler's own output. (2) AuthenticatorTransports, a REQUIRED field on WebAuthnCredentialDescription, was entirely absent; it is honestly derivable from the client-submitted Credential blob's response.transports (a real WebAuthn PublicKeyCredential.toJSON() field), which was already being accepted but never read (class a) -- now extracted and threaded through CompleteWebAuthnRegistration/ListWebAuthnCredentials. UPDATE 2026-08-21 (gopherstack-r80d batch 19): required Credentials array was still tagged omitempty on ListWebAuthnCredentialsOutput, dropping the key for a user with zero registered credentials despite the handler already building a non-nil empty slice -- fixed, see Notes below."}
   managed_login_branding: {status: ok, note: "op-by-op re-walk THIS PASS found the largest gap in this sweep: Settings (the branding style JSON), Assets (the array of logo/background image files), and UseCognitoProvidedValues -- literally the entire payload of the 'managed login branding' feature -- were accepted by no input field at all on Create/Update and never echoed on any read (class a, not a minor omission). Fixed: stored as the raw client-supplied documents, un-transformed, the same pattern UserPool.LambdaConfig already uses for its own arbitrary-shaped config, since Settings is an AWS Document type (arbitrary JSON) this backend has no reason to model field-by-field. Also fixed CreationDate/LastModifiedDate (CreatedAt/LastModifiedAt were already tracked internally but never echoed -- class b, bounded)."}
-  risk_config: {status: ok, note: "op-by-op re-walk THIS PASS: the live path (SetRiskConfigurationFull/DescribeRiskConfigurationFull, wired via securityConfigOpsB overriding securityConfigOpsA -- same domainsOpsA/B shadowing pattern as domains.go) is a real, fully typed implementation already field-diffed clean against RiskConfigurationType/AccountTakeoverRiskConfigurationType/CompromisedCredentialsRiskConfigurationType/RiskExceptionConfigurationType in a prior pass. Confirmed the securityConfigOpsA SetRiskConfiguration/DescribeRiskConfiguration handlers that hardcode nil are DEAD code (shadowed, never dispatched), not a live bug -- verified by reading handler.go's maps.Copy ordering, not assumed. DEFERRED, not fixed: RiskConfigurationType.LastModifiedDate is not tracked internally at all (no LastModifiedAt field on the risk-config storage type), so it can't be added as cheaply as the CreatedAt-echo fixes elsewhere this pass. UPDATE 2026-08-21 (gopherstack-r80d batch 19): NotifyConfigurationType.SourceArn (required whenever NotifyConfiguration is present) was tagged omitempty and dropped when a real client sent an explicit empty-string SourceArn (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. AccountTakeoverActionType.Notify's omitempty (drops a real `false`) also fixed but not counted as a bug, since no real client round trip can distinguish an omitted key from an explicit false. AccountTakeoverRiskConfigurationType.Actions/CompromisedCredentialsRiskConfigurationType.Actions confirmed structurally unreachable-empty: the real SDK's own client-side validators reject a nil Actions before the request is ever sent. See Notes below."}
+  risk_config: {status: ok, note: "op-by-op re-walk THIS PASS: the live path (SetRiskConfigurationFull/DescribeRiskConfigurationFull, wired via securityConfigOpsB overriding securityConfigOpsA -- same domainsOpsA/B shadowing pattern as domains.go) is a real, fully typed implementation already field-diffed clean against RiskConfigurationType/AccountTakeoverRiskConfigurationType/CompromisedCredentialsRiskConfigurationType/RiskExceptionConfigurationType in a prior pass. Confirmed the securityConfigOpsA SetRiskConfiguration/DescribeRiskConfiguration handlers that hardcode nil are DEAD code (shadowed, never dispatched), not a live bug -- verified by reading handler.go's maps.Copy ordering, not assumed. CLOSED 2026-08-29 (bd gopherstack-6flj/21my continuation): RiskConfigurationType.LastModifiedDate is now tracked -- see the gaps entry above for detail. UPDATE 2026-08-21 (gopherstack-r80d batch 19): NotifyConfigurationType.SourceArn (required whenever NotifyConfiguration is present) was tagged omitempty and dropped when a real client sent an explicit empty-string SourceArn (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. AccountTakeoverActionType.Notify's omitempty (drops a real `false`) also fixed but not counted as a bug, since no real client round trip can distinguish an omitted key from an explicit false. AccountTakeoverRiskConfigurationType.Actions/CompromisedCredentialsRiskConfigurationType.Actions confirmed structurally unreachable-empty: the real SDK's own client-side validators reject a nil Actions before the request is ever sent. See Notes below."}
   domains: {status: ok, note: "CreateUserPoolDomain/DescribeUserPoolDomain/DeleteUserPoolDomain/UpdateUserPoolDomain — field-diffed DomainDescriptionType against the SDK: DescribeUserPoolDomain was missing CustomDomainConfig entirely (prior pass) — fixed then. THIS PASS (gopherstack-n7gh follow-up): AWSAccountId/ManagedLoginVersion/S3Bucket now populated. AWSAccountId echoes the backend's own accountID (same source ARN-building already uses, e.g. arn.Build calls in user_pools.go) rather than pkgs/awsmeta, since nothing in this service's dispatch path ever calls awsmeta.Set -- reading awsmeta.Account(ctx) here would have always silently resolved to its hardcoded default, not real per-backend state. ManagedLoginVersion is a real request field on CreateUserPoolDomain/UpdateUserPoolDomainInput AND a real response field (verified in both api_op_*.go files) that was accepted by neither our create nor update input struct at all (class a) -- fixed, defaults to 1 (hosted UI classic) when unset at creation, an explicit undocumented-default assumption (AWS doesn't state the default in godoc), left unchanged on update when omitted. S3Bucket is fabricated the same way CloudFrontDistribution already was (an AWS-internal bucket name, informational-only, not independently verifiable by any client). Routing/Version (also real DomainDescriptionType fields) remain unpopulated -- multi-region domain routing and app-version reporting this backend has no model for; tracked as items_still_open, not silently dropped."}
   terms: {status: ok, note: "CLOSED 2026-08-08 (gopherstack-kxow): full redesign around the real wire model, field-diffed against api_op_CreateTerms.go/api_op_DeleteTerms.go/api_op_DescribeTerms.go/api_op_ListTerms.go/api_op_UpdateTerms.go and types.TermsType/TermsDescriptionType/TermsEnforcementType/TermsSourceType -- the complete op family the SDK defines; no GetTerms exists (confirmed by directory listing, not assumed). CreateTerms now requires ClientId/Enforcement/TermsName/TermsSource/UserPoolId and accepts Links (map[string]string); Enforcement/TermsSource are validated against their real single-value enums (NONE/LINK, 'reserved for future use' per the SDK godoc). Storage rescoped: terms is now a store.Table[Terms] keyed by a server-generated TermsID (uuid, matching AWS's opaque TermsId) with a byPool secondary index for ListTerms, replacing the old table keyed directly by UserPoolID (which could hold only one bare {UserPoolID,Text} record per pool, structurally incompatible with the real multi-document-per-client model). CreateTerms validates ClientId belongs to UserPoolId (ResourceNotFoundException) and rejects a duplicate ClientId+TermsName pair (TermsExistsException, a real error code on CreateTerms/UpdateTerms per deserializers.go). Describe/Update/Delete take TermsId+UserPoolId and 404 if TermsId doesn't belong to that pool. ListTerms now paginates for real (pkgs/page, MaxResults/NextToken) where the old op ignored both. List output uses TermsDescriptionType (TermsId/TermsName/Enforcement/CreationDate/LastModifiedDate only -- no ClientId/Links/TermsSource/UserPoolId, confirmed by reading the full struct, not assumed from TermsType). cognitoidpSnapshotVersion deliberately NOT bumped despite the Terms DTO shape/key change: Restore discards the ENTIRE snapshot on a version mismatch (persistence.go), so bumping would lose every pool/user/password-hash/MFA-setting on upgrade to protect one table that cannot hold real pre-redesign data anyway (CreateTerms was unreachable by any real SDK client before this fix). Restore instead handles terms separately via restoreTermsLocked: it decodes defensively and drops any row that doesn't carry a real TermsID (a v1 pre-redesign {UserPoolID,Text} row decodes with TermsID empty and is filtered out), while every other table restores normally. Covered by TestInMemoryBackend_RestoreDropsPreRedesignTerms (splices an old-shape terms payload into an otherwise-real snapshot and asserts pools/users survive while terms comes back empty). New tests in terms_test.go drive real required-field JSON through the handler (the exact thing the old bug hid behind) and were verified to fail against the pre-fix code in a worktree before the fix landed. UPDATE 2026-08-21 (gopherstack-r80d batch 19): required TermsType.Links was still tagged omitempty and dropped whenever Links was omitted on Create (a real, reachable state) -- fixed, see Notes below."}
   log_delivery: {status: ok, note: "op-by-op re-walk THIS PASS found SetLogDeliveryConfiguration was a disguised stub (parity-principles.md rule 4): handleSetLogDeliveryConfiguration called Backend.SetLogDeliveryConfiguration(in.UserPoolID, nil) UNCONDITIONALLY -- the client's LogConfigurations payload (a required field) was never read at all, and the input struct didn't even declare it, so Set was a no-op regardless of what was sent, and Get always echoed back whatever Set never stored. Fixed: LogConfigurations is now accepted (stored/echoed as the raw client-supplied array, same un-transformed-map pattern as LambdaConfig/managed_login_branding's Settings, given the nested CloudWatchLogsConfigurationType/FirehoseConfigurationType/S3ConfigurationType/EventSourceName/LogLevel enum tree) and wrapped in the real LogDeliveryConfigurationType shape ({UserPoolId, LogConfigurations})."}
-  identity_providers: {status: ok, note: "FULL field diff THIS PASS (not just spot-checked): identityProviderJSON/identityProviderSummaryJSON (the live 'Full'/accurate wire path, wired the same domainsOpsA/B-shadowing way as domains.go) match types.IdentityProviderType and types.ProviderDescription field-for-field -- AttributeMapping/CreationDate/IdpIdentifiers/LastModifiedDate/ProviderDetails/ProviderName/ProviderType/UserPoolId all present with correct field names and epoch-seconds timestamps. No gaps found; confirmed clean rather than assumed."}
-  resource_servers: {status: ok, note: "FULL field diff THIS PASS: resourceServerAccurateType matches types.ResourceServerType exactly (Identifier/Name/Scopes/UserPoolId, no timestamp fields on the real type either). No gaps found. DEFERRED, not fixed: ListResourceServersInput.MaxResults/PaginationToken are real optional request fields and ListResourceServersOutput.NextToken is a real response field, none of which this backend implements -- ListResourceServers always returns every resource server in one page, the same unimplemented-pagination gap found in user_import_jobs above. UPDATE 2026-08-21 (gopherstack-r80d batch 19): ResourceServerScopeType.ScopeName/.ScopeDescription (both required *string per scope) were tagged omitempty and dropped when a real client sent an explicit empty-string value (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. See Notes below."}
+  identity_providers: {status: ok, note: "FULL field diff THIS PASS (not just spot-checked): identityProviderJSON/identityProviderSummaryJSON (the live 'Full'/accurate wire path, wired the same domainsOpsA/B-shadowing way as domains.go) match types.IdentityProviderType and types.ProviderDescription field-for-field -- AttributeMapping/CreationDate/IdpIdentifiers/LastModifiedDate/ProviderDetails/ProviderName/ProviderType/UserPoolId all present with correct field names and epoch-seconds timestamps. No gaps found in item shape. CORRECTION (2026-08-30, cursor sweep): 'no gaps found' above was itself a false-clean -- it was a field diff of item shape, not pagination. listIdentityProvidersFullOutput already declared NextToken (unlike resource_servers/user_import_jobs above, which didn't even declare the field) but handleListIdentityProvidersFull never populated it, silently returning every provider on one page regardless of MaxResults. FIXED via pkgs/page.New. Proven via TestListIdentityProviders_Pagination + hand-revert."}
+  resource_servers: {status: ok, note: "FULL field diff THIS PASS: resourceServerAccurateType matches types.ResourceServerType exactly (Identifier/Name/Scopes/UserPoolId, no timestamp fields on the real type either). No gaps found in item shape -- but see cursor-sweep fix below for what a field diff of item shape alone misses. UPDATE 2026-08-21 (gopherstack-r80d batch 19): ResourceServerScopeType.ScopeName/.ScopeDescription (both required *string per scope) were tagged omitempty and dropped when a real client sent an explicit empty-string value (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. See Notes below. FIXED (2026-08-30, cursor sweep): the deferred pagination gap noted below is closed -- listResourceServersAccurateInput/Output (the handler that actually wins registration, resourceServersOpsB over resourceServersOpsA) now declare NextToken and handleListResourceServersAccurate pages via pkgs/page.New. Proven via TestListResourceServers_Pagination + hand-revert."}
   user_pool_replicas: {status: ok, note: "parity-4, new family (multi-Region replication / MRR): CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/DeleteUserPoolReplica. UserPoolReplicaType field-diffed against the SDK (RegionName/Role/Status/UserPoolArn); the X-Amz-Target names and CreateUserPoolReplicaOutput/DeleteUserPoolReplicaOutput/UpdateUserPoolReplicaOutput/ListUserPoolReplicasOutput field names (all singular 'UserPoolReplica' except the List op's plural 'UserPoolReplicas') were confirmed against deserializers.go, not assumed from the (looser) dev-guide prose, which shows a JSON example using a 'Replica' key that does NOT match the real wire field -- a live trap for a future auditor who trusts the docs example over the SDK. CreateUserPoolReplica validates the pool exists (ResourceNotFoundException) and rejects a replica Region equal to the primary pool's own Region (InvalidParameterException) -- both real, documented AWS behaviors. It also enforces the real documented constraint 'You can have at most one secondary replica in an additional Region per user directory' by rejecting a second CreateUserPoolReplica call for the same pool regardless of region (InvalidParameterException) -- this is NOT an invented restriction, it is quoted verbatim from the Cognito multi-Region-replication developer guide. New replicas start Status=INACTIVE per that same guide ('New secondary user pools start in the INACTIVE state'); note the guide's own JSON example elsewhere shows an initial 'PENDING_CREATE' status that is not even a member of the SDK's ReplicaStatusType enum (CREATING/ACTIVE/INACTIVE/DELETING) -- INACTIVE was chosen as the only real, both-documented-and-enum-valid option; this is a explicit, documented assumption, not a fabrication, but flagged for the next auditor to re-verify against a live pool if ever possible. DeleteUserPoolReplica returns the replica with Status transitioned to DELETING (mirroring AWS's documented async deletion) before removing it. UserPoolTags on Create are stored under the replica's own ARN via the existing resourceTags/ListTagsForResource mechanism (real state, not dropped). Persisted via a new userPoolReplicas store.Table (composite poolID:region key, byPool index), round-tripped through Snapshot/Restore, covered by TestInMemoryBackend_SnapshotRestore's full_state_round_trip case."}
   provisioned_limits: {status: ok, note: "parity-4, new family: GetProvisionedLimit/UpdateProvisionedLimit. Confirmed ACCOUNT-LEVEL (not per-user-pool) by fetching the live Cognito quotas developer guide this pass: 'Provisioned limits are account-level resources. They apply to the aggregate rate of all requests from all user pools in one AWS Region in your AWS account' -- this backend models exactly one account+Region so GetProvisionedLimit/UpdateProvisionedLimit take no UserPoolId and do no pool-existence check, which is correct, not an oversight. LimitDefinitionType/LimitType field-diffed against the SDK (LimitClass/Attributes, FreeLimitValue/ProvisionedLimitValue/LimitDefinition). The 18 API_CATEGORY default (free) RPS values in provisioned_limits.go's category table (UserAuthentication=120, UserCreation=50, UserFederation=25, UserAccountRecovery=30, UserRead=120, UserUpdate=25, UserToken=120, UserResourceRead=50, UserResourceUpdate=25, UserList=30, UserPoolRead=15, UserPoolUpdate=15, UserPoolResourceRead=20, UserPoolResourceUpdate=15, UserPoolClientRead=15, UserPoolClientUpdate=15, ClientAuthentication=150, LimitManagement=1) and their Adjustable:Yes/No flags are the real, live-fetched values from 'Amazon Cognito user pools API operation categories and request rate quotas' -- not invented. UpdateProvisionedLimit rejects non-adjustable categories (InvalidParameterException, matching 'Only adjustable quota categories support provisioning') and rejects a negative RequestedLimitValue. One explicit, documented assumption: AWS's real two-tier model has a Service-Quotas-granted 'account-level max limit' above the provisioned limit, but that ceiling is account-specific (granted by AWS Support) with no universal published number -- this backend models an adjustable category's account-level max as 10x its documented default RPS (accountMaxMultiplier in provisioned_limits.go) and enforces it with ServiceQuotaExceededException, the real exception name AWS uses for this condition. Persisted via a new flat provisionedLimits map[string]int32 (Category -> current value), round-tripped through Snapshot/Restore."}
 gaps:
@@ -123,14 +155,159 @@ gaps:
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): op-by-op re-walk of user_import_jobs/devices/webauthn/managed_login_branding/risk_config/terms/log_delivery plus a full field diff of identity_providers/resource_servers, the remaining named scope item. Found and fixed 4 real bugs beyond the headline items: webauthn's wrong wire key (FriendlyName vs FriendlyCredentialName) and missing required AuthenticatorTransports; managed_login_branding's Settings/Assets/UseCognitoProvidedValues completely discarded; SetLogDeliveryConfiguration's disguised-nil-stub; CreateUserImportJob's dropped CloudWatchLogsRoleArn/PasswordHashingAlgorithm. See families above for each. terms/ was found to be built on a fictional wire model entirely and needs a full redesign -- explicitly NOT fixed this pass, see deferred below."
 deferred:
   - "devices' deviceType.DeviceStatus is an extra field NOT present on the real DeviceType wire shape (verified by reading the complete SDK struct: only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist; device remembered status is write-only in real Cognito, never returned by any Get/List device op). Not removed: several existing tests assert on it and no real client breaks from an extra unknown JSON key, so removing it purely for spec purity would cost test-observable state for no functional gain. Flagged for whoever next touches devices.go so it isn't mistaken for a verified-real field. Evidence: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4, types/types.go:677-698, checked 2026-08-13 -- see families.devices above for the full citation including the deserializer default-case confirmation. This entry records a verdict as of that version; re-check the same struct before trusting it against a newer SDK pin."
-  - "risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix."
-  - "Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass."
+  - "CLOSED 2026-08-29 (bd gopherstack-6flj/21my continuation): risk_config's RiskConfigurationType.LastModifiedDate is now tracked -- TypedRiskConfiguration gained a LastModifiedAt field, stamped by SetTypedRiskConfiguration on every SetRiskConfiguration call and echoed by both DescribeRiskConfiguration and SetRiskConfigurationOutput via toRiskConfigJSON. See TestSetRiskConfiguration_LastModifiedDatePopulated (wire_field_fixes_test.go) for the real-SDK-client round trip."
+  - "NEW (found 2026-08-29, NOT fixed -- out of scope for a bounded wire-field pass): InitiateAuthInput.AuthFlow's real, documented \"USER_AUTH\" value (choice-based authentication -- types/enums.go AuthFlowType, api_op_InitiateAuth.go) is entirely unimplemented. precheckAuthLocked's AuthFlow allow-list (auth.go) only accepts USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/ADMIN_NO_SRP_AUTH/USER_SRP_AUTH/ADMIN_USER_SRP_AUTH/CUSTOM_AUTH; a real SDK client sending AuthFlow=USER_AUTH gets a clean, honest ErrInvalidUserPoolConfig rejection rather than a silent misbehavior (verified by reading precheckAuthLocked directly -- not a wire bug, a missing feature), but no InitiateAuth call using USER_AUTH, PREFERRED_CHALLENGE, SELECT_CHALLENGE, or the AvailableChallenges response member can ever succeed here. Grep confirms zero references to USER_AUTH/AvailableChallenges/SELECT_CHALLENGE/PREFERRED_CHALLENGE anywhere in this package outside the SDK import. This is a structural gap on the scale of the pre-redesign terms/ finding (a whole real, reachable feature missing, not a field-level defect) -- flagged for a dedicated future pass rather than attempted here."
+  - "CLOSED 2026-08-30 (cursor sweep): pagination is now implemented on ListUserImportJobs and ListResourceServers (see their own entries above), plus ListUserPoolClients, ListIdentityProviders, and AdminListGroupsForUser, which the same sweep found had the identical gap but were not yet named here."
   - "domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope."
   - "MFA_SETUP's ChallengeParameters carries no MFAS_CAN_SETUP value (InitiateAuth doc: 'The MFA types activated for the user pool will be listed in the challenge parameters MFAS_CAN_SETUP value') -- this backend does not populate ChallengeParameters for any non-SRP challenge (SOFTWARE_TOKEN_MFA/SMS_MFA/EMAIL_OTP/NEW_PASSWORD_REQUIRED/MFA_SETUP all return an empty map), a pre-existing gap gopherstack-1b07 (2026-08-22) did not extend to fix. Also undetermined: the SDK's doc prose never states whether AssociateSoftwareToken/VerifySoftwareToken/RespondToAuthChallenge rotate or single-use the MFA_SETUP session between calls, so this backend echoes the same session token unchanged across all three (only RespondToAuthChallenge deletes it) rather than inventing rotation semantics."
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused."}
 ---
 
 ## Notes
+
+### 2026-08-30 (dispatch-duplicate sweep: is the winner correct, not just which one wins)
+
+The 2026-08-22 (`gopherstack-zquj`) keycheck pass hand-resolved all 27 ops registered twice in
+`dispatchTable()` and field-diffed each winning handler's item *shape* against the SDK. This pass
+asked the stricter question that entry itself flagged as narrower than a full audit for the four
+`List*` ops: for every one of the 27 pairs, does the *shadowed loser* actually contain a stub
+that would silently start serving traffic if a future edit ever swapped its `maps.Copy` call
+after the winner's, and is the currently-winning registration provably the one still wired.
+
+Re-derived `dispatchTable()`'s real `maps.Copy` order from `handler.go` directly (did not trust
+line-number ordering in any prior note) and read both handlers in every pair. Result: all 27
+winners are already correct -- no live bug found, consistent with the 2026-08-22 field-diff.
+Three of the losers are the exact stubs a prior survey named ahead of time
+(`handleAssociateSoftwareToken`: hardcoded RFC 6238 example secret; `handleGetUserAttributeVerificationCode`:
+hardcoded `user@example.com`/`EMAIL` regardless of the real user; `handleDescribeRiskConfiguration`:
+calls the backend and discards the result, returning an empty type unconditionally). A fourth,
+not previously named, is the same class: `handleVerifyUserAttribute` calls
+`Backend.VerifyUserAttribute`, itself a documented no-op ("the mock does not send verification
+codes so all attributes are considered already verified. Returns success for any code.") --
+already shadowed by the real `VerifyUserAttributeWithCode` path (`attributesOpsC`, later in the
+`maps.Copy` chain), so not reachable, but worth naming since nothing had verified *why* the
+1b07/zquj passes' "fixed for hygiene" note didn't mean "deleted" -- it didn't; the dead handler
+bodies were still present and un-audited on this question going into this pass.
+
+The four `List*` ops closed by the 2026-08-30 cursor-population sweep and the 2026-08-29
+pagination-arithmetic sweep (`ListGroups`, `ListUsersInGroup`, `ListIdentityProviders`,
+`ListResourceServers`) were re-checked on this pass's question too: all four winners
+(`handleListGroupsFull`, `handleListUsersInGroupFull`, `handleListIdentityProvidersFull`,
+`handleListResourceServersAccurate`) are the ones actually wired, confirmed by `maps.Copy` order,
+not just by pagination behavior.
+
+Deleted all 27 shadowed loser handlers (dead code, unreachable via any real client, confirmed by
+`grep` for direct test references before removal) and their now-orphaned wire-only input/output
+types, across `handler_mfa.go`, `handler_groups.go`, `handler_identity_providers.go`,
+`handler_resource_servers.go`, `handler_domains.go`, `handler_security_config.go`,
+`handler_branding.go`, `handler_attributes.go` and their `models_*.go` siblings.
+`resourceServersOpsA()` and `attributesOpsB()` are now-empty and were deleted along with their
+`maps.Copy` call in `dispatchTable()` (the other 25 pairs' surviving groups still register at
+least one non-duplicate op, so their `*OpsA/B` functions and `maps.Copy` calls stay). Backend
+methods the deleted handlers called into (`InMemoryBackend.VerifyUserAttribute`,
+`SetRiskConfiguration`/`DescribeRiskConfiguration` raw-map variants, `GetUICustomization`/
+`SetUICustomization`) were left alone: they're exported, still exercised directly by
+`persistence_test.go`/`attributes_management_test.go`, and `SetRiskConfiguration`/
+`DescribeRiskConfiguration`'s backing map is still read/written by snapshot persistence --
+deleting them was out of this pass's scope (dispatch-table duplicates only, not backend cleanup).
+
+Added `TestVerifySoftwareToken_WrongCode_Rejected` (`mfa_test.go`, drives the real typed SDK
+client) -- the only one of the 27 pairs without an existing test that would fail if the shadowed
+`handleVerifySoftwareToken` stub (unconditional `Status: "SUCCESS"`) ever won the dispatch race.
+Strengthened `TestIdentityProvider_GetByIdentifier` to assert `AttributeMapping`/`IdpIdentifiers`/
+`CreationDate` (fields the shadowed non-Full `handleGetIdentityProviderByIdentifier` never
+populated) so it also pins wiring, not just success. Every other pair already had an existing
+test that would fail against its shadowed loser (verified by reading each test's assertions
+against what the loser actually returns, not by re-deriving from scratch) -- see the bd issue for
+the full per-pair table.
+
+`go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` all clean for
+`./services/cognitoidp/...` after the deletions (0 lint issues; the only findings during this
+pass were `goimports` trailing-blank-line diffs in the three files where a whole trailing type
+block was removed, fixed by `gofmt -w` on those three files only).
+
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 129 `awsAwsjson11_deserializeOpError<Op>` switches from
+cognitoidentityprovider@v1.67.4's deserializers.go and cross-referenced every backend call site
+that raises a sentinel error against its own op's modeled set. `resolveErrorType`'s shared
+`cognitoSentinelErrors` table was correct; every bug was the sentinel chosen at a call site.
+
+**Method note — this service has a real trap for static analysis.** Many ops have two
+registrations under the same wire action name: an older stub/simple handler (e.g.
+`handleCreateResourceServer`, a pure echo with no backend call at all) registered in an early
+`*OpsA()` group, and a later `*OpsB()`/`*OpsC()` "Accurate" handler that calls the real backend
+method, registered later in `dispatchTable()`'s `maps.Copy` sequence and silently winning
+(`registerStubOpsIfAbsent`-style precedent, parity-principles.md item 2). A first analysis pass
+that doesn't resolve `maps.Copy` order — or that misses `opXxx` constant map keys (vs quoted
+string literals) — traces the *dead* stub instead of the live handler. This produced two false
+starts this pass: `CreateIdentityProvider`'s live handler (`CreateIdentityProviderFull`) already
+correctly used `ErrDuplicateProvider`, and `VerifyUserAttribute`'s live handler
+(`VerifyUserAttributeWithCode`) already correctly used `ErrInvalidParameter` — both were flagged
+by an initial naive trace of the dead `CreateIdentityProvider`/`VerifyUserAttribute` methods,
+which I also fixed for hygiene (harmless — unreachable via any real client) but which were never
+the actual bug. Re-derived the dispatch table by simulating `maps.Copy` in
+`dispatchTable()`'s real order before trusting any cross-reference.
+
+Confirmed bugs fixed (real `aws-sdk-go-v2/service/cognitoidentityprovider` client,
+`errors.As` against the SDK's own typed exception, in `error_path_sweep_test.go`):
+
+- **Fabricated code, `CreateUserPool`**: rejected a duplicate pool name with wire code
+  `UserPoolAlreadyExistsException` — not a real AWS Cognito error (absent from
+  `types/errors.go` entirely) and not even correct behavior: AWS Cognito does not enforce
+  unique pool names (`CreateUserPool`'s own deserializer models no "already exists" exception at
+  all). Removed the duplicate-name rejection entirely (a second pool with the same name now
+  succeeds with a distinct ID) and deleted the now-dead `poolNameExists` helper. An existing
+  test (`user_pools_test.go`) and an HTTP-level test (`user_pools_config_test.go`) both asserted
+  the fabricated-reject behavior as correct and were corrected.
+- **Fabricated code, `AdminCreateUser`**: rejected a duplicate username with wire code
+  `UserAlreadyExistsException` — also absent from the entire SDK. `AdminCreateUser`'s own
+  deserializer models `UsernameExistsException` (already used correctly by `SignUp`). Repointed
+  all three call sites (including two dead legacy methods, for hygiene) to the existing
+  `ErrUsernameExists` sentinel; fixed one existing test asserting the fabricated code.
+- **Wrong code, `AdminGetDevice`/`AdminListDevices`**: raised `UserNotFoundException` for a
+  missing user, but both ops' own deserializers model `ResourceNotFoundException` — unlike
+  `AdminGetUser` and similar ops, which do model `UserNotFoundException`. Repointed to
+  `ErrDeviceNotFound` (same wire code, already correct for the sibling device-not-found check
+  two lines below).
+- **Wrong code, `AddCustomAttributes`/`SetUserMFAPreference`/`AdminSetUserMFAPreference`**: all
+  three raised `InvalidUserPoolConfigurationException` for a semantic validation failure (bad
+  custom-attribute name; preferred MFA not in the enabled list), but none of the three ops model
+  that code — only `InvalidParameterException`, which they all model. `InvalidUserPoolConfigurationException`
+  is genuinely correct elsewhere in this file (`InitiateAuth`/`AdminInitiateAuth`, which do model
+  it, for unsupported/misconfigured auth flows) — confirmed each call site against its own
+  op's deserializer rather than assuming the sentinel was wrong everywhere.
+- **Wrong code, `CreateUserPoolDomain`**: raised `GroupExistsException` (`CreateGroup`'s own
+  sentinel, `ErrAlreadyExists`) for a duplicate domain; the op has no dedicated "already exists"
+  exception, so repointed to `ErrInvalidParameter` (which it does model, and which real Cognito
+  domains-must-be-globally-unique behavior plausibly maps to as a bad-value rejection).
+- **Wrong code, `RevokeToken`**: raised `NotAuthorizedException` for a token issued to a
+  different client, but its own deserializer models `UnauthorizedException` — a distinct,
+  newer type ("the request isn't authorized... invalid access token") — not the generic
+  `NotAuthorizedException` most other ops use. Added `ErrTokenUnauthorized`.
+- **Wrong code, `AssociateSoftwareToken`**: raised `UserNotFoundException` when a session's
+  bound user no longer exists (deleted after the session was issued); its deserializer doesn't
+  model that, only `NotAuthorizedException` (consistent with the surrounding stale-session
+  checks in the same function). Note: `VerifySoftwareToken` shares this exact code path and
+  *does* model `UserNotFoundException` — but also models `NotAuthorizedException`, so this is a
+  correct choice for both, just less specific than ideal for `VerifySoftwareToken`. Not covered
+  by a new integration test (constructing a stale-session/deleted-user state requires internal
+  fixture manipulation disproportionate to this one-line fix); verified by code inspection
+  against both ops' deserializers.
+
+**Left, not fixed**: `CreateResourceServer` raises `GroupExistsException` for a duplicate
+(userPoolID, identifier) pair; the op's deserializer models no "already exists" exception at
+all, but unlike the ssm Delete-idempotent findings in the same campaign pass, there's no doc
+comment or established sibling convention indicating whether real AWS upserts, silently ignores,
+or does something else entirely for this case — left rather than guessed, per this campaign's
+restraint principle.
+
+**Also observed, not part of this bug class**: `handler_mfa.go`'s `mfaOpsB()` registers a
+`wrapAccuracy(h.handleAdminSetUserMFASetting)` handler under the dispatch key
+`"AdminSetUserMFASetting"` — not a real AWS Cognito action name (the real op is
+`AdminSetUserMFAPreference`, already correctly registered via `opAdminSetUserMFAPreference` in
+the same map). This extra entry is dead code — no real client can ever send that action name —
+left as-is (harmless, out of this pass's error-class scope).
 
 ### What this pass fixed (2026-08-22, gopherstack-1b07)
 
@@ -1043,3 +1220,224 @@ detail; summary:
   does fire for a freshly-migrated user, just after migration rather than before. Real
   Cognito's exact ordering between these two triggers on a migrating request was not
   verified against a live pool.
+
+## 2026-08-29 (pagination-arithmetic sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+Scope: arithmetic inside every hand-rolled pagination helper in this service (not wire-shape
+cursor *population*, already covered by the "cursor-population sweep" comment above this
+file's schema header -- that sweep and this one found different bug classes in overlapping
+ops; see the CORRECTION notes left in place of its wrong claims).
+
+**Census.** 8 hand-rolled paginators in this package, none importing `pkgs/page`:
+`paginateDevicesLocked` (`devices.go`, shared by `ListDevices` and `AdminListDevices`),
+`ListGroupsPage` (`groups.go`, `ListGroups`), `ListUsersInGroupPage` (`groups.go`,
+`ListUsersInGroup`), `paginateAuthEventsLocked` (`auth_events.go`,
+`AdminListUserAuthEvents`), `ListWebAuthnCredentials`'s own inline cursor (`webauthn.go`),
+and two handler-inline cursors that live in the handler function itself rather than a
+named helper: `handleListUsers` (`handler_users.go`, `ListUsers`) and
+`handleListUserPools` (`handler_user_pools.go`, `ListUserPools`). `ListTerms` is the one
+List op in this service that genuinely does use `pkgs/page.New` (`terms.go`) and was
+already correct. Every other List/Describe op in this service either has no pagination at
+all or goes through one of the wins-the-registration handlers the cursor-population sweep
+already covers.
+
+**Bug (Class B: infinite loop, cursor matched by equality) x8.** All eight helpers above
+shared the identical bug: search `all`/`ids` for the item named by the token by equality,
+and on a miss (the item was deleted, or never existed) leave `start`/`startIdx` at its zero
+value instead of the collection length. A client resuming with a token naming a
+since-deleted device/group/group-member/credential/user/pool got page one again, forever.
+Fixed identically at each site: a miss now sets `start = len(all)` (the "default a miss to
+empty" pattern, as in glacier) instead of leaving it at `0`. None of the eight can express
+the bug anymore.
+
+`AdminListUserAuthEvents`/`paginateAuthEventsLocked` is a genuine instance of the same bug,
+but currently unreachable in practice: no code path in this emulator (no sign-in hook, no
+janitor sweep) ever writes into `b.authEvents`, so the collection is always empty and the
+scan-miss branch never has anything to search regardless. Fixed anyway for correctness
+under any future caller; tested via a new `SeedAuthEventForTest` `export_test.go` helper
+that seeds the otherwise-unreachable store directly.
+
+**Testing.** New `pagination_arithmetic_test.go` covers all eight helpers, each via the
+operation that calls it (backend-level for the five that expose an exported backend method;
+real `aws-sdk-go-v2` typed client for the two handler-inline ones, since there's no backend
+method to call directly for those). Boundary walk (N=7, page=3, full concatenation checked)
+plus a stale-cursor case (a token for an item that never existed, or a real deletion via the
+service's own delete op where one exists) for every site; exact-division/single-page/empty
+checks added where the setup cost was low. All stale-cursor subtests were confirmed to fail
+against the unmodified code before the fix (Class B: another non-empty cursor came back
+instead of terminating), then pass after it. Existing pagination tests this sweep found
+(`TestListUsers_Pagination` in `handler_users_lifecycle_test.go`,
+`TestListUserPools_Pagination` in `user_pools_config_test.go`,
+`TestAdminListGroupsForUser_Pagination`/`TestGroup_ListGroups_Pagination`/
+`TestGroup_ListUsersInGroup_Pagination`) already did real boundary walks with
+no-duplicates checks -- good tests -- but none of them presented a stale cursor, which is
+why this class of bug survived them; new `*_StaleCursor` tests close that gap without
+duplicating the existing boundary-walk coverage.
+
+**Reachable-handler check (per the shadowed-registration risk this file already tracks).**
+Verified each of `ListDevices`, `AdminListDevices`, `ListGroups`, `ListUsersInGroup`,
+`ListWebAuthnCredentials`, `ListUsers`, `ListUserPools`, `AdminListUserAuthEvents` is
+registered exactly once across every `*OpsA/B/C` map `maps.Copy`'d into `handler.go`'s
+dispatch table -- none of the eight fixed here are among the operations with a duplicate
+registration, so the handler read during this audit is the one that actually serves
+traffic for all eight.
+
+**Gates:** `go build`, `go vet ./...` (repo-wide, clean), `go test -race -count=1
+./services/cognitoidp/...` (pass, including every pre-existing pagination test), `golangci-lint
+run ./services/cognitoidp/...` (0 issues, confirmed by removing the new test files and
+re-running rather than assuming pre-existing-file status).
+
+**2026-08-30 (unstable-pagination-order sweep, wrapper-key-sweep branch)**: `ListUserPools`
+(`user_pools.go`) sorted only by `Name` before `handleListUserPools`'s (`handler_user_pools.go`)
+`NextToken`-based pagination. `CreateUserPool` has no "already exists" exception -- real AWS
+Cognito does not enforce unique pool names, and this codebase already has a test documenting that
+(`TestInMemoryBackend_CreateUserPool`'s `duplicate_name` case, `user_pools_test.go`) -- so `Name`
+alone is not a unique sort key, and the underlying `b.pools.All()` read is also an unspecified-order
+map walk. Two same-named pools could swap relative order between the call that produced a page's
+`NextToken` and the call that resumed from it, dropping or duplicating a pool at the boundary, even
+though the `NextToken` itself (pool ID, via `handleListUserPools`'s `p.ID == in.NextToken` scan) is
+unique -- the same "unique cursor, tie-prone sort" shape the campaign brief documents for elbv2 and
+ssoadmin. Not a duplicate-rejection case (unlike waf's activated rules): duplicate pool names are
+legitimate on real AWS, matching route53 hosted zones, so the fix is a tiebreak, not a Create-path
+rejection. Fixed by tiebreaking the sort on `ID` (unique) when `Name` compares equal.
+
+This is a different bug from the four *List* operations with a shadowed dispatch-table
+registration this file already documents finding safe (`ListGroups`/`ListUsersInGroup` via
+`groupsOpsA`+`groupsOpsB`, `ListIdentityProviders` via `identityProvidersOpsB`+`OpsC`,
+`ListResourceServers` via `resourceServersOpsA`+`OpsB`) -- re-verified this pass: in every one of
+those four, the *winning* registration (the later `maps.Copy` in `dispatchTable()`, always the
+`Full`/`Accurate`-suffixed handler) reads via a `store.Index.Get` filtered to one user pool and
+sorts by a field that is unique within that pool once filtered (`GroupName`, `Username`,
+`ProviderName`, `Identifier`) -- already safe, unchanged. Note for the next pass: this file's
+"registers four operation names twice" framing undercounts -- a broader sweep this pass found at
+least 19 more operation names (mostly Create/Update/Describe/Get/Set, not List) registered under
+both a literal string and an `opX` constant across separate `OpsA`/`OpsB`/`OpsC` functions, all
+following the same later-registration-wins `Full`/`Accurate` pattern; not re-audited here since none
+are List/paginated operations relevant to this sweep's scope.
+
+Every other paginated `List*` site in this service was audited and confirmed already safe:
+`ListGroupsPage`/`ListUsersInGroupPage` (`groups.go`, backing the two *Full* handlers above),
+`ListIdentityProviders` (`identity_providers.go`), `ListResourceServers` (`resource_servers.go`),
+`ListUsers`/`ListUsersFiltered` (`users.go`), `ListTerms` (`terms.go`), `paginateDevicesLocked`
+(`devices.go`), `ListWebAuthnCredentials` (`webauthn.go`) all filter to one pool/user (via
+`store.Index.Get` or a per-key inner map) before sorting by a field unique within that filtered set,
+or (devices/webauthn) sort by a field that is itself the inner map's own key.
+`paginateAuthEventsLocked` (`auth_events.go`) sorts by `CreatedAt` with an explicit `EventID`
+tiebreak already in place -- confirmed correct, unchanged, and a good precedent that made the
+`ListUserPools` gap stand out by contrast. `ListUserPoolReplicas` (`user_pool_replicas.go`) carries
+a doc comment establishing it never has more than one item to page over in practice (one replica per
+region, no cross-region duplication path) -- trusted per this campaign's guidance to trust a comment
+that gives a correct reason, not re-litigated.
+
+Proof: `TestListUserPools_PaginationOrderIsReproducible` (`pagination_arithmetic_test.go`) creates
+16 user pools all sharing one `PoolName`, walks them with `MaxResults=3` across `NextToken`-resumed
+pages (real SDK client), and asserts the concatenation reproduces the set exactly with no
+drops/duplicates, looped 30 times; failed reliably against the unfixed code, passes after the
+`ID` tiebreak. Existing `TestListUserPools_Pagination` (`user_pools_config_test.go`) and
+`TestListUserPools_Pagination_StaleCursor` (same file as the new test) both use distinct pool names
+throughout (`pool-00`..`pool-04`, `listpools-stale-000`..`002`) and so could not have caught this;
+`TestListUserPools_Pagination` additionally dedups by `Name` in its own assertion, which would have
+masked an ID-level duplicate even had one occurred.
+
+Gates: `go build ./services/cognitoidp/...`, `go vet ./services/cognitoidp/...`,
+`go test -race -count=1 ./services/cognitoidp/...` (pass), `golangci-lint run
+./services/cognitoidp/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+**2026-08-30 (gopherstack-r3pr fabricated-error-code audit, no code change)**:
+`cmd/errcodeaudit` reports zero findings for this service — no invented error-code
+literal detected. Given this package's history of shadowed duplicate op
+registrations (27 removed in an earlier pass), independently checked whether any
+of the 39 `*Ops[A-Z]?()` group functions feeding `dispatchTable()`
+(`maps.Copy`, which silently lets a later group win) register the same op name
+twice, including via `op*` constants a literal grep would miss. Built each group
+map directly off a zero-value `*Handler` and diffed the 39 key sets against each
+other (temporary diagnostic, not committed): 130 distinct op names, zero
+collisions.
+
+**2026-08-30 (gopherstack WrapOp-blind-spot re-scan, `cmd/reqfieldscan`)**:
+`cmd/reqfieldscan` (added `aa4ec0ad2`) reported only 81/130 (62%) of this
+service's dispatch table resolved, with the other 49 ops "unresolved" -- an
+implausible number per that tool's own "treat low coverage as a measurement
+bug" guidance, hand-confirmed as exactly that: this service defines a local
+generic wrapper `wrapAccuracy[I,O](fn) service.JSONOpFunc { return
+service.WrapOp(fn) }` (`handler.go:484`), so the map-literal call site the
+tool's literal `sel.Sel.Name == "WrapOp"` check looks for is never present
+for the 49 ops registered via `wrapAccuracy(...)` -- confirmed 1:1 (49
+`wrapAccuracy(h.*)` call sites, 49 unresolved ops). A second, separate gap:
+many of this service's handlers are named `handle<Op>Full`/`handle<Op
+>Accurate`/`handle<Op>WithOpts` rather than exactly `handle<Op>`, which the
+tool's own naming-convention resolver doesn't try. A scratch-only patched
+copy of the tool (not committed; both gaps are specific to this service's
+conventions, not upstream-worthy per the tool's own disclosed-blind-spot
+policy) resolved all 130/130 and surfaced 6 flagged fields the unpatched
+tool's 3-of-130 partial run could not have reached. Hand-verified each:
+
+- **`CreateUserPool.MfaConfiguration` -- real bug, fixed.** Every other
+  writer of `pool.MfaConfiguration` (`SetUserPoolMfaConfig`,
+  `UpdateUserPoolWithOpts`) wires it through; `CreateUserPoolWithOpts`'s own
+  `UserPoolOptions` struct had no field to carry it at all, so a pool
+  created with `MfaConfiguration: "ON"` silently came back `OFF` until a
+  separate `SetUserPoolMfaConfig`/`UpdateUserPool` call. Fixed by adding
+  `MfaConfiguration` to `UserPoolOptions` and wiring
+  `handleCreateUserPoolWithOpts`'s `opts` literal and
+  `CreateUserPoolWithOpts`'s pool literal to it (`UpdateUserPoolWithOpts`
+  already takes `mfaConfiguration` as an explicit positional param and does
+  not read `opts.MfaConfiguration` -- left as is, no double-write path).
+  Proof: `TestHandler_CreateUserPool_MfaConfiguration`
+  (`user_pools_test.go`), confirmed failing (asserted "ON", got "OFF")
+  against the unfixed code.
+- **`AdminDisableProviderForUser.User` -- verified, not a bug.**
+  `AdminDisableProviderForUser`'s own doc comment states this backend does
+  not track federated identity provider links at all, and validates only
+  that the pool exists (matching real AWS's behavior for an unknown provider
+  link) -- reading `User` would have nothing to act on. Comment correctly
+  explains the gap; not fixed.
+- **`ConfirmDevice.DeviceSecretVerifierConfig` -- verified, structural, not
+  fixed.** This SRP verifier config exists to support a later
+  `DEVICE_SRP_AUTH` re-authentication flow; grepped the whole service for
+  `DEVICE_SRP_AUTH` and found no such `AuthFlow` recognized anywhere
+  (`InitiateAuth`/`AdminInitiateAuth` only handle `USER_SRP_AUTH`,
+  `REFRESH_TOKEN_AUTH`, `ADMIN_USER_SRP_AUTH`), and the `Device` model has no
+  field to store a verifier/salt in even if it were read. A whole
+  unimplemented auth flow, not a narrow dropped-field fix.
+- **`AdminRespondToAuthChallenge.UserPoolID` -- real gap, left at a layer
+  boundary, not fixed.** Every challenge-response backend method this
+  handler calls (`RespondToMFAChallenge`, `RespondToNewPasswordRequired`,
+  `RespondToSRPChallenge`, `RespondToMFASetupChallenge`,
+  `RespondToCustomAuthChallenge`) takes only `clientID`/`session`, never
+  `userPoolID` -- contrast `AdminInitiateAuth`, whose sibling backend calls
+  (`AdminInitiateAuthSRP`, `AdminInitiateAuth`) do take and use it to scope
+  the user lookup. No pool-ownership validation exists anywhere in this
+  package (grepped for a `ClientBelongsToPool`-shaped helper: none), so a
+  caller presenting a `Session`/`ClientId` from one pool while claiming a
+  different `UserPoolId` is not rejected. A correct fix means adding
+  `userPoolID` to (and validating it in) five backend method signatures --
+  crosses the handler/backend layer boundary, reported rather than fixed.
+- **`VerifySoftwareToken.FriendlyDeviceName` -- verified, not fixed.** Real
+  AWS treats this as a display-only label with no modeled behavioral effect
+  either (it does not gate MFA behavior in the real API), and no device
+  model in this service has a field to hold it. Lowest-priority of the five.
+- **`ListUserPoolReplicas.NextToken` -- real minor gap, not fixed.** The
+  handler returns every replica in one page regardless of `NextToken`/
+  `MaxResults` and never issues a `NextToken` of its own. Low real-world
+  impact -- `user_pool_replicas.go`'s own doc comment (trusted per this
+  campaign's "a comment that gives a correct reason" guidance, and already
+  cited by this file's own List-pagination sweep above) establishes at most
+  one replica per region with no cross-region duplication path, so there is
+  rarely more than a handful of items to page over in practice -- but the
+  field is still genuinely wired on the wire and genuinely ignored.
+
+**Re-derived collision/group count (previously recorded: 130 ops / 39 groups
+/ zero collisions).** Re-ran the same style of check this pass (AST-walked
+every `map[string]service.JSONOpFunc{...}` composite literal, resolving keys
+through both string literals and `opX`-style string constants): **130
+distinct operations across 41 registration groups, zero collisions** --
+confirmed as of this pass; group count has drifted up to 41 (this file's own
+count is exactly the kind of number that goes stale, as its own record notes
+elsewhere) but the load-bearing claim, zero collisions, still holds.
+
+Gates: `go build ./services/cognitoidp/...`, `go build ./...` (repo-wide,
+clean), `go vet ./services/cognitoidp/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cognitoidp/...` (pass),
+`golangci-lint run ./services/cognitoidp/...` (0 issues). Work left
+uncommitted per this pass's instructions.

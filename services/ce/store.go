@@ -32,6 +32,8 @@ const (
 	dimKeyUsageType         = "USAGE_TYPE"
 	dimKeyLinkedAccount     = "LINKED_ACCOUNT"
 	statusProcessing        = "PROCESSING"
+	accountScopePayer       = "PAYER"
+	accountScopeLinked      = "LINKED"
 )
 
 // Synthetic data ratio constants used in cost simulation.
@@ -145,6 +147,45 @@ func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn f
 			}
 
 			start = i + 1
+		}
+	}
+
+	const defaultPageSize = 100
+	limit := maxResults
+	if limit <= 0 || limit > defaultPageSize {
+		limit = defaultPageSize
+	}
+
+	end := min(start+limit, len(list))
+	page := list[start:end]
+
+	next := ""
+	if end < len(list) {
+		next = keyFn(list[end])
+	}
+
+	return page, next
+}
+
+// paginateOrdered pages through list without re-sorting it, unlike
+// [paginateList]. Use it when the caller has already established the display
+// order (e.g. most-recently-started-first, or an independent SortBy) and
+// pagination must preserve that order rather than re-sorting by keyFn.
+// keyFn must still produce a value unique per item -- nextPageToken is the
+// key of the first item of the next page (see the "next" assignment below),
+// so the cursor resumes AT the item whose key matches nextPageToken, not
+// after it: `start = i + 1` here would silently skip that item on every
+// resumed page, dropping exactly one record per page boundary.
+func paginateOrdered[T any](list []T, maxResults int, nextPageToken string, keyFn func(T) string) ([]T, string) {
+	start := 0
+
+	if nextPageToken != "" {
+		for i := range list {
+			if keyFn(list[i]) == nextPageToken {
+				start = i
+
+				break
+			}
 		}
 	}
 

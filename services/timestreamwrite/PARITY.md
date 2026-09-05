@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
-last_audit_commit: 53664f52
-last_audit_date: 2026-08-20
+last_audit_commit: 4ad94a2e4
+last_audit_date: 2026-08-29
 overall: A            # wrapper-key/nested-shape sweep found and fixed one real gap (DataModelConfiguration/RecordVersion never modelled on CreateBatchLoadTask); rest of the surface re-verified clean
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -41,6 +41,7 @@ gaps:
   - "UntagResource/ListTagsForResource never return ResourceNotFoundException for an unknown ARN (real API can) — not fixed, would require an interface signature change and conflicts with existing post-delete cleanup test assertions; AWS's own docs note the two outcomes are meant to be treated as equivalent for DeleteDatabase's ARN-cleanup race anyway (bd: file if desired)"
   - "CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)"
   - "DescribeEndpoints Address is hardcoded \"localhost\" instead of echoing the request Host (sibling timestreamquery does echo it); verified inert for normal custom-endpoint usage, but would matter for tooling that inspects the raw response instead of relying on SDK routing (bd: file if desired, low priority)"
+  - "Table.Schema.CompositePartitionKey[].EnforcementInRecord=REQUIRED (2026-08-29 pass, write-only-state FORWARD direction): confirmed real and stored -- validated at CreateTable/UpdateTable time (validateSchemaPartitionKeys) and correctly echoed on Describe -- but never read back by WriteRecords, so a record missing a dimension a table's schema marks REQUIRED is silently accepted instead of rejected. types/types.go's PartitionKey.EnforcementInRecord doc comment ('REQUIRED (dimension key must be specified)') confirms this is meant to gate writes, matching this campaign's 'a dropped request field is a disabled validation until proven otherwise' rule (same class as emr's SessionEnabled/fsx's SourceSnapshotARN). NOT fixed this pass: RejectedRecord.Reason is undocumented free text for this specific cause (the pinned SDK's RejectedRecord doc comment lists duplicate-version, retention-window, and size-limit causes, but not a missing-partition-key case; unlike an error CODE, which must byte-match for a typed client to classify it, Reason's exact wording isn't independently verifiable against the pinned SDK source or docs from this environment) and it's unclear whether the real failure mode is a per-record RejectedRecord vs. a whole-request ValidationException -- implementing enforcement risks fabricating the wire shape rather than confirming it, which this campaign explicitly treats as worse than an honest gap. Flagged for a follow-up pass with live-AWS access to confirm the exact failure shape (bd: file if desired)."
 deferred: []
 reaudit_2026-08-20: >
   Wrapper-key/nested-shape wire-parity sweep against the pinned
@@ -242,3 +243,84 @@ truncates at its 10 MiB cap rather than erroring the way
 lands in the (already-correct) CBOR-decode-failure branch instead, not this
 one -- genuinely hard to trigger through a real client without a live I/O
 error mid-read.
+
+## 2026-08-29 pass: write-only-state sweep (gopherstack-6flj/21my), forward and reverse
+
+Re-audited despite the extensive 2026-07-23/2026-08-20 history (per this
+campaign's standing "a prior pass proves nothing" rule). Verified the
+premise first: `git log` showed no drift since the 2026-08-20 wrapper-key
+sweep; `sdk_module` (timestreamwrite@v1.38.4) matched the checked-out
+module exactly (no SDK bump to re-audit); no `wire_field_fixes_test.go`
+exists for this service (the equivalent file is `wire_sdk_roundtrip_test.go`
+from the 2026-08-20 pass) -- confirmed with the harness owner this is the
+service's established round-trip test file and appended nothing new to it
+this pass, since no new fixable bug was found (see below).
+
+Applied the write-only-state method in both directions:
+
+- FORWARD (accepted-and-stored-but-never-read-back): re-verified
+  `DataModelConfiguration`/`RecordVersion` (2026-08-20's fix) still have a
+  live read path. Found one new, real, but NOT fixed instance:
+  `Table.Schema.CompositePartitionKey[].EnforcementInRecord` (see gaps) --
+  stored and correctly echoed on Describe, but never enforced by
+  `WriteRecords`. Declined to implement enforcement because the exact wire
+  failure shape (RejectedRecord free-text `Reason` vs. a whole-request
+  `ValidationException`) isn't independently confirmable from the pinned
+  SDK source or docs in this environment, and guessing risks fabricating
+  wire behavior rather than fixing a confirmed one -- flagged as a gap for
+  a follow-up pass with live-AWS access instead.
+- REVERSE (response-computable-from-already-stored-state): field-diffed
+  `BatchLoadTaskDescription` (types/types.go) against
+  `batchLoadTaskDescriptionView` member-by-member -- exact match, no gap.
+  Re-verified `WriteRecordsOutput.RecordsIngested.{Total,MemoryStore,
+  MagneticStore}` is the correct nested-object shape (not flat), matching
+  `types.RecordsIngested`.
+- Ran a script diffing every `*Input` struct field against its usage sites
+  in the same file (same method used for xray this pass). No genuine
+  dropped-field hits: `CreateDatabaseInput`/`CreateTableInput`'s `Tags` are
+  used (`validateTagInputs`/`tagsFromInput`); `CreateBatchLoadTaskInput`
+  has no `Tags` member on the real SDK type at all, confirmed against
+  `api_op_CreateBatchLoadTask.go` (nothing to drop).
+
+No new fixable bug found and no fix applied this pass; `overall` remains A.
+This is treated as a genuine clean result, not a failure to look hard
+enough -- consistent with this campaign's outposts/dax precedent of a
+service coming back clean after real effort, and distinct from a rubber-
+stamp "looks fine" pass: three read paths were independently re-verified
+end-to-end and one new real (if unconfirmable-in-shape) gap was found and
+disclosed rather than silently passed over.
+
+Ops NOT specifically re-audited this pass beyond the two directions above
+(unchanged since 2026-08-20, no SDK drift): `ListDatabases`/`DeleteDatabase`,
+`ListTables`/`DeleteTable`, `TagResource`/`UntagResource`/
+`ListTagsForResource` (beyond re-confirming the documented
+ResourceNotFoundException gap is unchanged), `ListBatchLoadTasks`/
+`ResumeBatchLoadTask`, and `DescribeEndpoints` (beyond re-confirming the
+documented hardcoded-Address gap is unchanged and still inert).
+
+### 2026-08-31 (gopherstack-uox6, value-semantics-of-a-correctly-read-field pass)
+
+`covledger -service timestreamwrite` reported no rows for every class. This
+pass targets a different axis than the entries above: not "is the field
+read" (already swept) but "does the code that reads it do the right thing
+with it". Only two List ops carry any filter surface at all
+(`aws-sdk-go-v2/service/timestreamwrite@v1.38.4`):
+
+- `ListBatchLoadTasks.TaskStatus`: plain equality against
+  `types.BatchLoadStatus`, no wildcard/negation/case language documented.
+  `batch_load_tasks.go:90` compares `task.TaskStatus != statusFilter`
+  correctly, and the six status constants
+  (`batch_load_tasks.go:10-21`) match the SDK's `BatchLoadStatus` enum
+  values verbatim.
+- `ListTables.DatabaseName`: already handled deliberately
+  (gopherstack-4ly2, cited in `handler_tables.go:269-271`) -- omitting it
+  lists every table across every database, which is the real AWS
+  behavior, not a bug in this class.
+
+Neither op's `MaxResults` doc comment states a specific number (checked
+both, plus every other List/Describe in this service), so the
+narrowing/widening-default sub-shape that hit shield/ecs/kms has no
+surface here. No range, date, size, or operator-grammar filter exists
+anywhere in this service's pinned SDK. Zero bugs found; the service is
+structurally too small (2 real filter parameters total) to carry most of
+this class's known sub-shapes. No files changed.

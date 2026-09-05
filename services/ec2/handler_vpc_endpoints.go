@@ -1,8 +1,11 @@
 package ec2
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"net/url"
+	"strings"
 )
 
 type createVpcEndpointConnectionNotificationResponse struct {
@@ -67,11 +70,7 @@ func toConnectionNotifItem(n *VpcEndpointConnectionNotification) connectionNotif
 		ConnectionNotificationType:  n.ConnectionNotificationType,
 		ConnectionNotificationState: n.ConnectionNotificationState,
 	}
-	for _, e := range n.ConnectionEvents {
-		item.ConnectionEvents.Items = append(item.ConnectionEvents.Items, struct {
-			Event string `xml:"item"`
-		}{Event: e})
-	}
+	item.ConnectionEvents.Items = append(item.ConnectionEvents.Items, n.ConnectionEvents...)
 
 	return item
 }
@@ -108,7 +107,11 @@ func (h *Handler) handleDescribeVpcEndpointConnectionNotifications(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "ConnectionNotificationId")
+	var ids []string
+	if id := vals.Get("ConnectionNotificationId"); id != "" {
+		ids = []string{id}
+	}
+
 	notifs := h.Backend.DescribeVpcEndpointConnectionNotifications(ids)
 
 	resp := &describeVpcEndpointConnectionNotificationsResponse{RequestID: reqID}
@@ -146,7 +149,7 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 ) (any, error) {
 	id := vals.Get("ConnectionNotificationId")
 	notifARN := vals.Get("ConnectionNotificationArn")
-	events := parseMemberList(vals, "ConnectionEvents.member")
+	events := parseMemberList(vals, "ConnectionEvents")
 
 	if _, err := h.Backend.ModifyVpcEndpointConnectionNotification(id, notifARN, events); err != nil {
 		return nil, err
@@ -159,7 +162,7 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 }
 
 func (h *Handler) handleDescribeVpcEndpointConnections(vals url.Values, reqID string) (any, error) {
-	serviceIDs := parseMemberList(vals, "ServiceId")
+	serviceIDs := parseEC2Filters(vals)["service-id"]
 	conns := h.Backend.DescribeVpcEndpointConnections(serviceIDs)
 
 	resp := &describeVpcEndpointConnectionsResponse{RequestID: reqID}
@@ -337,9 +340,7 @@ type connectionNotifItem struct {
 	ConnectionNotificationType  string `xml:"connectionNotificationType"`
 	ConnectionNotificationState string `xml:"connectionNotificationState"`
 	ConnectionEvents            struct {
-		Items []struct {
-			Event string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"connectionEvents"`
 }
 
@@ -376,20 +377,87 @@ type describeVpcEndpointServicesResponse struct {
 	XMLName      xml.Name `xml:"DescribeVpcEndpointServicesResponse"`
 	RequestID    string   `xml:"requestId"`
 	ServiceNames struct {
-		Items []serviceNameItem `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"serviceNameSet"`
+	ServiceDetails struct {
+		Items []serviceDetailItem `xml:"item"`
+	} `xml:"serviceDetailSet"`
 }
 
-type serviceNameItem struct {
-	ServiceName string `xml:"serviceName"`
+type serviceTypeDetailItem struct {
+	ServiceType string `xml:"serviceType"`
 }
 
-func (h *Handler) handleDescribeVpcEndpointServices(_ url.Values, reqID string) (any, error) {
+type serviceDetailItem struct {
+	ServiceName                string                  `xml:"serviceName"`
+	ServiceID                  string                  `xml:"serviceId,omitempty"`
+	Owner                      string                  `xml:"owner,omitempty"`
+	ServiceType                []serviceTypeDetailItem `xml:"serviceType>item"`
+	AvailabilityZoneSet        []string                `xml:"availabilityZoneSet>item,omitempty"`
+	VpcEndpointPolicySupported bool                    `xml:"vpcEndpointPolicySupported"`
+	AcceptanceRequired         bool                    `xml:"acceptanceRequired"`
+	ManagesVpcEndpoints        bool                    `xml:"managesVpcEndpoints"`
+}
+
+// vpcEndpointServiceID derives a stable synthetic ID for one of the
+// built-in AWS-owned endpoint services, so repeated Describe calls return
+// the same serviceId (real AWS IDs don't change between calls).
+func vpcEndpointServiceID(name string) string {
+	sum := sha256.Sum256([]byte(name))
+
+	return "vpce-svc-" + hex.EncodeToString(sum[:])[:17]
+}
+
+// gatewayEndpointServiceType returns "Gateway" for the AWS services that
+// real AWS exposes as gateway (not interface) endpoints; s3 and dynamodb.
+func gatewayEndpointServiceType(name string) string {
+	if strings.HasSuffix(name, ".s3") || strings.HasSuffix(name, ".dynamodb") {
+		return "Gateway"
+	}
+
+	return vpcEndpointTypeInterface
+}
+
+// handleDescribeVpcEndpointServices previously ignored ServiceName.N
+// entirely (awsEc2query_serializeOpDocumentDescribeVpcEndpointServicesInput
+// declares it as a FlatKey list), so requesting specific service names
+// always returned the full catalogue. ServiceRegion.N and Filters are not
+// applied: this backend synthesizes one static service catalogue for
+// h.Region with no per-service attribute data (owner, tags, etc.) to filter
+// against, so those remain a documented gap rather than a misread key.
+func (h *Handler) handleDescribeVpcEndpointServices(vals url.Values, reqID string) (any, error) {
 	names := h.Backend.DescribeVpcEndpointServices()
+
+	if requested := parseMemberList(vals, "ServiceName"); len(requested) > 0 {
+		wanted := make(map[string]bool, len(requested))
+		for _, n := range requested {
+			wanted[n] = true
+		}
+
+		filtered := names[:0:0]
+		for _, n := range names {
+			if wanted[n] {
+				filtered = append(filtered, n)
+			}
+		}
+		names = filtered
+	}
+
+	azs := h.Backend.DescribeAvailabilityZones(h.Region)
 	resp := &describeVpcEndpointServicesResponse{RequestID: reqID}
 
 	for _, n := range names {
-		resp.ServiceNames.Items = append(resp.ServiceNames.Items, serviceNameItem{ServiceName: n})
+		resp.ServiceNames.Items = append(resp.ServiceNames.Items, n)
+		resp.ServiceDetails.Items = append(resp.ServiceDetails.Items, serviceDetailItem{
+			ServiceName:                n,
+			ServiceID:                  vpcEndpointServiceID(n),
+			ServiceType:                []serviceTypeDetailItem{{ServiceType: gatewayEndpointServiceType(n)}},
+			AvailabilityZoneSet:        azs,
+			Owner:                      "amazon",
+			VpcEndpointPolicySupported: true,
+			AcceptanceRequired:         false,
+			ManagesVpcEndpoints:        false,
+		})
 	}
 
 	return resp, nil

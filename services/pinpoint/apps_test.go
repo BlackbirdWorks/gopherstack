@@ -715,3 +715,60 @@ func TestHandler_GetAppsContinuation(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"app-a", "app-b", "app-c"}, names)
 }
+
+// TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages proves GetApps loses (or
+// repeats) apps at a page boundary when several apps share a Name. Pinpoint applications
+// have no name-uniqueness constraint (CreateApp never checks for an existing Name), yet
+// GetApps sorts solely by Name with no secondary key, over a *store.Table map walk whose
+// iteration order varies between calls; handleGetApps then pages that resort with
+// pkgs/page's offset-based cursor. When a group of same-named apps straddles a page
+// boundary, the tie group's relative order can differ between the call that computed
+// page 1 and the resort behind page 2's offset, dropping or duplicating members. Looped
+// because (unlike a plain missing-sort bug) this depends on map iteration reshuffling the
+// tie group across the two calls, which does not reproduce on every run.
+func TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	for range 30 {
+		h := newHandlerForTest(t)
+
+		const dupCount = 5
+		created := make(map[string]bool, dupCount)
+
+		for range dupCount {
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "dup-app-name"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			created[resp["Id"].(string)] = true
+		}
+
+		seen := make(map[string]bool, dupCount)
+		path := "/v1/apps?pageSize=2"
+
+		for range dupCount + 1 {
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, _ := resp["Item"].([]any)
+			for _, item := range items {
+				app, isMap := item.(map[string]any)
+				require.True(t, isMap)
+				seen[app["Id"].(string)] = true
+			}
+
+			nextToken, hasToken := resp["NextToken"].(string)
+			if !hasToken {
+				break
+			}
+
+			path = "/v1/apps?pageSize=2&token=" + url.QueryEscape(nextToken)
+		}
+
+		assert.Equal(t, created, seen, "paged GetApps dropped or duplicated same-named apps across pages")
+	}
+}

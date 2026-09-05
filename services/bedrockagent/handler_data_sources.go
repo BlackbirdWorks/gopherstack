@@ -89,8 +89,8 @@ func (h *Handler) handleDeleteDS(ctx context.Context, c *echo.Context, kbID, dsI
 	})
 }
 
-func (h *Handler) handleListDS(ctx context.Context, c *echo.Context, kbID string) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+func (h *Handler) handleListDS(ctx context.Context, c *echo.Context, kbID string, body []byte) error {
+	maxResults, nextToken := bodyPageParams(body)
 
 	summaries, outToken, err := h.Backend.ListDataSources(ctx, kbID, maxResults, nextToken)
 	if err != nil {

@@ -67,9 +67,11 @@ type describeStaleSecurityGroupsResponse struct {
 }
 
 type sgVpcAssocItem struct {
-	GroupID string `xml:"groupId"`
-	VpcID   string `xml:"vpcId"`
-	State   string `xml:"state"`
+	GroupID      string `xml:"groupId"`
+	GroupOwnerID string `xml:"groupOwnerId,omitempty"`
+	VpcID        string `xml:"vpcId"`
+	VpcOwnerID   string `xml:"vpcOwnerId,omitempty"`
+	State        string `xml:"state"`
 }
 
 type describeSecurityGroupVpcAssociationsResponse struct {
@@ -180,9 +182,11 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 		resp.SecurityGroupVpcAssociationSet.Items = append(
 			resp.SecurityGroupVpcAssociationSet.Items,
 			sgVpcAssocItem{
-				GroupID: a.SGID,
-				VpcID:   a.VPCID,
-				State:   a.State,
+				GroupID:      a.SGID,
+				GroupOwnerID: a.GroupOwnerID,
+				VpcID:        a.VPCID,
+				VpcOwnerID:   a.VPCOwnerID,
+				State:        a.State,
 			},
 		)
 	}
@@ -234,10 +238,14 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	groupID := vals.Get("GroupId")
+	groupID, err := h.resolveSecurityGroupID(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	rules := parseIPPermissions(vals)
 
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, rules); err != nil {
+	if err = h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -249,10 +257,14 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 }
 
 func (h *Handler) handleUpdateSGRuleDescriptionsEgress(vals url.Values, reqID string) (any, error) {
-	groupID := vals.Get("GroupId")
+	groupID, err := h.resolveSecurityGroupID(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	rules := parseIPPermissions(vals)
 
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, rules); err != nil {
+	if err = h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -270,14 +282,19 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	// always indexed).
 	filters := parseEC2Filters(vals)
 
-	var groupID string
-	if values := filters["group-id"]; len(values) > 0 {
-		groupID = values[0]
+	groupIDs := filters["group-id"]
+	if len(groupIDs) == 0 {
+		groupIDs = []string{""}
 	}
 
-	rules, err := h.Backend.DescribeSecurityGroupRules(groupID)
-	if err != nil {
-		return nil, err
+	var rules []*SecurityGroupRuleDetail
+	for _, groupID := range groupIDs {
+		groupRules, err := h.Backend.DescribeSecurityGroupRules(groupID)
+		if err != nil {
+			return nil, err
+		}
+
+		rules = append(rules, groupRules...)
 	}
 
 	maxResults, offset, err := parseEC2Pagination(
@@ -502,15 +519,74 @@ func sgRuleDetailItemsFrom(details []*SecurityGroupRuleDetail) []sgRuleDetailIte
 	return items
 }
 
+// resolveSecurityGroupID returns the GroupId parameter, or resolves
+// GroupName to an ID the same way handleDescribeSecurityGroups already
+// does. AuthorizeSecurityGroupIngress, RevokeSecurityGroupIngress,
+// DeleteSecurityGroup and UpdateSecurityGroupRuleDescriptions{Ingress,Egress}
+// all declare GroupName as an alternative identifier for default-VPC
+// groups (ec2@v1.319.1 doc comments), unlike their Egress-authorize/revoke
+// siblings which only ever declare GroupId.
+func (h *Handler) resolveSecurityGroupID(vals url.Values) (string, error) {
+	if id := vals.Get("GroupId"); id != "" {
+		return id, nil
+	}
+
+	name := vals.Get("GroupName")
+	if name == "" {
+		return "", fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	return h.resolveSecurityGroupIDByName(name)
+}
+
+func (h *Handler) resolveSecurityGroupIDByName(name string) (string, error) {
+	for _, sg := range h.Backend.DescribeSecurityGroups(nil) {
+		if sg.Name == name {
+			return sg.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, name)
+}
+
+// sourceGroupNameRule builds the classic single-rule "authorize/revoke by
+// source group name" form: AuthorizeSecurityGroupIngress and
+// RevokeSecurityGroupIngress both declare a top-level SourceSecurityGroupName
+// as an alternative to IpPermissions, documented to grant "full ICMP, UDP,
+// and TCP access" (ec2@v1.319.1 api_op_AuthorizeSecurityGroupIngress.go) --
+// unlike their Egress siblings, which declare the same field but mark it
+// "Not supported. Use IP permissions instead." Returns ok=false when the
+// field wasn't supplied.
+func (h *Handler) sourceGroupNameRule(vals url.Values) (SecurityGroupRule, bool, error) {
+	name := vals.Get("SourceSecurityGroupName")
+	if name == "" {
+		return SecurityGroupRule{}, false, nil
+	}
+
+	srcID, err := h.resolveSecurityGroupIDByName(name)
+	if err != nil {
+		return SecurityGroupRule{}, false, err
+	}
+
+	return SecurityGroupRule{Protocol: "-1", SourceGroupID: srcID}, true, nil
+}
+
 func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
-	groupID := vals.Get("GroupId")
-	if groupID == "" {
-		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	groupID, err := h.resolveSecurityGroupID(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	rules := parseIPPermissions(vals)
+	if len(rules) == 0 {
+		if rule, ok, srcErr := h.sourceGroupNameRule(vals); srcErr != nil {
+			return nil, srcErr
+		} else if ok {
+			rules = []SecurityGroupRule{rule}
+		}
+	}
 
-	if err := h.Backend.AuthorizeSecurityGroupIngress(groupID, rules); err != nil {
+	if err = h.Backend.AuthorizeSecurityGroupIngress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -553,12 +629,19 @@ func (h *Handler) handleAuthorizeSecurityGroupEgress(vals url.Values, reqID stri
 }
 
 func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
-	groupID := vals.Get("GroupId")
-	if groupID == "" {
-		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	groupID, err := h.resolveSecurityGroupID(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	rules := parseIPPermissions(vals)
+	if len(rules) == 0 {
+		if rule, ok, srcErr := h.sourceGroupNameRule(vals); srcErr != nil {
+			return nil, srcErr
+		} else if ok {
+			rules = []SecurityGroupRule{rule}
+		}
+	}
 
 	revoked, unknown, err := h.Backend.RevokeSecurityGroupIngress(groupID, rules)
 	if err != nil {
@@ -645,12 +728,12 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 }
 
 func (h *Handler) handleDeleteSecurityGroup(vals url.Values, reqID string) (any, error) {
-	id := vals.Get("GroupId")
-	if id == "" {
-		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	id, err := h.resolveSecurityGroupID(vals)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := h.Backend.DeleteSecurityGroup(id); err != nil {
+	if err = h.Backend.DeleteSecurityGroup(id); err != nil {
 		return nil, err
 	}
 

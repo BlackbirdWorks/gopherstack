@@ -59,7 +59,7 @@ func TestInMemoryBackend_AttachInstances(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group}, nil)
 			require.NoError(t, err)
 			assert.Len(t, groups[0].Instances, tt.wantLen)
 		})
@@ -192,14 +192,14 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-asg"}, nil)
 				require.Len(t, groups[0].Instances, 1)
 				instID := groups[0].Instances[0].InstanceID
 
 				err := b.SetInstanceHealth(instID, "Unhealthy", true)
 				require.NoError(t, err)
 
-				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-asg"})
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-asg"}, nil)
 				assert.Equal(t, "Unhealthy", groups[0].Instances[0].HealthStatus)
 			},
 		},
@@ -217,7 +217,7 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-grace-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-grace-asg"}, nil)
 				require.Len(t, groups[0].Instances, 1)
 				instID := groups[0].Instances[0].InstanceID
 
@@ -225,7 +225,7 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 				err := b.SetInstanceHealth(instID, "Unhealthy", true)
 				require.NoError(t, err)
 
-				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-grace-asg"})
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-grace-asg"}, nil)
 				// Should still be Healthy — grace period honored
 				assert.Equal(t, "Healthy", groups[0].Instances[0].HealthStatus)
 			},
@@ -244,14 +244,14 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"}, nil)
 				instID := groups[0].Instances[0].InstanceID
 
 				// false = don't respect grace period
 				err := b.SetInstanceHealth(instID, "Unhealthy", false)
 				require.NoError(t, err)
 
-				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"})
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"}, nil)
 				assert.Equal(t, "Unhealthy", groups[0].Instances[0].HealthStatus)
 			},
 		},
@@ -292,7 +292,7 @@ func TestInMemoryBackend_InstanceIndex(t *testing.T) {
 			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
 				t.Helper()
 
-				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-term-asg"})
+				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-term-asg"}, nil)
 				instID := groups[0].Instances[0].InstanceID
 
 				activity, err := b.TerminateInstanceInAutoScalingGroup(instID, true)
@@ -548,7 +548,7 @@ func TestInMemoryBackend_SetInstanceProtection(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, _ := b.DescribeAutoScalingGroups([]string{groupName})
+			groups, _ := b.DescribeAutoScalingGroups([]string{groupName}, nil)
 			for _, inst := range groups[0].Instances {
 				for _, id := range instanceIDs {
 					if inst.InstanceID == id {

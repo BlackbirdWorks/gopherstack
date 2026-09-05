@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 65 (64 ok, 1 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 5 |
+| Known gaps | 7 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -20,6 +20,8 @@
 - ContinueServiceDeployment always returns ClientException (no paused lifecycle hook) because PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT / EXTERNAL deployment controllers). Implementing real hook pausing is a substantial feature (Lambda-invocation simulation, TEST_TRAFFIC_SHIFT/BAKE_TIME lifecycle stages) out of scope for this sweep; the op is real (validates ARN/hookId, returns AWS-shaped errors) rather than a stub. Re-verified unchanged this sweep.
 - ECS -> ELB/ELBv2 target registration is config-only: Service.LoadBalancers/ServiceRegistries are stored and echoed back on Describe/Update, but nothing calls services/elbv2 to register/deregister targets in a target group, and ELB health does not feed back into ECS task/service health. Cross-service, lives outside services/ecs/ — reported, not fixed. No bd issue found for this in the tracker at time of writing; recommend filing one scoped to services/elbv2 + services/ecs integration.
 - ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it in response to managed-scaling target utilization. Cross-service, lives outside services/ecs/ — reported, not fixed.
+- Value-semantics sweep (gopherstack-uox6): several documented filter fields are never declared on their handler's wire input struct at all (the other axis -- never-read, not a wrong algorithm, not fixed here): ListServiceDeploymentsInput.CreatedAt and .Status (listServiceDeploymentsInput has only Cluster/Service); ListDaemonDeploymentsInput.CreatedAt (ListDaemonDeploymentsInput backend type has only DaemonArn/Status); ListTasksInput.daemonName; ListServicesInput.resourceManagementType. Also validation-shaped, not fixed here: ListTasksInput.startedBy docs 'When you specify startedBy as the filter, it must be the only filter that you use' -- combining it with another filter is silently ANDed rather than rejected; ListAccountSettingsInput.value and ListAttributesInput.attributeValue both document 'You must also specify a name/attribute name to use this parameter' -- supplying value alone is not rejected.
+- Value-semantics sweep (gopherstack-uox6): ListContainerInstancesInput.status docs 'If you don't specify this parameter, the default is to include container instances set to all states other than INACTIVE' -- the code has no such exclusion (empty status = no filter at all). Left unfixed: types.ContainerInstanceStatus's own enum (ACTIVE/DRAINING/REGISTERING/DEREGISTERING/REGISTRATION_FAILED) does not even include INACTIVE, and this backend deletes a container instance's row entirely on DeregisterContainerInstance rather than retaining it with Status=INACTIVE, so no container instance persisted in this backend's store can ever carry that status -- the documented default has zero observable effect here (same shape as the discarded-before-response gap recorded in a prior pass). Recorded, not implemented, since there is no reachable state to test it against.
 
 ### Deferred
 

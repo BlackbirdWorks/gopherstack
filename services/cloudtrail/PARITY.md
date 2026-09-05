@@ -21,8 +21,8 @@ ops:
   StartLogging: {wire: ok, errors: ok, state: ok, persist: ok}
   StopLogging: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTrailStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "IsLogging/StartLoggingTime/StopLoggingTime/LatestDeliveryTime as epoch numbers, TimeLoggingStarted/Stopped as RFC3339 strings — matches SDK deserializer exactly"}
-  PutEventSelectors: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetEventSelectors: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutEventSelectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-31 (gopherstack-uox6): basic EventSelector.IncludeManagementEvents/ReadWriteType now default correctly (true/All) when omitted -- see Notes below."}
+  GetEventSelectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "echoes PutEventSelectors' resolved (not raw) selector values -- see Notes below."}
   PutInsightSelectors: {wire: ok, errors: ok, state: ok, persist: ok}
   GetInsightSelectors: {wire: ok, errors: ok, state: partial, persist: ok, note: "gopherstack-6flj: real GetInsightSelectorsOutput additionally has InsightsDestination (S3 destination ARN for a specific advanced Insights setup this backend does not model). Structural gap, disclosed not fabricated -- see gaps."}
   LookupEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: EventCategory input field now filters (omitted/'Management' -> management events; 'insight' -> none, this backend never synthesizes Insight events); Event gained EventCategory + a matching UnmarshalJSON (see leaks note)"}
@@ -211,3 +211,79 @@ exactly).
   (`dashDetailToMap`, already its own dedicated converter) never used `dashToMap` and needed no
   change. `edsToMap`/`importToMap` are separate shared helpers (event data stores / imports) —
   not re-verified this pass, left as previously assessed.
+
+**2026-08-28 (gopherstack-6flj/21my re-audit)**: this service was tasked as "unswept" for
+the wrapper-key/per-item bug class, but git history and this manifest's own prior entries
+show it was already thoroughly swept (last_audit_date 2026-08-15, gopherstack-6flj, commit
+d4e234022). Independently re-verified a representative sample at both layers against
+cloudtrail@v1.58.4's own deserializers rather than trusting the manifest: `Trail`
+(trailToMap, all 13 fields incl. SnsTopicARN capitalization), `Channel`/`Destination`
+(GetChannel/ListChannels/CreateChannel/UpdateChannel), `Widget`
+(QueryAlias/QueryParameters/QueryStatement/ViewProperties), and `AdvancedEventSelector`/
+`AdvancedFieldSelector` (all 7 nested field names). All matched the real deserializer's case
+labels exactly; no new bugs found. Op-routing-table-vs-manifest diff: 60/60 ops match, no
+unaudited op. No changes made to this file's `ops:`/`gaps:` this pass.
+
+**2026-08-31 (gopherstack-uox6, value-semantics sweep):** swept the pinned SDK
+(`aws-sdk-go-v2/service/cloudtrail@v1.58.4`) for omission-default language, line-wrap
+tolerant. One real bug, fixed with a regression test proven to fail against the
+unmodified code first (plus a companion test proving the fix doesn't overwrite an
+explicit `false`, which already passed unmodified and still passes now):
+
+- **Basic `EventSelector`'s two documented defaults were lost at decode.**
+  `types.EventSelector.IncludeManagementEvents` doc: "By default, the value is
+  true." — and the real SDK field is `*bool`, i.e. the wire genuinely distinguishes
+  omitted from explicit `false`. `types.EventSelector.ReadWriteType` doc: "By
+  default, the value is All." gopherstack's `EventSelector` (`models.go`) used a
+  plain `bool`/`string` as the *decode* target too, so an omitted
+  `IncludeManagementEvents` silently became the Go zero value `false` (inverting the
+  documented default) and an omitted `ReadWriteType` became `""` instead of `"All"`
+  — then that wrong value was stored and echoed back verbatim by
+  `GetEventSelectors`. Fixed by introducing a wire-only decode type
+  `eventSelectorWire` (`handler_event_selectors.go`) with `IncludeManagementEvents
+  *bool`, matching the real SDK's type, converted to the internal `EventSelector`
+  via `toEventSelector()`, which applies both defaults only when the wire value is
+  absent (nil pointer / empty string — `""` is not itself a valid `ReadWriteType`,
+  so treating it as "omitted" is safe). `PutEventSelectors`'s response and
+  `GetEventSelectors` both now echo the resolved values, not the raw request.
+  Regression tests in `omission_defaults_test.go`:
+  `TestPutEventSelectors_Defaults` (omits both fields, asserts `true`/`"All"` on
+  both the `PutEventSelectors` response and a follow-up `GetEventSelectors` —
+  failed against unmodified code with `false`/`""`) and
+  `TestPutEventSelectors_ExplicitFalseSurvives` (explicit `false`/`"ReadOnly"`
+  survive unchanged — already passed against unmodified code, confirming the
+  fix must not simply force `true`).
+
+**Checked and confirmed correct, not fixed:** `LookupEvents.MaxResults` (default
+50, cap 50, matching "The default number of results returned is 50, with a maximum
+of 50 possible" — `events.go`'s `LookupEvents`) and `LookupEvents.EventCategory`
+(omitted category correctly excludes Insight events per "if you do not specify an
+event category, events of [the Insight] category are not returned" — already
+correctly implemented and commented at `events.go:86-94`, predating this pass).
+
+**Gap recorded, not fixed (documentation silent):** `CreateTrail`/`UpdateTrail`'s
+`IncludeGlobalServiceEvents` (`*bool` on the real SDK type, same shape as the bug
+above) has **no** "by default" wording anywhere in the pinned SDK's doc comments for
+`api_op_CreateTrail.go`, `api_op_UpdateTrail.go`, or `types/types.go` — unlike
+`IsMultiRegionTrail` on the same structs, which explicitly states "The default is
+false." AWS's public web documentation is known to state a default for this field
+elsewhere, but per this campaign's discipline that source is not the pinned SDK and
+was not used to fabricate a fix; gopherstack's current `IncludeGlobalServiceEvents
+bool` (plain, zero-value `false`) is left as-is. Follow-up should re-check this
+field's Go doc comment on a future SDK bump before implementing a default.
+
+**Recorded as the other axis, not fixed here:** `DescribeTrails.IncludeShadowTrails`
+is decoded (`handler_trails.go`'s `describeTrailsBody`) but never passed to
+`Backend.DescribeTrails`, which takes only a name list. Not fixed in this pass
+because this backend has no "shadow trail" (cross-Region/organization-member
+replica) concept at all in its data model — `IsOrganizationTrail` is stored but
+nothing ever creates a replica row keyed off it, so no trail currently in this
+store could ever be excluded or included differently by this flag. A real fix
+requires modeling shadow-trail replication, which is a structural feature, not a
+value-semantics bug in this parameter's handling.
+
+Gates: `go build ./services/cloudtrail/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/cloudtrail/...` (all pass), `golangci-lint run
+./services/cloudtrail/...` (0 issues, after a `fieldalignment -fix` pass on the new
+`eventSelectorWire` struct, re-verified with a plain `golangci-lint run`
+afterward). No other service's files touched.

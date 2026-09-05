@@ -21,14 +21,23 @@ type startQueryOutput struct {
 }
 
 type getQueryResultsInput struct {
-	QueryID string `json:"queryId"`
+	QueryID   string `json:"queryId"`
+	NextToken string `json:"nextToken"`
+	MaxItems  int    `json:"maxItems"`
 }
 
 type getQueryResultsOutput struct {
 	Status     QueryStatus     `json:"status"`
+	NextToken  string          `json:"nextToken,omitempty"`
 	Results    [][]ResultField `json:"results"`
 	Statistics QueryStatistics `json:"statistics"`
 }
+
+// maxGetQueryResultsItems is GetQueryResultsInput.MaxItems' documented
+// per-request maximum, also used as the default when the caller omits it
+// (api_op_GetQueryResults.go:64: "The maximum is 10,000 log events per
+// request").
+const maxGetQueryResultsItems = 10_000
 
 type stopQueryInput struct {
 	QueryID string `json:"queryId"`
@@ -52,10 +61,13 @@ type describeQueriesOutput struct {
 
 // --- ListLogGroupsForQuery ---.
 type listLogGroupsForQueryInput struct {
-	QueryID string `json:"queryId"`
+	QueryID    string `json:"queryId"`
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
 }
 
 type listLogGroupsForQueryOutput struct {
+	NextToken           string   `json:"nextToken,omitempty"`
 	LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
 }
 
@@ -98,7 +110,31 @@ func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, err
 		return nil, err
 	}
 
-	return &getQueryResultsOutput{Results: results, Statistics: stats, Status: status}, nil
+	maxItems := input.MaxItems
+	if maxItems <= 0 || maxItems > maxGetQueryResultsItems {
+		maxItems = maxGetQueryResultsItems
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	if startIdx >= len(results) {
+		return &getQueryResultsOutput{Results: [][]ResultField{}, Statistics: stats, Status: status}, nil
+	}
+
+	end := startIdx + maxItems
+
+	var outToken string
+	if end < len(results) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(results)
+	}
+
+	return &getQueryResultsOutput{
+		Results:    results[startIdx:end],
+		Statistics: stats,
+		Status:     status,
+		NextToken:  outToken,
+	}, nil
 }
 
 func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
@@ -150,5 +186,27 @@ func (h *Handler) handleListLogGroupsForQuery(
 		return nil, err
 	}
 
-	return &listLogGroupsForQueryOutput{LogGroupIdentifiers: groups}, nil
+	limit := input.MaxResults
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	if startIdx >= len(groups) {
+		return &listLogGroupsForQueryOutput{LogGroupIdentifiers: []string{}}, nil
+	}
+
+	end := startIdx + limit
+
+	var outToken string
+	if end < len(groups) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(groups)
+	}
+
+	return &listLogGroupsForQueryOutput{
+		LogGroupIdentifiers: groups[startIdx:end],
+		NextToken:           outToken,
+	}, nil
 }

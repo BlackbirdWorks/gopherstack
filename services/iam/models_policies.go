@@ -47,16 +47,19 @@ type DeletePolicyVersionResponse struct {
 // PolicyEntityUser is a user attached to a managed policy.
 type PolicyEntityUser struct {
 	UserName string `xml:"UserName"`
+	UserID   string `xml:"UserId"`
 }
 
 // PolicyEntityGroup is a group attached to a managed policy.
 type PolicyEntityGroup struct {
 	GroupName string `xml:"GroupName"`
+	GroupID   string `xml:"GroupId"`
 }
 
 // PolicyEntityRole is a role attached to a managed policy.
 type PolicyEntityRole struct {
 	RoleName string `xml:"RoleName"`
+	RoleID   string `xml:"RoleId"`
 }
 
 // PolicyEntities is the collection of entities attached to a managed policy.
@@ -68,6 +71,7 @@ type PolicyEntities struct {
 
 // ListEntitiesForPolicyResult contains the policy entity lists.
 type ListEntitiesForPolicyResult struct {
+	Marker       string              `xml:"Marker,omitempty"`
 	PolicyUsers  []PolicyEntityUser  `xml:"PolicyUsers>member"`
 	PolicyGroups []PolicyEntityGroup `xml:"PolicyGroups>member"`
 	PolicyRoles  []PolicyEntityRole  `xml:"PolicyRoles>member"`

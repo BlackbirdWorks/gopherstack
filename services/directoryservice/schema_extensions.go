@@ -9,10 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// StartSchemaExtension starts a schema extension.
+// StartSchemaExtension starts a schema extension. When
+// createSnapshotBeforeSchemaExtension is true (StartSchemaExtensionInput's own
+// required field), an Auto-type snapshot of the directory is taken first, matching the
+// real op's documented behavior -- an Auto snapshot doesn't count against the manual
+// snapshot limit (GetSnapshotLimits/CreateSnapshot only count SnapshotTypeManual).
 func (b *InMemoryBackend) StartSchemaExtension(
 	ctx context.Context,
 	directoryID, description, _ string,
+	createSnapshotBeforeSchemaExtension bool,
 ) (string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -21,6 +26,10 @@ func (b *InMemoryBackend) StartSchemaExtension(
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
+	}
+
+	if createSnapshotBeforeSchemaExtension {
+		b.newAutoSnapshot(region, directoryID, "Schema extension snapshot")
 	}
 
 	id := fmt.Sprintf("e-%s", uuid.NewString()[:10])

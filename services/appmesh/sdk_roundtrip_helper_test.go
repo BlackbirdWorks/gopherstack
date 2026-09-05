@@ -53,12 +53,12 @@ func newRoundTripClient(t *testing.T, h *appmesh.Handler) *appmeshsdk.Client {
 
 // newTestHandlerAndClient is a convenience wrapper combining a fresh
 // in-memory backend/handler pair with a round-trip SDK client against it.
-func newTestHandlerAndClient(t *testing.T) (*appmesh.Handler, *appmeshsdk.Client) {
+func newTestHandlerAndClient(t *testing.T) *appmeshsdk.Client {
 	t.Helper()
 
 	backend := appmesh.NewInMemoryBackend("000000000000", rtTestRegion)
 	h := appmesh.NewHandler(backend)
 	client := newRoundTripClient(t, h)
 
-	return h, client
+	return client
 }

@@ -370,10 +370,10 @@ func (b *InMemoryBackend) ModifyInstanceNetworkPerformanceOptions(
 // by ModifyInstancePlacement, avoiding a long positional parameter list.
 type ModifyInstancePlacementInput struct {
 	PartitionNumber      *int32
+	GroupName            *string
 	InstanceID           string
 	Affinity             string
 	GroupID              string
-	GroupName            string
 	HostID               string
 	HostResourceGroupArn string
 	Tenancy              string
@@ -422,8 +422,8 @@ func applyInstancePlacement(inst *Instance, in ModifyInstancePlacementInput) {
 		inst.Placement.GroupID = in.GroupID
 	}
 
-	if in.GroupName != "" {
-		inst.Placement.GroupName = in.GroupName
+	if in.GroupName != nil {
+		inst.Placement.GroupName = *in.GroupName
 	}
 
 	if in.HostID != "" {

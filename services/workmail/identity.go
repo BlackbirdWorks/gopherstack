@@ -27,6 +27,10 @@ func (b *InMemoryBackend) DeleteIdentityCenterApplication(applicationARN string)
 	defer b.mu.Unlock()
 
 	if _, ok := b.identityCenterApps[applicationARN]; !ok {
+		// DeleteIdentityCenterApplication's own error model declares no
+		// not-found type at all (only InvalidParameterException,
+		// OrganizationStateException); no correct code exists to send here
+		// (gopherstack-6flj/uox6 error-envelope sweep).
 		return fmt.Errorf(
 			"%w: identity center application %q not found",
 			ErrNotFound,
@@ -49,7 +53,7 @@ func (b *InMemoryBackend) PutIdentityProviderConfiguration(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	cfg := &IdentityProviderConfiguration{
 		AuthMode:                  authMode,
@@ -72,7 +76,7 @@ func (b *InMemoryBackend) DeleteIdentityProviderConfiguration(orgID string) erro
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	b.idpConfig.Delete(orgID)
 
@@ -87,11 +91,11 @@ func (b *InMemoryBackend) DescribeIdentityProviderConfiguration(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	cfg, ok := b.idpConfig.Get(orgID)
 	if !ok {
-		return nil, fmt.Errorf("%w: identity provider configuration not found", ErrNotFound)
+		return nil, fmt.Errorf("%w: identity provider configuration not found", ErrResourceNotFound)
 	}
 
 	return cfg, nil

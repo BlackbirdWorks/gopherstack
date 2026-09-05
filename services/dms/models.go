@@ -104,6 +104,8 @@ type ReplicationInstance struct {
 	DNSNameServers                string     `json:"dnsNameServers,omitempty"`
 	NetworkType                   string     `json:"networkType,omitempty"`
 	PreferredMaintenanceWindow    string     `json:"preferredMaintenanceWindow,omitempty"`
+	ReplicationSubnetGroupID      string     `json:"replicationSubnetGroupId,omitempty"`
+	VpcSecurityGroupIDs           []string   `json:"vpcSecurityGroupIds,omitempty"`
 	AllocatedStorage              int32      `json:"allocatedStorage"`
 	MultiAZ                       bool       `json:"multiAZ"`
 	AutoMinorVersionUpgrade       bool       `json:"autoMinorVersionUpgrade"`
@@ -163,6 +165,9 @@ type ReplicationTask struct {
 	Status                    string     `json:"status"`
 	AccountID                 string     `json:"accountId"`
 	Region                    string     `json:"region"`
+	CdcStartPosition          string     `json:"cdcStartPosition,omitempty"`
+	CdcStopPosition           string     `json:"cdcStopPosition,omitempty"`
+	TaskData                  string     `json:"taskData,omitempty"`
 }
 
 // Certificate represents a DMS certificate.

@@ -7,16 +7,25 @@ import (
 	"strconv"
 )
 
+type niAttachmentAttr struct {
+	AttachmentID        string `xml:"attachmentId,omitempty"`
+	InstanceID          string `xml:"instanceId,omitempty"`
+	Status              string `xml:"status,omitempty"`
+	DeviceIndex         int    `xml:"deviceIndex"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+}
+
 type niAttributeResponse struct {
-	XMLName            xml.Name `xml:"DescribeNetworkInterfaceAttributeResponse"`
-	RequestID          string   `xml:"requestId"`
-	NetworkInterfaceID string   `xml:"networkInterfaceId"`
-	Description        struct {
+	Description *struct {
 		Value string `xml:"value"`
-	} `xml:"description"`
-	SourceDestCheck struct {
+	} `xml:"description,omitempty"`
+	SourceDestCheck *struct {
 		Value bool `xml:"value"`
-	} `xml:"sourceDestCheck"`
+	} `xml:"sourceDestCheck,omitempty"`
+	Attachment         *niAttachmentAttr `xml:"attachment,omitempty"`
+	XMLName            xml.Name          `xml:"DescribeNetworkInterfaceAttributeResponse"`
+	RequestID          string            `xml:"requestId"`
+	NetworkInterfaceID string            `xml:"networkInterfaceId"`
 }
 
 type niPermissionStateItem struct {
@@ -35,6 +44,7 @@ type niPermissionItem struct {
 type describeNIPermissionsResponse struct {
 	XMLName                     xml.Name `xml:"DescribeNetworkInterfacePermissionsResponse"`
 	RequestID                   string   `xml:"requestId"`
+	NextToken                   string   `xml:"nextToken,omitempty"`
 	NetworkInterfacePermissions struct {
 		Items []niPermissionItem `xml:"item"`
 	} `xml:"networkInterfacePermissions"`
@@ -51,9 +61,7 @@ type assignIpv6Response struct {
 	RequestID             string   `xml:"requestId"`
 	NetworkInterfaceID    string   `xml:"networkInterfaceId"`
 	AssignedIpv6Addresses struct {
-		Items []struct {
-			Ipv6Address string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"assignedIpv6Addresses"`
 }
 
@@ -62,9 +70,7 @@ type unassignIpv6Response struct {
 	RequestID               string   `xml:"requestId"`
 	NetworkInterfaceID      string   `xml:"networkInterfaceId"`
 	UnassignedIpv6Addresses struct {
-		Items []struct {
-			Ipv6Address string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"unassignedIpv6Addresses"`
 }
 
@@ -91,8 +97,36 @@ func (h *Handler) handleDescribeNetworkInterfaceAttribute(
 		RequestID:          reqID,
 		NetworkInterfaceID: result.NetworkInterfaceID,
 	}
-	resp.Description.Value = result.Description
-	resp.SourceDestCheck.Value = result.SourceDestCheck
+
+	// Real AWS returns only the block matching the requested Attribute
+	// (ec2@v1.319.1 deserializers.go,
+	// awsEc2query_deserializeOpDocumentDescribeNetworkInterfaceAttributeOutput):
+	// description/groupSet/sourceDestCheck/attachment/
+	// associatePublicIpAddress are mutually exclusive per call, not all
+	// echoed together.
+	switch attribute {
+	case "attachment":
+		if result.HasAttachment {
+			resp.Attachment = &niAttachmentAttr{
+				AttachmentID:        result.AttachmentID,
+				InstanceID:          result.AttachInstanceID,
+				DeviceIndex:         result.AttachDeviceIndex,
+				Status:              result.AttachStatus,
+				DeleteOnTermination: result.AttachDeleteOnTerm,
+			}
+		}
+	case "sourceDestCheck":
+		resp.SourceDestCheck = &struct {
+			Value bool `xml:"value"`
+		}{Value: result.SourceDestCheck}
+	case "groupSet", "associatePublicIpAddress":
+		// Not modeled by this backend: security groups and the launch-time
+		// public-IP-association flag are not tracked per network interface.
+	default:
+		resp.Description = &struct {
+			Value string `xml:"value"`
+		}{Value: result.Description}
+	}
 
 	return resp, nil
 }
@@ -117,7 +151,17 @@ func (h *Handler) handleDescribeNetworkInterfacePermissions(
 	niIDs := parseMemberList(vals, "NetworkInterfaceId")
 	perms := h.Backend.DescribeNetworkInterfacePermissions(niIDs)
 
-	resp := &describeNIPermissionsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultNIPermissions,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	perms, nextToken = pageSlice(perms, offset, maxResults)
+
+	resp := &describeNIPermissionsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, p := range perms {
 		item := niPermissionItem{
 			NetworkInterfacePermissionID: p.PermissionID,
@@ -194,11 +238,7 @@ func (h *Handler) handleAssignIpv6Addresses(vals url.Values, reqID string) (any,
 	}
 
 	resp := &assignIpv6Response{RequestID: reqID, NetworkInterfaceID: niID}
-	for _, addr := range assigned {
-		resp.AssignedIpv6Addresses.Items = append(resp.AssignedIpv6Addresses.Items, struct {
-			Ipv6Address string `xml:"item"`
-		}{Ipv6Address: addr})
-	}
+	resp.AssignedIpv6Addresses.Items = assigned
 
 	return resp, nil
 }
@@ -212,11 +252,7 @@ func (h *Handler) handleUnassignIpv6Addresses(vals url.Values, reqID string) (an
 	}
 
 	resp := &unassignIpv6Response{RequestID: reqID, NetworkInterfaceID: niID}
-	for _, addr := range addrs {
-		resp.UnassignedIpv6Addresses.Items = append(resp.UnassignedIpv6Addresses.Items, struct {
-			Ipv6Address string `xml:"item"`
-		}{Ipv6Address: addr})
-	}
+	resp.UnassignedIpv6Addresses.Items = addrs
 
 	return resp, nil
 }

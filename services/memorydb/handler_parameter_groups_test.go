@@ -844,3 +844,62 @@ func TestHandler_ParameterGroupCRUD(t *testing.T) {
 }
 
 // -- ACL CRUD ------------------------------------------------------------------
+
+// TestDescribeParameters_Pagination asserts DescribeParametersInput.
+// MaxResults is honoured and DescribeParametersOutput.NextToken is returned
+// when more parameters remain, instead of always returning every parameter
+// in one response.
+func TestDescribeParameters_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateParameterGroup", map[string]any{
+		"ParameterGroupName": "paged-pg",
+		"Family":             "memorydb_redis7",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	all := doRequest(t, h, "DescribeParameters", map[string]any{"ParameterGroupName": "paged-pg"})
+	require.Equal(t, http.StatusOK, all.Code)
+
+	var allParams struct {
+		Parameters []map[string]any `json:"Parameters"`
+	}
+	require.NoError(t, json.Unmarshal(all.Body.Bytes(), &allParams))
+	require.NotEmpty(t, allParams.Parameters)
+
+	pageSize := len(allParams.Parameters) - 1
+	require.Positive(t, pageSize)
+
+	rec = doRequest(t, h, "DescribeParameters", map[string]any{
+		"ParameterGroupName": "paged-pg",
+		"MaxResults":         pageSize,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var first struct {
+		NextToken  string           `json:"NextToken"`
+		Parameters []map[string]any `json:"Parameters"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	require.Len(t, first.Parameters, pageSize, "first page must truncate to MaxResults")
+	require.NotEmpty(t, first.NextToken, "NextToken must be set when more parameters remain")
+
+	rec = doRequest(t, h, "DescribeParameters", map[string]any{
+		"ParameterGroupName": "paged-pg",
+		"MaxResults":         pageSize,
+		"NextToken":          first.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var second struct {
+		NextToken  string           `json:"NextToken"`
+		Parameters []map[string]any `json:"Parameters"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
+	require.Len(t, second.Parameters, len(allParams.Parameters)-pageSize, "second page must return the remainder")
+	assert.NotEqual(
+		t, first.Parameters[0]["Name"], second.Parameters[0]["Name"], "no parameter must repeat across pages",
+	)
+}

@@ -263,7 +263,7 @@ func TestResourceCreator_EC2NetworkAcl(t *testing.T) {
 	ec2b, ok := backends.EC2.Backend.(*ec2backend.InMemoryBackend)
 	require.True(t, ok)
 
-	vpc, err := ec2b.CreateVpc("10.0.0.0/16")
+	vpc, err := ec2b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
 	rc := cloudformation.NewResourceCreator(backends)

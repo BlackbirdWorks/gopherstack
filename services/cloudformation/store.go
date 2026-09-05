@@ -65,7 +65,7 @@ type StorageBackend interface {
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	StackSetRegions(name string) []string
-	ListStackSets(nextToken string) (page.Page[StackSetSummary], error)
+	ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error)
 	CreateStackInstances(
 		ctx context.Context,
 		stackSetName string,
@@ -77,7 +77,9 @@ type StorageBackend interface {
 		accounts, ouIDs, regions []string,
 	) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
-	ListStackInstances(stackSetName, nextToken string) (page.Page[StackInstance], error)
+	ListStackInstances(
+		stackSetName, nextToken string, filter ListStackInstancesFilter,
+	) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
 	ListStackSetOperations(
@@ -131,7 +133,7 @@ type StorageBackend interface {
 		resourceMappings []ResourceMapping,
 		enableStackCreation bool,
 	) (string, error)
-	DescribeStackRefactor(stackRefactorID string) (string, error)
+	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
 	ExecuteStackRefactor(stackRefactorID string) error
 	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
 	ListStackRefactorActions(stackRefactorID string) ([]StackRefactorAction, error)
@@ -146,7 +148,7 @@ type StorageBackend interface {
 	GetHookResult(hookResultToken string) (string, error)
 	ListHookResults(hookResultToken, nextToken string) ([]HookResult, error)
 	DescribeChangeSetHooks(stackName, changeSetName string) ([]ChangeSetHook, error)
-	DescribeEvents(stackName, nextToken string) (page.Page[StackEvent], error)
+	DescribeEvents(stackName, nextToken string, failedOnly bool) (page.Page[StackEvent], error)
 	UpdateTerminationProtection(stackName string, enable bool) error
 	ValidateTemplate(templateBody string) (*TemplateSummary, error)
 }
@@ -207,10 +209,13 @@ const (
 	statusUpdateFailed             = "UPDATE_FAILED"
 	statusUpdateRollbackInProgress = "UPDATE_ROLLBACK_IN_PROGRESS"
 	statusUpdateRollbackComplete   = "UPDATE_ROLLBACK_COMPLETE"
+	statusUpdateRollbackFailed     = "UPDATE_ROLLBACK_FAILED"
 	statusDeleteInProgress         = "DELETE_IN_PROGRESS"
 	statusDeleteComplete           = "DELETE_COMPLETE"
+	statusDeleteFailed             = "DELETE_FAILED"
 	statusRollbackInProgress       = "ROLLBACK_IN_PROGRESS"
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
+	statusRollbackFailed           = "ROLLBACK_FAILED"
 	reasonUserInitiated            = "User Initiated"
 )
 

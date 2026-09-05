@@ -2,6 +2,7 @@ package acm_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -562,6 +563,43 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				require.Len(t, out.Results, 1)
 				assert.Equal(t, "commonname.example.com", out.Results[0].X509Attributes.Subject.CommonName)
+			},
+		},
+		{
+			// CertificateKeyPairOrigin is derivable from Certificate.Type
+			// (AMAZON_ISSUED -> AWS_MANAGED, IMPORTED -> CUSTOMER_PROVIDED, see
+			// certKeyPairOrigin in certificates.go) even though gopherstack
+			// tracks no explicit field for it -- the metadata filter must
+			// actually apply it, not silently match nothing.
+			name: "AcmCertificateMetadataFilter_CertificateKeyPairOrigin",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-awsmanaged.example.com"}`)
+
+				certPEM, keyPEM := generateTestCert(t)
+				importBody, marshalErr := json.Marshal(map[string]any{
+					"Certificate": base64.StdEncoding.EncodeToString([]byte(certPEM)),
+					"PrivateKey":  base64.StdEncoding.EncodeToString([]byte(keyPEM)),
+				})
+				require.NoError(t, marshalErr)
+
+				importRec := postACMJSON(t, h, "ImportCertificate", string(importBody))
+				require.Equal(t, http.StatusOK, importRec.Code)
+
+				body := `{"FilterStatement":{"Filter":{"AcmCertificateMetadataFilter":` +
+					`{"CertificateKeyPairOrigin":"CUSTOMER_PROVIDED"}}}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.NotContains(t, rec.Body.String(), "search-awsmanaged.example.com")
+
+				var out struct {
+					Results []struct {
+						CertificateArn string `json:"CertificateArn"`
+					} `json:"Results"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.Len(t, out.Results, 1)
 			},
 		},
 		{

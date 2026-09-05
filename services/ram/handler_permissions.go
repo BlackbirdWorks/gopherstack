@@ -227,7 +227,8 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 	objs := make([]permissionSummaryObject, 0, len(perms))
 
 	for _, p := range perms {
-		if req.PermissionType != "" && p.PermissionType != req.PermissionType {
+		if req.PermissionType != "" && req.PermissionType != permissionTypeFilterAll &&
+			p.PermissionType != req.PermissionType {
 			continue
 		}
 

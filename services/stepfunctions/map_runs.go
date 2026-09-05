@@ -170,6 +170,7 @@ func (b *InMemoryBackend) UpdateMapRun(
 }
 
 // ListMapRuns returns all MapRuns for an execution.
+// AWS: ListMapRuns models ExecutionDoesNotExist for an unknown executionArn.
 func (b *InMemoryBackend) ListMapRuns(
 	executionARN, nextToken string, maxResults int,
 ) ([]MapRun, string, error) {
@@ -177,6 +178,15 @@ func (b *InMemoryBackend) ListMapRuns(
 	defer b.mu.RUnlock()
 
 	runs := b.mapRunsByExecution.Get(executionARN)
+
+	// StartSyncExecution's EXPRESS executions are never inserted into
+	// b.executions (see syncMapRunNotifier's doc comment in this file), so
+	// an executionARN with recorded map runs but no b.executions entry is
+	// still a real (synchronous) execution, not an unknown one.
+	if !b.executions.Has(executionARN) && len(runs) == 0 {
+		return nil, "", fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
+	}
+
 	all := make([]MapRun, 0, len(runs))
 
 	for _, mr := range runs {

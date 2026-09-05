@@ -87,23 +87,12 @@ func (h *Handler) handleListPresets(c *echo.Context) error {
 	}
 
 	q := c.Request().URL.Query()
-	category := q.Get("category")
-
-	if category != "" {
-		filtered := presets[:0:0]
-
-		for _, p := range presets {
-			if p.Category == category {
-				filtered = append(filtered, p)
-			}
-		}
-
-		presets = filtered
-	}
-
-	if q.Get("order") == orderDescending {
-		reverseSlice(presets)
-	}
+	presets = applyListOrdering(
+		presets, q.Get("category"),
+		func(p *Preset) string { return p.Category },
+		func(p *Preset) float64 { return p.CreatedAt },
+		q.Get("listBy"), q.Get("order"),
+	)
 
 	pg := page.New(presets, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
 

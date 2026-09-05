@@ -92,7 +92,8 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 	h := newTestHandler(t)
 
 	unfilteredRec := doRequest(t, h, "GetDimensionValues", map[string]any{
-		"Dimension": "SERVICE",
+		"Dimension":  "SERVICE",
+		"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 	})
 	require.Equal(t, http.StatusOK, unfilteredRec.Code)
 
@@ -107,7 +108,8 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 	// AWS Lambda is the only service seeded with usage type Lambda-GB-Second,
 	// so constraining SERVICE by that USAGE_TYPE narrows 12 values to 1.
 	filteredRec := doRequest(t, h, "GetDimensionValues", map[string]any{
-		"Dimension": "SERVICE",
+		"Dimension":  "SERVICE",
+		"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 		"Filter": map[string]any{
 			"Dimensions": map[string]any{
 				"Key":    "USAGE_TYPE",
@@ -131,8 +133,9 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 	// EC2 has the largest weight (0.40) in the synthetic catalog, so it must
 	// have the highest total BlendedCost and sort first under DESCENDING.
 	sortedRec := doRequest(t, h, "GetDimensionValues", map[string]any{
-		"Dimension": "SERVICE",
-		"SortBy":    []map[string]any{{"Key": "BlendedCost", "SortOrder": "DESCENDING"}},
+		"Dimension":  "SERVICE",
+		"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+		"SortBy":     []map[string]any{{"Key": "BlendedCost", "SortOrder": "DESCENDING"}},
 	})
 	require.Equal(t, http.StatusOK, sortedRec.Code)
 

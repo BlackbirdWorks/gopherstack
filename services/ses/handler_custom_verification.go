@@ -3,6 +3,7 @@ package ses
 import (
 	"encoding/xml"
 	"net/url"
+	"strconv"
 )
 
 func (h *Handler) handleCreateCustomVerificationEmailTemplate(vals url.Values, reqID string) (any, error) {
@@ -66,10 +67,17 @@ func (h *Handler) handleGetCustomVerificationEmailTemplate(vals url.Values, reqI
 	}, nil
 }
 
-func (h *Handler) handleListCustomVerificationEmailTemplates(reqID string) any {
-	tmpls := h.Backend.ListCustomVerificationEmailTemplates()
-	members := make([]xmlCustomVerifTemplate, 0, len(tmpls))
-	for _, t := range tmpls {
+func (h *Handler) handleListCustomVerificationEmailTemplates(vals url.Values, reqID string) any {
+	maxResults := 0
+	if s := vals.Get("MaxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxResults = n
+		}
+	}
+
+	p := h.Backend.ListCustomVerificationEmailTemplates(vals.Get("NextToken"), maxResults)
+	members := make([]xmlCustomVerifTemplate, 0, len(p.Data))
+	for _, t := range p.Data {
 		members = append(members, xmlCustomVerifTemplate(t))
 	}
 
@@ -78,6 +86,7 @@ func (h *Handler) handleListCustomVerificationEmailTemplates(reqID string) any {
 		RequestID: reqID,
 		Result: listCustomVerificationEmailTemplatesResult{
 			CustomVerificationEmailTemplates: xmlCustomVerifTemplateList{Members: members},
+			NextToken:                        p.Next,
 		},
 	}
 }
@@ -107,6 +116,7 @@ type xmlCustomVerifTemplateList struct {
 }
 
 type listCustomVerificationEmailTemplatesResult struct {
+	NextToken                        string                     `xml:"NextToken,omitempty"`
 	CustomVerificationEmailTemplates xmlCustomVerifTemplateList `xml:"CustomVerificationEmailTemplates"`
 }
 

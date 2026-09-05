@@ -170,7 +170,8 @@ type MonitoringAlertHistoryFilter struct {
 	MonitoringScheduleName string
 	MonitoringAlertName    string
 	StatusEquals           string
-	SortOrder              string // "Ascending" | "Descending" (default); sort key is always CreationTime
+	SortBy                 string // "CreationTime" (default) | "Status" -- types.MonitoringAlertHistorySortKey
+	SortOrder              string // "Ascending" | "Descending" (default)
 	MaxResults             int32
 }
 
@@ -220,7 +221,7 @@ func (b *InMemoryBackend) ListMonitoringAlertHistory(
 
 	descending := !strings.EqualFold(f.SortOrder, "Ascending")
 	sort.SliceStable(list, func(i, k int) bool {
-		cmp := compareTimes(list[i].CreationTime, list[k].CreationTime)
+		cmp := compareMonitoringAlertHistoryEntries(list[i], list[k], f.SortBy)
 		if descending {
 			return cmp > 0
 		}
@@ -229,6 +230,17 @@ func (b *InMemoryBackend) ListMonitoringAlertHistory(
 	})
 
 	return paginateSlice(list, nextToken, f.MaxResults)
+}
+
+// compareMonitoringAlertHistoryEntries implements ListMonitoringAlertHistory's
+// SortBy vocabulary (types.MonitoringAlertHistorySortKey: CreationTime
+// default, Status the only other real value).
+func compareMonitoringAlertHistoryEntries(a, b *MonitoringAlertHistoryEntry, sortBy string) int {
+	if strings.EqualFold(sortBy, "Status") {
+		return strings.Compare(a.AlertStatus, b.AlertStatus)
+	}
+
+	return compareTimes(a.CreationTime, b.CreationTime)
 }
 
 // ---------------------------------------------------------------------------

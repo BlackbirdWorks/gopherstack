@@ -13,8 +13,8 @@ type StorageBackend interface {
 	GetNamespace(id string) (*Namespace, error)
 	ListNamespaces(filter ListNamespacesFilter) []Namespace
 	UpdateHTTPNamespace(id, description string) (string, error)
-	UpdatePrivateDNSNamespace(id, description string) (string, error)
-	UpdatePublicDNSNamespace(id, description string) (string, error)
+	UpdatePrivateDNSNamespace(id, description string, soaTTL int64, hasSOATTL bool) (string, error)
+	UpdatePublicDNSNamespace(id, description string, soaTTL int64, hasSOATTL bool) (string, error)
 
 	// Service operations.
 	CreateService(

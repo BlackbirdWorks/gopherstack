@@ -202,13 +202,13 @@ func TestAccessGrantsCRUD(t *testing.T) {
 
 	t.Run("list grants", func(t *testing.T) {
 		t.Parallel()
-		grants := b.ListAccessGrants("000000000000", "")
+		grants := b.ListAccessGrants("000000000000", s3control.AccessGrantsFilter{})
 		assert.NotEmpty(t, grants)
 	})
 
 	t.Run("list caller grants", func(t *testing.T) {
 		t.Parallel()
-		grants := b.ListCallerAccessGrants("000000000000")
+		grants := b.ListCallerAccessGrants("000000000000", "")
 		assert.NotEmpty(t, grants)
 	})
 
@@ -1010,4 +1010,102 @@ func TestHandler_DeleteAccessGrantsInstance_Precondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListAccessGrants_Filters locks in ListAccessGrants's real query
+// filters (s3control@v1.73.4 api_op_ListAccessGrants.go serializers.go:
+// awsRestxml_serializeOpHttpBindingsListAccessGrantsInput -- wire keys
+// "grantscope" and "granteeidentifier"). The handler previously read
+// "locationscope" (ListAccessGrantsLocations's own filter key, not
+// ListAccessGrants's) so a real client's grantscope filter was silently
+// ignored, and granteeidentifier was never read at all.
+func TestListAccessGrants_Filters(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.AddAccessGrantsInstanceInternal("acct1", "")
+	locA := b.CreateAccessGrantsLocation("acct1", "s3://bucket-a", "arn:aws:iam::123456789012:role/role")
+	locB := b.CreateAccessGrantsLocation("acct1", "s3://bucket-b", "arn:aws:iam::123456789012:role/role")
+
+	grantA := b.AddAccessGrantInternal(
+		"acct1", locA.AccessGrantsLocationID, "IAM", "arn:aws:iam::123456789012:user/ua", "READ",
+	)
+	b.AddAccessGrantInternal(
+		"acct1", locB.AccessGrantsLocationID, "IAM", "arn:aws:iam::123456789012:user/ub", "WRITE",
+	)
+	h := s3control.NewHandler(b)
+
+	type listAccessGrantsResult struct {
+		XMLName      xml.Name `xml:"ListAccessGrantsResult"`
+		AccessGrants []struct {
+			AccessGrantID string `xml:"AccessGrantId"`
+		} `xml:"AccessGrantsList>AccessGrant"`
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantIDs []string
+	}{
+		{
+			name:    "grantscope filter",
+			path:    "/v20180820/accessgrantsinstance/grants?grantscope=" + grantA.GrantScope,
+			wantIDs: []string{grantA.AccessGrantID},
+		},
+		{
+			name: "granteeidentifier filter",
+			path: "/v20180820/accessgrantsinstance/grants?granteeidentifier=" +
+				"arn:aws:iam::123456789012:user/ua",
+			wantIDs: []string{grantA.AccessGrantID},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doS3Request(t, h, http.MethodGet, tt.path, "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out listAccessGrantsResult
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+
+			gotIDs := make([]string, 0, len(out.AccessGrants))
+			for _, g := range out.AccessGrants {
+				gotIDs = append(gotIDs, g.AccessGrantID)
+			}
+			assert.Equal(t, tt.wantIDs, gotIDs)
+		})
+	}
+}
+
+// TestListAccessGrantsLocations_LocationScopeFilter locks in the
+// locationscope query filter (s3control@v1.73.4
+// api_op_ListAccessGrantsLocations.go's LocationScope, wire query key
+// "locationscope" per serializers.go:5564-5566) -- previously never read
+// by handleListAccessGrantsLocations, so every caller got every location
+// regardless of the filter they sent.
+func TestListAccessGrantsLocations_LocationScopeFilter(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.AddAccessGrantsInstanceInternal("acct1", "")
+	wantLoc := b.CreateAccessGrantsLocation("acct1", "s3://bucket-a", "arn:aws:iam::123456789012:role/role")
+	b.CreateAccessGrantsLocation("acct1", "s3://bucket-b", "arn:aws:iam::123456789012:role/role")
+	h := s3control.NewHandler(b)
+
+	rec := doS3Request(
+		t, h, http.MethodGet, "/v20180820/accessgrantsinstance/locations?locationscope=s3://bucket-a", "",
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		XMLName   xml.Name `xml:"ListAccessGrantsLocationsResult"`
+		Locations []struct {
+			AccessGrantsLocationID string `xml:"AccessGrantsLocationId"`
+		} `xml:"AccessGrantsLocationsList>AccessGrantsLocation"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Locations, 1)
+	assert.Equal(t, wantLoc.AccessGrantsLocationID, out.Locations[0].AccessGrantsLocationID)
 }

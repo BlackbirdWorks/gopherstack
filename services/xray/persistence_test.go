@@ -144,7 +144,7 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// traceRetrievals + retrievedTraces.
-	token := b.StartTraceRetrieval([]string{traceID})
+	token := b.StartTraceRetrieval([]string{traceID}, time.Unix(0, 0), time.Now().Add(time.Hour))
 	require.NotEmpty(t, token)
 
 	// samplingStats.
@@ -377,7 +377,7 @@ func TestPersistence_RetrievedTracesPersistedInSnapshot(t *testing.T) {
 	seg := segJSON("1-persist-ret", "s1", "", "svc", now-1, now, false, false, false)
 	_ = b.PutTraceSegments([]string{seg})
 
-	token := b.StartTraceRetrieval([]string{"1-persist-ret"})
+	token := b.StartTraceRetrieval([]string{"1-persist-ret"}, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)

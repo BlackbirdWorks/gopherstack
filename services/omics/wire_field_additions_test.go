@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/omics/types"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1054,4 +1055,54 @@ func Test_SDKRoundTrip_AnnotationStoreVersion_IdAndName(t *testing.T) {
 	assert.Equal(t, *created.Id, *listed.AnnotationStoreVersions[0].Id)
 	require.NotNil(t, listed.AnnotationStoreVersions[0].Name)
 	assert.Equal(t, "store-version-idname-test", *listed.AnnotationStoreVersions[0].Name)
+}
+
+// Test_SDKRoundTrip_StartRun_NetworkingModeDefault proves StartRunInput's own
+// doc comment: "Optional configuration for run networking behavior. If not
+// specified, this will default to RESTRICTED." (omics@v1.49.5
+// api_op_StartRun.go:136-138). The handler previously stored whatever
+// networkingMode string it was given, including empty, and NetworkingMode is
+// tagged `json:"networkingMode,omitempty"` -- so an omitted value was dropped
+// from the wire entirely instead of resolving to "RESTRICTED", and a real
+// client's *string decoded nil.
+func Test_SDKRoundTrip_StartRun_NetworkingModeDefault(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	wf, err := client.CreateWorkflow(t.Context(), &omicssdk.CreateWorkflowInput{
+		Name:      aws.String("wf-networking-default"),
+		Engine:    types.WorkflowEngineWdl,
+		RequestId: aws.String(uuid.NewString()),
+	})
+	require.NoError(t, err)
+
+	started, err := client.StartRun(t.Context(), &omicssdk.StartRunInput{
+		WorkflowId: wf.Id,
+		RoleArn:    aws.String("arn:aws:iam::000000000000:role/role"),
+		OutputUri:  aws.String("s3://bucket/out/"),
+		RequestId:  aws.String(uuid.NewString()),
+		Name:       aws.String("run-networking-default"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, started.NetworkingMode, "an omitted NetworkingMode must resolve to the documented default")
+	assert.Equal(t, "RESTRICTED", *started.NetworkingMode)
+
+	got, err := client.GetRun(t.Context(), &omicssdk.GetRunInput{Id: started.Id})
+	require.NoError(t, err)
+	assert.Equal(t, types.NetworkingModeRestricted, got.NetworkingMode)
+
+	startedVPC, err := client.StartRun(t.Context(), &omicssdk.StartRunInput{
+		WorkflowId:     wf.Id,
+		RoleArn:        aws.String("arn:aws:iam::000000000000:role/role"),
+		OutputUri:      aws.String("s3://bucket/out/"),
+		RequestId:      aws.String(uuid.NewString()),
+		Name:           aws.String("run-networking-explicit-vpc"),
+		NetworkingMode: types.NetworkingModeVpc,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startedVPC.NetworkingMode)
+	assert.Equal(t, "VPC", *startedVPC.NetworkingMode, "an explicit value must not be overridden by the default")
 }

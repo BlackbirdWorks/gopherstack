@@ -183,6 +183,7 @@ func (b *InMemoryBackend) ListDataSets(
 	defer b.mu.RUnlock()
 
 	all := b.dataSets.All()
+	sort.Slice(all, func(i, j int) bool { return all[i].DataSetID < all[j].DataSetID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -190,6 +191,7 @@ func (b *InMemoryBackend) ListDataSets(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, ds := range all {
 			if ds.DataSetID == nextToken {
 				start = i
@@ -398,6 +400,7 @@ func (b *InMemoryBackend) ListIngestions(
 			all = append(all, ing)
 		}
 	}
+	sort.Slice(all, func(i, j int) bool { return all[i].IngestionID < all[j].IngestionID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
@@ -405,6 +408,7 @@ func (b *InMemoryBackend) ListIngestions(
 
 	start := 0
 	if nextToken != "" {
+		start = len(all)
 		for i, ing := range all {
 			if ing.IngestionID == nextToken {
 				start = i

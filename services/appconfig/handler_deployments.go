@@ -15,10 +15,13 @@ func (h *Handler) handleStartDeployment(
 	applicationID, environmentID string,
 ) error {
 	var req struct {
-		ConfigurationProfileID string `json:"ConfigurationProfileId"`
-		DeploymentStrategyID   string `json:"DeploymentStrategyId"`
-		ConfigurationVersion   string `json:"ConfigurationVersion"`
-		Description            string `json:"Description"`
+		KmsKeyIdentifier       *string           `json:"KmsKeyIdentifier"`
+		LatestDeploymentNumber *int32            `json:"LatestDeploymentNumber"`
+		Tags                   map[string]string `json:"Tags"`
+		ConfigurationProfileID string            `json:"ConfigurationProfileId"`
+		DeploymentStrategyID   string            `json:"DeploymentStrategyId"`
+		ConfigurationVersion   string            `json:"ConfigurationVersion"`
+		Description            string            `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -31,10 +34,15 @@ func (h *Handler) handleStartDeployment(
 		applicationID, environmentID,
 		req.ConfigurationProfileID, req.DeploymentStrategyID,
 		req.ConfigurationVersion, req.Description,
+		req.KmsKeyIdentifier, req.LatestDeploymentNumber, req.Tags,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
 		}
 
 		if errors.Is(err, awserr.ErrInvalidParameter) {

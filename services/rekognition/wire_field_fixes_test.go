@@ -255,6 +255,13 @@ func TestCreateProject_AutoUpdateFeatureEcho(t *testing.T) {
 
 	out, err := client.DescribeProjects(t.Context(), &rekognitionsdk.DescribeProjectsInput{
 		ProjectNames: []string{"autoupdate-proj", "default-feature-proj"},
+		// Both projects must be named explicitly: the Features filter defaults
+		// to CUSTOM_LABELS only (see TestDescribeProjects_FeaturesFilter), which
+		// would otherwise silently exclude the CONTENT_MODERATION project.
+		Features: []types.CustomizationFeature{
+			types.CustomizationFeatureCustomLabels,
+			types.CustomizationFeatureContentModeration,
+		},
 	})
 	require.NoError(t, err)
 	require.Len(t, out.ProjectDescriptions, 2)
@@ -298,4 +305,212 @@ func TestDescribeProjects_ProjectNamesFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.ProjectDescriptions, 1)
 	assert.Contains(t, *out.ProjectDescriptions[0].ProjectArn, "filter-proj-b")
+}
+
+// TestDescribeProjects_FeaturesFilter proves DescribeProjectsInput.Features
+// (api_op_DescribeProjects.go: "Specifies the type of customization to
+// filter projects by. If no value is specified, CUSTOM_LABELS is used as a
+// default.") is honoured, including its documented default.
+func TestDescribeProjects_FeaturesFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestRekognitionClient(t, h)
+
+	_, err := client.CreateProject(t.Context(), &rekognitionsdk.CreateProjectInput{
+		ProjectName: aws.String("feat-labels"),
+		Feature:     types.CustomizationFeatureCustomLabels,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProject(t.Context(), &rekognitionsdk.CreateProjectInput{
+		ProjectName: aws.String("feat-moderation"),
+		Feature:     types.CustomizationFeatureContentModeration,
+	})
+	require.NoError(t, err)
+
+	byDefault, err := client.DescribeProjects(t.Context(), &rekognitionsdk.DescribeProjectsInput{})
+	require.NoError(t, err)
+	require.Len(t, byDefault.ProjectDescriptions, 1, "an absent Features filter must default to CUSTOM_LABELS only")
+	assert.Contains(t, *byDefault.ProjectDescriptions[0].ProjectArn, "feat-labels")
+
+	moderation, err := client.DescribeProjects(t.Context(), &rekognitionsdk.DescribeProjectsInput{
+		Features: []types.CustomizationFeature{types.CustomizationFeatureContentModeration},
+	})
+	require.NoError(t, err)
+	require.Len(t, moderation.ProjectDescriptions, 1)
+	assert.Contains(t, *moderation.ProjectDescriptions[0].ProjectArn, "feat-moderation")
+
+	both, err := client.DescribeProjects(t.Context(), &rekognitionsdk.DescribeProjectsInput{
+		Features: []types.CustomizationFeature{
+			types.CustomizationFeatureCustomLabels,
+			types.CustomizationFeatureContentModeration,
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, both.ProjectDescriptions, 2)
+}
+
+// TestListDatasetEntries_Filters proves ListDatasetEntriesInput's ContainsLabels/
+// Labeled/SourceRefContains/HasErrors filters (api_op_ListDatasetEntries.go) are
+// honoured -- previously none of the four were read by the handler at all.
+func TestListDatasetEntries_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestRekognitionClient(t, h)
+
+	proj, err := client.CreateProject(t.Context(), &rekognitionsdk.CreateProjectInput{
+		ProjectName: aws.String("dataset-filter-proj"),
+	})
+	require.NoError(t, err)
+
+	ds, err := client.CreateDataset(t.Context(), &rekognitionsdk.CreateDatasetInput{
+		ProjectArn:  proj.ProjectArn,
+		DatasetType: types.DatasetTypeTrain,
+	})
+	require.NoError(t, err)
+
+	entries := [][]byte{
+		[]byte(`{"source-ref":"s3://bucket/cats/img1.jpg","labels-metadata":{"class-name":"cat"}}`),
+		[]byte(`{"source-ref":"s3://bucket/dogs/img2.jpg","labels-metadata":{"class-name":"dog"}}`),
+		[]byte(`{"source-ref":"s3://bucket/unlabeled/img3.jpg"}`),
+	}
+	for _, e := range entries {
+		_, err = client.UpdateDatasetEntries(t.Context(), &rekognitionsdk.UpdateDatasetEntriesInput{
+			DatasetArn: ds.DatasetArn,
+			Changes:    &types.DatasetChanges{GroundTruth: e},
+		})
+		require.NoError(t, err)
+	}
+
+	byLabel, err := client.ListDatasetEntries(t.Context(), &rekognitionsdk.ListDatasetEntriesInput{
+		DatasetArn:     ds.DatasetArn,
+		ContainsLabels: []string{"cat"},
+	})
+	require.NoError(t, err)
+	require.Len(t, byLabel.DatasetEntries, 1)
+	assert.Contains(t, byLabel.DatasetEntries[0], "img1.jpg")
+
+	labeledOnly, err := client.ListDatasetEntries(t.Context(), &rekognitionsdk.ListDatasetEntriesInput{
+		DatasetArn: ds.DatasetArn,
+		Labeled:    aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Len(t, labeledOnly.DatasetEntries, 2)
+
+	unlabeledOnly, err := client.ListDatasetEntries(t.Context(), &rekognitionsdk.ListDatasetEntriesInput{
+		DatasetArn: ds.DatasetArn,
+		Labeled:    aws.Bool(false),
+	})
+	require.NoError(t, err)
+	require.Len(t, unlabeledOnly.DatasetEntries, 1)
+	assert.Contains(t, unlabeledOnly.DatasetEntries[0], "img3.jpg")
+
+	bySourceRef, err := client.ListDatasetEntries(t.Context(), &rekognitionsdk.ListDatasetEntriesInput{
+		DatasetArn:        ds.DatasetArn,
+		SourceRefContains: aws.String("dogs"),
+	})
+	require.NoError(t, err)
+	require.Len(t, bySourceRef.DatasetEntries, 1)
+	assert.Contains(t, bySourceRef.DatasetEntries[0], "img2.jpg")
+
+	// This backend has no entry-level error concept -- HasErrors=true must
+	// return an honestly empty result, not fabricated error entries.
+	withErrors, err := client.ListDatasetEntries(t.Context(), &rekognitionsdk.ListDatasetEntriesInput{
+		DatasetArn: ds.DatasetArn,
+		HasErrors:  aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, withErrors.DatasetEntries)
+}
+
+// TestCompareFaces_SimilarityThreshold proves CompareFacesInput's
+// SimilarityThreshold (api_op_CompareFaces.go: "By default, only faces with
+// a similarity score of greater than or equal to 80% are returned in the
+// response. You can change this value by specifying the SimilarityThreshold
+// parameter.") actually gates FaceMatches. Before the fix, the handler
+// discarded SourceImage/TargetImage/SimilarityThreshold entirely (a blank
+// `_ *compareFacesReq` parameter) and always returned the exact same
+// hardcoded match regardless of what threshold the caller asked for.
+func TestCompareFaces_SimilarityThreshold(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestRekognitionClient(t, h)
+
+	img := &types.Image{Bytes: []byte("fake-image-bytes")}
+
+	low, err := client.CompareFaces(t.Context(), &rekognitionsdk.CompareFacesInput{
+		SourceImage:         img,
+		TargetImage:         img,
+		SimilarityThreshold: aws.Float32(1),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, low.FaceMatches, "a low threshold must match")
+
+	high, err := client.CompareFaces(t.Context(), &rekognitionsdk.CompareFacesInput{
+		SourceImage:         img,
+		TargetImage:         &types.Image{Bytes: []byte("different-image-bytes")},
+		SimilarityThreshold: aws.Float32(99.99),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, high.FaceMatches, "a near-100 threshold against a different image must not match")
+}
+
+// TestListFaces_Filters proves ListFacesInput's FaceIds and UserId filters
+// (api_op_ListFaces.go) are honoured -- previously neither was read by the
+// handler at all.
+func TestListFaces_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestRekognitionClient(t, h)
+
+	_, err := client.CreateCollection(t.Context(), &rekognitionsdk.CreateCollectionInput{
+		CollectionId: aws.String("listfaces-filter-coll"),
+	})
+	require.NoError(t, err)
+
+	img := &types.Image{Bytes: []byte("fake-image-bytes")}
+
+	faceIDs := make([]string, 0, 3)
+
+	for range 3 {
+		out, indexErr := client.IndexFaces(t.Context(), &rekognitionsdk.IndexFacesInput{
+			CollectionId: aws.String("listfaces-filter-coll"),
+			Image:        img,
+		})
+		require.NoError(t, indexErr)
+		require.Len(t, out.FaceRecords, 1)
+		faceIDs = append(faceIDs, aws.ToString(out.FaceRecords[0].Face.FaceId))
+	}
+
+	byFaceIDs, err := client.ListFaces(t.Context(), &rekognitionsdk.ListFacesInput{
+		CollectionId: aws.String("listfaces-filter-coll"),
+		FaceIds:      faceIDs[:2],
+	})
+	require.NoError(t, err)
+	require.Len(t, byFaceIDs.Faces, 2)
+
+	_, err = client.CreateUser(t.Context(), &rekognitionsdk.CreateUserInput{
+		CollectionId: aws.String("listfaces-filter-coll"),
+		UserId:       aws.String("listfaces-user"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AssociateFaces(t.Context(), &rekognitionsdk.AssociateFacesInput{
+		CollectionId: aws.String("listfaces-filter-coll"),
+		UserId:       aws.String("listfaces-user"),
+		FaceIds:      faceIDs[:1],
+	})
+	require.NoError(t, err)
+
+	byUser, err := client.ListFaces(t.Context(), &rekognitionsdk.ListFacesInput{
+		CollectionId: aws.String("listfaces-filter-coll"),
+		UserId:       aws.String("listfaces-user"),
+	})
+	require.NoError(t, err)
+	require.Len(t, byUser.Faces, 1)
+	assert.Equal(t, faceIDs[0], aws.ToString(byUser.Faces[0].FaceId))
 }

@@ -91,14 +91,53 @@ func (b *InMemoryBackend) PurchaseOffering(
 	return r.toReservation(), nil
 }
 
-// ListReservations returns all reservations.
+// ReservationFilter mirrors the ResourceSpecification-backed
+// ListReservationsInput query filters this backend can honestly answer
+// (codec/maximumBitrate/maximumFramerate/resolution/resourceType/
+// specialFeature/videoQuality -- api_op_ListReservations.go, all bound as
+// httpQuery). ChannelClass is deliberately excluded: neither Offering nor
+// storedReservation tracks it anywhere in this backend, so it stays a
+// disclosed structural gap rather than a fabricated match. An empty field
+// means "no constraint on that attribute".
+type ReservationFilter struct {
+	Codec            string
+	MaximumBitrate   string
+	MaximumFramerate string
+	Resolution       string
+	ResourceType     string
+	SpecialFeature   string
+	VideoQuality     string
+}
+
+func (f ReservationFilter) matches(spec OfferingResourceSpecification) bool {
+	return (f.Codec == "" || f.Codec == spec.Codec) &&
+		(f.MaximumBitrate == "" || f.MaximumBitrate == spec.MaximumBitrate) &&
+		(f.MaximumFramerate == "" || f.MaximumFramerate == spec.MaximumFramerate) &&
+		(f.Resolution == "" || f.Resolution == spec.Resolution) &&
+		(f.ResourceType == "" || f.ResourceType == spec.ResourceType) &&
+		(f.SpecialFeature == "" || f.SpecialFeature == spec.SpecialFeature) &&
+		(f.VideoQuality == "" || f.VideoQuality == spec.VideoQuality)
+}
+
+// ListReservations returns reservations matching filter.
 func (b *InMemoryBackend) ListReservations(
 	maxResults int,
 	nextToken string,
+	filter ReservationFilter,
 ) ([]*Reservation, string, error) {
 	b.mu.RLock("ListReservations")
 	defer b.mu.RUnlock()
 	all := b.reservations.All()
+
+	matched := make([]*storedReservation, 0, len(all))
+
+	for _, r := range all {
+		if filter.matches(r.ResourceSpecification) {
+			matched = append(matched, r)
+		}
+	}
+
+	all = matched
 	sort.Slice(all, func(i, j int) bool { return all[i].ReservationID < all[j].ReservationID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*Reservation, 0, len(pg.Data))

@@ -15,15 +15,31 @@ import (
 func (da *DomainAssociation) clone() *DomainAssociation {
 	cp := *da
 	cp.SubDomains = append([]SubDomain(nil), da.SubDomains...)
+	cp.AutoSubDomainCreationPatterns = append([]string(nil), da.AutoSubDomainCreationPatterns...)
 
 	return &cp
 }
+
+// domainCertificateSettings holds the optional CertificateSettings request
+// member (types.CertificateSettings) accepted by CreateDomainAssociation/
+// UpdateDomainAssociation.
+type domainCertificateSettings struct {
+	CertificateType      string
+	CustomCertificateARN string
+}
+
+// certificateTypeAmplifyManaged is real Amplify's documented default
+// Certificate.Type when a caller omits CertificateSettings entirely.
+const certificateTypeAmplifyManaged = "AMPLIFY_MANAGED"
 
 // CreateDomainAssociation creates a custom domain association for an app.
 func (b *InMemoryBackend) CreateDomainAssociation(
 	appID, domainName string,
 	subDomains []SubDomainSetting,
 	enableAutoSubDomain bool,
+	autoSubDomainCreationPatterns []string,
+	autoSubDomainIAMRole string,
+	certSettings *domainCertificateSettings,
 ) (*DomainAssociation, error) {
 	b.mu.Lock("CreateDomainAssociation")
 	defer b.mu.Unlock()
@@ -59,6 +75,8 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 		})
 	}
 
+	certType, certARN := resolveCertificateSettings(certSettings)
+
 	da := &DomainAssociation{
 		AppID:                            appID,
 		DomainName:                       domainName,
@@ -66,6 +84,10 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 		DomainStatus:                     DomainStatusPendingVerification,
 		SubDomains:                       subs,
 		EnableAutoSubDomain:              enableAutoSubDomain,
+		AutoSubDomainCreationPatterns:    autoSubDomainCreationPatterns,
+		AutoSubDomainIAMRole:             autoSubDomainIAMRole,
+		CertificateType:                  certType,
+		CertificateCustomArn:             certARN,
 		CertificateVerificationDNSRecord: "_verify." + domainName + " CNAME _acm." + appID + ".amplifyapp.com",
 	}
 
@@ -74,11 +96,25 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 	return da.clone(), nil
 }
 
+// resolveCertificateSettings applies real Amplify's documented default (an
+// omitted CertificateSettings means AMPLIFY_MANAGED) to a domain's
+// certificate type/custom ARN.
+func resolveCertificateSettings(certSettings *domainCertificateSettings) (string, string) {
+	if certSettings == nil || certSettings.CertificateType == "" {
+		return certificateTypeAmplifyManaged, ""
+	}
+
+	return certSettings.CertificateType, certSettings.CustomCertificateARN
+}
+
 // UpdateDomainAssociation updates a domain association.
 func (b *InMemoryBackend) UpdateDomainAssociation(
 	appID, domainName string,
 	subDomains []SubDomainSetting,
 	enableAutoSubDomain bool,
+	autoSubDomainCreationPatterns []string,
+	autoSubDomainIAMRole string,
+	certSettings *domainCertificateSettings,
 ) (*DomainAssociation, error) {
 	b.mu.Lock("UpdateDomainAssociation")
 	defer b.mu.Unlock()
@@ -100,6 +136,13 @@ func (b *InMemoryBackend) UpdateDomainAssociation(
 
 	da.SubDomains = subs
 	da.EnableAutoSubDomain = enableAutoSubDomain
+	da.AutoSubDomainCreationPatterns = autoSubDomainCreationPatterns
+	da.AutoSubDomainIAMRole = autoSubDomainIAMRole
+
+	if certSettings != nil {
+		da.CertificateType = certSettings.CertificateType
+		da.CertificateCustomArn = certSettings.CustomCertificateARN
+	}
 
 	return da.clone(), nil
 }

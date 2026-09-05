@@ -191,6 +191,8 @@ type ImageImportTask struct {
 	Architecture string `json:"architecture,omitempty"`
 	Platform     string `json:"platform,omitempty"`
 	Status       string `json:"status,omitempty"`
+	KmsKeyID     string `json:"kmsKeyId,omitempty"`
+	Encrypted    bool   `json:"encrypted,omitempty"`
 }
 
 // SnapshotImportTask holds status for an ImportSnapshot task.
@@ -199,6 +201,8 @@ type SnapshotImportTask struct {
 	Description  string `json:"description,omitempty"`
 	SnapshotID   string `json:"snapshotId,omitempty"`
 	Status       string `json:"status,omitempty"`
+	KmsKeyID     string `json:"kmsKeyId,omitempty"`
+	Encrypted    bool   `json:"encrypted,omitempty"`
 }
 
 // ManagedPrefixList represents a managed prefix list.
@@ -358,6 +362,7 @@ const (
 	stateByoipAdvertised   = "advertised"
 	stateAnalysisSucceeded = "succeeded"
 	fleetTypeDefault       = "maintain"
+	fleetTypeInstant       = "instant"
 )
 
 type TrafficMirrorFilter struct {
@@ -431,15 +436,17 @@ type TrafficMirrorTarget struct {
 // Fleet holds an EC2 Fleet.
 
 type Fleet struct {
-	FleetID                          string `json:"fleetId,omitempty"`
-	FleetState                       string `json:"fleetState,omitempty"`
-	FleetType                        string `json:"fleetType,omitempty"`
-	TargetCapacityUnitType           string `json:"targetCapacityUnitType,omitempty"`
-	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy,omitempty"`
-	TotalTargetCapacity              int    `json:"totalTargetCapacity,omitempty"`
-	OnDemandTargetCapacity           int    `json:"onDemandTargetCapacity,omitempty"`
-	SpotTargetCapacity               int    `json:"spotTargetCapacity,omitempty"`
-	TerminateInstancesWithExpiration bool   `json:"terminateInstancesWithExpiration,omitempty"`
+	FleetID                          string   `json:"fleetId,omitempty"`
+	FleetState                       string   `json:"fleetState,omitempty"`
+	FleetType                        string   `json:"fleetType,omitempty"`
+	TargetCapacityUnitType           string   `json:"targetCapacityUnitType,omitempty"`
+	ExcessCapacityTerminationPolicy  string   `json:"excessCapacityTerminationPolicy,omitempty"`
+	DefaultTargetCapacityType        string   `json:"defaultTargetCapacityType,omitempty"`
+	InstanceIDs                      []string `json:"instanceIds,omitempty"`
+	TotalTargetCapacity              int      `json:"totalTargetCapacity,omitempty"`
+	OnDemandTargetCapacity           int      `json:"onDemandTargetCapacity,omitempty"`
+	SpotTargetCapacity               int      `json:"spotTargetCapacity,omitempty"`
+	TerminateInstancesWithExpiration bool     `json:"terminateInstancesWithExpiration,omitempty"`
 }
 
 // ---- Network Insights ----

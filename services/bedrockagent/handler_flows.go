@@ -83,7 +83,7 @@ func (h *Handler) handleDeleteFlow(ctx context.Context, c *echo.Context, flowID 
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": flowID, keyStatus: "Deleting"})
+	return c.JSON(http.StatusOK, map[string]any{"id": flowID})
 }
 
 func (h *Handler) handleListFlows(ctx context.Context, c *echo.Context) error {
@@ -160,7 +160,7 @@ func (h *Handler) handleDeleteFlowVersion(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "version": flowVersion, keyStatus: "Deleting"})
+	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "version": flowVersion})
 }
 
 func (h *Handler) handleListFlowVersions(

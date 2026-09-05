@@ -185,32 +185,66 @@ func (h *Handler) handleGetRealtimeLogConfig(c *echo.Context) error {
 	return xmlResp(c, http.StatusOK, realtimeLogConfigResponseXML(cfg))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// handleListRealtimeLogConfigs paginates via Marker/MaxItems (both query-bound,
+// cloudfront@v1.67.4 serializers.go). Real types.RealtimeLogConfigs has no Quantity field
+// (IsTruncated/Marker/MaxItems/Items/NextMarker only, types/types.go:5311-5331); Name is the
+// unique sort/cursor key (CreateRealtimeLogConfig rejects a duplicate name).
 func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
 	items := h.Backend.ListRealtimeLogConfigs()
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		items,
+		func(cfg *RealtimeLogConfig) string { return cfg.Name },
+	)
+
 	type rlcItemXML struct {
-		XMLName      xml.Name `xml:"member"`
-		ARN          string   `xml:"ARN"`
-		Name         string   `xml:"Name"`
-		SamplingRate int64    `xml:"SamplingRate"`
+		XMLName      xml.Name      `xml:"member"`
+		ARN          string        `xml:"ARN"`
+		Name         string        `xml:"Name"`
+		Fields       []string      `xml:"Fields>Field"`
+		EndPoints    []endPointXML `xml:"EndPoints>member"`
+		SamplingRate int64         `xml:"SamplingRate"`
 	}
 
 	type rlcListXML struct {
 		XMLName     xml.Name     `xml:"RealtimeLogConfigs"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []rlcItemXML `xml:"Items>member"`
 		MaxItems    int          `xml:"MaxItems"`
-		Quantity    int          `xml:"Quantity"`
 		IsTruncated bool         `xml:"IsTruncated"`
 	}
 
-	summaries := make([]rlcItemXML, 0, len(items))
-	for _, cfg := range items {
-		summaries = append(summaries, rlcItemXML{ARN: cfg.ARN, Name: cfg.Name, SamplingRate: cfg.SamplingRate})
+	summaries := make([]rlcItemXML, 0, len(page))
+	for _, cfg := range page {
+		endPoints := make([]endPointXML, 0, len(cfg.EndPoints))
+		for _, ep := range cfg.EndPoints {
+			endPoints = append(endPoints, endPointXML{
+				StreamType: ep.StreamType,
+				KinesisStreamConfig: kinesisStreamConfigXML{
+					RoleARN:   ep.RoleARN,
+					StreamARN: ep.StreamARN,
+				},
+			})
+		}
+
+		summaries = append(summaries, rlcItemXML{
+			ARN:          cfg.ARN,
+			Name:         cfg.Name,
+			SamplingRate: cfg.SamplingRate,
+			Fields:       cfg.Fields,
+			EndPoints:    endPoints,
+		})
 	}
 
-	list := rlcListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := rlcListXML{
+		XMLNS:       cfNS,
+		NextMarker:  nextMarker,
+		MaxItems:    pageSize,
+		Items:       summaries,
+		IsTruncated: isTruncated,
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

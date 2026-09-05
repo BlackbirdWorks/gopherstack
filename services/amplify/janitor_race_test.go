@@ -25,7 +25,7 @@ func TestDomainAssociationSubDomainsRace(t *testing.T) {
 	require.NoError(t, err)
 
 	subs := []amplify.SubDomainSetting{{Prefix: "www", BranchName: "main"}}
-	_, err = b.CreateDomainAssociation(app.AppID, "example.com", subs, true)
+	_, err = b.CreateDomainAssociation(app.AppID, "example.com", subs, true, nil, "", nil)
 	require.NoError(t, err)
 
 	j := amplify.NewJanitor(b, 0)

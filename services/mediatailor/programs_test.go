@@ -36,12 +36,12 @@ func TestGetChannelSchedule_Paginates(t *testing.T) {
 		require.NoError(t, progErr)
 	}
 
-	page1, next1, err := b.GetChannelSchedule("ch1", 1, "")
+	page1, next1, err := b.GetChannelSchedule("ch1", "", 1, "")
 	require.NoError(t, err)
 	require.Len(t, page1, 1)
 	require.NotEmpty(t, next1, "a NextToken must be returned when more pages remain")
 
-	page2, _, err := b.GetChannelSchedule("ch1", 1, next1)
+	page2, _, err := b.GetChannelSchedule("ch1", "", 1, next1)
 	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.NotEqual(t, page1[0].ProgramName, page2[0].ProgramName, "pages must not repeat items")

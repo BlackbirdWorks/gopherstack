@@ -30,10 +30,7 @@ const stopStatusSucceeded = "Succeeded"
 // own doc comment for the Succeeded StopStatus value (api_op_StopDeployment.go).
 const stopStatusSucceededMessage = "The stop operation was successful."
 
-var (
-	errUnknownAction  = errors.New("unknown action")
-	errInvalidRequest = errors.New("invalid request")
-)
+var errUnknownAction = errors.New("unknown action")
 
 // Handler is the Echo HTTP handler for AWS CodeDeploy operations.
 type Handler struct {
@@ -260,17 +257,31 @@ var errorMappings = []errorMapping{
 	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},
-	{ErrDeploymentConfigInUse, "DeploymentConfigInUseException", http.StatusConflict},
 	{ErrDeploymentAlreadyCompleted, "DeploymentAlreadyCompletedException", http.StatusConflict},
 	{ErrDeploymentNotInReadyState, "DeploymentIsNotInReadyStateException", http.StatusConflict},
+	{ErrDeploymentConfigIsDefault, "InvalidOperationException", http.StatusBadRequest},
 	{ErrInvalidDeploymentWaitType, "InvalidDeploymentWaitTypeException", http.StatusBadRequest},
 	{ErrInvalidFileExistsBehavior, "InvalidFileExistsBehaviorException", http.StatusBadRequest},
 	{ErrInvalidComputePlatform, "InvalidComputePlatformException", http.StatusBadRequest},
 	{ErrIamArnRequired, "IamArnRequiredException", http.StatusBadRequest},
 	{ErrMultipleIamArns, "MultipleIamArnsProvidedException", http.StatusBadRequest},
-	{ErrTagLimitExceeded, "TagLimitExceededException", http.StatusBadRequest},
-	{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
-	{errInvalidRequest, "InvalidRequestException", http.StatusBadRequest},
+	{ErrInvalidTagsToAdd, "InvalidTagsToAddException", http.StatusBadRequest},
+	{ErrBatchLimitExceeded, "BatchLimitExceededException", http.StatusBadRequest},
+	{ErrInvalidInstanceName, "InvalidInstanceNameException", http.StatusBadRequest},
+	{ErrApplicationNameRequired, "ApplicationNameRequiredException", http.StatusBadRequest},
+	{ErrDeploymentGroupNameRequired, "DeploymentGroupNameRequiredException", http.StatusBadRequest},
+	{ErrDeploymentIDRequired, "DeploymentIdRequiredException", http.StatusBadRequest},
+	{ErrInstanceIDRequired, "InstanceIdRequiredException", http.StatusBadRequest},
+	{ErrDeploymentTargetIDRequired, "DeploymentTargetIdRequiredException", http.StatusBadRequest},
+	{ErrDeploymentConfigNameRequired, "DeploymentConfigNameRequiredException", http.StatusBadRequest},
+	{ErrInstanceNameRequired, "InstanceNameRequiredException", http.StatusBadRequest},
+	{ErrResourceArnRequired, "ResourceArnRequiredException", http.StatusBadRequest},
+	{ErrGitHubTokenNameRequired, "GitHubAccountTokenNameRequiredException", http.StatusBadRequest},
+	// errUnknownAction fires when the routed Action string matches no known
+	// CodeDeploy operation -- a router-level condition no operation's own
+	// deserializer models (there is no operation to consult), so this
+	// deliberately keeps the pre-existing fallback code rather than inventing
+	// one.
 	{errUnknownAction, "InvalidRequestException", http.StatusBadRequest},
 }
 

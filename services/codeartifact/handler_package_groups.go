@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -295,8 +296,9 @@ func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, patt
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
+	preview, _ := strconv.ParseBool(q.Get("preview"))
 
-	all, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern)
+	all, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern, preview)
 	if err != nil {
 		return h.handleError(c, err)
 	}

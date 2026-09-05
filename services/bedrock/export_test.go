@@ -6,6 +6,80 @@ import (
 	"time"
 )
 
+// SeedCustomModelForTest inserts m directly into the backend, bypassing
+// CreateCustomModel's time.Now() CreationTime stamp so tests can construct
+// an exact tie between two models' CreationTime.
+func (b *InMemoryBackend) SeedCustomModelForTest(m *CustomModel) {
+	b.mu.Lock("SeedCustomModelForTest")
+	defer b.mu.Unlock()
+	b.customModels.Put(m)
+}
+
+// SeedEvaluationJobForTest inserts j directly into the backend, bypassing
+// CreateEvaluationJob's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedEvaluationJobForTest(j *EvaluationJob) {
+	b.mu.Lock("SeedEvaluationJobForTest")
+	defer b.mu.Unlock()
+	b.evaluationJobs.Put(j)
+}
+
+// SeedCustomModelDeploymentForTest inserts d directly into the backend,
+// bypassing CreateCustomModelDeployment's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedCustomModelDeploymentForTest(d *CustomModelDeployment) {
+	b.mu.Lock("SeedCustomModelDeploymentForTest")
+	defer b.mu.Unlock()
+	b.customModelDeployments.Put(d)
+}
+
+// SeedModelCopyJobForTest inserts j directly into the backend, bypassing
+// CopyModel's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedModelCopyJobForTest(j *ModelCopyJob) {
+	b.mu.Lock("SeedModelCopyJobForTest")
+	defer b.mu.Unlock()
+	b.modelCopyJobs.Put(j)
+}
+
+// SeedModelInvocationJobForTest inserts j directly into the backend,
+// bypassing CreateModelInvocationJob's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedModelInvocationJobForTest(j *ModelInvocationJob) {
+	b.mu.Lock("SeedModelInvocationJobForTest")
+	defer b.mu.Unlock()
+	b.modelInvocationJobs.Put(j)
+}
+
+// SeedModelImportJobForTest inserts j directly into the backend, bypassing
+// CreateModelImportJob's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedModelImportJobForTest(j *ModelImportJob) {
+	b.mu.Lock("SeedModelImportJobForTest")
+	defer b.mu.Unlock()
+	b.modelImportJobs.Put(j)
+}
+
+// SeedModelCustomizationJobForTest inserts j directly into the backend,
+// bypassing CreateModelCustomizationJob's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedModelCustomizationJobForTest(j *ModelCustomizationJob) {
+	b.mu.Lock("SeedModelCustomizationJobForTest")
+	defer b.mu.Unlock()
+	b.modelCustomizationJobs.Put(j)
+}
+
+// SeedAdvancedPromptOptimizationJobForTest inserts j directly into the
+// backend, bypassing CreateAdvancedPromptOptimizationJob's time.Now()
+// CreationTime stamp.
+func (b *InMemoryBackend) SeedAdvancedPromptOptimizationJobForTest(j *AdvancedPromptOptimizationJob) {
+	b.mu.Lock("SeedAdvancedPromptOptimizationJobForTest")
+	defer b.mu.Unlock()
+	b.advancedPromptOptimizationJobs.Put(j)
+}
+
+// SeedProvisionedModelThroughputForTest inserts p directly into the backend,
+// bypassing CreateProvisionedModelThroughput's time.Now() CreationTime stamp.
+func (b *InMemoryBackend) SeedProvisionedModelThroughputForTest(p *ProvisionedModelThroughput) {
+	b.mu.Lock("SeedProvisionedModelThroughputForTest")
+	defer b.mu.Unlock()
+	b.provisionedModelThroughputs.Put(p)
+}
+
 // AppendFoundationModelsForTest appends additional foundation models to the backend.
 // This is only used in tests to populate beyond the default seeded models.
 func (b *InMemoryBackend) AppendFoundationModelsForTest(models []*FoundationModelSummary) {

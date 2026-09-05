@@ -701,3 +701,73 @@ func TestParameterGroupPagination(t *testing.T) {
 	require.NoError(t, xml.Unmarshal([]byte(body2), &page2))
 	assert.Empty(t, page2.Result.Marker, "Marker must be empty on last page")
 }
+
+// TestDescribeDBClusterParameters_SourceFilter locks in the Source query
+// parameter (docdb@v1.51.4 api_op_DescribeDBClusterParameters.go:58-60:
+// "return only parameters for a specific source") -- previously read nowhere
+// in handleDescribeDBClusterParameters, so every caller got every parameter
+// regardless of the filter they sent.
+func TestDescribeDBClusterParameters_SourceFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterParameterGroup"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterParameterGroupName": {"my-pg"},
+		"DBParameterGroupFamily":      {"docdb4.0"},
+		"Description":                 {"test"},
+	})
+	doRequest(t, h, url.Values{
+		"Action":                                {"ModifyDBClusterParameterGroup"},
+		"Version":                               {"2014-10-31"},
+		"DBClusterParameterGroupName":           {"my-pg"},
+		"Parameters.Parameter.1.ParameterName":  {"ttl_monitor"},
+		"Parameters.Parameter.1.ParameterValue": {"disabled"},
+	})
+
+	type describeResult struct {
+		XMLName xml.Name `xml:"DescribeDBClusterParametersResponse"`
+		Result  struct {
+			Parameters struct {
+				Parameter []struct {
+					ParameterName string `xml:"ParameterName"`
+					Source        string `xml:"Source"`
+				} `xml:"Parameter"`
+			} `xml:"Parameters"`
+		} `xml:"DescribeDBClusterParametersResult"`
+	}
+
+	tests := []struct {
+		name      string
+		source    string
+		wantNames []string
+	}{
+		{name: "user_source", source: "user", wantNames: []string{"ttl_monitor"}},
+		{name: "system_source", source: "system", wantNames: []string{"tls"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rr := doRequest(t, h, url.Values{
+				"Action":                      {"DescribeDBClusterParameters"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterParameterGroupName": {"my-pg"},
+				"Source":                      {tt.source},
+			})
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			var got describeResult
+			require.NoError(t, xml.Unmarshal(rr.Body.Bytes(), &got))
+
+			names := make([]string, 0, len(got.Result.Parameters.Parameter))
+			for _, p := range got.Result.Parameters.Parameter {
+				names = append(names, p.ParameterName)
+				assert.Equal(t, tt.source, p.Source)
+			}
+			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
+}

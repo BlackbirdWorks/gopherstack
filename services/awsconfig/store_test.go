@@ -29,7 +29,11 @@ func TestReset_ClearsNewMaps(t *testing.T) {
 		t.Fatal("remediationConfigs not cleared by Reset")
 	}
 
-	if count := b.GetAggregateDiscoveredResourceCounts(); count != 0 {
-		t.Fatalf("resourceConfigs not cleared by Reset, count=%d", count)
+	if err := b.PutConfigurationAggregator("agg1", nil, nil, nil); err != nil {
+		t.Fatalf("PutConfigurationAggregator: %v", err)
+	}
+
+	if count, err := b.GetAggregateDiscoveredResourceCounts("agg1"); err != nil || count != 0 {
+		t.Fatalf("resourceConfigs not cleared by Reset, count=%d, err=%v", count, err)
 	}
 }

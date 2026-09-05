@@ -1,7 +1,9 @@
 package opsworks
 
 // DescribeAgentVersions returns a static list of supported OpsWorks agent versions.
-func (b *InMemoryBackend) DescribeAgentVersions(stackID string) ([]*AgentVersion, error) {
+func (b *InMemoryBackend) DescribeAgentVersions(
+	stackID string, configManagerName, configManagerVersion string,
+) ([]*AgentVersion, error) {
 	b.mu.RLock("DescribeAgentVersions")
 	defer b.mu.RUnlock()
 
@@ -11,7 +13,7 @@ func (b *InMemoryBackend) DescribeAgentVersions(stackID string) ([]*AgentVersion
 		}
 	}
 
-	return []*AgentVersion{
+	all := []*AgentVersion{
 		{
 			ConfigurationManager: &ConfigurationManager{
 				Name:    configManagerChef,
@@ -26,7 +28,27 @@ func (b *InMemoryBackend) DescribeAgentVersions(stackID string) ([]*AgentVersion
 			},
 			Version: "4000-20161221135000",
 		},
-	}, nil
+	}
+
+	if configManagerName == "" && configManagerVersion == "" {
+		return all, nil
+	}
+
+	result := make([]*AgentVersion, 0, len(all))
+
+	for _, v := range all {
+		if configManagerName != "" && v.ConfigurationManager.Name != configManagerName {
+			continue
+		}
+
+		if configManagerVersion != "" && v.ConfigurationManager.Version != configManagerVersion {
+			continue
+		}
+
+		result = append(result, v)
+	}
+
+	return result, nil
 }
 
 // DescribeOperatingSystems returns a static list of supported OpsWorks operating systems.

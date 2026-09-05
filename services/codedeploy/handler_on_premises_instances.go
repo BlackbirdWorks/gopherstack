@@ -19,7 +19,7 @@ func (h *Handler) handleAddTagsToOnPremisesInstances(
 	in *addTagsToOnPremisesInstancesInput,
 ) (*addTagsToOnPremisesInstancesOutput, error) {
 	if len(in.InstanceNames) == 0 {
-		return nil, fmt.Errorf("%w: instanceNames is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceNames is required", ErrInstanceNameRequired)
 	}
 
 	if err := h.Backend.AddTagsToOnPremisesInstances(in.InstanceNames, tagEntriesToMap(in.Tags)); err != nil {
@@ -41,7 +41,7 @@ func (h *Handler) handleRemoveTagsFromOnPremisesInstances(
 	in *removeTagsFromOnPremisesInstancesInput,
 ) (*removeTagsFromOnPremisesInstancesOutput, error) {
 	if len(in.InstanceNames) == 0 {
-		return nil, fmt.Errorf("%w: instanceNames is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceNames is required", ErrInstanceNameRequired)
 	}
 
 	keys := make([]string, 0, len(in.Tags))
@@ -69,7 +69,7 @@ func (h *Handler) handleRegisterOnPremisesInstance(
 	in *registerOnPremisesInstanceInput,
 ) (*registerOnPremisesInstanceOutput, error) {
 	if in.InstanceName == "" {
-		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceName is required", ErrInstanceNameRequired)
 	}
 
 	if err := h.Backend.RegisterOnPremisesInstance(in.InstanceName, in.IamSessionArn, in.IamUserArn); err != nil {
@@ -90,7 +90,7 @@ func (h *Handler) handleDeregisterOnPremisesInstance(
 	in *deregisterOnPremisesInstanceInput,
 ) (*deregisterOnPremisesInstanceOutput, error) {
 	if in.InstanceName == "" {
-		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceName is required", ErrInstanceNameRequired)
 	}
 
 	if err := h.Backend.DeregisterOnPremisesInstance(in.InstanceName); err != nil {
@@ -123,7 +123,7 @@ func (h *Handler) handleGetOnPremisesInstance(
 	in *getOnPremisesInstanceInput,
 ) (*getOnPremisesInstanceOutput, error) {
 	if in.InstanceName == "" {
-		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceName is required", ErrInstanceNameRequired)
 	}
 
 	inst, err := h.Backend.GetOnPremisesInstance(in.InstanceName)
@@ -189,7 +189,7 @@ func (h *Handler) handleBatchGetOnPremisesInstances(
 	in *batchGetOnPremisesInstancesInput,
 ) (*batchGetOnPremisesInstancesOutput, error) {
 	if len(in.InstanceNames) == 0 {
-		return nil, fmt.Errorf("%w: instanceNames is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: instanceNames is required", ErrInstanceNameRequired)
 	}
 
 	instances := h.Backend.BatchGetOnPremisesInstances(in.InstanceNames)

@@ -64,8 +64,27 @@ func (b *InMemoryBackend) GetImportJob(jobID string) (*ImportJob, error) {
 	return &cp, nil
 }
 
-// ListImportJobs returns all import jobs.
-func (b *InMemoryBackend) ListImportJobs(nextToken string, pageSize int) page.Page[*ImportJob] {
+// Real types.ImportDestinationType enum values.
+const (
+	ImportDestinationTypeContactList     = "CONTACT_LIST"
+	ImportDestinationTypeSuppressionList = "SUPPRESSION_LIST"
+)
+
+// destinationType derives the real ImportDestinationType from which oneof
+// branch is populated (mirrors sourceType in export_jobs.go).
+func (d ImportDestination) destinationType() string {
+	if d.SuppressionListImportAction != "" {
+		return ImportDestinationTypeSuppressionList
+	}
+
+	return ImportDestinationTypeContactList
+}
+
+// ListImportJobs returns import jobs, optionally filtered by destination type.
+func (b *InMemoryBackend) ListImportJobs(
+	importDestinationType, nextToken string,
+	pageSize int,
+) page.Page[*ImportJob] {
 	b.mu.RLock("ListImportJobs")
 	defer b.mu.RUnlock()
 
@@ -73,6 +92,10 @@ func (b *InMemoryBackend) ListImportJobs(nextToken string, pageSize int) page.Pa
 
 	items := make([]*ImportJob, 0, len(snap))
 	for _, j := range snap {
+		if importDestinationType != "" && j.ImportDestination.destinationType() != importDestinationType {
+			continue
+		}
+
 		cp := *j
 		items = append(items, &cp)
 	}

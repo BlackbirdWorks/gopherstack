@@ -3,7 +3,9 @@ package dms
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
@@ -220,14 +222,94 @@ func (h *Handler) handleDescribeEventSubscriptions(
 }
 
 type describeEventsInput struct {
-	Marker     *string       `json:"Marker"`
-	MaxRecords *int32        `json:"MaxRecords"`
-	Filters    []filterEntry `json:"Filters"`
+	Marker           *string       `json:"Marker"`
+	MaxRecords       *int32        `json:"MaxRecords"`
+	Filters          []filterEntry `json:"Filters"`
+	SourceIdentifier *string       `json:"SourceIdentifier"`
+	SourceType       *string       `json:"SourceType"`
+	StartTime        *float64      `json:"StartTime"`
+	EndTime          *float64      `json:"EndTime"`
+	EventCategories  []string      `json:"EventCategories"`
 }
 
 type describeEventsOutput struct {
 	Marker *string          `json:"Marker,omitempty"`
 	Events []map[string]any `json:"Events"`
+}
+
+// eventCategoriesIntersect reports whether any category in want also
+// appears in have.
+func eventCategoriesIntersect(have, want []string) bool {
+	for _, w := range want {
+		if slices.Contains(have, w) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// eventFilters holds DescribeEvents' constraining request members --
+// "The only valid filter is replication-instance-id" per DescribeEventsInput,
+// so SourceIdentifier/SourceType/StartTime/EndTime/EventCategories are
+// separate top-level request members, not part of Filters. riFilter and
+// sourceIdentifier are kept distinct (rather than merged) because a real
+// client could set both to different values, and AWS's semantics for that
+// combination is "no event matches", not "the more specific one wins".
+type eventFilters struct {
+	startTime        time.Time
+	endTime          time.Time
+	riFilter         string
+	sourceIdentifier string
+	sourceType       string
+	categories       []string
+}
+
+func eventFiltersFrom(in *describeEventsInput) eventFilters {
+	f := eventFilters{
+		riFilter:         extractFilterValue(in.Filters, "replication-instance-id"),
+		sourceIdentifier: ptrconv.String(in.SourceIdentifier),
+		sourceType:       ptrconv.String(in.SourceType),
+		categories:       in.EventCategories,
+	}
+
+	if in.StartTime != nil {
+		f.startTime = time.Unix(0, int64(*in.StartTime*float64(time.Second))).UTC()
+	}
+
+	if in.EndTime != nil {
+		f.endTime = time.Unix(0, int64(*in.EndTime*float64(time.Second))).UTC()
+	}
+
+	return f
+}
+
+func (f eventFilters) matchesIdentifiers(e *Event) bool {
+	if f.riFilter != "" && e.SourceIdentifier != f.riFilter {
+		return false
+	}
+
+	if f.sourceIdentifier != "" && e.SourceIdentifier != f.sourceIdentifier {
+		return false
+	}
+
+	return f.sourceType == "" || e.SourceType == f.sourceType
+}
+
+func (f eventFilters) matchesWindow(e *Event) bool {
+	if !f.startTime.IsZero() && e.Date.Before(f.startTime) {
+		return false
+	}
+
+	return f.endTime.IsZero() || !e.Date.After(f.endTime)
+}
+
+func (f eventFilters) matches(e *Event) bool {
+	if !f.matchesIdentifiers(e) || !f.matchesWindow(e) {
+		return false
+	}
+
+	return len(f.categories) == 0 || eventCategoriesIntersect(e.EventCategories, f.categories)
 }
 
 func (h *Handler) handleDescribeEvents(
@@ -238,12 +320,11 @@ func (h *Handler) handleDescribeEvents(
 		return nil, err
 	}
 
-	// "The only valid filter is replication-instance-id" per DescribeEventsInput.
-	riFilter := extractFilterValue(in.Filters, "replication-instance-id")
+	filters := eventFiltersFrom(in)
 
 	all := make([]map[string]any, 0, len(list))
 	for _, e := range list {
-		if riFilter != "" && e.SourceIdentifier != riFilter {
+		if !filters.matches(e) {
 			continue
 		}
 

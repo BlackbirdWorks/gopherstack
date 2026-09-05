@@ -4,10 +4,14 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestStackSet_CRUD covers CreateStackSet, DescribeStackSet, ListStackSets,
@@ -732,4 +736,86 @@ func TestStackSetOperations_ImportNotFound(t *testing.T) {
 		"StackSetName": []string{"nonexistent-set"},
 	}.Encode())
 	assert.NotEqual(t, http.StatusOK, rec.Code, "Should error for nonexistent stack set")
+}
+
+// TestListStackSetOperations_TiedCreatedAtPageWalk proves
+// ListStackSetOperations sorts on CreatedAt alone -- a field with no
+// tiebreak -- over b.stackSetOperations[stackSetName] (a raw
+// map[string]*StackSetOperation keyed by operation ID, unspecified Go map
+// order). page.New then paginates that order with an offset-index scheme.
+// Several operations sharing one CreatedAt can therefore land in a
+// different relative order on each call, so a page boundary that fell
+// between two tied operations on one call falls between two different tied
+// operations on the next -- one gets dropped or duplicated across the page
+// boundary with nothing else changed. Looped: a single walk can pass by
+// luck since map iteration is randomized per-call.
+func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// ListStackSetOperations hardcodes cfnDefaultPageSize (100) as its page
+	// size -- it takes no maxResults param -- so total must exceed 100 to
+	// force a page boundary at all.
+	const total = 110
+
+	tied := time.Now()
+
+	want := make(map[string]bool, total)
+
+	for i := range total {
+		opID := "op-" + strconv.Itoa(i)
+		b.AddStackSetOperationInternal("my-stack-set", &cloudformation.StackSetOperation{
+			OperationID:  opID,
+			StackSetName: "my-stack-set",
+			Action:       "UPDATE",
+			Status:       "SUCCEEDED",
+			CreatedAt:    tied,
+		})
+		want[opID] = true
+	}
+
+	const pageSize = 100
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		token := ""
+		for range total/pageSize + 2 {
+			p, err := b.ListStackSetOperations("my-stack-set", token)
+			require.NoError(t, err)
+
+			for _, op := range p.Data {
+				got[op.OperationID]++
+			}
+
+			if p.Next == "" {
+				break
+			}
+
+			token = p.Next
+		}
+
+		require.Lenf(
+			t,
+			got,
+			total,
+			"iteration %d: page walk produced %d distinct operations, want %d",
+			iter,
+			len(got),
+			total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t,
+				1,
+				got[id],
+				"iteration %d: operation %s appeared %d times across the page walk",
+				iter,
+				id,
+				got[id],
+			)
+		}
+	}
 }

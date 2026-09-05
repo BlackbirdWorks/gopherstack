@@ -118,13 +118,13 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 		"ec2Configuration": map[string]any{
 			"scanModeState": map[string]any{
 				"scanMode":       cfg.Ec2ScanMode,
-				"scanModeStatus": statusEnabled,
+				"scanModeStatus": scanModeStatusSuccess,
 			},
 		},
 		"ecrConfiguration": map[string]any{
 			"rescanDurationState": map[string]any{
 				"rescanDuration": cfg.EcrRescanDuration,
-				keyStatus:        statusEnabled,
+				keyStatus:        ecrRescanDurationStatusSuccess,
 				keyUpdatedAt:     nil,
 			},
 		},

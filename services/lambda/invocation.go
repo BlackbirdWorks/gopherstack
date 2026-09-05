@@ -534,10 +534,10 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 
 	reserved, hasLimit := b.functionConcurrencies[functionName]
 	if !hasLimit {
-		// No reserved concurrency limit — check scaling config MaximumConcurrency instead.
-		if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaximumConcurrency != nil {
+		// No reserved concurrency limit — check scaling config MaxExecutionEnvironments instead.
+		if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
 			active := b.activeConcurrencies[functionName]
-			if active >= *sc.MaximumConcurrency {
+			if active >= int(*sc.MaxExecutionEnvironments) {
 				return false, fmt.Errorf(
 					"%w: scaling concurrency limit reached for function %s",
 					ErrTooManyRequests,
@@ -571,9 +571,9 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 		)
 	}
 
-	// Also enforce MaximumConcurrency from scaling config when set.
-	if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaximumConcurrency != nil {
-		if active >= *sc.MaximumConcurrency {
+	// Also enforce MaxExecutionEnvironments from scaling config when set.
+	if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
+		if active >= int(*sc.MaxExecutionEnvironments) {
 			return false, fmt.Errorf(
 				"%w: scaling concurrency limit reached for function %s",
 				ErrTooManyRequests,

@@ -2,6 +2,7 @@ package mq
 
 import (
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"net"
 	"sort"
@@ -25,13 +26,29 @@ const (
 	// minARNSegments is the minimum "arn:partition:service:region:account:resource"
 	// colon-separated segment count for parseDataReplicationCounterpart.
 	minARNSegments = 6
+
+	// instanceOrdinal1/2/3 label broker instances within a multi-node
+	// deployment (ACTIVE_STANDBY_MULTI_AZ has 2, CLUSTER_MULTI_AZ has 3).
+	instanceOrdinal1 = 1
+	instanceOrdinal2 = 2
+	instanceOrdinal3 = 3
+
+	// ipv4OctetMask isolates a single octet from a hash sum when
+	// synthesizing a fake private IP in instanceIPAddress.
+	ipv4OctetMask = 0xff
+	// ipv4OctetShift shifts a hash sum by one octet's width.
+	ipv4OctetShift = 8
 )
 
 // validateCreateBrokerInput validates the three most commonly invalid fields in
 // a CreateBroker request before acquiring the backend lock.
 func validateCreateBrokerInput(name, deploymentMode, engineType string) error {
 	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
-		return fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
+		return fmt.Errorf(
+			"%w: engineType must be ACTIVEMQ or RABBITMQ, got %q",
+			ErrValidation,
+			engineType,
+		)
 	}
 
 	if err := validateBrokerName(name); err != nil {
@@ -46,7 +63,11 @@ func validateCreateBrokerInput(name, deploymentMode, engineType string) error {
 // alphanumeric characters, hyphens, and underscores.
 func validateBrokerName(name string) error {
 	if len(name) == 0 || len(name) > 50 {
-		return fmt.Errorf("%w: brokerName must be 1-50 characters (got %d)", ErrValidation, len(name))
+		return fmt.Errorf(
+			"%w: brokerName must be 1-50 characters (got %d)",
+			ErrValidation,
+			len(name),
+		)
 	}
 
 	if !isAlphanumeric(rune(name[0])) {
@@ -57,7 +78,8 @@ func validateBrokerName(name string) error {
 		if !isAlphanumeric(c) && c != '-' && c != '_' {
 			return fmt.Errorf(
 				"%w: brokerName must contain only alphanumeric characters, hyphens, and underscores, got %q",
-				ErrValidation, c,
+				ErrValidation,
+				c,
 			)
 		}
 	}
@@ -93,7 +115,8 @@ func validateDeploymentModeForEngine(mode, engineType string) error {
 	default:
 		return fmt.Errorf(
 			"%w: deploymentMode must be SINGLE_INSTANCE, ACTIVE_STANDBY_MULTI_AZ, or CLUSTER_MULTI_AZ, got %q",
-			ErrValidation, mode,
+			ErrValidation,
+			mode,
 		)
 	}
 }
@@ -249,6 +272,7 @@ func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
 	br.LdapServerMetadata = opts.LdapServerMetadata
 	br.Logs = opts.Logs
 	br.DataReplicationMode = opts.DataReplicationMode
+	br.StorageSize = opts.StorageSize
 
 	if opts.Logs != nil {
 		br.LogsSummary = &LogsSummary{
@@ -265,8 +289,10 @@ func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
 
 	if opts.DataReplicationPrimaryBrokerArn != "" {
 		br.DataReplicationMetadata = &DataReplicationMetadata{
-			DataReplicationRole:        DataReplicationRoleReplica,
-			DataReplicationCounterpart: parseDataReplicationCounterpart(opts.DataReplicationPrimaryBrokerArn),
+			DataReplicationRole: DataReplicationRoleReplica,
+			DataReplicationCounterpart: parseDataReplicationCounterpart(
+				opts.DataReplicationPrimaryBrokerArn,
+			),
 		}
 	}
 }
@@ -310,7 +336,11 @@ func resolveStorageType(engineType, requested string) (string, error) {
 		}
 
 		if requested != StorageTypeEBS {
-			return "", fmt.Errorf("%w: RabbitMQ requires storageType=%q", ErrValidation, StorageTypeEBS)
+			return "", fmt.Errorf(
+				"%w: RabbitMQ requires storageType=%q",
+				ErrValidation,
+				StorageTypeEBS,
+			)
 		}
 
 		return requested, nil
@@ -504,6 +534,11 @@ func promotePendingScalarFields(br *Broker) {
 		br.LdapServerMetadata = br.PendingLdapServerMetadata
 		br.PendingLdapServerMetadata = nil
 	}
+
+	if br.PendingStorageSize != 0 {
+		br.StorageSize = br.PendingStorageSize
+		br.PendingStorageSize = 0
+	}
 }
 
 // promotePendingLogs applies a staged Logs change (LogsSummary.Pending) to
@@ -562,10 +597,12 @@ func buildBrokerInstances(engineType, deploymentMode, region, id string) []Broke
 			{
 				ConsoleURL: fmt.Sprintf("http://%s-1.mq.%s.amazonaws.com:8162", id, region),
 				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-1")},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal1),
 			},
 			{
 				ConsoleURL: fmt.Sprintf("http://%s-2.mq.%s.amazonaws.com:8162", id, region),
 				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-2")},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal2),
 			},
 		}
 	case DeploymentModeCluster:
@@ -573,19 +610,44 @@ func buildBrokerInstances(engineType, deploymentMode, region, id string) []Broke
 			{
 				ConsoleURL: fmt.Sprintf("http://%s-1.mq.%s.amazonaws.com:15671", id, region),
 				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-1")},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal1),
 			},
 			{
 				ConsoleURL: fmt.Sprintf("http://%s-2.mq.%s.amazonaws.com:15671", id, region),
 				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-2")},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal2),
 			},
 			{
 				ConsoleURL: fmt.Sprintf("http://%s-3.mq.%s.amazonaws.com:15671", id, region),
 				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-3")},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal3),
 			},
 		}
 	default:
-		return []BrokerInstance{{ConsoleURL: consoleURL, Endpoints: []string{endpoint}}}
+		return []BrokerInstance{
+			{
+				ConsoleURL: consoleURL,
+				Endpoints:  []string{endpoint},
+				IPAddress:  instanceIPAddress(engineType, id, instanceOrdinal1),
+			},
+		}
 	}
+}
+
+// instanceIPAddress synthesizes a deterministic private IP for a broker
+// instance's attached ENI. types.BrokerInstance.IpAddress docs: "Does not
+// apply to RabbitMQ brokers" -- so this backend only populates it for
+// ActiveMQ, matching the real service.
+func instanceIPAddress(engineType, id string, ordinal int) string {
+	if engineType != EngineTypeActiveMQ {
+		return ""
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+	sum := h.Sum32()
+
+	return fmt.Sprintf("10.%d.%d.%d", (sum>>ipv4OctetShift)&ipv4OctetMask, sum&ipv4OctetMask, ordinal)
 }
 
 // buildEndpointSuffix builds an endpoint URL with a host suffix (e.g. "-1", "-2").
@@ -633,7 +695,13 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
-	applyBrokerCoreFields(br, engineVersion, hostInstanceType, autoMinorVersionUpgrade, securityGroups)
+	applyBrokerCoreFields(
+		br,
+		engineVersion,
+		hostInstanceType,
+		autoMinorVersionUpgrade,
+		securityGroups,
+	)
 	applyUpdateBrokerOptions(br, opts)
 
 	return b.copyBroker(br), nil
@@ -717,6 +785,21 @@ func applyUpdateBrokerOptions(br *Broker, opts *UpdateBrokerOptions) {
 	if opts.DataReplicationMode != "" {
 		br.PendingDataReplicationMode = opts.DataReplicationMode
 	}
+
+	applyUpdateBrokerResourceAndStorage(br, opts)
+}
+
+// applyUpdateBrokerResourceAndStorage stages UpdateBrokerInput.ResourceShareArns
+// and UpdateBrokerInput.StorageSize. Split out of applyUpdateBrokerOptions to
+// keep that function's branch count down.
+func applyUpdateBrokerResourceAndStorage(br *Broker, opts *UpdateBrokerOptions) {
+	if opts.ResourceShareArns != nil {
+		br.PendingResourceShareArns = opts.ResourceShareArns
+	}
+
+	if opts.StorageSize != 0 {
+		br.PendingStorageSize = opts.StorageSize
+	}
 }
 
 // lookupBroker finds a broker by ID or by name; caller must hold a lock.
@@ -747,6 +830,10 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 
 	if len(br.SecurityGroups) > 0 {
 		cp.SecurityGroups = append([]string{}, br.SecurityGroups...)
+	}
+
+	if len(br.PendingResourceShareArns) > 0 {
+		cp.PendingResourceShareArns = append([]string{}, br.PendingResourceShareArns...)
 	}
 
 	cp.BrokerInstances = append([]BrokerInstance{}, br.BrokerInstances...)
@@ -804,11 +891,14 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 
 	all := []BrokerInstanceOption{
 		{
-			EngineType:               EngineTypeActiveMQ,
-			HostInstanceType:         "mq.m5.large",
-			StorageType:              StorageTypeEFS,
-			AvailabilityZones:        zones,
-			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
+			EngineType:        EngineTypeActiveMQ,
+			HostInstanceType:  "mq.m5.large",
+			StorageType:       StorageTypeEFS,
+			AvailabilityZones: zones,
+			SupportedDeploymentModes: []string{
+				DeploymentModeSingleInstance,
+				"ACTIVE_STANDBY_MULTI_AZ",
+			},
 			SupportedEngineVersions: []string{
 				engineVersion5183,
 				engineVersion5176,
@@ -817,11 +907,14 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 			},
 		},
 		{
-			EngineType:               EngineTypeActiveMQ,
-			HostInstanceType:         "mq.m5.xlarge",
-			StorageType:              StorageTypeEFS,
-			AvailabilityZones:        zones,
-			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
+			EngineType:        EngineTypeActiveMQ,
+			HostInstanceType:  "mq.m5.xlarge",
+			StorageType:       StorageTypeEFS,
+			AvailabilityZones: zones,
+			SupportedDeploymentModes: []string{
+				DeploymentModeSingleInstance,
+				"ACTIVE_STANDBY_MULTI_AZ",
+			},
 			SupportedEngineVersions: []string{
 				engineVersion5183,
 				engineVersion5176,

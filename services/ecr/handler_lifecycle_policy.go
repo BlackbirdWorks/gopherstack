@@ -34,7 +34,8 @@ func toLifecyclePolicyResultView(r *LifecyclePolicyResult) *lifecyclePolicyResul
 // lifecyclePolicyPreviewRuleActionView is the JSON representation of a
 // lifecycle preview entry's action (real AWS type: LifecyclePolicyRuleAction).
 type lifecyclePolicyPreviewRuleActionView struct {
-	Type string `json:"type,omitempty"`
+	Type               string `json:"type,omitempty"`
+	TargetStorageClass string `json:"targetStorageClass,omitempty"`
 }
 
 // lifecyclePolicyPreviewEntryView is the JSON representation of a single
@@ -108,7 +109,10 @@ func toLifecyclePolicyPreviewView(p *LifecyclePolicyPreviewResult) *lifecyclePol
 	results := make([]lifecyclePolicyPreviewEntryView, 0, len(p.PreviewResults))
 	for _, e := range p.PreviewResults {
 		results = append(results, lifecyclePolicyPreviewEntryView{
-			Action:              lifecyclePolicyPreviewRuleActionView{Type: e.ActionType},
+			Action: lifecyclePolicyPreviewRuleActionView{
+				Type:               e.ActionType,
+				TargetStorageClass: e.TargetStorageClass,
+			},
 			ImageDigest:         e.ImageDigest,
 			StorageClass:        e.StorageClass,
 			ImageTags:           e.ImageTags,
@@ -276,17 +280,7 @@ func paginateLifecyclePreviewEntries(
 	entries []LifecyclePolicyPreviewEntry, nextToken string, maxResults int,
 ) ([]LifecyclePolicyPreviewEntry, string) {
 	if nextToken != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(nextToken); err == nil {
-			cursor := string(decoded)
-
-			for i, e := range entries {
-				if e.ImageDigest == cursor {
-					entries = entries[i:]
-
-					break
-				}
-			}
-		}
+		entries = advanceToDigestCursor(entries, nextToken)
 	}
 
 	if maxResults <= 0 {
@@ -300,6 +294,30 @@ func paginateLifecyclePreviewEntries(
 	next := base64.StdEncoding.EncodeToString([]byte(entries[maxResults].ImageDigest))
 
 	return entries[:maxResults], next
+}
+
+// advanceToDigestCursor decodes nextToken and returns entries from the item
+// whose ImageDigest matches it onward. entries is sorted by ImagePushedAt,
+// not by digest, so an undecodable or unmatched cursor -- a stale token
+// whose image was deleted, or a tampered one -- has no valid resume point:
+// this returns no items rather than restarting at page one.
+func advanceToDigestCursor(
+	entries []LifecyclePolicyPreviewEntry, nextToken string,
+) []LifecyclePolicyPreviewEntry {
+	decoded, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return entries[:0]
+	}
+
+	cursor := string(decoded)
+
+	for i, e := range entries {
+		if e.ImageDigest == cursor {
+			return entries[i:]
+		}
+	}
+
+	return entries[:0]
 }
 
 // putLifecyclePolicyInput is the request body for PutLifecyclePolicy.

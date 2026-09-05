@@ -87,7 +87,7 @@ func TestOpenSearchDomainMaintenancesBoundedGrowth(t *testing.T) {
 		"maintenance records must not exceed cap of %d", capLimit)
 
 	// ListDomainMaintenances must also return exactly cap entries.
-	records, err := b.ListDomainMaintenances("test-domain")
+	records, err := b.ListDomainMaintenances("test-domain", "", "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, records, capLimit)
+	assert.Len(t, records.Data, capLimit)
 }

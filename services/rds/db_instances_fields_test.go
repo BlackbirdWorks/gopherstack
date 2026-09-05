@@ -82,9 +82,9 @@ func TestReadReplicaIdentifiersTrackedOnSource(t *testing.T) {
 		rds.DBInstanceOptions{},
 	)
 	require.NoError(t, err)
-	_, err = b.CreateDBInstanceReadReplica("rep-x", "replica-src-b", "")
+	_, err = b.CreateDBInstanceReadReplica("rep-x", "replica-src-b", "", "", "")
 	require.NoError(t, err)
-	_, err = b.CreateDBInstanceReadReplica("rep-y", "replica-src-b", "")
+	_, err = b.CreateDBInstanceReadReplica("rep-y", "replica-src-b", "", "", "")
 	require.NoError(t, err)
 
 	instances, err := b.DescribeDBInstances("replica-src-b")

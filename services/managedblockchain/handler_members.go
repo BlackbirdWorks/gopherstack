@@ -18,6 +18,10 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.ClientRequestToken == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
+	}
+
 	if errResp := validateMemberConfigurationRequest(req.MemberConfiguration); errResp != nil {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", errResp.Error())
 	}

@@ -292,10 +292,10 @@ func TestConnectionAndVpcDeleteWindows(t *testing.T) {
 		del, err := b.DeleteOutboundConnection(conn.ConnectionID)
 		require.NoError(t, err)
 		assert.Equal(t, "DELETING", del.Status)
-		require.Len(t, b.DescribeOutboundConnections(), 1)
+		require.Len(t, b.DescribeOutboundConnections(nil, "", 0).Data, 1)
 
 		opensearch.ExpireOutboundConnection(b, conn.ConnectionID)
-		assert.Empty(t, b.DescribeOutboundConnections())
+		assert.Empty(t, b.DescribeOutboundConnections(nil, "", 0).Data)
 	})
 
 	t.Run("vpc_endpoint", func(t *testing.T) {

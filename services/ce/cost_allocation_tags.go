@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ListCostAllocationTags returns cost allocation tags, optionally filtered.
@@ -95,6 +97,7 @@ func (b *InMemoryBackend) CreateBackfillJob(backfillFrom string) *BackfillJob {
 
 	now := time.Now().UTC()
 	job := &BackfillJob{
+		BackfillID:     uuid.NewString(),
 		BackfillFrom:   backfillFrom,
 		RequestedAt:    now.Format(time.RFC3339),
 		BackfillStatus: statusProcessing,
@@ -107,6 +110,10 @@ func (b *InMemoryBackend) CreateBackfillJob(backfillFrom string) *BackfillJob {
 }
 
 // ListBackfillHistory returns backfill jobs sorted by RequestedAt descending.
+// b.backfillJobs is an append-only slice (not a Table.All() map walk), so its
+// insertion order is already stable across calls; the BackfillID tiebreak
+// below only matters for RequestedAt's second-precision ties, making the
+// full order deterministic for pagination cursoring.
 func (b *InMemoryBackend) ListBackfillHistory() []*BackfillJob {
 	b.mu.RLock("ListBackfillHistory")
 	defer b.mu.RUnlock()
@@ -118,7 +125,11 @@ func (b *InMemoryBackend) ListBackfillHistory() []*BackfillJob {
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].RequestedAt > result[j].RequestedAt
+		if result[i].RequestedAt != result[j].RequestedAt {
+			return result[i].RequestedAt > result[j].RequestedAt
+		}
+
+		return result[i].BackfillID < result[j].BackfillID
 	})
 
 	return result

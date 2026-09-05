@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +54,7 @@ func TestUpdateSecret_KmsKeyIDBasic(t *testing.T) {
 
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID: "upd-kms",
-		KmsKeyID: "alias/new-key",
+		KmsKeyID: aws.String("alias/new-key"),
 	})
 	require.NoError(t, err)
 
@@ -160,7 +161,7 @@ func TestUpdateSecret_ValueAndMeta(t *testing.T) {
 			name: "update_kms_key",
 			updateInput: secretsmanager.UpdateSecretInput{
 				SecretID: "update-test",
-				KmsKeyID: "new-key-id",
+				KmsKeyID: aws.String("new-key-id"),
 			},
 			checkFn: func(t *testing.T, desc *secretsmanager.DescribeSecretOutput, _ *secretsmanager.GetSecretValueOutput) {
 				t.Helper()
@@ -345,7 +346,7 @@ func TestUpdateSecret_FailedValueUpdate_LeavesDescriptionAndKmsKeyIDUnchanged(t 
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:     "atomic-update",
 		Description:  "should not apply",
-		KmsKeyID:     "alias/new-key",
+		KmsKeyID:     aws.String("alias/new-key"),
 		SecretString: "v2",
 	})
 	require.Error(t, err)

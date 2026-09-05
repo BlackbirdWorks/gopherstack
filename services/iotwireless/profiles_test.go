@@ -20,7 +20,7 @@ func TestInMemoryBackend_SortedListDeviceProfiles(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	profiles := b.ListDeviceProfiles(testAccountID, testRegion)
+	profiles := b.ListDeviceProfiles(testAccountID, testRegion, "")
 	require.Len(t, profiles, 3)
 	assert.Equal(t, "dp-a", profiles[0].Name)
 	assert.Equal(t, "dp-m", profiles[1].Name)

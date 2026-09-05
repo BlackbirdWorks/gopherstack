@@ -6,16 +6,31 @@ type SourceAuth struct {
 	Resource string `json:"resource,omitempty"`
 }
 
+// BuildStatusConfig configures the build status CodeBuild reports back to
+// the source provider (aws-sdk-go-v2/service/codebuild/types.BuildStatusConfig).
+type BuildStatusConfig struct {
+	Context   string `json:"context,omitempty"`
+	TargetURL string `json:"targetUrl,omitempty"`
+}
+
+// GitSubmodulesConfig controls whether Git submodules are fetched
+// (aws-sdk-go-v2/service/codebuild/types.GitSubmodulesConfig).
+type GitSubmodulesConfig struct {
+	FetchSubmodules bool `json:"fetchSubmodules"`
+}
+
 // ProjectSource represents the source configuration for a CodeBuild project.
 type ProjectSource struct {
-	Auth              SourceAuth `json:"auth,omitzero"`
-	Type              string     `json:"type"`
-	Location          string     `json:"location,omitempty"`
-	Buildspec         string     `json:"buildspec,omitempty"`
-	SourceIdentifier  string     `json:"sourceIdentifier,omitempty"`
-	GitCloneDepth     int32      `json:"gitCloneDepth,omitempty"`
-	InsecureSsl       bool       `json:"insecureSsl,omitempty"`
-	ReportBuildStatus bool       `json:"reportBuildStatus,omitempty"`
+	Auth                SourceAuth           `json:"auth,omitzero"`
+	BuildStatusConfig   *BuildStatusConfig   `json:"buildStatusConfig,omitempty"`
+	GitSubmodulesConfig *GitSubmodulesConfig `json:"gitSubmodulesConfig,omitempty"`
+	Type                string               `json:"type"`
+	Location            string               `json:"location,omitempty"`
+	Buildspec           string               `json:"buildspec,omitempty"`
+	SourceIdentifier    string               `json:"sourceIdentifier,omitempty"`
+	GitCloneDepth       int32                `json:"gitCloneDepth,omitempty"`
+	InsecureSsl         bool                 `json:"insecureSsl,omitempty"`
+	ReportBuildStatus   bool                 `json:"reportBuildStatus,omitempty"`
 }
 
 // ProjectSourceVersion pairs a source identifier with a specific version.
@@ -51,14 +66,39 @@ type RegistryCredential struct {
 	CredentialProvider string `json:"credentialProvider"`
 }
 
+// DockerServerStatus reports a remote Docker server's status
+// (aws-sdk-go-v2/service/codebuild/types.DockerServerStatus).
+type DockerServerStatus struct {
+	Status  string `json:"status,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// DockerServer configures a remote Docker server the build environment
+// connects to (aws-sdk-go-v2/service/codebuild/types.DockerServer).
+type DockerServer struct {
+	Status           *DockerServerStatus `json:"status,omitempty"`
+	ComputeType      string              `json:"computeType,omitempty"`
+	SecurityGroupIDs []string            `json:"securityGroupIds,omitempty"`
+}
+
+// ProjectFleet identifies a reserved-capacity compute fleet a build
+// environment runs on (aws-sdk-go-v2/service/codebuild/types.ProjectFleet).
+type ProjectFleet struct {
+	FleetArn string `json:"fleetArn,omitempty"`
+}
+
 // ProjectEnvironment represents the build environment for a CodeBuild project.
 type ProjectEnvironment struct {
 	RegistryCredential       *RegistryCredential   `json:"registryCredential,omitempty"`
+	ComputeConfiguration     *ComputeConfiguration `json:"computeConfiguration,omitempty"`
+	DockerServer             *DockerServer         `json:"dockerServer,omitempty"`
+	Fleet                    *ProjectFleet         `json:"fleet,omitempty"`
 	Type                     string                `json:"type"`
 	Image                    string                `json:"image"`
 	ComputeType              string                `json:"computeType"`
 	Certificate              string                `json:"certificate,omitempty"`
 	ImagePullCredentialsType string                `json:"imagePullCredentialsType,omitempty"`
+	HostKernel               string                `json:"hostKernel,omitempty"`
 	EnvironmentVariables     []EnvironmentVariable `json:"environmentVariables,omitempty"`
 	PrivilegedMode           bool                  `json:"privilegedMode,omitempty"`
 }
@@ -187,6 +227,15 @@ type BuildLogs struct {
 	DeepLink          string `json:"deepLink,omitempty"`
 }
 
+// AutoRetryConfig reports a build's auto-retry chain
+// (aws-sdk-go-v2/service/codebuild/types.AutoRetryConfig).
+type AutoRetryConfig struct {
+	NextAutoRetry     string `json:"nextAutoRetry,omitempty"`
+	PreviousAutoRetry string `json:"previousAutoRetry,omitempty"`
+	AutoRetryLimit    int32  `json:"autoRetryLimit,omitempty"`
+	AutoRetryNumber   int32  `json:"autoRetryNumber,omitempty"`
+}
+
 // Build represents an in-memory AWS CodeBuild build execution.
 // Build represents an in-memory AWS CodeBuild build.
 //
@@ -203,6 +252,7 @@ type Build struct {
 	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
 	Cache                   *ProjectCache          `json:"cache,omitempty"`
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	AutoRetryConfig         *AutoRetryConfig       `json:"autoRetryConfig,omitempty"`
 	CurrentPhase            string                 `json:"currentPhase,omitempty"`
 	Initiator               string                 `json:"initiator,omitempty"`
 	Arn                     string                 `json:"arn"`
@@ -210,6 +260,7 @@ type Build struct {
 	BuildStatus             string                 `json:"buildStatus"`
 	ServiceRole             string                 `json:"serviceRole,omitempty"`
 	ResolvedSourceVersion   string                 `json:"resolvedSourceVersion,omitempty"`
+	SourceVersion           string                 `json:"sourceVersion,omitempty"`
 	ID                      string                 `json:"id"`
 	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
 	Phases                  []BuildPhase           `json:"phases,omitempty"`
@@ -349,28 +400,58 @@ type BuildBatch struct {
 }
 
 // CommandExecution represents an in-memory AWS CodeBuild command execution.
+// CommandExecution represents an in-memory AWS CodeBuild sandbox command
+// execution. ExitCode is a string on the wire, not a number
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/deserializers.go's
+// awsAwsjson11_deserializeDocumentCommandExecution "exitCode" case:
+// "expected NonEmptyString to be of type string" -- gopherstack previously
+// modeled it as int32, which a real client's decoder would reject outright
+// once a nonzero exit code was ever populated).
 type CommandExecution struct {
-	ID                    string  `json:"id"`
-	SandboxID             string  `json:"sandboxId"`
-	SandboxArn            string  `json:"sandboxArn,omitempty"`
-	Command               string  `json:"command,omitempty"`
-	Type                  string  `json:"type,omitempty"` // SHELL
-	Status                string  `json:"status"`
-	StandardOutputContent string  `json:"standardOutputContent,omitempty"`
-	StandardErrorContent  string  `json:"standardErrorContent,omitempty"`
-	ExitCode              int32   `json:"exitCode,omitempty"`
-	StartTime             float64 `json:"startTime,omitempty"`
-	EndTime               float64 `json:"endTime,omitempty"`
+	ID                    string `json:"id"`
+	SandboxID             string `json:"sandboxId"`
+	SandboxArn            string `json:"sandboxArn,omitempty"`
+	Command               string `json:"command,omitempty"`
+	Type                  string `json:"type,omitempty"` // SHELL
+	Status                string `json:"status"`
+	StandardOutputContent string `json:"standardOutputContent,omitempty"`
+	// StandardErrContent's wire key is "standardErrContent", not
+	// "standardErrorContent" -- confirmed via the deserializer case above.
+	StandardErrContent string  `json:"standardErrContent,omitempty"`
+	ExitCode           string  `json:"exitCode,omitempty"`
+	StartTime          float64 `json:"startTime,omitempty"`
+	EndTime            float64 `json:"endTime,omitempty"`
 }
 
-// Sandbox represents an in-memory AWS CodeBuild sandbox.
+// Sandbox represents an in-memory AWS CodeBuild sandbox. Like Build, a
+// sandbox inherits its environment/source/VPC/timeout configuration from the
+// project it starts against (aws-sdk-go-v2/service/codebuild@v1.72.4/
+// deserializers.go's awsAwsjson11_deserializeDocumentSandbox: environment/
+// source/sourceVersion/secondarySources/secondarySourceVersions/vpcConfig/
+// fileSystemLocations/encryptionKey/serviceRole/queuedTimeoutInMinutes/
+// timeoutInMinutes are all real fields on the response). CurrentSession and
+// LogConfig are deliberately not modeled: StartSandboxConnection already
+// documents (PARITY.md) that a real interactive terminal session isn't
+// simulated, and LogConfig has the same no-observable-effect reasoning as
+// Build's LogsConfigOverride (see StartBuildConfig's doc comment).
 type Sandbox struct {
-	ID          string  `json:"id"`
-	Arn         string  `json:"arn"`
-	ProjectName string  `json:"projectName,omitempty"`
-	Status      string  `json:"status"` // QUEUED|PROVISIONING|READY|STARTING|STOPPED
-	StartTime   float64 `json:"startTime,omitempty"`
-	EndTime     float64 `json:"endTime,omitempty"`
+	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
+	Source                  *ProjectSource         `json:"source,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	ID                      string                 `json:"id"`
+	Arn                     string                 `json:"arn"`
+	ProjectName             string                 `json:"projectName,omitempty"`
+	Status                  string                 `json:"status"` // QUEUED|PROVISIONING|READY|STARTING|STOPPED
+	ServiceRole             string                 `json:"serviceRole,omitempty"`
+	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
+	SourceVersion           string                 `json:"sourceVersion,omitempty"`
+	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
+	StartTime               float64                `json:"startTime,omitempty"`
+	EndTime                 float64                `json:"endTime,omitempty"`
+	TimeoutInMinutes        int32                  `json:"timeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
 }
 
 // WebhookFilter represents a single filter criterion in a webhook filter group.

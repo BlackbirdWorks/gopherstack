@@ -150,10 +150,15 @@ func (h *Handler) handleDescribeRepositories(
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(next repo name).
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default when maxResults is not used.
+	}
+
 	var nextToken string
-	if in.MaxResults > 0 && len(repos) > in.MaxResults {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(repos[in.MaxResults].RepositoryName))
-		repos = repos[:in.MaxResults]
+	if len(repos) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(repos[maxResults].RepositoryName))
+		repos = repos[:maxResults]
 	}
 
 	views := make([]repositoryView, 0, len(repos))

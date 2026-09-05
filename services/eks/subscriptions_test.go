@@ -2,6 +2,7 @@ package eks_test
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +180,93 @@ func TestEksAnywhereSubscription_TermFields(t *testing.T) {
 	require.True(t, ok, "term must be present in the response")
 	assert.Equal(t, "MONTHS", term["unit"])
 	assert.InEpsilon(t, float64(36), term["duration"], 0.001)
+}
+
+// TestListEksAnywhereSubscriptions_TiedNamePageWalk proves
+// ListEksAnywhereSubscriptions sorts on Name alone -- a field
+// CreateEksAnywhereSubscription never checks for uniqueness -- over
+// b.subscriptions.All() (a store.Table map walk, unstable between calls).
+// The handler then paginates that unsorted-by-uniqueness order with
+// pkgs/page.New, an offset-index scheme. Several subscriptions sharing one
+// Name can therefore land in a different relative order on each call, so a
+// page boundary that fell between two tied subscriptions on one call falls
+// between two different tied subscriptions on the next -- one gets dropped
+// or duplicated across the page boundary with nothing else changed. Looped:
+// a single walk can pass by luck since map iteration is randomized per-call.
+func TestListEksAnywhereSubscriptions_TiedNamePageWalk(t *testing.T) {
+	t.Parallel()
+
+	h, b := newHandlerAndBackend(t)
+
+	const total = 12
+
+	want := make(map[string]bool, total)
+
+	for i := range total {
+		id := "sub-tied-" + strconv.Itoa(i)
+		b.AddSubscriptionInternal(&eks.AnywhereSubscription{
+			ID:     id,
+			Name:   "shared-name",
+			Status: "ACTIVE",
+		})
+		want[id] = true
+	}
+
+	const pageSize = 5
+
+	for iter := range 30 {
+		got := make(map[string]int, total)
+
+		token := ""
+		for range total/pageSize + 2 {
+			path := "/eks-anywhere-subscriptions?maxResults=" + strconv.Itoa(pageSize)
+			if token != "" {
+				path += "&nextToken=" + token
+			}
+
+			rec := doREST(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseResp(t, rec)
+
+			subs, ok := resp["subscriptions"].([]any)
+			require.True(t, ok, "unexpected subscriptions type %T", resp["subscriptions"])
+
+			for _, s := range subs {
+				sub, subOK := s.(map[string]any)
+				require.True(t, subOK, "unexpected subscription element type %T", s)
+				id, _ := sub["id"].(string)
+				got[id]++
+			}
+
+			next, _ := resp["nextToken"].(string)
+			if next == "" {
+				break
+			}
+
+			token = next
+		}
+
+		require.Lenf(
+			t,
+			got,
+			total,
+			"iteration %d: page walk produced %d distinct subscriptions, want %d",
+			iter,
+			len(got),
+			total,
+		)
+
+		for id := range want {
+			require.Equalf(
+				t,
+				1,
+				got[id],
+				"iteration %d: subscription %s appeared %d times across the page walk",
+				iter,
+				id,
+				got[id],
+			)
+		}
+	}
 }

@@ -161,11 +161,15 @@ func (b *InMemoryBackend) ListModelCustomizationJobs(
 
 	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(list, func(i, j int) bool {
-		if descending {
-			return list[i].CreationTime.After(list[j].CreationTime)
+		if !list[i].CreationTime.Equal(list[j].CreationTime) {
+			if descending {
+				return list[i].CreationTime.After(list[j].CreationTime)
+			}
+
+			return list[i].CreationTime.Before(list[j].CreationTime)
 		}
 
-		return list[i].CreationTime.Before(list[j].CreationTime)
+		return list[i].JobArn < list[j].JobArn
 	})
 
 	nextToken := ""

@@ -157,7 +157,9 @@ func TestBlueprint_UpdateNotFound(t *testing.T) {
 }
 
 // TestBlueprint_DeleteNotFound verifies DeleteBlueprint returns
-// EntityNotFoundException for a missing blueprint.
+// InvalidInputException for a missing blueprint: its error switch
+// (glue@v1.152.0 deserializers.go) has no EntityNotFoundException case,
+// unlike GetBlueprint's.
 func TestBlueprint_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -171,7 +173,7 @@ func TestBlueprint_DeleteNotFound(t *testing.T) {
 			name:      "delete_missing_blueprint_fails",
 			create:    false,
 			wantCode:  http.StatusBadRequest,
-			wantError: "EntityNotFoundException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:     "delete_existing_blueprint_succeeds",

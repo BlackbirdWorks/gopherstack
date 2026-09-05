@@ -95,7 +95,11 @@ func (b *InMemoryBackend) DeleteLocation(locationArn string) error {
 }
 
 // ListLocations returns locations, sorted by ARN.
-func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*LocationListEntry, string, error) {
+func (b *InMemoryBackend) ListLocations(
+	filters []LocationFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*LocationListEntry, string, error) {
 	b.mu.RLock("ListLocations")
 	defer b.mu.RUnlock()
 
@@ -103,6 +107,15 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 
 	all := make([]*LocationListEntry, 0, len(sorted))
 	for _, l := range sorted {
+		matched, err := matchLocationFilters(l, filters)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if !matched {
+			continue
+		}
+
 		all = append(all, &LocationListEntry{
 			LocationArn:  l.LocationArn,
 			LocationURI:  l.LocationURI,
@@ -114,6 +127,36 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 	pg := page.New(all, nextToken, limit, defaultMaxResults)
 
 	return pg.Data, pg.Next, nil
+}
+
+// matchLocationFilters reports whether l satisfies every filter (AND across
+// filters, per the shared AWS list-filter convention).
+func matchLocationFilters(l *storedLocation, filters []LocationFilter) (bool, error) {
+	for _, f := range filters {
+		var actual string
+
+		switch f.Name {
+		case "LocationUri":
+			actual = l.LocationURI
+		case "LocationType":
+			actual = l.LocationType
+		case "CreationTime":
+			actual = l.CreationTime.UTC().Format(time.RFC3339)
+		default:
+			return false, fmt.Errorf("%w: unrecognized filter Name %q", ErrInvalidParameter, f.Name)
+		}
+
+		matched, err := matchFilterOperator(f.Operator, actual, f.Values)
+		if err != nil {
+			return false, err
+		}
+
+		if !matched {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // UpdateLocationS3 updates an S3 location's subdirectory, storage class, and S3 config.

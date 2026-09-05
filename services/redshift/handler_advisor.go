@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -191,8 +192,14 @@ func nodeConfigurationOptions(actionType, baseNodeType string) []nodeConfigOptio
 }
 
 // nodeConfigFilterValue returns the first requested value for a node-config
-// filter. It accepts both the AWS Filter.member.N.Name/Values.member.M encoding
-// and a plain query parameter of the same name for convenience.
+// filter. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput wraps
+// Filters as "Filter.NodeConfigurationOptionsFilter.N", and
+// awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter/
+// awsAwsquery_serializeDocumentValueStringList put each value under
+// "...N.Value.item.M" -- singular "Value" wrapping an "item" list, not
+// plural "Values". It also accepts a plain query parameter of the same name
+// for convenience.
 func nodeConfigFilterValue(vals url.Values, name string) string {
 	if v := vals.Get(name); v != "" {
 		return v
@@ -205,7 +212,7 @@ func nodeConfigFilterValue(vals url.Values, name string) string {
 
 		prefix := strings.TrimSuffix(key, ".Name")
 		for vk, vv := range vals {
-			if strings.HasPrefix(vk, prefix+".Values.") && len(vv) > 0 {
+			if strings.HasPrefix(vk, prefix+".Value.item.") && len(vv) > 0 {
 				return vv[0]
 			}
 		}
@@ -214,19 +221,94 @@ func nodeConfigFilterValue(vals url.Values, name string) string {
 	return ""
 }
 
-// nodeConfigFilterInt returns a node-config filter value parsed as an int, or 0.
-func nodeConfigFilterInt(vals url.Values, name string) int {
-	s := nodeConfigFilterValue(vals, name)
-	if s == "" {
-		return 0
+// nodeConfigFilterOperatorValues returns the Operator and full Values list for a
+// node-config filter by name, alongside nodeConfigFilterValue's wire keys.
+// Operator is serialized as "...N.Operator" (same
+// awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter as Name/Value).
+// The plain-query-parameter convenience form has no operator and is treated
+// as "eq" against its single value.
+func nodeConfigFilterOperatorValues(vals url.Values, name string) (string, []string) {
+	if v := vals.Get(name); v != "" {
+		return nodeConfigOpEq, []string{v}
 	}
 
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
+	for key, filterName := range vals {
+		if !strings.HasSuffix(key, ".Name") || len(filterName) == 0 || filterName[0] != name {
+			continue
+		}
+
+		prefix := strings.TrimSuffix(key, ".Name")
+
+		op := vals.Get(prefix + ".Operator")
+		if op == "" {
+			op = nodeConfigOpEq
+		}
+
+		return op, parseStringList(vals, prefix+".Value.item.")
 	}
 
-	return n
+	return "", nil
+}
+
+// nodeConfigOpEq is the default operator (NodeConfigurationOptionsFilter.Operator,
+// types/types.go:1379-1388) when a filter omits it or uses the plain-query form.
+const nodeConfigOpEq = "eq"
+
+// numericFilterMatches reports whether actual satisfies a NodeConfigurationOptionsFilter
+// per Operator's documented semantics: one value for eq/lt/le/gt/ge, two
+// (low, high) for an inclusive between, a list for in (types/types.go:1379-1388).
+// An operator this backend does not recognise, or a value count the operator
+// disallows, matches nothing rather than falling through to "match everything".
+func numericFilterMatches(operator string, values []string, actual float64) bool {
+	nums, ok := parseFilterFloats(values)
+	if !ok {
+		return false
+	}
+
+	switch operator {
+	case "between":
+		return len(nums) == 2 && actual >= nums[0] && actual <= nums[1]
+	case "in":
+		return slices.Contains(nums, actual)
+	default:
+		return len(nums) == 1 && singleValueOperatorMatches(operator, actual, nums[0])
+	}
+}
+
+// parseFilterFloats parses every value as a float64, failing the whole set on
+// the first unparseable entry.
+func parseFilterFloats(values []string) ([]float64, bool) {
+	nums := make([]float64, 0, len(values))
+
+	for _, v := range values {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, false
+		}
+
+		nums = append(nums, n)
+	}
+
+	return nums, true
+}
+
+// singleValueOperatorMatches evaluates the eq/lt/le/gt/ge operators, each
+// documented to take exactly one comparison value.
+func singleValueOperatorMatches(operator string, actual, want float64) bool {
+	switch operator {
+	case nodeConfigOpEq:
+		return actual == want
+	case "lt":
+		return actual < want
+	case "le":
+		return actual <= want
+	case "gt":
+		return actual > want
+	case "ge":
+		return actual >= want
+	default:
+		return false
+	}
 }
 
 // ---- DescribeNodeConfigurationOptions ----
@@ -269,19 +351,22 @@ func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, 
 	// otherwise honour an explicit NodeType filter or fall back to a default.
 	baseNodeType := nodeConfigFilterValue(vals, "NodeType")
 	if id := vals.Get("ClusterIdentifier"); id != "" && baseNodeType == "" {
-		if clusters, _, err := h.Backend.DescribeClusters(id, "", 0); err == nil && len(clusters) > 0 {
+		if clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil); err == nil && len(clusters) > 0 {
 			baseNodeType = clusters[0].NodeType
 		}
 	}
 
 	options := nodeConfigurationOptions(actionType, baseNodeType)
 
-	// Apply an optional NumberOfNodes filter.
-	if want := nodeConfigFilterInt(vals, "NumberOfNodes"); want > 0 {
+	// Apply an optional NumberOfNodes filter, honouring its documented
+	// Operator (previously ignored -- every filter was compared with == against
+	// only the first supplied value, so a real client's gt/lt/le/ge/between/in
+	// filter silently behaved like an eq on the wrong value).
+	if op, filterVals := nodeConfigFilterOperatorValues(vals, "NumberOfNodes"); len(filterVals) > 0 {
 		filtered := options[:0:0]
 
 		for _, o := range options {
-			if o.NumberOfNodes == want {
+			if numericFilterMatches(op, filterVals, float64(o.NumberOfNodes)) {
 				filtered = append(filtered, o)
 			}
 		}
@@ -332,7 +417,7 @@ type listRecommendationsResponse struct {
 func (h *Handler) handleListRecommendations(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 
-	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil)
 	if err != nil {
 		// An explicit unknown ClusterIdentifier surfaces the not-found error.
 		return nil, err

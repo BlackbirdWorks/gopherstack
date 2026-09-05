@@ -271,7 +271,7 @@ func TestHandlerTGWRouteTableAssociation(t *testing.T) {
 	require.NoError(t, err)
 	rtID := rt.RouteTableID
 
-	vpc, err := b.CreateVpc("10.7.0.0/16")
+	vpc, err := b.CreateVpc("10.7.0.0/16", "default")
 	require.NoError(t, err)
 
 	attach, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, []string{}, nil)

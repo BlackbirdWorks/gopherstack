@@ -50,7 +50,7 @@ func TestDeletePermission_RejectsWhenInUse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, ram.SharePermissionCount(h.Backend.(*ram.InMemoryBackend)))
 
-	// Delete permission while in use → must fail with PermissionInUseException.
+	// Delete permission while in use → must fail with ErrPermissionInUse.
 	err = h.Backend.DeletePermission(p.ARN)
 	require.ErrorIs(t, err, ram.ErrPermissionInUse)
 

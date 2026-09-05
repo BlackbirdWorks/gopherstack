@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -186,6 +189,20 @@ type SearchFilter struct {
 	Value    string `json:"Value"`
 }
 
+// SearchNestedFilter mirrors types.NestedFilters.
+type SearchNestedFilter struct {
+	NestedPropertyName string         `json:"NestedPropertyName"`
+	Filters            []SearchFilter `json:"Filters"`
+}
+
+// SearchExpression mirrors types.SearchExpression.
+type SearchExpression struct {
+	Operator       string               `json:"Operator"`
+	Filters        []SearchFilter       `json:"Filters"`
+	NestedFilters  []SearchNestedFilter `json:"NestedFilters"`
+	SubExpressions []SearchExpression   `json:"SubExpressions"`
+}
+
 // searchResourceItem pairs a stored resource with a flattened JSON view used
 // for filter evaluation.
 type searchResourceItem struct {
@@ -194,33 +211,246 @@ type searchResourceItem struct {
 	key  string
 }
 
+// timestampSearchFields are the flat-map keys whose value is an
+// epoch-seconds float64 (see epochSeconds / trainingJobSearchView /
+// pipelineSearchView), even though types.Filter.Value's doc states
+// timestamp properties are compared as ISO 8601 strings
+// (YYYY-mm-dd'T'HH:MM:SS): a raw string/numeric comparison of the two forms
+// would mean a filter built in the documented format could never match
+// this API's own emitted CreationTime/LastModifiedTime.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at package load
+var timestampSearchFields = map[string]bool{
+	keyCreationTime: true, keyLastModifiedTime: true,
+	"TrainingStartTime": true, "TrainingEndTime": true,
+}
+
+func parseFilterTimestamp(value string) (float64, bool) {
+	for _, layout := range []string{"2006-01-02T15:04:05", time.RFC3339} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return float64(t.Unix()), true
+		}
+	}
+
+	return 0, false
+}
+
+func toSearchFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
+}
+
+// searchComparable resolves both sides of a comparison to float64s: via
+// epoch-seconds conversion for the documented timestamp fields, or plain
+// numeric parsing otherwise. ok is false when the property/value pair
+// cannot be compared this way (e.g. a text property), matching the doc's
+// "Not supported for text properties" note for the range operators by
+// declining to match rather than guessing a lexical order.
+func searchComparable(name string, v any, filterValue string) (float64, float64, bool) {
+	if timestampSearchFields[name] {
+		fv, okF := toSearchFloat(v)
+		want, okW := parseFilterTimestamp(filterValue)
+
+		return fv, want, okF && okW
+	}
+
+	fv, okF := toSearchFloat(v)
+	want, err := strconv.ParseFloat(filterValue, 64)
+
+	return fv, want, okF && err == nil
+}
+
+func searchValuesEqual(name string, v any, filterValue string) bool {
+	if timestampSearchFields[name] {
+		fv, want, ok := searchComparable(name, v, filterValue)
+
+		return ok && fv == want
+	}
+
+	return fmt.Sprintf("%v", v) == filterValue
+}
+
+// matchesSearchRange evaluates the four documented range operators
+// (GreaterThan, GreaterThanOrEqualTo, LessThan, LessThanOrEqualTo).
+func matchesSearchRange(name string, v any, op, filterValue string) bool {
+	fv, want, canCompare := searchComparable(name, v, filterValue)
+	if !canCompare {
+		return false
+	}
+
+	switch op {
+	case "GreaterThan":
+		return fv > want
+	case "GreaterThanOrEqualTo":
+		return fv >= want
+	case "LessThan":
+		return fv < want
+	default: // LessThanOrEqualTo
+		return fv <= want
+	}
+}
+
+func matchesSearchIn(v any, filterValue string) bool {
+	return slices.Contains(strings.Split(filterValue, ","), fmt.Sprintf("%v", v))
+}
+
+// matchesSearchFilter evaluates a single Filter's documented Operator
+// (types.Operator's full enum: Equals, NotEquals, GreaterThan,
+// GreaterThanOrEqualTo, LessThan, LessThanOrEqualTo, Contains, Exists,
+// NotExists, In). An Operator outside that set does not match anything --
+// over-accepting an undocumented operator has been the sharper bug shape
+// elsewhere in this campaign (e.g. an SNS numeric operator outside its
+// documented set).
 func matchesSearchFilter(flat map[string]any, f SearchFilter) bool {
 	v, ok := flat[f.Name]
 
 	switch f.Operator {
 	case "", "Equals":
-		return ok && fmt.Sprintf("%v", v) == f.Value
+		return ok && searchValuesEqual(f.Name, v, f.Value)
 	case "NotEquals":
-		return !ok || fmt.Sprintf("%v", v) != f.Value
+		return !ok || !searchValuesEqual(f.Name, v, f.Value)
 	case "Contains":
 		return ok && strings.Contains(fmt.Sprintf("%v", v), f.Value)
 	case "Exists":
 		return ok
 	case "NotExists":
 		return !ok
+	case "GreaterThan", "GreaterThanOrEqualTo", "LessThan", "LessThanOrEqualTo":
+		return ok && matchesSearchRange(f.Name, v, f.Operator, f.Value)
+	case "In":
+		return ok && matchesSearchIn(v, f.Value)
 	default:
-		return true
+		return false
 	}
 }
 
-func matchesSearchExpression(flat map[string]any, filters []SearchFilter, boolOp string) bool {
-	if len(filters) == 0 {
+// toObjectList converts a nested resource field (a []Channel or similar
+// typed slice stored in a searchResourceItem's flat map) into a generic
+// []map[string]any via a JSON round trip, so its fields can be addressed by
+// the JSON dotted path a NestedFilters entry documents.
+func toObjectList(raw any) ([]map[string]any, bool) {
+	b, marshalErr := json.Marshal(raw)
+	if marshalErr != nil {
+		return nil, false
+	}
+
+	var items []map[string]any
+	if unmarshalErr := json.Unmarshal(b, &items); unmarshalErr != nil {
+		return nil, false
+	}
+
+	return items, true
+}
+
+func dottedLookup(m map[string]any, path string) (any, bool) {
+	cur := any(m)
+
+	for part := range strings.SplitSeq(path, ".") {
+		cm, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+
+		v, exists := cm[part]
+		if !exists {
+			return nil, false
+		}
+
+		cur = v
+	}
+
+	return cur, true
+}
+
+// matchesNestedFilter evaluates a NestedFilters entry: satisfied if a
+// SINGLE object in the NestedPropertyName list satisfies every one of its
+// Filters (types.NestedFilters' doc). Per the SDK's API_NestedFilters.html
+// worked example, each nested Filter's Name carries the FULL dotted path
+// including the NestedPropertyName prefix (e.g.
+// "InputDataConfig.DataSource.S3DataSource.S3Uri" under NestedPropertyName
+// "InputDataConfig"), not a path relative to the nested object.
+func matchesNestedFilter(flat map[string]any, nf SearchNestedFilter) bool {
+	raw, ok := flat[nf.NestedPropertyName]
+	if !ok {
+		return false
+	}
+
+	items, ok := toObjectList(raw)
+	if !ok {
+		return false
+	}
+
+	prefix := nf.NestedPropertyName + "."
+
+	for _, item := range items {
+		allMatch := true
+
+		for _, f := range nf.Filters {
+			rel := strings.TrimPrefix(f.Name, prefix)
+
+			v, exists := dottedLookup(item, rel)
+			itemFlat := map[string]any{}
+
+			if exists {
+				itemFlat[rel] = v
+			}
+
+			if !matchesSearchFilter(itemFlat, SearchFilter{Name: rel, Operator: f.Operator, Value: f.Value}) {
+				allMatch = false
+
+				break
+			}
+		}
+
+		if allMatch {
+			return true
+		}
+	}
+
+	return false
+}
+
+// matchesSearchExpression evaluates a full SearchExpression: every
+// condition across Filters, NestedFilters and SubExpressions is combined
+// by the SAME single Operator (types.SearchExpression's doc: "If you want
+// every conditional statement in all lists to be satisfied ... specify
+// And. If only a single conditional statement needs to be true ...,
+// specify Or. The default value is And."), not independently per list.
+func matchesSearchExpression(flat map[string]any, expr SearchExpression) bool {
+	total := len(expr.Filters) + len(expr.NestedFilters) + len(expr.SubExpressions)
+	if total == 0 {
 		return true
 	}
 
-	if boolOp == "Or" {
-		for _, f := range filters {
-			if matchesSearchFilter(flat, f) {
+	conds := make([]bool, 0, total)
+
+	for _, f := range expr.Filters {
+		conds = append(conds, matchesSearchFilter(flat, f))
+	}
+
+	for _, nf := range expr.NestedFilters {
+		conds = append(conds, matchesNestedFilter(flat, nf))
+	}
+
+	for _, sub := range expr.SubExpressions {
+		conds = append(conds, matchesSearchExpression(flat, sub))
+	}
+
+	if expr.Operator == "Or" {
+		for _, c := range conds {
+			if c {
 				return true
 			}
 		}
@@ -228,8 +458,8 @@ func matchesSearchExpression(flat map[string]any, filters []SearchFilter, boolOp
 		return false
 	}
 
-	for _, f := range filters {
-		if !matchesSearchFilter(flat, f) {
+	for _, c := range conds {
+		if !c {
 			return false
 		}
 	}
@@ -330,12 +560,11 @@ var searchSupportedResourceTypes = map[string]bool{
 // SearchParams bundles the filter/sort/page criteria for Search.
 type SearchParams struct {
 	Resource                 string
-	BooleanOperator          string
 	NextToken                string
 	SortBy                   string
 	SortOrder                string
 	CrossAccountFilterOption string
-	Filters                  []SearchFilter
+	Expression               SearchExpression
 	MaxResults               int32
 }
 
@@ -345,7 +574,8 @@ type SearchParams struct {
 // zero matches, the same as real AWS would return with nothing shared.
 const crossAccountFilterOptionCrossAccount = "CrossAccount"
 
-// Search evaluates a SearchExpression's top-level Filters against stored
+// Search evaluates a SearchExpression (Filters, NestedFilters and
+// SubExpressions, all combined by its single Operator) against stored
 // resources of the given type.
 //
 // Previously SortBy/SortOrder were decoded by the handler and then dropped
@@ -373,7 +603,7 @@ func (b *InMemoryBackend) Search(
 	filtered := make([]searchResourceItem, 0, len(items))
 
 	for _, it := range items {
-		if matchesSearchExpression(it.flat, params.Filters, params.BooleanOperator) {
+		if matchesSearchExpression(it.flat, params.Expression) {
 			filtered = append(filtered, it)
 		}
 	}

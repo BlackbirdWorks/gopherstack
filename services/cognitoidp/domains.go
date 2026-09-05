@@ -18,7 +18,10 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(
 	}
 
 	if _, exists := b.domains.Get(domain); exists {
-		return nil, fmt.Errorf("%w: domain %q already exists", ErrAlreadyExists, domain)
+		// CreateUserPoolDomain's own deserializer models InvalidParameterException,
+		// not GroupExistsException (ErrAlreadyExists is CreateGroup's sentinel) —
+		// it has no dedicated "domain already exists" exception.
+		return nil, fmt.Errorf("%w: domain %q already exists", ErrInvalidParameter, domain)
 	}
 
 	// Custom domains get a CloudFront distribution domain; managed domains use the Cognito URL.
@@ -92,7 +95,7 @@ func (b *InMemoryBackend) CreateUserPoolDomain(userPoolID, domain string) (*User
 	}
 
 	if _, exists := b.domains.Get(domain); exists {
-		return nil, fmt.Errorf("%w: domain %q already exists", ErrAlreadyExists, domain)
+		return nil, fmt.Errorf("%w: domain %q already exists", ErrInvalidParameter, domain)
 	}
 
 	d := &UserPoolDomain{

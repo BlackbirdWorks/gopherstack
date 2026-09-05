@@ -140,6 +140,7 @@ type deleteManagedPrefixListResponse struct {
 func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PrefixListId")
 	pls := h.Backend.DescribeManagedPrefixLists(ids)
+	pls = applyManagedPrefixListFilters(pls, parseEC2Filters(vals))
 
 	resp := &describeManagedPrefixListsResponse{RequestID: reqID}
 	for _, pl := range pls {

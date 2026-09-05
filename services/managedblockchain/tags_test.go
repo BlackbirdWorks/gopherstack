@@ -130,7 +130,11 @@ func TestHandler_TagOperations(t *testing.T) {
 
 			// Create network
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "tagged-net", "MemberConfiguration": testMemberConfiguration("m1")})
+				map[string]any{
+					"Name":                "tagged-net",
+					"ClientRequestToken":  "tok-tagnet",
+					"MemberConfiguration": testMemberConfiguration("m1"),
+				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any

@@ -78,6 +78,7 @@ func (h *Handler) handleDeleteProject(_ context.Context, req *deleteProjectReq) 
 type describeProjectsReq struct {
 	NextToken    string   `json:"NextToken"`
 	ProjectNames []string `json:"ProjectNames"`
+	Features     []string `json:"Features"`
 	MaxResults   int32    `json:"MaxResults"`
 }
 
@@ -97,7 +98,12 @@ type describeProjectsResp struct {
 func (h *Handler) handleDescribeProjects(
 	_ context.Context, req *describeProjectsReq,
 ) (*describeProjectsResp, error) {
-	projects, nextToken, err := h.Backend.DescribeProjects(req.ProjectNames, req.MaxResults, req.NextToken)
+	projects, nextToken, err := h.Backend.DescribeProjects(
+		req.ProjectNames,
+		req.Features,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

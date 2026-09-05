@@ -30,6 +30,11 @@ const (
 	daemonDeploymentStatusSuccessful = "SUCCESSFUL"
 )
 
+// daemonNamespaceModeNone is the documented default for both
+// RegisterDaemonTaskDefinitionInput.IpcMode and .PidMode (types.DaemonIpcMode,
+// types.DaemonPidMode), which both state: "The default is none".
+const daemonNamespaceModeNone = "none"
+
 // maxDaemonTaskDefinitionRevisions caps the number of retained revisions per
 // daemon task definition family, mirroring the ordinary task definition cap.
 const maxDaemonTaskDefinitionRevisions = 100
@@ -132,6 +137,8 @@ type DaemonTaskDefinition struct {
 	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
 	RegisteredBy            string                      `json:"registeredBy,omitempty"`
 	Status                  string                      `json:"status"`
+	IpcMode                 string                      `json:"ipcMode,omitempty"`
+	PidMode                 string                      `json:"pidMode,omitempty"`
 	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
 	Volumes                 []DaemonVolume              `json:"volumes,omitempty"`
 	Revision                int                         `json:"revision"`
@@ -194,6 +201,8 @@ type RegisterDaemonTaskDefinitionInput struct {
 	Memory               string
 	ExecutionRoleArn     string
 	TaskRoleArn          string
+	IpcMode              string
+	PidMode              string
 	ContainerDefinitions []DaemonContainerDefinition
 	Volumes              []DaemonVolume
 	Tags                 []Tag
@@ -477,17 +486,17 @@ type ListDaemonsInput struct {
 	CapacityProviderArns []string
 }
 
-// ListDaemons returns daemons, optionally filtered by cluster or capacity provider.
+// ListDaemons returns daemons, optionally filtered by cluster or capacity
+// provider. Per ListDaemonsInput.ClusterArn's doc ("If you do not specify a
+// cluster, the default cluster is assumed."), an unset ClusterArn scopes to
+// the "default" cluster rather than every cluster.
 func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) {
 	b.mu.RLock("ListDaemons")
 	defer b.mu.RUnlock()
 
-	wantCluster := ""
-	if input.ClusterArn != "" {
-		wantCluster = fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(input.ClusterArn),
-		)
-	}
+	wantCluster := fmt.Sprintf(
+		"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(b.resolveCluster(input.ClusterArn)),
+	)
 
 	wantCP := make(map[string]bool, len(input.CapacityProviderArns))
 	for _, cp := range input.CapacityProviderArns {
@@ -498,7 +507,7 @@ func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) 
 	out := make([]Daemon, 0, len(all))
 
 	for _, d := range all {
-		if wantCluster != "" && d.ClusterArn != wantCluster {
+		if d.ClusterArn != wantCluster {
 			continue
 		}
 
@@ -584,6 +593,18 @@ func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 		revision = revisions[len(revisions)-1].Revision + 1
 	}
 
+	// RegisterDaemonTaskDefinitionInput.IpcMode/.PidMode's own doc comments:
+	// "The default is none."
+	ipcMode := input.IpcMode
+	if ipcMode == "" {
+		ipcMode = daemonNamespaceModeNone
+	}
+
+	pidMode := input.PidMode
+	if pidMode == "" {
+		pidMode = daemonNamespaceModeNone
+	}
+
 	td := &DaemonTaskDefinition{
 		RegisteredAt:            time.Now(),
 		DaemonTaskDefinitionArn: b.daemonTaskDefinitionARN(input.Family, revision),
@@ -593,6 +614,8 @@ func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 		ExecutionRoleArn:        input.ExecutionRoleArn,
 		TaskRoleArn:             input.TaskRoleArn,
 		Status:                  daemonTaskDefStatusActive,
+		IpcMode:                 ipcMode,
+		PidMode:                 pidMode,
 		ContainerDefinitions:    input.ContainerDefinitions,
 		Volumes:                 input.Volumes,
 		Revision:                revision,
@@ -665,7 +688,9 @@ type ListDaemonTaskDefinitionsInput struct {
 	Status       string // "", "ACTIVE" (default), "DELETE_IN_PROGRESS", or "ALL"
 }
 
-// ListDaemonTaskDefinitions returns daemon task definition summaries, newest first per family.
+// ListDaemonTaskDefinitions returns daemon task definition summaries,
+// unsorted; the handler applies the documented family/revision order (see
+// handleListDaemonTaskDefinitions).
 func (b *InMemoryBackend) ListDaemonTaskDefinitions(
 	input ListDaemonTaskDefinitionsInput,
 ) ([]DaemonTaskDefinition, error) {

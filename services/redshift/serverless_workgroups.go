@@ -128,12 +128,7 @@ func (b *InMemoryBackend) ListWorkgroups(ownerAccount string, maxResults int, ne
 		maxResults = serverlessDefaultPageSize()
 	}
 
-	startIdx := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil {
-			startIdx = n
-		}
-	}
+	startIdx := decodeServerlessPageToken(nextToken)
 
 	if startIdx >= len(list) {
 		return []*Workgroup{}, ""

@@ -9,10 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 4 (4 ok) |
 | Feature families | 16 (16 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- 2026-08-29 (constrain-not-honoured sweep, confirmed clean): every List op's Limit/NextMarker is applied via the shared paginate() chokepoint (handler.go) except opListSubscribedRuleGroups, which ignores its request body entirely. Not fixed: ListSubscribedRuleGroups' backend (rule_groups.go) always returns an empty slice (structural_gaps: no marketplace-subscription simulation), so there is never more than zero items to paginate -- Limit/NextMarker have no observable effect either way. GetRateBasedRuleManagedKeys.NextMarker is documented on the SDK itself as "not currently used" (api_op_GetRateBasedRuleManagedKeys.go), correctly unread. No other List/Get op in this service accepts a filter/selector parameter beyond Limit/NextMarker on the pinned v1.33.4 SDK -- verified by reading every api_op_List*.go/api_op_Get*ManagedKeys.go input struct.
 
 ### Structural gaps
 

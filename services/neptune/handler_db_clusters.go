@@ -41,6 +41,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 		DBSubnetGroupName:               vals.Get("DBSubnetGroupName"),
 		StorageType:                     vals.Get("StorageType"),
 		NetworkType:                     vals.Get("NetworkType"),
+		GlobalClusterIdentifier:         vals.Get("GlobalClusterIdentifier"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
@@ -85,9 +86,9 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	filters := DBClusterFilters{
-		Engine:        parseNeptuneFilterValue(vals, "engine"),
-		EngineVersion: parseNeptuneFilterValue(vals, "engine-version"),
-		Status:        parseNeptuneFilterValue(vals, "status"),
+		Engine:        parseNeptuneFilterValues(vals, "engine"),
+		EngineVersion: parseNeptuneFilterValues(vals, "engine-version"),
+		Status:        parseNeptuneFilterValues(vals, "status"),
 	}
 	clusters, err := h.Backend.DescribeDBClusters(ctx, id, filters)
 	if err != nil {
@@ -359,6 +360,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		StorageType:                     c.StorageType,
 		HostedZoneID:                    c.HostedZoneID,
 		NetworkType:                     c.NetworkType,
+		GlobalClusterIdentifier:         c.GlobalClusterIdentifier,
 		Port:                            c.Port,
 		StorageEncrypted:                c.StorageEncrypted,
 		MultiAZ:                         c.MultiAZ,
@@ -461,6 +463,7 @@ type xmlDBCluster struct {
 	StorageType                      string                            `xml:"StorageType,omitempty"`
 	HostedZoneID                     string                            `xml:"HostedZoneId,omitempty"`
 	NetworkType                      string                            `xml:"NetworkType,omitempty"`
+	GlobalClusterIdentifier          string                            `xml:"GlobalClusterIdentifier,omitempty"`
 	PreferredBackupWindow            string                            `xml:"PreferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow       string                            `xml:"PreferredMaintenanceWindow,omitempty"`
 	KmsKeyID                         string                            `xml:"KmsKeyId,omitempty"`

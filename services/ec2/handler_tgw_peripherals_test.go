@@ -338,7 +338,7 @@ func TestTGWPeripheralsHandler_ModifyMeteringPolicyAndGetEntries(t *testing.T) {
 
 	modifyRec := postForm(t, h, fmt.Sprintf(
 		"Action=ModifyTransitGatewayMeteringPolicy&Version=2016-11-15"+
-			"&TransitGatewayMeteringPolicyId=%s&AddMiddleboxAttachmentIds.1=tgw-attach-1",
+			"&TransitGatewayMeteringPolicyId=%s&AddMiddleboxAttachmentId.1=tgw-attach-1",
 		policyID,
 	))
 	require.Equal(t, http.StatusOK, modifyRec.Code)

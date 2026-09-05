@@ -522,7 +522,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 	case errors.Is(err, ErrInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
 	default:

@@ -3,6 +3,7 @@ package translate_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -95,4 +96,101 @@ func TestGetParallelData_SDKRoundTrip_EncryptionKey(t *testing.T) {
 
 	require.NotNil(t, out.DataLocation)
 	assert.Equal(t, "S3", aws.ToString(out.DataLocation.RepositoryType))
+}
+
+// startJobForFilterTest starts a translation job through the real SDK client
+// and returns its JobId.
+func startJobForFilterTest(t *testing.T, client *translatesdk.Client, jobName string) string {
+	t.Helper()
+
+	out, err := client.StartTextTranslationJob(t.Context(), &translatesdk.StartTextTranslationJobInput{
+		JobName:             aws.String(jobName),
+		SourceLanguageCode:  aws.String("en"),
+		TargetLanguageCodes: []string{"fr"},
+		DataAccessRoleArn:   aws.String("arn:aws:iam::000000000000:role/TranslateRole"),
+		InputDataConfig: &translatetypes.InputDataConfig{
+			S3Uri:       aws.String("s3://bucket/input/"),
+			ContentType: aws.String("text/plain"),
+		},
+		OutputDataConfig: &translatetypes.OutputDataConfig{
+			S3Uri: aws.String("s3://bucket/output/"),
+		},
+	})
+	require.NoError(t, err)
+
+	return aws.ToString(out.JobId)
+}
+
+// TestListTextTranslationJobs_SDKRoundTrip_Filters proves
+// ListTextTranslationJobsInput.Filter's JobName/SubmittedAfterTime/
+// SubmittedBeforeTime members (api_op_ListTextTranslationJobs.go,
+// types.TextTranslationJobFilter) actually constrain the result. Only
+// Filter.JobStatus was ever read by the handler -- the other three were
+// silently ignored, so a real client's JobName/time-window request returned
+// every job in the account regardless of what it asked for. Also proves the
+// documented sort order: "SubmittedAfterTime ... returned in descending
+// order, newest to oldest" and "SubmittedBeforeTime ... returned in
+// ascending order, oldest to newest" (both doc comments on
+// TextTranslationJobFilter).
+func TestListTextTranslationJobs_SDKRoundTrip_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := translate.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := translate.NewHandler(backend)
+	client := newTestTranslateSDKClient(t, h)
+
+	idA := startJobForFilterTest(t, client, "filter-job-a")
+	idB := startJobForFilterTest(t, client, "filter-job-b")
+	idC := startJobForFilterTest(t, client, "filter-job-c")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.True(t, translate.SetJobSubmittedAtForTest(backend, idA, base))
+	require.True(t, translate.SetJobSubmittedAtForTest(backend, idB, base.Add(time.Hour)))
+	require.True(t, translate.SetJobSubmittedAtForTest(backend, idC, base.Add(2*time.Hour)))
+
+	t.Run("JobName filters to the exact match", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTextTranslationJobs(t.Context(), &translatesdk.ListTextTranslationJobsInput{
+			Filter: &translatetypes.TextTranslationJobFilter{JobName: aws.String("filter-job-b")},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TextTranslationJobPropertiesList, 1)
+		assert.Equal(t, idB, aws.ToString(out.TextTranslationJobPropertiesList[0].JobId))
+	})
+
+	t.Run("SubmittedAfterTime excludes earlier jobs and sorts newest first", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTextTranslationJobs(t.Context(), &translatesdk.ListTextTranslationJobsInput{
+			Filter: &translatetypes.TextTranslationJobFilter{SubmittedAfterTime: aws.Time(base)},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TextTranslationJobPropertiesList, 2)
+		assert.Equal(t, idC, aws.ToString(out.TextTranslationJobPropertiesList[0].JobId))
+		assert.Equal(t, idB, aws.ToString(out.TextTranslationJobPropertiesList[1].JobId))
+	})
+
+	t.Run("SubmittedBeforeTime excludes later jobs and sorts oldest first", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTextTranslationJobs(t.Context(), &translatesdk.ListTextTranslationJobsInput{
+			Filter: &translatetypes.TextTranslationJobFilter{SubmittedBeforeTime: aws.Time(base.Add(2 * time.Hour))},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TextTranslationJobPropertiesList, 2)
+		assert.Equal(t, idA, aws.ToString(out.TextTranslationJobPropertiesList[0].JobId))
+		assert.Equal(t, idB, aws.ToString(out.TextTranslationJobPropertiesList[1].JobId))
+	})
+
+	t.Run("no time filter still defaults to newest first", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTextTranslationJobs(t.Context(), &translatesdk.ListTextTranslationJobsInput{})
+		require.NoError(t, err)
+		require.Len(t, out.TextTranslationJobPropertiesList, 3)
+		assert.Equal(t, idC, aws.ToString(out.TextTranslationJobPropertiesList[0].JobId))
+		assert.Equal(t, idB, aws.ToString(out.TextTranslationJobPropertiesList[1].JobId))
+		assert.Equal(t, idA, aws.ToString(out.TextTranslationJobPropertiesList[2].JobId))
+	})
 }

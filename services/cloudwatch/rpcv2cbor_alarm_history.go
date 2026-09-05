@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
-	alarmType := cborStr(input, "AlarmType")
+	alarmTypes := cborStrList(input, "AlarmTypes")
 	historyItemType := cborStr(input, "HistoryItemType")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -26,7 +26,7 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 
 	p, err := h.Backend.DescribeAlarmHistory(
 		alarmName,
-		alarmType,
+		alarmTypes,
 		historyItemType,
 		nextToken,
 		sd,

@@ -28,7 +28,7 @@ import (
 // no longer unmarshals into the new string field at all -- an outright decode
 // error that takes down the whole restore, not silent loss -- so it must be
 // discarded like any other shape-incompatible snapshot.
-const mediaconvertSnapshotVersion = 2
+const mediaconvertSnapshotVersion = 3
 
 // counterSnapshot and tokenSnapshot are DTOs used only for Snapshot/Restore
 // of the "dirty" tables -- see store_setup.go's file doc comment for why

@@ -6,11 +6,92 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
+
+// TestAssociateWebACL_RejectsUnsupportedResourceType drives a real wafv2
+// client against a REGIONAL WebACL and an S3-bucket ARN, a service that is
+// not among the 8 ARN formats AssociateWebACLInput.ResourceArn's own doc
+// comment enumerates (wafv2@v1.77.3 api_op_AssociateWebACL.go). Real AWS
+// rejects such requests with WAFInvalidParameterException ("Your request
+// references an ARN that is malformed, or corresponds to a resource with
+// which a web ACL can't be associated", types/errors.go). Before this fix,
+// validateAssociationScope (handler_resource_associations.go) returned nil
+// on both branches of its REGIONAL-scope check, so this call would have
+// succeeded instead of being rejected.
+func TestAssociateWebACL_RejectsUnsupportedResourceType(t *testing.T) {
+	t.Parallel()
+
+	backend := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestWAFV2Client(t, wafv2.NewHandler(backend))
+	ctx := t.Context()
+
+	acl, err := client.CreateWebACL(ctx, &wafv2sdk.CreateWebACLInput{
+		Name:          aws.String("regional-acl"),
+		Scope:         types.ScopeRegional,
+		DefaultAction: &types.DefaultAction{Allow: &types.AllowAction{}},
+		VisibilityConfig: &types.VisibilityConfig{
+			CloudWatchMetricsEnabled: true,
+			MetricName:               aws.String("metric"),
+			SampledRequestsEnabled:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AssociateWebACL(ctx, &wafv2sdk.AssociateWebACLInput{
+		WebACLArn:   acl.Summary.ARN,
+		ResourceArn: aws.String("arn:aws:s3:::my-unsupported-bucket"),
+	}, func(o *wafv2sdk.Options) { o.RetryMaxAttempts = 1 })
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
+	assert.Equal(t, "WAFInvalidParameterException", apiErr.ErrorCode())
+
+	// The association must not have been made.
+	_, err = client.GetWebACLForResource(ctx, &wafv2sdk.GetWebACLForResourceInput{
+		ResourceArn: aws.String("arn:aws:s3:::my-unsupported-bucket"),
+	})
+	require.Error(t, err, "no WebACL should be associated with the rejected resource")
+}
+
+// TestAssociateWebACL_AcceptsAPIGatewayARN drives a real wafv2 client with an
+// API Gateway REST API ARN in the exact form AssociateWebACLInput.ResourceArn's
+// doc comment specifies (arn:partition:apigateway:region::/restapis/api-id/
+// stages/stage-name -- "apigateway", not "execute-api", which is the service
+// segment used to invoke a deployed API, not to identify it for association).
+func TestAssociateWebACL_AcceptsAPIGatewayARN(t *testing.T) {
+	t.Parallel()
+
+	backend := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestWAFV2Client(t, wafv2.NewHandler(backend))
+	ctx := t.Context()
+
+	acl, err := client.CreateWebACL(ctx, &wafv2sdk.CreateWebACLInput{
+		Name:          aws.String("regional-acl-apigw"),
+		Scope:         types.ScopeRegional,
+		DefaultAction: &types.DefaultAction{Allow: &types.AllowAction{}},
+		VisibilityConfig: &types.VisibilityConfig{
+			CloudWatchMetricsEnabled: true,
+			MetricName:               aws.String("metric"),
+			SampledRequestsEnabled:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AssociateWebACL(ctx, &wafv2sdk.AssociateWebACLInput{
+		WebACLArn:   acl.Summary.ARN,
+		ResourceArn: aws.String("arn:aws:apigateway:us-east-1::/restapis/my-api/stages/prod"),
+	})
+	require.NoError(t, err, "apigateway is the SDK-documented service segment and must be accepted")
+}
 
 func TestHandler_AssociateWebACL(t *testing.T) {
 	t.Parallel()

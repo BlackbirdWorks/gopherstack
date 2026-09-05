@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handlePutWarmPool(vals url.Values) (any, error) {
@@ -47,6 +49,14 @@ func (h *Handler) handleDeleteWarmPool(vals url.Values) (any, error) {
 	}, nil
 }
 
+// handleDescribeWarmPool reads and validates MaxRecords/NextToken (real
+// DescribeWarmPoolInput carries both, api_op_DescribeWarmPool.go: "The maximum value is 50")
+// and returns them wired to a page over the pool's instances. This backend does not model
+// individual warm-pool instances (PutWarmPool only tracks pool-level config -- MinSize,
+// MaxGroupPreparedCapacity, PoolState), so Instances is always empty and pagination is
+// correctly a no-op (nothing to truncate, so NextToken is always absent); the plumbing is
+// still real, not a stub, so a client that requests a small MaxRecords or supplies a stale
+// NextToken gets a normal empty page rather than an error.
 func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 
@@ -54,6 +64,16 @@ func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	maxRecords := defaultWPMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(int(n), defaultWPMaxRecords)
+		}
+	}
+
+	instances := make([]xmlWarmPoolInstance, 0)
+	p := page.New(instances, vals.Get("NextToken"), maxRecords, defaultWPMaxRecords)
 
 	xmlWP := xmlWarmPoolConfiguration{
 		MinSize:                  wp.MinSize,
@@ -71,10 +91,33 @@ func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 	return &describeWarmPoolResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeWarmPoolResult{
+			NextToken:             p.Next,
+			Instances:             xmlWarmPoolInstanceList{Members: p.Data},
 			WarmPoolConfiguration: xmlWP,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-warm-pool"},
 	}, nil
+}
+
+// defaultWPMaxRecords is DescribeWarmPool's documented max page size
+// (api_op_DescribeWarmPool.go: "The maximum value is 50"); no distinct default is documented.
+const defaultWPMaxRecords = 50
+
+// xmlWarmPoolInstance mirrors autoscaling@v1.70.4 types.Instance -- unused today (Instances is
+// always empty, see handleDescribeWarmPool) but kept wire-accurate for when warm-pool instance
+// tracking is added.
+type xmlWarmPoolInstance struct {
+	InstanceID              string `xml:"InstanceId"`
+	AvailabilityZone        string `xml:"AvailabilityZone"`
+	LifecycleState          string `xml:"LifecycleState"`
+	HealthStatus            string `xml:"HealthStatus"`
+	LaunchConfigurationName string `xml:"LaunchConfigurationName,omitempty"`
+	InstanceType            string `xml:"InstanceType,omitempty"`
+	ProtectedFromScaleIn    bool   `xml:"ProtectedFromScaleIn,omitempty"`
+}
+
+type xmlWarmPoolInstanceList struct {
+	Members []xmlWarmPoolInstance `xml:"member"`
 }
 
 type putWarmPoolResponse struct {
@@ -102,6 +145,8 @@ type xmlWarmPoolConfiguration struct {
 }
 
 type describeWarmPoolResult struct {
+	NextToken             string                   `xml:"NextToken,omitempty"`
+	Instances             xmlWarmPoolInstanceList  `xml:"Instances"`
 	WarmPoolConfiguration xmlWarmPoolConfiguration `xml:"WarmPoolConfiguration"`
 }
 

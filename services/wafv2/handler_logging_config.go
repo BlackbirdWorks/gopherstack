@@ -9,6 +9,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// defaultLogScope is LoggingConfiguration.LogScope's documented default
+// ("Default: CUSTOMER", types.LoggingConfiguration doc comment,
+// wafv2@v1.77.3 types/types.go) -- the SDK serializer omits LogScope from
+// the wire entirely when it's the zero value (serializers.go:
+// awsAwsjson11_serializeDocumentLoggingConfiguration, `if len(v.LogScope) >
+// 0`), so a stored config with no LogScope key means CUSTOMER.
+const defaultLogScope = "CUSTOMER"
+
 // validLoggingDestinationPrefixes lists accepted ARN prefixes for logging destinations.
 var validLoggingDestinationPrefixes = []string{ //nolint:gochecknoglobals // package-level lookup table
 	"arn:aws:firehose:",
@@ -151,8 +159,57 @@ type listLoggingConfigurationsRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
-// handleListLoggingConfigurations lists logging configurations for the request's Scope,
-// paginated by Limit/NextMarker.
+// loggingConfigEntry pairs a stored logging configuration's decoded document
+// with the ResourceArn key used for LogScope filtering and marker-based
+// pagination.
+type loggingConfigEntry struct {
+	doc map[string]any
+	arn string
+}
+
+// filterLoggingConfigsByLogScope keeps only entries whose LogScope matches
+// logScope (defaultLogScope when a document has none), or returns entries
+// unchanged when logScope is empty (no filter requested).
+func filterLoggingConfigsByLogScope(entries []loggingConfigEntry, logScope string) []loggingConfigEntry {
+	if logScope == "" {
+		return entries
+	}
+
+	filtered := make([]loggingConfigEntry, 0, len(entries))
+
+	for _, e := range entries {
+		docLogScope, _ := e.doc["LogScope"].(string)
+		if docLogScope == "" {
+			docLogScope = defaultLogScope
+		}
+
+		if docLogScope == logScope {
+			filtered = append(filtered, e)
+		}
+	}
+
+	return filtered
+}
+
+// skipToLoggingConfigMarker returns the entries after the one whose ARN
+// equals nextMarker (an unknown marker yields no entries), or entries
+// unchanged when nextMarker is empty.
+func skipToLoggingConfigMarker(entries []loggingConfigEntry, nextMarker string) []loggingConfigEntry {
+	if nextMarker == "" {
+		return entries
+	}
+
+	for i, e := range entries {
+		if e.arn == nextMarker {
+			return entries[i+1:]
+		}
+	}
+
+	return nil
+}
+
+// handleListLoggingConfigurations lists logging configurations for the request's Scope
+// and LogScope, paginated by Limit/NextMarker.
 func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []byte) ([]byte, error) {
 	var req listLoggingConfigurationsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -161,12 +218,7 @@ func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []by
 
 	configs := h.Backend.ListLoggingConfigurations(ctx, req.Scope)
 
-	type entry struct {
-		doc any
-		arn string
-	}
-
-	entries := make([]entry, 0, len(configs))
+	entries := make([]loggingConfigEntry, 0, len(configs))
 
 	for _, cfg := range configs {
 		var v map[string]any
@@ -175,26 +227,11 @@ func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []by
 		}
 
 		arn, _ := v["ResourceArn"].(string)
-		entries = append(entries, entry{arn: arn, doc: v})
+		entries = append(entries, loggingConfigEntry{arn: arn, doc: v})
 	}
 
-	if req.NextMarker != "" {
-		idx := -1
-
-		for i, e := range entries {
-			if e.arn == req.NextMarker {
-				idx = i
-
-				break
-			}
-		}
-
-		if idx >= 0 {
-			entries = entries[idx+1:]
-		} else {
-			entries = nil
-		}
-	}
+	entries = filterLoggingConfigsByLogScope(entries, req.LogScope)
+	entries = skipToLoggingConfigMarker(entries, req.NextMarker)
 
 	nextMarker := ""
 	if req.Limit > 0 && len(entries) > req.Limit {

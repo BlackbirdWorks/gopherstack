@@ -7,8 +7,30 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.58.1   # version audited against (go.mo
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: 202a5afdf
-last_audit_date: 2026-08-23
-overall: A   # sweep 11 (gopherstack-iam-signing-cert-ownership follow-up, this pass): worked
+last_audit_date: 2026-08-29
+overall: A   # sweep 13 (wrapper-key sweep, uncommitted as of this note): fixed
+  # ListAttached{User,Role,Group}Policies dropping PathPrefix/Marker/MaxItems entirely
+  # (silent unfiltered, unpaginated full list) and policyNameFromARN's wrong-separator
+  # bug (PolicyName wire field polluted with Path segments for non-default-Path
+  # policies). ListEntitiesForPolicy confirmed to share the same PathPrefix-drop shape;
+  # closed separately (gopherstack-fjmw) with a small StorageBackend surface addition
+  # (PermissionsBoundaryEntities). See items_still_open and the ops: entries for both
+  # for detail.
+  # sweep 12 (order-bug pattern hunt): all 8 List*Tags operations
+  # (ListRoleTags, ListPolicyTags, ListUserTags, ListInstanceProfileTags, ListMFADeviceTags,
+  # ListSAMLProviderTags, ListOpenIDConnectProviderTags, ListServerCertificateTags) built their
+  # response by ranging a map[string]string directly with no sort -- raw Go map order, which can
+  # differ between two calls with no mutation in between -- despite every one of these ops'
+  # own doc comment stating "The returned list of tags is sorted by tag key." tagsMapToKV's own
+  # doc comment already claimed "converts map[string]string to sorted svcTags.KV slice" while its
+  # body did not sort at all. Fixed by making tagsMapToKV actually sort (slices.SortFunc by Key)
+  # and routing every List*Tags handler through it (previously 3 of the 8 called it, the other 5
+  # duplicated the same unsorted-range logic inline in resourceTagDispatch/handler_mfa.go).
+  # Proven via TestListTags_SortedByKey (handler_create_tags_test.go): drives all 8 kinds through
+  # the real SDK client with 3 out-of-order tag keys, asserts alphabetical order; 7 of 8 subtests
+  # failed against the unfixed code (the 8th passed by map-iteration chance that run, underscoring
+  # why this bug class survives a single-run test).
+  # sweep 11 (gopherstack-iam-signing-cert-ownership follow-up, this pass): worked
   # items_still_open's named queue. Fixed ListSigningCertificates' disclosed Marker/MaxItems
   # pagination gap (sweep 10 left it deliberately unfixed) and, while implementing it, found
   # sibling ListSSHPublicKeys had a second real gap in the same area: its response never
@@ -48,6 +70,9 @@ families:
   access_keys:   {status: ok, note: create/rotate/status, secret only on create; DeleteUser no longer cascade-deletes keys (see ops)}
   providers:     {status: ok, note: SAML/OIDC CRUD, server certificates, login profile, password policy; tag-leak on delete/rename fixed this sweep}
 ops:
+  ListAttachedUserPolicies/ListAttachedGroupPolicies/ListAttachedRolePolicies: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (sweep 13, wrapper-key sweep). All three real Inputs (api_op_ListAttachedUserPolicies.go et al) declare PathPrefix, Marker, MaxItems; the handlers (handler_policies.go, handler_groups.go) read only UserName/GroupName/RoleName -- PathPrefix silently dropped (unfiltered full list returned regardless of the filter), and no pagination at all (IsTruncated always false, no Marker in the response struct -- ListAttached{User,Role,Group}PoliciesResult had no Marker field to begin with). Structural cause: StorageBackend's ListAttached*Policies(name) return []AttachedPolicy, which carries no Path -- fixed at the handler layer instead of widening the backend interface: new listAttachedPoliciesFiltered helper (handler_list_filters.go) resolves each attached policy's Path via the existing Backend.GetPolicy(arn) and paginates with pkgs/page, same page.New template used by the sibling ListUsers/ListRoles/ListGroups/ListInstanceProfiles fix (sweep 12's PathPrefix-family header comment). Added Marker to all 3 Result structs. In the course of writing the PathPrefix regression test, also found and fixed a second, independent bug in the same code path: policyNameFromARN (policies.go) returned everything after 'policy/' in the ARN instead of everything after the final '/', so any policy with a non-default Path (e.g. arn:...:policy/team/name) had its PolicyName wire field polluted with the path segments ('team/name' instead of 'name') in every one of these 3 list ops plus simulation.go's attached-policy resolution. Proven via TestListAttachedPolicies_PathPrefix (list_filter_params_test.go), a real-SDK-client test with one matching and one non-matching Path per resource kind (user/group/role); all 3 subtests fail against unmodified code (2 items returned instead of 1, and the surviving item's PolicyName wrong)."}
+  ListEntitiesForPolicy: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-fjmw). Real ListEntitiesForPolicyInput (api_op_ListEntitiesForPolicy.go) declares PolicyArn, EntityFilter, PathPrefix, PolicyUsageFilter, Marker, MaxItems (wire keys identical to the Go field names, confirmed against serializers.go's awsAwsquery_serializeOpDocumentListEntitiesForPolicyInput). EntityFilter was already read and applied at the backend (InMemoryBackend.ListEntitiesForPolicy); PathPrefix/PolicyUsageFilter/Marker/MaxItems were parsed nowhere, IsTruncated was hardcoded false, and the Result struct had no Marker field at all. PathPrefix filters each returned ENTITY's own path (not the policy's, confirmed against the input's own doc comment), resolved per entry via the existing GetUser/GetGroup/GetRole accessors -- no new lookup needed there, since those accessors already existed on StorageBackend. PolicyUsageFilter (types.PolicyUsageType: PermissionsPolicy | PermissionsBoundary -- both legal, not inert) needed a genuinely new capability: the backend had no way to report which users/roles hold policyArn as their PERMISSIONS BOUNDARY (as opposed to a normal Attach*Policy attachment) -- groups have no permissions boundary concept in real IAM. New StorageBackend method PermissionsBoundaryEntities(policyArn) (policies.go), the one storage-surface addition, is a reverse scan of b.users/b.roles by PermissionsBoundary field, mirroring the existing PermissionsBoundaryARNs() pattern. This also fixed a second, independent correctness bug uncovered while designing the fix, not just a missing filter: entities that hold policyArn ONLY as their permissions boundary (never Attach*Policy'd) were entirely absent from the unfiltered listing before this fix, contradicting the input's own doc comment describing both usage kinds as in scope. New listEntitiesForPolicyFiltered (handler_list_filters.go) unions attached-usage and boundary-usage per entity, applies PathPrefix/PolicyUsageFilter, and concatenates User+Group+Role into ONE slice paginated by a single page.New call (not three independently-cut per-kind pages, which would misplace the page boundary between kinds). Entity names are stored directly (never derived by splitting an ARN), so the policyNameFromARN-class bug found in the ListAttached* sibling fix does not recur here. Proven via TestListEntitiesForPolicy_PathPrefix/_MarkerResumesAcrossPageBoundary/_PolicyUsageFilter (list_filter_params_test.go), real-SDK-client tests; all 3 fail against unmodified code (PathPrefix returns both entities instead of 1; PolicyUsageFilter=PermissionsBoundary returns the wrong entity because boundary-only entities were absent; a 4-entity walk at MaxItems=1 returns all 4 in one page instead of one per page)."}
+  ListRoleTags/ListPolicyTags/ListUserTags/ListInstanceProfileTags/ListMFADeviceTags/ListSAMLProviderTags/ListOpenIDConnectProviderTags/ListServerCertificateTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (sweep 12, order-bug pattern hunt), first PARITY.md entry for this class. All 8 of IAM's List*Tags operations document 'The returned list of tags is sorted by tag key' (e.g. api_op_ListRoleTags.go:14) verbatim, but built their response by ranging a map[string]string with no sort -- raw Go map order, wrong per the doc and nondeterministic run to run. tagsMapToKV (handler_tags.go) already claimed 'sorted' in its own doc comment while not sorting; fixed to actually sort by key and routed every one of these 8 ops through it (resourceTagDispatch's generic List<kind>Tags closure and handler_mfa.go's ListMFADeviceTags closure previously duplicated the same unsorted logic inline instead of calling it). Proven by TestListTags_SortedByKey (handler_create_tags_test.go), a real-SDK-client round trip covering all 8 resource kinds with 3 out-of-order tag keys."}
   UpdateAccountPasswordPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-c8ge, Scope A audit): singleton with no Create op, checked for the Update-vs-previous-Update merge bug. CONFIRMED CORRECT AS WHOLESALE REPLACE, not a bug: real UpdateAccountPasswordPolicyInput's own doc comment (api_op_UpdateAccountPasswordPolicy.go) states plainly 'This operation does not support partial updates. No parameters are required, but if you do not specify a parameter, that parameter's value reverts to its default value.' The existing b.passwordPolicy = &pp full-struct assignment already matches this documented contract exactly; no change made."}
   ListInstanceProfilesForRole: {wire: ok, errors: ok, state: ok, persist: ok, note: real backend-wired (fixed sweep 3)}
   GetAccountAuthorizationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 6): Marker/MaxItems/Filter now honored — Filter (User/Role/Group/LocalManagedPolicy/AWSManagedPolicy) restricts which of the 4 lists are populated (this mock has no AWS-managed-policy catalog, so AWSManagedPolicy always yields none); Marker/MaxItems paginate the combined Users+Groups+Roles+Policies sequence in XML field order, matching AWS's single Marker/MaxItems pair spanning all four lists. IsTruncated/Marker now populated in the response instead of always false/empty."}
@@ -84,6 +109,8 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
+  - "2026-08-29 constraint-parameter sweep fixed PathPrefix+pagination truncation across ListUsers/ListRoles/ListGroups/ListInstanceProfiles/ListPolicies, and ListPolicies' OnlyAttached/PolicyUsageFilter (see the sweep's own section above for detail). Sweep 13 closed ListAttached{User,Role,Group}Policies' PathPrefix (see its own ops: entry). ListEntitiesForPolicy's EntityFilter/PathPrefix/PolicyUsageFilter/Marker/MaxItems (confirmed present sweep 13, deliberately left open pending a StorageBackend surface change) is now also closed (gopherstack-fjmw, see its own ops: entry -- new PermissionsBoundaryEntities method) -- still open: the pagination-only params on ListMFADevices/ListAccessKeys/ListSigningCertificates/ListSSHPublicKeys/ListServiceSpecificCredentials (not re-checked)."
+  - "Sweep 13 (wrapper-key sweep, iam+eventbridge scope): field-level enumeration via go/types selector-usage scan doesn't apply to IAM -- it's AWS Query/XML with no request struct types at all (handlers pull vals.Get(\"Key\") directly), unlike eventbridge's JSON *Input structs. Instead re-verified the known filter-after-pagination class (confirmed still fixed for the 5 ops sweep 12's PathPrefix-family header names) and found the same silent-full-list shape one layer over: ListAttached{User,Role,Group}Policies (fixed) and ListEntitiesForPolicy (confirmed, left open) both read PolicyArn/EntityType-only and ignore PathPrefix/PolicyUsageFilter/Marker/MaxItems entirely. Also fixed a wrong-Go-value bug found while writing the ListAttached* regression test: policyNameFromARN split on the wrong separator for any policy with a non-default Path. ListServerCertificates spot-checked clean (PathPrefix read and filtered correctly; no Marker/MaxItems support at all is a disclosed structural gap, not a filter-after-pagination bug -- there's no pagination to cut wrong). ListGroupsForUser spot-checked: hardcodes IsTruncated=false with no Marker/MaxItems read at all -- same disclosed structural gap, not fixed, not this sweep's named scope."
   - "Sweep 9 (gopherstack-xh42) closed both delegation-family issues sweep 8 disclosed but left out of its named scope (see AcceptDelegationRequest/AssociateDelegationRequest ops entries above for the fixes and reasoning). The delegation-request family (7 ops total: Create/Accept/Associate/Reject/Send/Update/GetHumanReadableSummary) is now fully covered across sweeps 7-9, with every op wire/error-verified against the pinned SDK. GetDelegationRequest/ListDelegationRequests remain disclosed validation-only/always-empty (unchanged, still out of scope -- no bd issue filed against them yet). STALE as of sweep 11 -- flagged by cmd/staleclaims (gopherstack-anjf): both are now real, see their own ops: entries above (\"FIXED (sweep 11)\") and the sweep-11 bullet below."
   - "This sweep (6) closed both remaining gopherstack-gjp/2sz3 items: (1) comprehensiveBackend's private sync.Mutex is gone — its fields (sshPublicKeys, mfaUserLinks, accessAdvisorJobs, serviceLastAccessed, orgReportJobs) are now guarded by the same coarse b.mu as every other backend map, per the one-coarse-lock convention (.claude/memories/pkgs-catalog.md). Two call sites (GetCredentialReport, ListMFADevicesForUser) previously nested c.mu inside a held b.mu.RLock; DeleteUser's dependency check ran entirely BEFORE taking b.mu, a real TOCTOU window between the SSH-key/MFA-device check and the delete. All three are now single atomic critical sections under b.mu. Snapshot()/Restore() also now read/write comprehensiveBackend state inside the same b.mu section as the rest of backend state, instead of a separate before/after step — Snapshot() gets one consistent point-in-time view (previously the comprehensive-state read and the rest-of-backend read were NOT atomic with each other). Covered by TestComprehensiveBackend_NoDataRace (-race, concurrent workers hitting both comprehensiveBackend and regular backend ops) and TestDeleteUser_SSHKeyConflictIsAtomic. (2) GetAccountAuthorizationDetails now honors Marker/MaxItems/Filter — see the ops entry above."
   - "NOT re-verified this sweep (no evidence of a bug found, but not field-diffed line-by-line either): policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy/evaluator.go), access advisor / service-last-accessed, credential report generation, account summary, condition-key evaluation (conditions.go), resource-policy evaluation (resource_arn.go). These were already marked ok/PROVEN by sweeps 1-4 and no new evidence surfaced against them. (SSH key / signing certificate CRUD -- the other family named in this line as of sweep 9 -- was field-diffed member-by-member in sweep 10: SSH key ops (Upload/Get/List/Update/DeleteSSHPublicKey) all read every serialized member correctly, no bug; signing certificates had a real ownership-bypass bug, now fixed, plus a disclosed pagination gap -- see ops entries above.)"
@@ -193,3 +220,539 @@ existing `writeError(c, http.StatusMethodNotAllowed, "InvalidParameterValue",
 "Method not allowed")` helper and the same `"InvalidParameterValue"` code
 already used elsewhere in `Handler()` for malformed input -- not proven by
 a real SDK client, since none can reach it.
+
+## 2026-08-29: error-path sweep (failure-side wire shape) -- 9 wrong/unmodelled codes fixed
+
+Campaign-wide hunt for the class distinct from the order-bug pass above:
+what a client sees when a request *fails* -- HTTP status, AWS error code, and
+whether the operation actually models that code, checked against each op's
+own `awsAwsquery_deserializeOpError<Op>` switch in `deserializers.go`
+(iam@v1.58.1, AWS Query/XML protocol), not the shared `types/errors.go` list.
+All 176 ops' declared code sets extracted from the pinned SDK.
+
+**Error path**: single global lookup table (`handler.go`'s `iamErrorMappings`,
+`[]{err, code, status}`), matched by `errors.Is` in `handleError` -- same
+shared-helper shape as s3/sts, so a wrong entry is service-wide, but a wrong
+*call site* (right table entry, wrong sentinel chosen for that operation)
+is scattered per-op and was the actual defect class found here.
+
+**Root cause of every fix below**: `ErrInvalidAction` (wire code
+`"InvalidAction"`) is correctly used exactly once, at `handler.go`'s
+`dispatch()`, for a genuinely unrecognized `Action=` value -- the one case
+that matches AWS Query protocol's real "InvalidAction" semantics (an
+unregistered *operation name*, confirmed absent from all 176 per-op
+switches since no well-behaved SDK client can ever trigger it against a
+known operation). It had also been reused, incorrectly, as a catch-all for
+unrelated validation and not-found failures *inside* several known,
+well-formed operations -- where the operation's own switch models a
+completely different code.
+
+**Fixed (9 call sites, each cross-checked against its own op's declared
+set)**:
+- `UpdateAccessKey` (`access_keys.go`): invalid `Status` value now
+  `ErrInvalidInput` (`InvalidInput`, modeled; was `InvalidAction`, not).
+- `DeleteAccountAlias` (`account.go`): alias not found now the new
+  `ErrAccountAliasNotFound` (`NoSuchEntity`, modeled; was `InvalidAction`).
+- `CreateServiceLinkedRole` / `GetServiceLinkedRoleDeletionStatus`
+  (`service_linked_roles.go`): empty `AWSServiceName` / `DeletionTaskId` now
+  `ErrInvalidInput` (both ops model `InvalidInput`; `DeleteServiceLinkedRole`
+  does not, so its own empty-`RoleName` `InvalidAction` case is left
+  disclosed, not fixed -- no modeled alternative).
+- `AddClientIDToOpenIDConnectProvider` (`providers.go`): empty `ClientID`
+  now `ErrInvalidInput` (modeled).
+- `EnableMFADevice` (`mfa.go`): device-not-found now the new
+  `ErrMFADeviceNotFound` (`NoSuchEntity`, modeled), already-enabled now the
+  new `ErrMFADeviceAlreadyEnabled` (`EntityAlreadyExists`, modeled) --
+  `DeactivateMFADevice`'s device-not-found case shares the same fix
+  (`ErrMFADeviceNotFound`, also modeled there); its "not currently enabled"
+  case is left disclosed, no modeled fit in
+  `{ConcurrentModification,EntityTemporarilyUnmodifiable,LimitExceeded,NoSuchEntity,ServiceFailure}`.
+- `CreateVirtualMFADevice`/`CreateVirtualMFADeviceFull` (`mfa.go`): empty
+  `VirtualMFADeviceName` now `ErrInvalidInput` (modeled).
+- `SimulateCustomPolicy` (`policies.go`): empty `ActionNames` now
+  `ErrInvalidInput` (modeled).
+- `UploadServerCertificate`/`UploadSigningCertificate`
+  (`server_certificates.go`/`signing_certificates.go`): both previously used
+  `ErrMalformedPolicyDocument` (`MalformedPolicyDocument`) for empty
+  `ServerCertificateName`/`CertificateBody` -- a code *neither* op models at
+  all. Now `ErrInvalidInput` for the name (modeled on
+  `UploadServerCertificate`) and `ErrMalformedCertificate` for the body
+  (modeled on both).
+
+**Reverse-direction bug fixed**: `RemoveClientIDFromOpenIDConnectProvider`
+(`providers.go`) raised `ErrInvalidAction` when the client ID wasn't
+registered on the provider. `api_op_RemoveClientIDFromOpenIDConnectProvider.go`'s
+own doc comment: *"This operation is idempotent; it does not fail or return
+an error if you try to remove a client ID that does not exist."* Now returns
+success for that case (the provider-not-found case is untouched --
+that failure mode isn't covered by the idempotency doc, and `NoSuchEntity`
+is separately confirmed modeled on this op).
+
+**Left disclosed, not fixed** (no modeled code exists for the condition,
+so no replacement can be established from the SDK): `CreateServiceSpecificCredential`'s
+empty `ServiceName` (models only `LimitExceeded`/`NoSuchEntity`/`NotSupportedService`);
+`DeleteServiceLinkedRole`'s empty `RoleName`; `CreateAccountAlias`'s empty
+alias (models only `ConcurrentModification`/`EntityAlreadyExists`/`LimitExceeded`/`ServiceFailure`);
+`DeactivateMFADevice`'s "not currently enabled" state.
+
+**Noted but out of scope** (different bug class -- a fabricated wire field,
+not a wrong error code): `UpdateRole`'s handler (`handler_users.go`) rejects
+a non-empty `Path` form value with `InvalidAction`, but the real
+`UpdateRoleInput` (`api_op_UpdateRole.go`) has no `Path` member at all --
+no real SDK client can ever send it, so this whole branch is only reachable
+by a raw/non-SDK caller. Not touched this pass.
+
+**Two stale tests found asserting the old wrong codes** (same pattern this
+campaign has repeatedly found): `access_keys_test.go`'s `invalid_status`
+case asserted `wantErrMsg: "InvalidAction"`; `mfa_test.go`'s
+`TestEnableMFADevice_RejectsDoubleEnable` asserted `iam.ErrInvalidAction`.
+Both corrected to assert the new, SDK-confirmed sentinels.
+
+Proof: three new real-SDK-client tests in `errors_test.go`
+(`TestDeleteAccountAlias_NotFound_NoSuchEntity`,
+`TestEnableMFADevice_AlreadyEnabled_EntityAlreadyExists`,
+`TestRemoveClientIDFromOpenIDConnectProvider_UnknownClientID_Idempotent`)
+plus three for the certificate fixes
+(`TestUploadServerCertificate_EmptyCertificateBody_MalformedCertificate`,
+`TestUploadServerCertificate_EmptyName_InvalidInput`,
+`TestUploadSigningCertificate_EmptyCertificateBody_MalformedCertificate`),
+each asserting `errors.As` against the real typed SDK exception. All six
+hand-confirmed failing against the pre-fix code (reverted the relevant
+source lines, re-ran, restored) before the fix landed.
+
+Gates: `go build`, `go vet ./...` (repo-wide -- clean except an unrelated
+concurrently-edited `services/apigateway` package elsewhere in this shared
+working tree), `go test -race -count=1 ./services/iam/...` (pass),
+`golangci-lint run --fix ./services/iam/...` (0 issues).
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured)
+
+Campaign-wide hunt for a third class, distinct from both sweeps above: a
+request parameter that constrains the result set but isn't correctly
+applied. Measured against the pinned SDK (`api_op_List*.go`) before fixing:
+`ListUsers`/`ListRoles`/`ListGroups`/`ListInstanceProfiles` each declare
+`Marker`/`MaxItems`/`PathPrefix`; `ListPolicies` additionally declares
+`Scope`/`OnlyAttached`/`PolicyUsageFilter`. Did not re-audit the other
+~170 ops this pass -- scoped to this coherent slice (the 5 PathPrefix-family
+listings) after `handler_list_filters.go` turned up a live bug there.
+
+**Found and fixed (chokepoint, 5 ops via one shared helper)**: `PathPrefix`
+filtering ran *after* the backend's own `Marker`/`MaxItems` pagination
+window had already been cut (`pageFromSortedNames` windows the raw,
+unfiltered sorted-name list; `filterByPath` then filtered that window's
+contents). Two bugs from this, both silent: (1) a page could come back
+short of the requested `MaxItems` even when more matching items existed
+past the current unfiltered window; (2) worse, every one of the 5 ops
+hardcoded `IsTruncated: p.Next != "" && prefix == "/"` -- i.e. whenever a
+non-default `PathPrefix` was actually filtering anything, `IsTruncated` was
+forced `false` regardless of whether the backend had more data, so a real
+client relying on `IsTruncated` (the documented contract) silently stopped
+paging and never saw the remaining matches, even though `Marker` was still
+populated on the response. Confirmed via `TestListUsers_PathPrefixTruncation`
+(`list_filter_params_test.go`): 3 users, 2 matching a `PathPrefix`,
+`MaxItems=1` so the match spans two backend windows -- failed against
+unmodified code (returned only the first match, `IsTruncated=false`).
+Fixed by adding `filteredPage` (`handler_list_filters.go`): when the
+prefix is non-default it fetches the full unfiltered list once
+(`fetchAllMaxItems = math.MaxInt32`), filters, then re-paginates the
+*filtered* slice with `pkgs/page.New` so `Marker`/`IsTruncated` describe
+the filtered result set. The default-prefix path is untouched (same
+backend call as before, zero behavior change there). Applies identically
+to `ListUsers`, `ListRoles`, `ListGroups`, `ListInstanceProfiles`, and
+(via its own copy in `listPoliciesFilteredPage`) `ListPolicies` -- the
+same wrong line, `p.Next != "" && prefix == "/"`, was duplicated 5 times
+because no shared pagination-plus-filter helper existed before this fix;
+now there is one (`filteredPage`) that the 4 simple listings share, plus
+`listPoliciesFilteredPage` for `ListPolicies`' extra filters. Regression
+coverage for the 3 siblings ListUsers doesn't directly test:
+`TestListRolesGroupsInstanceProfiles_PathPrefix`.
+
+**Found and fixed, `ListPolicies` only**: `OnlyAttached` and
+`PolicyUsageFilter` were declared on `ListPoliciesInput` but never read
+by the handler at all (class: never plumbed through) -- every call
+returned every policy regardless of either parameter.
+`OnlyAttached` now filters on `Policy.AttachmentCount > 0` (already
+live-maintained by `addPolicyAttachmentLocked`/`removePolicyAttachmentLocked`,
+no new state needed). `PolicyUsageFilter=PermissionsBoundary` now filters
+on a new `PermissionsBoundaryARNs()` backend method (scans
+`User.PermissionsBoundary`/`Role.PermissionsBoundary` across all users and
+roles); `PolicyUsageFilter=PermissionsPolicy` excludes only policies used
+*exclusively* as a boundary (a policy attached to a role/user AND also set
+as some other principal's boundary still counts as a permissions policy --
+the SDK doc comment doesn't state exclusivity explicitly, so this is a
+documented judgment call, not an invented default). Proven by
+`TestListPolicies_OnlyAttached` and `TestListPolicies_PolicyUsageFilter`
+(`list_filter_params_test.go`), both failing against unmodified code
+(returned every policy regardless of the filter).
+
+**Checked and left as-is, `Scope`**: `ListPolicies`' pre-existing `Scope`
+handling (`Local`/`AWS`/`All`) was already wired, just via a fragile
+`strings.Contains(pol.Arn, ":aws:policy")` heuristic that happened to
+always evaluate false (gopherstack never seeds or creates an AWS-managed
+policy -- every `Policy` originates from `CreatePolicy`), making
+`Scope=AWS` correctly-but-accidentally always empty. Replaced with an
+explicit early return for `Scope=AWS` (documented as structural: there is
+no AWS-managed-policy concept in this backend, so "no matches" is honest,
+not a fabricated default) rather than leaving the coincidental string
+match in place.
+
+**Structural, not fixed**: real IAM's `Scope=AWS` would return the ~1000+
+real AWS managed policies gopherstack does not model; disclosed above,
+not a bug to fix without a modelling decision outside this pass's scope.
+
+**PARITY.md accuracy note**: this file had no prior per-op entry claiming
+`ListPolicies`'/`ListUsers`' filters were verified, so nothing here
+corrects a previously-asserted-correct claim -- these were genuinely
+unaudited for this bug class before now (the sweep-12/error-path sweeps
+above covered sort-order and error-code selection respectively, not
+filter/pagination honouring).
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including the 5 new
+tests above), `golangci-lint run ./services/iam/...` (0 issues after
+decomposing `listPoliciesFiltered` to stay under the `gocognit` budget and
+routing the new `OnlyAttached` boolean compare through the existing
+`formValueTrue` constant instead of a fresh `"true"` literal, per
+`goconst`).
+
+Not covered this pass (see items_still_open below): the remaining ~170
+IAM ops were not re-audited for this constraint-parameter class. Notably
+unexamined: `ListAttached{User,Role,Group}Policies`' `PathPrefix`,
+`ListEntitiesForPolicy`'s `EntityFilter`/`PathPrefix`/`PolicyUsageFilter`,
+`ListMFADevices`/`ListAccessKeys`/`ListSigningCertificates`/`ListSSHPublicKeys`/
+`ListServiceSpecificCredentials` pagination-only parameters, and
+`GetAccountAuthorizationDetails`' `Filter` (sweep 6 already added this one;
+not re-verified this pass).
+
+## 2026-08-30 -- gopherstack-uox6: value-semantics filter audit
+
+Read this service against bd gopherstack-uox6's class ("a parameter that is read,
+applied, and wrong" -- distinct from both the wire-shape sweeps above and the
+2026-08-29 constraint-parameter sweep, which fixed WHETHER `PathPrefix` etc. were
+applied at all; this pass asked whether the semantics of what IS applied are correct).
+
+**Condition-operator evaluation (`conditions.go`)**, the richest matcher surface in
+this service: all IAM condition operator families checked against the operator's own
+documented meaning -- `StringEquals`/`StringLike`(wildcard `*`/`?`, both documented for
+IAM policy grammar, unlike EventBridge's undocumented `?`)/`StringEqualsIgnoreCase`/
+`Bool`/`Null`/`ArnEquals`+`ArnLike` (functionally identical per AWS docs, both
+wildcarded)/`Numeric*`/`Date*` (`LessThanEquals`/`GreaterThanEquals` correctly include
+the equality case) /`BinaryEquals`/`IfExists` suffix/`ForAllValues:`+`ForAnyValue:` set
+qualifiers (vacuous-true / false-on-empty-set respectively, matching documented AWS
+semantics) -- all correct. `evaluator.go`'s `wildcardMatch` (Action/Resource matching,
+case-insensitive for Action, case-sensitive for Resource) is a real DP wildcard
+matcher, not a substring stand-in, and both are documented AWS behaviour.
+
+**`PathPrefix` (`handler_list_filters.go`, `policies.go`)**: filters on the *entity's
+own* path throughout, including `listAttachedPoliciesFiltered` (resolves each
+`AttachedPolicy` back to its owning `Policy.Path` via `GetPolicy`) and
+`listEntitiesForPolicyFiltered` (resolves each user/group/role back to its own
+`Path` via `userPath`/`groupPath`/`rolePath`) -- matches the SDK doc comment's
+explicit "PathPrefix filters on the ENTITY's own path, not the policy's" already
+recorded in this file's comments. No case where the policy's path was used in place
+of the entity's.
+
+**`GetAccountAuthorizationDetails`' `Filter` (`simulation.go`,
+`authDetailsFilterSets`)**: all five `EntityType` enum members (`User`, `Group`,
+`Role`, `LocalManagedPolicy`, `AWSManagedPolicy`) explicitly cased -- no
+switch-without-default gap.
+
+No bugs found; no code changes in this service this pass.
+
+## 2026-08-31 per-item exact-case sweep (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against iam@v1.58.1 deserializers.go
+(awsAwsquery_, confirmed by the `strings.EqualFold` match sites) for
+GetAccountAuthorizationDetails, this service's richest item shape (four
+distinct per-entity item types in one response: UserDetail, GroupDetail,
+RoleDetail, ManagedPolicyDetail). Wrapper keys `UserDetailList`,
+`GroupDetailList`, `RoleDetailList`, `Policies` all confirmed exact-case, each
+`member`-wrapped (confirmed against `awsAwsquery_deserializeDocumentGroupDetailListType`
+et al. -- no unwrapped-list-deserializer call site exists for any of the four
+in the pinned SDK).
+
+**BUG (fixed): `UserDetailXML` and `RoleDetailXML` (`models_simulation_types.go`)
+omitted PermissionsBoundary and Tags entirely** -- absent, not wrong-named. The
+real `UserDetail`/`RoleDetail` deserializers both read `PermissionsBoundary`
+(nested `AttachedPermissionsBoundary{PermissionsBoundaryArn,
+PermissionsBoundaryType}`) and `Tags>member{Key,Value}`, and this service's own
+sibling ops -- `toUserXML` (GetUser/ListUsers) and `toRoleXML` (GetRole/ListRoles)
+-- already emit both correctly from the same backing `User.PermissionsBoundary`/
+`.Tags` and `Role.PermissionsBoundary`/`.Tags` fields (`RoleDetail`/`UserDetail`
+embed `Role`/`User`, so the state was always reachable). Right entity count,
+permanently blank PermissionsBoundary/Tags for every user and role in the
+account-wide report regardless of what was actually set on them. `GroupDetail`
+correctly has neither field on the real wire type (real IAM groups support
+neither tags nor permissions boundaries) -- `GroupDetailXML`'s omission was
+already correct, not a gap.
+
+**BUG (fixed): `ManagedPolicyDetailXML` (`models_simulation_types.go`) omitted
+DefaultVersionId, UpdateDate, AttachmentCount, and IsAttachable entirely** --
+same sibling-trap shape, this time against `toPolicyXML` (GetPolicy/ListPolicies),
+which already emits all four from the same backing `Policy` fields. Confirmed
+this is worse than silent-empty: with the pre-existing `xml:"UpdateDate"` tag
+(no `omitempty`) on a bare Go `string` field left at its zero value, `encoding/xml`
+still emits `<UpdateDate></UpdateDate>`, and the real client's timestamp parser
+hard-errors decoding it as an empty string against every real timestamp layout
+it tries -- so any account with at least one managed policy failed the *entire*
+`GetAccountAuthorizationDetails` call with a deserialization error, not just a
+blank field.
+
+Fixed both in `handler_account.go` (`toUserDetailXML`), `handler_roles.go`
+(`toRoleDetailXML`), and `handler_policies.go` (`toManagedPolicyDetailXML`),
+mirroring the exact conversion logic their singular/plural siblings already use
+(including the `DefaultVersionId` `""`->`"v1"` and `UpdateDate` zero->CreateDate
+fallbacks `toPolicyXML` already applies). Tests:
+`TestGetAccountAuthorizationDetails_PermissionsBoundaryAndTags_RealClient` and
+`TestGetAccountAuthorizationDetails_PolicyAttachmentFields_RealClient`
+(`handler_account_reporting_test.go`), driven through the real aws-sdk-go-v2
+client with distinguishable non-zero values (two users, two roles, an attached
+policy). Both verified failing pre-fix by hand-revert -- the User/Role case
+failed as a nil-pointer assertion, the Policy case failed one level worse, as a
+full client-side deserialization error (`unable to parse time string ""`),
+exactly the class this campaign has flagged as the more severe failure mode.
+
+Also noted, not fixed (different bug class -- value semantics, not element
+naming, so out of this issue's scope; recorded for a future
+value-correctness pass): `Policy.IsAttachable` is never set anywhere in
+`store.go`'s `CreatePolicy`, so it is always the Go zero value `false` for
+every policy this backend creates -- affecting `GetPolicy`/`ListPolicies` too,
+not just this op. Real AWS reports `IsAttachable=true` for essentially every
+customer-managed policy (false is reserved for retired AWS-managed policies
+this emulator doesn't model). This is a wrong-default-value bug, not an
+absent/misnamed field, so it wasn't fixed under this pass's naming-focused scope.
+
+NOT REACHED at item level this pass: the other ~15 List ops with nested item
+shapes (ListRoles' `InstanceProfileList` nesting already covered incidentally
+via `RoleDetail`; ListInstanceProfiles, ListServerCertificates,
+ListSAMLProviders, ListOpenIDConnectProviders, ListVirtualMFADevices,
+ListAccessKeys, ListSigningCertificates, ListSSHPublicKeys,
+ListServiceSpecificCredentials, ListMFADevices, ListPolicies,
+ListEntitiesForPolicy, GetOrganizationsAccessReport, and the delegation-request
+family).
+
+Gates: `go build ./services/iam/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including the 2 new
+real-client tests above), `golangci-lint run ./services/iam/...` (0 issues).
+Pre-existing `//nolint:lll // long XML element name` on
+`GetAccountAuthorizationDetailsResponse.XMLName` (a struct this pass did not
+otherwise touch) re-checked: `lll` is disabled repo-wide (superseded by
+golines per `.golangci.yml`), so this directive is currently inert but
+harmless -- left as-is, out of this pass's scope to clean up.
+
+## 2026-08-31 per-item exact-case sweep, batch 2 (gopherstack-21my continuation)
+
+Byte-for-byte item-level check against iam@v1.58.1 deserializers.go
+(awsAwsquery_) for a subset of this issue's iam "not reached" list:
+`ListInstanceProfiles` (incl. `ListInstanceProfilesForRole`/`GetInstanceProfile`/
+`CreateInstanceProfile`, which all share one builder), `ListPolicies` (shares
+`toPolicyXML` with `GetPolicy`/`CreatePolicy`, already fixed 2026-08-14),
+`ListServerCertificates`, `ListAccessKeys`, `ListVirtualMFADevices`,
+`ListSAMLProviders`.
+
+**BUG (fixed): `InstanceProfileXML` (`models.go`), the shape shared by every
+instance profile response (`Create`/`Get`/`List`/`ListForRole` all call the
+same `toInstanceProfileXML`), omitted `Tags` entirely** -- the real
+`InstanceProfile` deserializer reads it, and the tags ARE tracked: the same
+`"ip:"`-prefixed key `TagInstanceProfile`/`ListInstanceProfileTags`/
+`UntagInstanceProfile` already read and write
+(`resourceTagDispatch("InstanceProfile", "ip:", "InstanceProfileName")`).
+Unlike most bugs this campaign has found, this is **not** a Get-vs-List
+disagreement -- every one of the four ops sharing this one builder was
+equally wrong, so fixing the shared function fixed all four at once. Converted
+`toInstanceProfileXML` from a free function to a `*Handler` method so it can
+read `h.getTags`; updated all 7 call sites across `handler_instance_profiles.go`,
+`handler_list_filters.go`, and `handler_roles.go` (mechanical rename, no logic
+change at those sites). Test: `TestListInstanceProfiles_ItemShape_RealClient`
+(`instance_profiles_test.go`), seeds two profiles with distinguishable tags,
+asserts both round-trip through `ListInstanceProfiles`. Verified failing
+pre-fix by hand-revert.
+
+**BUG (fixed): `VirtualMFADeviceXML` (`models_mfa.go`), used by
+`ListVirtualMFADevices` (`handler_mfa.go`), omitted `User` and `Tags`
+entirely** -- both real `VirtualMFADevice` deserializer members. `User` (a
+full nested `User` object) is backed by the same user-device link map
+`GetMFADeviceOwner`/`EnableMFADevice`/`DeactivateMFADevice` already read and
+write; `Tags` by the same `"mfa:"`-prefixed key
+`TagMFADevice`/`ListMFADeviceTags` already use. `EnableDate` remains a genuine
+gap -- `VirtualMFADevice` tracks device `Status` but not when it was enabled.
+Fixed by resolving the owner via `h.Backend.GetMFADeviceOwner` +
+`h.Backend.GetUser` and building a `UserXML` (the same builder `GetUser`/
+`ListUsers` use) when present, and reading `h.getTags("mfa:"+serial)`. Test:
+`TestListVirtualMFADevices_ItemShape_RealClient` (`mfa_test.go`), creates a
+device, enables it for a tagged user, asserts both `User.UserName` and `Tags`
+round-trip through `ListVirtualMFADevices`. Verified failing pre-fix by
+hand-revert (`User` decoded nil).
+
+**SEPARATE FINDING, not fixed (dead-code/registration-order issue, not a
+wire-shape bug): `"ListMFADevices"` is registered by two different dispatch
+tables (`iamMFALinkDispatch` via the `opListMFADevices` constant, and
+`iamMFADeviceDispatch` via the literal string, which is the same value) --
+`handler.go` merges `iamMFALinkDispatch` after `iamMFADeviceDispatch`
+(`maps.Copy` order), so the second implementation always wins and the first is
+unreachable. The two implementations are close enough in behavior
+(`iamMFADeviceDispatch`'s falls back to an empty list on error and resolves
+`UserName` per-device via `GetMFADeviceOwner`; `iamMFALinkDispatch`'s requires
+a non-empty `UserName` input and echoes it back verbatim) that this has not
+been observed to produce a wrong response in this pass's testing, but it is
+worth a dedicated cleanup issue since dead code masquerading as live code is
+exactly the kind of thing that misleads a future edit.
+
+**RE-VERIFIED CLEAN, no changes needed:** `ListPolicies` (shares `toPolicyXML`
+with `GetPolicy`/`CreatePolicy`, correct since the 2026-08-14 fix -- confirmed
+by re-deriving against the pinned deserializer, not by trusting the prior
+verdict), `ListServerCertificates` (`ServerCertificateMetadata`'s five
+emitted fields all exact-case correct against
+`awsAwsquery_deserializeDocumentServerCertificateMetadata`; `Expiration`
+remains a genuine gap -- no certificate parsing, matching the pattern noted
+for elbv2's `TrustStore.NumberOfCaCerts` earlier in this campaign),
+`ListAccessKeys` (`AccessKeyMetadata`'s four real members all present and
+correctly named), `ListSAMLProviders` (`SAMLProviderListEntry`'s three real
+members all present and correctly named). Wrapping shape checked for every op
+above: no call site of any unwrapped-list-deserializer variant exists for any
+of them in the pinned SDK.
+
+NOT REACHED at this layer: `ListOpenIDConnectProviders`, `ListSSHPublicKeys`,
+`ListSigningCertificates`, `ListServiceSpecificCredentials`, `ListMFADevices`
+(the non-virtual op, distinct from `ListVirtualMFADevices` above),
+`ListEntitiesForPolicy`, `GetOrganizationsAccessReport`, and the
+delegation-request family -- named so the next pass continues rather than
+redoes.
+
+Gates: `go build ./services/iam/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including both new
+real-client tests above), `golangci-lint run ./services/iam/...` (0 issues
+after `fieldalignment -fix ./services/iam/...` reordered
+`CreateVirtualMFADeviceResponse`, whose pointer-field layout changed once
+`VirtualMFADeviceXML` gained a `*UserXML` field). Pre-existing
+`//nolint:revive` on `IAMError` (`models.go`, a struct this pass did not
+otherwise touch) re-checked: still in use, `revive`'s stutter check would
+otherwise fire on `iam.IAMError`.
+
+## 2026-08-31 pass (gopherstack-21my continuation): remaining queued list ops
+
+Swept the eight items this issue's queue named as not reached by the prior
+pass, against `iam@v1.58.1` deserializers.go, byte-for-byte for case as well
+as name.
+
+**BUG (fixed): `ListEntitiesForPolicy`'s `PolicyEntityUser`/`PolicyEntityGroup`/
+`PolicyEntityRole` (`models_policies.go`) never emitted `UserId`/`GroupId`/
+`RoleId` at all** -- all three are real members of `types.PolicyUser`/
+`PolicyGroup`/`PolicyRole` (`awsAwsquery_deserializeDocumentPolicyUser` /
+`PolicyGroup` / `PolicyRole`), and all three are backed by state this backend
+already has (`User.UserID`/`Group.GroupID`/`Role.RoleID`, all populated at
+creation and already read correctly by `GetUser`/`GetGroup`/`GetRole`) -- so
+every user/group/role in every `ListEntitiesForPolicy` response had the right
+name and a permanently blank ID, right count, silently missing content.
+Fixed by extending `filterEntityRows`'s per-entity lookup (previously only
+resolving `Path`, for `PathPrefix` filtering) to also resolve the stable ID,
+and threading it through `policyEntityRow` to the response builder. Test:
+`TestListEntitiesForPolicy_ItemShape_RealClient`
+(`list_filter_params_test.go`), attaches a policy to one user/group/role via
+the real client and asserts each returned Id matches the id the corresponding
+Create call returned. Verified failing pre-fix by hand-revert (`UserId`/
+`GroupId`/`RoleId` decoded empty).
+
+**RE-VERIFIED CLEAN, byte-for-byte case included:** `ListOpenIDConnectProviders`
+(`OpenIDConnectProviderListEntry` genuinely has only `Arn` in the real SDK --
+not a truncated shape), `ListSSHPublicKeys` (`SSHPublicKeyMetadata`'s four
+real members all present and correctly cased in both the live dispatch entry
+and its shadowed, documented-dead duplicate), `ListSigningCertificates`
+(`SigningCertificate`'s five real members -- CertificateBody included, unlike
+SSH keys' slimmer list type -- all present), `ListMFADevices` (the
+non-virtual op; `MFADevice`'s three real members all present in the dispatch
+entry that actually wins the two-registration collision noted in the prior
+pass), the delegation-request family (`DelegationRequest`'s eleven emitted
+members of twenty real ones are correctly named, and the nine omitted --
+`ApproverId`, `ExpirationTime`, `OwnerId`, `PermissionPolicy`,
+`RejectionReason`, `RequestorId`, `RequestorName`,
+`RolePermissionRestrictionArns`, `UpdatedTime` -- are already documented in
+`models_account.go` as gaps this backend has no state for; `Get`/
+`ListDelegationRequests` share one builder, `toDelegationRequestXML`, so no
+sibling disagreement is possible here).
+
+**GAPS RECORDED, not fixed -- real per-AWS-docs fields this backend cannot
+observe:**
+- `ListServiceSpecificCredentials`'s `ServiceSpecificCredentialMetadataXML`
+  is missing `ExpirationDate` and `ServiceCredentialAlias` (both real members
+  of `types.ServiceSpecificCredentialMetadata`). The domain model
+  (`ServiceSpecificCredential`, `models_credentials.go`) has no field for
+  either -- these are Bedrock-API-key-only attributes this backend's
+  credential model never tracked -- and `Create`/`ResetServiceSpecificCredential`
+  share the identical two-field gap, so there is no sibling to disagree with.
+- `GetOrganizationsAccessReport`'s `AccessDetails` is wire-typed `[]string`
+  where the real member is `[]types.AccessDetail` (a six-field object:
+  `EntityPath`, `LastAuthenticatedTime`, `Region`, `ServiceName`,
+  `ServiceNamespace`, `TotalAuthenticatedEntities`). This is a real shape
+  mismatch, but it is unobservable: this backend's access-report job never
+  produces any access-detail records (`account.go`'s
+  `GetOrganizationsAccessReport` only tracks job status/creation time), so
+  the field is always the empty list either way -- matching the existing
+  documented precedent for `PoliciesGrantingServiceAccess`
+  (`models_account.go`) a few lines away. Not counted as a fix per this
+  issue's restraint guidance: no legal input changes the outcome.
+
+**METHOD NOTE:** ran the no-`*Unwrapped`-call-site check repo-wide against
+`iam@v1.58.1`; unlike route53 (zero hits), iam has three:
+`CertificationMapTypeUnwrapped`, `EvalDecisionDetailsTypeUnwrapped`,
+`SummaryMapTypeUnwrapped` -- all query-protocol flattened *maps* (Simulate*
+Policy's per-resource decision maps, `GetAccountSummary`'s `SummaryMap`), not
+list-item collections, and none are in this pass's or the prior pass's
+queue. Flagged for whoever next touches `GetAccountSummary` or
+`SimulateCustomPolicy`/`SimulatePrincipalPolicy` rather than chased here.
+
+Gates: `go build ./services/iam/... ./services/route53/...`, `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iam/... ./services/route53/...`
+(pass), `golangci-lint run ./services/iam/... ./services/route53/...` (0
+issues, after switching `userPathAndID`/`groupPathAndID`/`rolePathAndID` from
+named to bare returns -- `nonamedreturns` flagged the named-return form these
+three helpers were first written with). No `nolint` directives exist in any
+file this pass touched.
+
+## 2026-08-31 unnamed-in-PARITY sweep (gopherstack-6flj/21my continuation)
+
+Targeted the six `List*` operations whose names appeared nowhere in this
+file before today: `ListAccountAliases`, `ListGroupPolicies`,
+`ListOrganizationsFeatures`, `ListPolicyVersions`, `ListRolePolicies`,
+`ListUserPolicies`. Confirmed protocol from the deserializer directly:
+`iam@v1.58.1` is `awsAwsquery_` (XML query protocol) -- the smithy-go XML
+decoder case-folds element names, so a case-only mismatch would decode
+correctly today and be invisible to any round-trip test; watched for this
+specifically and found none in this batch. All six read against their own
+deserializer function in `deserializers.go` and, for the two with
+structured items (`ListPolicyVersions`), the real `types.PolicyVersion`.
+
+**All six clean, no bug found**:
+- `ListAccountAliases`: wrapper `AccountAliases>member` matches
+  `awsAwsquery_deserializeOpDocumentListAccountAliasesOutput`'s
+  `"AccountAliases"` case exactly; `IsTruncated` present; `Marker` absent
+  is consistent since this backend never truncates.
+- `ListGroupPolicies` / `ListRolePolicies` / `ListUserPolicies`: all three
+  share the same `PolicyNames>member` wrapper shape, all correct, all
+  backed by real state (`h.Backend.List*Policies`).
+- `ListPolicyVersions`: `Versions>member` wrapper correct;
+  `PolicyVersionXML{VersionID, CreateDate, IsDefaultVersion}` covers every
+  field `types.PolicyVersion` declares except `Document`, which real
+  `ListPolicyVersions` documents as intentionally omitted ("The policy
+  document is returned in the response to GetPolicyVersion and
+  GetAccountAuthorizationDetails... It is not returned in the response to
+  CreatePolicyVersion or ListPolicyVersions", `api_op_ListPolicyVersions.go`)
+  -- so its absence here is correct AWS behavior, not a gap.
+- `ListOrganizationsFeatures`: already a deliberately-empty stub
+  (`models_account.go` comment already documents the wire shape was
+  verified against the deserializer: `EnabledFeatures`/`OrganizationId`,
+  not the previously-invented `OrganizationFeatures`/`RootId`). No backend
+  state exists to populate it; correctly returns an empty list rather than
+  fabricating one. Confirmed the wire shape is still accurate against
+  `iam@v1.58.1` and left as-is.
+
+No wrapper-key mismatches, no per-item field mismatches, no case-only
+mismatches, and no hard-decode-error risks found in this batch's six
+operations. This closes out the last of the previously-unswept-by-name
+operations for iam under gopherstack-6flj's targeting; future passes on
+iam should return to axes already covered rather than name-based gaps.
+
+Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
+(repo-wide, clean). No files under `services/iam/` were modified this pass
+(read-only verification); no `go test`/`golangci-lint` re-run needed beyond
+the repo-wide `go vet`.

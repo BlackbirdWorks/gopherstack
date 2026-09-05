@@ -23,9 +23,15 @@ var (
 	// ErrAnycastIPListNotFound is returned when a requested anycast IP list does not exist.
 	ErrAnycastIPListNotFound = awserr.New("NoSuchAnycastIPList", awserr.ErrNotFound)
 	// ErrConnectionFunctionNotFound is returned when a connection function does not exist.
-	ErrConnectionFunctionNotFound = awserr.New("NoSuchConnectionFunction", awserr.ErrNotFound)
+	// Code is EntityNotFound: every connection-function op's own deserializer
+	// (cloudfront@v1.67.4 deserializers.go) models EntityNotFound, never a
+	// dedicated "NoSuchConnectionFunction" -- that code does not exist
+	// anywhere in the pinned SDK.
+	ErrConnectionFunctionNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrConnectionGroupNotFound is returned when a connection group does not exist.
-	ErrConnectionGroupNotFound = awserr.New("NoSuchConnectionGroup", awserr.ErrNotFound)
+	// Code is EntityNotFound -- see ErrConnectionFunctionNotFound; "NoSuchConnectionGroup"
+	// does not exist anywhere in the pinned SDK either.
+	ErrConnectionGroupNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrConnectionGroupAlreadyExists is returned when a connection group name is already in use.
 	ErrConnectionGroupAlreadyExists = awserr.New("EntityAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrContinuousDeploymentPolicyNotFound is returned when a continuous deployment policy does not exist.
@@ -104,7 +110,9 @@ var (
 	// ErrKeyValueStoreNotFound is returned when a requested key value store does not exist.
 	ErrKeyValueStoreNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
-	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
+	// Code is EntityNotFound -- see ErrConnectionFunctionNotFound; "NoSuchVpcOrigin"
+	// does not exist anywhere in the pinned SDK.
+	ErrVpcOriginNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a
 	// resource ARN. Get/Put/DeleteResourcePolicy all declare EntityNotFound, not
 	// NoSuchResourcePolicy, in their deserializeOpError switch (deserializers.go).
@@ -160,14 +168,20 @@ var (
 var ErrPreconditionFailed = errors.New("PreconditionFailed")
 
 // ErrDistributionTenantNotFound is returned when a distribution tenant does not exist.
-var ErrDistributionTenantNotFound = awserr.New("NoSuchDistributionTenant", awserr.ErrNotFound)
+// Code is EntityNotFound -- see ErrConnectionFunctionNotFound; "NoSuchDistributionTenant"
+// does not exist anywhere in the pinned SDK.
+var ErrDistributionTenantNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 
 // ErrInvalidTagging is returned when tag key/value constraints are violated.
 var ErrInvalidTagging = awserr.New("InvalidTagging", awserr.ErrInvalidParameter)
 
-// ErrDomainConflict is returned when a domain is already associated with another
-// distribution tenant or distribution.
-var ErrDomainConflict = awserr.New("DomainConflictException", awserr.ErrConflict)
+// ErrCNAMEAlreadyExists is returned by CreateDistributionTenant/UpdateDistributionTenant
+// when a domain is already associated with another distribution tenant or distribution.
+// "DomainConflictException" does not exist anywhere in the pinned SDK; both ops' own
+// deserializers (cloudfront@v1.67.4 deserializers.go) model CNAMEAlreadyExists for
+// this case -- the same code CreateDistribution/UpdateDistribution use for an alias
+// collision.
+var ErrCNAMEAlreadyExists = awserr.New("CNAMEAlreadyExists", awserr.ErrConflict)
 
 // ErrDomainControlValidationResourceNotFound is returned when ListDomainConflicts is given a
 // DomainControlValidationResource that does not identify an existing distribution or
@@ -177,7 +191,9 @@ var ErrDomainConflict = awserr.New("DomainConflictException", awserr.ErrConflict
 var ErrDomainControlValidationResourceNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 
 // ErrTrustStoreNotFound is returned when a trust store does not exist.
-var ErrTrustStoreNotFound = awserr.New("NoSuchTrustStore", awserr.ErrNotFound)
+// Code is EntityNotFound -- see ErrConnectionFunctionNotFound; "NoSuchTrustStore"
+// does not exist anywhere in the pinned SDK.
+var ErrTrustStoreNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 
 // ErrStreamingDistributionNotFound is returned when a streaming distribution does not exist.
 var ErrStreamingDistributionNotFound = awserr.New("NoSuchStreamingDistribution", awserr.ErrNotFound)

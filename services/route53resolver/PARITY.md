@@ -2,7 +2,35 @@
 service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.4
 last_audit_commit: 22d69640
-last_audit_date: 2026-08-15
+last_audit_date: 2026-08-29
+                       # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose or
+                       # duplicate a record at a page boundary when two records tie on the sort
+                       # key?). All 13 backend List* methods (endpoints, rules, firewall rule
+                       # groups + their associations, firewall domain lists, firewall rules,
+                       # outpost resolvers, query log configs + their associations, rule
+                       # associations, firewall/resolver/dnssec configs) source from a
+                       # `*ByRegion.Get(region)` store.Index, never store.Table.All()/Range() --
+                       # Index.Get's order does not vary between calls (pkgs/store/index.go),
+                       # unlike a raw map walk, so a sort by Name/Priority/ResourceID/ID that
+                       # ties can still never reorder or drop a record between two separate List
+                       # calls. Handler-layer re-sorts (e.g. handleListResolverEndpoints,
+                       # handleListFirewallRules) operate on that same deterministic input, so
+                       # they inherit the same guarantee. Tags (tags.go) dedup by Key on write,
+                       # so a Key-sorted tag list can never tie either. No fixes needed; 0 code
+                       # changes. Existing pagination tests (e.g.
+                       # TestListResolverRules_Pagination) use distinct names throughout, so they
+                       # could not have exercised a tie even if one were possible.
+                       # gopherstack-6flj follow-up sweep (2026-08-29): write-only-state hand
+                       # search across all families. 2 real bugs found and fixed:
+                       # TargetAddress.ServerNameIndication (nested inside ResolverRule.TargetIps,
+                       # both request- and response-side) had no counterpart at all -- a real DoH
+                       # target's SNI was silently dropped on Create/UpdateResolverRule and never
+                       # echoed back; OutpostResolver.CreationTime/ModificationTime/StatusMessage
+                       # were never tracked at all (same "field literally never existed" class
+                       # already fixed for FirewallDomainList in an earlier pass) -- every
+                       # Create/Get/List/Update/Delete response left them permanently empty.
+                       # enumcheck/acceptguard/zeroguard/xmlitemwrap (repo-wide, grepped for this
+                       # service) found nothing new.
 overall: A            # gopherstack-6flj (2026-08-15): full wrapper-key/nesting sweep of all 30
                        # List/Describe/Get ops against route53resolver@v1.48.4's own
                        # awsAwsjson11_ deserializer case lists (JSON-RPC 1.1, case-sensitive;
@@ -95,11 +123,11 @@ ops:
   ListResolverEndpointIpAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
   DisassociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
-  CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added. gopherstack-y9w3: added DelegationRecord (verified against api_op_CreateResolverRule.go and types.ResolverRule -- 'DNS queries with delegation records that point to this domain name are forwarded to resolvers on your network'), stored and echoed on Create/Get/List. The DELEGATE RuleTypeOption itself remains an unimplemented structural gap (see gaps) -- this only fixes the independent field-drop bug, it does not newly support delegation rule creation."}
-  GetResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: Filters was modelled but not on this wire-input struct -- same silently-ignored-filter bug as ListResolverEndpoints. Added Filters (CreatorRequestId/DomainName/Name/ResolverEndpointId/Status/Type, both name forms); unknown filter names reject with InvalidParameterException."}
+  CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added. gopherstack-y9w3: added DelegationRecord (verified against api_op_CreateResolverRule.go and types.ResolverRule -- 'DNS queries with delegation records that point to this domain name are forwarded to resolvers on your network'), stored and echoed on Create/Get/List. The DELEGATE RuleTypeOption itself remains an unimplemented structural gap (see gaps) -- this only fixes the independent field-drop bug, it does not newly support delegation rule creation. gopherstack-6flj follow-up: TargetAddress.ServerNameIndication (types/types.go:1682, both serializers.go:4838 request-side and deserializers.go:13705 response-side -- 'The Server Name Indication of the DoH server') had no field in gopherstack's targetIP wire struct or TargetIP domain model at all; a real client's TargetIps[].ServerNameIndication was silently dropped on create and never echoed. Added."}
+  GetResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry."}
+  ListResolverRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: Filters was modelled but not on this wire-input struct -- same silently-ignored-filter bug as ListResolverEndpoints. Added Filters (CreatorRequestId/DomainName/Name/ResolverEndpointId/Status/Type, both name forms); unknown filter names reject with InvalidParameterException. gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry."}
   DeleteResolverRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades tags + rule associations"}
-  UpdateResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry (UpdateResolverRuleInput.Config.TargetIps shares the same targetIP wire type)."}
   AssociateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: resolverRuleAssociationOutput (shared by GetResolverRuleAssociation/DisassociateResolverRule/ListResolverRuleAssociations too) never emitted StatusMessage, a real non-required types.ResolverRuleAssociation member. Added; genuinely always empty in this backend (no async failure state to source a value from) so the fix is undemonstrated by a test -- see wire_field_fixes_test.go's comment."}
   GetResolverRuleAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: shares AssociateResolverRule's StatusMessage fix, see its entry."}
   DisassociateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: request shape was ResolverRuleAssociationId (an ID that only ever appears in Get/List responses); real API requires ResolverRuleId+VPCId. Every real SDK client call was rejected with ValidationException before this fix. Backend now looks up the association by (ResolverRuleID, VPCID) pair."}
@@ -141,11 +169,11 @@ ops:
   GetFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class, see GetFirewallRuleGroup); AWS correctly returns no Arn for this type (verified, kept as-is)"}
   UpdateFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FirewallFailOpenStatus now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLED/DISABLED"}
   ListFirewallConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListOutpostResolvers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: OutpostArn (ListOutpostResolversRequest member) was missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added as a direct equality filter on OutpostResolver.OutpostARN."}
-  DeleteOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: types.OutpostResolver's CreationTime/ModificationTime/StatusMessage (types/types.go:1078, deserializers.go:12034) were never tracked at all -- no field on the domain model or wire struct -- so every response left them permanently empty, the same 'field literally never existed' class already fixed for FirewallDomainList. Added; CreationTime/ModificationTime now set at create, ModificationTime bumped on update. StatusMessage is wired but dormant (this backend has no async-failure state to source a value from, same as ResolverRuleAssociation.StatusMessage)."}
+  GetOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry."}
+  ListOutpostResolvers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: OutpostArn (ListOutpostResolversRequest member) was missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added as a direct equality filter on OutpostResolver.OutpostARN. gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry."}
+  DeleteOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry (the deleted resource's now-populated CreationTime/ModificationTime are echoed back same as before)."}
+  UpdateOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix -- ModificationTime now bumps on every update, see its entry."}
   GetResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class). FIXED 2026-08-13: deleted the fabricated extra Arn field -- see gaps below for the SDK citation."}
   UpdateResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AutodefinedReverseFlag now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLE/DISABLE. gopherstack-jp7o sweep: the wire-input struct's JSON tag was \"AutodefinedReverse\", not the real request member \"AutodefinedReverseFlag\" (api_op_UpdateResolverConfig.go) -- every real SDK call silently dropped the value. Fixed the tag; the *response* member is genuinely AutodefinedReverse (types.go), so only the request side was wrong."}
   ListResolverConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -435,3 +463,307 @@ mirroring the pre-existing ENABLE/DISABLE -> ENABLING/DISABLING transient-status
   returning `""` for an unset policy rather than erroring -- reasonable mock behavior for a
   void-result-style read, matches the "empty envelope after real backend logic is correct"
   guidance in parity-principles.md #4.
+
+## 2026-08-29: write-only-state follow-up sweep (gopherstack-6flj)
+
+Method: for each domain struct in `models.go`, enumerated stored fields and checked
+which real op can read them back; then diffed every family's real SDK type
+(`ResolverEndpoint`, `ResolverRule`+`TargetAddress`, `FirewallRuleGroup`,
+`FirewallRuleGroupAssociation`, `FirewallDomainList`, `FirewallRule`, `OutpostResolver`,
+`ResolverQueryLogConfigAssociation`, `FirewallConfig`, `ResolverConfig`,
+`ResolverDnssecConfig`) field-for-field against `types/types.go` and each type's own
+`awsAwsjson11_deserializeDocument<Type>` case list (exact-case keys, per this service's
+hand-rolled awsjson1.1 decoder -- see the OwnerID/OwnerId note above).
+`enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` (repo-wide, grepped for this service)
+found nothing.
+
+**`TargetAddress.ServerNameIndication` silently dropped (both directions):** verified
+against `types/types.go:1682` and both `serializers.go:4838`
+(`awsAwsjson11_serializeDocumentTargetAddress`, request-side) and `deserializers.go:13705`
+(`awsAwsjson11_deserializeDocumentTargetAddress`, response-side) -- a real, always-real
+field ("The Server Name Indication of the DoH server that you want to forward queries to.
+This is only used if the Protocol of the TargetAddress is DoH"). Neither gopherstack's
+`targetIP` wire struct (`handler_resolver_rules.go`) nor its `TargetIP` domain model
+(`models.go`) had a field for it at all -- a real SDK client setting
+`TargetIps[].ServerNameIndication` on `CreateResolverRule`/`UpdateResolverRule` had the
+value accepted (unknown-field-tolerant JSON decode) and discarded; `GetResolverRule`/
+`ListResolverRules` never echoed it back. This is the "accepted from a request and never
+stored" write-only-state pattern, one level deeper than the top-level fields this
+campaign's earlier passes checked -- `ResolverRule` itself was already clean, but its
+nested `TargetAddress` member type was not independently re-verified until this pass.
+Fixed: added `ServerNameIndication` to both structs (same field order, so the existing
+`targetIP(t)`/`TargetIP(t)` typed conversions still compile). Proven by
+`TestResolverRule_TargetIps_ServerNameIndicationRoundTrip`
+(`wire_field_fixes_test.go`) -- a real `aws-sdk-go-v2` client sets it on
+`CreateResolverRule` and reads it back via `GetResolverRule`; hand-reverted (confirmed
+failing against `HEAD`), restored.
+
+**`OutpostResolver.CreationTime`/`ModificationTime`/`StatusMessage` never tracked at
+all:** verified against `types/types.go:1078` and `deserializers.go:12034`
+(`awsAwsjson11_deserializeDocumentOutpostResolver`, 11 cases: `Arn`, `CreationTime`,
+`CreatorRequestId`, `Id`, `InstanceCount`, `ModificationTime`, `Name`, `OutpostArn`,
+`PreferredInstanceType`, `Status`, `StatusMessage`). gopherstack's `OutpostResolver`
+domain model and `outpostResolverOutput` wire struct had neither timestamp field at all
+-- every `Create`/`Get`/`List`/`Update`/`Delete` response left them permanently empty
+regardless of backend state, the same "field literally never existed" class already
+fixed for `FirewallDomainList` (see the 2026-07-24-era note above). Fixed:
+`CreationTime`/`ModificationTime` set at creation (`currentTime()`, same convention as
+every other family), `ModificationTime` bumped on `UpdateOutpostResolver`. `StatusMessage`
+is wired through but genuinely dormant -- this backend's Outpost Resolver `Status`
+transitions straight to `OPERATIONAL` synchronously and never produces an
+error/detail message, so no code path yet writes a non-empty value; same reasoning as
+the pre-existing `ResolverRuleAssociation.StatusMessage` dormant fix. Proven by
+`TestOutpostResolver_TimestampsRoundTrip` (`wire_field_fixes_test.go`) for the two
+timestamps; hand-reverted (confirmed failing), restored.
+
+**Confirmed clean by this pass's re-derivation** (not re-litigating prior passes, but
+independently re-checked field-for-field against the same pinned SDK):
+`FirewallRuleGroup` (11 fields), `FirewallRuleGroupAssociation` (13 fields, `StatusMessage`
+already present), `FirewallDomainList` (12 fields, `Category`/`ManagedListType`
+structurally absent per the existing gap), `FirewallRule` (20 fields, `Status`/
+`StatusMessage`/`Id`/`Arn` correctly absent, matching the pre-existing disclosed note),
+`ResolverQueryLogConfigAssociation` (7 fields), `FirewallConfig`/`ResolverConfig`/
+`ResolverDnssecConfig` (4 fields each, no `Arn` on any of the three, matching the
+2026-08-13 fix).
+
+## 2026-08-30 (wrapper-key sweep): exhaustive request-field-read audit, no new bugs
+
+Method: derived the operation list from the 13 `opsXxx()` map-literal registrations
+(`buildOps`, handler.go) rather than trusting this file's prose -- 69 real operations
+(the ALL_CAPS strings alongside them, e.g. `"DOMAIN_NAME"`/`"TYPE"`, are filter-name
+enum values consumed by `list_filters.go`'s alias tables, not operation names; excluded).
+For every `*Input` request struct across every non-test `.go` file, cross-referenced each
+JSON-tagged field against a combined-text search of the whole non-test package for
+`.FieldName` usage anywhere. Confirmed protocol directly from the pinned SDK:
+`awsAwsjson11_*` prefix throughout `route53resolver@v1.48.4/deserializers.go` -- plain
+JSON-RPC 1.1 over `X-Amz-Target`, no legacy/query path for this service.
+
+**Result: zero unread request fields found.** Read `ListResolverRules` end-to-end
+(`handler_resolver_rules.go`, `list_filters.go`) as a representative filter+pagination op:
+`Filters`/`NextToken`/`MaxResults` are all consumed, filtering happens strictly before
+`paginate()` (matching the "filter, then paginate" rule), and an unrecognized `Filter.Name`
+is rejected with `InvalidParameterException` rather than silently ignored (`applyFilters`,
+`list_filters.go:64-67`) -- matches the real op's modelled error, not fabricated. Its filter
+resume-cursor (`b.rulesByRegion`, a `*store.Index[ResolverRule]`) is `Index.Get()`,
+documented (pkgs memory) as insertion-ordered/stable -- a tie-prone sort (by `Name`, not
+unique) over this call-stable input needs no added tiebreak, consistent with this file's own
+2026-08-30 pagination-tie-sweep entry above having found no bug on the `Name`-sorted List ops
+for the identical reason.
+
+**Negative checks, explicitly:**
+- **Listing that never consults its store**: one apparent candidate,
+  `ListFirewallRuleTypes` (`handler_firewall_rules.go:747`), which never calls `h.Backend`.
+  Confirmed NOT a bug: real AWS's `ListFirewallRuleTypes` returns a fixed AWS-managed
+  catalog of DNS-threat-protection rule types, not account-specific data (the same shape
+  as e.g. RDS's `DescribeDBEngineVersions` defaults), and gopherstack backs it with a real
+  populated `firewallRuleTypeCatalog()` (with working `RuleType` filter + pagination), not
+  an empty stub. Every other `handle(List|Get)*` reaches `h.Backend.*`.
+- **Handler that discards its entire request**: none -- every `handle*(ctx, in *Type)`
+  function references at least one `in.Field`, scripted check across every `handler_*.go`,
+  zero exceptions.
+
+No code changed this pass. Gates: `go build ./services/route53resolver/...`, `go vet
+./services/route53resolver/...` and `go vet ./...` (repo-wide), `go test -race -count=1
+./services/route53resolver/...`, `golangci-lint run ./services/route53resolver/...`.
+
+## 2026-08-30 (gopherstack-4shm WrapOp request-field re-scan, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)
+
+This service dispatches every op through `service.WrapOp`, assembled from
+13 per-family `map[string]service.JSONOpFunc` literals merged in
+`buildOps()` (`handler.go`). A field scan anchored on literal decode calls
+alone -- what earlier passes reporting "0 of N request shapes flagged" ran
+-- resolves **0 of 72 operations (0%)**: this service was entirely
+invisible to that method, gopherstack-4shm's exact class, and any prior
+"zero misread keys" verdict measured against it was measuring nothing.
+
+The new `cmd/reqfieldscan` tool (resolves `WrapOp`'s second type parameter
+directly from each handler's own signature, falling back to a
+case-insensitive `handle` + opName match for the 3 ops whose Go handler
+name capitalizes an AWS acronym the operation name itself does not --
+`handleAssociateResolverEndpointIPAddress` for
+`AssociateResolverEndpointIpAddress`, etc.) reaches **72 of 72 (100%)**,
+213 fields across 70 distinct request types.
+
+**Result: zero unread fields.** The earlier field-sweep's "no misread
+keys" verdict, and this file's own "handler that discards its entire
+request: none" negative check above, both hold under the corrected
+WrapOp-aware scan -- the blind spot was in measurement coverage, not in
+this service's own handlers.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+-- all clean (`./services/route53resolver/...` and
+`./cmd/reqfieldscan/...`). No code changed in this service this pass.
+
+## 2026-08-31 (value-semantics pass, gopherstack-uox6): clean, no code changed
+
+Targeted this service for bd `gopherstack-uox6`'s class -- a filter that is
+read and applied but implements the wrong semantics (a negation prefix taken
+literally, a documented default silently widened when omitted, a comparison
+one value off from what "inclusive"/"greater than" documents, etc) --
+invisible to the field-read/enum/wire-key scanners this service's prior
+passes already ran clean under. This axis (behaviour, not shape) was
+explicitly unexamined before this pass.
+
+Checked every optional filter across all 12 List operations against
+`types.Filter`'s own doc comment (`aws-sdk-go-v2/service/route53resolver@
+v1.48.4 types/types.go`) and each operation's own input struct, operation by
+operation rather than trusting a sibling's verdict (the `PatchOrchestratorFilter`
+failure mode this class has produced elsewhere):
+
+- The five `types.Filter`-based ops (`ListResolverEndpoints`,
+  `ListResolverRules`, `ListResolverRuleAssociations`,
+  `ListResolverQueryLogConfigs`, `ListResolverQueryLogConfigAssociations`):
+  every documented `Name` value for every op is matched by field, by exact
+  equality/membership (`slices.Contains`/`containsAny`), with no operator
+  grammar, no wildcard, no negation, and no range/date filter documented
+  anywhere in `types.Filter` -- so those sub-shapes of this bug class are
+  structurally absent here, not merely unaudited. `list_filters.go`'s
+  `applyFilters` combining rule (AND across filters, OR within one filter's
+  `Values`) matches the standard AWS list-filter convention and is shared
+  correctly by all five. An empty `Values` list matching nothing (rather than
+  degrading to "no filter") is the documented-absent case correctly handled
+  conservatively, per that function's own doc comment.
+- `ListFirewallRuleTypes`'s `RuleType` ("An optional filter... If omitted,
+  definitions across all variants are returned") -- `handler_firewall_rules.go`
+  correctly returns the full catalog when `in.RuleType == ""` and narrows only
+  when set.
+- `ListFirewallRuleGroupAssociations`'s `Status` ("If you don't specify this,
+  then DNS Firewall returns all associations, regardless of status"),
+  `Priority`, `FirewallRuleGroupId`/`VpcId` ("Leave this blank to retrieve
+  associations for any [rule group/VPC]") -- all four correctly no-op on
+  their zero value, in both the handler (`Status`/`Priority`) and the backend
+  (`VpcId`/`FirewallRuleGroupId`), confirmed by reading
+  `ListFirewallRuleGroupAssociations` (`firewall_rule_groups.go`) end to end.
+- `ListFirewallRules`'s `Action`/`Priority` ("Optional additional filter") --
+  both correctly no-op on absence in `handleListFirewallRules`.
+- `ListOutpostResolvers`'s `OutpostArn` -- no omission language in the SDK
+  doc, and the handler correctly treats `""` as no filter.
+- `ListResolverConfigs`/`ListFirewallConfigs`/`ListFirewallDomainLists`/
+  `ListFirewallDomains`/`ListResolverEndpointIpAddresses`/
+  `ListTagsForResource`: no filter parameter beyond pagination in the pinned
+  SDK's own input struct (checked field-by-field, not assumed) -- structurally
+  outside this bug class's surface.
+- `ListResolverDnssecConfigs` takes `types.Filter` but the SDK doesn't
+  document any valid `Name` for it (absent from both `types.Filter`'s
+  per-operation enumeration and AWS's own API reference page for this op) --
+  `matchNoDnssecConfigFilter` rejecting every filter name via `applyFilters`'s
+  existing unrecognized-name path is the correct, already-in-place behaviour,
+  not a gap.
+
+No bug found. No web page fetched this pass -- everything resolved from the
+pinned `aws-sdk-go-v2/service/route53resolver@v1.48.4` module cache. No code
+changed in this service.
+
+Gates: `go build`, `go vet ./...` (repo-wide), `go test -race -count=1
+./services/route53resolver/...`, `golangci-lint run
+./services/route53resolver/...` -- all clean.
+
+## 2026-08-31 error-target audit (`cmd/errtargetaudit`, gopherstack-6flj/uox6)
+
+`go run ./cmd/errtargetaudit -dir route53resolver` reported 32 class A
+findings (a real, correctly-spelled error code sent to an operation whose
+own SDK deserializer doesn't declare it) before this pass, 0 after. Protocol
+confirmed as `awsAwsjson11` (`func awsAwsjson11_deserializeOpError<Op>`
+switches in `deserializers.go`) -- the older per-op switch shape, not the
+newer `rpc2_deserializeOpError<Op>` shape.
+
+**Root cause, all 32 findings:** `ErrValidation` (`errors.go`) is a shared
+sentinel mapping to `InvalidRequestException`, correct for the singular
+Resolver* ops. But the entire Firewall/Outpost op family (and
+`GetResolverConfig`) uses `ErrValidation` too, even though their own
+deserializers model `ValidationException` instead -- confirmed per-op by
+reading each op's `awsAwsjson11_deserializeOpError<Op>` switch, not assumed
+from the family pattern. This matches the pre-existing family-split comment
+in `handler.go`'s `handleError` (which was actually only half-applied in
+code before this pass) and extends `ErrBatchValidation` -- previously scoped
+in its doc comment to just the three `Batch*FirewallRule` ops -- to its true,
+now-verified scope (see the corrected comment in `errors.go`).
+
+**Fix shape: did not touch `ErrValidation` itself** (still correct for every
+Resolver* caller -- re-confirmed `AssociateResolverRule`,
+`CreateResolverEndpoint`, `CreateResolverQueryLogConfig`,
+`AssociateResolverQueryLogConfig`, `DisassociateResolverQueryLogConfig`,
+`UpdateResolverConfig`, `GetResolverDnssecConfig`,
+`UpdateResolverDnssecConfig` all still declare `InvalidRequestException`).
+Overrode at each Firewall/Outpost/GetResolverConfig call site instead,
+swapping to the already-existing `ErrBatchValidation` sentinel
+(`ValidationException`): `firewall_rules.go`, `handler_firewall_rules.go`,
+`firewall_rule_groups.go`, `handler_firewall_rule_groups.go`,
+`firewall_domain_lists.go`, `handler_firewall_domain_lists.go`,
+`firewall_configs.go`, `handler_outpost_resolvers.go`, and
+`handler_configs.go`'s `getSimpleConfig`/`updateSimpleConfig` call sites
+(added a `validationErr error` parameter to `requireResourceID`/
+`getSimpleConfig`/`updateSimpleConfig` in `handler.go` so the three bare-
+resourceID config families -- FirewallConfig/ResolverConfig needing
+`ErrBatchValidation`, ResolverDnssecConfig needing `ErrValidation` -- can
+each pass their own correct sentinel through the shared helper instead of
+one hardcoded default). `firewallRuleBatchErrorCode`'s per-item batch error
+`Code` field (`handler_firewall_rules.go`) was also corrected from
+`"InvalidRequestException"` to `"ValidationException"` for the same
+`ErrBatchValidation` case, so a failing entry inside
+BatchCreate/Update/DeleteFirewallRule reports the same code its standalone
+counterpart now does.
+
+**One non-family-split bug, also fixed:** `CreateFirewallRule`'s
+`validateFirewallRuleDomainListUnique` (`firewall_rules.go:209`) used
+`ErrAlreadyExists` (`ResourceExistsException`) for a duplicate
+(FirewallRuleGroupId, FirewallDomainListId) pair. `ResourceExistsException`
+is exclusively a Resolver*-association error in this SDK (confirmed: only
+`AssociateResolverEndpointIpAddress`, `AssociateResolverQueryLogConfig`,
+`AssociateResolverRule`, `CreateResolverEndpoint`,
+`CreateResolverQueryLogConfig`, `CreateResolverRule` declare it) --
+`CreateFirewallRule` doesn't. Swapped to `ErrBatchValidation`. This was
+`ErrAlreadyExists`'s only production call site in the entire service; it is
+now unused as a producer (its one remaining reference is a now-dead
+defensive case in `firewallRuleBatchErrorCode`, left in place -- harmless,
+and `ResourceExistsException` genuinely going unmodeled for the six
+Resolver* association/creation ops that could produce it is a separate,
+larger gap: those ops have no duplicate-detection logic at all, which is a
+"never emits a code it should" gap, not this pass's "emits a code it
+shouldn't" class -- not fixed here, recorded for a future pass).
+
+**Six findings were refused a code swap because no declared type fits**
+(the operation's own model declares no type for the condition): an empty
+required ID/ARN reaching `GetFirewallDomainList`, `DeleteFirewallDomainList`,
+`GetFirewallRuleGroup`, `GetFirewallRuleGroupAssociation`, and
+`GetResolverRuleAssociation` -- none of these five declare
+`ValidationException` *or* `InvalidRequestException` in their real
+deserializers. For all five the handler-level pre-check was removed
+entirely rather than reclassified: each backend `Get`/`Delete` call already
+does a natural map lookup by ID that misses on an empty string and returns
+`ErrNotFound` (`ResourceNotFoundException`), a type every one of the five
+does declare -- confirmed by reading each backend method
+(`firewall_domain_lists.go`, `firewall_rule_groups.go`,
+`rule_associations.go`). `GetResolverRulePolicy`/`PutResolverRulePolicy`
+had no such natural fallback (their backends are blind map
+read/write with no not-found path), so their empty-`Arn` checks were
+instead pointed at `ErrInvalidParameter` (`InvalidParameterException`,
+"One or more parameters in this request are not valid" -- both ops declare
+it, confirmed).
+
+**Reachability note:** as with xray's `PutResourcePolicy` finding this same
+pass, `validateOp<Op>Input` in the pinned SDK's `validators.go` only checks
+`!= nil` for these required string fields, never non-empty -- so
+`aws.String("")` passes client-side validation and every one of these paths
+is genuinely reachable by a real, correctly-signed client, not just by raw
+HTTP.
+
+Zero web pages fetched this pass -- everything resolved from the pinned
+`aws-sdk-go-v2/service/route53resolver@v1.48.4` module cache.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide), `go test -race
+-count=1 ./services/route53resolver/...`, `golangci-lint run
+./services/route53resolver/...` -- all clean (see session notes for exact
+output).
+
+## Handler-collision determinism re-audit (2026-08-31, gopherstack-id70)
+
+Re-checked for damage from the handler-resolution defect fixed in
+`ef0eef041`. Built the unpatched `cmd/reqfieldscan`/`cmd/reqfielddiff` from
+`ef0eef041~1` in a worktree, ran both five times against this package, and
+diffed against HEAD.
+
+`cmd/reqfieldscan`: byte-identical across all 5 old runs and HEAD (72/72
+dispatch coverage, no unread fields). `cmd/reqfielddiff`: 0 findings in
+every one of the 5 old runs and at HEAD (72 SDK operations resolved, 843
+emulator-declared fields, no undeclared SDK input fields). ZERO DAMAGE.

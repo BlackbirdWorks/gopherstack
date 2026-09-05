@@ -3,6 +3,10 @@ package workspaces_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConnectClientAddInCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -94,4 +98,56 @@ func TestConnectClientAddInCRUD(t *testing.T) { //nolint:paralleltest // existin
 			}
 		})
 	}
+}
+
+// TestDescribeConnectClientAddIns_Pagination proves the op pages through
+// every add-in exactly once instead of returning them all on a single page
+// with no cursor.
+func TestDescribeConnectClientAddIns_Pagination(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	const resourceID = "d-00000000"
+
+	names := []string{"addin-a", "addin-b", "addin-c"}
+	for _, n := range names {
+		_, err := client.CreateConnectClientAddIn(ctx, &wssdk.CreateConnectClientAddInInput{
+			Name:       aws.String(n),
+			ResourceId: aws.String(resourceID),
+			URL:        aws.String("https://example.com/" + n),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.DescribeConnectClientAddIns(ctx, &wssdk.DescribeConnectClientAddInsInput{
+		ResourceId: aws.String(resourceID),
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.AddIns, 2)
+	require.NotNil(t, page1.NextToken, "first page must return a cursor when more add-ins remain")
+
+	page2, err := client.DescribeConnectClientAddIns(ctx, &wssdk.DescribeConnectClientAddInsInput{
+		ResourceId: aws.String(resourceID),
+		MaxResults: aws.Int32(2),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.AddIns, 1)
+	require.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{}
+	for _, a := range page1.AddIns {
+		seen[aws.ToString(a.AddInId)] = true
+	}
+
+	for _, a := range page2.AddIns {
+		id := aws.ToString(a.AddInId)
+		require.False(t, seen[id], "add-in %s returned on both pages", id)
+		seen[id] = true
+	}
+
+	require.Len(t, seen, len(names))
 }

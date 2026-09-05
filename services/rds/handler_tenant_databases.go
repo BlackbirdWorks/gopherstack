@@ -6,7 +6,7 @@ import (
 )
 
 type xmlTenantDatabase struct {
-	TenantDatabaseName   string `xml:"TenantDatabaseName"`
+	TenantDatabaseName   string `xml:"TenantDBName"`
 	TenantDatabaseARN    string `xml:"TenantDatabaseARN,omitempty"`
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier,omitempty"`
 	Status               string `xml:"Status,omitempty"`
@@ -43,7 +43,7 @@ type modifyTenantDatabaseResponse struct {
 
 type xmlDBSnapshotTenantDatabase struct {
 	DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
-	TenantDatabaseName   string `xml:"TenantDatabaseName,omitempty"`
+	TenantDatabaseName   string `xml:"TenantDBName,omitempty"`
 }
 
 type xmlDBSnapshotTenantDatabaseList struct {

@@ -158,7 +158,12 @@ func TestTagRoutes_InvalidBody(t *testing.T) {
 	}
 }
 
-func TestTagRoutes_DomainNotFound(t *testing.T) {
+// TestTagRoutes_UnknownARN covers AddTags/RemoveTags with an ARN that names
+// no existing resource. Neither op's own deserializer (opensearch@v1.75.4
+// deserializers.go) models ResourceNotFoundException -- this is
+// ValidationException (400), unlike most other domain-scoped ops in this
+// service.
+func TestTagRoutes_UnknownARN(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -193,7 +198,7 @@ func TestTagRoutes_DomainNotFound(t *testing.T) {
 			resp := doRequest(t, h, http.MethodPost, tt.path, tt.body)
 			defer resp.Body.Close()
 
-			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		})
 	}
 }
