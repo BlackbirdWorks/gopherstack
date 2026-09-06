@@ -2949,6 +2949,11 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
 
+	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
+	// CreateFunction/UpdateFunctionCode is validated against real ECR state
+	// instead of accepted unconditionally.
+	wireLambdaECR(byName["Lambda"], byName["ECR"])
+
 	// Wire Timestream Query → Timestream Write's shared tag store, so
 	// CreateScheduledQuery's Tags reach TagResource/ListTagsForResource --
 	// timestreamquery's own RouteMatcher defers those ops to TimestreamWrite
@@ -4922,16 +4927,22 @@ func wireKinesisLambda(kinesisReg, lambdaReg service.Registerable) {
 	}
 }
 
-// kinesisReaderAdapter adapts the Kinesis backend to the lambda.KinesisReader interface.
+// kinesisReaderAdapter adapts the Kinesis backend to the lambda.KinesisReader
+// interface. streamARN (a full Kinesis stream ARN, not a bare name --
+// event_source_poller.go now passes it through unextracted) carries the
+// stream's actual region, which GetShardIDs/GetShardIterator need attached
+// to the context so a stream outside the account default region resolves
+// correctly instead of silently missing (gopherstack-qowd). GetRecords needs
+// no region: the shard iterator token returned by GetShardIterator already
+// embeds it.
 type kinesisReaderAdapter struct {
 	backend *kinesisbackend.InMemoryBackend
 }
 
-func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
-	out, err := a.backend.DescribeStream(
-		context.Background(),
-		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
-	)
+func (a *kinesisReaderAdapter) GetShardIDs(streamARN string) ([]string, error) {
+	ctx, name := kinesisbackend.ContextAndNameFromStreamARN(context.Background(), streamARN)
+
+	out, err := a.backend.DescribeStream(ctx, &kinesisbackend.DescribeStreamInput{StreamName: name})
 	if err != nil {
 		return nil, err
 	}
@@ -4945,10 +4956,12 @@ func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) 
 }
 
 func (a *kinesisReaderAdapter) GetShardIterator(
-	streamName, shardID, iteratorType, startingSeqNum string,
+	streamARN, shardID, iteratorType, startingSeqNum string,
 ) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
-		StreamName:             streamName,
+	ctx, name := kinesisbackend.ContextAndNameFromStreamARN(context.Background(), streamARN)
+
+	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
+		StreamName:             name,
 		ShardID:                shardID,
 		ShardIteratorType:      iteratorType,
 		StartingSequenceNumber: startingSeqNum,
@@ -5748,11 +5761,10 @@ type cwLambdaInvokerAdapter struct {
 
 func (a *cwLambdaInvokerAdapter) InvokeFunction(
 	ctx context.Context,
-	name string,
-	_ string,
+	name, invocationType string,
 	payload []byte,
 ) ([]byte, int, error) {
-	return a.backend.InvokeFunction(ctx, name, lambdabackend.InvocationTypeEvent, payload)
+	return a.backend.InvokeFunction(ctx, name, invocationType, payload)
 }
 
 // wireLambdaCWLogs connects the Lambda backend to CloudWatch Logs so that
@@ -5798,6 +5810,77 @@ func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
 	}
 
 	lambdaBk.SetS3CodeFetcher(sfnbackend.NewS3Integration(s3H.Backend))
+}
+
+// wireLambdaECR connects the Lambda backend to ECR so Code.ImageUri on an
+// Image package-type CreateFunction/UpdateFunctionCode is validated against
+// real ECR state -- see lambdaECRResolverAdapter and lambda.ECRResolver's
+// doc comment (gopherstack-zkp9).
+func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	ecrH, ecrOk := ecrReg.(*ecrbackend.Handler)
+	if !ecrOk {
+		return
+	}
+
+	ecrBk, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend)
+	if !ecrBkOk {
+		return
+	}
+
+	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{backend: ecrBk})
+}
+
+// lambdaECRResolverAdapter adapts the ECR backend to the lambda.ECRResolver
+// interface, parsing the repository and tag-or-digest out of an ECR-style
+// image URI. A URI whose host does not look like an ECR endpoint (e.g. a
+// public Docker Hub image) is accepted unvalidated: real AWS only validates
+// Code.ImageUri against ECR when it is in fact an ECR reference.
+type lambdaECRResolverAdapter struct {
+	backend *ecrbackend.InMemoryBackend
+}
+
+func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
+	repo, id, ok := parseECRImageURI(imageURI)
+	if !ok {
+		return true
+	}
+
+	_, err := a.backend.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
+
+	return err == nil
+}
+
+// parseECRImageURI splits an ECR-style image URI
+// (<acct>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag> or
+// .../<repo>@<digest>) into a repository name and image identifier. A
+// repository name may itself contain slashes, so only the host segment and
+// the final "@" (digest) or ":" (tag) separator are treated as structural.
+// ok is false when the host segment doesn't look like an ECR endpoint.
+func parseECRImageURI(imageURI string) (string, ecrbackend.ImageIdentifier, bool) {
+	host, rest, found := strings.Cut(imageURI, "/")
+	if !found || !strings.Contains(host, ".dkr.ecr.") {
+		return "", ecrbackend.ImageIdentifier{}, false
+	}
+
+	if idx := strings.LastIndex(rest, "@"); idx >= 0 {
+		return rest[:idx], ecrbackend.ImageIdentifier{ImageDigest: rest[idx+1:]}, true
+	}
+
+	if idx := strings.LastIndex(rest, ":"); idx >= 0 {
+		return rest[:idx], ecrbackend.ImageIdentifier{ImageTag: rest[idx+1:]}, true
+	}
+
+	return rest, ecrbackend.ImageIdentifier{}, true
 }
 
 // wireTimestreamQueryTags connects the Timestream Query backend to
