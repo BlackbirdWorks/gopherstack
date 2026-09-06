@@ -66,6 +66,13 @@ var (
 	ErrUnsupportedGlueAction               = errors.New("unsupported Glue action")
 	ErrUnsupportedEventBridgeAction        = errors.New("unsupported EventBridge action")
 	ErrUnsupportedIntegration              = errors.New("unsupported service integration")
+	// ErrSyncPatternUnsupported is returned when a Task state's Resource carries a
+	// ".sync" suffix for a service that AWS does not support the "Run a Job" pattern
+	// for. Per the Step Functions Developer Guide's integration pattern support table
+	// (docs.aws.amazon.com/step-functions/latest/dg/connect-to-resource.html),
+	// Lambda, SQS, SNS, DynamoDB, and EventBridge are Request-Response/waitForTaskToken
+	// only -- ".sync" is "Not supported" for all of them.
+	ErrSyncPatternUnsupported = errors.New(".sync integration pattern is not supported for this resource")
 )
 
 const (
@@ -1129,6 +1136,10 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, resource, errCode, 
 
 // invokeTask performs the actual task invocation.
 func (e *Executor) invokeTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
+	if err := checkSyncPatternSupported(state.Resource); err != nil {
+		return nil, err
+	}
+
 	if isActivityResource(state.Resource) {
 		return e.invokeActivityTask(ctx, state, input, heartbeatSeconds)
 	}
@@ -1488,6 +1499,26 @@ func isWaitForTaskTokenResource(resource string) bool {
 	_, pattern := parseServiceIntegrationResource(resource)
 
 	return pattern == "waitForTaskToken"
+}
+
+// checkSyncPatternSupported rejects a ".sync" Resource for a service that AWS
+// documents as not supporting the "Run a Job" pattern (see
+// ErrSyncPatternUnsupported). Real Step Functions rejects these at
+// CreateStateMachine; gopherstack does not validate definitions at creation
+// time, so this is enforced at Task execution instead, alongside the existing
+// per-service "unsupported action" checks.
+func checkSyncPatternSupported(resource string) error {
+	_, pattern := parseServiceIntegrationResource(resource)
+	if pattern != "sync" {
+		return nil
+	}
+
+	if isLambdaResource(resource) || isSQSResource(resource) || isSNSResource(resource) ||
+		isDynamoDBResource(resource) || isEventBridgeResource(resource) {
+		return fmt.Errorf("%w: %q", ErrSyncPatternUnsupported, resource)
+	}
+
+	return nil
 }
 
 func parseServiceIntegrationResource(resource string) (string, string) {
