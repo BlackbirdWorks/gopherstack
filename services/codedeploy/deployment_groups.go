@@ -28,6 +28,10 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 		return nil, fmt.Errorf("%w: deployment group %s already exists", ErrDeploymentGroupAlreadyExists, dgName)
 	}
 
+	if err := validateDeploymentGroupTagFilters(input); err != nil {
+		return nil, err
+	}
+
 	dgID := uuid.NewString()
 	t := tags.New("codedeploy.dg." + appName + "." + dgName + ".tags")
 	if len(kv) > 0 {
@@ -104,6 +108,10 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 	dg, ok := b.deploymentGroups.Get(oldKey)
 	if !ok {
 		return false, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, currentDGName)
+	}
+
+	if err := validateDeploymentGroupTagFilters(input); err != nil {
+		return false, err
 	}
 
 	// Track whether hooks/alarms were previously configured and are now being removed.

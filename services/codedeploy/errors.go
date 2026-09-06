@@ -33,6 +33,16 @@ var (
 	ErrDeploymentNotInReadyState  = awserr.New("DeploymentIsNotInReadyStateException", awserr.ErrConflict)
 	ErrInvalidDeploymentWaitType  = awserr.New("InvalidDeploymentWaitTypeException", awserr.ErrInvalidParameter)
 	ErrInvalidFileExistsBehavior  = awserr.New("InvalidFileExistsBehaviorException", awserr.ErrInvalidParameter)
+	// ErrInvalidEC2TagCombination and ErrInvalidOnPremisesTagCombination guard
+	// CreateDeploymentGroup/UpdateDeploymentGroup's own modeled rule that at
+	// most one of each Ec2TagFilters/Ec2TagSet and
+	// OnPremisesInstanceTagFilters/OnPremisesTagSet pair may be set per call.
+	ErrInvalidEC2TagCombination        = awserr.New("InvalidEC2TagCombinationException", awserr.ErrInvalidParameter)
+	ErrInvalidOnPremisesTagCombination = awserr.New(
+		"InvalidOnPremisesTagCombinationException", awserr.ErrInvalidParameter)
+	// ErrInvalidEC2Tag guards an Ec2TagFilters entry whose Type isn't a real
+	// EC2TagFilterType value.
+	ErrInvalidEC2Tag = awserr.New("InvalidEC2TagException", awserr.ErrInvalidParameter)
 
 	// ErrInvalidTagsToAdd covers every TagResource-rejected tag (reserved "aws:"
 	// prefix, oversized key/value, or the 50-tag-per-resource cap): TagResource's

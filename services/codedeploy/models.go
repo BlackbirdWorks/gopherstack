@@ -10,7 +10,7 @@ import (
 type TagFilter struct {
 	Key   string `json:"Key,omitempty"`
 	Value string `json:"Value,omitempty"`
-	Type  string `json:"Type,omitempty"` // EQUALS | KEY_ONLY | VALUE_ONLY
+	Type  string `json:"Type,omitempty"` // KEY_ONLY | VALUE_ONLY | KEY_AND_VALUE
 }
 
 // TagSet is a list of tag filters combined with AND logic.

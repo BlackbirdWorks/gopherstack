@@ -52,7 +52,7 @@ func TestDeploymentTargets_Ec2TagFilters_RealInstances(t *testing.T) {
 	_, err = h.Backend.CreateDeploymentGroup("my-app", "my-dg", codedeploy.DeploymentGroupInput{
 		ServiceRoleArn: "arn:aws:iam::000000000000:role/role",
 		Ec2TagFilters: []codedeploy.TagFilter{
-			{Key: "env", Value: "prod", Type: "EQUALS"},
+			{Key: "env", Value: "prod", Type: "KEY_AND_VALUE"},
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestDeploymentTargets_Ec2TagFilters_NoEc2Wired(t *testing.T) {
 	_, err = h.Backend.CreateDeploymentGroup("my-app", "my-dg", codedeploy.DeploymentGroupInput{
 		ServiceRoleArn: "arn:aws:iam::000000000000:role/role",
 		Ec2TagFilters: []codedeploy.TagFilter{
-			{Key: "env", Value: "prod", Type: "EQUALS"},
+			{Key: "env", Value: "prod", Type: "KEY_AND_VALUE"},
 		},
 	}, nil)
 	require.NoError(t, err)
