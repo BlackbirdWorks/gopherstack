@@ -715,6 +715,7 @@ func (b *InMemoryBackend) applyScaleIn(g *AutoScalingGroup, targetCount int) {
 
 	b.terminateInEC2(removedIDs)
 	b.deregisterELBTargets(removedIDs, g.TargetGroupARNs)
+	b.deregisterELBInstances(removedIDs, g.LoadBalancerNames)
 }
 
 // SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.

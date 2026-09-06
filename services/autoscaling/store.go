@@ -77,7 +77,12 @@ type InMemoryBackend struct {
 	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
 	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames
 	// being stored and echoed with no effect on ELBv2.
-	elbv2Registrar          ELBv2TargetRegistrar
+	elbv2Registrar ELBv2TargetRegistrar
+	// elbRegistrar, when set (see SetELBRegistrar), registers/deregisters real
+	// classic ELB instances as group membership and LoadBalancerNames change.
+	// Nil preserves the historical behavior of LoadBalancerNames being stored
+	// and echoed with no effect on classic ELB.
+	elbRegistrar            ELBInstanceRegistrar
 	groups                  *store.Table[AutoScalingGroup]
 	launchConfigurations    *store.Table[LaunchConfiguration]
 	activities              map[string][]ScalingActivity

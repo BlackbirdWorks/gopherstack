@@ -2930,6 +2930,11 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// being stored and echoed with no effect on DescribeTargetHealth.
 	wireAutoScalingELBv2(byName["Autoscaling"], byName["ELBv2"])
 
+	// Wire Auto Scaling → classic ELB so LoadBalancerNames membership changes
+	// register/deregister real ELB instances, instead of LoadBalancerNames
+	// being stored and echoed with no effect on DescribeInstanceHealth.
+	wireAutoScalingELB(byName["Autoscaling"], byName["ELB"])
+
 	// Wire ECS → ELBv2 so tasks belonging to a service with LoadBalancers
 	// configured register/deregister as real ELBv2 targets as they
 	// reach/leave RUNNING, instead of Service.LoadBalancers being stored and
@@ -5432,6 +5437,67 @@ func wireAutoScalingELBv2(asgReg, elbv2Reg service.Registerable) {
 	asgBk.SetELBv2Registrar(&autoscalingELBv2RegistrarAdapter{
 		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
 	})
+}
+
+// wireAutoScalingELB wires Auto Scaling to the classic ELB backend so
+// instances added to or removed from a group's LoadBalancerNames (via
+// scale-out/in, TerminateInstanceInAutoScalingGroup, Attach/DetachInstances,
+// and Attach/DetachLoadBalancers) register/deregister as real classic ELB
+// instances, instead of LoadBalancerNames being stored and echoed with no
+// effect on ELB DescribeInstanceHealth.
+func wireAutoScalingELB(asgReg, elbReg service.Registerable) {
+	asgH, ok := asgReg.(*autoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	asgBk, ok := asgH.Backend.(*autoscalingbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	elbH, ok := elbReg.(*elbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	elbBk, ok := elbH.Backend.(*elbbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	asgBk.SetELBRegistrar(&autoscalingELBRegistrarAdapter{backend: elbBk})
+}
+
+// autoscalingELBRegistrarAdapter adapts the classic ELB backend to the
+// autoscaling.ELBInstanceRegistrar interface.
+type autoscalingELBRegistrarAdapter struct {
+	backend *elbbackend.InMemoryBackend
+}
+
+func (a *autoscalingELBRegistrarAdapter) RegisterInstances(
+	ctx context.Context, loadBalancerName string, instanceIDs []string,
+) error {
+	_, err := a.backend.RegisterInstancesWithLoadBalancer(ctx, loadBalancerName, toELBInstances(instanceIDs))
+
+	return err
+}
+
+func (a *autoscalingELBRegistrarAdapter) DeregisterInstances(
+	ctx context.Context, loadBalancerName string, instanceIDs []string,
+) error {
+	_, err := a.backend.DeregisterInstancesFromLoadBalancer(ctx, loadBalancerName, toELBInstances(instanceIDs))
+
+	return err
+}
+
+func toELBInstances(instanceIDs []string) []elbbackend.Instance {
+	out := make([]elbbackend.Instance, len(instanceIDs))
+	for i, id := range instanceIDs {
+		out[i] = elbbackend.Instance{InstanceID: id}
+	}
+
+	return out
 }
 
 // autoscalingELBv2RegistrarAdapter adapts the ELBv2 backend to the
