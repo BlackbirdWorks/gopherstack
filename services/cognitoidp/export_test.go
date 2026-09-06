@@ -171,6 +171,17 @@ func (b *InMemoryBackend) AddUserPoolDomainInternal(domain *UserPoolDomain) {
 	b.domains.Put(domain)
 }
 
+// ExpireAttrVerificationCodeForTest forces an attribute verification code's ExpiresAt to a past time. For testing only.
+func (b *InMemoryBackend) ExpireAttrVerificationCodeForTest(poolID, username, attrName string) {
+	b.mu.Lock("ExpireAttrVerificationCodeForTest")
+	defer b.mu.Unlock()
+
+	key := poolID + ":" + username + ":" + attrName
+	if entry, ok := b.attrVerificationCodes[key]; ok {
+		entry.ExpiresAt = time.Now().Add(-time.Hour)
+	}
+}
+
 // GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
 func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
 	b.mu.RLock("GetAttrVerificationCodeForTest")
