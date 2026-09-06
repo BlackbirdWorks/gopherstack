@@ -2870,6 +2870,11 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 		byName["Lambda"],
 		byName["EventBridge"],
 	)
+
+	// Wire SES identity notification topics and configuration-set event
+	// destinations to SNS, so bounce/complaint/delivery outcomes are
+	// actually published instead of silently validated-and-stored.
+	wireSESSNS(byName["SES"], byName["SNS"])
 }
 
 // wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
@@ -4552,6 +4557,46 @@ func (a *s3SNSPublisherAdapter) PublishToTopic(
 	topicARN, message, subject string,
 ) error {
 	_, err := a.backend.Publish(topicARN, message, subject, "", nil)
+
+	return err
+}
+
+// wireSESSNS connects the SES backend to SNS so identity notification
+// topics (SetIdentityNotificationTopic) and configuration-set event
+// destinations (CreateConfigurationSetEventDestination) actually publish
+// bounce/complaint/delivery notifications, instead of only being validated
+// and stored (gopherstack-y6rv).
+func wireSESSNS(sesReg, snsReg service.Registerable) {
+	sesH, ok := sesReg.(*sesbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sesBk, sesBkOk := sesH.Backend.(*sesbackend.InMemoryBackend)
+	if !sesBkOk {
+		return
+	}
+
+	snsH, snsOk := snsReg.(*snsbackend.Handler)
+	if !snsOk {
+		return
+	}
+
+	snsBk, snsBkOk := snsH.Backend.(*snsbackend.InMemoryBackend)
+	if !snsBkOk {
+		return
+	}
+
+	sesBk.SetSNSPublisher(&sesSNSPublisherAdapter{backend: snsBk})
+}
+
+// sesSNSPublisherAdapter adapts the SNS backend to the ses.SNSPublisher interface.
+type sesSNSPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *sesSNSPublisherAdapter) PublishToTopic(topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "Amazon SES Notification", "", nil)
 
 	return err
 }
