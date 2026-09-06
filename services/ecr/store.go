@@ -138,6 +138,7 @@ func (b *InMemoryBackend) Reset() {
 	b.layerUploads = make(map[string]*layerUploadState)
 	b.repoUploadIndex = make(map[string]map[string]struct{})
 	b.layerUploadQueue = make([]layerUploadQueueEntry, 0)
+	b.layerUploadSeq = 0
 	b.repoTags = make(map[string]map[string]string)
 	b.registryPolicy = ""
 	b.registryScanningConfig = &RegistryScanningSettings{ScanType: scanTypeBasic}

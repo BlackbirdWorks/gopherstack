@@ -191,5 +191,6 @@ func (b *InMemoryBackend) Reset() {
 	b.metrics = make(map[string]map[string]*metricRecord)
 	b.alarmHistory = make(map[string][]AlarmHistoryItem)
 	b.alarmHistorySeq = 0
+	b.totalMetrics = 0
 	b.registry.ResetAll()
 }

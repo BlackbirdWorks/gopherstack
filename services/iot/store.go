@@ -183,10 +183,10 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Clears every table registered in store_setup.go's registerAllTables.
-	// b.shadows is deliberately NOT part of the registry and NOT cleared
-	// here — see registerAllTables' comment for why this preserves a
-	// pre-existing quirk byte-for-byte.
+	// b.shadows is not part of the registry (no pure keyFn without changing
+	// ThingShadow's shape), so it needs its own clear here.
 	b.registry.ResetAll()
+	b.shadows = make(map[shadowKey]*ThingShadow)
 
 	b.certificateTransfers = make(map[string]string)
 	b.thingBillingGroups = make(map[string]string)

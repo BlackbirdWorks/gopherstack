@@ -117,10 +117,6 @@ func vaultARN(accountID, region, vaultName string) string {
 }
 
 // Reset clears all backend state, resetting to an empty store.
-//
-// archiveData is deliberately NOT cleared here, matching the pre-conversion
-// behaviour: raw archive bytes have always leaked across Reset() calls (they
-// were never part of any of the maps this method used to reinitialise).
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -130,4 +126,5 @@ func (b *InMemoryBackend) Reset() {
 	b.multipartPartData = make(map[uploadKey]map[string][]byte)
 	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
 	b.dataRetrievalPolicies = make(map[string]string)
+	b.archiveData = make(map[string][]byte)
 }

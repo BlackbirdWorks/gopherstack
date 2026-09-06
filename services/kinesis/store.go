@@ -244,6 +244,9 @@ func (b *InMemoryBackend) Reset() {
 	b.fisThroughputFaults = make(map[string]map[string]*kinesisThrottleFault)
 	b.faultsMu.Unlock()
 	b.resourcePolicies = make(map[string]map[string]string)
+	b.minimumThroughputBillingCommitment = MinimumThroughputBillingCommitmentOutput{
+		Status: minimumThroughputBillingCommitmentDisabled,
+	}
 }
 
 // purgeStreamEntry removes s from the given region's stream map when it predates

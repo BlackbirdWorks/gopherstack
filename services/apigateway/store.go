@@ -446,17 +446,23 @@ type InMemoryBackend struct {
 	mu       *lockmetrics.RWMutex
 }
 
+// defaultAccount returns the API Gateway account settings AWS assigns to a
+// fresh account, used both at construction and on Reset.
+func defaultAccount() *Account {
+	return &Account{
+		ThrottleSettings: &ThrottleSettings{
+			BurstLimit: defaultBurstLimit,
+			RateLimit:  defaultRateLimit,
+		},
+		Features:      []string{"UsagePlans"},
+		APIKeyVersion: "1",
+	}
+}
+
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		account: &Account{
-			ThrottleSettings: &ThrottleSettings{
-				BurstLimit: defaultBurstLimit,
-				RateLimit:  defaultRateLimit,
-			},
-			Features:      []string{"UsagePlans"},
-			APIKeyVersion: "1",
-		},
+		account:          defaultAccount(),
 		registry:         store.NewRegistry(),
 		resourceVersions: make(map[string]uint64),
 		apiKeysByValue:   make(map[string]string),
@@ -513,4 +519,5 @@ func (b *InMemoryBackend) Reset() {
 	b.apiKeysByValue = make(map[string]string)
 	b.usage = newUsageTracker()
 	b.usageOverrides = make(map[string]map[string]int64)
+	b.account = defaultAccount()
 }

@@ -15,7 +15,7 @@ func (b *InMemoryBackend) PutAccountPreferences(resourceIDType string) (AccountP
 	b.mu.Lock("PutAccountPreferences")
 	defer b.mu.Unlock()
 
-	if resourceIDType != "LONG_ID" && resourceIDType != "SHORT_ID" {
+	if resourceIDType != resourceIDTypeLong && resourceIDType != resourceIDTypeShort {
 		return AccountPreferences{}, fmt.Errorf(
 			"%w: invalid ResourceIdType %q, must be LONG_ID or SHORT_ID",
 			ErrValidation,

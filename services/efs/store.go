@@ -74,6 +74,11 @@ const (
 	ipAddressTypeDualStack = "DUAL_STACK"
 )
 
+const (
+	resourceIDTypeLong  = "LONG_ID"
+	resourceIDTypeShort = "SHORT_ID"
+)
+
 // InMemoryBackend is the in-memory store for EFS resources.
 //
 // The four resource collections below (fileSystems, mountTargets,
@@ -141,7 +146,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory EFS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountPreferences: AccountPreferences{ResourceIDType: "LONG_ID"},
+		accountPreferences: AccountPreferences{ResourceIDType: resourceIDTypeLong},
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("efs"),
@@ -284,6 +289,7 @@ func (b *InMemoryBackend) Reset() {
 	b.accessPointsByClientToken.Reset()
 
 	b.initRegionMaps()
+	b.accountPreferences = AccountPreferences{ResourceIDType: resourceIDTypeLong}
 }
 
 // Region returns the AWS region this backend is configured for.

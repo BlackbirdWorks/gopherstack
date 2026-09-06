@@ -76,6 +76,8 @@ func (b *InMemoryBackend) Reset() {
 	b.tags = make(map[string]map[string]string)
 	b.policies = make(map[string]string)
 	b.policyRevisions = make(map[string]string)
+	b.policyCreatedAt = make(map[string]time.Time)
+	b.policyModifiedAt = make(map[string]time.Time)
 }
 
 // StartJob submits an analysis job with AWS-style initial status. tags are

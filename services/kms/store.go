@@ -671,6 +671,8 @@ func (b *InMemoryBackend) Reset() {
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
 	b.clearResolutionCache()
+	b.importWrappingKeys = sync.Map{}
+	b.lastUsage = sync.Map{}
 }
 
 // AddKeyInternal inserts a key directly into the backend without going through CreateKey.
