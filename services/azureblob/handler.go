@@ -483,7 +483,7 @@ func (h *Handler) getBlob(c *echo.Context, container, blob string) error {
 	// accepting only "Range" made GetBlob's single-range support unreachable
 	// from those SDKs' default download path even though the Go SDK (which
 	// does send "Range") passed.
-	rangeHeader := r.Header.Get("x-ms-range")
+	rangeHeader := r.Header.Get("X-Ms-Range")
 	if rangeHeader == "" {
 		rangeHeader = r.Header.Get("Range")
 	}
