@@ -90,6 +90,13 @@ type Instance struct {
 	ServiceID  string            `json:"serviceID"`
 }
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+// RegisterRecord stores the actual record value (IP for A/AAAA, hostname for CNAME).
+type DNSRegistrar interface {
+	RegisterRecord(hostname, recordType string, values []string)
+	Deregister(hostname string)
+}
+
 // DiscoveredInstance is the richer per-instance response for DiscoverInstances.
 type DiscoveredInstance struct {
 	Attributes    map[string]string

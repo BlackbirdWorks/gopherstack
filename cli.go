@@ -2183,6 +2183,7 @@ func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
 	wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
 	wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
 	wireEC2DNS(cli.ec2Handler, dnsSrv)
+	wireServiceDiscoveryDNS(cli.servicediscoveryHandler, dnsSrv)
 }
 
 // buildEchoServer creates and configures the Echo HTTP server.
@@ -11536,6 +11537,27 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 	if ec2Bk, bkOk := ec2H.Backend.(*ec2backend.InMemoryBackend); bkOk {
 		ec2Bk.SetDNSRegistrar(dns)
 	}
+}
+
+// wireServiceDiscoveryDNS sets the DNS registrar on the Cloud Map backend so
+// RegisterInstance produces resolvable DNS records for DNS_PUBLIC/DNS_PRIVATE
+// namespaces (HTTP namespaces have no DNS and are left alone).
+func wireServiceDiscoveryDNS(sdReg service.Registerable, dns servicediscoverybackend.DNSRegistrar) {
+	if sdReg == nil || dns == nil {
+		return
+	}
+
+	sdH, ok := sdReg.(*servicediscoverybackend.Handler)
+	if !ok {
+		return
+	}
+
+	sdBk, ok := sdH.Backend.(*servicediscoverybackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	sdBk.SetDNSRegistrar(dns)
 }
 
 // wireCloudWatchFirehose connects the CloudWatch backend to Firehose so that a

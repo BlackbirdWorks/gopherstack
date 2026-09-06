@@ -38,6 +38,12 @@ const (
 	// key documented for seeding a custom health check's initial status.
 	instanceAttrInitHealthStatus = "AWS_INIT_HEALTH_STATUS"
 
+	// instanceAttrIPv4/IPv6/CNAME are the well-known RegisterInstance attribute
+	// keys that carry the resolvable DNS record values (api_op_RegisterInstance.go).
+	instanceAttrIPv4  = "AWS_INSTANCE_IPV4"
+	instanceAttrIPv6  = "AWS_INSTANCE_IPV6"
+	instanceAttrCNAME = "AWS_INSTANCE_CNAME"
+
 	healthStatusFilterAll              = "ALL"
 	healthStatusFilterHealthyOrElseAll = "HEALTHY_OR_ELSE_ALL"
 
@@ -72,6 +78,8 @@ type InMemoryBackend struct {
 	serviceAttributes      map[string]map[string]string
 	instanceHealthStatuses map[string]string
 
+	dns DNSRegistrar
+
 	accountID string
 	region    string
 
@@ -97,6 +105,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// SetDNSRegistrar wires a DNS server so DNS-namespace service hostnames are
+// auto-registered from their instances' AWS_INSTANCE_* attributes.
+func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	b.dns = dns
+	b.mu.Unlock()
 }
 
 // Region returns the AWS region this backend is configured for.
