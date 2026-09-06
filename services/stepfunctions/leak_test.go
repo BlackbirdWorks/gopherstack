@@ -301,6 +301,92 @@ func TestSweepTaskTokens_ReapsWaitForTaskTokenEntries(t *testing.T) {
 	})
 }
 
+// TestSendTaskHeartbeat_RenewsTaskTokenTTL verifies that a callback task
+// (registered via WaitForTaskToken) which keeps calling SendTaskHeartbeat
+// survives janitor sweeps even though the total elapsed time since
+// registration exceeds TaskTokenTTL, as long as no single gap between
+// heartbeats exceeds the TTL. Uses synctest so elapsed time is real (fake)
+// time, matching TestSweepTaskTokens_ReapsWaitForTaskTokenEntries's rationale.
+func TestSendTaskHeartbeat_RenewsTaskTokenTTL(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		b := sfn.NewInMemoryBackendWithContext(ctx, "123456789012", "us-east-1")
+		b.SetSettings(sfn.Settings{TaskTokenTTL: 10 * time.Millisecond})
+
+		done := make(chan error, 1)
+		go func() {
+			_, waitErr := b.WaitForTaskToken(ctx, "hb-token", 0)
+			done <- waitErr
+		}()
+
+		synctest.Wait()
+		require.Equal(t, 1, b.TaskTokenCount(), "WaitForTaskToken must register its token")
+
+		// Heartbeat every 7ms for 21ms total -- longer than the 10ms TTL
+		// measured from registration, but each individual gap stays under it.
+		for range 3 {
+			time.Sleep(7 * time.Millisecond)
+			require.NoError(t, b.SendTaskHeartbeat("hb-token"))
+		}
+
+		evicted := b.SweepTaskTokens()
+		require.Equal(t, 0, evicted, "a heartbeating callback task must not be evicted at TTL")
+		require.Equal(t, 1, b.TaskTokenCount())
+
+		require.NoError(t, b.SendTaskSuccess("hb-token", `{}`))
+		synctest.Wait()
+
+		select {
+		case waitErr := <-done:
+			require.NoError(t, waitErr, "WaitForTaskToken must complete normally, not via TTL eviction")
+		default:
+			t.Fatal("WaitForTaskToken did not complete after SendTaskSuccess")
+		}
+	})
+}
+
+// TestSendTaskHeartbeat_DoesNotExtendContextTimeout verifies that renewing
+// the TaskTokenTTL backstop via SendTaskHeartbeat does not push out a Task
+// state's own TimeoutSeconds, which the ASL executor enforces as a ctx
+// deadline around WaitForTaskToken/InvokeActivity (asl/executor.go
+// runTaskAttempt), independent of tasksByToken's createdAt.
+func TestSendTaskHeartbeat_DoesNotExtendContextTimeout(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := sfn.NewInMemoryBackendWithContext(context.Background(), "123456789012", "us-east-1")
+
+		taskCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			_, waitErr := b.WaitForTaskToken(taskCtx, "timeout-token", 0)
+			done <- waitErr
+		}()
+
+		time.Sleep(5 * time.Millisecond)
+		require.NoError(t, b.SendTaskHeartbeat("timeout-token"))
+
+		// Advance past the 20ms deadline (15ms remaining from t=5ms); synctest
+		// auto-advances the fake clock to the ctx timer once both goroutines
+		// are durably blocked, then Wait lets the unblocked goroutine run to
+		// its done-channel send before we check it.
+		time.Sleep(16 * time.Millisecond)
+		synctest.Wait()
+
+		select {
+		case waitErr := <-done:
+			require.ErrorIs(t, waitErr, context.DeadlineExceeded,
+				"a heartbeat must not extend the overall task's context deadline")
+		default:
+			t.Fatal("WaitForTaskToken did not observe context deadline expiry")
+		}
+	})
+}
+
 // TestLeak_DeletedExecsTombstoneCleanup verifies that pruneExecutionsLocked
 // cleans up orphaned tombstones (goroutines that exited without clearing them).
 func TestDeletedExecsTombstoneCleanup(t *testing.T) {
