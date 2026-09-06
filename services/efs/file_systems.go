@@ -352,6 +352,24 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 	return nil
 }
 
+// checkFileSystemAvailable returns ErrIncorrectFileSystemLifeCycleState unless fs is in
+// the "available" state, per the CreateMountTarget precondition
+// (api_op_CreateMountTarget.go:29-30) shared by every op that declares the same error.
+// Callers must hold b.mu.
+func checkFileSystemAvailable(fs *FileSystem) error {
+	if fs.LifeCycleState != statusAvailable {
+		return fmt.Errorf(
+			"%w: file system %s is in lifecycle state %q, not %q",
+			ErrIncorrectFileSystemLifeCycleState,
+			fs.FileSystemID,
+			fs.LifeCycleState,
+			statusAvailable,
+		)
+	}
+
+	return nil
+}
+
 // UpdateFileSystem updates throughput settings for a file system.
 // Enforces a 24-hour cooldown between throughput mode changes.
 func (b *InMemoryBackend) UpdateFileSystem(
@@ -367,6 +385,9 @@ func (b *InMemoryBackend) UpdateFileSystem(
 	fs, ok := b.fileSystems.Get(regionKey(region, fileSystemID))
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+	if err := checkFileSystemAvailable(fs); err != nil {
+		return nil, err
 	}
 
 	if req.ThroughputMode != "" {

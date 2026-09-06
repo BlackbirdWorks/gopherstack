@@ -35,6 +35,9 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
 	}
+	if err := checkFileSystemAvailable(fs); err != nil {
+		return nil, err
+	}
 
 	if _, exists := b.replicationConfigs.Get(regionKey(region, sourceFileSystemID)); exists {
 		return nil, fmt.Errorf(
@@ -221,6 +224,9 @@ func (b *InMemoryBackend) UpdateFileSystemProtection(
 	fs, ok := b.fileSystems.Get(regionKey(region, fileSystemID))
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+	if err := checkFileSystemAvailable(fs); err != nil {
+		return err
 	}
 
 	fs.ReplicationOverwriteProtection = replicationOverwriteProtection

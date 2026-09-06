@@ -724,3 +724,41 @@ func TestUpdateFileSystem_ProvisionedThroughput(t *testing.T) {
 		})
 	}
 }
+
+// TestUpdateFileSystem_RequiresAvailableFileSystem verifies UpdateFileSystem
+// rejects requests while the file system's lifecycle state is not "available"
+// (efs@v1.44.4 types/errors.go: IncorrectFileSystemLifeCycleState, "Returned if
+// the file system's lifecycle state is not \"available\"").
+func TestUpdateFileSystem_RequiresAvailableFileSystem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr       error
+		name          string
+		activateDelay time.Duration
+	}{
+		{name: "creating_state_rejected", activateDelay: time.Hour, wantErr: efs.ErrIncorrectFileSystemLifeCycleState},
+		{name: "available_state_allowed", activateDelay: 0, wantErr: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			efs.SetFSActivationDelay(b, tt.activateDelay)
+
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-ufs-lifecycle-"+tt.name))
+			require.NoError(t, err)
+
+			_, err = b.UpdateFileSystem(context.Background(), fs.FileSystemID, efs.UpdateFileSystemRequest{
+				ThroughputMode: "elastic",
+			})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
