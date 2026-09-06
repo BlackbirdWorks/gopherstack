@@ -170,6 +170,16 @@ func (b *InMemoryBackend) TargetsByARNCount(region, arn string) int {
 	return 0
 }
 
+// MaxEventBusRoutingHopsForTest exposes the cross-bus routing hop limit.
+const MaxEventBusRoutingHopsForTest = maxEventBusRoutingHops
+
+// EventBusHopsContextForTest returns a context carrying the given cross-bus
+// routing hop count, so external tests can exercise RouteEventToBus's loop
+// guard directly without building a real multi-hop bus chain.
+func EventBusHopsContextForTest(ctx context.Context, hops int) context.Context {
+	return eventBusHopsKey.Set(ctx, hops)
+}
+
 // ARNIndexConsistent verifies targetsByARN matches the canonical targets map.
 // Returns false and a description if not.
 func (b *InMemoryBackend) ARNIndexConsistent() (bool, string) {

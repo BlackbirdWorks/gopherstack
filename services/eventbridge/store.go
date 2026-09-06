@@ -69,11 +69,16 @@ var (
 )
 
 const (
-	defaultEventBusName    = "default"
-	maxEventLogSize        = 1000
-	ruleStateEnabled       = "ENABLED"
-	ruleStateDisabled      = "DISABLED"
-	defaultDeliveryWorkers = 10
+	defaultEventBusName = "default"
+	maxEventLogSize     = 1000
+	ruleStateEnabled    = "ENABLED"
+	ruleStateDisabled   = "DISABLED"
+	// ruleStateEnabledAllCloudTrailMgmtEvents is RuleState's third value (AWS
+	// SDK types.RuleState.Values(), aws-sdk-go-v2/service/eventbridge
+	// types/enums.go): used for a rule that also matches CloudTrail
+	// management events on the account's default event bus.
+	ruleStateEnabledAllCloudTrailMgmtEvents = "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"
+	defaultDeliveryWorkers                  = 10
 	// defaultShutdownTimeout is the maximum time Close waits for in-flight delivery
 	// goroutines to finish after cancelling the lifecycle context.
 	defaultShutdownTimeout = 5 * time.Second
@@ -448,14 +453,17 @@ func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
-// The backend registers itself as the API-destination resolver (unless the
-// caller supplied one) so outbound HTTP delivery can look up destination and
-// connection state without a separate wiring step.
+// The backend registers itself as the API-destination resolver and the
+// event-bus router (unless the caller supplied one) so outbound HTTP delivery
+// and cross-bus routing work without a separate wiring step.
 func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	b.mu.Lock("SetDeliveryTargets")
 	defer b.mu.Unlock()
 	if dt != nil && dt.APIDestinations == nil {
 		dt.APIDestinations = b
+	}
+	if dt != nil && dt.EventBusRouter == nil {
+		dt.EventBusRouter = b
 	}
 	b.deliveryTargets = dt
 }
