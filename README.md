@@ -540,7 +540,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 48 | 3 deferred |
-| [SES](services/ses/README.md) | A | 71 | 8 gaps; 1 deferred |
+| [SES](services/ses/README.md) | A | 71 | 7 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 4 gaps; 4 deferred |
@@ -650,7 +650,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
-| [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
+| [Rekognition](services/rekognition/README.md) | A | 50 | 3 gaps; 4 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 69 | 22 gaps; 5 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | clean |
 | [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 structural gap; 1 deferred |
