@@ -162,6 +162,8 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 	for _, w := range work {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
 
+		b.ensureAwslogsStreams(w.task, w.td)
+
 		if b.runner == nil {
 			if b.maybeRegisterStartLifecycle(w.task, clusterName) {
 				continue
@@ -636,6 +638,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 		ferr     error
 		tasks    []Task
 		failures []Failure
+		td       *TaskDefinition
 	)
 
 	func() {
@@ -644,7 +647,9 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 
 		b.ensureClusterLocked(clusterName)
 
-		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+		var err error
+
+		td, err = b.findTaskDefinitionLocked(input.TaskDefinition)
 		if err != nil {
 			ferr = err
 
@@ -696,6 +701,10 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 
 	if ferr != nil {
 		return nil, nil, ferr
+	}
+
+	for i := range tasks {
+		b.ensureAwslogsStreams(&tasks[i], td)
 	}
 
 	return tasks, failures, nil

@@ -2950,6 +2950,13 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// being validated and stored with no effect.
 	wireFirehoseCWLogs(byName["Firehose"], byName["CloudWatchLogs"])
 
+	// Wire CloudWatch Logs → ECS so an awslogs-driver container's log
+	// group/stream become discoverable, instead of LogConfiguration being
+	// validated, stored, and echoed with no effect (gopherstack-sv5q).
+	// Partial: no container output is forwarded yet — ECS's Docker client
+	// has no ContainerLogs plumbing.
+	wireEcsCWLogs(byName["ECS"], byName["CloudWatchLogs"])
+
 	// Wire Route 53 → Cloud Map so DNS_PUBLIC/DNS_PRIVATE namespaces get a
 	// real hosted zone, instead of a synthetic HostedZoneId matching no
 	// real route53 zone.
@@ -5825,6 +5832,28 @@ func wireFirehoseCWLogs(firehoseReg, cwlogsReg service.Registerable) {
 	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			firehoseBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+		}
+	}
+}
+
+// wireEcsCWLogs connects the ECS backend to CloudWatch Logs so an
+// awslogs-driver container's log group/stream are created and discoverable
+// when its task starts (gopherstack-sv5q). cwLogsAdapter already matches
+// ecs.CWLogsBackend's shape, so it is reused rather than defining a new one.
+func wireEcsCWLogs(ecsReg, cwlogsReg service.Registerable) {
+	ecsH, ok := ecsReg.(*ecsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
+			ecsBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
 		}
 	}
 }
