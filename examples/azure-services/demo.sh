@@ -82,7 +82,7 @@ wait_for_ports() {
     # A plain TCP-connect-and-get-any-response check: curl without -f treats
     # any HTTP status (even 4xx) as success, so this only fails while the
     # listener genuinely isn't accepting connections yet.
-    while ! curl -sS -o /dev/null "${url%/}/" 2>/dev/null; do
+    while ! curl -sS --connect-timeout 1 --max-time 1 -o /dev/null "${url%/}/" 2>/dev/null; do
       if (( SECONDS >= deadline )); then
         echo "FAILED: ${name} (${hostport}) did not become ready within 30s" >&2
         exit 1
