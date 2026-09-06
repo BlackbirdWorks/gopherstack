@@ -82,18 +82,13 @@ func (b *InMemoryBackend) UpdateRateBasedRule(
 	}
 
 	for _, u := range updates {
-		switch u.Action {
-		case updateInsert:
-			rule.MatchPredicates = append(rule.MatchPredicates, u.Predicate)
-		case updateDelete:
-			filtered := rule.MatchPredicates[:0]
-			for _, p := range rule.MatchPredicates {
-				if p.DataId != u.Predicate.DataId || p.Type != u.Predicate.Type {
-					filtered = append(filtered, p)
-				}
-			}
-			rule.MatchPredicates = filtered
+		predicates, err := applyEntryUpdate(rule.MatchPredicates, u.Action, u.Predicate,
+			func(a, b Predicate) bool { return a.DataId == b.DataId && a.Type == b.Type })
+		if err != nil {
+			return err
 		}
+
+		rule.MatchPredicates = predicates
 	}
 
 	return nil
