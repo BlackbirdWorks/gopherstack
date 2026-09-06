@@ -685,16 +685,21 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Database Migration Service](services/dms/README.md) | A | 97 | clean |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families |
 
+### Azure
+
+| Service | Parity | PARITY Entries | Notes |
+|---|---|---|---|
+| [Azure Blob Storage](services/azureblob/README.md) | C | 8 | 8 gaps; 2 deferred |
+| [Azure Cosmos DB](services/cosmosdb/README.md) | C | 15 | 9 gaps; 5 deferred |
+| [Azure Queue Storage](services/azurequeue/README.md) | C | 9 | 7 gaps; 1 deferred |
+| [Azure Table Storage](services/azuretable/README.md) | C | 10 | 6 gaps; 3 deferred |
+
 ### Other
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | clean |
-| [Azureblob](services/azureblob/README.md) | C | 8 | 8 gaps; 2 deferred |
-| [Azurequeue](services/azurequeue/README.md) | C | 9 | 7 gaps; 1 deferred |
-| [Azuretable](services/azuretable/README.md) | C | 10 | 6 gaps; 3 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | B | 6 | 3 gaps; 1 structural gap |
-| [Cosmosdb](services/cosmosdb/README.md) | C | 15 | 9 gaps; 5 deferred |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 3 gaps; 8 structural gaps; 1 deferred |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |
