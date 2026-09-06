@@ -1498,7 +1498,7 @@ func TestCBOR_PutMetricAlarm_Dimensions_Stored(t *testing.T) {
 			rec := postCBOR(t, h, "PutMetricAlarm", body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			page, _, _, err := b.DescribeAlarms([]string{"dim-alarm"}, nil, "", "", "", 0)
+			page, _, _, err := b.DescribeAlarms([]string{"dim-alarm"}, nil, "", "", "", 0, "", "", "")
 			require.NoError(t, err)
 			require.Len(t, page.Data, 1)
 

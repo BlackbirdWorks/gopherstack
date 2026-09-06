@@ -71,6 +71,7 @@ type StorageBackend interface {
 		alarmTypes []string,
 		alarmNamePrefix, stateValue, nextToken string,
 		maxRecords int,
+		actionPrefix, childrenOfAlarmName, parentsOfAlarmName string,
 	) (page.Page[MetricAlarm], page.Page[CompositeAlarm], page.Page[LogAlarm], error)
 	DescribeAlarmsForMetric(
 		namespace, metricName string,
