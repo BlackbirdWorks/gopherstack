@@ -358,13 +358,22 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 // validateTargetRequiredFields enforces required nested target fields, matching
 // aws-sdk-go-v2 pipes validators.go's validatePipeTargetKinesisStreamParameters
 // (PartitionKey required), validatePipeTargetEcsTaskParameters (TaskDefinitionArn
-// required), validatePipeTargetBatchJobParameters (JobDefinition and JobName
+// required, plus nested validateNetworkConfiguration/validateAwsVpcConfiguration:
+// Subnets required when AwsvpcConfiguration is set, and nested
+// validateCapacityProviderStrategyItem: CapacityProvider required per entry),
+// validatePipeTargetBatchJobParameters (JobDefinition and JobName
 // required), validatePipeTargetRedshiftDataParameters (Database and Sqls
 // required), validatePipeTargetSageMakerPipelineParameters's nested
 // validateSageMakerPipelineParameter (Name and Value required per list entry),
 // and validatePipeTargetTimestreamParameters (TimeValue, VersionValue, and
 // DimensionMappings required, plus its nested validateDimensionMapping:
-// DimensionName, DimensionValue, DimensionValueType required per entry).
+// DimensionName, DimensionValue, DimensionValueType required per entry;
+// validateSingleMeasureMapping: MeasureName, MeasureValue, MeasureValueType
+// required per SingleMeasureMappings entry; validateMultiMeasureMapping:
+// MultiMeasureName and MultiMeasureAttributeMappings required per
+// MultiMeasureMappings entry, plus nested
+// validateMultiMeasureAttributeMapping: MeasureValue, MeasureValueType,
+// MultiMeasureAttributeName required per attribute mapping entry).
 // Unlike source-side StartingPosition, this applies on both CreatePipe and
 // UpdatePipe: both ops route TargetParameters through the same validator.
 func validateTargetRequiredFields(tp *TargetParameters) error {
@@ -374,8 +383,8 @@ func validateTargetRequiredFields(tp *TargetParameters) error {
 	if kp := tp.KinesisStreamParameters; kp != nil && kp.PartitionKey == "" {
 		return fmt.Errorf("%w: KinesisStreamParameters.PartitionKey is required", ErrValidation)
 	}
-	if ep := tp.EcsTaskParameters; ep != nil && ep.TaskDefinitionArn == "" {
-		return fmt.Errorf("%w: EcsTaskParameters.TaskDefinitionArn is required", ErrValidation)
+	if err := validateECSTargetRequiredFields(tp.EcsTaskParameters); err != nil {
+		return err
 	}
 	if err := validateBatchJobRequiredFields(tp.BatchJobParameters); err != nil {
 		return err
@@ -388,6 +397,33 @@ func validateTargetRequiredFields(tp *TargetParameters) error {
 	}
 	if err := validateTimestreamRequiredFields(tp.TimestreamParameters); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func validateECSTargetRequiredFields(ep *ECSTaskTargetParameters) error {
+	if ep == nil {
+		return nil
+	}
+	if ep.TaskDefinitionArn == "" {
+		return fmt.Errorf("%w: EcsTaskParameters.TaskDefinitionArn is required", ErrValidation)
+	}
+	if nc := ep.NetworkConfiguration; nc != nil && nc.AwsvpcConfiguration != nil &&
+		len(nc.AwsvpcConfiguration.Subnets) == 0 {
+		return fmt.Errorf(
+			"%w: EcsTaskParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets is required",
+			ErrValidation,
+		)
+	}
+	for i, cps := range ep.CapacityProviderStrategy {
+		if cps.CapacityProvider == "" {
+			return fmt.Errorf(
+				"%w: EcsTaskParameters.CapacityProviderStrategy[%d].CapacityProvider is required",
+				ErrValidation,
+				i,
+			)
+		}
 	}
 
 	return nil
@@ -478,6 +514,95 @@ func validateTimestreamRequiredFields(tsp *TimestreamParameters) error {
 				"%w: TimestreamParameters.DimensionMappings[%d].DimensionValueType is required",
 				ErrValidation,
 				i,
+			)
+		}
+	}
+	if err := validateSingleMeasureMappingsRequiredFields(tsp.SingleMeasureMappings); err != nil {
+		return err
+	}
+
+	return validateMultiMeasureMappingsRequiredFields(tsp.MultiMeasureMappings)
+}
+
+func validateSingleMeasureMappingsRequiredFields(sms []TimestreamSingleMeasureMapping) error {
+	for i, sm := range sms {
+		if sm.MeasureName == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.SingleMeasureMappings[%d].MeasureName is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if sm.MeasureValue == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.SingleMeasureMappings[%d].MeasureValue is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if sm.MeasureValueType == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.SingleMeasureMappings[%d].MeasureValueType is required",
+				ErrValidation,
+				i,
+			)
+		}
+	}
+
+	return nil
+}
+
+func validateMultiMeasureMappingsRequiredFields(mms []TimestreamMultiMeasureMapping) error {
+	for i, mm := range mms {
+		if mm.MultiMeasureName == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.MultiMeasureMappings[%d].MultiMeasureName is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if len(mm.MultiMeasureAttributeMappings) == 0 {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.MultiMeasureMappings[%d].MultiMeasureAttributeMappings is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if err := validateMultiMeasureAttrMappingsRequiredFields(i, mm.MultiMeasureAttributeMappings); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateMultiMeasureAttrMappingsRequiredFields(
+	i int,
+	ams []TimestreamMultiMeasureAttributeMapping,
+) error {
+	for j, am := range ams {
+		if am.MeasureValue == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.MultiMeasureMappings[%d].AttributeMappings[%d].MeasureValue is required",
+				ErrValidation,
+				i,
+				j,
+			)
+		}
+		if am.MeasureValueType == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.MultiMeasureMappings[%d].AttributeMappings[%d].MeasureValueType is required",
+				ErrValidation,
+				i,
+				j,
+			)
+		}
+		if am.MultiMeasureAttributeName == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.MultiMeasureMappings[%d].AttributeMappings[%d].MultiMeasureAttributeName is required",
+				ErrValidation,
+				i,
+				j,
 			)
 		}
 	}

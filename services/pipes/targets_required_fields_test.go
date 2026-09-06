@@ -402,3 +402,354 @@ func TestTargetTimestreamRequiredFields(t *testing.T) {
 		})
 	}
 }
+
+// TestTargetTimestreamSingleMeasureMappingsRequiredFields verifies CreatePipe
+// and UpdatePipe reject a Timestream target whose SingleMeasureMappings
+// entries are missing MeasureName, MeasureValue, or MeasureValueType,
+// matching aws-sdk-go-v2 pipes validators.go's validateSingleMeasureMapping
+// (nested under validatePipeTargetTimestreamParameters).
+func TestTargetTimestreamSingleMeasureMappingsRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := func(sm []pipes.TimestreamSingleMeasureMapping) *pipes.TimestreamParameters {
+		return &pipes.TimestreamParameters{
+			TimeValue:    "t",
+			VersionValue: "v",
+			DimensionMappings: []pipes.TimestreamDimensionMapping{
+				{DimensionName: "dn", DimensionValue: "dv", DimensionValueType: "VARCHAR"},
+			},
+			SingleMeasureMappings: sm,
+		}
+	}
+
+	tests := []struct {
+		tsp       *pipes.TimestreamParameters
+		name      string
+		wantError bool
+	}{
+		{
+			name: "missing_measure_name",
+			tsp: base([]pipes.TimestreamSingleMeasureMapping{
+				{MeasureValue: "mv", MeasureValueType: "DOUBLE"},
+			}),
+			wantError: true,
+		},
+		{
+			name: "missing_measure_value",
+			tsp: base([]pipes.TimestreamSingleMeasureMapping{
+				{MeasureName: "mn", MeasureValueType: "DOUBLE"},
+			}),
+			wantError: true,
+		},
+		{
+			name: "missing_measure_value_type",
+			tsp: base([]pipes.TimestreamSingleMeasureMapping{
+				{MeasureName: "mn", MeasureValue: "mv"},
+			}),
+			wantError: true,
+		},
+		{
+			name: "complete",
+			tsp: base([]pipes.TimestreamSingleMeasureMapping{
+				{MeasureName: "mn", MeasureValue: "mv", MeasureValueType: "DOUBLE"},
+			}),
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			tsp:       base(nil),
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(
+				t,
+				"ts-single-create-"+tt.name,
+				&pipes.TargetParameters{TimestreamParameters: tt.tsp},
+			)
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(
+				t,
+				"ts-single-update-"+tt.name,
+				&pipes.TargetParameters{TimestreamParameters: tt.tsp},
+			)
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestTargetTimestreamMultiMeasureMappingsRequiredFields verifies CreatePipe
+// and UpdatePipe reject a Timestream target whose MultiMeasureMappings
+// entries are missing MultiMeasureName or MultiMeasureAttributeMappings, and
+// that each attribute mapping entry requires MeasureValue, MeasureValueType,
+// and MultiMeasureAttributeName, matching aws-sdk-go-v2 pipes validators.go's
+// validateMultiMeasureMapping and validateMultiMeasureAttributeMapping
+// (nested under validatePipeTargetTimestreamParameters).
+func TestTargetTimestreamMultiMeasureMappingsRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	completeAttr := []pipes.TimestreamMultiMeasureAttributeMapping{
+		{MeasureValue: "mv", MeasureValueType: "DOUBLE", MultiMeasureAttributeName: "an"},
+	}
+
+	base := func(mm []pipes.TimestreamMultiMeasureMapping) *pipes.TimestreamParameters {
+		return &pipes.TimestreamParameters{
+			TimeValue:    "t",
+			VersionValue: "v",
+			DimensionMappings: []pipes.TimestreamDimensionMapping{
+				{DimensionName: "dn", DimensionValue: "dv", DimensionValueType: "VARCHAR"},
+			},
+			MultiMeasureMappings: mm,
+		}
+	}
+
+	tests := []struct {
+		tsp       *pipes.TimestreamParameters
+		name      string
+		wantError bool
+	}{
+		{
+			name: "missing_multi_measure_name",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{MultiMeasureAttributeMappings: completeAttr},
+			}),
+			wantError: true,
+		},
+		{
+			name: "missing_attribute_mappings",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{MultiMeasureName: "mn"},
+			}),
+			wantError: true,
+		},
+		{
+			name: "attribute_missing_measure_value",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{
+					MultiMeasureName: "mn",
+					MultiMeasureAttributeMappings: []pipes.TimestreamMultiMeasureAttributeMapping{
+						{MeasureValueType: "DOUBLE", MultiMeasureAttributeName: "an"},
+					},
+				},
+			}),
+			wantError: true,
+		},
+		{
+			name: "attribute_missing_measure_value_type",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{
+					MultiMeasureName: "mn",
+					MultiMeasureAttributeMappings: []pipes.TimestreamMultiMeasureAttributeMapping{
+						{MeasureValue: "mv", MultiMeasureAttributeName: "an"},
+					},
+				},
+			}),
+			wantError: true,
+		},
+		{
+			name: "attribute_missing_name",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{
+					MultiMeasureName: "mn",
+					MultiMeasureAttributeMappings: []pipes.TimestreamMultiMeasureAttributeMapping{
+						{MeasureValue: "mv", MeasureValueType: "DOUBLE"},
+					},
+				},
+			}),
+			wantError: true,
+		},
+		{
+			name: "complete",
+			tsp: base([]pipes.TimestreamMultiMeasureMapping{
+				{MultiMeasureName: "mn", MultiMeasureAttributeMappings: completeAttr},
+			}),
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			tsp:       base(nil),
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(
+				t,
+				"ts-multi-create-"+tt.name,
+				&pipes.TargetParameters{TimestreamParameters: tt.tsp},
+			)
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(
+				t,
+				"ts-multi-update-"+tt.name,
+				&pipes.TargetParameters{TimestreamParameters: tt.tsp},
+			)
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestTargetECSNetworkConfigurationRequiredFields verifies CreatePipe and
+// UpdatePipe reject an ECS target whose NetworkConfiguration.
+// AwsvpcConfiguration is set with no Subnets, matching aws-sdk-go-v2 pipes
+// validators.go's validateNetworkConfiguration/validateAwsVpcConfiguration
+// (nested under validatePipeTargetEcsTaskParameters).
+func TestTargetECSNetworkConfigurationRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		nc        *pipes.NetworkConfiguration
+		name      string
+		wantError bool
+	}{
+		{
+			name:      "awsvpc_missing_subnets",
+			nc:        &pipes.NetworkConfiguration{AwsvpcConfiguration: &pipes.AwsVpcConfiguration{}},
+			wantError: true,
+		},
+		{
+			name: "awsvpc_with_subnets",
+			nc: &pipes.NetworkConfiguration{
+				AwsvpcConfiguration: &pipes.AwsVpcConfiguration{Subnets: []string{"subnet-1"}},
+			},
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			nc:        nil,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(t, "ecs-nc-create-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn:    "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					NetworkConfiguration: tt.nc,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(t, "ecs-nc-update-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn:    "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					NetworkConfiguration: tt.nc,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestTargetECSCapacityProviderStrategyRequiredFields verifies CreatePipe
+// and UpdatePipe reject an ECS target whose CapacityProviderStrategy entries
+// are missing CapacityProvider, matching aws-sdk-go-v2 pipes validators.go's
+// validateCapacityProviderStrategyItem (nested under
+// validatePipeTargetEcsTaskParameters).
+func TestTargetECSCapacityProviderStrategyRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		cps       []pipes.CapacityProviderStrategyItem
+		wantError bool
+	}{
+		{
+			name:      "missing_capacity_provider",
+			cps:       []pipes.CapacityProviderStrategyItem{{Weight: 1}},
+			wantError: true,
+		},
+		{
+			name:      "complete",
+			cps:       []pipes.CapacityProviderStrategyItem{{CapacityProvider: "FARGATE", Weight: 1}},
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			cps:       nil,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(t, "ecs-cps-create-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn:        "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					CapacityProviderStrategy: tt.cps,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(t, "ecs-cps-update-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn:        "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					CapacityProviderStrategy: tt.cps,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
