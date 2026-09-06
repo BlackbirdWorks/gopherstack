@@ -67,6 +67,30 @@ func TestDeleteUserPool_ClearsUserDeviceState(t *testing.T) {
 		"deleting one pool must not disturb another pool's device state")
 }
 
+// TestDeleteUserPool_ClearsResourceTags verifies DeleteUserPool clears the
+// pool's own resourceTags entry. ListTagsForResource does a bare map lookup
+// on ARN with no pool-existence check, and TaggedResources feeds the
+// cross-service Resource Groups Tagging API (cli.go's wireTaggingCognitoIDP),
+// so a stale entry keeps a deleted pool's tags visible through both paths.
+func TestDeleteUserPool_ClearsResourceTags(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("del-pool-tags")
+	require.NoError(t, err)
+	b.TagResource(pool.ARN, map[string]string{"env": "prod"})
+
+	otherPool, err := b.CreateUserPool("del-pool-tags-sibling")
+	require.NoError(t, err)
+	b.TagResource(otherPool.ARN, map[string]string{"env": "staging"})
+
+	require.NoError(t, b.DeleteUserPool(pool.ID))
+
+	assert.Empty(t, b.ListTagsForResource(pool.ARN))
+	assert.Equal(t, map[string]string{"env": "staging"}, b.ListTagsForResource(otherPool.ARN),
+		"deleting one pool must not disturb another pool's tags")
+}
+
 func TestHandler_CreateUserPool_WithPasswordPolicy(t *testing.T) {
 	t.Parallel()
 

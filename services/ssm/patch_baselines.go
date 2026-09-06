@@ -783,6 +783,13 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 	b.mu.Lock("DeletePatchBaseline")
 	defer b.mu.Unlock()
 
+	if groups := b.patchGroupsForBaselineLocked(region, input.BaselineID); len(groups) > 0 {
+		return nil, fmt.Errorf(
+			"%w: patch baseline %s is registered with patch group(s) %s",
+			ErrPatchBaselineInUse, input.BaselineID, strings.Join(groups, ", "),
+		)
+	}
+
 	patchBaselines := b.patchBaselinesStore(region)
 	patchBaselines.Delete(input.BaselineID)
 

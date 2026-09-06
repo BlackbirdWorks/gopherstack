@@ -32,6 +32,13 @@ var (
 	// ErrAccessRequestNotFound is returned when GetAccessToken is called with
 	// an AccessRequestId that was never created by StartAccessRequest.
 	ErrAccessRequestNotFound = errors.New("ResourceNotFoundException")
+	// ErrPatchBaselineInUse is returned by DeletePatchBaseline when the
+	// baseline is still registered to one or more patch groups.
+	// ResourceInUseException is DeletePatchBaseline's own declared exception
+	// for exactly this case (ssm@v1.73.4 deserializers.go), matching the API
+	// reference doc comment: error returned if an attempt is made to delete
+	// a patch baseline that is registered for a patch group.
+	ErrPatchBaselineInUse = errors.New("ResourceInUseException")
 )
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")

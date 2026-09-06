@@ -79,6 +79,7 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	}
 
 	b.pools.Delete(userPoolID)
+	delete(b.resourceTags, pool.ARN)
 
 	// Copy the index result before deleting: Delete mutates the byPool index's
 	// backing slice in place, so ranging directly over it while deleting would
