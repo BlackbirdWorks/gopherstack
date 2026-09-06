@@ -241,25 +241,12 @@ func TestServer_NonAQueryReturnsNoData(t *testing.T) {
 func TestServer_Stop(t *testing.T) {
 	t.Parallel()
 
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
+	// startTestServer retries on the port-pick-then-rebind TOCTOU race; the
+	// inline single-attempt version this used to run had none, so it flaked
+	// under full-suite parallel load (gopherstack-nn94).
+	srv, _ := startTestServer(t)
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	srv, err := gopherDNS.New(gopherDNS.Config{
-		ListenAddr: addr,
-		ResolveIP:  "127.0.0.1",
-	})
-	require.NoError(t, err)
-
-	ctx := t.Context()
-
-	err = srv.Start(ctx)
-	require.NoError(t, err)
-
-	err = srv.Stop()
+	err := srv.Stop()
 	assert.NoError(t, err)
 }
 
