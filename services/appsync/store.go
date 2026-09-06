@@ -57,7 +57,7 @@ type StorageBackend interface {
 	DeleteGraphqlAPI(apiID string) error
 	StartSchemaCreation(apiID, sdl string) (*Schema, error)
 	GetSchemaCreationStatus(apiID string) (*Schema, error)
-	GetIntrospectionSchema(apiID, format string) ([]byte, error)
+	GetIntrospectionSchema(apiID, format string, includeDirectives bool) ([]byte, error)
 	CreateDataSource(apiID string, ds *DataSource) (*DataSource, error)
 	GetDataSource(apiID, name string) (*DataSource, error)
 	ListDataSources(apiID string) ([]*DataSource, error)

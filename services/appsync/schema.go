@@ -68,21 +68,44 @@ func (b *InMemoryBackend) GetSchemaCreationStatus(apiID string) (*Schema, error)
 	return &cp, nil
 }
 
-// GetIntrospectionSchema returns the schema SDL for an API. The format
-// parameter (SDL or JSON, a required SDK input) is not read: this package has
-// no GraphQL SDL<->JSON introspection converter, the same structural gap
-// already disclosed for ListTypes/GetType/ListTypesByAssociation's format
-// parameter (PARITY.md) -- a real client requesting format=JSON gets raw SDL
-// text back instead of a JSON introspection document. IncludeDirectives is
-// likewise never read; directives are always included.
-func (b *InMemoryBackend) GetIntrospectionSchema(apiID, _ string) ([]byte, error) {
+// GetIntrospectionSchema returns the schema for an API in the requested
+// format. format must be SDL or JSON (types.OutputType, aws-sdk-go-v2
+// appsync@v1.56.4 types/enums.go:535-541); an empty format defaults to SDL,
+// matching the handler's own default for an omitted query parameter. Any
+// other value is rejected the same way CreateType already rejects an
+// unrecognized TypeDefinitionFormat (isValidTypeFormat).
+//
+// includeDirectives controls only the JSON output's top-level "directives"
+// list. SDL is always returned as the raw stored text verbatim -- honoring
+// includeDirectives there would mean re-serializing the schema instead of
+// returning what was stored, and is not attempted.
+func (b *InMemoryBackend) GetIntrospectionSchema(apiID, format string, includeDirectives bool) ([]byte, error) {
 	b.mu.RLock("GetIntrospectionSchema")
 	defer b.mu.RUnlock()
+
+	if format == "" {
+		format = string(TypeFormatSDL)
+	}
+
+	if !isValidTypeFormat(TypeDefinitionFormat(format)) {
+		return nil, fmt.Errorf("%w: invalid format %q, must be SDL or JSON", ErrValidation, format)
+	}
 
 	schema, ok := b.schemas.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: schema not found for api %s", ErrNotFound, apiID)
 	}
 
-	return []byte(schema.SDL), nil
+	if format == string(TypeFormatSDL) {
+		return []byte(schema.SDL), nil
+	}
+
+	if schema.parsedSchema == nil {
+		return nil, fmt.Errorf(
+			"%w: schema for api %s has no valid parsed schema for JSON introspection",
+			ErrInvalidSchema, apiID,
+		)
+	}
+
+	return marshalIntrospectionSchema(schema.parsedSchema, includeDirectives)
 }
