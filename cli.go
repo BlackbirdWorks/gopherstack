@@ -3429,14 +3429,17 @@ func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerabl
 }
 
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
-// resolvers, DynamoDB Streams to the DynamoDB backend, and CloudFront
-// KeyValueStore to the CloudFront backend.
+// resolvers, AppSync's Cognito/OIDC JWT verification, DynamoDB Streams to the
+// DynamoDB backend, and CloudFront KeyValueStore to the CloudFront backend.
 func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
 	// Wire AppSync → DynamoDB for AMAZON_DYNAMODB resolver execution.
 	wireAppSyncDynamoDB(byName["AppSync"], byName["DynamoDB"])
+
+	// Wire AppSync → Cognito for AMAZON_COGNITO_USER_POOLS/OPENID_CONNECT JWT signature verification.
+	wireAppSyncCognito(byName["AppSync"], byName["CognitoIDP"])
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
@@ -6032,6 +6035,25 @@ func wireAppSyncLambda(appSyncReg, lambdaReg service.Registerable) {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			appSyncBk.SetLambdaInvoker(lambdaBk)
 		}
+	}
+}
+
+// wireAppSyncCognito connects the AppSync backend to Cognito's JWKS provider
+// so AMAZON_COGNITO_USER_POOLS and OPENID_CONNECT GraphQL auth verify JWT
+// signatures instead of only checking their config exists.
+func wireAppSyncCognito(appSyncReg, cognitoReg service.Registerable) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if cognitoH, cogOk := cognitoReg.(*cognitoidpbackend.Handler); cogOk {
+		appSyncBk.SetJWKSProvider(cognitoH.Backend)
 	}
 }
 
