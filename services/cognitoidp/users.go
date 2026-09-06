@@ -107,15 +107,31 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	b.users.Delete(userKey(userPoolID, username))
-
-	b.deleteRefreshTokensForUserLocked(userPoolID, username)
-
-	key := userStateKey(userPoolID, username)
-	delete(b.devices, key)
-	delete(b.authEvents, key)
+	b.deleteUserStateLocked(userPoolID, username)
 
 	return nil
+}
+
+// deleteUserStateLocked removes the user record for poolID:username and every
+// piece of per-user state that would otherwise outlive it: refresh tokens,
+// devices, auth events, WebAuthn credentials, and group memberships. Shared
+// by AdminDeleteUser, DeleteUser, and DeleteUserPool's cascade so a cleanup
+// added to one path can't drift from the others -- DeleteUserPool's cascade
+// was already fixed once to repeat this list by hand and missed groupMembers
+// and webauthnCredentials in the repeat (gopherstack-tq5q/-ljak). Caller must
+// hold b.mu in write mode.
+func (b *InMemoryBackend) deleteUserStateLocked(poolID, username string) {
+	b.users.Delete(userKey(poolID, username))
+	b.deleteRefreshTokensForUserLocked(poolID, username)
+
+	key := userStateKey(poolID, username)
+	delete(b.devices, key)
+	delete(b.authEvents, key)
+	delete(b.webauthnCredentials, key)
+
+	for _, members := range b.groupMembers[poolID] {
+		delete(members, username)
+	}
 }
 
 // ListUsers returns all users in a pool sorted by username.
@@ -223,15 +239,7 @@ func (b *InMemoryBackend) DeleteUser(accessToken string) error {
 		return err
 	}
 
-	poolID := u.UserPoolID
-	username := u.Username
-
-	b.users.Delete(userKey(poolID, username))
-	b.deleteRefreshTokensForUserLocked(poolID, username)
-
-	key := userStateKey(poolID, username)
-	delete(b.devices, key)
-	delete(b.authEvents, key)
+	b.deleteUserStateLocked(u.UserPoolID, u.Username)
 
 	return nil
 }

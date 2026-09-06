@@ -67,6 +67,65 @@ func TestDeleteUserPool_ClearsUserDeviceState(t *testing.T) {
 		"deleting one pool must not disturb another pool's device state")
 }
 
+// TestDeleteUserPool_RefusesWhenDomainAttached covers gopherstack-tq5q:
+// deleting a pool that still owns a domain must be refused, matching real
+// AWS Cognito (InvalidParameterException: "User pool cannot be deleted...
+// domain configured that should be deleted first" -- confirmed via the AWS
+// API's documented error, github.com/hashicorp/terraform-provider-aws#16479)
+// rather than silently orphaning the domain the way this backend used to.
+func TestDeleteUserPool_RefusesWhenDomainAttached(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("domain-lockout-pool")
+	require.NoError(t, err)
+
+	_, err = b.CreateUserPoolDomain(pool.ID, "lockout-domain")
+	require.NoError(t, err)
+
+	deleteErr := b.DeleteUserPool(pool.ID)
+	require.ErrorIs(t, deleteErr, cognitoidp.ErrInvalidParameter)
+	assert.Equal(t, 1, b.UserPoolCount(), "pool must survive a refused delete")
+	assert.NotNil(t, b.FindUserPoolDomain("lockout-domain"), "domain must survive a refused delete")
+
+	// AWS's documented remediation: delete the domain first (still possible
+	// through the normal path since the pool is still alive), then the pool.
+	require.NoError(t, b.DeleteUserPoolDomain(pool.ID, "lockout-domain"))
+	require.NoError(t, b.DeleteUserPool(pool.ID))
+
+	// Recovery: the domain name is immediately usable again by a new pool.
+	newPool, err := b.CreateUserPool("post-lockout-pool")
+	require.NoError(t, err)
+	_, err = b.CreateUserPoolDomain(newPool.ID, "lockout-domain")
+	require.NoError(t, err)
+}
+
+// TestDeleteUserPool_DomainRefusal_DoesNotDisturbSiblingDomain is the
+// negative case: a refused delete on one pool must not touch another pool's
+// domain.
+func TestDeleteUserPool_DomainRefusal_DoesNotDisturbSiblingDomain(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	poolA, err := b.CreateUserPool("domain-sibling-a")
+	require.NoError(t, err)
+	poolB, err := b.CreateUserPool("domain-sibling-b")
+	require.NoError(t, err)
+
+	_, err = b.CreateUserPoolDomain(poolA.ID, "domain-a")
+	require.NoError(t, err)
+	_, err = b.CreateUserPoolDomain(poolB.ID, "domain-b")
+	require.NoError(t, err)
+
+	require.ErrorIs(t, b.DeleteUserPool(poolA.ID), cognitoidp.ErrInvalidParameter)
+	assert.NotNil(t, b.FindUserPoolDomain("domain-b"))
+
+	require.NoError(t, b.DeleteUserPoolDomain(poolA.ID, "domain-a"))
+	require.NoError(t, b.DeleteUserPool(poolA.ID))
+
+	assert.NotNil(t, b.FindUserPoolDomain("domain-b"), "deleting one pool must not disturb another pool's domain")
+}
+
 // TestDeleteUserPool_ClearsResourceTags verifies DeleteUserPool clears the
 // pool's own resourceTags entry. ListTagsForResource does a bare map lookup
 // on ARN with no pool-existence check, and TaggedResources feeds the

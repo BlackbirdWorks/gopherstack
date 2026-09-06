@@ -145,6 +145,32 @@ func (b *InMemoryBackend) HasDeviceStateForTest(poolID, username string) bool {
 	return len(b.devices[key]) > 0 || len(b.authEvents[key]) > 0
 }
 
+// SeedWebAuthnCredentialForTest directly inserts a WebAuthn credential for a
+// user, bypassing the normal CompleteWebAuthnRegistration flow (which
+// requires an access token). For testing only.
+func (b *InMemoryBackend) SeedWebAuthnCredentialForTest(poolID, username string, cred *WebAuthnCredential) {
+	b.mu.Lock("SeedWebAuthnCredentialForTest")
+	defer b.mu.Unlock()
+
+	key := userStateKey(poolID, username)
+	if b.webauthnCredentials[key] == nil {
+		b.webauthnCredentials[key] = make(map[string]*WebAuthnCredential)
+	}
+
+	b.webauthnCredentials[key][cred.CredentialID] = cred
+}
+
+// AddUserPoolDomainInternal seeds a domain directly into the backend,
+// bypassing CreateUserPoolDomain's pool-existence check. For testing only --
+// simulates a domain orphaned by data that predates DeleteUserPool's guard
+// against deleting a pool with an attached domain (gopherstack-tq5q).
+func (b *InMemoryBackend) AddUserPoolDomainInternal(domain *UserPoolDomain) {
+	b.mu.Lock("AddUserPoolDomainInternal")
+	defer b.mu.Unlock()
+
+	b.domains.Put(domain)
+}
+
 // GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
 func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
 	b.mu.RLock("GetAttrVerificationCodeForTest")

@@ -78,20 +78,27 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 		)
 	}
 
+	// Real AWS refuses DeleteUserPool outright when a domain is still attached
+	// (InvalidParameterException: "User pool cannot be deleted. It has a domain
+	// configured that should be deleted first.") rather than cascading the
+	// domain delete -- confirmed via the AWS API's own documented error
+	// response (github.com/hashicorp/terraform-provider-aws#16479). The caller
+	// must DeleteUserPoolDomain first.
+	if b.findPoolDomainLocked(userPoolID) != nil {
+		return fmt.Errorf(
+			"%w: User pool cannot be deleted, it has a domain configured that should be deleted first",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.pools.Delete(userPoolID)
 	delete(b.resourceTags, pool.ARN)
 
 	// Copy the index result before deleting: Delete mutates the byPool index's
 	// backing slice in place, so ranging directly over it while deleting would
 	// skip entries.
-	//
-	// This cascade deletes users directly rather than calling AdminDeleteUser,
-	// so it must repeat AdminDeleteUser's devices/authEvents cleanup itself.
 	for _, u := range slices.Clone(b.usersByPool.Get(userPoolID)) {
-		b.users.Delete(userKey(userPoolID, u.Username))
-		key := userStateKey(userPoolID, u.Username)
-		delete(b.devices, key)
-		delete(b.authEvents, key)
+		b.deleteUserStateLocked(userPoolID, u.Username)
 	}
 
 	for _, client := range slices.Clone(b.clientsByPool.Get(userPoolID)) {

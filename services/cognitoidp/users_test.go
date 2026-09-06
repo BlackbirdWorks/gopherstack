@@ -769,6 +769,101 @@ func TestDeleteUser_ClearsDeviceStateOnRecreate(t *testing.T) {
 	})
 }
 
+// TestDeleteUser_ClearsGroupAndWebAuthnStateOnRecreate covers gopherstack-ljak:
+// AdminDeleteUser (and self-service DeleteUser) left groupMembers and
+// webauthnCredentials behind. Usernames are caller-chosen and the pool
+// persists, so recreating a deleted username used to make it inherit group
+// membership -- observable through ListUsersInGroup and the
+// cognito:groups-feeding userGroupsLocked -- and WebAuthn credentials it was
+// never granted, observable through the WEB_AUTHN entry in
+// AdminGetUserAuthFactors.
+func TestDeleteUser_ClearsGroupAndWebAuthnStateOnRecreate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("admin_delete", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		pool, err := b.CreateUserPool("admin-del-group-pool")
+		require.NoError(t, err)
+
+		_, err = b.AdminCreateUser(pool.ID, "reused-user", "Pass1234!", nil)
+		require.NoError(t, err)
+		_, err = b.AdminCreateUser(pool.ID, "kept-user", "Pass1234!", nil)
+		require.NoError(t, err)
+
+		_, err = b.CreateGroup(pool.ID, "admins", "", 0)
+		require.NoError(t, err)
+		require.NoError(t, b.AdminAddUserToGroup(pool.ID, "reused-user", "admins"))
+		require.NoError(t, b.AdminAddUserToGroup(pool.ID, "kept-user", "admins"))
+
+		b.SeedWebAuthnCredentialForTest(pool.ID, "reused-user", &cognitoidp.WebAuthnCredential{CredentialID: "cred1"})
+
+		require.NoError(t, b.AdminDeleteUser(pool.ID, "reused-user"))
+
+		_, err = b.AdminCreateUser(pool.ID, "reused-user", "Pass1234!", nil)
+		require.NoError(t, err)
+
+		members, err := b.ListUsersInGroup(pool.ID, "admins")
+		require.NoError(t, err)
+
+		names := make([]string, len(members))
+		for i, m := range members {
+			names[i] = m.Username
+		}
+
+		assert.NotContains(t, names, "reused-user",
+			"recreated username must not inherit the deleted user's group membership")
+		assert.Contains(t, names, "kept-user",
+			"deleting one user must not disturb another user's group membership")
+
+		_, factors, err := b.AdminGetUserAuthFactors(pool.ID, "reused-user")
+		require.NoError(t, err)
+		assert.NotContains(t, factors, "WEB_AUTHN",
+			"recreated username must not inherit the deleted user's WebAuthn credentials")
+	})
+
+	t.Run("self_delete", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		pool, err := b.CreateUserPool("self-del-group-pool")
+		require.NoError(t, err)
+
+		client, err := b.CreateUserPoolClient(pool.ID, "self-del-group-client")
+		require.NoError(t, err)
+
+		user, err := b.SignUp(client.ClientID, "reused-user", "Pass1234!", map[string]string{})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "reused-user", user.ConfirmCode))
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "reused-user", "Pass1234!")
+		require.NoError(t, err)
+		require.NotNil(t, result.Tokens)
+
+		_, err = b.CreateGroup(pool.ID, "admins", "", 0)
+		require.NoError(t, err)
+		require.NoError(t, b.AdminAddUserToGroup(pool.ID, "reused-user", "admins"))
+
+		b.SeedWebAuthnCredentialForTest(pool.ID, "reused-user", &cognitoidp.WebAuthnCredential{CredentialID: "cred1"})
+
+		require.NoError(t, b.DeleteUser(result.Tokens.AccessToken))
+
+		user2, err := b.SignUp(client.ClientID, "reused-user", "Pass1234!", map[string]string{})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "reused-user", user2.ConfirmCode))
+
+		members, err := b.ListUsersInGroup(pool.ID, "admins")
+		require.NoError(t, err)
+		assert.Empty(t, members, "recreated username must not inherit the deleted user's group membership")
+
+		_, factors, err := b.AdminGetUserAuthFactors(pool.ID, "reused-user")
+		require.NoError(t, err)
+		assert.NotContains(t, factors, "WEB_AUTHN",
+			"recreated username must not inherit the deleted user's WebAuthn credentials")
+	})
+}
+
 func unmarshalBody(t *testing.T, rec *httptest.ResponseRecorder, v any) error {
 	t.Helper()
 
