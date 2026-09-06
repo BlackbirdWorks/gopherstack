@@ -25366,6 +25366,7 @@
       "Patch.Classification string `json:\"Classification\"`",
       "Patch.Name string `json:\"Name\"`",
       "Patch.Product string `json:\"Product\"`",
+      "Patch.ReleaseDate float64 `json:\"ReleaseDate,omitempty\"`",
       "Patch.Severity string `json:\"Severity\"`",
       "PatchComplianceData.Classification string `json:\"Classification\"`",
       "PatchComplianceData.InstalledTime float64 `json:\"InstalledTime,omitempty\"`",

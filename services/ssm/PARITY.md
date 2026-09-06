@@ -384,6 +384,17 @@ families:
   state-manager-associations: {status: fixed, note: "SPOT-CHECKED (parity-sweep-3, split out of the previously-deferred combined family) — AssociationExecution.ExecutionDate epoch-seconds bug fixed (DescribeAssociationExecutions). FULLY FIELD-DIFFED phase-2 (bd gopherstack-ouvq, closed) — CreateAssociationInput/UpdateAssociationInput/CreateAssociationBatchRequestEntry were missing ApplyOnlyAtCronInterval/ComplianceSeverity/MaxConcurrency/MaxErrors/OutputLocation/ScheduleExpression/SyncCompliance/CalendarNames/AssociationDispatchAssumeRole/AutomationTargetParameterName/Duration, confirmed against api_op_CreateAssociation.go/api_op_UpdateAssociation.go/types.CreateAssociationBatchRequestEntry; all 11 now round-trip through Create/CreateBatch/Update and are covered by wire-shape-asserting tests (associations_test.go). DeleteAssociation/DescribeAssociation/UpdateAssociationStatus/ListAssociationVersions/StartAssociationsOnce/DescribeAssociationExecutionTargets re-confirmed already-correct, no changes needed. CORRECTION (gopherstack-a250): ListAssociations WAS wrong — input was a literal struct{}; real ListAssociationsInput (api_op_ListAssociations.go) has optional AssociationFilterList/MaxResults/NextToken, all discarded, and the response never carried NextToken either (a dead, unused ListAssociationsOutputFull type already had the right shape). Now filters on InstanceId/Name/AssociationId/AssociationName/AssociationStatusName (the attributes Association actually tracks) and paginates; backend return type switched to ListAssociationsOutputFull. TestListAssociations_FilterAndPagination, hand-verified failing against unfixed code. STRUCTFIELDDIFF PASS 8 (gopherstack-enpq, 2026-08-21), all 11 ops re-diffed against ssm@v1.73.4: 2 real bugs fixed. (1) UpdateAssociationStatusInput.AssociationStatus (AssociationStatusValue) modeled a fabricated 'ExecutionSummary' member that appears nowhere in the real types.AssociationStatus wire shape (serializers.go awsAwsjson11_serializeDocumentAssociationStatus only emits AdditionalInfo/Date/Message/Name) and was missing the two other required members, Date and Message; fixed, plus required-field validation (previously any AssociationStatus, including one missing Date/Message, was silently accepted). (2) Association (the shared domain struct returned by Create/CreateBatch/Update/UpdateAssociationStatus/Describe/List) had no Go member at all for Status or AssociationVersion, both present on every real AssociationDescription/ListAssociations response (deserializers.go awsAwsjson11_deserializeDocumentAssociationDescription cases 'Status'/'AssociationVersion') — UpdateAssociationStatus recorded the new status into Overview.Status only, so a real client reading resp.AssociationDescription.Status ever saw nil regardless of what UpdateAssociationStatus was called with; fixed via new AssociationStatusInfo type and AssociationVersion:\"1\" on create. STUB-OP LEAD: 4 of this family's ops were on TestStubOps_SimpleCalls's bare-{}-body list and all 4 read nothing — DescribeAssociationExecutionTargets, DescribeAssociationExecutions and ListAssociationVersions all require AssociationId (api_op_*.go, all mark it required) and StartAssociationsOnce requires non-empty AssociationIds, none enforced; DescribeAssociationExecutionTargets's own table test asserted the empty-AssociationId 200 as correct before this fix (removed, was a defect-ratifying test). ListAssociations correctly has no required fields and stays on the stub list. Real aws-sdk-go-v2 client itself validates AssociationStatus.Date/Message client-side and refuses to send a request missing them (confirmed the hard way — see TestUpdateAssociationStatus_RequiresDateAndMessage_HTTP), so that one fix's rejection path is proven over raw HTTP rather than through ssmsdk.Client. All fixes hand-reverted (both source files) and confirmed to fail to compile against the unfixed types before restoring byte-identical."}
   ops-center: {status: fixed, note: "SPOT-CHECKED (parity-sweep-3, split out of the previously-deferred combined family) — Priority confirmed missing and fixed. FULLY FIELD-DIFFED phase-2 (bd gopherstack-iq4m, closed) — CreateOpsItemInput/UpdateOpsItemInput were missing AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems (mostly Change-Manager /aws/changerequest-oriented), confirmed against api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go; all 7 now round-trip and are covered by wire-shape-asserting tests (ops_items_test.go). UpdateOpsItemInput.OperationalDataToDelete (confirmed present but outside the bd issue's field list) deliberately left out of scope, documented in models_ops_items.go. GetOpsItem/DeleteOpsItem/DescribeOpsItems (filters+pagination)/AssociateOpsItemRelatedItem/DisassociateOpsItemRelatedItem/ListOpsItemRelatedItems/ListOpsItemEvents/CreateOpsMetadata/GetOpsMetadata/DeleteOpsMetadata re-confirmed already-correct, no changes needed. CORRECTION (gopherstack-7rq1): UpdateOpsMetadata was NOT actually correct -- UpdateOpsMetadataInput's Metadata field carried json tag \"Metadata\", but the real UpdateOpsMetadataRequest member (ssm/2014-11-06/service-2.json) is \"MetadataToUpdate\" (CreateOpsMetadataRequest genuinely does use \"Metadata\", which is presumably how this got missed). A real client's update payload was silently dropped by json.Unmarshal every time, making UpdateOpsMetadata a complete no-op; the existing test asserting HTTP 200 with a body keyed \"Metadata\" passed despite this. Fixed the json tag; TestOpsMetadata_FullCRUD's Update step now sends the real wire key and asserts the update actually lands. CORRECTION (gopherstack-a250): ListOpsMetadata was NOT actually correct either -- input was a literal struct{}; real ListOpsMetadataInput (api_op_ListOpsMetadata.go) has optional Filters/MaxResults/NextToken, all discarded. Now filters by Key==\"ResourceId\" (the only OpsMetadata attribute with real backing state; other keys accept-and-echo) and paginates. TestListOpsMetadata_FilterAndPagination, hand-verified failing against unfixed code. GetOpsSummary's Aggregators/Filters/MaxResults/NextToken/ResultAttributes/SyncName (also a literal struct{}) deliberately left unwired: this backend's GetOpsSummary always returns one fixed AWS:OpsItem/Count entity, not a queryable multi-type OpsData dataset these members could honestly filter or aggregate over -- documented in models_ops_items.go rather than fabricating query semantics. STRUCTFIELDDIFF PASS 8 (gopherstack-enpq, 2026-08-21), all 15 ops re-diffed against ssm@v1.73.4: 5 real bugs fixed. (1) GetOpsItemOutput/DescribeOpsItems' OpsItem marshalled the internal OpsItem record straight to the wire, fabricating AccountId -- real types.OpsItem/types.OpsItemSummary have no AccountId member at all (it exists only on CreateOpsItemInput); UpdateOpsItemInput also modeled AccountId (again with no such member on the real api_op_UpdateOpsItem.go) and applied it, letting a caller silently rewrite an OpsItem's AccountId through an op the real SDK cannot even express. Fixed via a new OpsItemOutput projection type (GetOpsItem) and removing AccountId from UpdateOpsItemInput/applyOpsItemChangeManagerUpdates, whose own doc comment falsely claimed AccountId as one of UpdateOpsItemInput's real members -- also corrected. Added the real OpsItemArn member UpdateOpsItemInput does have (previously entirely missing) and Version (real types.OpsItem member, increments on every edit; had no Go member at all). (2) GetOpsMetadataOutput embedded the full OpsMetadata type, fabricating OpsMetadataArn/CreationDate/LastModifiedDate -- the real op's output (api_op_GetOpsMetadata.go) is only Metadata/NextToken/ResourceId, a narrower and different shape than the OpsMetadata type ListOpsMetadata returns; fixed via a dedicated GetOpsMetadataOutput type. (3) OpsItemSummary (DescribeOpsItems) was missing OperationalData/PlannedEndTime/PlannedStartTime/ActualEndTime/ActualStartTime/OpsItemType/Category/Severity/LastModifiedTime -- all real types.OpsItemSummary members with no Go field at all; added and wired from the stored OpsItem. (4) CreateOpsItemInput.Description had no required-field validation at all despite being required on the real op (api_op_CreateOpsItem.go marks it 'This member is required.', discovered via a real-client test that the SDK itself refused to send without it) -- fixed, ~15 existing test call sites updated to supply it. (5) AssociateOpsItemRelatedItem/DisassociateOpsItemRelatedItem's required fields (AssociationType/ResourceType/ResourceUri; OpsItemId/AssociationId respectively, all marked required on api_op_AssociateOpsItemRelatedItem.go/api_op_DisassociateOpsItemRelatedItem.go) were entirely unvalidated -- fixed. STUB-OP LEAD: 1 of this family's ops was on TestStubOps_SimpleCalls's bare-{}-body list, DisassociateOpsItemRelatedItem, and it read nothing (empty OpsItemId silently returned 200); now validates and rejects with ValidationException. FIXED (gopherstack-uox6, value-semantics sweep, 2026-08-30): opsItemMatchesFilters ignored OpsItemFilter.Operator entirely and always compared for exact equality, even though api_op_DescribeOpsItems.go's doc comment documents Title and Source as also supporting Operator=Contains (substring) -- a real client asking for a Contains match on either key got either nothing (values that happen to equal the substring) or a silent exact-match instead. Now Operator=\"Contains\" does a substring compare on the two keys that support it; Status stays Equals-only per the same doc comment. Disclosed rather than fixed: OpsItemFilter only honors Status/Title/Source of the ~35 real DescribeOpsItems filter keys (no generic filter-operator engine, same disclosed-gap class as GetInventory/ListComplianceItems); ListOpsItemRelatedItemsInput/ListOpsItemEventsInput.MaxResults are *int64 where the real type is *int32 (zero practical wire impact, left as-is given the ripple through existing bounds-check tests using an int64 helper); OpsItemSummary/OpsMetadata's CreatedBy/LastModifiedBy/LastModifiedUser remain unmodeled (no caller-identity infra, same class as ServiceSetting.LastModifiedUser)."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "gopherstack-e91b (2026-09-06): RejectedPatchesAction (BLOCK/ALLOW_AS_DEPENDENCY) is now
+    validated but not fully semantically evaluated -- the two values only diverge in real AWS via
+    package-dependency installation and INSTALLED_REJECTED history for a patch installed before
+    it was rejected, and this backend's synthetic Patch catalogue has no dependency graph while
+    InstancePatchState/PatchComplianceData are recomputed fresh per AWS-RunPatchBaseline run
+    rather than tracked incrementally, so there is no pre-existing-install history to distinguish
+    the two against. Structural -- needs a package-dependency feature and incremental (not
+    recomputed) instance patch history, both real features of their own. PatchBaseline's
+    GlobalFilters (restricts which catalogue patches a baseline covers at all) also remains
+    round-trip-only, same class as the pre-existing ApprovalRules/RejectedPatches gap this issue
+    fixed one layer of. See PARITY.md's gopherstack-e91b section above for what was fixed."
   - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
     the cloudwatchlogs/memorydb bug class (identifier/storage key built from the backend's fixed
     default region instead of the request's; a read that discards ctx and scans every region) --
@@ -765,9 +776,9 @@ Patch baselines: `CreatePatchBaselineInput`/`PatchBaseline` were missing `Approv
 (auto-approval rules), `GlobalFilters`, `Sources` (custom Linux repos), `RejectedPatchesAction`,
 `AvailableSecurityUpdatesComplianceStatus`, and `ApprovedPatchesEnableNonSecurity` — six fields
 confirmed present in `api_op_CreatePatchBaseline.go` and entirely absent from this package. Added
-as real, persisted, round-tripped fields (not evaluated against actual patch matching — same
-scoping as the pre-existing `ApprovedPatches`/`RejectedPatches` handling, which was already
-correctly scoped to storage-not-evaluation). Also: `GetPatchBaselineOutput.PatchGroups` (the patch
+as real, persisted, round-tripped fields. `ApprovalRules` was round-trip-only at first
+(not evaluated against actual patch matching); see gopherstack-e91b below for the fix that made
+it real. Also: `GetPatchBaselineOutput.PatchGroups` (the patch
 groups currently registered with a baseline) was entirely unpopulated — confirmed unique to
 `GetPatchBaselineOutput` (absent from `UpdatePatchBaselineOutput`) via
 `api_op_UpdatePatchBaseline.go`, now derived from the reverse `patchGroup->baselineID` map.
@@ -781,6 +792,70 @@ missing `StartDate`/`EndDate`/`ScheduleTimezone`/`ScheduleOffset` (confirmed pre
 `api_op_CreateMaintenanceWindow.go` and `api_op_UpdateMaintenanceWindow.go`), and
 `AllowUnassociatedTargets` was previously create-only despite being documented as updatable — all
 now round-trip (stored, not yet factored into schedule-execution logic — see `gaps`).
+
+### gopherstack-e91b (2026-09-06): Patch baseline ApprovalRules/RejectedPatchesAction evaluation
+
+`ApprovalRules` and `RejectedPatchesAction` were round-tripped verbatim (parity-sweep-3, above) but
+never evaluated: `effectivePatchesForBaseline` branched only on the explicit `ApprovedPatches`/
+`RejectedPatches` lists, leaving every other catalogue patch permanently `PENDING_APPROVAL`
+regardless of any auto-approval rule, and this fed straight into `InstancePatchState`/
+`PatchComplianceData` via `AWS-RunPatchBaseline`.
+
+Precedence (AWS Systems Manager User Guide, "How security patches are selected", quoted via a
+2026-09-06 fetch — not in the SDK source, which only models the fields): "A patch specified in the
+approved patches list will be installed irrespective of whether it is matched by an approval rule
+... Items in the rejected patches list will exclude those patches from being installed, even if
+they match an approval rule and/or approved patch." i.e. `RejectedPatches` > `ApprovedPatches` >
+`ApprovalRules`. The existing explicit-list handling already matched this order; `ApprovalRules` is
+now evaluated only for patches in neither explicit list (`ruleOutcomeForPatch`,
+`effectivePatchesForBaseline`), and a rule match produces the real `APPROVED` deployment status
+(`types.PatchDeploymentStatusApproved`, distinct from `EXPLICIT_APPROVED`), which
+`patchComplianceFromEffective` now also treats as installable.
+
+`PatchFilterGroup` matching (`ruleFilterGroupMatches`) reuses `patchMatchesFilters`' supported
+subset (`PRODUCT`/`NAME`/`SEVERITY`/`CLASSIFICATION` — the only `PatchFilterKey` values this
+synthetic `Patch` catalogue has backing fields for, of the 18 in `types/enums.go`) but, unlike that
+read-only helper (where an unsupported key is silently skipped, loosening the filter), a rule
+containing any unsupported key here fails closed — the rule never matches — since silently
+rule-approving a patch this emulator can't actually evaluate would be a compliance-data-corrupting
+bug, not just a broader read.
+
+`Patch` gained a real `ReleaseDate` field (epoch seconds, confirmed against
+`deserializers.go`'s `awsAwsjson11_deserializeDocumentPatch`/`ParseEpochSeconds` — a genuine
+pre-existing wire gap, not invented for this fix) so `ApproveAfterDays` has something to evaluate
+against; `defaultPatchCatalog`'s five entries got fixed, deterministic release dates (never
+`time.Now()`).
+
+`ApproveAfterDays`/`ApproveUntilDate`: the SDK's `validatePatchRule` (validators.go) does not
+enforce either being set or being mutually exclusive — only `PatchFilterGroup` is client-validated
+as required. The API reference doc says "your request must include a value for either
+ApproveAfterDays or ApproveUntilDate" (requires at least one) but has no "not both"/"mutually
+exclusive" language anywhere in the `PatchRule` doc block, so this backend rejects
+PatchFilterGroup-missing, Key/Values-missing (SDK-required fields), and neither-set with
+`ValidationException`, plus the documented `ApproveAfterDays` range (0-360) and `ApproveUntilDate`
+format (`YYYY-MM-DD`) — but accepts both being set rather than fabricating a rejection the real
+service may not enforce. When both are set, `ApproveUntilDate` wins (`ruleOutcomeForPatch` checks
+it first) as the more specific of the two (a fixed cutoff date vs. a relative day-count) — no AWS
+source documents this tie-break either way, so it's a disclosed judgment call, not a verified fact.
+
+`RejectedPatchesAction` (`BLOCK`/`ALLOW_AS_DEPENDENCY`) is now validated against the real
+`PatchAction` enum (previously any string was silently stored). Full semantic evaluation — AWS
+distinguishes them only via package **dependency** installation and `INSTALLED_REJECTED` history
+for a patch installed *before* it was rejected — remains structural: this backend's synthetic
+`Patch` catalogue has no dependency graph, and `InstancePatchState`/`PatchComplianceData` are
+recomputed fresh on every `AWS-RunPatchBaseline` run rather than tracking pre-existing installed
+state independent of the current baseline, so there is no "already installed, later rejected"
+history to distinguish `BLOCK` from `ALLOW_AS_DEPENDENCY` against. Modeling this for real needs a
+package-dependency feature and an incremental (not recomputed-per-run) instance patch history —
+both real features of their own, not a field-diff-sized fix — so it's disclosed rather than faked;
+current behavior (rejected patches always excluded from the compliance surface) already matches
+`BLOCK`'s observable effect for the no-dependency case this backend can express.
+
+Also disclosed, left untouched this pass: `GlobalFilters` (baseline-wide filter restricting which
+catalogue patches the baseline covers at all) is still round-trip-only; a `PatchRuleGroup` with
+more than one rule matching the same patch resolves via first-rule-in-list-order, not AWS's
+undocumented internal resolution order, since the synthetic catalogue never needs more than one
+matching rule to exercise real behavior.
 
 ### parity-sweep-3: State Manager associations & OpsCenter (previously deferred, spot-checked only)
 
