@@ -215,6 +215,11 @@ type StorageBackend interface {
 	// the key is not associated with a usage plan for the stage), ErrQuotaExceeded when
 	// the period quota is exhausted, or ErrThrottled when the rate/burst limit is hit.
 	EnforceUsagePlan(apiID, stageName, keyID string) error
+	// EnforceMethodThrottle applies a stage's MethodSettings throttling for a request to
+	// resourcePath/httpMethod, independent of any usage plan or API key. It returns nil
+	// when the limit isn't configured or the request is within it, or ErrThrottled when
+	// the rate/burst limit is hit.
+	EnforceMethodThrottle(apiID, stageName, resourcePath, httpMethod string) error
 
 	// VPC Link operations.
 	CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error)

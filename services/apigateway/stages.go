@@ -58,6 +58,7 @@ func (b *InMemoryBackend) DeleteStage(restAPIID, stageName string) error {
 	if !b.stages.Delete(stageKey(restAPIID, stageName)) {
 		return fmt.Errorf("%w: stage %s not found", ErrResourceNotFound, stageName)
 	}
+	b.clearStageThrottleBuckets(restAPIID, stageName)
 
 	return nil
 }

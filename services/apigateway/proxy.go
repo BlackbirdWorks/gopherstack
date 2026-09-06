@@ -201,8 +201,11 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			h.addCORSHeaders(w, r, resource.CorsConfiguration)
 		}
 
-		// Apply method-level access controls (authorizer + request validator).
-		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID, pathParams); denied {
+		// Apply method-level access controls (throttle, authorizer, request validator).
+		denied := h.applyMethodControls(
+			ctx, w, r, apiID, stageName, resource.ID, resource.Path, pathParams,
+		)
+		if denied {
 			return
 		}
 
@@ -222,13 +225,14 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	}
 }
 
-// applyMethodControls runs the authorizer and request validator for the matched method.
-// Returns true if the request was denied and the response has already been written.
+// applyMethodControls runs the throttle, authorizer, and request validator checks for the
+// matched method. Returns true if the request was denied and the response has already been
+// written.
 func (h *Handler) applyMethodControls(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID, stageName, resourceID string,
+	apiID, stageName, resourceID, resourcePath string,
 	pathParams map[string]string,
 ) bool {
 	method, methodErr := h.Backend.GetMethod(apiID, resourceID, r.Method)
@@ -244,6 +248,13 @@ func (h *Handler) applyMethodControls(
 		if h.enforceAPIKey(ctx, w, r, apiID, stageName) {
 			return true
 		}
+	}
+
+	// Stage MethodSettings throttling: the tier below usage-plan per-client/per-method
+	// limits (api-gateway-request-throttling.html's precedence list), and the only
+	// throttle path that fires for traffic that isn't apiKeyRequired.
+	if h.enforceMethodThrottle(ctx, w, apiID, stageName, resourcePath, r.Method) {
+		return true
 	}
 
 	if method.AuthorizerID != "" {
@@ -318,6 +329,29 @@ func (h *Handler) enforceUsagePlan(
 		return true
 	default:
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: usage-plan enforcement error", "error", err)
+
+		return false
+	}
+}
+
+// enforceMethodThrottle applies a stage's MethodSettings throttling and writes the
+// AWS-accurate 429 response when the limit is exceeded. Returns true when the request was
+// denied.
+func (h *Handler) enforceMethodThrottle(
+	ctx context.Context, w http.ResponseWriter, apiID, stageName, resourcePath, httpMethod string,
+) bool {
+	err := h.Backend.EnforceMethodThrottle(apiID, stageName, resourcePath, httpMethod)
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, ErrThrottled):
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: stage method-setting throttle exceeded",
+			"apiId", apiID, "stage", stageName, "resourcePath", resourcePath, "method", httpMethod)
+		writeThrottleResponse(w, "TooManyRequestsException", "Too Many Requests")
+
+		return true
+	default:
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: method-throttle enforcement error", "error", err)
 
 		return false
 	}
