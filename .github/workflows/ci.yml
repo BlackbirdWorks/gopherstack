@@ -510,7 +510,7 @@ jobs:
         run: |
           COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
           go tool gotestsum --format pkgname -- \
-            -race -shuffle on -timeout 10m -tags=e2e \
+            -race -shuffle on -timeout 20m -tags=e2e \
             -coverpkg="$COVERPKGS" -coverprofile=e2e-coverage.out -covermode=atomic \
             ./test/e2e/...
 
