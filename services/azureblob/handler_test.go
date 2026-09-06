@@ -295,15 +295,19 @@ func TestGetBlob_XMsRangeHeader(t *testing.T) {
 	const body = "0123456789"
 
 	tests := []struct {
-		name     string
-		headers  map[string]string
-		wantBody string
+		name             string
+		headers          map[string]string
+		wantBody         string
+		wantContentRange string
 	}{
-		{name: "x_ms_range_only", headers: map[string]string{"X-Ms-Range": "bytes=2-5"}, wantBody: "2345"},
+		{
+			name: "x_ms_range_only", headers: map[string]string{"X-Ms-Range": "bytes=2-5"},
+			wantBody: "2345", wantContentRange: "bytes 2-5/10",
+		},
 		{
 			name:     "x_ms_range_takes_precedence_over_range",
 			headers:  map[string]string{"X-Ms-Range": "bytes=2-5", "Range": "bytes=7-9"},
-			wantBody: "2345",
+			wantBody: "2345", wantContentRange: "bytes 2-5/10",
 		},
 	}
 
@@ -320,7 +324,7 @@ func TestGetBlob_XMsRangeHeader(t *testing.T) {
 
 			require.Equal(t, http.StatusPartialContent, rec.Code, tt.name)
 			assert.Equal(t, tt.wantBody, rec.Body.String(), tt.name)
-			assert.NotEmpty(t, rec.Header().Get("Content-Range"), tt.name)
+			assert.Equal(t, tt.wantContentRange, rec.Header().Get("Content-Range"), tt.name)
 		})
 	}
 }

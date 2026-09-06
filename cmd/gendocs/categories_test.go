@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDisplayName_Azure proves the four Azure services (M0-M3) get curated
@@ -68,7 +69,7 @@ func TestCategoryGroups_EverySlugInExactlyOneGroup(t *testing.T) {
 	for _, g := range categoryGroups() {
 		for _, slug := range g.Slugs {
 			if prevGroup, ok := seen[slug]; ok {
-				t.Fatalf("slug %q appears in both %q and %q", slug, prevGroup, g.Name)
+				require.Failf(t, "duplicate slug", "slug %q appears in both %q and %q", slug, prevGroup, g.Name)
 			}
 
 			seen[slug] = g.Name

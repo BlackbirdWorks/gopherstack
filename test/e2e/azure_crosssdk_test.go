@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestE2E_AzureCrossSDK proves gopherstack's four Azure services (Blob,
@@ -93,9 +95,7 @@ func TestE2E_AzureCrossSDK(t *testing.T) {
 			cmd.Env = append(os.Environ(), env...)
 
 			out, runErr := cmd.CombinedOutput()
-			if runErr != nil {
-				t.Fatalf("%s cross-SDK smoke script failed: %v\n--- output ---\n%s", tt.name, runErr, out)
-			}
+			require.NoErrorf(t, runErr, "%s cross-SDK smoke script failed\n--- output ---\n%s", tt.name, out)
 
 			t.Logf("%s cross-SDK smoke output:\n%s", tt.name, out)
 		})
@@ -109,9 +109,8 @@ func crosssdkDir(t *testing.T) string {
 	t.Helper()
 
 	goMod := mustGoEnvGOMOD(t)
-	if goMod == "" || goMod == os.DevNull {
-		t.Fatal("`go env GOMOD` returned no module (not inside a Go module?)")
-	}
+	require.NotEmpty(t, goMod, "`go env GOMOD` returned no module (not inside a Go module?)")
+	require.NotEqual(t, os.DevNull, goMod, "`go env GOMOD` returned no module (not inside a Go module?)")
 
 	return filepath.Join(filepath.Dir(goMod), "test", "e2e", "crosssdk")
 }
@@ -137,7 +136,7 @@ func nodeDepsInstalled(crosssdkDir string) bool {
 func pythonDepsInstalled(t *testing.T, pythonPath string) bool {
 	t.Helper()
 
-	cmd := exec.Command(pythonPath, "-c",
+	cmd := exec.CommandContext(t.Context(), pythonPath, "-c",
 		"import azure.storage.blob, azure.storage.queue, azure.data.tables, azure.cosmos")
 
 	return cmd.Run() == nil
@@ -155,12 +154,11 @@ func startGopherstackForAzureCrossSDK(t *testing.T) []string {
 
 	binPath := filepath.Join(t.TempDir(), "gopherstack-azure-crosssdk")
 
-	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
+	buildCmd := exec.CommandContext(t.Context(), "go", "build", "-o", binPath, ".")
 	buildCmd.Dir = moduleRoot
 
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("build gopherstack binary: %v\n--- output ---\n%s", err, out)
-	}
+	out, buildErr := buildCmd.CombinedOutput()
+	require.NoErrorf(t, buildErr, "build gopherstack binary\n--- output ---\n%s", out)
 
 	mainPort := mustFreePort(t)
 	blobPort := mustFreePort(t)
@@ -178,9 +176,7 @@ func startGopherstackForAzureCrossSDK(t *testing.T) []string {
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start gopherstack subprocess: %v", err)
-	}
+	require.NoError(t, cmd.Start(), "start gopherstack subprocess")
 
 	t.Cleanup(func() {
 		if cmd.Process != nil {
@@ -205,10 +201,8 @@ func startGopherstackForAzureCrossSDK(t *testing.T) []string {
 func mustGoEnvGOMOD(t *testing.T) string {
 	t.Helper()
 
-	out, err := exec.Command("go", "env", "GOMOD").Output()
-	if err != nil {
-		t.Fatalf("determine module root via `go env GOMOD`: %v", err)
-	}
+	out, err := exec.CommandContext(t.Context(), "go", "env", "GOMOD").Output()
+	require.NoError(t, err, "determine module root via `go env GOMOD`")
 
 	return trimNewline(string(out))
 }
@@ -222,9 +216,7 @@ func mustFreePort(t *testing.T) int {
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("allocate ephemeral port: %v", err)
-	}
+	require.NoError(t, err, "allocate ephemeral port")
 	defer ln.Close()
 
 	return ln.Addr().(*net.TCPAddr).Port
@@ -249,5 +241,6 @@ func waitForPort(t *testing.T, port int) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	t.Fatalf("gopherstack did not start listening on %s within 15s", addr)
+	require.Failf(t, "gopherstack did not start listening in time",
+		"address %s did not accept a connection within 15s", addr)
 }

@@ -13,7 +13,7 @@ All four requests use plain `curl` with no credentials — auth verification is 
 
 ## Prerequisites
 
-- **Docker** (for `docker-compose up`), or a local `go run .` build of gopherstack.
+- **Docker** (for `docker-compose up`), or a local Go toolchain to run gopherstack directly from the repo root.
 - **curl**, plus the POSIX text utilities `grep`, `head`, and `sed` (used to pull the pop receipt out of the Queue response). No Azure SDKs or `az` CLI needed.
 
 ## Running
@@ -27,7 +27,7 @@ docker-compose up -d
 Or, without Docker:
 
 ```bash
-go run . --azure-blob-port 10000 --azure-queue-port 10001 --azure-table-port 10002 --cosmosdb-port 8081 &
+go run ../.. --azure-blob-port 10000 --azure-queue-port 10001 --azure-table-port 10002 --cosmosdb-port 8081 &
 ./demo.sh
 ```
 

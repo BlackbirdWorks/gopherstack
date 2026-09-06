@@ -42,6 +42,64 @@ curl_check() {
   fi
 }
 
+curl_check_capture() {
+  # curl_check_capture <description> <curl args...>
+  # Same status check as curl_check, but prints ONLY the response body to
+  # stdout (after echoing the description/body to stderr for the transcript)
+  # so a caller can capture it via command substitution, e.g.
+  #   MESSAGES=$(curl_check_capture "get messages" "$url")
+  local desc="$1"
+  shift
+  echo "--- ${desc} ---" >&2
+  local status body
+  body=$(curl -sS -w '\n%{http_code}' "$@")
+  status="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  echo "$body" >&2
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    echo "FAILED: ${desc} returned HTTP ${status}" >&2
+    exit 1
+  fi
+  echo "$body"
+}
+
+wait_for_ports() {
+  # wait_for_ports <name|url> ...
+  # Polls each host:port (parsed out of the given URL) until it accepts a
+  # TCP connection, or fails after a bounded total wait. Guards against the
+  # documented `docker-compose up -d` flow racing the first mutation against
+  # gopherstack's Azure listeners before they're accepting connections --
+  # `docker-compose`'s healthcheck only gates the main port (8000), not the
+  # four dedicated Azure listeners.
+  local deadline=$((SECONDS + 30))
+  local entry name url hostport
+  for entry in "$@"; do
+    name="${entry%%|*}"
+    url="${entry#*|}"
+    hostport="${url#*://}"
+    hostport="${hostport%%/*}"
+    echo "Waiting for ${name} (${hostport})..."
+    # A plain TCP-connect-and-get-any-response check: curl without -f treats
+    # any HTTP status (even 4xx) as success, so this only fails while the
+    # listener genuinely isn't accepting connections yet.
+    while ! curl -sS -o /dev/null "${url%/}/" 2>/dev/null; do
+      if (( SECONDS >= deadline )); then
+        echo "FAILED: ${name} (${hostport}) did not become ready within 30s" >&2
+        exit 1
+      fi
+      sleep 0.5
+    done
+  done
+  echo "All four Azure listeners are ready."
+  echo ""
+}
+
+wait_for_ports \
+  "Azure Blob|${BLOB_URL}" \
+  "Azure Queue|${QUEUE_URL}" \
+  "Azure Table|${TABLE_URL}" \
+  "Azure Cosmos DB|${COSMOS_URL}"
+
 echo "=== Azure Blob Storage (port 10000) ==="
 curl_check "create container" -X PUT "${BLOB_URL}/${ACCOUNT}/${CONTAINER}?restype=container"
 curl_check "put blob" -X PUT "${BLOB_URL}/${ACCOUNT}/${CONTAINER}/${BLOB_NAME}" \
@@ -57,9 +115,7 @@ echo "=== Azure Queue Storage (port 10001) ==="
 curl_check "create queue" -X PUT "${QUEUE_URL}/${ACCOUNT}/${QUEUE_NAME}"
 curl_check "put message" -X POST "${QUEUE_URL}/${ACCOUNT}/${QUEUE_NAME}/messages" \
   --data '<QueueMessage><MessageText>hello from gopherstack</MessageText></QueueMessage>'
-MESSAGES=$(curl -sS "${QUEUE_URL}/${ACCOUNT}/${QUEUE_NAME}/messages?numofmessages=1")
-echo "--- get messages ---"
-echo "$MESSAGES"
+MESSAGES=$(curl_check_capture "get messages" "${QUEUE_URL}/${ACCOUNT}/${QUEUE_NAME}/messages?numofmessages=1")
 MESSAGE_ID=$(echo "$MESSAGES" | grep -o '<MessageId>[^<]*' | head -1 | sed 's/<MessageId>//')
 POP_RECEIPT=$(echo "$MESSAGES" | grep -o '<PopReceipt>[^<]*' | head -1 | sed 's/<PopReceipt>//')
 if [[ -z "$MESSAGE_ID" || -z "$POP_RECEIPT" ]]; then

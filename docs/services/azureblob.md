@@ -29,7 +29,7 @@ Startup fails fast if the port is unavailable — there is no fallback pool.
 
 Gopherstack accepts Azurite's published well-known development storage account by default:
 
-```
+```text
 Account name: devstoreaccount1
 Account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 ```

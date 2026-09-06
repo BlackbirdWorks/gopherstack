@@ -7,6 +7,7 @@
 //
 // Exits 0 on success, non-zero with a clear message on any failure.
 
+import { randomUUID } from "node:crypto";
 import { BlobServiceClient, StorageSharedKeyCredential as BlobSharedKeyCredential } from "@azure/storage-blob";
 import { QueueServiceClient, StorageSharedKeyCredential as QueueSharedKeyCredential } from "@azure/storage-queue";
 import { TableServiceClient, TableClient, AzureNamedKeyCredential } from "@azure/data-tables";
@@ -17,6 +18,16 @@ const ACCOUNT_KEY =
   "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
 const COSMOS_MASTER_KEY =
   "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+
+// The Go driver runs this script and azure_smoke.py in parallel against the
+// SAME gopherstack instance (test/e2e/azure_crosssdk_test.go), so every
+// resource name below must be collision-proof against the Python side, not
+// just unique within one run -- a shared "node-"/"py"-less prefix or
+// millisecond-only suffix would let same-millisecond starts collide on
+// create. RUN_ID mixes a language tag with a random UUID. Azure Table names
+// must be alphanumeric only (no hyphens), so TABLE_RUN_ID strips them.
+const RUN_ID = `node-${randomUUID()}`;
+const TABLE_RUN_ID = `node${randomUUID().replace(/-/g, "")}`;
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -30,7 +41,7 @@ async function smokeBlob(endpoint) {
   const cred = new BlobSharedKeyCredential(ACCOUNT_NAME, ACCOUNT_KEY);
   const client = new BlobServiceClient(`${endpoint}/${ACCOUNT_NAME}`, cred);
 
-  const containerName = `smoke-${Date.now()}`;
+  const containerName = `${RUN_ID}-container`;
   const container = client.getContainerClient(containerName);
   await container.create();
 
@@ -52,7 +63,7 @@ async function smokeQueue(endpoint) {
   const cred = new QueueSharedKeyCredential(ACCOUNT_NAME, ACCOUNT_KEY);
   const client = new QueueServiceClient(`${endpoint}/${ACCOUNT_NAME}`, cred);
 
-  const queueName = `smoke-${Date.now()}`;
+  const queueName = `${RUN_ID}-queue`;
   const queue = client.getQueueClient(queueName);
   await queue.create();
 
@@ -78,7 +89,7 @@ async function smokeTable(endpoint) {
   const clientOptions = { allowInsecureConnection: true };
   const serviceClient = new TableServiceClient(`${endpoint}/${ACCOUNT_NAME}`, cred, clientOptions);
 
-  const tableName = `smoke${Date.now()}`;
+  const tableName = `${TABLE_RUN_ID}table`;
   await serviceClient.createTable(tableName);
 
   const tableClient = new TableClient(`${endpoint}/${ACCOUNT_NAME}`, tableName, cred, clientOptions);
@@ -101,10 +112,10 @@ async function smokeTable(endpoint) {
 async function smokeCosmos(endpoint) {
   const client = new CosmosClient({ endpoint, key: COSMOS_MASTER_KEY });
 
-  const dbId = `smoke-${Date.now()}`;
+  const dbId = `${RUN_ID}-db`;
   const { database } = await client.databases.create({ id: dbId });
   const { container } = await database.containers.create({
-    id: "smoke-container",
+    id: `${RUN_ID}-coll`,
     partitionKey: { paths: ["/pk"] },
   });
 

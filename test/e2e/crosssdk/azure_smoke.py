@@ -12,7 +12,7 @@ Exits 0 on success, non-zero with a clear message on any failure.
 
 import os
 import sys
-import time
+import uuid
 
 from azure.core.credentials import AzureNamedKeyCredential
 from azure.cosmos import CosmosClient
@@ -28,6 +28,16 @@ COSMOS_MASTER_KEY = (
     "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
 )
 
+# The Go driver runs this script and azure_smoke.mjs in parallel against the
+# SAME gopherstack instance (test/e2e/azure_crosssdk_test.go), so every
+# resource name below must be collision-proof against the Node side, not
+# just unique within one run -- a shared prefix or millisecond-only suffix
+# would let same-millisecond starts collide on create. RUN_ID mixes a
+# language tag with a random UUID; TABLE_RUN_ID strips hyphens since Azure
+# Table names must be alphanumeric only.
+RUN_ID = f"py-{uuid.uuid4()}"
+TABLE_RUN_ID = f"py{uuid.uuid4().hex}"
+
 
 def require_env(name: str) -> str:
     value = os.environ.get(name)
@@ -42,7 +52,7 @@ def smoke_blob(endpoint: str) -> None:
         credential={"account_name": ACCOUNT_NAME, "account_key": ACCOUNT_KEY},
     )
 
-    container_name = f"smoke-{int(time.time() * 1000)}"
+    container_name = f"{RUN_ID}-container"
     container = client.create_container(container_name)
 
     content = b"hello from python"
@@ -64,7 +74,7 @@ def smoke_queue(endpoint: str) -> None:
         credential={"account_name": ACCOUNT_NAME, "account_key": ACCOUNT_KEY},
     )
 
-    queue_name = f"smoke-{int(time.time() * 1000)}"
+    queue_name = f"{RUN_ID}-queue"
     queue = client.create_queue(queue_name)
 
     queue.send_message("hello from python")
@@ -87,7 +97,7 @@ def smoke_table(endpoint: str) -> None:
         endpoint=f"{endpoint}/{ACCOUNT_NAME}", credential=credential
     )
 
-    table_name = f"smoke{int(time.time() * 1000)}"
+    table_name = f"{TABLE_RUN_ID}table"
     table_client = service_client.create_table(table_name)
 
     table_client.create_entity(
@@ -106,10 +116,10 @@ def smoke_table(endpoint: str) -> None:
 def smoke_cosmos(endpoint: str) -> None:
     client = CosmosClient(endpoint, credential=COSMOS_MASTER_KEY)
 
-    db_id = f"smoke-{int(time.time() * 1000)}"
+    db_id = f"{RUN_ID}-db"
     database = client.create_database(db_id)
     container = database.create_container(
-        id="smoke-container", partition_key={"paths": ["/pk"], "kind": "Hash"}
+        id=f"{RUN_ID}-coll", partition_key={"paths": ["/pk"], "kind": "Hash"}
     )
 
     created = container.create_item(

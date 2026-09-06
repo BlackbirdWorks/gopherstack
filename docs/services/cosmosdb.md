@@ -38,7 +38,7 @@ Startup fails fast if the port is unavailable — there is no fallback pool. **T
 
 Gopherstack accepts the real Cosmos DB Local Emulator's published well-known master key by default:
 
-```
+```text
 C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
 ```
 

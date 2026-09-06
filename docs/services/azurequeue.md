@@ -30,7 +30,7 @@ Startup fails fast if the port is unavailable — there is no fallback pool.
 
 Same well-known Azurite development account as Azure Blob:
 
-```
+```text
 Account name: devstoreaccount1
 Account key:  Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 ```
