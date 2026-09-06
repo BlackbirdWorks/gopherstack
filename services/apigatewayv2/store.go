@@ -122,13 +122,19 @@ type InMemoryBackend struct {
 	routingRules                  *store.Table[RoutingRule]
 	routingRulesByDomain          *store.Index[RoutingRule]
 	registry                      *store.Registry
-	mu                            *lockmetrics.RWMutex
+	// routeThrottleBuckets holds the ephemeral per-(api,stage,route) token-bucket
+	// state for RouteSettings/DefaultRouteSettings throttling. Not part of any
+	// persisted snapshot -- like apigateway v1's usageTracker, it's data-plane
+	// rate-limiter state, not resource configuration.
+	routeThrottleBuckets map[string]*tokenBucket
+	mu                   *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		portalProductSharingPolicies: make(map[string]string),
+		routeThrottleBuckets:         make(map[string]*tokenBucket),
 		registry:                     store.NewRegistry(),
 		mu:                           lockmetrics.New("apigatewayv2"),
 	}
@@ -168,6 +174,7 @@ func (b *InMemoryBackend) Reset() {
 	b.routingRules.Reset()
 
 	b.portalProductSharingPolicies = make(map[string]string)
+	b.routeThrottleBuckets = make(map[string]*tokenBucket)
 }
 
 // randomID generates a cryptographically random 10-character alphanumeric ID.

@@ -112,4 +112,7 @@ var (
 	ErrVpcLinkNotFound = errors.New("NotFoundException")
 	// ErrRoutingRuleNotFound is returned when a requested routing rule does not exist.
 	ErrRoutingRuleNotFound = errors.New("NotFoundException")
+	// ErrThrottled is returned by the data plane when a route exceeds its
+	// configured throttling rate/burst limit.
+	ErrThrottled = errors.New("TooManyRequestsException")
 )

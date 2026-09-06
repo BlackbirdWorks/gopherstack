@@ -3,7 +3,23 @@ service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: ca3a1e21f
 last_audit_date: 2026-09-04
-overall: A            # data-plane sweep pass (this pass, 2026-09-04, gopherstack-vli). Focused
+overall: A            # route-throttle enforcement pass (this pass, 2026-09-06, gopherstack-dv44).
+                       # RouteSettings/DefaultRouteSettings.Throttling{Rate,Burst}Limit were
+                       # stored (CreateStage/UpdateStage) and echoed back, but handleHTTPAPIProxy
+                       # dispatched straight to the integration with no limiter ever consulted --
+                       # a configured limit had zero effect. Fixed: a new per-(api,stage,routeKey)
+                       # token-bucket limiter (throttle.go), enforced in applyRouteControls before
+                       # the route authorizer (mirrors apigateway v1's gopherstack-91f2 stage-
+                       # throttle-before-authorizer precedence), returning AWS's real 429
+                       # TooManyRequestsException shape. RouteSettings[routeKey] fully replaces
+                       # DefaultRouteSettings when present (not merged), matching v1's
+                       # MethodSettings "*/*" override convention; a zero/unset
+                       # ThrottlingRateLimit means unlimited, also matching v1. Bucket state is
+                       # ephemeral (not persisted, like v1's usageTracker) and is evicted on
+                       # DeleteStage, DeleteAPI (cascade), DeleteRoute, and UpdateRoute route-key
+                       # rename, closing the same ghost-row class v1 closed for DeleteStage.
+                       # ---- prior pass's note follows ----
+                       # data-plane sweep pass (2026-09-04, gopherstack-vli). Focused
                        # on the data plane (handleProxy/handleHTTPAPIProxy/invokeWSRoute), not
                        # re-covered here: control-plane wire-shape/pagination/leak ground already
                        # swept by prior passes below. Found and fixed three real bugs: (1)

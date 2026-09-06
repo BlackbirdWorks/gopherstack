@@ -131,9 +131,10 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return c.String(http.StatusNotFound, "Not Found")
 	}
 
-	// Route authorization enforcement (NONE / JWT / CUSTOM / AWS_IAM).
-	if authErr := h.enforceRouteAuth(c, apiID, stageName, resourcePath, matchedRoute); authErr != nil {
-		return authErr
+	// Throttle (RouteSettings/DefaultRouteSettings) then authorization (NONE /
+	// JWT / CUSTOM / AWS_IAM) enforcement for the matched route.
+	if ctrlErr := h.applyRouteControls(c, apiID, stageName, resourcePath, matchedRoute); ctrlErr != nil {
+		return ctrlErr
 	}
 
 	// Resolve integration.
@@ -162,6 +163,46 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return h.forwardHTTPAPIHTTPIntegration(c, integration, stageVars)
 	default:
 		return c.String(http.StatusInternalServerError, "Unsupported integration type: "+integration.IntegrationType)
+	}
+}
+
+// applyRouteControls runs the throttle and authorizer checks for the matched
+// route, in that order: throttle first, mirroring apigateway v1's
+// stage-throttle-before-authorizer precedence (proxy.go's
+// applyMethodControls) -- it's not client-specific, so it applies to traffic
+// regardless of whether the request is later authorized. Returns a non-nil
+// error (already written to c) when the request is denied.
+func (h *Handler) applyRouteControls(
+	c *echo.Context,
+	apiID, stageName, resourcePath string,
+	route *Route,
+) error {
+	if throttleErr := h.enforceRouteThrottle(c, apiID, stageName, route.RouteKey); throttleErr != nil {
+		return throttleErr
+	}
+
+	return h.enforceRouteAuth(c, apiID, stageName, resourcePath, route)
+}
+
+// enforceRouteThrottle applies the stage's RouteSettings/DefaultRouteSettings
+// throttling for routeKey and writes the AWS-accurate 429 response when the
+// limit is exceeded. Returns nil (request allowed) when unthrottled.
+func (h *Handler) enforceRouteThrottle(c *echo.Context, apiID, stageName, routeKey string) error {
+	log := logger.Load(c.Request().Context())
+
+	err := h.Backend.EnforceRouteThrottle(apiID, stageName, routeKey)
+
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrThrottled):
+		log.Info("apigatewayv2: route throttle exceeded", "apiId", apiID, "stage", stageName, "routeKey", routeKey)
+
+		return writeErr(c, http.StatusTooManyRequests, "Too Many Requests")
+	default:
+		log.Warn("apigatewayv2: route-throttle enforcement error", "error", err)
+
+		return nil
 	}
 }
 
