@@ -168,7 +168,7 @@ ops:
   DeleteRouteSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRouteRequestParameter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCorsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "autoDeploy interaction verified"}
+  CreateDeployment: {wire: ok, errors: ok, state: fixed, persist: fixed, note: "autoDeploy interaction verified. FIXED 2026-09-06 (gopherstack-cfr1): now snapshots the API's current routes and integrations onto the created Deployment (internal-only fields, not on the wire) -- see gaps and Notes #19."}
   GetDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -234,33 +234,47 @@ gaps:
     for failOnWarnings to escalate into an error. Not fabricating warning-generation heuristics to
     manufacture an effect -- see the existing trap note on API.ImportInfo/Warnings below. bd:
     gopherstack-jni0, narrowed to these two residual items."
-  - "Stage deployment gates only on the stage EXISTING (this pass, gopherstack-vli), not on
-    having ever been deployed to. Real AWS: 'Deployments are an immutable snapshot of the API,
-    and to make your API callable, you must create a stage and deploy an API snapshot into it'
-    (AWS docs, apigateway/latest/developerguide/http-api-stages.html -- weaker evidence than the
-    SDK, since data-plane invoke behavior isn't part of the modeled control-plane wire shapes).
-    gopherstack's route/integration matching (handleHTTPAPIProxy/invokeWSRoute) always reads the
-    API's LIVE current routes/integrations via h.Backend.GetRoutes/GetIntegration, never a
-    point-in-time snapshot captured at CreateDeployment time. Two distinct un-fixed gaps this
-    implies, both left open rather than guessed at: (1) a stage that exists but has
-    stage.DeploymentID == \"\" (created, never auto- or manually deployed) still serves live
-    traffic -- only a stage that was NEVER CREATED is now rejected (see Notes #16-18); genuinely
-    gating on DeploymentID=='' risks over-rejecting, since it's unclear whether real AWS performs
-    an implicit initial deployment when CreateStage's autoDeploy=true and the API already has
-    routes (gopherstack's CreateStage does not call autoDeployLocked itself -- only route/
-    integration/API mutations do). (2) For a stage with autoDeploy=false, editing routes/
-    integrations after the stage's last deployment should NOT be visible until the next
-    CreateDeployment, but gopherstack always serves current live state regardless -- there is no
-    per-deployment snapshot mechanism in this backend at all. Implementing real snapshotting is a
-    substantially larger structural feature (versioned route/integration/stage state), not a
-    small fix, and no wire-verifiable error code exists for the render-time failure mode either
-    way -- left as a disclosed, unfixed gap rather than a guessed implementation."
+  - "Stage deployment gates only on the stage EXISTING (gopherstack-vli), not on having ever
+    been deployed to. Real AWS: 'Deployments are an immutable snapshot of the API, and to make
+    your API callable, you must create a stage and deploy an API snapshot into it' (AWS docs,
+    apigateway/latest/developerguide/http-api-stages.html -- weaker evidence than the SDK, since
+    data-plane invoke behavior isn't part of the modeled control-plane wire shapes). Two distinct
+    gaps were disclosed here: (1) a stage that exists but has stage.DeploymentID == \"\" (created,
+    never auto- or manually deployed) still serves live traffic -- only a stage that was NEVER
+    CREATED is rejected (see Notes #16-18); genuinely gating on DeploymentID=='' risks
+    over-rejecting, since it's unclear whether real AWS performs an implicit initial deployment
+    when CreateStage's autoDeploy=true and the API already has routes (gopherstack's CreateStage
+    does not call autoDeployLocked itself -- only route/integration/API mutations do) -- left
+    open, unchanged. (2) FIXED 2026-09-06 (gopherstack-cfr1) for the HTTP API data plane only:
+    handleHTTPAPIProxy previously always read the API's LIVE current routes/integrations via
+    h.Backend.GetRoutes/GetIntegration regardless of which deployment a stage was nominally
+    pinned to, so an autoDeploy=false stage saw route/integration edits with no new deployment
+    required. CreateDeployment and autoDeployLocked (deployments.go) now copy the API's current
+    routes and integrations onto the created Deployment (Deployment.Routes/Integrations, internal
+    only -- json:\"-\", not part of the real GetDeploymentOutput wire shape); handleHTTPAPIProxy
+    resolves routes/integrations from the stage's pinned deployment snapshot when
+    stage.DeploymentID != \"\", falling back to live state (unchanged behavior) when the stage has
+    no deployment yet or its pinned deployment was since deleted -- avoiding the DeploymentID=='' 
+    gating question above rather than resolving it. See Notes #19. Residual, disclosed rather than
+    guessed at: WebSocket routing (invokeWSRoute) is unaffected -- it doesn't even thread
+    stageName through, a separate, larger gap; a route's AuthorizerID is captured by the route
+    snapshot, but the referenced Authorizer's own definition (e.g. JWT issuer/audience) is still
+    resolved live via h.Backend.GetAuthorizer, since autoDeployLocked has never triggered on
+    authorizer or CORS mutations either (a pre-existing, separate incompleteness, not newly
+    introduced); CORS headers (Api.CorsConfiguration) are similarly still resolved live, since
+    they don't affect route/integration matching. apigateway (v1, bd gopherstack-fum) has the
+    identical bug and was deliberately left unfixed this pass -- v1's data plane matches against a
+    resource TREE via a cached routingTrie (proxy_routing.go), not v2's flat route/integration
+    lists, and also lacks v2's autoDeploy/AutoDeployed model entirely (v1 has no auto-deployment
+    concept, only explicit CreateDeployment), so the same fix shape does not carry over; scoped as
+    its own, larger effort."
 deferred:
   - "2026-08-23 (manifest harvest): UpdatePortal's real UpdatePortalInput (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_UpdatePortal.go) has optional Authorization/EndpointConfiguration/PortalContent members letting a caller replace a portal's auth config, domain/cert config, or displayed content post-creation -- gopherstack's UpdatePortalInput (models.go) has no fields for any of the three, so a real client sending them gets no error but no effect either. All three are already-modeled types (used by CreatePortal) and Create's existing validateCreatePortal{Authorization,EndpointConfiguration,Content} helpers look reusable for a nil-check-and-replace Update path; not implemented this pass to keep the fix scoped to the three accept-and-drop bugs found and closed alongside this note (IncludedPortalProductArns/RumAppMonitorName/LastPublished(Description), see the family's ops-table note) -- newly disclosed, not previously known."
   - PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit still not re-verified field-by-field against botocore (only Portal itself got a field-level audit this pass -- see the family's ops-table note)
   - ImportApi/ReimportApi basepath=split; failOnWarnings real effect (see gaps, bd gopherstack-jni0)
   - Quick-create DeleteRoute/DeleteStage/DeleteIntegration rejection (see gaps, bd gopherstack-2tx)
-  - Per-deployment route/integration snapshotting for autoDeploy=false stages; DeploymentID=="" gating (see gaps, bd gopherstack-vli)
+  - DeploymentID=="" gating for a never-deployed stage (see gaps, bd gopherstack-vli) -- per-deployment route/integration snapshotting itself was fixed 2026-09-06 (gopherstack-cfr1, see gaps and Notes #19)
+  - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) -- deliberately not fixed alongside v2's; v1's resource-tree/routingTrie data plane and lack of an autoDeploy model make it a distinctly larger effort, not a copy of this fix
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
 
@@ -542,6 +556,46 @@ confirmed against `aws-sdk-go-v2/service/apigatewayv2@v1.37.4/api_op_CreateInteg
     updating the shared `doProxyRequest` test helper to provision a `$default` stage before
     issuing a data-plane request (`ensureDefaultStage`) -- every existing proxy test had been
     unknowingly relying on the absence of this check, since none of them called `CreateStage`.
+
+19. **`handleHTTPAPIProxy` never froze a per-deployment routing snapshot -- an `autoDeploy=false`
+    stage saw route/integration edits with no new deployment (gopherstack-cfr1).** `CreateDeployment`
+    and `autoDeployLocked` (`deployments.go`) created a `Deployment` record with no capture of the
+    API's routes/integrations at all, and `handleHTTPAPIProxy` (`http_proxy.go:124,146` pre-fix)
+    called `h.Backend.GetRoutes(apiID)`/`h.Backend.GetIntegration(apiID, integrationID)` on every
+    request regardless of which deployment a stage was nominally pinned to -- an `autoDeploy=true`
+    and an `autoDeploy=false` stage were indistinguishable at the data plane; both always served
+    the API's live current state. Fixed: `Deployment` gained internal-only `Routes []Route` /
+    `Integrations []Integration` fields (`json:"-"` -- not part of the real `GetDeploymentOutput`
+    wire shape, verified against `aws-sdk-go-v2/service/apigatewayv2`'s `api_op_GetDeployment.go`).
+    `CreateDeployment` and `autoDeployLocked` now both call a shared `snapshotRoutingLocked`
+    helper to copy the API's current routes/integrations onto the deployment they create.
+    `handleHTTPAPIProxy` resolves the routes to match against, and the integration a matched
+    route's target names, via new `resolveHTTPAPIRoutes`/`resolveHTTPAPIIntegration` helpers: when
+    `stage.DeploymentID != ""` and that deployment still exists, both resolve from its frozen
+    snapshot; otherwise (no deployment yet, or the pinned deployment was since deleted) both fall
+    back to the API's live state, unchanged from pre-fix behavior -- deliberately sidestepping the
+    `DeploymentID==""` gating question left open in gaps (#2) rather than resolving it. Persisted
+    via `deploymentSnapshot`'s new `Routes []routeSnapshot`/`Integrations []integrationSnapshot`
+    fields (`persistence.go`), reusing the existing `routeSnapshot`/`integrationSnapshot` DTOs so
+    the nested entries round-trip identically to the top-level route/integration tables; additive
+    fields, no `apigatewayv2SnapshotVersion` bump. Scope, disclosed not guessed at: a route's
+    `AuthorizerID` is captured by the route snapshot, but the *referenced* `Authorizer`'s own
+    definition is still resolved live via `h.Backend.GetAuthorizer` -- `autoDeployLocked` has
+    never triggered on authorizer or CORS mutations either, a pre-existing incompleteness this fix
+    didn't introduce or widen. WebSocket routing (`invokeWSRoute`) is untouched -- it doesn't even
+    take a `stageName` parameter, a separate, larger gap. apigateway v1's identical bug
+    (`bd gopherstack-fum`) was left unfixed: v1 has no `autoDeploy` model, and its data plane
+    matches a resource TREE via a cached `routingTrie` (`proxy_routing.go`), not v2's flat
+    route/integration lists -- the same fix shape does not transfer. Tests:
+    `TestHTTPAPIProxy_DeploymentSnapshot` (table over `autoDeploy` true/false, asserting through
+    the proxy path -- not the stored record -- that an `autoDeploy=false` stage keeps serving a
+    stale integration after an edit until a fresh `CreateDeployment`, while `autoDeploy=true`
+    reflects the edit immediately) and `TestHTTPAPIProxy_NoDeploymentYet_ServesLiveState` (a stage
+    that exists but was never deployed still serves live state, not a 500). The pre-existing
+    `TestAutoDeploy_RouteAndIntegrationChangesDeploy` (`handler_deployments_test.go`) was left
+    unchanged rather than extended: it already covered the deployment *record* correctly
+    (`autoDeployLocked` firing per stage), a genuinely separate concern from the proxy *routing*
+    bug this note fixes.
 
 Traps for the next auditor (don't re-flag):
 
