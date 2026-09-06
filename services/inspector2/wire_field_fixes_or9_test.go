@@ -23,12 +23,20 @@ import (
 // (wrong union member, its own requested PackageAggregation.PackageName/etc
 // never populated), silently discarding the aggregation the caller actually
 // asked for, for every AggregationType except ACCOUNT (14 of 15 real
-// values). This backend's Finding model has no per-package/per-resource/
-// per-repository/per-image detail to genuinely aggregate the other 14 types
-// by, so the fix is to stop fabricating an accountAggregation-shaped entry
-// for them and return an honestly empty responses list instead --
-// AggregationType=ACCOUNT (the only type this backend has real data for)
-// is unaffected.
+// values). The fix stops fabricating an accountAggregation-shaped entry for
+// types this backend has no data for, returning an honestly empty responses
+// list instead.
+//
+// gopherstack-f9vi later added real per-group data for TITLE, REPOSITORY,
+// AWS_EC2_INSTANCE, AWS_ECR_CONTAINER, AWS_LAMBDA_FUNCTION and
+// CODE_REPOSITORY (see ListFindingAggregations). TITLE and REPOSITORY stay
+// in this table because the finding seeded below has no title and no
+// Resources, so they still correctly produce no groups -- this pins the
+// "no groupable data" case, not "these types are always unsupported".
+// PACKAGE, FINDING_TYPE and AMI remain genuinely unsupported: PACKAGE has no
+// backing sub-struct on FindingResource, FINDING_TYPE's response shape
+// carries no group key to aggregate by, and AMI has no AMI-ID field
+// anywhere in this model.
 func TestListFindingAggregations_NonAccountType_RealClient(t *testing.T) {
 	t.Parallel()
 
