@@ -116,6 +116,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
@@ -444,10 +445,12 @@ type CLI struct {
 	InitScripts                   []string                   `                                  name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                   `                                  name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings         `embed:"" prefix:"s3-"`
+	CosmosDB                      cosmosdbbackend.Settings   `embed:"" prefix:"cosmosdb-"`
 	Lambda                        lambdabackend.Settings     `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings        `embed:"" prefix:"dynamodb-"`
 	EC2                           ec2backend.Settings        `embed:"" prefix:"ec2-"`
 	Batch                         batchbackend.Settings      `embed:"" prefix:"batch-"`
+	StepFunctions                 sfnbackend.Settings        `embed:"" prefix:"stepfunctions-"`
 	CodeBuild                     codebuildbackend.Settings  `embed:"" prefix:"codebuild-"`
 	Backup                        backupbackend.Settings     `embed:"" prefix:"backup-"`
 	SSM                           ssmbackend.Settings        `embed:"" prefix:"ssm-"`
@@ -456,11 +459,10 @@ type CLI struct {
 	FIS                           fisbackend.Settings        `embed:"" prefix:"fis-"`
 	EMR                           emrbackend.Settings        `embed:"" prefix:"emr-"`
 	Athena                        athenabackend.Settings     `embed:"" prefix:"athena-"`
-	KMS                           kmsbackend.Settings        `embed:"" prefix:"kms-"`
 	CloudWatchLogs                cwlogsbackend.Settings     `embed:"" prefix:"cloudwatchlogs-"`
+	KMS                           kmsbackend.Settings        `embed:"" prefix:"kms-"`
 	Kinesis                       kinesisbackend.Settings    `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings        `embed:"" prefix:"sts-"`
-	StepFunctions                 sfnbackend.Settings        `embed:"" prefix:"stepfunctions-"`
 	AzureBlob                     azureblobbackend.Settings  `embed:"" prefix:"azure-blob-"`
 	AzureQueue                    azurequeuebackend.Settings `embed:"" prefix:"azure-queue-"`
 	AzureTable                    azuretablebackend.Settings `embed:"" prefix:"azure-table-"`
@@ -540,6 +542,11 @@ func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
 func (c *CLI) GetAzureTableSettings() azuretablebackend.Settings {
 	return c.AzureTable
+}
+
+// GetCosmosDBSettings returns Cosmos DB settings (cosmosdb.ConfigProvider).
+func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
+	return c.CosmosDB
 }
 
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
@@ -1914,6 +1921,27 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.AzureTable.Port, "azuretable"); err != nil {
 		log.WarnContext(ctx, "failed to reserve AzureTable's fixed port in the shared pool",
 			"port", cli.AzureTable.Port, "error", err)
+	}
+
+	// CosmosDB's dedicated listener (services/cosmosdb) binds its own fixed,
+	// protocol-conventional default port -- but unlike AzureBlob/AzureQueue/
+	// AzureTable above, that default (8081, the real Cosmos DB Local
+	// Emulator's own published port) sits OUTSIDE PortRangeStart/
+	// PortRangeEnd's own default range (10000-10100), exactly mirroring
+	// services/iot's MQTT broker default (1883). This Reserve call is
+	// therefore a no-op against the default range -- but the range is
+	// user-configurable (--port-range-start/--port-range-end), so a custom
+	// range that happens to include 8081 (e.g. 8000-8100) still needs this
+	// reservation to keep PortAlloc from handing 8081 to an unrelated
+	// caller. See AZURE.md section 4, services/cosmosdb/settings.go's
+	// DefaultPort doc comment, and cli_cosmosdb_port_reservation_test.go's
+	// table (which -- unlike AzureBlob/AzureQueue/AzureTable's tables --
+	// covers both the outside-range default case AND a custom in-range
+	// case, since only CosmosDB's default port has this inverted default
+	// behavior).
+	if err := alloc.Reserve(cli.CosmosDB.Port, "cosmosdb"); err != nil {
+		log.WarnContext(ctx, "failed to reserve CosmosDB's fixed port in the shared pool",
+			"port", cli.CosmosDB.Port, "error", err)
 	}
 }
 
@@ -3651,6 +3679,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azureblobbackend.Provider{},
 		&azurequeuebackend.Provider{},
 		&azuretablebackend.Provider{},
+		&cosmosdbbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
