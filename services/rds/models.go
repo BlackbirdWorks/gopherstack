@@ -63,6 +63,13 @@ type VpcSecurityGroupMembership struct {
 	Status             string `json:"status"`
 }
 
+// DBSecurityGroupMembership represents a classic (EC2-Classic) DB security
+// group association on a DB instance.
+type DBSecurityGroupMembership struct {
+	DBSecurityGroupName string `json:"dbSecurityGroupName"`
+	Status              string `json:"status"`
+}
+
 // DBClusterMember represents a member instance in a DB cluster.
 type DBClusterMember struct {
 	DBInstanceIdentifier        string `json:"dbInstanceIdentifier"`
@@ -131,6 +138,7 @@ type DBInstance struct {
 	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
 	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	DBSecurityGroups                  []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
 	PendingModifiedValues             *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
 	Port                              int                          `json:"port"`
@@ -638,6 +646,7 @@ type DBInstanceOptions struct {
 	EngineLifecycleSupport           string
 	DBSubnetGroupName                string
 	VpcSecurityGroupIDs              []string
+	DBSecurityGroupNames             []string
 	EnabledCloudwatchLogsExports     []string
 	BackupRetentionPeriod            int
 	Iops                             int

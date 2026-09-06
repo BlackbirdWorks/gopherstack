@@ -90,6 +90,16 @@ func (b *InMemoryBackend) DeleteDBSecurityGroup(name string) error {
 	if _, exists := b.dbSecurityGroups.Get(name); !exists {
 		return fmt.Errorf("%w: security group %s not found", ErrDBSecurityGroupNotFound, name)
 	}
+	for _, inst := range b.instances.All() {
+		for _, sg := range inst.DBSecurityGroups {
+			if sg.DBSecurityGroupName == name {
+				return fmt.Errorf(
+					"%w: security group %s is associated with DB instance %s",
+					ErrDBSecurityGroupInvalidState, name, inst.DBInstanceIdentifier,
+				)
+			}
+		}
+	}
 	b.dbSecurityGroups.Delete(name)
 	delete(b.tags, b.rdsARN("secgrp", name))
 

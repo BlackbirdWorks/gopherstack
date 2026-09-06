@@ -648,7 +648,7 @@ func TestRestoreFromClusterSnapshot_TagsInitialized(t *testing.T) {
 
 	b := newRedshiftBackend()
 
-	_, err := b.CreateCluster("src-cluster", "dc2.large", "dev", "admin")
+	_, err := b.CreateCluster("src-cluster", "dc2.large", "dev", "admin", nil, "")
 	require.NoError(t, err)
 
 	_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
@@ -707,7 +707,7 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 
 		b := newRedshiftBackend()
 
-		_, err := b.CreateCluster("src-cluster", "", "", "")
+		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "")
 		require.NoError(t, err)
 		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
 		require.NoError(t, err)
@@ -723,7 +723,7 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 		b := newRedshiftBackend()
 		redshift.SetClusterActivationDelay(b, 20*time.Millisecond)
 
-		_, err := b.CreateCluster("src-cluster", "", "", "")
+		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "")
 		require.NoError(t, err)
 		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
 		require.NoError(t, err)

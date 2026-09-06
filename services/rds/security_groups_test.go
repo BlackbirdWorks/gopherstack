@@ -258,21 +258,43 @@ func TestDeleteDBSecurityGroup_RejectsDefault(t *testing.T) {
 func TestDeleteDBSecurityGroup(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
+		setup     func(t *testing.T, b *rds.InMemoryBackend)
 		wantErrIs error
 		name      string
 		sgName    string
 		wantErr   bool
 	}{
-		{name: "success", sgName: "sg-1"},
+		{
+			name:   "success",
+			sgName: "sg-1",
+			setup: func(_ *testing.T, b *rds.InMemoryBackend) {
+				b.AddSecurityGroupInternal("sg-1", "desc")
+			},
+		},
 		{name: "not found", sgName: "missing", wantErr: true, wantErrIs: rds.ErrDBSecurityGroupNotFound},
 		{name: "empty name", sgName: "", wantErr: true, wantErrIs: rds.ErrInvalidParameter},
+		{
+			// Real AWS: "The specified DB security group must not be
+			// associated with any DB instances" (api_op_DeleteDBSecurityGroup.go).
+			name:      "associated with instance",
+			sgName:    "assoc-sg",
+			wantErr:   true,
+			wantErrIs: rds.ErrDBSecurityGroupInvalidState,
+			setup: func(t *testing.T, b *rds.InMemoryBackend) {
+				t.Helper()
+				b.AddSecurityGroupInternal("assoc-sg", "desc")
+				_, err := b.CreateDBInstance("assoc-inst", "postgres", "db.t3.micro", "", "admin", "", 20,
+					rds.DBInstanceOptions{DBSecurityGroupNames: []string{"assoc-sg"}})
+				require.NoError(t, err)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
-			if tt.name == "success" {
-				b.AddSecurityGroupInternal(tt.sgName, "desc")
+			if tt.setup != nil {
+				tt.setup(t, b)
 			}
 			err := b.DeleteDBSecurityGroup(tt.sgName)
 			if tt.wantErr {

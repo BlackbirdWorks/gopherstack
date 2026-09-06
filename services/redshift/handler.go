@@ -556,6 +556,8 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 	dbName := vals.Get("DBName")
 	masterUser := vals.Get("MasterUsername")
 	password := vals.Get("MasterUserPassword")
+	clusterSecurityGroups := parseStringList(vals, "ClusterSecurityGroups.ClusterSecurityGroupName.")
+	clusterParameterGroupName := vals.Get("ClusterParameterGroupName")
 
 	if password != "" {
 		if err := validateMasterUserPassword(password); err != nil {
@@ -563,7 +565,14 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 		}
 	}
 
-	cluster, err := h.Backend.CreateCluster(id, nodeType, dbName, masterUser)
+	cluster, err := h.Backend.CreateCluster(
+		id,
+		nodeType,
+		dbName,
+		masterUser,
+		clusterSecurityGroups,
+		clusterParameterGroupName,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -703,6 +712,19 @@ func (h *Handler) toXMLCluster(c *Cluster) xmlCluster {
 	return toXMLClusterWithTags(c, h.Backend.DescribeTags()[c.ClusterIdentifier])
 }
 
+// clusterParameterGroupNameOrDefault reports the parameter group a cluster
+// is associated with, falling back to the auto-provisioned default when
+// CreateCluster was not given an explicit one (real AWS: CreateClusterInput.
+// ClusterParameterGroupName's own doc comment, "Default: The default Amazon
+// Redshift cluster parameter group").
+func clusterParameterGroupNameOrDefault(name string) string {
+	if name == "" {
+		return "default.redshift-1.0"
+	}
+
+	return name
+}
+
 // toXMLClusterWithTags is the tag-map-parameterized core of toXMLCluster, split out
 // so a caller iterating many clusters (handleDescribeClusters) can fetch the full
 // tag map once with a single DescribeTags call instead of once per cluster.
@@ -735,9 +757,22 @@ func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 		},
 		ClusterParameterGroups: xmlClusterParamGroups{
 			Members: []xmlClusterParamGroup{{
-				ParameterGroupName:   "default.redshift-1.0",
+				ParameterGroupName:   clusterParameterGroupNameOrDefault(c.ClusterParameterGroupName),
 				ParameterApplyStatus: "in-sync",
 			}},
+		},
+		ClusterSecurityGroups: xmlClusterSecGroups{
+			Members: func() []xmlClusterSecGroupMembership {
+				members := make([]xmlClusterSecGroupMembership, 0, len(c.ClusterSecurityGroups))
+				for _, name := range c.ClusterSecurityGroups {
+					members = append(members, xmlClusterSecGroupMembership{
+						ClusterSecurityGroupName: name,
+						Status:                   "active",
+					})
+				}
+
+				return members
+			}(),
 		},
 		DBName:                     c.DBName,
 		MasterUsername:             c.MasterUsername,
@@ -899,6 +934,7 @@ type xmlCluster struct {
 	CatalogArn                       string                `xml:"CatalogArn,omitempty"`
 	LakehouseRegistrationStatus      string                `xml:"LakehouseRegistrationStatus,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
+	ClusterSecurityGroups            xmlClusterSecGroups   `xml:"ClusterSecurityGroups"`
 	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
 	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
 	Tags                             []svcTags.KV          `xml:"Tags>Tag,omitempty"`
@@ -945,6 +981,19 @@ type xmlClusterParamGroup struct {
 
 type xmlClusterParamGroups struct {
 	Members []xmlClusterParamGroup `xml:"ClusterParameterGroup"`
+}
+
+// xmlClusterSecGroupMembership mirrors types.ClusterSecurityGroupMembership,
+// the per-cluster association entry embedded in a Cluster response -- not to
+// be confused with xmlClusterSecurityGroup (handler_security_groups.go),
+// which is the full group returned by DescribeClusterSecurityGroups.
+type xmlClusterSecGroupMembership struct {
+	ClusterSecurityGroupName string `xml:"ClusterSecurityGroupName"`
+	Status                   string `xml:"Status"`
+}
+
+type xmlClusterSecGroups struct {
+	Members []xmlClusterSecGroupMembership `xml:"ClusterSecurityGroup"`
 }
 
 type xmlIamRole struct {

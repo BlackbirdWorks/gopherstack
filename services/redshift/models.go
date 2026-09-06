@@ -341,20 +341,22 @@ type ClusterPendingModifiedValues struct {
 type Cluster struct {
 	Tags                        *tags.Tags                    `json:"tags,omitempty"`
 	PendingModifiedValues       *ClusterPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
-	MasterUsername              string                        `json:"masterUsername"`
-	PreferredMaintenanceWindow  string                        `json:"preferredMaintenanceWindow,omitempty"`
+	KmsKeyID                    string                        `json:"kmsKeyId,omitempty"`
+	SnapshotScheduleIdentifier  string                        `json:"snapshotScheduleIdentifier,omitempty"`
 	ClusterType                 string                        `json:"clusterType"`
 	Endpoint                    string                        `json:"endpoint"`
 	Status                      string                        `json:"status"`
 	DBName                      string                        `json:"dbName"`
 	ClusterIdentifier           string                        `json:"clusterIdentifier"`
 	VpcID                       string                        `json:"vpcId,omitempty"`
-	KmsKeyID                    string                        `json:"kmsKeyId,omitempty"`
+	MasterUsername              string                        `json:"masterUsername"`
 	NodeType                    string                        `json:"nodeType"`
 	SnapshotScheduleState       string                        `json:"snapshotScheduleState,omitempty"`
-	SnapshotScheduleIdentifier  string                        `json:"snapshotScheduleIdentifier,omitempty"`
+	PreferredMaintenanceWindow  string                        `json:"preferredMaintenanceWindow,omitempty"`
 	CatalogArn                  string                        `json:"catalogArn,omitempty"`
 	LakehouseRegistrationStatus string                        `json:"lakehouseRegistrationStatus,omitempty"`
+	ClusterParameterGroupName   string                        `json:"clusterParameterGroupName,omitempty"`
+	ClusterSecurityGroups       []string                      `json:"clusterSecurityGroups,omitempty"`
 	IamRoles                    []string                      `json:"iamRoles,omitempty"`
 	Port                        int                           `json:"port"`
 	NumberOfNodes               int                           `json:"numberOfNodes"`

@@ -151,6 +151,15 @@ func (b *InMemoryBackend) DeleteClusterParameterGroup(name string) error {
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 
+	for _, c := range b.clusters.All() {
+		if c.ClusterParameterGroupName == name {
+			return fmt.Errorf(
+				"%w: parameter group %s is associated with cluster %s",
+				ErrParameterGroupInvalidState, name, c.ClusterIdentifier,
+			)
+		}
+	}
+
 	b.parameterGroups.Delete(name)
 
 	return nil

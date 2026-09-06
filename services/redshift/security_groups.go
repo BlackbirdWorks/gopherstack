@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"slices"
 )
 
 // CreateClusterSecurityGroup creates a new cluster security group.
@@ -50,6 +51,15 @@ func (b *InMemoryBackend) DeleteClusterSecurityGroup(name string) error {
 
 	if _, exists := b.securityGroups.Get(name); !exists {
 		return fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, name)
+	}
+
+	for _, c := range b.clusters.All() {
+		if slices.Contains(c.ClusterSecurityGroups, name) {
+			return fmt.Errorf(
+				"%w: security group %s is associated with cluster %s",
+				ErrSecurityGroupInvalidState, name, c.ClusterIdentifier,
+			)
+		}
 	}
 
 	b.securityGroups.Delete(name)

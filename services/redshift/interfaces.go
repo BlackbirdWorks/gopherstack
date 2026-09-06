@@ -6,7 +6,11 @@ import "context"
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Cluster operations
-	CreateCluster(id, nodeType, dbName, masterUser string) (*Cluster, error)
+	CreateCluster(
+		id, nodeType, dbName, masterUser string,
+		clusterSecurityGroups []string,
+		clusterParameterGroupName string,
+	) (*Cluster, error)
 	DeleteCluster(id string) (*Cluster, error)
 	DescribeClusters(id, marker string, maxRecords int, tagKeys, tagValues []string) ([]Cluster, string, error)
 	ModifyCluster(

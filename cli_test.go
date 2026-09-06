@@ -1019,7 +1019,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				redshiftBk := redshiftbackend.NewInMemoryBackend(accountID, region)
-				_, err := redshiftBk.CreateCluster("wiring-test-cluster", "dc2.large", "dev", "admin")
+				_, err := redshiftBk.CreateCluster("wiring-test-cluster", "dc2.large", "dev", "admin", nil, "")
 				require.NoError(t, err)
 				require.NoError(t, redshiftBk.CreateTags(
 					"wiring-test-cluster", map[string]string{wantTagKey: wantTagValue},
@@ -2479,7 +2479,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 				t.Helper()
 
 				redshiftBk := redshiftbackend.NewInMemoryBackend(accountID, region)
-				_, err := redshiftBk.CreateCluster("roundtrip-cluster", "dc2.large", "dev", "admin")
+				_, err := redshiftBk.CreateCluster("roundtrip-cluster", "dc2.large", "dev", "admin", nil, "")
 				require.NoError(t, err)
 
 				wireTaggingRedshift(bk, redshiftbackend.NewHandler(redshiftBk))

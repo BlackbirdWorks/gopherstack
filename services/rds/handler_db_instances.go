@@ -95,6 +95,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	}
 
 	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupID")
+	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
 	opts := DBInstanceOptions{
@@ -124,6 +125,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		OptimizedWrites:                  vals.Get("EnableOptimizedWrites") == formTrue,
 		EngineLifecycleSupport:           vals.Get("EngineLifecycleSupport"),
 		VpcSecurityGroupIDs:              vpcSGIds,
+		DBSecurityGroupNames:             dbSGNames,
 		EnabledCloudwatchLogsExports:     logExports,
 	}
 
@@ -347,6 +349,15 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		result.VpcSecurityGroups = &xmlVpcSecurityGroupList{Members: members}
 	}
 
+	if len(inst.DBSecurityGroups) > 0 {
+		members := make([]xmlDBSecGroupMembership, 0, len(inst.DBSecurityGroups))
+		for _, sg := range inst.DBSecurityGroups {
+			members = append(members, xmlDBSecGroupMembership(sg))
+		}
+
+		result.DBSecurityGroups = &xmlDBSecGroupList{Members: members}
+	}
+
 	if len(inst.ReadReplicaIdentifiers) > 0 {
 		members := make([]xmlReadReplicaIdentifier, 0, len(inst.ReadReplicaIdentifiers))
 		for _, rid := range inst.ReadReplicaIdentifiers {
@@ -449,6 +460,19 @@ type xmlVpcSecurityGroupList struct {
 	Members []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroupMembership"`
 }
 
+// xmlDBSecGroupMembership mirrors types.DBSecurityGroupMembership
+// (rds@v1.124.1 types/types.go:3132); confirmed against
+// awsAwsquery_deserializeDocumentDBSecurityGroupMembershipList
+// (deserializers.go), the list element name is "DBSecurityGroup".
+type xmlDBSecGroupMembership struct {
+	DBSecurityGroupName string `xml:"DBSecurityGroupName"`
+	Status              string `xml:"Status"`
+}
+
+type xmlDBSecGroupList struct {
+	Members []xmlDBSecGroupMembership `xml:"DBSecurityGroup"`
+}
+
 type xmlReadReplicaIdentifier struct {
 	Value string `xml:",chardata"`
 }
@@ -476,6 +500,7 @@ type xmlPendingModifiedValues struct {
 type xmlDBInstance struct {
 	DBParameterGroups                 *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
 	VpcSecurityGroups                 *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
+	DBSecurityGroups                  *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
 	ReadReplicaDBInstanceIdentifiers  *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports      *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues             *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
