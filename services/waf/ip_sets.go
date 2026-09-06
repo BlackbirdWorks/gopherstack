@@ -108,6 +108,7 @@ func (b *InMemoryBackend) DeleteIPSet(id, changeToken string) error {
 	}
 
 	b.ipSets.Delete(id)
+	delete(b.tags, b.ipSetARN(id))
 
 	return nil
 }

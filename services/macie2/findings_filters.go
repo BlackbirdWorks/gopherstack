@@ -146,6 +146,7 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 	if !b.findingsFilters.Delete(id) {
 		return ErrFindingsFilterNotFound
 	}
+	delete(b.tags, b.findingsFilterARN(id))
 
 	return nil
 }

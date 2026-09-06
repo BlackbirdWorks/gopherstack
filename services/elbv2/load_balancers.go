@@ -390,6 +390,7 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 	}
 
 	lb.Tags.Close()
+	delete(b.resourcePolicies, lbArn)
 	b.loadBalancers.Delete(lbArn)
 
 	return nil

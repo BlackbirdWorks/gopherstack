@@ -200,7 +200,7 @@ gaps:
   - "gopherstack-6flj: ListResolverEndpointIpAddresses' per-item resolverEndpointIPAddressDetail is missing CreationTime/ModificationTime/StatusMessage, three real, non-required types.IpAddressResponse members (deserializers.go). The backend's IPAddress model (models.go) tracks no timestamps or status-detail for individual endpoint IPs at all (only IPID/SubnetID/IP/Ipv6) -- adding these would mean either fabricating values or a materially larger change (per-IP lifecycle tracking this backend doesn't otherwise need, since IPs attach/detach synchronously with no status transition). Disclosed, not fixed."
 deferred:
   - none -- full op surface audited this pass
-leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps guarded by the single lockmetrics.RWMutex"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps guarded by the single lockmetrics.RWMutex. FIXED (gopherstack-cq0z, 2026-09-06): DeleteFirewallRuleGroup, DeleteResolverQueryLogConfig and DeleteResolverRule all cleared the tags map for their ARN but missed the sibling resource-policy map (firewallRuleGroupPolicies/queryLogConfigPolicies/resolverRulePolicies). Get*Policy has no existence check against the resource, so it still returned the stale policy for a deleted resource's own ARN, and every policy map is persisted verbatim in Snapshot() regardless. Now cleared in all three delete paths. See TestDelete_ClearsResourcePolicy."}
 ---
 
 ## Notes

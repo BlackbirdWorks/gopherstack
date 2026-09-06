@@ -143,6 +143,10 @@ func (b *InMemoryBackend) DeleteResolverQueryLogConfig(
 
 	// Clean up tags.
 	delete(b.tagsStore(region), cfg.ARN)
+	// Clean up the resource policy. Direct map access (not the lazy-creating
+	// Store helper) so deleting a config whose region never had a policy set
+	// doesn't leave behind an empty region entry.
+	delete(b.queryLogConfigPolicies[region], cfg.ARN)
 
 	// Cascade: remove all associations referencing this config. slices.Clone
 	// before deleting in the loop -- see DeleteResolverEndpoint's comment.

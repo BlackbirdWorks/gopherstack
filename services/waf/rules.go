@@ -112,6 +112,7 @@ func (b *InMemoryBackend) DeleteRule(id, changeToken string) error {
 	}
 
 	b.rules.Delete(id)
+	delete(b.tags, b.ruleARN(id))
 
 	return nil
 }

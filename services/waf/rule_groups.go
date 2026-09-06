@@ -133,6 +133,7 @@ func (b *InMemoryBackend) DeleteRuleGroup(id, changeToken string) error {
 
 	b.ruleGroups.Delete(id)
 	delete(b.ruleGroupRules, id)
+	delete(b.tags, b.ruleGroupARN(id))
 
 	return nil
 }

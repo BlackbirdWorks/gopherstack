@@ -112,6 +112,7 @@ func (b *InMemoryBackend) DeleteAllowList(id string) error {
 	if !b.allowLists.Delete(id) {
 		return ErrAllowListNotFound
 	}
+	delete(b.tags, b.allowListARN(id))
 
 	return nil
 }

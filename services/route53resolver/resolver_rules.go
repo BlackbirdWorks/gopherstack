@@ -160,6 +160,10 @@ func (b *InMemoryBackend) DeleteResolverRule(ctx context.Context, id string) err
 
 	// Clean up tags.
 	delete(tags, r.ARN)
+	// Clean up the resource policy. Direct map access (not the lazy-creating
+	// Store helper) so deleting a rule whose region never had a policy set
+	// doesn't leave behind an empty region entry.
+	delete(b.resolverRulePolicies[region], r.ARN)
 
 	// Cascade: delete all associations referencing this rule. slices.Clone
 	// before deleting in the loop -- see DeleteResolverEndpoint's comment.

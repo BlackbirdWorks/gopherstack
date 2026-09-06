@@ -33,6 +33,40 @@ func TestCreateUserPool_PasswordPolicy_Persisted(t *testing.T) {
 	assert.True(t, got.PasswordPolicy.RequireSymbols)
 }
 
+// TestDeleteUserPool_ClearsUserDeviceState verifies DeleteUserPool's user
+// cascade clears devices/authEvents for each user, not just the user record
+// itself. The cascade deletes users directly (b.users.Delete) instead of
+// calling AdminDeleteUser, so it does not inherit AdminDeleteUser's own
+// devices/authEvents cleanup -- the cascade-variant of the ghost-row bug
+// class, where a parent delete bypasses the single-resource delete path that
+// holds the fix.
+func TestDeleteUserPool_ClearsUserDeviceState(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("del-pool-device-state")
+	require.NoError(t, err)
+
+	_, err = b.AdminCreateUser(pool.ID, "some-user", "Pass1234!", nil)
+	require.NoError(t, err)
+
+	b.SeedDeviceForTest(pool.ID, "some-user", &cognitoidp.Device{DeviceKey: "dev1", Status: "valid"})
+	b.SeedAuthEventForTest(pool.ID, "some-user", &cognitoidp.AuthEvent{EventID: "ev1", EventType: "SignIn"})
+	require.True(t, b.HasDeviceStateForTest(pool.ID, "some-user"))
+
+	otherPool, err := b.CreateUserPool("del-pool-device-state-sibling")
+	require.NoError(t, err)
+	_, err = b.AdminCreateUser(otherPool.ID, "some-user", "Pass1234!", nil)
+	require.NoError(t, err)
+	b.SeedDeviceForTest(otherPool.ID, "some-user", &cognitoidp.Device{DeviceKey: "dev1", Status: "valid"})
+
+	require.NoError(t, b.DeleteUserPool(pool.ID))
+
+	assert.False(t, b.HasDeviceStateForTest(pool.ID, "some-user"))
+	assert.True(t, b.HasDeviceStateForTest(otherPool.ID, "some-user"),
+		"deleting one pool must not disturb another pool's device state")
+}
+
 func TestHandler_CreateUserPool_WithPasswordPolicy(t *testing.T) {
 	t.Parallel()
 

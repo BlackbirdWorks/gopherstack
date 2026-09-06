@@ -83,8 +83,14 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	// Copy the index result before deleting: Delete mutates the byPool index's
 	// backing slice in place, so ranging directly over it while deleting would
 	// skip entries.
+	//
+	// This cascade deletes users directly rather than calling AdminDeleteUser,
+	// so it must repeat AdminDeleteUser's devices/authEvents cleanup itself.
 	for _, u := range slices.Clone(b.usersByPool.Get(userPoolID)) {
 		b.users.Delete(userKey(userPoolID, u.Username))
+		key := userStateKey(userPoolID, u.Username)
+		delete(b.devices, key)
+		delete(b.authEvents, key)
 	}
 
 	for _, client := range slices.Clone(b.clientsByPool.Get(userPoolID)) {

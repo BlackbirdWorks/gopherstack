@@ -124,6 +124,7 @@ func (b *InMemoryBackend) DeleteRateBasedRule(id, changeToken string) error {
 	}
 
 	b.rateBasedRules.Delete(id)
+	delete(b.tags, b.rateBasedRuleARN(id))
 
 	return nil
 }

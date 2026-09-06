@@ -156,6 +156,7 @@ func (b *InMemoryBackend) DeleteWebACL(id, changeToken string) error {
 	}
 
 	b.webACLs.Delete(id)
+	delete(b.tags, acl.WebACLArn)
 
 	return nil
 }
