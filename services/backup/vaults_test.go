@@ -238,6 +238,71 @@ func TestRestoreAccessVaultCreate(t *testing.T) {
 	})
 }
 
+func TestRestoreAccessVaultCreateTagsAndCreatorRequestID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BackupVaultTags are stored and readable via ListTags", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		src := mustVault(t, b, "tags-src")
+		rav, err := b.CreateRestoreAccessBackupVault(
+			src.BackupVaultArn, "rav-tags", "", map[string]string{"env": "prod"},
+		)
+		require.NoError(t, err)
+
+		got, err := b.ListTags(rav.RestoreAccessBackupVaultArn)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"env": "prod"}, got)
+	})
+
+	t.Run("BackupVaultTags flow into TaggedResources for the tagging API hook", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		src := mustVault(t, b, "tagged-src")
+		rav, err := b.CreateRestoreAccessBackupVault(
+			src.BackupVaultArn, "rav-tagged", "", map[string]string{"team": "sre"},
+		)
+		require.NoError(t, err)
+
+		var found *backup.TaggedEntry
+		for _, e := range b.TaggedResources() {
+			if e.ARN == rav.RestoreAccessBackupVaultArn {
+				e := e
+				found = &e
+			}
+		}
+		require.NotNil(t, found, "restore access vault tags must be surfaced by TaggedResources")
+		assert.Equal(t, map[string]string{"team": "sre"}, found.Tags)
+	})
+
+	t.Run("duplicate name without matching CreatorRequestId is AlreadyExists", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		src := mustVault(t, b, "dup-src")
+		_, err := b.CreateRestoreAccessBackupVault(src.BackupVaultArn, "rav-dup", "", nil)
+		require.NoError(t, err)
+
+		_, err = b.CreateRestoreAccessBackupVault(src.BackupVaultArn, "rav-dup", "", nil)
+		require.ErrorIs(t, err, backup.ErrAlreadyExists)
+	})
+
+	t.Run("duplicate name with matching CreatorRequestId is idempotent", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend(t)
+		src := mustVault(t, b, "idem-src")
+		first, err := b.CreateRestoreAccessBackupVault(src.BackupVaultArn, "rav-idem", "req-1", nil)
+		require.NoError(t, err)
+
+		second, err := b.CreateRestoreAccessBackupVault(src.BackupVaultArn, "rav-idem", "req-1", nil)
+		require.NoError(t, err)
+		assert.Equal(t, first.RestoreAccessBackupVaultArn, second.RestoreAccessBackupVaultArn)
+
+		all, err := b.ListRestoreAccessBackupVaults("idem-src")
+		require.NoError(t, err)
+		assert.Len(t, all, 1, "idempotent retry must not create a second restore access vault")
+	})
+}
+
 func TestRestoreAccessVaultCreate_ReachesAvailable(t *testing.T) {
 	t.Parallel()
 
