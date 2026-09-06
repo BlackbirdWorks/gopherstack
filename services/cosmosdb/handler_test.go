@@ -397,6 +397,7 @@ func TestPartitionKeyFromHeader_ExactlyOneScalarElement(t *testing.T) {
 		{name: "two elements is rejected, not truncated", header: `["a","b"]`, wantErr: true},
 		{name: "object element is rejected (not a scalar)", header: `[{"x":1}]`, wantErr: true},
 		{name: "array element is rejected (not a scalar)", header: `[[1,2]]`, wantErr: true},
+		{name: "trailing content after the array is rejected, not silently ignored", header: `["a"]{}`, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -470,6 +471,14 @@ func TestHandler_Query(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",
 		map[string]string{"X-Ms-Documentdb-Isquery": "true"}, badBody)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Trailing content after the query request object is rejected, not
+	// silently ignored (mirrors partitionKeyFromHeader's identical guard).
+	trailingBody := []byte(`{"query": "SELECT * FROM c"}{}`)
+
+	rec = doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",
+		map[string]string{"X-Ms-Documentdb-Isquery": "true"}, trailingBody)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

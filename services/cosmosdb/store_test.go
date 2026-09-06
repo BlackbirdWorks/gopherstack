@@ -409,6 +409,18 @@ func TestInMemoryBackend_CreateContainer_EmptyPartitionKeyPathRejected(t *testin
 	require.ErrorIs(t, err, cosmosdb.ErrInvalidPartitionKeyPath)
 }
 
+func TestInMemoryBackend_CreateContainer_UnprefixedPartitionKeyPathRejected(t *testing.T) {
+	t.Parallel()
+
+	b := cosmosdb.NewInMemoryBackend()
+	_, err := b.CreateDatabase("mydb")
+	require.NoError(t, err)
+
+	// Real Cosmos requires a "/"-prefixed partition key path (e.g. "/pk").
+	_, err = b.CreateContainer("mydb", cosmosdb.ContainerSpec{ID: "mycoll", PartitionKeyPath: "pk"})
+	require.ErrorIs(t, err, cosmosdb.ErrInvalidPartitionKeyPath)
+}
+
 func TestFakeRID_DeterministicAndDistinct(t *testing.T) {
 	t.Parallel()
 

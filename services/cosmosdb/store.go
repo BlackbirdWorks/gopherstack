@@ -146,7 +146,13 @@ func (b *InMemoryBackend) DeleteDatabase(id string) error {
 // ErrDatabaseNotFound if dbID doesn't exist, or ErrContainerAlreadyExists if
 // a container with the same ID already exists in it.
 func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (ContainerInfo, error) {
-	if spec.PartitionKeyPath == "" {
+	// Real Cosmos requires the partition key path to be "/"-prefixed (e.g.
+	// "/pk", not "pk") -- reject anything else here rather than accepting
+	// it silently, since extractPartitionKeyValue's own path-walking trims
+	// leading/trailing slashes and would otherwise treat "pk" and "/pk"
+	// identically, masking a client sending a malformed definition that
+	// real Cosmos itself would reject.
+	if spec.PartitionKeyPath == "" || !strings.HasPrefix(spec.PartitionKeyPath, "/") {
 		return ContainerInfo{}, ErrInvalidPartitionKeyPath
 	}
 

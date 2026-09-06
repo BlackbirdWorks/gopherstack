@@ -80,6 +80,14 @@ func partitionKeyFromHeader(r *http.Request) (string, error) {
 		return "", fmt.Errorf("%w: malformed %s header: %w", ErrInvalidDocument, headerPartitionKey, err)
 	}
 
+	// Reject trailing content after the array, mirroring
+	// decodeJSONObject's identical guard (models.go): Decode only consumes
+	// one JSON value and silently ignores anything after it, so a header
+	// of e.g. ["a"]{} would otherwise decode as if it were just ["a"].
+	if dec.More() {
+		return "", fmt.Errorf("%w: trailing content after %s header value", ErrInvalidDocument, headerPartitionKey)
+	}
+
 	if len(arr) != 1 {
 		return "", fmt.Errorf(
 			"%w: %s header must carry exactly one partition key value, got %d",
@@ -264,6 +272,13 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 	dec.UseNumber()
 
 	if decErr := dec.Decode(&req); decErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
+	}
+
+	// Reject trailing content after the query request object, mirroring
+	// decodeJSONObject's/partitionKeyFromHeader's identical guard: Decode
+	// only consumes one JSON value and silently ignores anything after it.
+	if dec.More() {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
