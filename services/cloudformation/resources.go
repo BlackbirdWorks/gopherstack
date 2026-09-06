@@ -1144,7 +1144,7 @@ func (rc *ResourceCreator) Delete(
 		return err
 	}
 
-	return rc.deleteExtendedResource(ctx, resourceType, physicalID)
+	return rc.deleteExtendedResource(ctx, resourceType, physicalID, props)
 }
 
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
@@ -1184,12 +1184,13 @@ func (rc *ResourceCreator) deleteCoreResource(
 func (rc *ResourceCreator) deleteExtendedResource(
 	ctx context.Context,
 	resourceType, physicalID string,
+	props map[string]any,
 ) error {
 	if handled, err := rc.deleteInfraResource(ctx, resourceType, physicalID); handled {
 		return err
 	}
 
-	return rc.deleteServiceResource(ctx, resourceType, physicalID)
+	return rc.deleteServiceResource(ctx, resourceType, physicalID, props)
 }
 
 // deleteInfraResource handles Lambda, EventBridge, StepFunctions, Logs, and APIGateway deletions.
@@ -1272,12 +1273,13 @@ func (rc *ResourceCreator) deletePlatformResource(
 func (rc *ResourceCreator) deleteServiceResource(
 	ctx context.Context,
 	resourceType, physicalID string,
+	props map[string]any,
 ) error {
 	if handled, err := rc.deleteIAMEC2Resource(resourceType, physicalID); handled {
 		return err
 	}
 
-	return rc.deleteDataPlatformResource(ctx, resourceType, physicalID)
+	return rc.deleteDataPlatformResource(ctx, resourceType, physicalID, props)
 }
 
 // deleteIAMEC2Resource handles IAM and EC2 resource deletions.
@@ -1366,6 +1368,7 @@ func (rc *ResourceCreator) deleteRoute53Resource(resourceType, physicalID string
 func (rc *ResourceCreator) deleteDataPlatformResource(
 	ctx context.Context,
 	resourceType, physicalID string,
+	props map[string]any,
 ) error {
 	switch resourceType {
 	case "AWS::Kinesis::Stream":
@@ -1407,14 +1410,18 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 			return err
 		}
 
-		return rc.deleteNewServiceResource(ctx, physicalID, resourceType)
+		return rc.deleteNewServiceResource(ctx, physicalID, resourceType, props)
 	}
 }
 
 // deleteNewServiceResource handles RDS, ECS, ECR, Redshift, OpenSearch, Firehose,
 // Route53Resolver, SWF, AppSync, SES, ACM, Cognito, extended EC2, and phase-3 resource deletions.
-func (rc *ResourceCreator) deleteNewServiceResource(ctx context.Context, physicalID, resourceType string) error {
-	if handled, err := rc.deleteComputeStorageResource(ctx, physicalID, resourceType); handled {
+func (rc *ResourceCreator) deleteNewServiceResource(
+	ctx context.Context,
+	physicalID, resourceType string,
+	props map[string]any,
+) error {
+	if handled, err := rc.deleteComputeStorageResource(ctx, physicalID, resourceType, props); handled {
 		return err
 	}
 
@@ -1429,6 +1436,7 @@ func (rc *ResourceCreator) deleteNewServiceResource(ctx context.Context, physica
 func (rc *ResourceCreator) deleteComputeStorageResource(
 	ctx context.Context,
 	physicalID, resourceType string,
+	props map[string]any,
 ) (bool, error) {
 	switch resourceType {
 	case resTypeRDSDB:
@@ -1451,7 +1459,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 		return true, rc.deleteECSService(physicalID)
 	case "AWS::ECR::Repository":
 
-		return true, rc.deleteECRRepository(ctx, physicalID)
+		return true, rc.deleteECRRepository(ctx, physicalID, props)
 	case "AWS::Lambda::LayerVersion":
 
 		return true, rc.deleteLambdaLayerVersion(physicalID)

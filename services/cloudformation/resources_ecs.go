@@ -212,16 +212,19 @@ func (rc *ResourceCreator) createECRRepository(
 	return repo.RepositoryARN, nil
 }
 
-func (rc *ResourceCreator) deleteECRRepository(ctx context.Context, arn string) error {
+func (rc *ResourceCreator) deleteECRRepository(ctx context.Context, arn string, props map[string]any) error {
 	if rc.backends.ECR == nil {
 		return nil
 	}
 
 	name := resourceNameFromARN(arn)
 
-	// force=true preserves pre-existing behavior: stack deletion has never
-	// enforced the repository-not-empty check (no EmptyOnDelete support yet).
-	_, err := rc.backends.ECR.Backend.DeleteRepository(ctx, name, true)
+	// EmptyOnDelete gates force per AWS::ECR::Repository's real property
+	// (docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecr-repository.html):
+	// absent/false means the repository must be empty to delete.
+	emptyOnDelete, _ := props["EmptyOnDelete"].(bool)
+
+	_, err := rc.backends.ECR.Backend.DeleteRepository(ctx, name, emptyOnDelete)
 
 	return err
 }
