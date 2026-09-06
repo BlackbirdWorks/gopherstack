@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"time"
 )
@@ -274,17 +276,38 @@ func decodeJSONObject(body []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
 
-	// Reject trailing content after the object -- json.Decoder.Decode only
-	// consumes one JSON value and silently ignores anything after it (e.g.
-	// a request body of `{"id":"1"}{}` decodes as if it were just the first
-	// object), which would let a client's malformed/concatenated body
-	// through as if it were well-formed. dec.More() reports whether the
-	// decoder's underlying stream has another JSON value queued up.
-	if dec.More() {
-		return nil, fmt.Errorf("%w: trailing content after JSON object", ErrInvalidDocument)
+	if err := rejectTrailingJSON(dec); err != nil {
+		return nil, fmt.Errorf("%w: trailing content after JSON object: %w", ErrInvalidDocument, err)
 	}
 
 	return m, nil
+}
+
+// rejectTrailingJSON reports an error unless dec has been fully consumed.
+// json.Decoder.Decode only consumes one JSON value and silently ignores
+// anything after it (e.g. a body of `{"id":"1"}{}` decodes as if it were
+// just the first object), so callers that need "exactly one JSON value, and
+// nothing else" must check this explicitly.
+//
+// dec.More() is not sufficient for this: it returns false for a decoded
+// value followed only by an *unmatched* closing delimiter (e.g. `["a"]]` or
+// `["a"]}`), since More's whitespace-skipping peek has no enclosing
+// array/object to close against at the top level, and Go's own
+// documentation only promises it detects a delimiter that would end the
+// *current* enclosing structure -- there isn't one here. Decoding a second
+// value and requiring io.EOF instead makes the JSON scanner itself validate
+// what remains, catching those unmatched-delimiter cases too.
+func rejectTrailingJSON(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return ErrUnexpectedTrailingJSON
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 // deepCopyJSONValue returns a deep copy of v (typically a map[string]any

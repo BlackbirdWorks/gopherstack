@@ -55,4 +55,10 @@ var (
 	// field it used to have -- not a decode failure, so nothing would ever
 	// surface the data loss.
 	ErrSnapshotDocumentNullBody = errors.New("cosmosdb: restore snapshot: document body is null")
+
+	// ErrUnexpectedTrailingJSON is returned by rejectTrailingJSON when a
+	// second decode off the same stream succeeds instead of hitting EOF,
+	// meaning the input carried more than the one JSON value callers
+	// require.
+	ErrUnexpectedTrailingJSON = errors.New("cosmosdb: unexpected additional JSON value")
 )

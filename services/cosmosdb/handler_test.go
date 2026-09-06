@@ -290,9 +290,10 @@ func TestHandler_CreateDocument_TrailingContentRejected(t *testing.T) {
 	createTestDatabase(t, h)
 	createTestContainer(t, h)
 
-	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil,
-		[]byte(`{"id":"1","pk":"a"}{}`))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, trailing := range []string{`{"id":"1","pk":"a"}{}`, `{"id":"1","pk":"a"}]`, `{"id":"1","pk":"a"}}`} {
+		rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil, []byte(trailing))
+		assert.Equal(t, http.StatusBadRequest, rec.Code, trailing)
+	}
 }
 
 func TestHandler_DocumentLifecycle(t *testing.T) {
@@ -398,6 +399,8 @@ func TestPartitionKeyFromHeader_ExactlyOneScalarElement(t *testing.T) {
 		{name: "object element is rejected (not a scalar)", header: `[{"x":1}]`, wantErr: true},
 		{name: "array element is rejected (not a scalar)", header: `[[1,2]]`, wantErr: true},
 		{name: "trailing content after the array is rejected, not silently ignored", header: `["a"]{}`, wantErr: true},
+		{name: "unmatched closing bracket after the array is rejected", header: `["a"]]`, wantErr: true},
+		{name: "unmatched closing brace after the array is rejected", header: `["a"]}`, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -474,12 +477,18 @@ func TestHandler_Query(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// Trailing content after the query request object is rejected, not
-	// silently ignored (mirrors partitionKeyFromHeader's identical guard).
-	trailingBody := []byte(`{"query": "SELECT * FROM c"}{}`)
-
-	rec = doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",
-		map[string]string{"X-Ms-Documentdb-Isquery": "true"}, trailingBody)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	// silently ignored (mirrors partitionKeyFromHeader's identical guard),
+	// including unmatched-delimiter forms dec.More() alone wouldn't catch.
+	trailingQueries := []string{
+		`{"query": "SELECT * FROM c"}{}`,
+		`{"query": "SELECT * FROM c"}]`,
+		`{"query": "SELECT * FROM c"}}`,
+	}
+	for _, trailing := range trailingQueries {
+		rec = doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",
+			map[string]string{"X-Ms-Documentdb-Isquery": "true"}, []byte(trailing))
+		assert.Equal(t, http.StatusBadRequest, rec.Code, trailing)
+	}
 }
 
 func TestHandler_MethodNotAllowed(t *testing.T) {
