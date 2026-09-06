@@ -56,3 +56,18 @@ type LogsOptions struct {
 	Follow     bool
 	Details    bool
 }
+
+// WaitOptions models the subset of container wait options used in this repo.
+type WaitOptions struct {
+	Condition mobycontainer.WaitCondition
+}
+
+// WaitResponse aliases the Moby container wait response type (StatusCode, Error).
+type WaitResponse = mobycontainer.WaitResponse
+
+// WaitResult mirrors moby/moby/client's ContainerWaitResult: exactly one of
+// Result or Error receives a value once the wait resolves.
+type WaitResult struct {
+	Result <-chan WaitResponse
+	Error  <-chan error
+}

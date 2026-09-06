@@ -30,24 +30,21 @@ var (
 // fakeDockerClient is a test double for dockerClient.
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
-	startErrOnID string
-	stopErrOnID  string
-	// containerLogs, keyed by container ID, is returned verbatim (already in
-	// stdcopy's multiplexed frame format -- see muxFrame) by ContainerLogs.
-	// A missing entry yields an empty, already-EOF stream.
-	containerLogs   map[string][]byte
-	started         []string
-	stopped         []string
-	removed         []string
-	logsRequestedOn []string
-	nextID          int
-	failAllStarts   bool
-	// blockLogsUntilCanceled, when true, makes ContainerLogs return a reader
-	// that blocks on its ctx instead of the fixed containerLogs payload --
-	// used to prove StopTask/rollback cancel an in-flight log forwarder.
-	blockLogsUntilCanceled bool
-	blockedReaderCanceled  atomic.Bool
+	containerLogs          map[string][]byte
+	waitResult             chan dockertypes.WaitResponse
+	startErrOnID           string
+	stopErrOnID            string
+	logsRequestedOn        []string
+	removed                []string
+	stopped                []string
+	waitRequestedOn        []string
+	started                []string
+	nextID                 int
 	mu                     sync.Mutex
+	blockedReaderCanceled  atomic.Bool
+	waitCanceled           atomic.Bool
+	failAllStarts          bool
+	blockLogsUntilCanceled bool
 }
 
 func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.PullOptions) (io.ReadCloser, error) {
@@ -147,6 +144,41 @@ func (r *ctxAwareReadCloser) Read(_ []byte) (int, error) {
 }
 
 func (r *ctxAwareReadCloser) Close() error { return nil }
+
+// ContainerWait delivers f.waitResult to the caller once sent, or blocks
+// until ctx is done if waitResult is nil (a container that never exits on its
+// own) or is never sent to (a cancelled watch, recorded via waitCanceled).
+func (f *fakeDockerClient) ContainerWait(
+	ctx context.Context,
+	containerID string,
+	_ dockertypes.WaitOptions,
+) dockertypes.WaitResult {
+	f.mu.Lock()
+	f.waitRequestedOn = append(f.waitRequestedOn, containerID)
+	ch := f.waitResult
+	f.mu.Unlock()
+
+	resultC := make(chan dockertypes.WaitResponse, 1)
+	errC := make(chan error, 1)
+
+	go func() {
+		if ch == nil {
+			<-ctx.Done()
+			f.waitCanceled.Store(true)
+
+			return
+		}
+
+		select {
+		case res := <-ch:
+			resultC <- res
+		case <-ctx.Done():
+			f.waitCanceled.Store(true)
+		}
+	}()
+
+	return dockertypes.WaitResult{Result: resultC, Error: errC}
+}
 
 // muxFrame encodes payload as one stdcopy-framed chunk: an 8-byte header
 // (stream type, 3 zero bytes, big-endian uint32 length) followed by payload,
@@ -834,4 +866,103 @@ func TestDockerRunner_StopTask_CancelsLogForwarding(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return fake.blockedReaderCanceled.Load()
 	}, 2*time.Second, 10*time.Millisecond, "StopTask must cancel the container's in-flight log forwarder")
+}
+
+// TestDockerRunner_ContainerExit_MovesTaskToStopped is the regression test for
+// gopherstack-s1u9's ECS half: nothing previously waited for a container to
+// exit, so a task whose container quit on its own (the common case for a
+// batch job invoked via Step Functions ecs:runTask.sync) stayed RUNNING
+// forever. This can only pass if RunTask actually calls ContainerWait and the
+// exit is wired through to move the task to STOPPED.
+func TestDockerRunner_ContainerExit_MovesTaskToStopped(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{waitResult: make(chan dockertypes.WaitResponse, 1)}
+	runner := newDockerRunnerWithClient(context.Background(), fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+	runner.SetTaskCompletionHandler(backend.markTaskStoppedByContainerExit)
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "batch-job",
+		ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "busybox"}},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "batch-job"})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	taskArn := tasks[0].TaskArn
+
+	require.Eventually(t, func() bool {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+
+		return len(fake.waitRequestedOn) > 0
+	}, 2*time.Second, 10*time.Millisecond, "RunTask must have started watching the container before it exits")
+
+	fake.waitResult <- dockertypes.WaitResponse{StatusCode: 3}
+
+	require.Eventually(t, func() bool {
+		got, _, describeErr := backend.DescribeTasks("test", []string{taskArn})
+		require.NoError(t, describeErr)
+		require.Len(t, got, 1)
+
+		return got[0].LastStatus == statusStopped
+	}, 2*time.Second, 10*time.Millisecond, "the container exiting on its own must move the task to STOPPED")
+
+	got, _, err := backend.DescribeTasks("test", []string{taskArn})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Essential container in task exited", got[0].StoppedReason)
+	require.Len(t, got[0].Containers, 1)
+	require.NotNil(t, got[0].Containers[0].ExitCode)
+	assert.Equal(t, 3, *got[0].Containers[0].ExitCode)
+}
+
+// TestDockerRunner_StopTask_CancelsContainerWait proves that stopping a task
+// cancels its container's in-flight exit watcher rather than leaking the
+// goroutine forever, and that the resulting stop keeps the caller's own
+// reason instead of the container-exit one.
+func TestDockerRunner_StopTask_CancelsContainerWait(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{waitResult: make(chan dockertypes.WaitResponse, 1)}
+	runner := newDockerRunnerWithClient(context.Background(), fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+	runner.SetTaskCompletionHandler(backend.markTaskStoppedByContainerExit)
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "long-runner",
+		ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "long-runner"})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	require.Eventually(t, func() bool {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+
+		return len(fake.waitRequestedOn) > 0
+	}, 2*time.Second, 10*time.Millisecond, "RunTask must have started watching the container before we stop it")
+
+	_, err = backend.StopTask("test", tasks[0].TaskArn, "operator stop")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return fake.waitCanceled.Load()
+	}, 2*time.Second, 10*time.Millisecond, "StopTask must cancel the container's in-flight exit watcher")
+
+	got, _, err := backend.DescribeTasks("test", []string{tasks[0].TaskArn})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "operator stop", got[0].StoppedReason)
 }

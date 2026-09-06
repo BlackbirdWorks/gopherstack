@@ -199,6 +199,22 @@ func (c *Client) ContainerLogs(
 	})
 }
 
+// ContainerWait blocks until containerID satisfies options.Condition, matching
+// github.com/moby/moby/client@v0.5.1 container_wait.go:41's
+// (*Client).ContainerWait(ctx, containerID, ContainerWaitOptions)
+// ContainerWaitResult, with the compat option/result types substituted in.
+func (c *Client) ContainerWait(
+	ctx context.Context,
+	containerID string,
+	options compatcontainer.WaitOptions,
+) compatcontainer.WaitResult {
+	result := c.inner.ContainerWait(ctx, containerID, mobyclient.ContainerWaitOptions{
+		Condition: options.Condition,
+	})
+
+	return compatcontainer.WaitResult{Result: result.Result, Error: result.Error}
+}
+
 // ContainerList lists containers matching the provided filters.
 func (c *Client) ContainerList(
 	ctx context.Context,

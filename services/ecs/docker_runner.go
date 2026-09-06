@@ -56,6 +56,16 @@ type dockerClient interface {
 		containerID string,
 		options dockertypes.LogsOptions,
 	) (io.ReadCloser, error)
+	// ContainerWait matches github.com/moby/moby/client@v0.5.1's
+	// (*Client).ContainerWait(ctx, containerID, ContainerWaitOptions)
+	// ContainerWaitResult, with the compat option/result types substituted in,
+	// so the concrete client (internal/dockercompat/client.Client) satisfies
+	// this unchanged.
+	ContainerWait(
+		ctx context.Context,
+		containerID string,
+		options dockertypes.WaitOptions,
+	) dockertypes.WaitResult
 }
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
@@ -78,22 +88,26 @@ func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDocke
 	}
 
 	return &realDockerRunner{
-		cli:        cli,
-		containers: make(map[string][]string),
-		logCancels: make(map[string]context.CancelFunc),
-		svcCtx:     ctx,
+		cli:         cli,
+		containers:  make(map[string][]string),
+		logCancels:  make(map[string]context.CancelFunc),
+		waitCancels: make(map[string]context.CancelFunc),
+		svcCtx:      ctx,
 	}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
-	containers map[string][]string
-	logCancels map[string]context.CancelFunc
-	cli        dockerClient
-	cwLogs     CWLogsBackend
-	svcCtx     context.Context
-	logWG      sync.WaitGroup
-	mu         sync.Mutex
+	containers        map[string][]string
+	logCancels        map[string]context.CancelFunc
+	waitCancels       map[string]context.CancelFunc
+	cli               dockerClient
+	cwLogs            CWLogsBackend
+	completionHandler func(taskArn, containerName string, exitCode int)
+	svcCtx            context.Context
+	logWG             sync.WaitGroup
+	waitWG            sync.WaitGroup
+	mu                sync.Mutex
 }
 
 // SetCWLogsBackend wires CloudWatch Logs so this runner forwards awslogs-driver
@@ -114,6 +128,24 @@ func (r *realDockerRunner) cwLogsBackend() CWLogsBackend {
 	return r.cwLogs
 }
 
+// SetTaskCompletionHandler wires fn to be called when a container this runner
+// started exits on its own -- not via an explicit StopTask/rollback, which
+// cancel the watch instead (see cancelContainerWait) -- so the caller can move
+// the owning task to STOPPED. Safe to call concurrently with RunTask.
+func (r *realDockerRunner) SetTaskCompletionHandler(fn func(taskArn, containerName string, exitCode int)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.completionHandler = fn
+}
+
+func (r *realDockerRunner) taskCompletionHandler() func(taskArn, containerName string, exitCode int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.completionHandler
+}
+
 func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 	ctx := r.svcCtx
 	log := logger.Load(ctx)
@@ -121,6 +153,10 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 	// Bound once at call time so a concurrent SetCWLogsBackend doesn't change
 	// the target mid-task; nil means logs stay unforwarded (cwLogsRunner unwired).
 	cwLogs := r.cwLogsBackend()
+	// Bound once at call time for the same reason; nil means no watcher is
+	// started at all (taskCompletionRunner unwired, e.g. in tests that don't
+	// need it), so container exits are only observed via an explicit StopTask.
+	completionHandler := r.taskCompletionHandler()
 	taskID := taskIDFromARN(task.TaskArn)
 
 	// started accumulates container IDs that were successfully started during
@@ -164,6 +200,10 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 				r.forwardContainerLogs(cwLogs, containerID, group, stream)
 			}
 		}
+
+		if completionHandler != nil {
+			r.watchContainerExit(completionHandler, task.TaskArn, containerID, cd.Name)
+		}
 	}
 
 	// All containers started successfully; register them in the tracking map.
@@ -186,8 +226,11 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 	for _, id := range containerIDs {
 		// These containers are being torn down unconditionally below (force
 		// remove), so stop any in-flight log forwarder before that happens
-		// rather than leaving it to notice via a Follow read error.
+		// rather than leaving it to notice via a Follow read error. Likewise
+		// for the exit watcher: this is a rollback, not a natural exit, so it
+		// must not report task completion.
 		r.cancelLogForwarding(id)
+		r.cancelContainerWait(id)
 
 		if err := r.cli.ContainerStop(ctx, id, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
 			log.WarnContext(
@@ -339,8 +382,9 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 
 		// Only cancel once the container is confirmed stopped; a container
 		// that failed to stop stays tracked for retry and may still be
-		// producing output worth forwarding.
+		// producing output worth forwarding, or may yet exit on its own.
 		r.cancelLogForwarding(containerID)
+		r.cancelContainerWait(containerID)
 	}
 
 	// Update the tracking map: remove the entry entirely on full success, or
@@ -404,6 +448,60 @@ func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerI
 func (r *realDockerRunner) cancelLogForwarding(containerID string) {
 	r.mu.Lock()
 	cancel, ok := r.logCancels[containerID]
+	r.mu.Unlock()
+
+	if ok {
+		cancel()
+	}
+}
+
+// watchContainerExit waits for containerID to stop and, unless the wait is
+// cancelled first (see cancelContainerWait, called from StopTask/rollback
+// once a container is confirmed stopped by an explicit request), reports the
+// exit to handler so the owning task can move to STOPPED. Runs in its own
+// goroutine so RunTask does not block on it, and terminates on container exit,
+// cancellation, or shutdown (ctx derives from r.svcCtx) -- never leaked.
+//
+// Only the first container in a task to exit is meant to drive the task to
+// STOPPED (see markTaskStoppedByContainerExit); siblings of a multi-container
+// task are not forcibly stopped here, an approximation left for a future
+// change since real ECS task definitions used with Step Functions .sync are
+// overwhelmingly single-container batch jobs.
+func (r *realDockerRunner) watchContainerExit(
+	handler func(taskArn, containerName string, exitCode int),
+	taskArn, containerID, containerName string,
+) {
+	ctx, cancel := context.WithCancel(r.svcCtx)
+
+	r.mu.Lock()
+	r.waitCancels[containerID] = cancel
+	r.mu.Unlock()
+
+	r.waitWG.Go(func() {
+		defer cancel()
+		defer func() {
+			r.mu.Lock()
+			delete(r.waitCancels, containerID)
+			r.mu.Unlock()
+		}()
+
+		result := r.cli.ContainerWait(ctx, containerID, dockertypes.WaitOptions{})
+
+		select {
+		case res := <-result.Result:
+			handler(taskArn, containerName, int(res.StatusCode))
+		case <-result.Error:
+		case <-ctx.Done():
+		}
+	})
+}
+
+// cancelContainerWait stops the in-flight exit watcher for containerID, if
+// any. Called once a container is confirmed stopped/removed so its watcher
+// doesn't report a self-inflicted stop as a natural exit.
+func (r *realDockerRunner) cancelContainerWait(containerID string) {
+	r.mu.Lock()
+	cancel, ok := r.waitCancels[containerID]
 	r.mu.Unlock()
 
 	if ok {
