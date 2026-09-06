@@ -42,6 +42,22 @@ func (b *InMemoryBackend) SweepJanitorOnceForTest() {
 	b.sweepIdempotencyMaps(context.Background())
 }
 
+// BackdateCertForTest overrides a certificate's CreatedAt and NotAfter
+// timestamps so tests can trigger the janitor's stale-cert sweep without
+// waiting for real time to pass.
+func (b *InMemoryBackend) BackdateCertForTest(region, certARN string, createdAt, notAfter time.Time) {
+	b.mu.Lock("BackdateCertForTest")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return
+	}
+
+	cert.CreatedAt = createdAt
+	cert.NotAfter = notAfter
+}
+
 // AcmeIdempotencyCountsForTest returns the total number of entries, across
 // all regions, in the endpoint/EAB/domain-validation idempotency-token maps.
 func (b *InMemoryBackend) AcmeIdempotencyCountsForTest() (int, int, int) {
