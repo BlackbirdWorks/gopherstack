@@ -3509,6 +3509,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire AppConfig → AppConfigData so a completed deployment's
 	// configuration becomes observable through GetLatestConfiguration polling.
 	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
+
+	// Wire CloudTrail → S3 so CreateTrail/UpdateTrail validate the configured
+	// bucket exists and logging trails actually deliver log files to it,
+	// instead of S3BucketName being stored/echoed with no validation and no
+	// delivery (gopherstack-g9b4).
+	wireCloudTrailS3(byName["CloudTrail"], byName["S3"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -5910,6 +5916,31 @@ func wireAthenaS3(athenaReg, s3Reg service.Registerable) {
 	}
 
 	athenaBk.SetS3Backend(s3Bk)
+}
+
+// wireCloudTrailS3 connects the CloudTrail backend to S3 so CreateTrail/
+// UpdateTrail validate the configured bucket exists and a logging trail's
+// recorded management events are actually delivered as log files, instead
+// of S3BucketName being stored/echoed with no validation and no delivery
+// (gopherstack-g9b4). s3.InMemoryBackend already satisfies cloudtrail.S3Backend
+// directly, so no adapter is needed.
+func wireCloudTrailS3(cloudtrailReg, s3Reg service.Registerable) {
+	ctH, ok := cloudtrailReg.(*cloudtrailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	ctH.Backend.SetS3Backend(s3Bk)
 }
 
 // athenaGlueAdapter adapts the Glue backend to the athena.GlueMetadataSource interface.
