@@ -40,7 +40,7 @@ ops:
   UpdateAdapter: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — response had an invented Tags field (real UpdateAdapterOutput has no Tags member); CreationTime FIXED to epoch-seconds. Not-found error FIXED to ResourceNotFoundException"}
   ListAdapters: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — input was an empty struct silently dropping AfterCreationTime/BeforeCreationTime/MaxResults/NextToken; now filters + paginates via pkgs/page and echoes NextToken. CreationTime FIXED to epoch-seconds"}
   DeleteAdapter: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades to delete all adapter versions; not-found error FIXED to ResourceNotFoundException"}
-  CreateAdapterVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATION_IN_PROGRESS -> ACTIVE lifecycle; adapter-not-found error FIXED to ResourceNotFoundException"}
+  CreateAdapterVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATION_IN_PROGRESS -> ACTIVE lifecycle; adapter-not-found error FIXED to ResourceNotFoundException. 2026-09-06 (gopherstack-u416): InvalidS3ObjectException now enforced against DatasetConfig.ManifestS3Object when S3 is wired -- missed by gopherstack-eshx's sweep of the 8 request-side ops; see Notes."}
   GetAdapterVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — EvaluationMetrics was a single flat struct; real GetAdapterVersionOutput.EvaluationMetrics is a []AdapterVersionEvaluationMetric list (Baseline + AdapterVersion sub-scores per FeatureType). CreationTime FIXED to epoch-seconds. Not-found error FIXED to ResourceNotFoundException"}
   ListAdapterVersions: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED — response had an invented top-level AdapterId (real ListAdapterVersionsOutput has none); each AdapterVersionOverview entry was missing its own AdapterId (now added). Input FIXED to accept AfterCreationTime/BeforeCreationTime/MaxResults/NextToken (previously AdapterId-only, silently dropping the rest) and paginates via pkgs/page. CreationTime FIXED to epoch-seconds. Not-found error FIXED to ResourceNotFoundException. gopherstack-2wvq (2026-08-21): ListAdapterVersionsInput declares no required members at all (textract@v1.43.4 api_op_ListAdapterVersions.go: AdapterId is a plain optional filter, 'A string containing a unique ID for the adapter to match for when listing adapter versions') -- the handler previously rejected any request without AdapterId with a 400, making the documented all-adapters listing unreachable. Backend now lists across every adapter in the region when AdapterId is empty, reusing the existing adaptersByRegion + adapterVersionsByAdapter secondary indexes (no new index needed, cheaper than this issue's original sizing of 'a real cross-adapter index'). Sorted by AdapterID then AdapterVersion -- the SDK documents no ordering -- so pkgs/page's offset tokens stay stable across the merged, freshly-rebuilt set; verified with a small-MaxResults pagination test asserting the paged union equals the whole set with no duplicates. Checked CreateAdapterVersion/UpdateAdapter for an enabling accept-and-drop the other direction: found none -- both already store/require everything this newly-reachable path reads (AdapterId, FeatureTypes, Status, CreationTime). Response shape (AdapterVersionOverview) was already correct on the newly-reachable path, nothing to fix there."}
   DeleteAdapterVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "not-found error FIXED to ResourceNotFoundException"}
@@ -412,3 +412,33 @@ against the fix. `cli_textract_rekognition_s3_wiring_test.go` (root package) dri
 
 Gates: `go build ./...`, `go test -race -count=1 ./services/textract/...` and `.` (root),
 `golangci-lint run ./ services/rekognition/... services/textract/...` — all clean.
+
+## 2026-09-06: CreateAdapterVersion InvalidS3ObjectException gap (gopherstack-u416)
+
+`CreateAdapterVersion` also declares `InvalidS3ObjectException` (re-verified with the
+digit-safe `awk`+`grep -oE '"[A-Za-z0-9]+"'` extraction against
+`deserializeOpErrorCreateAdapterVersion` in `textract@v1.43.4/deserializers.go`) but was missed
+by the gopherstack-eshx sweep above, which covered only the 8 ops taking a Document/
+DocumentLocation. Unlike those, `CreateAdapterVersion` takes its S3 reference through
+`CreateAdapterVersionInput.DatasetConfig`, an `AdapterVersionDatasetConfig`
+(`textract@v1.43.4/types/types.go:78`): `ManifestS3Object *S3Object`. Confirmed
+`handleCreateAdapterVersion` (`handler_adapter_versions.go`) does parse `DatasetConfig` off the
+wire (`createAdapterVersionInput.DatasetConfig`, required, passed through to
+`CreateAdapterVersionWithOptions`) — so unlike rekognition's `IndexFaces`/`CreateDataset`
+(never parse their Image-shaped field, structural gap, no check added), this op had a real,
+reachable gap.
+
+Added the same `checkS3Object` call used by the 8 existing ops, gated on
+`DatasetConfig.ManifestS3Object != nil` (the real SDK's
+`validateOpCreateAdapterVersionInput`/no `validateAdapterVersionDatasetConfig` means
+`ManifestS3Object` itself is not client-required, only `DatasetConfig`). Existence only, same
+as eshx — no attempt to validate manifest contents.
+
+Regression tests in `s3_object_test.go`: `TestCreateAdapterVersion_S3ObjectValidation` (missing
+bucket/key rejected 400 `InvalidS3ObjectException`, existing one succeeds 200) and
+`TestCreateAdapterVersion_UnwiredS3StaysPermissive`. Verified `TestCreateAdapterVersion_S3ObjectValidation`
+fails against the pre-fix `handleCreateAdapterVersion` (git-show revert, confirmed still
+compiles, confirmed test failure, restored byte-identical).
+
+Gates: `go test -race ./services/textract/...`, `golangci-lint run services/textract/...` —
+both clean.

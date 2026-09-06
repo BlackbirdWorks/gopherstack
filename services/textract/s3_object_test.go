@@ -218,6 +218,73 @@ func TestStartDocumentAnalysis_UnwiredS3StaysPermissive(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// createAdapterForS3Test creates an adapter and returns its AdapterId, so
+// CreateAdapterVersion tests have a valid parent to attach a version to.
+func createAdapterForS3Test(t *testing.T, h *textract.Handler) string {
+	t.Helper()
+
+	rec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+		"AdapterName":  "s3-validation-adapter",
+		"FeatureTypes": []string{"FORMS"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["AdapterId"]
+}
+
+// createAdapterVersionBody builds a CreateAdapterVersion request body whose
+// DatasetConfig.ManifestS3Object names bucket/key.
+func createAdapterVersionBody(adapterID, bucket, key string) map[string]any {
+	return map[string]any{
+		"AdapterId": adapterID,
+		"DatasetConfig": map[string]any{
+			"ManifestS3Object": map[string]any{"Bucket": bucket, "Name": key},
+		},
+		"OutputConfig": map[string]any{"S3Bucket": "test-output-bucket"},
+	}
+}
+
+// TestCreateAdapterVersion_S3ObjectValidation proves that once S3 is wired,
+// CreateAdapterVersion rejects a DatasetConfig.ManifestS3Object naming a
+// bucket/key that does not exist and accepts one that does. Fails against
+// the pre-fix code: DatasetConfig.ManifestS3Object was never checked against
+// S3 at all.
+func TestCreateAdapterVersion_S3ObjectValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newWiredHandler(t, map[string]bool{"good-bucket/manifest.json": true})
+	adapterID := createAdapterForS3Test(t, h)
+
+	rec := doTextractRequest(t, h, "CreateAdapterVersion",
+		createAdapterVersionBody(adapterID, "missing-bucket", "manifest.json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidS3ObjectException", resp["__type"])
+
+	rec = doTextractRequest(t, h, "CreateAdapterVersion",
+		createAdapterVersionBody(adapterID, "good-bucket", "manifest.json"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestCreateAdapterVersion_UnwiredS3StaysPermissive proves that with no
+// SetS3Backend call, a nonexistent ManifestS3Object is still accepted,
+// matching this repo's unwired-hook-stays-permissive convention.
+func TestCreateAdapterVersion_UnwiredS3StaysPermissive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	adapterID := createAdapterForS3Test(t, h)
+
+	rec := doTextractRequest(t, h, "CreateAdapterVersion",
+		createAdapterVersionBody(adapterID, "nonexistent-bucket", "manifest.json"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // TestAnalyzeDocument_InlineBytesUnaffected proves a Document carrying
 // inline Bytes instead of an S3Object is never subject to the S3 existence
 // check, even when S3 is wired.

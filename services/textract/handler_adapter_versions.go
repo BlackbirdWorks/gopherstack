@@ -45,6 +45,12 @@ func (h *Handler) handleCreateAdapterVersion(
 		return nil, fmt.Errorf("%w: OutputConfig.S3Bucket is required", errInvalidRequest)
 	}
 
+	if m := in.DatasetConfig.ManifestS3Object; m != nil {
+		if err := h.checkS3Object(ctx, m.Bucket, m.Name); err != nil {
+			return nil, err
+		}
+	}
+
 	var av *AdapterVersion
 	var err error
 
