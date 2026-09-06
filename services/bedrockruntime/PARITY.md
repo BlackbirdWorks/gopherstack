@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
 sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
-last_audit_commit: PENDING                                   # set on commit -- 2026-09-04 parity sweep, see below
+last_audit_commit: 861de3270 # set on commit -- 2026-09-04 parity sweep, see below
 last_audit_date: 2026-09-04
 overall: A            # 2026-09-04: fixed two real bugs. (1) ListAsyncInvokes silently ignored
                       # submitTimeAfter/submitTimeBefore/sortOrder (ListAsyncInvokesInput fields,

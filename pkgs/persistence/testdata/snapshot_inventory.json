@@ -2515,6 +2515,38 @@
     ],
     "version": 1
   },
+  "azurequeue": {
+    "fields": [
+      "backendSnapshot.Queues map[string]*storedQueue `json:\"queues\"`",
+      "storedMessage.DequeueCount int64",
+      "storedMessage.ExpirationTime time.Time",
+      "storedMessage.ID string",
+      "storedMessage.InsertionTime time.Time",
+      "storedMessage.NextVisibleTime time.Time",
+      "storedMessage.PopReceipt string",
+      "storedMessage.Text string",
+      "storedQueue.CreatedAt time.Time",
+      "storedQueue.Messages []*storedMessage",
+      "storedQueue.Name string"
+    ],
+    "version": 1
+  },
+  "azuretable": {
+    "fields": [
+      "EntityProperty.Type EdmType",
+      "EntityProperty.Value any",
+      "backendSnapshot.Tables map[string]*storedTable `json:\"tables\"`",
+      "entityCompositeKey.PartitionKey string",
+      "entityCompositeKey.RowKey string",
+      "storedEntity.PartitionKey string",
+      "storedEntity.Properties map[string]EntityProperty",
+      "storedEntity.RowKey string",
+      "storedEntity.Timestamp time.Time",
+      "storedTable.Entities map[entityCompositeKey]*storedEntity",
+      "storedTable.Name string"
+    ],
+    "version": 2
+  },
   "backup": {
     "fields": [
       "AdvancedBackupSetting.BackupOptions map[string]string `json:\"backupOptions,omitempty\"`",
