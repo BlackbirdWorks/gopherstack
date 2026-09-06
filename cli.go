@@ -2985,6 +2985,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// real EC2 state, and HTTPS/SSL listeners validate SSLCertificateId
 	// against real ACM/IAM certificates, instead of accepting any string.
 	wireELBCrossService(byName["ELB"], byName["EC2"], byName["ACM"], byName["IAM"])
+	wireELBv2CrossService(byName["ELBv2"], byName["EC2"], byName["ACM"], byName["IAM"])
 }
 
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
@@ -3267,6 +3268,83 @@ func wireELBCrossService(elbReg, ec2Reg, acmReg, iamReg service.Registerable) {
 
 	if acmBk != nil || iamBk != nil {
 		elbBk.SetCertificateResolver(&elbCertificateResolverAdapter{acmBackend: acmBk, iamBackend: iamBk})
+	}
+}
+
+// elbv2CertificateResolverAdapter adapts the ACM and IAM backends to the
+// elbv2.CertificateResolver interface. Unlike elb.CertificateResolver, elbv2's
+// backend methods take no context.Context (see services/elbv2/store.go), so
+// this adapter calls the ACM/IAM backends with context.Background() rather
+// than forwarding a caller context.
+type elbv2CertificateResolverAdapter struct {
+	acmBackend *acmbackend.InMemoryBackend
+	iamBackend *iambackend.InMemoryBackend
+}
+
+func (a *elbv2CertificateResolverAdapter) ResolveCertificate(certARN string) bool {
+	if a.acmBackend != nil {
+		if _, err := a.acmBackend.DescribeCertificate(context.Background(), certARN); err == nil {
+			return true
+		}
+	}
+
+	if a.iamBackend != nil {
+		certs, err := a.iamBackend.ListServerCertificates("")
+		if err == nil {
+			for _, c := range certs {
+				if c.Arn == certARN {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (a *elbv2CertificateResolverAdapter) AddInUseBy(certARN, resourceARN string) {
+	if a.acmBackend != nil {
+		a.acmBackend.AddInUseBy(context.Background(), certARN, resourceARN)
+	}
+}
+
+func (a *elbv2CertificateResolverAdapter) RemoveInUseBy(certARN, resourceARN string) {
+	if a.acmBackend != nil {
+		a.acmBackend.RemoveInUseBy(context.Background(), certARN, resourceARN)
+	}
+}
+
+// wireELBv2CrossService wires the ELBv2 backend to EC2 (SecurityGroups/Subnets
+// existence, CreateLoadBalancer) and ACM/IAM (CertificateArn existence and
+// InUseBy usage reporting on listener certificate attach/detach) -- see
+// elbv2.EC2Resolver/elbv2.CertificateResolver's doc comments.
+func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable) {
+	elbv2H, ok := elbv2Reg.(*elbv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	elbv2Bk, bkOk := elbv2H.Backend.(*elbv2backend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
+		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+	}
+
+	var acmBk *acmbackend.InMemoryBackend
+	if acmH, acmOk := acmReg.(*acmbackend.Handler); acmOk {
+		acmBk = acmH.Backend
+	}
+
+	var iamBk *iambackend.InMemoryBackend
+	if iamH, iamOk := iamReg.(*iambackend.Handler); iamOk {
+		iamBk, _ = iamH.Backend.(*iambackend.InMemoryBackend)
+	}
+
+	if acmBk != nil || iamBk != nil {
+		elbv2Bk.SetCertificateResolver(&elbv2CertificateResolverAdapter{acmBackend: acmBk, iamBackend: iamBk})
 	}
 }
 
