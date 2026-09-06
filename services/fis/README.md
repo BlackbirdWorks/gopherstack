@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
-| Feature families | 5 (5 ok) |
-| Known gaps | 4 |
+| Feature families | 6 (6 ok) |
+| Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -17,7 +17,6 @@
 
 - Experiment report generation is synchronous/immediate (terminal state computed the instant the owning experiment reaches a terminal status) rather than modeling the real async pending→running→completed/failed report lifecycle with its own timing. There is no real S3/CloudWatch backend to wait on in this emulator, so this is a reasonable simplification, not a wire-shape defect — the four modeled ExperimentReportStatus values pending/completed/cancelled/failed are all reachable (in the exact wire shape), "running" is skipped over.
 - CloudWatch dashboard snapshot capture (ExperimentReportConfigurationDataSources.CloudWatchDashboards) is accepted, validated, and echoed back on both the template and the running experiment's report configuration, but does not influence report generation (gopherstack has no real CloudWatch dashboard rendering to snapshot) — only the S3 output destination affects the generated ExperimentReportS3Report.
-- stopConditions (aws:cloudwatch:alarm source) are validated and stored but never evaluated at runtime -- gopherstack-x842, confirmed still blocked this pass: cli.go wires FIS only to pkgs/chaos.FaultStore and to every service.FISActionProvider (wireFISActionProviders); there is no FIS->CloudWatch backend hook anywhere (grep -rn "cloudwatch" services/fis/ turns up only wire DTOs/validation, no read access). Fixing this needs a new cli.go wiring hook, which is a design decision out of scope for this pass -- not invented here.
 - experimentOptions.accountTargeting / emptyTargetResolutionMode (CreateExperimentTemplate) are accepted, validated only as opaque strings (no enum check), and echoed on the wire, but never consulted: gopherstack has no multi-account fan-out and no dynamic tag/filter-based resource discovery (ResourceTags/Filters are stored as informational metadata only -- see buildExperimentTargets), so there is no "empty target" or "multi-account" condition for these fields to actually govern. Implementing either requires building resource discovery/multi-account execution infrastructure that does not exist -- a design decision, not something the terse SDK doc comments (types.go:364,371: "The account/empty target resolution... setting/mode for an experiment") unambiguously specify how to build. Not fixed; not guessed at.
 
 ### Deferred

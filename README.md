@@ -616,7 +616,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 84 | 30 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 3 gaps; 2 deferred |
-| [Fault Injection Simulator](services/fis/README.md) | A | 26 | 4 gaps; 1 deferred |
+| [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | B | 32 | 5 gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 7 gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 3 deferred |
