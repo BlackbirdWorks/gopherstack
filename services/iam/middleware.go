@@ -276,7 +276,8 @@ func resolveCallerIdentityPolicies(
 
 // applyPermissionsBoundary evaluates the caller's permission boundary (if any)
 // against the request and returns the possibly-downgraded identity-policy
-// result plus whether the boundary explicitly denies the request outright.
+// result, whether the boundary explicitly denies the request outright, and
+// whether the boundary itself evaluated to Allow.
 //
 // AWS's IAM User Guide, "Permissions boundaries for IAM entities", states
 // that an entity's permissions boundary lets it act only within what both its
@@ -287,18 +288,24 @@ func resolveCallerIdentityPolicies(
 // ARN access is not limited by an implicit deny in an identity-based policy
 // or permissions boundary, so this does not touch the resource-policy check
 // that follows in enforceIAMPolicy.
+//
+// boundaryDocs holds one or more policy documents evaluated together as the
+// boundary (a real IAM principal has at most one attached, but
+// SimulateCustomPolicy's PermissionsBoundaryPolicyInputList accepts several).
 func applyPermissionsBoundary(
-	boundaryDoc, action, resource string,
+	boundaryDocs []string, action, resource string,
 	condCtx ConditionContext,
 	idResult EvaluationResult,
-) (EvaluationResult, bool) {
-	if boundaryDoc == "" {
-		return idResult, false
+) (EvaluationResult, bool, bool) {
+	if len(boundaryDocs) == 0 {
+		return idResult, false, false
 	}
 
-	switch EvaluatePolicies([]string{boundaryDoc}, action, resource, condCtx) {
+	boundaryResult := EvaluatePolicies(boundaryDocs, action, resource, condCtx)
+
+	switch boundaryResult {
 	case EvalExplicitDeny:
-		return idResult, true
+		return idResult, true, false
 	case EvalImplicitDeny:
 		if idResult == EvalAllow {
 			idResult = EvalImplicitDeny
@@ -306,7 +313,7 @@ func applyPermissionsBoundary(
 	case EvalAllow:
 	}
 
-	return idResult, false
+	return idResult, false, boundaryResult == EvalAllow
 }
 
 // enforceIAMPolicy evaluates IAM policies for the request and either allows or denies it.
@@ -356,7 +363,12 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	// Identity-based policies.
 	idResult := EvaluatePolicies(policyDocs, action, matchResource, condCtx)
 
-	idResult, boundaryDenied := applyPermissionsBoundary(boundaryDoc, action, matchResource, condCtx, idResult)
+	var boundaryDocs []string
+	if boundaryDoc != "" {
+		boundaryDocs = []string{boundaryDoc}
+	}
+
+	idResult, boundaryDenied, _ := applyPermissionsBoundary(boundaryDocs, action, matchResource, condCtx, idResult)
 	if boundaryDenied {
 		log.InfoContext(ctx, "IAM enforcement: access denied (permission boundary)",
 			"caller", callerName, "action", action, "resource", matchResource)

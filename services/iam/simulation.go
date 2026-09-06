@@ -363,7 +363,13 @@ func (b *InMemoryBackend) evaluateSingleSimulation(
 	// Guide, a resource-based policy Allow for an IAM user is not limited by
 	// an implicit deny in an identity-based policy or permissions boundary.
 	idResult := EvaluatePolicies(docs, action, resource, ctx)
-	idResult, boundaryExplicitDeny := applyPermissionsBoundary(boundaryDoc, action, resource, ctx, idResult)
+
+	var boundaryDocs []string
+	if boundaryDoc != "" {
+		boundaryDocs = []string{boundaryDoc}
+	}
+
+	idResult, boundaryExplicitDeny, _ := applyPermissionsBoundary(boundaryDocs, action, resource, ctx, idResult)
 
 	// Resource Policies evaluation
 	var resDocs []string
