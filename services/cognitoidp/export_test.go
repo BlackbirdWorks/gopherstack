@@ -34,6 +34,30 @@ func (b *InMemoryBackend) RefreshTokenCount() int {
 	return len(b.refreshTokens)
 }
 
+// MFASessionCount returns the number of pending MFA challenge sessions. For testing only.
+func (b *InMemoryBackend) MFASessionCount() int {
+	b.mu.RLock("MFASessionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.mfaSessions)
+}
+
+// PoolMfaConfigCount returns the number of pools with a stored full MFA config. For testing only.
+func (b *InMemoryBackend) PoolMfaConfigCount() int {
+	b.mu.RLock("PoolMfaConfigCount")
+	defer b.mu.RUnlock()
+
+	return len(b.poolMfaConfigs)
+}
+
+// AttrVerificationCodeCount returns the number of pending attribute verification codes. For testing only.
+func (b *InMemoryBackend) AttrVerificationCodeCount() int {
+	b.mu.RLock("AttrVerificationCodeCount")
+	defer b.mu.RUnlock()
+
+	return len(b.attrVerificationCodes)
+}
+
 // SetRefreshTokenExpiry sets expiry for a refresh token. For testing only.
 func (b *InMemoryBackend) SetRefreshTokenExpiry(token string, expiresAt time.Time) bool {
 	b.mu.Lock("SetRefreshTokenExpiry")
