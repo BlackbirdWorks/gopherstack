@@ -1,6 +1,15 @@
 ---
 service: azureservicebus
-sdk_module: azure-sdk-for-go/sdk/messaging/azservicebus (AMQP-only, NOT wire-compatible -- see families.sdk_compat below)
+sdk_module: azure-sdk-for-go/sdk/messaging/azservicebus@v1.10.0   # is not a go.mod dependency of
+                                                                    # this repo -- it is an AMQP-only
+                                                                    # client with no HTTP/REST
+                                                                    # transport, so it cannot be
+                                                                    # pointed at this REST emulator
+                                                                    # and nothing imports it (see
+                                                                    # families.sdk_compat below).
+                                                                    # Version pin is for reference
+                                                                    # only; audited by reading the
+                                                                    # module source directly.
 last_audit_commit: 8e0c328ac
 last_audit_date: 2026-09-06
 overall: C
