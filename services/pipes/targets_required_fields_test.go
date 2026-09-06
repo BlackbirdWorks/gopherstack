@@ -689,6 +689,194 @@ func TestTargetECSNetworkConfigurationRequiredFields(t *testing.T) {
 	}
 }
 
+// TestTargetEcsTaskOverrideRequiredFields verifies CreatePipe and UpdatePipe
+// reject an ECS target whose Overrides.ContainerOverrides entries are missing
+// EnvironmentFiles/ResourceRequirements Type or Value, or whose
+// EphemeralStorage is set with no SizeInGiB, matching aws-sdk-go-v2 pipes
+// validators.go's validateEcsTaskOverride (nested under
+// validatePipeTargetEcsTaskParameters).
+func TestTargetEcsTaskOverrideRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ov        *pipes.EcsTaskOverride
+		name      string
+		wantError bool
+	}{
+		{
+			name: "environment_file_missing_type",
+			ov: &pipes.EcsTaskOverride{
+				ContainerOverrides: []pipes.EcsContainerOverride{
+					{EnvironmentFiles: []pipes.EcsEnvironmentFile{{Value: "arn:aws:s3:::b/env"}}},
+				},
+			},
+			wantError: true,
+		},
+		{
+			name: "environment_file_missing_value",
+			ov: &pipes.EcsTaskOverride{
+				ContainerOverrides: []pipes.EcsContainerOverride{
+					{EnvironmentFiles: []pipes.EcsEnvironmentFile{{Type: "s3"}}},
+				},
+			},
+			wantError: true,
+		},
+		{
+			name: "resource_requirement_missing_type",
+			ov: &pipes.EcsTaskOverride{
+				ContainerOverrides: []pipes.EcsContainerOverride{
+					{ResourceRequirements: []pipes.EcsResourceRequirement{{Value: "1"}}},
+				},
+			},
+			wantError: true,
+		},
+		{
+			name: "resource_requirement_missing_value",
+			ov: &pipes.EcsTaskOverride{
+				ContainerOverrides: []pipes.EcsContainerOverride{
+					{ResourceRequirements: []pipes.EcsResourceRequirement{{Type: "GPU"}}},
+				},
+			},
+			wantError: true,
+		},
+		{
+			name:      "ephemeral_storage_missing_size",
+			ov:        &pipes.EcsTaskOverride{EphemeralStorage: &pipes.EcsEphemeralStorage{}},
+			wantError: true,
+		},
+		{
+			name: "complete",
+			ov: &pipes.EcsTaskOverride{
+				EphemeralStorage: &pipes.EcsEphemeralStorage{SizeInGiB: 21},
+				ContainerOverrides: []pipes.EcsContainerOverride{
+					{
+						EnvironmentFiles:     []pipes.EcsEnvironmentFile{{Type: "s3", Value: "arn:aws:s3:::b/env"}},
+						ResourceRequirements: []pipes.EcsResourceRequirement{{Type: "GPU", Value: "1"}},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			ov:        nil,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(t, "ecs-override-create-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					Overrides:         tt.ov,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(t, "ecs-override-update-"+tt.name, &pipes.TargetParameters{
+				EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+					TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td",
+					Overrides:         tt.ov,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestTargetBatchContainerOverridesRequiredFields verifies CreatePipe and
+// UpdatePipe reject a Batch target whose ContainerOverrides.
+// ResourceRequirements entries are missing Type or Value, matching
+// aws-sdk-go-v2 pipes validators.go's validateBatchContainerOverrides
+// (nested under validatePipeTargetBatchJobParameters).
+func TestTargetBatchContainerOverridesRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		co        *pipes.BatchContainerOverrides
+		name      string
+		wantError bool
+	}{
+		{
+			name: "resource_requirement_missing_type",
+			co: &pipes.BatchContainerOverrides{
+				ResourceRequirements: []pipes.BatchResourceRequirement{{Value: "1"}},
+			},
+			wantError: true,
+		},
+		{
+			name: "resource_requirement_missing_value",
+			co: &pipes.BatchContainerOverrides{
+				ResourceRequirements: []pipes.BatchResourceRequirement{{Type: "VCPU"}},
+			},
+			wantError: true,
+		},
+		{
+			name: "complete",
+			co: &pipes.BatchContainerOverrides{
+				ResourceRequirements: []pipes.BatchResourceRequirement{{Type: "VCPU", Value: "1"}},
+			},
+			wantError: false,
+		},
+		{
+			name:      "omitted_accepted",
+			co:        nil,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("create_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := createWithTarget(t, "batch-override-create-"+tt.name, &pipes.TargetParameters{
+				BatchJobParameters: &pipes.BatchJobTargetParameters{
+					JobDefinition:      "jd",
+					JobName:            "jn",
+					ContainerOverrides: tt.co,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("update_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := updateWithTarget(t, "batch-override-update-"+tt.name, &pipes.TargetParameters{
+				BatchJobParameters: &pipes.BatchJobTargetParameters{
+					JobDefinition:      "jd",
+					JobName:            "jn",
+					ContainerOverrides: tt.co,
+				},
+			})
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, pipes.ErrValidation)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // TestTargetECSCapacityProviderStrategyRequiredFields verifies CreatePipe
 // and UpdatePipe reject an ECS target whose CapacityProviderStrategy entries
 // are missing CapacityProvider, matching aws-sdk-go-v2 pipes validators.go's

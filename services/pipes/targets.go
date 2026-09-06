@@ -36,12 +36,60 @@ type PlacementStrategy struct {
 	Type  string `json:"Type,omitempty"`
 }
 
+// EcsEnvironmentVariable is a name/value pair overriding an ECS container's environment.
+// serializers.go/deserializers.go lowercase these keys ("name"/"value"), unlike every other
+// field in this ECS-override family -- pipes passes ECS's own RunTask override casing through.
+type EcsEnvironmentVariable struct {
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// EcsEnvironmentFile references an S3 object containing environment variables for an ECS container.
+type EcsEnvironmentFile struct {
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// EcsResourceRequirement is a resource type/value pair for an ECS container override.
+type EcsResourceRequirement struct {
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// EcsContainerOverride holds per-container override values for an ECS task execution.
+type EcsContainerOverride struct {
+	Name                 string                   `json:"Name,omitempty"`
+	Command              []string                 `json:"Command,omitempty"`
+	Environment          []EcsEnvironmentVariable `json:"Environment,omitempty"`
+	EnvironmentFiles     []EcsEnvironmentFile     `json:"EnvironmentFiles,omitempty"`
+	ResourceRequirements []EcsResourceRequirement `json:"ResourceRequirements,omitempty"`
+	CPU                  int                      `json:"Cpu,omitempty"`
+	Memory               int                      `json:"Memory,omitempty"`
+	MemoryReservation    int                      `json:"MemoryReservation,omitempty"`
+}
+
+// EcsEphemeralStorage overrides the ephemeral storage size for an ECS task.
+// SizeInGiB serializes as lowercase "sizeInGiB" (deserializers.go), the same
+// ECS-casing quirk as EcsEnvironmentVariable/EcsEnvironmentFile/EcsResourceRequirement.
+type EcsEphemeralStorage struct {
+	SizeInGiB int `json:"sizeInGiB,omitempty"`
+}
+
+// EcsInferenceAcceleratorOverride overrides an Elastic Inference accelerator for an ECS task.
+type EcsInferenceAcceleratorOverride struct {
+	DeviceName string `json:"deviceName,omitempty"`
+	DeviceType string `json:"deviceType,omitempty"`
+}
+
 // EcsTaskOverride holds override values for an ECS task execution.
 type EcsTaskOverride struct {
-	TaskRoleArn      string `json:"TaskRoleArn,omitempty"`
-	ExecutionRoleArn string `json:"ExecutionRoleArn,omitempty"`
-	CPU              string `json:"Cpu,omitempty"`
-	Memory           string `json:"Memory,omitempty"`
+	EphemeralStorage              *EcsEphemeralStorage              `json:"EphemeralStorage,omitempty"`
+	TaskRoleArn                   string                            `json:"TaskRoleArn,omitempty"`
+	ExecutionRoleArn              string                            `json:"ExecutionRoleArn,omitempty"`
+	CPU                           string                            `json:"Cpu,omitempty"`
+	Memory                        string                            `json:"Memory,omitempty"`
+	ContainerOverrides            []EcsContainerOverride            `json:"ContainerOverrides,omitempty"`
+	InferenceAcceleratorOverrides []EcsInferenceAcceleratorOverride `json:"InferenceAcceleratorOverrides,omitempty"`
 }
 
 // BatchJobDependency represents a dependency between Batch jobs.
@@ -62,11 +110,18 @@ type BatchEnvironmentVariable struct {
 	Value string `json:"Value,omitempty"`
 }
 
+// BatchResourceRequirement is a resource type/value pair for a Batch container override.
+type BatchResourceRequirement struct {
+	Type  string `json:"Type,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
 // BatchContainerOverrides holds container override values for a Batch job.
 type BatchContainerOverrides struct {
-	Environment  []BatchEnvironmentVariable `json:"Environment,omitempty"`
-	InstanceType string                     `json:"InstanceType,omitempty"`
-	Command      []string                   `json:"Command,omitempty"`
+	InstanceType         string                     `json:"InstanceType,omitempty"`
+	Environment          []BatchEnvironmentVariable `json:"Environment,omitempty"`
+	Command              []string                   `json:"Command,omitempty"`
+	ResourceRequirements []BatchResourceRequirement `json:"ResourceRequirements,omitempty"`
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -147,6 +202,12 @@ type BatchJobTargetParameters struct {
 	DependsOn          []BatchJobDependency     `json:"DependsOn,omitempty"`
 }
 
+// Tag is a key/value tag applied to an ECS RunTask call.
+type Tag struct {
+	Key   string `json:"Key,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
 // ECSTaskTargetParameters holds ECS task target configuration.
 type ECSTaskTargetParameters struct {
 	NetworkConfiguration     *NetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
@@ -155,9 +216,12 @@ type ECSTaskTargetParameters struct {
 	LaunchType               string                         `json:"LaunchType,omitempty"`
 	Group                    string                         `json:"Group,omitempty"`
 	PlatformVersion          string                         `json:"PlatformVersion,omitempty"`
+	PropagateTags            string                         `json:"PropagateTags,omitempty"`
+	ReferenceID              string                         `json:"ReferenceId,omitempty"`
 	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
 	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
 	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
+	Tags                     []Tag                          `json:"Tags,omitempty"`
 	TaskCount                int                            `json:"TaskCount,omitempty"`
 	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
@@ -253,12 +317,48 @@ func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParam
 		co.Environment = append(
 			[]BatchEnvironmentVariable(nil),
 			v.ContainerOverrides.Environment...)
+		co.ResourceRequirements = append(
+			[]BatchResourceRequirement(nil),
+			v.ContainerOverrides.ResourceRequirements...)
 		v.ContainerOverrides = &co
 	}
 	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)
 	v.Parameters = maps.Clone(src.Parameters)
 
 	return &v
+}
+
+func cloneEcsContainerOverrides(src []EcsContainerOverride) []EcsContainerOverride {
+	if src == nil {
+		return nil
+	}
+	out := make([]EcsContainerOverride, len(src))
+	for i, co := range src {
+		co.Command = append([]string(nil), co.Command...)
+		co.Environment = append([]EcsEnvironmentVariable(nil), co.Environment...)
+		co.EnvironmentFiles = append([]EcsEnvironmentFile(nil), co.EnvironmentFiles...)
+		co.ResourceRequirements = append([]EcsResourceRequirement(nil), co.ResourceRequirements...)
+		out[i] = co
+	}
+
+	return out
+}
+
+func cloneEcsTaskOverride(src *EcsTaskOverride) *EcsTaskOverride {
+	if src == nil {
+		return nil
+	}
+	ov := *src
+	if src.EphemeralStorage != nil {
+		es := *src.EphemeralStorage
+		ov.EphemeralStorage = &es
+	}
+	ov.ContainerOverrides = cloneEcsContainerOverrides(src.ContainerOverrides)
+	ov.InferenceAcceleratorOverrides = append(
+		[]EcsInferenceAcceleratorOverride(nil), src.InferenceAcceleratorOverrides...,
+	)
+
+	return &ov
 }
 
 func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParameters {
@@ -270,15 +370,13 @@ func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParamete
 		)
 		v.NetworkConfiguration = &nc
 	}
-	if v.Overrides != nil {
-		ov := *v.Overrides
-		v.Overrides = &ov
-	}
+	v.Overrides = cloneEcsTaskOverride(src.Overrides)
 	v.CapacityProviderStrategy = append(
 		[]CapacityProviderStrategyItem(nil), src.CapacityProviderStrategy...,
 	)
 	v.PlacementConstraints = append([]PlacementConstraint(nil), src.PlacementConstraints...)
 	v.PlacementStrategy = append([]PlacementStrategy(nil), src.PlacementStrategy...)
+	v.Tags = append([]Tag(nil), src.Tags...)
 
 	return &v
 }
@@ -360,9 +458,13 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 // (PartitionKey required), validatePipeTargetEcsTaskParameters (TaskDefinitionArn
 // required, plus nested validateNetworkConfiguration/validateAwsVpcConfiguration:
 // Subnets required when AwsvpcConfiguration is set, and nested
-// validateCapacityProviderStrategyItem: CapacityProvider required per entry),
-// validatePipeTargetBatchJobParameters (JobDefinition and JobName
-// required), validatePipeTargetRedshiftDataParameters (Database and Sqls
+// validateCapacityProviderStrategyItem: CapacityProvider required per entry,
+// and nested validateEcsTaskOverride: EnvironmentFiles/ResourceRequirements
+// Type/Value required per ContainerOverrides entry, EphemeralStorage.SizeInGiB
+// required when set), validatePipeTargetBatchJobParameters (JobDefinition and
+// JobName required, plus nested validateBatchContainerOverrides:
+// ResourceRequirements Type/Value required per entry),
+// validatePipeTargetRedshiftDataParameters (Database and Sqls
 // required), validatePipeTargetSageMakerPipelineParameters's nested
 // validateSageMakerPipelineParameter (Name and Value required per list entry),
 // and validatePipeTargetTimestreamParameters (TimeValue, VersionValue, and
@@ -426,6 +528,63 @@ func validateECSTargetRequiredFields(ep *ECSTaskTargetParameters) error {
 		}
 	}
 
+	return validateEcsTaskOverrideRequiredFields(ep.Overrides)
+}
+
+// validateEcsTaskOverrideRequiredFields matches aws-sdk-go-v2 pipes
+// validators.go's validateEcsTaskOverride: nested validation on ContainerOverrides
+// (validateEcsContainerOverrideList/validateEcsContainerOverride, itself nested on
+// EnvironmentFiles and ResourceRequirements) and on EphemeralStorage
+// (validateEcsEphemeralStorage: SizeInGiB required).
+func validateEcsTaskOverrideRequiredFields(ov *EcsTaskOverride) error {
+	if ov == nil {
+		return nil
+	}
+	for i, co := range ov.ContainerOverrides {
+		for j, ef := range co.EnvironmentFiles {
+			if ef.Type == "" {
+				return fmt.Errorf(
+					"%w: EcsTaskParameters.Overrides.ContainerOverrides[%d].EnvironmentFiles[%d].Type is required",
+					ErrValidation,
+					i,
+					j,
+				)
+			}
+			if ef.Value == "" {
+				return fmt.Errorf(
+					"%w: EcsTaskParameters.Overrides.ContainerOverrides[%d].EnvironmentFiles[%d].Value is required",
+					ErrValidation,
+					i,
+					j,
+				)
+			}
+		}
+		for j, rr := range co.ResourceRequirements {
+			if rr.Type == "" {
+				return fmt.Errorf(
+					"%w: EcsTaskParameters.Overrides.ContainerOverrides[%d].ResourceRequirements[%d].Type is required",
+					ErrValidation,
+					i,
+					j,
+				)
+			}
+			if rr.Value == "" {
+				return fmt.Errorf(
+					"%w: EcsTaskParameters.Overrides.ContainerOverrides[%d].ResourceRequirements[%d].Value is required",
+					ErrValidation,
+					i,
+					j,
+				)
+			}
+		}
+	}
+	if ov.EphemeralStorage != nil && ov.EphemeralStorage.SizeInGiB == 0 {
+		return fmt.Errorf(
+			"%w: EcsTaskParameters.Overrides.EphemeralStorage.SizeInGiB is required",
+			ErrValidation,
+		)
+	}
+
 	return nil
 }
 
@@ -438,6 +597,33 @@ func validateBatchJobRequiredFields(bp *BatchJobTargetParameters) error {
 	}
 	if bp.JobName == "" {
 		return fmt.Errorf("%w: BatchJobParameters.JobName is required", ErrValidation)
+	}
+
+	return validateBatchContainerOverridesRequiredFields(bp.ContainerOverrides)
+}
+
+// validateBatchContainerOverridesRequiredFields matches aws-sdk-go-v2 pipes
+// validators.go's validateBatchContainerOverrides: nested per-entry Type/Value
+// on ResourceRequirements (validateBatchResourceRequirementsList/validateBatchResourceRequirement).
+func validateBatchContainerOverridesRequiredFields(co *BatchContainerOverrides) error {
+	if co == nil {
+		return nil
+	}
+	for i, rr := range co.ResourceRequirements {
+		if rr.Type == "" {
+			return fmt.Errorf(
+				"%w: BatchJobParameters.ContainerOverrides.ResourceRequirements[%d].Type is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if rr.Value == "" {
+			return fmt.Errorf(
+				"%w: BatchJobParameters.ContainerOverrides.ResourceRequirements[%d].Value is required",
+				ErrValidation,
+				i,
+			)
+		}
 	}
 
 	return nil
