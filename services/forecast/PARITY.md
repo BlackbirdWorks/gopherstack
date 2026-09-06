@@ -8,7 +8,30 @@ service: forecast
 sdk_module: aws-sdk-go-v2/service/forecast@v1.44.4
 last_audit_commit: 80757023
 last_audit_date: 2026-08-13
-overall: A            # 2026-08-14: closed part of gopherstack-dv4s (over-wide List responses):
+overall: A            # 2026-09-06: gopherstack-jrhh (LimitExceededException never returned) --
+                       # PARTIALLY IMPLEMENTABLE. https://docs.aws.amazon.com/forecast/latest/dg/limits.html
+                       # has an explicit Adjustable column; only TagResource's row is both
+                       # non-adjustable and a per-resource, already-observable-state check:
+                       # "Maximum number of tags you can add to a resource | 50 | No". Now
+                       # enforced (maxTagsPerResource, tags.go) against the resource's resulting
+                       # tag set (existing + incoming, re-tagging a key is not an addition), via
+                       # a new ErrTagLimitExceeded sentinel mapped to LimitExceededException in
+                       # handleError. DOCUMENTATION-SOURCED, not SDK-verified (LimitExceededException
+                       # is declared in types/errors.go with no numeric field to check against).
+                       # NOT enforced, left for a future decision: CreateAutoPredictor (500) and
+                       # CreateExplainability/CreateExplainabilityExport (1000 each, plus parallel-
+                       # task caps of 3) are marked non-adjustable but are account-wide
+                       # resource-count ceilings, not per-resource attribute counts -- closer to
+                       # the adjustable-quota shape already declined at services/efs/PARITY.md:76,80
+                       # than to TagResource's shape, and needs an explicit call before hardcoding.
+                       # Most other Create ops (CreateDataset, CreateDatasetGroup,
+                       # CreateDatasetImportJob, CreatePredictor, CreateForecast,
+                       # CreateForecastExportJob, CreatePredictorBacktestExportJob,
+                       # CreateWhatIfAnalysis, CreateWhatIfForecast, CreateWhatIfForecastExport)
+                       # are explicitly "Adjustable: Yes" -- the EFS-declined shape, left alone.
+                       # CreateMonitor and ResumeResource have no published number anywhere on the
+                       # quotas page; durably blocked, recorded so nobody re-searches.
+                       # 2026-08-14: closed part of gopherstack-dv4s (over-wide List responses):
                        # every family note below claiming "List verified" had only checked that
                        # the shared generic listOutput()/resourceOutput() round-tripped required
                        # fields correctly -- never that a real List op's response omits members
@@ -58,7 +81,7 @@ overall: A            # 2026-08-14: closed part of gopherstack-dv4s (over-wide L
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-jrhh (2026-09-06): enforces the documented 50-tags-per-resource maximum (maxTagsPerResource, tags.go) against the resource's resulting tag set, not the incoming request size; re-tagging an existing key does not count as an addition. LimitExceededException, documentation-sourced -- see header note."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccuracyMetrics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "deterministic synthetic metrics. gopherstack-g479 (2026-08-21): WeightedQuantileLoss.Quantile emitted the raw ForecastType label string (e.g. \"0.1\"), but real Quantile deserializes as a json.Number, or one of the Smithy-special \"NaN\"/\"Infinity\"/\"-Infinity\" strings -- any other string fails with 'unknown JSON number value' (deserializers.go, awsAwsjson11_deserializeDocumentWeightedQuantileLoss). Now parsed to float64, filtering out non-quantile ForecastTypes like \"mean\" (no WeightedQuantileLosses entry in the real API). TestWindowStart/TestWindowEnd emitted RFC3339 strings; real member deserializes epoch seconds the same way -- now awstime.Epoch. Found via a new go/types-based map-literal kind scanner."}
@@ -92,7 +115,7 @@ families:
     status: ok
     note: "generic addCRUD-driven lifecycle (Create/Describe/List/Delete) shares the same describe()/list()/delete() backend paths already verified for the higher-traffic families; every family's required ARN-reference field is now FK-validated (see ops table); Delete* status-gated per family (see ops table). 2026-08-14 (gopherstack-dv4s): CORRECTED -- \"shares the same ... paths already verified\" was true for Describe but the claim never distinguished List, which AWS narrows and this emulator did not: listOutput() called the identical resourceOutput() Describe uses, so every op in this family leaked its full create-request body on List. Verified each real Summary type separately rather than by analogy (types.go): PredictorBacktestExportJobSummary/ForecastExportJobSummary/ExplainabilityExportSummary/WhatIfForecastExportSummary all declare only {Kind}Arn/{Kind}Name/Destination/Status/Message/CreationTime/LastModificationTime (WhatIfForecastExportSummary additionally WhatIfForecastArns) -- Format leaked on all four export-job kinds. WhatIfAnalysisSummary/WhatIfForecastSummary add only ForecastArn/WhatIfAnalysisArn respectively -- Tags leaked on both (every Create*Input in this family accepts Tags, no Summary type declares it). MonitorSummary adds ResourceArn, no Message field (unlike its siblings) -- Tags leaked. ExplainabilitySummary adds ResourceArn and ExplainabilityConfig -- EnableVisualization/EndDateTime/StartDateTime/Schema/DataSource leaked. Every op in this family now scoped via summaryOutput with its own per-kind summaryFields (see forecastOperations in handler.go)."
   ListOperations_Pagination: {status: ok, note: "malformed NextToken returns InvalidNextTokenException (page.ValidateToken wired into listOutput); not touched this pass"}
-  Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state; not touched this pass"}
+  Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state. 2026-09-06 (gopherstack-jrhh): TagResource now enforces the documented 50-tags-per-resource maximum -- see ops table."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - >-
     gopherstack-dv4s (found 2026-08-14): PredictorSummary's DatasetGroupArn,
