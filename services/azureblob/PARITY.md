@@ -12,7 +12,7 @@ ops:
   DeleteContainer: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<container>?restype=container. No lease/If-Match conditional support."}
   ListBlobs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<container>?restype=container&comp=list. Flat listing only -- no prefix/delimiter/marker/maxresults, no snapshot/version/metadata inclusion flags."}
   PutBlob: {wire: partial, errors: ok, state: ok, persist: ok, note: "PUT /<account>/<container>/<blob>, BlockBlob only (x-ms-blob-type required and validated). Whole-body single-request PUT only -- Put Block/Put Block List (large-object multipart upload) is not implemented, see gaps."}
-  GetBlob: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<container>/<blob>, single-range Range or x-ms-range header supported (start-end, open-ended, and suffix forms; x-ms-range takes precedence when both are present, matching real Azure); multi-range requests are rejected as unsatisfiable rather than served. x-ms-range support added in M4 review after the cross-SDK smoke test (AZURE.md section 7) showed azure-sdk-for-go's Python/JS Get Blob clients send only x-ms-range, never Range -- Range-only support made single-range downloads unreachable from those SDKs' default download path even though the Go SDK (which sends Range) passed."}
+  GetBlob: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<container>/<blob>, single-range Range or x-ms-range header supported (start-end, open-ended, and suffix forms; x-ms-range takes precedence when both are present, matching real Azure); multi-range requests are rejected as unsatisfiable rather than served. x-ms-range support added in M4 after the cross-SDK smoke test (AZURE.md section 7) showed the Python (azure-storage-blob) and JS (@azure/storage-blob) Get Blob clients send only x-ms-range, never Range -- Range-only support made single-range downloads unreachable from those SDKs' default download path even though the Go SDK (which sends Range) passed."}
   GetBlobProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "HEAD /<account>/<container>/<blob>. Returns ETag/Last-Modified/Content-Length/Content-Type/x-ms-blob-type; no x-ms-meta-* or lease-state headers."}
   DeleteBlob: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<container>/<blob>. No snapshot/version-scoped delete, no soft-delete."}
 families:
@@ -82,8 +82,8 @@ additional path segments.
 (`bytes=N-`), and suffix (`bytes=-N`) forms, returning `206 Partial Content`
 with `Content-Range` set. `x-ms-range` is also accepted, taking precedence
 over `Range` when both are present, matching real Azure Blob -- the Python
-and JS `azure-sdk-for-go`-equivalent generated clients (`azure-storage-blob`,
-`@azure/storage-blob`) send `x-ms-range` exclusively for `Get Blob`, never
+(`azure-storage-blob`) and JS (`@azure/storage-blob`) generated clients send
+`x-ms-range` exclusively for `Get Blob`, never
 `Range`, so this was a real wire-compatibility gap until M4's cross-SDK
 smoke test (`test/e2e/azure_crosssdk_test.go`) caught it -- the Go SDK's own
 generated client sends `Range`, so unit/integration tests using it never
