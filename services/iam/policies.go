@@ -623,6 +623,28 @@ func (b *InMemoryBackend) UntagPolicy(policyArn string, keys []string) error {
 	return nil
 }
 
+// PermissionsBoundaryDocForUser returns the policy document for the user's
+// permissions boundary, or "" if none is set. It implements the
+// enforcement middleware's optional permissionsBoundaryLookup capability
+// (services/iam/middleware.go).
+func (b *InMemoryBackend) PermissionsBoundaryDocForUser(userName string) string {
+	b.mu.RLock("PermissionsBoundaryDocForUser")
+	defer b.mu.RUnlock()
+
+	return b.boundaryDocForUser(userName)
+}
+
+// PermissionsBoundaryDocForRole returns the policy document for the role's
+// permissions boundary, or "" if none is set. It implements the
+// enforcement middleware's optional permissionsBoundaryLookup capability
+// (services/iam/middleware.go).
+func (b *InMemoryBackend) PermissionsBoundaryDocForRole(roleName string) string {
+	b.mu.RLock("PermissionsBoundaryDocForRole")
+	defer b.mu.RUnlock()
+
+	return b.boundaryDocForRole(roleName)
+}
+
 // boundaryDocForUser returns the policy document for the user's permissions boundary, or "".
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) boundaryDocForUser(userName string) string {

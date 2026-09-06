@@ -328,7 +328,10 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 	if !ok {
 		return nil
 	}
-	if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
+	// A session minted with a token requires that same token on every lookup:
+	// an absent/wrong X-Amz-Security-Token must not be treated as a match,
+	// or the ASIA access key ID alone would impersonate the session.
+	if session.SessionToken != "" && sessionToken != session.SessionToken {
 		return nil
 	}
 
