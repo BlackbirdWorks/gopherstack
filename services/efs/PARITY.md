@@ -36,7 +36,7 @@ ops:
   DeleteFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystem:                  {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED (gopherstack-kud0): declared IncorrectFileSystemLifeCycleState but never checked LifeCycleState != available; now guarded via the shared checkFileSystemAvailable helper (same precondition as CreateMountTarget)."}
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED (gopherstack-kud0): same unguarded IncorrectFileSystemLifeCycleState gap as UpdateFileSystem, see that entry."}
-  CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented. Also removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all."}
+  CreateMountTarget:                 {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented. Also removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all. FIXED (gopherstack-g8sg): the documented 'one VPC, one mount target per Availability Zone' placement rule (api_op_CreateMountTarget.go) was previously unenforceable and unenforced -- a prior audit believed this mock had no subnet-to-AZ/VPC model, which was wrong: services/ec2's Subnet already carries VPCID/AvailabilityZone. Added an EC2Resolver (crossservice.go, mirroring services/elb's) wired in cli.go's wireEFSCrossService; when wired, CreateMountTarget now resolves the real subnet's VPC/AZ (falling back to the old synthetic derivation when unwired, so ~150 tests with no EC2 backend see no behavior change) and rejects a second mount target in the same AZ or a different VPC (MountTargetConflict) or an unknown SubnetId (SubnetNotFound, new error)."}
   DescribeMountTargets:              {wire: ok, errors: fixed, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes. FIXED (gopherstack-wks5, 2026-08-30) -- an unknown FileSystemId filter (not the MountTargetId identity path) silently returned an empty list instead of the real op's own declared FileSystemNotFound (efs@v1.44.4 deserializers.go, awsRestjson1_deserializeOpErrorDescribeMountTargets); see dated section below."}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -64,7 +64,7 @@ ops:
   PutAccountPreferences:             {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
   FileSystem:        {status: ok, note: "CRUD + Update + Protection audited op-by-op; epoch timestamps, SizeInBytes nesting, FileSystemProtection nesting all verified byte-for-byte against aws-sdk-go-v2 deserializers"}
-  MountTarget:        {status: ok, note: "CRUD + SecurityGroups audited; SecurityGroupLimitExceeded status code fixed (was 409, AWS uses 400 per botocore efs/service-2.json); IpAddressType/Ipv6Address dual-stack support added this pass (was a real, previously-undocumented gap -- CreateMountTargetInput.IpAddressType/Ipv6Address and MountTargetDescription.Ipv6Address exist in the real SDK types but gopherstack had no fields for them at all)"}
+  MountTarget:        {status: ok, note: "CRUD + SecurityGroups audited; SecurityGroupLimitExceeded status code fixed (was 409, AWS uses 400 per botocore efs/service-2.json); IpAddressType/Ipv6Address dual-stack support added this pass (was a real, previously-undocumented gap -- CreateMountTargetInput.IpAddressType/Ipv6Address and MountTargetDescription.Ipv6Address exist in the real SDK types but gopherstack had no fields for them at all); one-VPC/one-per-AZ placement rule now enforced when an EC2Resolver is wired, see CreateMountTarget entry (gopherstack-g8sg)"}
   AccessPoint:        {status: ok, note: "CRUD + ClientToken idempotency + PosixUser/RootDirectory shapes audited"}
   Tags:                {status: ok, note: "route-matcher bug fixed -- see below; CreateTags/DeleteTags legacy ops verified separately, correct as-is"}
   BackupPolicy:        {status: ok}
@@ -73,6 +73,16 @@ families:
   ReplicationConfiguration: {status: ok, note: "pagination implemented + Destination timestamp typing/population fixed this pass -- previously deferred, now closed for real; 2026-08-21 required-output Region fix, see below"}
   AccountPreferences: {status: ok}
 gaps:
+  - DeleteFileSystem rejects (FileSystemInUse) while access points exist for the file
+    system. efs@v1.44.4 types/errors.go's FileSystemInUse doc is scoped strictly to
+    mount targets ("Returned if a file system has mount targets"), and
+    api_op_DeleteFileSystem.go's own doc lists only mount targets and an active
+    replication configuration as blockers -- access points are never mentioned. This
+    may be an over-restriction, but the behavior is tested
+    (TestDeleteFileSystem_RequiresEmptyState) and a prior audit (2026-09-04) left it
+    rather than remove tested behavior on weak evidence. Not changed this pass either
+    (gopherstack-g8sg): confirming/removing it is a real-AWS-behavior judgment call
+    outside what the SDK doc text alone can settle, left for deliberate review.
   - FileSystemLimitExceeded / AccessPointLimitExceeded (account-level Service Quota errors, HTTP 403) are not simulated. Unlike SecurityGroupLimitExceeded (a fixed, non-adjustable per-mount-target structural limit of 5, which IS enforced), these are adjustable per-account Service Quotas with high documented defaults (hundreds to low thousands depending on resource/file-system type) that operators can raise via the Service Quotas console. There is no account-quota-configuration model anywhere in this backend to hang an enforceable, configurable threshold off of, and hardcoding an arbitrary number risks breaking legitimate high-volume test/load usage of the mock for no wire-shape or state-correctness benefit (no SDK client behavior differs based on whether this specific 403 is reachable). Deferred; see items_still_open in the audit receipt for the full reasoning.
   - DescribeTags (the legacy GET-only op, distinct from the resource-tags family) does not apply Marker/MaxItems pagination server-side -- always returns the full tag set in one page. Low priority: EFS caps tags per resource at 50 (maxTagsPerResource), so a single page is always sufficient in practice; a real client would never actually see a second page from real AWS either at that low a cap.
 deferred:

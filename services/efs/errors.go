@@ -38,8 +38,16 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrFileSystemInUse is returned when attempting to delete a file system that has mount targets.
 	ErrFileSystemInUse = awserr.New("FileSystemInUse", awserr.ErrConflict)
-	// ErrMountTargetConflict is returned when a duplicate mount target is created in the same subnet.
+	// ErrMountTargetConflict is returned when a duplicate mount target is created in the same
+	// subnet, or (with an EC2Resolver wired, see crossservice.go) when the requested subnet
+	// violates the "one VPC, one mount target per Availability Zone" rule (efs@v1.44.4
+	// types/errors.go: "Returned if the mount target would violate one of the specified
+	// restrictions based on the file system's existing mount targets").
 	ErrMountTargetConflict = awserr.New("MountTargetConflict", awserr.ErrConflict)
+	// ErrSubnetNotFound is returned by CreateMountTarget, with an EC2Resolver wired, when
+	// SubnetId does not exist (efs@v1.44.4 types/errors.go: "Returned if there is no subnet
+	// with ID SubnetId provided in the request").
+	ErrSubnetNotFound = awserr.New("SubnetNotFound", awserr.ErrNotFound)
 	// ErrIncorrectFileSystemLifeCycleState is returned when an operation requires the
 	// file system to be in the "available" lifecycle state (botocore efs/service-2.json:
 	// "Returned if the file system's lifecycle state is not \"available\"").

@@ -3050,6 +3050,12 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// against real ACM/IAM certificates, instead of accepting any string.
 	wireELBCrossService(byName["ELB"], byName["EC2"], byName["ACM"], byName["IAM"])
 	wireELBv2CrossService(byName["ELBv2"], byName["EC2"], byName["ACM"], byName["IAM"])
+
+	// Wire EFS → EC2 so CreateMountTarget validates its SubnetId against
+	// real EC2 state and enforces the documented "one VPC, one mount target
+	// per Availability Zone" placement rule, instead of accepting any subnet
+	// ID and deriving a synthetic AZ/VPC that never conflicts.
+	wireEFSCrossService(byName["EFS"], byName["EC2"])
 }
 
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
@@ -3410,6 +3416,51 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 	if acmBk != nil || iamBk != nil {
 		elbv2Bk.SetCertificateResolver(&elbv2CertificateResolverAdapter{acmBackend: acmBk, iamBackend: iamBk})
 	}
+}
+
+// efsEC2ResolverAdapter adapts the EC2 backend to the efs.EC2Resolver interface.
+type efsEC2ResolverAdapter struct {
+	backend ec2backend.Backend
+}
+
+func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool {
+	return len(a.backend.DescribeSubnets([]string{id})) > 0
+}
+
+func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
+	subnets := a.backend.DescribeSubnets([]string{id})
+	if len(subnets) == 0 {
+		return ""
+	}
+
+	return subnets[0].VPCID
+}
+
+func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
+	subnets := a.backend.DescribeSubnets([]string{id})
+	if len(subnets) == 0 {
+		return ""
+	}
+
+	return subnets[0].AvailabilityZone
+}
+
+// wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
+// validates its SubnetId against real EC2 state and enforces the
+// documented "one VPC, one mount target per Availability Zone" placement
+// rule -- see efs.EC2Resolver's doc comment.
+func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
+	efsH, ok := efsReg.(*efsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{backend: ec2H.Backend})
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit

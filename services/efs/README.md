@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 31 (31 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- DeleteFileSystem rejects (FileSystemInUse) while access points exist for the file system. efs@v1.44.4 types/errors.go's FileSystemInUse doc is scoped strictly to mount targets ("Returned if a file system has mount targets"), and api_op_DeleteFileSystem.go's own doc lists only mount targets and an active replication configuration as blockers -- access points are never mentioned. This may be an over-restriction, but the behavior is tested (TestDeleteFileSystem_RequiresEmptyState) and a prior audit (2026-09-04) left it rather than remove tested behavior on weak evidence. Not changed this pass either (gopherstack-g8sg): confirming/removing it is a real-AWS-behavior judgment call outside what the SDK doc text alone can settle, left for deliberate review.
 - FileSystemLimitExceeded / AccessPointLimitExceeded (account-level Service Quota errors, HTTP 403) are not simulated. Unlike SecurityGroupLimitExceeded (a fixed, non-adjustable per-mount-target structural limit of 5, which IS enforced), these are adjustable per-account Service Quotas with high documented defaults (hundreds to low thousands depending on resource/file-system type) that operators can raise via the Service Quotas console. There is no account-quota-configuration model anywhere in this backend to hang an enforceable, configurable threshold off of, and hardcoding an arbitrary number risks breaking legitimate high-volume test/load usage of the mock for no wire-shape or state-correctness benefit (no SDK client behavior differs based on whether this specific 403 is reachable). Deferred; see items_still_open in the audit receipt for the full reasoning.
 - DescribeTags (the legacy GET-only op, distinct from the resource-tags family) does not apply Marker/MaxItems pagination server-side -- always returns the full tag set in one page. Low priority: EFS caps tags per resource at 50 (maxTagsPerResource), so a single page is always sufficient in practice; a real client would never actually see a second page from real AWS either at that low a cap.
 
