@@ -2955,6 +2955,14 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// real route53 zone.
 	wireServiceDiscoveryRoute53(byName["ServiceDiscovery"], byName["Route53"])
 
+	// Wire Athena → Glue so a GLUE-type DataCatalog reads real Glue databases/tables
+	// instead of Athena's internal simulation.
+	wireAthenaGlue(byName["Athena"], byName["Glue"])
+
+	// Wire Athena → S3 so a succeeded query execution's result is actually written
+	// to ResultConfiguration.OutputLocation instead of only being stored/echoed.
+	wireAthenaS3(byName["Athena"], byName["S3"])
+
 	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
 	// delivery requires S3 integration.
@@ -5818,6 +5826,136 @@ func wireFirehoseCWLogs(firehoseReg, cwlogsReg service.Registerable) {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			firehoseBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
 		}
+	}
+}
+
+// wireAthenaGlue connects the Athena backend to Glue so a GLUE-type DataCatalog reads
+// real Glue databases/tables instead of Athena's internal simulation (gopherstack-yabd).
+func wireAthenaGlue(athenaReg, glueReg service.Registerable) {
+	athenaH, ok := athenaReg.(*athenabackend.Handler)
+	if !ok {
+		return
+	}
+
+	athenaBk, bkOk := athenaH.Backend.(*athenabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	glueH, glueOk := glueReg.(*gluebackend.Handler)
+	if !glueOk {
+		return
+	}
+
+	glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !glueBkOk {
+		return
+	}
+
+	athenaBk.SetGlueMetadataSource(&athenaGlueAdapter{backend: glueBk})
+}
+
+// wireAthenaS3 connects the Athena backend to S3 so a succeeded query execution's
+// result is actually written as an object under ResultConfiguration.OutputLocation,
+// instead of only being stored/echoed (gopherstack-zgfq). s3.InMemoryBackend's
+// PutObject already matches athena.S3Storer's shape, so no adapter is needed.
+func wireAthenaS3(athenaReg, s3Reg service.Registerable) {
+	athenaH, ok := athenaReg.(*athenabackend.Handler)
+	if !ok {
+		return
+	}
+
+	athenaBk, bkOk := athenaH.Backend.(*athenabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	athenaBk.SetS3Backend(s3Bk)
+}
+
+// athenaGlueAdapter adapts the Glue backend to the athena.GlueMetadataSource interface.
+type athenaGlueAdapter struct {
+	backend *gluebackend.InMemoryBackend
+}
+
+func (a *athenaGlueAdapter) GetDatabase(name string) (*athenabackend.GlueDatabase, error) {
+	d, err := a.backend.GetDatabase(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return athenaGlueDatabase(d), nil
+}
+
+func (a *athenaGlueAdapter) GetDatabases() []*athenabackend.GlueDatabase {
+	dbs := a.backend.GetDatabases()
+	out := make([]*athenabackend.GlueDatabase, 0, len(dbs))
+
+	for _, d := range dbs {
+		out = append(out, athenaGlueDatabase(d))
+	}
+
+	return out
+}
+
+func (a *athenaGlueAdapter) GetTable(dbName, tableName string) (*athenabackend.GlueTable, error) {
+	t, err := a.backend.GetTable(dbName, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return athenaGlueTable(t), nil
+}
+
+func (a *athenaGlueAdapter) GetTables(dbName string) ([]*athenabackend.GlueTable, error) {
+	tables, err := a.backend.GetTables(dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*athenabackend.GlueTable, 0, len(tables))
+	for _, t := range tables {
+		out = append(out, athenaGlueTable(t))
+	}
+
+	return out, nil
+}
+
+func athenaGlueDatabase(d *gluebackend.Database) *athenabackend.GlueDatabase {
+	return &athenabackend.GlueDatabase{
+		Name:        d.Name,
+		Description: d.Description,
+		Parameters:  d.Parameters,
+	}
+}
+
+func athenaGlueTable(t *gluebackend.Table) *athenabackend.GlueTable {
+	cols := make([]athenabackend.Column, 0, len(t.StorageDescriptor.Columns))
+	for _, c := range t.StorageDescriptor.Columns {
+		cols = append(cols, athenabackend.Column{Name: c.Name, Type: c.Type, Comment: c.Comment})
+	}
+
+	partKeys := make([]athenabackend.Column, 0, len(t.PartitionKeys))
+	for _, c := range t.PartitionKeys {
+		partKeys = append(partKeys, athenabackend.Column{Name: c.Name, Type: c.Type, Comment: c.Comment})
+	}
+
+	return &athenabackend.GlueTable{
+		Name:          t.Name,
+		Parameters:    t.Parameters,
+		Columns:       cols,
+		PartitionKeys: partKeys,
+		CreateTime:    t.CreateTime,
 	}
 }
 

@@ -194,6 +194,8 @@ func (b *InMemoryBackend) finalizeExecution(id string, result *sqlResult, outcom
 	}
 
 	b.queryResults[id] = result
+
+	b.writeResultObject(id, qe.ResultConfiguration, result)
 }
 
 // inferStatementType returns the Athena StatementType for a query string.
