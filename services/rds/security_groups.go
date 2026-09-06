@@ -91,6 +91,7 @@ func (b *InMemoryBackend) DeleteDBSecurityGroup(name string) error {
 		return fmt.Errorf("%w: security group %s not found", ErrDBSecurityGroupNotFound, name)
 	}
 	b.dbSecurityGroups.Delete(name)
+	delete(b.tags, b.rdsARN("secgrp", name))
 
 	return nil
 }

@@ -286,6 +286,32 @@ func TestDeleteDBSecurityGroup(t *testing.T) {
 	}
 }
 
+// TestDeleteDBSecurityGroup_ClearsTags guards against the ghost-row class:
+// a security group deleted and recreated under the same name must not
+// inherit the deleted group's tags, since DBSecurityGroupArn is a
+// deterministic function of the name.
+func TestDeleteDBSecurityGroup_ClearsTags(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+
+	sg, err := b.CreateDBSecurityGroup("ghost-sg", "original")
+	require.NoError(t, err)
+	require.NotEmpty(t, sg.DBSecurityGroupArn)
+
+	b.AddTagsToResource(sg.DBSecurityGroupArn, []rds.Tag{{Key: "env", Value: "prod"}})
+	require.Len(t, b.ListTagsForResource(sg.DBSecurityGroupArn), 1)
+
+	require.NoError(t, b.DeleteDBSecurityGroup("ghost-sg"))
+
+	recreated, err := b.CreateDBSecurityGroup("ghost-sg", "recreated")
+	require.NoError(t, err)
+	require.Equal(t, sg.DBSecurityGroupArn, recreated.DBSecurityGroupArn, "ARN is deterministic by name")
+
+	assert.Empty(t, b.ListTagsForResource(recreated.DBSecurityGroupArn),
+		"recreated security group must not inherit tags from the deleted one")
+}
+
 func TestRevokeDBSecurityGroupIngress(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
