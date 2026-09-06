@@ -128,6 +128,7 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 
 	b.policies.Delete(policyName)
 	delete(b.resourceTags, p.ARN)
+	delete(b.policyVersions, policyName)
 
 	return nil
 }

@@ -81,7 +81,7 @@ ops:
   ListCreateAccountStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were parsed into the request but never applied -- handler always returned the full unfiltered set. Now wired through pkgs/page.New."}
   DescribeAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Account.Paths now populated -- computed at read time from accountParent/ouParent (org tree is already fully modeled), not stored; see gaps entry below for format verification"}
   ListAccounts: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already paginated via pkgs/page; Paths now populated per-account same as DescribeAccount"}
-  RemoveAccountFromOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades policyTargets/tags/delegated-admin cleanup"}
+  RemoveAccountFromOrganization: {wire: ok, errors: ok, state: fixed, persist: ok, note: "cascades policyTargets/tags/delegated-admin cleanup. FIXED (gopherstack-3ahs, b8484292f) -- also left emailToAccountID[email] behind, permanently blocking CreateAccount from reusing that email even though no account held it any more (a wrong-answer rejection, not the usual inherited-ghost-state shape); now cleared. Regression: TestBackend_RemoveAccountFromOrganization_FreesEmailForReuse."}
   MoveAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates current parent == SourceParentId and dest existence before mutating both index directions"}
   CloseAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateOrganizationalUnit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "depth-limit (root=0, OUs 1-5) and O(1) sibling-name uniqueness enforced; Path now populated on the returned OU"}

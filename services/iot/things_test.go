@@ -143,6 +143,33 @@ func TestDeleteThing_ClearsGhostStateOnRecreate(t *testing.T) {
 	assert.Empty(t, redescribed.BillingGroupName)
 }
 
+func TestDeleteThing_LeavesOtherThingStateIntact(t *testing.T) {
+	t.Parallel()
+
+	b := iot.NewInMemoryBackend()
+
+	gone, err := b.CreateThing(&iot.CreateThingInput{ThingName: "gone-thing"})
+	require.NoError(t, err)
+	kept, err := b.CreateThing(&iot.CreateThingInput{ThingName: "kept-thing"})
+	require.NoError(t, err)
+
+	require.NoError(t, b.TagResourceGeneric(gone.ThingARN, map[string]string{"env": "prod"}))
+	require.NoError(t, b.TagResourceGeneric(kept.ThingARN, map[string]string{"env": "dev"}))
+	require.NoError(t, b.AddThingToBillingGroup(&iot.AddThingToBillingGroupInput{
+		ThingName:        "kept-thing",
+		BillingGroupName: "kept-group",
+	}))
+
+	require.NoError(t, b.DeleteThing("gone-thing", 0))
+
+	assert.Empty(t, b.ListTagsForResource(gone.ThingARN))
+	assert.Equal(t, map[string]string{"env": "dev"}, b.ListTagsForResource(kept.ThingARN))
+
+	kdesc, err := b.DescribeThing("kept-thing")
+	require.NoError(t, err)
+	assert.Equal(t, "kept-group", kdesc.BillingGroupName)
+}
+
 // TestSortedListThings verifies ListThings returns items sorted by name.
 func TestSortedListThings(t *testing.T) {
 	t.Parallel()

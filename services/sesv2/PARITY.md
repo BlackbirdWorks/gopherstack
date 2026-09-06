@@ -10,11 +10,11 @@ ops:
   CreateEmailIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
   GetEmailIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEmailIdentities: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteEmailIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteEmailIdentity: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-04 (parity sweep, gopherstack-22qd) -- deleted the identity but left b.resourceTags[identityARN] and b.emailIdentityPolicies[identity] behind; a re-verified identity of the same name inherited both. Same class as DeleteContactList/DeleteDedicatedIpPool/DeleteEmailTemplate/DeleteTenant."}
   CreateConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   GetConfigurationSet: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TrackingOptions.CustomRedirectDomain (required on types.TrackingOptions) was tagged omitempty and dropped whenever a caller set HttpsPolicy alone via PutConfigurationSetTrackingOptions -- see 2026-08-21 entry (gopherstack-r80d batch 21)"}
   ListConfigurationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ConfigurationSets was []{Name} objects; real shape is []string. handler.go:listConfigurationSetsOutput"}
-  DeleteConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteConfigurationSet: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-04 (parity sweep) -- deleted the configuration set (cascading its event destinations) but left b.resourceTags[configurationSetARN] behind. Same class as DeleteContactList/DeleteDedicatedIpPool/DeleteEmailTemplate/DeleteEmailIdentity/DeleteTenant."}
   CreateConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
   GetConfigurationSetEventDestinations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "items marshalled internal EventDestination struct (lowerCamelCase tags, extra ConfigurationSetName/CreatedAt fields); added eventDestinationOutput"}
   DeleteConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}

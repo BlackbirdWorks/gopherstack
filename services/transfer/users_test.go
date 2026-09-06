@@ -173,6 +173,28 @@ func TestDeleteUser_ClearsTagsOnRecreate(t *testing.T) {
 	assert.Empty(t, b.ListTagsForResource(userArn))
 }
 
+func TestDeleteUser_LeavesOtherUserTagsIntact(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+
+	s, err := b.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	alice, err := b.CreateUser(s.ServerID, "alice", "/alice", "", map[string]string{"env": "prod"})
+	require.NoError(t, err)
+	bob, err := b.CreateUser(s.ServerID, "bob", "/bob", "", map[string]string{"env": "dev"})
+	require.NoError(t, err)
+
+	aliceArn := arn.Build("transfer", alice.Region, alice.AccountID, "user/"+s.ServerID+"/alice")
+	bobArn := arn.Build("transfer", bob.Region, bob.AccountID, "user/"+s.ServerID+"/bob")
+
+	require.NoError(t, b.DeleteUser(s.ServerID, "alice"))
+
+	assert.Empty(t, b.ListTagsForResource(aliceArn))
+	assert.Equal(t, map[string]string{"env": "dev"}, b.ListTagsForResource(bobArn))
+}
+
 func TestUpdateUser(t *testing.T) {
 	t.Parallel()
 

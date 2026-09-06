@@ -346,6 +346,60 @@ func TestDeletePolicy_ClearsResourceTagsOnRecreate(t *testing.T) {
 	assert.Empty(t, backend.ListTagsForResource(recreated.PolicyARN))
 }
 
+func TestDeletePolicy_LeavesOtherPolicyTagsIntact(t *testing.T) {
+	t.Parallel()
+
+	backend := iot.NewInMemoryBackend()
+
+	gone, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "gone-policy-3", PolicyDocument: "{}"})
+	require.NoError(t, err)
+	kept, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "kept-policy-2", PolicyDocument: "{}"})
+	require.NoError(t, err)
+
+	require.NoError(t, backend.TagResourceGeneric(gone.PolicyARN, map[string]string{"env": "prod"}))
+	require.NoError(t, backend.TagResourceGeneric(kept.PolicyARN, map[string]string{"env": "dev"}))
+
+	require.NoError(t, backend.DeletePolicy("gone-policy-3"))
+
+	assert.Empty(t, backend.ListTagsForResource(gone.PolicyARN))
+	assert.Equal(t, map[string]string{"env": "dev"}, backend.ListTagsForResource(kept.PolicyARN))
+}
+
+func TestDeletePolicy_ClearsPolicyVersions(t *testing.T) {
+	t.Parallel()
+
+	backend := iot.NewInMemoryBackend()
+
+	_, err := backend.CreatePolicy(&iot.CreatePolicyInput{
+		PolicyName:     "gone-policy",
+		PolicyDocument: "{}",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, backend.DeletePolicy("gone-policy"))
+
+	_, err = backend.GetPolicyVersion("gone-policy", "1")
+	require.Error(t, err, "GetPolicyVersion must not see a deleted policy's stale version")
+	assert.ErrorIs(t, err, iot.ErrPolicyVersionNotFound)
+}
+
+func TestDeletePolicy_LeavesOtherPolicyVersionsIntact(t *testing.T) {
+	t.Parallel()
+
+	backend := iot.NewInMemoryBackend()
+
+	_, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "keep-policy", PolicyDocument: "{}"})
+	require.NoError(t, err)
+	_, err = backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "gone-policy-2", PolicyDocument: "{}"})
+	require.NoError(t, err)
+
+	require.NoError(t, backend.DeletePolicy("gone-policy-2"))
+
+	v, err := backend.GetPolicyVersion("keep-policy", "1")
+	require.NoError(t, err)
+	assert.Equal(t, "1", v.VersionID)
+}
+
 func TestListPolicies_Sorted(t *testing.T) {
 	t.Parallel()
 
