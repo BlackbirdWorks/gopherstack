@@ -138,6 +138,7 @@ type Instance struct {
 	PublicDNSName           string                     `json:"publicDNSName,omitempty"`
 	MetadataOptionsTokens   string                     `json:"metadataOptionsTokens,omitempty"`
 	MetadataOptionsState    string                     `json:"metadataOptionsState,omitempty"`
+	MonitoringState         string                     `json:"monitoringState,omitempty"`
 	VPCID                   string                     `json:"vpcID,omitempty"`
 	ID                      string                     `json:"id,omitempty"`
 	PrivateIP               string                     `json:"privateIP,omitempty"`
@@ -371,9 +372,7 @@ type InMemoryBackend struct {
 	vpcPeeringOptions        map[string]*PeeringConnectionOptions
 	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
 	addressAttributes        *store.Table[AddressAttribute]
-	instanceMonitoring       map[string]string
 	instanceCreditSpecs      map[string]string
-	instanceIMDSOptions      map[string]*IMDSOptions
 	instanceMetadataDefaults *InstanceMetadataDefaults
 	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
 	niPermissions            *store.Table[NetworkInterfacePermission]
@@ -611,9 +610,7 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.vpcTenancy = make(map[string]string)
 	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
-	b.instanceMonitoring = make(map[string]string)
 	b.instanceCreditSpecs = make(map[string]string)
-	b.instanceIMDSOptions = make(map[string]*IMDSOptions)
 	b.niIPv6Addresses = make(map[string][]string)
 	b.idFormatSettings = make(map[string]bool)
 	b.vpcEndpointServicePermissions = make(map[string][]string)

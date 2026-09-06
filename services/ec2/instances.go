@@ -234,8 +234,6 @@ func (b *InMemoryBackend) ModifyInstanceMetadataOptions(
 		opts.HTTPPutResponseHopLimit = 1
 	}
 
-	b.instanceIMDSOptions[instanceID] = opts
-
 	return opts, nil
 }
 
@@ -415,10 +413,11 @@ func (b *InMemoryBackend) MonitorInstances(instanceIDs []string) ([]MonitoringSt
 
 	var out []MonitoringState
 	for _, id := range instanceIDs {
-		if _, ok := b.instances.Get(id); !ok {
+		inst, ok := b.instances.Get(id)
+		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
-		b.instanceMonitoring[id] = stateMonitoringEnabled
+		inst.MonitoringState = stateMonitoringEnabled
 		out = append(out, MonitoringState{InstanceID: id, State: stateMonitoringEnabled})
 	}
 
@@ -436,10 +435,11 @@ func (b *InMemoryBackend) UnmonitorInstances(instanceIDs []string) ([]Monitoring
 
 	var out []MonitoringState
 	for _, id := range instanceIDs {
-		if _, ok := b.instances.Get(id); !ok {
+		inst, ok := b.instances.Get(id)
+		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
-		b.instanceMonitoring[id] = stateMonitoringDisabled
+		inst.MonitoringState = stateMonitoringDisabled
 		out = append(out, MonitoringState{InstanceID: id, State: stateMonitoringDisabled})
 	}
 
