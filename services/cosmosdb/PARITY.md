@@ -43,13 +43,13 @@ gaps:
   - "No container-level DefaultTimeToLive (TTL) enforcement -- documents never expire, and there is deliberately no janitor.go (see provider.go's Provider doc comment)."
   - "Database/container ETags are static (derived from their RID, never versioned) since neither resource has an \"update in place\" operation in this milestone."
   - "Auth verification is off by default (permissive, matching the other three Azure services); --cosmosdb-validate-auth opts into enforcing it, but even then only for requests that actually send an Authorization header -- anonymous requests are always accepted. See families.auth."
-  All gaps above are intentional MVP scope per AZURE.md's M4 entry (see AZURE.md section 8), not oversights.
+  All gaps above are intentional MVP scope per AZURE.md's M3 entry (see AZURE.md section 8), not oversights.
 deferred:
   - "Cosmos's Table API surface (Cosmos DB accounts configured for the Table API, which is wire-identical to Azure Table Storage per AZURE.md section 2's reuse note) -- a natural stretch goal now that both services/azuretable and services/cosmosdb exist, explicitly called out as future work in AZURE.md section 6, not attempted this milestone."
   - "Continuation-token pagination (see gaps)."
   - "RU accounting, TLS/self-signed cert support, and container TTL enforcement (see gaps)."
   - "SQL subset completeness beyond what's listed in families.sql_query (subqueries, JOIN, aggregates, built-in functions -- see gaps)."
-  - "Initial implementation pass (2026-09-05): seeded this service from scratch per AZURE.md M4 (see AZURE.md section 8). This completes the full 4-service Azure milestone plan (Blob, Queue, Table, Cosmos); M5 (docs/polish, cross-SDK e2e) is the only unstarted item. Structurally mirrors services/azuretable's implementation and PARITY.md format; the SQL query engine borrows services/azuretable/odata_filter.go's and services/s3/select_sql_*.go's tokenizer/parser/AST/executor shape directly, per AZURE.md section 6's explicit reuse plan."
+  - "Initial implementation pass (2026-09-05): seeded this service from scratch per AZURE.md M3 (see AZURE.md section 8). This completes the full 4-service Azure milestone plan (Blob, Queue, Table, Cosmos); M4 (docs/polish, cross-SDK e2e) is the only unstarted item. Structurally mirrors services/azuretable's implementation and PARITY.md format; the SQL query engine borrows services/azuretable/odata_filter.go's and services/s3/select_sql_*.go's tokenizer/parser/AST/executor shape directly, per AZURE.md section 6's explicit reuse plan."
 leaks: {status: clean, note: "The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx) (falling back to srv.Close() on a graceful-shutdown error, both logged), mirroring services/azuretable and cli.go's own top-level server lifecycle. No background goroutines beyond the listener itself -- there is no janitor (see gaps)."}
 ---
 

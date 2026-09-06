@@ -15,14 +15,14 @@
 
 ### Known gaps
 
-- Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; tracked for a later milestone (M1 in AZURE.md's plan).
+- Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; not currently assigned to a later milestone (see AZURE.md section 8's M0 entry for the full deferred-gaps list).
 - No ACL / container public-access-level support (x-ms-blob-public-access, Set/Get Container ACL are unimplemented).
 - No blob or container metadata (x-ms-meta-* headers) -- neither stored on PUT/Create nor returned on GET/HEAD/List.
 - No conditional-header support (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) on any operation -- every write unconditionally overwrites, every read unconditionally succeeds regardless of ETag/date preconditions.
 - No Copy Blob (server-side or cross-account) support.
 - No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support.
 - List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination.
-- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M0/M1 split, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
+- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
 
 ### Deferred
 

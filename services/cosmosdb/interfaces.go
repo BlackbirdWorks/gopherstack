@@ -4,7 +4,7 @@
 // and a SQL-subset query engine (SELECT/FROM/WHERE/ORDER BY/TOP) -- close
 // enough to the real Cosmos DB Local Emulator's Gateway (REST) mode for
 // unmodified azure-sdk-for-go/-js/-python clients to operate against. See
-// AZURE.md (M4) and PARITY.md for scope and known gaps.
+// AZURE.md (M3) and PARITY.md for scope and known gaps.
 //
 // Unlike services/azuretable, this package has no janitor.go: Cosmos
 // documents carry no TTL/expiry concept this emulator enforces (real Cosmos
