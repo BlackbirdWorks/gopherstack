@@ -877,6 +877,7 @@ func TestTargetParams_Timestream(t *testing.T) {
 				TimeValue:       "$.eventTime",
 				TimeFieldType:   "TIMESTAMP_FORMAT",
 				TimestampFormat: "YYYY-MM-DD'T'HH:mm:ss",
+				VersionValue:    "1",
 				DimensionMappings: []pipes.TimestreamDimensionMapping{
 					{DimensionName: "host", DimensionValue: "$.host", DimensionValueType: "VARCHAR"},
 				},
@@ -896,6 +897,7 @@ func TestTargetParams_Timestream(t *testing.T) {
 			params: &pipes.TimestreamParameters{
 				TimeValue:     "$.ts",
 				TimeFieldType: "UNIX_TIME",
+				VersionValue:  "1",
 				DimensionMappings: []pipes.TimestreamDimensionMapping{
 					{DimensionName: "id", DimensionValue: "$.id", DimensionValueType: "VARCHAR"},
 				},
@@ -956,6 +958,7 @@ func TestTargetParams_Timestream_Update(t *testing.T) {
 				TimeValue:     "$.oldTs",
 				TimeFieldType: "EPOCH",
 				EpochTimeUnit: "SECONDS",
+				VersionValue:  "1",
 				DimensionMappings: []pipes.TimestreamDimensionMapping{
 					{DimensionName: "d", DimensionValue: "$.d", DimensionValueType: "VARCHAR"},
 				},
@@ -963,6 +966,7 @@ func TestTargetParams_Timestream_Update(t *testing.T) {
 			updateParams: &pipes.TimestreamParameters{
 				TimeValue:     "$.newTs",
 				TimeFieldType: "UNIX_TIME",
+				VersionValue:  "1",
 				DimensionMappings: []pipes.TimestreamDimensionMapping{
 					{DimensionName: "d", DimensionValue: "$.d", DimensionValueType: "VARCHAR"},
 				},
@@ -1029,6 +1033,7 @@ func TestClone_TimestreamIsolation(t *testing.T) {
 					TimestreamParameters: &pipes.TimestreamParameters{
 						TimeValue:     "$.ts",
 						TimeFieldType: "UNIX_TIME",
+						VersionValue:  "1",
 						DimensionMappings: []pipes.TimestreamDimensionMapping{
 							{DimensionName: "region", DimensionValue: "$.region", DimensionValueType: "VARCHAR"},
 						},

@@ -250,7 +250,9 @@ func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParam
 	if v.ContainerOverrides != nil {
 		co := *v.ContainerOverrides
 		co.Command = append([]string(nil), v.ContainerOverrides.Command...)
-		co.Environment = append([]BatchEnvironmentVariable(nil), v.ContainerOverrides.Environment...)
+		co.Environment = append(
+			[]BatchEnvironmentVariable(nil),
+			v.ContainerOverrides.Environment...)
 		v.ContainerOverrides = &co
 	}
 	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)
@@ -263,7 +265,9 @@ func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParamete
 	v := *src
 	if v.NetworkConfiguration != nil {
 		nc := *v.NetworkConfiguration
-		nc.AwsvpcConfiguration = cloneAwsVpcConfiguration(v.NetworkConfiguration.AwsvpcConfiguration)
+		nc.AwsvpcConfiguration = cloneAwsVpcConfiguration(
+			v.NetworkConfiguration.AwsvpcConfiguration,
+		)
 		v.NetworkConfiguration = &nc
 	}
 	if v.Overrides != nil {
@@ -327,7 +331,9 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 	}
 	if src.TimestreamParameters != nil {
 		v := *src.TimestreamParameters
-		v.DimensionMappings = append([]TimestreamDimensionMapping(nil), src.TimestreamParameters.DimensionMappings...)
+		v.DimensionMappings = append(
+			[]TimestreamDimensionMapping(nil),
+			src.TimestreamParameters.DimensionMappings...)
 		v.SingleMeasureMappings = append(
 			[]TimestreamSingleMeasureMapping(nil),
 			src.TimestreamParameters.SingleMeasureMappings...,
@@ -351,15 +357,129 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 
 // validateTargetRequiredFields enforces required nested target fields, matching
 // aws-sdk-go-v2 pipes validators.go's validatePipeTargetKinesisStreamParameters
-// (PartitionKey required). Unlike source-side StartingPosition, this applies on
-// both CreatePipe and UpdatePipe: both ops route TargetParameters through the
-// same validator.
+// (PartitionKey required), validatePipeTargetEcsTaskParameters (TaskDefinitionArn
+// required), validatePipeTargetBatchJobParameters (JobDefinition and JobName
+// required), validatePipeTargetRedshiftDataParameters (Database and Sqls
+// required), validatePipeTargetSageMakerPipelineParameters's nested
+// validateSageMakerPipelineParameter (Name and Value required per list entry),
+// and validatePipeTargetTimestreamParameters (TimeValue, VersionValue, and
+// DimensionMappings required, plus its nested validateDimensionMapping:
+// DimensionName, DimensionValue, DimensionValueType required per entry).
+// Unlike source-side StartingPosition, this applies on both CreatePipe and
+// UpdatePipe: both ops route TargetParameters through the same validator.
 func validateTargetRequiredFields(tp *TargetParameters) error {
 	if tp == nil {
 		return nil
 	}
 	if kp := tp.KinesisStreamParameters; kp != nil && kp.PartitionKey == "" {
 		return fmt.Errorf("%w: KinesisStreamParameters.PartitionKey is required", ErrValidation)
+	}
+	if ep := tp.EcsTaskParameters; ep != nil && ep.TaskDefinitionArn == "" {
+		return fmt.Errorf("%w: EcsTaskParameters.TaskDefinitionArn is required", ErrValidation)
+	}
+	if err := validateBatchJobRequiredFields(tp.BatchJobParameters); err != nil {
+		return err
+	}
+	if err := validateRedshiftRequiredFields(tp.RedshiftDataParameters); err != nil {
+		return err
+	}
+	if err := validateSageMakerPipelineRequiredFields(tp.SageMakerPipelineParameters); err != nil {
+		return err
+	}
+	if err := validateTimestreamRequiredFields(tp.TimestreamParameters); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateBatchJobRequiredFields(bp *BatchJobTargetParameters) error {
+	if bp == nil {
+		return nil
+	}
+	if bp.JobDefinition == "" {
+		return fmt.Errorf("%w: BatchJobParameters.JobDefinition is required", ErrValidation)
+	}
+	if bp.JobName == "" {
+		return fmt.Errorf("%w: BatchJobParameters.JobName is required", ErrValidation)
+	}
+
+	return nil
+}
+
+func validateRedshiftRequiredFields(rp *RedshiftDataTargetParameters) error {
+	if rp == nil {
+		return nil
+	}
+	if rp.Database == "" {
+		return fmt.Errorf("%w: RedshiftDataParameters.Database is required", ErrValidation)
+	}
+	if len(rp.Sqls) == 0 {
+		return fmt.Errorf("%w: RedshiftDataParameters.Sqls is required", ErrValidation)
+	}
+
+	return nil
+}
+
+func validateSageMakerPipelineRequiredFields(sp *SageMakerPipelineTargetParameters) error {
+	if sp == nil {
+		return nil
+	}
+	for i, param := range sp.PipelineParameterList {
+		if param.Name == "" {
+			return fmt.Errorf(
+				"%w: SageMakerPipelineParameters.PipelineParameterList[%d].Name is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if param.Value == "" {
+			return fmt.Errorf(
+				"%w: SageMakerPipelineParameters.PipelineParameterList[%d].Value is required",
+				ErrValidation,
+				i,
+			)
+		}
+	}
+
+	return nil
+}
+
+func validateTimestreamRequiredFields(tsp *TimestreamParameters) error {
+	if tsp == nil {
+		return nil
+	}
+	if tsp.TimeValue == "" {
+		return fmt.Errorf("%w: TimestreamParameters.TimeValue is required", ErrValidation)
+	}
+	if tsp.VersionValue == "" {
+		return fmt.Errorf("%w: TimestreamParameters.VersionValue is required", ErrValidation)
+	}
+	if len(tsp.DimensionMappings) == 0 {
+		return fmt.Errorf("%w: TimestreamParameters.DimensionMappings is required", ErrValidation)
+	}
+	for i, dm := range tsp.DimensionMappings {
+		if dm.DimensionName == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.DimensionMappings[%d].DimensionName is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if dm.DimensionValue == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.DimensionMappings[%d].DimensionValue is required",
+				ErrValidation,
+				i,
+			)
+		}
+		if dm.DimensionValueType == "" {
+			return fmt.Errorf(
+				"%w: TimestreamParameters.DimensionMappings[%d].DimensionValueType is required",
+				ErrValidation,
+				i,
+			)
+		}
 	}
 
 	return nil
