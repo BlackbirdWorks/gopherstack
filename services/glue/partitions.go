@@ -1,8 +1,10 @@
 package glue
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 )
@@ -207,14 +209,16 @@ func (b *InMemoryBackend) GetPartitions(dbName, tableName string) ([]*Partition,
 		return nil, ErrNotFound
 	}
 
-	prefix := dbName + "|" + tableName + "|"
-	out := make([]*Partition, 0)
+	group := b.partitionsByTable.Get(tableKey(dbName, tableName))
+	out := make([]*Partition, 0, len(group))
 
-	for _, p := range b.partitions.Snapshot() {
-		if k := partitionEntryKeyFn(p); strings.HasPrefix(k, prefix) {
-			out = append(out, clonePartition(p))
-		}
+	for _, p := range group {
+		out = append(out, clonePartition(p))
 	}
+
+	slices.SortFunc(out, func(a, c *Partition) int {
+		return cmp.Compare(partitionEntryKeyFn(a), partitionEntryKeyFn(c))
+	})
 
 	return out, nil
 }

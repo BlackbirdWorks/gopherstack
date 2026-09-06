@@ -27,6 +27,11 @@ func partitionEntryKeyFn(v *Partition) string {
 	return partitionKey(v.DatabaseName, v.TableName, v.Values)
 }
 
+// partitionTableIndexKeyFn groups partitions by owning table for
+// InMemoryBackend.GetPartitions, so it can look up one table's partitions
+// directly instead of scanning every partition in the backend.
+func partitionTableIndexKeyFn(v *Partition) string { return tableKey(v.DatabaseName, v.TableName) }
+
 // tableVersionEntryKeyFn derives the composite db|table|versionID key from a
 // TableVersion's own nested Table pointer. It tolerates a nil Table (rather
 // than panicking) because AddTableVersionInternal is the only writer and, for
@@ -184,6 +189,7 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.partitions = store.Register(b.registry, "partitions", store.New(partitionEntryKeyFn))
+		b.partitionsByTable = b.partitions.AddIndex("partitionsByTable", partitionTableIndexKeyFn)
 	},
 	func(b *InMemoryBackend) {
 		b.tableVersions = store.Register(b.registry, "tableVersions", store.New(tableVersionEntryKeyFn))

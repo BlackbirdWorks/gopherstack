@@ -155,6 +155,7 @@ type InMemoryBackend struct {
 	crawlers                  *store.Table[Crawler]
 	jobs                      *store.Table[Job]
 	partitions                *store.Table[Partition]
+	partitionsByTable         *store.Index[Partition]
 	partitionIndexes          map[string]*PartitionIndex // key: "databaseName|tableName|indexName"
 	tableVersions             *store.Table[TableVersion]
 	connections               *store.Table[Connection]

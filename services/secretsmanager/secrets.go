@@ -70,6 +70,38 @@ func (s *Secret) primaryRegionOrSelf() string {
 	return s.region
 }
 
+// isReplica reports whether s is a replica secret rather than a primary or
+// standalone one -- see PrimaryRegion's doc comment.
+func (s *Secret) isReplica() bool {
+	return s.PrimaryRegion != ""
+}
+
+// resolvePrimaryOnlySecretLocked looks up name in region for an operation
+// that real AWS only permits against a primary/standalone secret --
+// PutSecretValue and RotateSecret. It reports ErrSecretNotFound,
+// ErrSecretDeleted, or ErrReplicaNotWritable as appropriate, folding those
+// three checks (shared verbatim by both callers) into one branch at the call
+// site instead of three. Must be called with b.mu held.
+func (b *InMemoryBackend) resolvePrimaryOnlySecretLocked(region, secretID, name string) (*Secret, error) {
+	secret, exists := b.secretGet(region, name)
+	if !exists {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, secretID)
+	}
+
+	if secret.isReplica() {
+		return nil, fmt.Errorf(
+			"%w: %s is a replica secret; this operation must be called against the primary secret in %s",
+			ErrReplicaNotWritable, secretID, secret.PrimaryRegion,
+		)
+	}
+
+	return secret, nil
+}
+
 // validateSecretName returns an error when the name is empty, too long, contains invalid chars,
 // or starts with the "aws/" prefix reserved for AWS managed secrets.
 func validateSecretName(name string) error {
@@ -692,6 +724,19 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 
 	if secret.DeletedDate != nil {
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	// A replica secret "can't be updated independently from its primary
+	// secret, except for its encryption key" -- so only a KmsKeyID-only
+	// UpdateSecret call is allowed through here; any of the other fields
+	// makes this a rejected independent update.
+	if secret.isReplica() && (input.SecretString != "" || len(input.SecretBinary) > 0 ||
+		input.Description != "" || input.Type != "") {
+		return nil, fmt.Errorf(
+			"%w: %s is a replica secret; only its encryption key can be updated"+
+				" independently of the primary secret in %s",
+			ErrReplicaNotWritable, input.SecretID, secret.PrimaryRegion,
+		)
 	}
 
 	// KmsKeyID is applied before updateSecretVersion because sealVersion reads
