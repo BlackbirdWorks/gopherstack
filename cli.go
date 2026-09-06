@@ -2944,6 +2944,17 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
+	// Wire CloudWatch Logs → Firehose so destinations with
+	// CloudWatchLoggingOptions.Enabled deliver failure events to the
+	// configured log group/stream, instead of CloudWatchLoggingOptions
+	// being validated and stored with no effect.
+	wireFirehoseCWLogs(byName["Firehose"], byName["CloudWatchLogs"])
+
+	// Wire Route 53 → Cloud Map so DNS_PUBLIC/DNS_PRIVATE namespaces get a
+	// real hosted zone, instead of a synthetic HostedZoneId matching no
+	// real route53 zone.
+	wireServiceDiscoveryRoute53(byName["ServiceDiscovery"], byName["Route53"])
+
 	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
 	// delivery requires S3 integration.
@@ -5783,6 +5794,29 @@ func wireLambdaCWLogs(lambdaReg, cwlogsReg service.Registerable) {
 	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			lambdaBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+		}
+	}
+}
+
+// wireFirehoseCWLogs connects the Firehose backend to CloudWatch Logs so destinations with
+// CloudWatchLoggingOptions.Enabled actually deliver delivery-failure events to the
+// configured log group/stream, instead of only logging locally. cwLogsAdapter already
+// matches firehose.CWLogsBackend's shape (identical to lambda.CWLogsBackend), so it is
+// reused rather than defining a second adapter type.
+func wireFirehoseCWLogs(firehoseReg, cwlogsReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	firehoseBk, bkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
+			firehoseBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
 		}
 	}
 }
@@ -11807,6 +11841,52 @@ func wireServiceDiscoveryDNS(sdReg service.Registerable, dns servicediscoverybac
 	}
 
 	sdBk.SetDNSRegistrar(dns)
+}
+
+// wireServiceDiscoveryRoute53 connects the Cloud Map backend to Route 53 so DNS_PUBLIC/
+// DNS_PRIVATE namespaces get a real hosted zone (see servicediscovery.HostedZoneCreator)
+// instead of a synthetic HostedZoneId matching no real zone (gopherstack-chmx).
+func wireServiceDiscoveryRoute53(sdReg, r53Reg service.Registerable) {
+	sdH, ok := sdReg.(*servicediscoverybackend.Handler)
+	if !ok {
+		return
+	}
+
+	sdBk, bkOk := sdH.Backend.(*servicediscoverybackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	r53H, r53Ok := r53Reg.(*route53backend.Handler)
+	if !r53Ok {
+		return
+	}
+
+	r53Bk, r53BkOk := r53H.Backend.(*route53backend.InMemoryBackend)
+	if !r53BkOk {
+		return
+	}
+
+	sdBk.SetHostedZoneCreator(&sdHostedZoneAdapter{backend: r53Bk})
+}
+
+// sdHostedZoneAdapter adapts the Route53 backend to the servicediscovery.HostedZoneCreator
+// interface.
+type sdHostedZoneAdapter struct {
+	backend *route53backend.InMemoryBackend
+}
+
+func (a *sdHostedZoneAdapter) CreateHostedZone(
+	name, callerRef, comment string,
+	private bool,
+	vpcID, vpcRegion string,
+) (string, error) {
+	hz, err := a.backend.CreateHostedZone(name, callerRef, comment, private, "", vpcID, vpcRegion)
+	if err != nil {
+		return "", err
+	}
+
+	return hz.ID, nil
 }
 
 // wireCloudWatchFirehose connects the CloudWatch backend to Firehose so that a

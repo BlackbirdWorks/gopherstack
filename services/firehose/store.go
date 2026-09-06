@@ -16,6 +16,7 @@ type InMemoryBackend struct {
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader
 	redshiftData   RedshiftDataExecutor
+	cwLogs         CWLogsBackend
 	registry       *store.Registry
 	// streams is a single flat table of every delivery stream, composite-keyed by
 	// "region|name" (see regionKey/deliveryStreamKeyFn in store_setup.go) so that
@@ -143,6 +144,12 @@ func (b *InMemoryBackend) SetKinesisBackend(k KinesisReader) {
 // command after S3 staging for Redshift destinations.
 func (b *InMemoryBackend) SetRedshiftDataBackend(rd RedshiftDataExecutor) {
 	b.redshiftData = rd
+}
+
+// SetCWLogsBackend wires CloudWatch Logs so destinations with CloudWatchLoggingOptions
+// enabled actually deliver their error-log events, instead of only logging locally.
+func (b *InMemoryBackend) SetCWLogsBackend(cw CWLogsBackend) {
+	b.cwLogs = cw
 }
 
 // Reset clears all delivery streams, closing their tag registries and cancelling any

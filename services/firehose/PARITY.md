@@ -7,6 +7,10 @@ sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
 last_audit_commit: 3b475e203
 last_audit_date: 2026-09-04
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
+                      # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
+                      # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
+                      # reach the emulated CloudWatch Logs backend via SetCWLogsBackend/
+                      # wireFirehoseCWLogs, not just a local slog warning. See the gaps entry below.
                       # 2026-09-04 pass (bd gopherstack-o4ny): closed the gopherstack-rop lead below --
                       # wired cli.go's wireFirehoseKinesisSource (called from
                       # wireStorageAndSecretsIntegrations) so SetKinesisBackend is now actually called
@@ -140,24 +144,20 @@ gaps:
     (git show HEAD:cli.go > cli.go) it fails (no S3 object ever appears; 10s Eventually
     timeout), restored it passes.
   - >
-    NEWLY IDENTIFIED 2026-09-04: CloudWatchLoggingOptions (present on every destination
-    family) only ever reaches logDeliveryIssue (flush.go), which writes a local slog
-    WarnContext record carrying the configured LogGroupName/LogStreamName as attributes --
-    it never actually writes a log event into the emulated CloudWatch Logs backend's
-    log group/stream. A real client polling that log group via cloudwatchlogs'
-    GetLogEvents/FilterLogEvents would see nothing, ever, regardless of how many delivery
-    errors occurred. This is the same "accepted, mechanics not modeled" class as the
-    Redshift/Iceberg/Snowflake gaps above, not a silent-success bug (the warning is at least
-    visible in gopherstack's own server logs, so it's not zero-signal like the pre-fix
-    Kinesis-source gap was) -- but it has never been disclosed in this file until now.
-    Fixing it for real needs the same shape as RedshiftDataExecutor: a small
-    CloudWatchLogsWriter interface here plus cli.go wiring (out of this pass's scope).
-    Deferred — no bd id filed yet.
+    FIXED 2026-09-06 (bd gopherstack-pe7x): CloudWatchLoggingOptions previously only
+    reached logDeliveryIssue (flush.go) as a local slog WarnContext record, never writing
+    an event to the emulated CloudWatch Logs backend's log group/stream. Added
+    firehose.CWLogsBackend (EnsureLogGroupAndStream/PutLogLines, mirroring
+    lambda.CWLogsBackend) plus SetCWLogsBackend, and wired it in cli.go's
+    wireFirehoseCWLogs, reusing the existing cwLogsAdapter (lambda's adapter already
+    matched the shape exactly). logDeliveryIssue now also calls
+    deliverCWLogEvent, which ensures the destination's LogGroupName/LogStreamName exist
+    and writes the same failure message via PutLogLines. Unwired (no SetCWLogsBackend
+    call, e.g. every test backend) stays a silent no-op -- delivery still proceeds
+    normally. See TestLambdaTransformError_DeliversCloudWatchLogEvent and
+    TestLambdaTransformError_UnwiredCloudWatchLogsStaysPermissive (flush_test.go).
 
 deferred:
-  - CloudWatchLoggingOptions cli.go wiring: delivery errors are locally logged but never
-    written to the emulated CloudWatch Logs backend as retrievable log events (see gaps).
-    Needs a new CloudWatchLogsWriter interface plus cli.go wiring.
   - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
   - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
   - Elasticsearch/OpenSearch VpcConfiguration and DocumentIdOptions fields (see gaps)

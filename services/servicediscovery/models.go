@@ -97,6 +97,14 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// HostedZoneCreator is the subset of Route 53 operations Cloud Map needs to create a real
+// hosted zone for a DNS namespace, wired via SetHostedZoneCreator. It is distinct from
+// DNSRegistrar above: DNSRegistrar resolves individual instance hostnames, this creates the
+// zone record itself. Returns the new zone's ID.
+type HostedZoneCreator interface {
+	CreateHostedZone(name, callerRef, comment string, private bool, vpcID, vpcRegion string) (string, error)
+}
+
 // DiscoveredInstance is the richer per-instance response for DiscoverInstances.
 type DiscoveredInstance struct {
 	Attributes    map[string]string
