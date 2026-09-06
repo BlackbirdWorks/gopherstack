@@ -317,6 +317,14 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 	b.mu.Lock("RunJobFlow")
 	defer b.mu.Unlock()
 
+	if params.SecurityConfiguration != "" {
+		if _, ok := b.securityConfigGet(region, params.SecurityConfiguration); !ok {
+			return nil, fmt.Errorf(
+				"%w: security configuration %s not found", ErrNotFound, params.SecurityConfiguration,
+			)
+		}
+	}
+
 	id := b.nextID()
 	cluster := b.buildNewCluster(region, id, releaseLabel, params)
 
