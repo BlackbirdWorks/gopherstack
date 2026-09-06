@@ -21,7 +21,7 @@ families:
   routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 10000 via --azure-blob-port/AZURE_BLOB_PORT, no fallback pool -- fails fast if unavailable, mirroring services/iot's MQTT broker), never registered into the shared AWS single-port Router -- see provider.go's Provider doc comment and AZURE.md section 4 for the full rationale. cli.go's reserveFixedServicePorts additionally reserves this port in the shared PortAlloc pool (pkgs/portalloc.Allocator.Reserve) at startup, since 10000 sits inside --port-range-start/--port-range-end's own default range and would otherwise be handed to an unrelated Acquire caller (fixed in M0 review)."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics, and derives its listener logger via logger.WithWorker(ctx, \"azureblob\", \"listener\"). InMemoryBackend and the server-lifecycle mutex both use *lockmetrics.RWMutex instead of raw sync.RWMutex/Mutex, matching repo convention."}
 gaps:
-  - "Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; tracked for a later milestone (M1 in AZURE.md's plan)."
+  - "Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; not currently assigned to a later milestone (see AZURE.md section 8's M0 entry for the full deferred-gaps list)."
   - "No ACL / container public-access-level support (x-ms-blob-public-access, Set/Get Container ACL are unimplemented)."
   - "No blob or container metadata (x-ms-meta-* headers) -- neither stored on PUT/Create nor returned on GET/HEAD/List."
   - "No conditional-header support (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) on any operation -- every write unconditionally overwrites, every read unconditionally succeeds regardless of ETag/date preconditions."
@@ -29,7 +29,7 @@ gaps:
   - "No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support."
   - "List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination."
   - "Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet."
-  All gaps above are intentional MVP scope per AZURE.md's M0/M1 split, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
+  All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
 deferred:
   - "Initial implementation pass (2026-09-02): seeded this service from scratch per AZURE.md M0. No prior audit history to reconcile."
   - "M0 review pass (2026-09-03): pkgs/azureauth, cli.go registration, and test/integration/azureblob_test.go all landed in the same PR as this service (see AZURE.md's M0 entry) -- the file was previously drafted assuming a multi-PR sequence that did not happen. sdk_module bumped to the azblob v1.8.0 actually pinned in go.mod (used by the integration test)."

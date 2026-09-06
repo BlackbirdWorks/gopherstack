@@ -33,11 +33,11 @@ gaps:
   - "No SAS / Set-Get Table ACL support."
   - "No queue-style janitor: Table Storage entities have no TTL/expiry concept, so there is nothing to sweep (this is a deliberate scope decision, not an oversight -- see provider.go's Provider doc comment)."
   - "Auth verification is not enforced -- see families.auth."
-  All gaps above are intentional MVP scope per AZURE.md's M3 entry (see AZURE.md section 8; note the milestone numbering there differs from this task's internal M2 naming), not oversights.
+  All gaps above are intentional MVP scope per AZURE.md's M2 entry (see AZURE.md section 8), not oversights.
 deferred:
   - "Batch (POST /<account>/$batch, multipart/mixed changesets) is explicitly out of scope for this milestone -- returns a clean 501 NotImplemented rather than attempting a partial implementation. Matches services/azureblob's M0 multipart-upload deferral pattern."
   - "Continuation-token pagination for List Tables/Query Entities (see gaps)."
-  - "Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M3 (see AZURE.md section 8; note the milestone numbering there differs from this task's internal M2 naming). Structurally mirrors services/azurequeue's M1/M2 implementation and PARITY.md format; no prior audit history to reconcile."
+  - "Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M2 (see AZURE.md section 8). Structurally mirrors services/azurequeue's M1 implementation and PARITY.md format; no prior audit history to reconcile."
 leaks: {status: clean, note: "The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx) (falling back to srv.Close() on a graceful-shutdown error, both logged), mirroring services/azurequeue and cli.go's own top-level server lifecycle. No background goroutines beyond the listener itself -- there is no janitor (see gaps)."}
 ---
 
