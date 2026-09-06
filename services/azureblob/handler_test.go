@@ -284,10 +284,10 @@ func TestGetBlob_RangeHeaderPartialRead(t *testing.T) {
 
 // TestGetBlob_XMsRangeHeader proves x-ms-range is accepted as an alias for
 // the standard Range header (with x-ms-range taking precedence when both are
-// present, matching real Azure Blob's documented behavior) -- the
-// azure-sdk-for-go Python and JS Get Blob clients send x-ms-range
-// exclusively, never Range, so accepting only "Range" made this backend's
-// GetBlob unreachable from those SDKs' default download path. See AZURE.md
+// present, matching real Azure Blob's documented behavior) -- the Python
+// (azure-storage-blob) and JS (@azure/storage-blob) Get Blob clients send
+// x-ms-range exclusively, never Range, so accepting only "Range" made this
+// backend's GetBlob unreachable from those SDKs' default download path. See AZURE.md
 // section 7's M4 cross-SDK smoke test, which caught this.
 func TestGetBlob_XMsRangeHeader(t *testing.T) {
 	t.Parallel()

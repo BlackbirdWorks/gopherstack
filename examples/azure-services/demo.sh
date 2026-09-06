@@ -3,8 +3,10 @@
 #
 # Exercises Azure Blob Storage, Azure Queue Storage, Azure Table Storage, and
 # Azure Cosmos DB (Core/SQL API) end-to-end via plain curl requests against
-# gopherstack's Azurite-compatible / Cosmos-compatible listeners. No SDKs or
-# CLI tools are required beyond curl -- auth verification is off by default
+# gopherstack's Azurite-compatible / Cosmos-compatible listeners. Beyond curl
+# this needs only the POSIX text utilities grep/head/sed (to pull the pop
+# receipt out of the Queue response) -- no Azure SDK or az CLI is required.
+# Auth verification is off by default
 # for all four services (see docs/services/azureblob.md et al.), so no
 # SharedKey signing or master-key HMAC is needed to talk to them locally.
 set -euo pipefail

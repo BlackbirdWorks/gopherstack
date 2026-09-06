@@ -14,7 +14,7 @@ All four requests use plain `curl` with no credentials — auth verification is 
 ## Prerequisites
 
 - **Docker** (for `docker-compose up`), or a local `go run .` build of gopherstack.
-- **curl** (the only tool the demo script needs).
+- **curl**, plus the POSIX text utilities `grep`, `head`, and `sed` (used to pull the pop receipt out of the Queue response). No Azure SDKs or `az` CLI needed.
 
 ## Running
 
