@@ -688,6 +688,7 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	b.deindexSGLocked(id, sg.VPCID)
 	b.securityGroups.Delete(id)
 	delete(b.tags, id)
+	delete(b.sgVpcAssociations, id)
 
 	return nil
 }

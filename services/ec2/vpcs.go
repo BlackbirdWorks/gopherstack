@@ -448,6 +448,7 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	for sgID := range b.sgIDsByVPC[id] {
 		b.securityGroups.Delete(sgID)
 		delete(b.tags, sgID)
+		delete(b.sgVpcAssociations, sgID)
 	}
 	delete(b.sgIDsByVPC, id)
 

@@ -104,6 +104,7 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 
 	b.addresses.Delete(allocationID)
 	delete(b.tags, allocationID)
+	delete(b.addressTransfers, allocationID)
 
 	return nil
 }

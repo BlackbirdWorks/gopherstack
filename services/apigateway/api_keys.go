@@ -142,6 +142,9 @@ func (b *InMemoryBackend) DeleteAPIKey(id string) error {
 	}
 	delete(b.apiKeysByValue, key.Value)
 	b.apiKeys.Delete(id)
+	for _, overrides := range b.usageOverrides {
+		delete(overrides, id)
+	}
 
 	return nil
 }

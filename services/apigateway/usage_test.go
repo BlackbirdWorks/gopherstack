@@ -188,3 +188,97 @@ func TestGetUsage(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteUsagePlanKey_ClearsUsageOverride verifies that detaching an API
+// key from a usage plan clears any UpdateUsage override recorded for that
+// (plan, key) pair -- otherwise re-attaching the same key later would
+// silently inherit the stale override, since neither ID is deleted.
+func TestDeleteUsagePlanKey_ClearsUsageOverride(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+
+	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "plan"})
+	require.NoError(t, err)
+	key, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "key", Enabled: true})
+	require.NoError(t, err)
+	_, err = b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateUsage(plan.ID, key.ID, map[string]string{"remaining": "5"})
+	require.NoError(t, err)
+
+	usage, err := b.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})
+	require.NoError(t, err)
+	require.Equal(t, 5, usage.Items[key.ID][0].([]int)[1])
+
+	require.NoError(t, b.DeleteUsagePlanKey(plan.ID, key.ID))
+	_, err = b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	usage, err = b.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})
+	require.NoError(t, err)
+	assert.NotEqual(t, 5, usage.Items[key.ID][0].([]int)[1],
+		"re-attaching the same key must not inherit the detached association's stale usage override")
+}
+
+// TestDeleteUsagePlan_ClearsUsageOverrides verifies DeleteUsagePlan removes
+// the plan's usageOverrides entry rather than leaking it in the persisted
+// snapshot forever.
+func TestDeleteUsagePlan_ClearsUsageOverrides(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+
+	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "plan"})
+	require.NoError(t, err)
+	key, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "key", Enabled: true})
+	require.NoError(t, err)
+	_, err = b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+	_, err = b.UpdateUsage(plan.ID, key.ID, map[string]string{"remaining": "5"})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteUsagePlan(plan.ID))
+
+	var decoded struct {
+		UsageOverrides map[string]map[string]int64 `json:"usageOverrides"`
+	}
+	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded))
+	assert.NotContains(t, decoded.UsageOverrides, plan.ID,
+		"a deleted usage plan's override entry must not survive in the persisted snapshot")
+}
+
+// TestDeleteAPIKey_ClearsUsageOverrides verifies DeleteAPIKey removes any
+// usageOverrides entries recorded for that key across all usage plans.
+func TestDeleteAPIKey_ClearsUsageOverrides(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+
+	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "plan"})
+	require.NoError(t, err)
+	key, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "key", Enabled: true})
+	require.NoError(t, err)
+	_, err = b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+	_, err = b.UpdateUsage(plan.ID, key.ID, map[string]string{"remaining": "5"})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteAPIKey(key.ID))
+
+	var decoded struct {
+		UsageOverrides map[string]map[string]int64 `json:"usageOverrides"`
+	}
+	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded))
+	assert.NotContains(t, decoded.UsageOverrides[plan.ID], key.ID,
+		"a deleted API key's usage override must not survive in the persisted snapshot")
+}
