@@ -600,3 +600,42 @@ fix). `golangci-lint run ./services/lambda/...` panics repo-wide on this toolcha
 (`honnef.co/go/tools@v0.7.0` / goanalysis `buildir`/`nilness`/`typedness`/`fact_purity`
 interface-conversion panics) -- confirmed pre-existing and environment-wide, not
 scoped to this package or this pass's changes.
+
+## 2026-09-06: Code.ImageUri never resolved against ECR (gopherstack-vrpy)
+
+Confirmed real AWS validates an Image package-type function's `Code.ImageUri` at
+`CreateFunction`/`UpdateFunctionCode` time, not only at pull time: a nonexistent
+repository or tag is rejected immediately with `InvalidParameterValueException`
+("Source image \<uri\> does not exist. Provide a valid source image."), reproduced
+in multiple public bug reports (e.g. aws/aws-cdk#24648, aws/aws-sdk-go#3736). The
+issue's own "possibly structural" caveat does not hold.
+
+Added an optional cross-service seam, following `services/networkmanager`'s
+`EC2Resolver` pattern exactly: `ECRResolver` (`crossservice.go`, one method,
+`ResolveImage(imageURI string) bool`), a `SetECRResolver` setter and `ecrResolver`
+field on `InMemoryBackend` (`store.go`), and an `ImageURIResolver` optional
+extension of `StorageBackend` (alongside the existing `QualifierResolver` etc.)
+that `Handler.validateImageURIResolves` type-asserts `h.Backend` against before
+accepting a Image-type `CreateFunction`/`UpdateFunctionCode` call
+(`handler_functions.go`). A nil resolver -- the default, and every existing test's
+backend -- accepts every `ImageUri` unvalidated, matching this repo's convention
+for unwired cross-service checks and preserving every pre-existing test that
+creates an Image function with an arbitrary `ImageUri` like `"x"`.
+
+**Not wired up**: cli.go is out of scope for this pass (owned by a concurrent
+agent). Wiring needs a `wireLambdaECR(lambdaReg, ecrReg service.Registerable)`
+function mirroring `wireLambdaS3`/`wireLambdaCWLogs`, plus an adapter type (e.g.
+`lambdaECRResolverAdapter`) whose `ResolveImage(imageURI string) bool` parses the
+account/region/repository/tag-or-digest out of the ECR-style URI and calls
+`services/ecr`'s already-exported `InMemoryBackend.DescribeImages(ctx, repositoryName,
+[]ImageIdentifier{...})`, returning `true` only on a nil error. No changes needed in
+services/ecr itself -- `DescribeImages` already returns `ErrRepositoryNotFound`/
+`ErrImageNotFound` for exactly this check. Call site: alongside the other
+`wireLambda*` calls in cli.go's service-wiring sequence.
+
+Regression tests (`ecr_resolver_test.go`): a fake `ECRResolver` proves both
+directions (unknown image rejected with `InvalidParameterValueException` and not
+persisted; known image accepted) for both `CreateFunction` and
+`UpdateFunctionCode`, plus a no-resolver-wired test documenting the accept-all
+default is unchanged. Each guard was neutered individually and confirmed to make
+exactly its own regression test fail (and no others).
