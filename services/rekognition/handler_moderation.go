@@ -32,8 +32,12 @@ type detectModerationLabelsResp struct {
 }
 
 func (h *Handler) handleDetectModerationLabels(
-	_ context.Context, req *detectModerationLabelsReq,
+	ctx context.Context, req *detectModerationLabelsReq,
 ) (*detectModerationLabelsResp, error) {
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
 	// Default: content is clean. Only return labels if MinConfidence is very low,
 	// which indicates the caller wants to see all possible labels.
 	labels := []moderationLabelEntry{}
@@ -69,8 +73,12 @@ type detectProtectiveEquipmentResp struct {
 }
 
 func (h *Handler) handleDetectProtectiveEquipment(
-	_ context.Context, _ *detectProtectiveEquipmentReq,
+	ctx context.Context, req *detectProtectiveEquipmentReq,
 ) (*detectProtectiveEquipmentResp, error) {
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
 	return &detectProtectiveEquipmentResp{
 		Persons:                         []protectiveEquipmentPersonEntry{},
 		ProtectiveEquipmentModelVersion: "1.0",
@@ -87,8 +95,12 @@ type startContentModerationReq struct {
 }
 
 func (h *Handler) handleStartContentModeration(
-	_ context.Context, req *startContentModerationReq,
+	ctx context.Context, req *startContentModerationReq,
 ) (*startJobResp, error) {
+	if err := h.checkVideoRef(ctx, req.Video); err != nil {
+		return nil, err
+	}
+
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{

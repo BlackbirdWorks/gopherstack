@@ -83,6 +83,12 @@ var (
 	ErrAsyncJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrMediaAnalysisJobNotFound is returned when a media analysis job does not exist.
 	ErrMediaAnalysisJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrInvalidS3Object is returned when an Image/Video/Input references an
+	// S3Object the wired S3 backend cannot find. Real AWS reports this as
+	// InvalidS3ObjectException (rekognition@v1.54.4 types/errors.go:344):
+	// "Amazon Rekognition is unable to access the S3 object specified in the
+	// request".
+	ErrInvalidS3Object = errors.New("s3 object is not accessible")
 
 	// ErrProjectHasVersions is returned when DeleteProject is called on a
 	// project that still has project versions. DeleteProject's own doc

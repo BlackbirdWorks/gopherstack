@@ -3543,6 +3543,13 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// instead of S3BucketName being stored/echoed with no validation and no
 	// delivery (gopherstack-g9b4).
 	wireCloudTrailS3(byName["CloudTrail"], byName["S3"])
+
+	// Wire Textract/Rekognition → S3 so a Document/Image/Video S3Object that
+	// doesn't exist in the wired S3 backend surfaces InvalidS3ObjectException,
+	// instead of every request being processed regardless of whether the
+	// referenced object exists (gopherstack-eshx).
+	wireTextractS3(byName["Textract"], byName["S3"])
+	wireRekognitionS3(byName["Rekognition"], byName["S3"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -5970,6 +5977,66 @@ func wireCloudTrailS3(cloudtrailReg, s3Reg service.Registerable) {
 	}
 
 	ctH.Backend.SetS3Backend(s3Bk)
+}
+
+// wireTextractS3 connects the Textract backend to S3 so a Document/
+// DocumentLocation naming an S3Object that doesn't exist surfaces
+// InvalidS3ObjectException, instead of every request being processed
+// regardless of whether the referenced object exists (gopherstack-eshx).
+// s3.InMemoryBackend already satisfies textract.S3Backend directly, so no
+// adapter is needed.
+func wireTextractS3(textractReg, s3Reg service.Registerable) {
+	trH, ok := textractReg.(*textractbackend.Handler)
+	if !ok {
+		return
+	}
+
+	trBk, trBkOk := trH.Backend.(*textractbackend.InMemoryBackend)
+	if !trBkOk {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	trBk.SetS3Backend(s3Bk)
+}
+
+// wireRekognitionS3 connects the Rekognition backend to S3 so an Image/
+// Video/Input naming an S3Object that doesn't exist surfaces
+// InvalidS3ObjectException, instead of every request being processed
+// regardless of whether the referenced object exists (gopherstack-eshx).
+// s3.InMemoryBackend already satisfies rekognition.S3Backend directly, so no
+// adapter is needed.
+func wireRekognitionS3(rekognitionReg, s3Reg service.Registerable) {
+	rH, ok := rekognitionReg.(*rekognitionbackend.Handler)
+	if !ok {
+		return
+	}
+
+	rBk, rBkOk := rH.Backend.(*rekognitionbackend.InMemoryBackend)
+	if !rBkOk {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	rBk.SetS3Backend(s3Bk)
 }
 
 // athenaGlueAdapter adapts the Glue backend to the athena.GlueMetadataSource interface.

@@ -22,17 +22,17 @@ overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pat
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  DetectDocumentText: {wire: ok, errors: ok, state: ok, persist: n/a, note: synchronous, deterministic mock Blocks}
-  AnalyzeDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FeatureTypes + QueriesConfig validated; errors FIXED to InvalidParameterException (real SDK has no ValidationException case for this op). 2026-08-07 (gopherstack-n1bo): AdaptersConfig.Adapters now validated against real Adapter/AdapterVersion backend state (InvalidParameterException for an unknown adapter or version -- NOT ResourceNotFoundException, the trap: this op's real error set has no such case, unlike GetAdapter/UpdateAdapter/etc.); HumanLoopConfig's two required members validated; HumanLoopActivationOutput wired into the response shape but always omitted -- see structural_gaps for why activation itself can't be computed."}
-  AnalyzeExpense: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — ExpenseField.Currency/Type now ExpenseCurrency/ExpenseType, not ExpenseDetection"}
-  AnalyzeID: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-20: FIXED — AnalyzeIDDetections.Geometry was a fabricated field (real types.AnalyzeIDDetections has only Text/Confidence/NormalizedValue). Never actually populated (always nil, omitempty), so it never leaked on the wire in practice; removed for wire-shape correctness."}
-  StartDocumentTextDetection: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException"}
+  DetectDocumentText: {wire: ok, errors: ok, state: ok, persist: n/a, note: "synchronous, deterministic mock Blocks. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
+  AnalyzeDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FeatureTypes + QueriesConfig validated; errors FIXED to InvalidParameterException (real SDK has no ValidationException case for this op). 2026-08-07 (gopherstack-n1bo): AdaptersConfig.Adapters now validated against real Adapter/AdapterVersion backend state (InvalidParameterException for an unknown adapter or version -- NOT ResourceNotFoundException, the trap: this op's real error set has no such case, unlike GetAdapter/UpdateAdapter/etc.); HumanLoopConfig's two required members validated; HumanLoopActivationOutput wired into the response shape but always omitted -- see structural_gaps for why activation itself can't be computed. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
+  AnalyzeExpense: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — ExpenseField.Currency/Type now ExpenseCurrency/ExpenseType, not ExpenseDetection. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
+  AnalyzeID: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-20: FIXED — AnalyzeIDDetections.Geometry was a fabricated field (real types.AnalyzeIDDetections has only Text/Confidence/NormalizedValue). Never actually populated (always nil, omitempty), so it never leaked on the wire in practice; removed for wire-shape correctness. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced per DocumentPages entry when S3 is wired -- see Notes."}
+  StartDocumentTextDetection: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   GetDocumentTextDetection: {wire: ok, errors: ok, state: ok, persist: ok, note: "NextToken pagination via paginateBlocks; errors FIXED to InvalidParameterException"}
-  StartDocumentAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException. 2026-08-07 (gopherstack-n1bo): AdaptersConfig (this op's only adapter/human-loop-related field -- StartDocumentAnalysisInput has no HumanLoopConfig member) now validated the same way as AnalyzeDocument's."}
+  StartDocumentAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException. 2026-08-07 (gopherstack-n1bo): AdaptersConfig (this op's only adapter/human-loop-related field -- StartDocumentAnalysisInput has no HumanLoopConfig member) now validated the same way as AnalyzeDocument's. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   GetDocumentAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException"}
-  StartExpenseAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException"}
+  StartExpenseAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   GetExpenseAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — MaxResults/NextToken were accepted but silently ignored (ExpenseDocuments never paginated, no NextToken in response); now paginates via pkgs/page. errors FIXED to InvalidParameterException"}
-  StartLendingAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException"}
+  StartLendingAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   GetLendingAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same missing-pagination gap as GetExpenseAnalysis, now paginates Results via pkgs/page. errors FIXED to InvalidParameterException"}
   GetLendingAnalysisSummary: {wire: ok, errors: ok, state: ok, persist: ok, note: "errors FIXED to InvalidParameterException"}
   CreateAdapter: {wire: ok, errors: ok, state: ok, persist: ok, note: ClientRequestToken dedup; FeatureTypes restricted to FORMS/QUERIES}
@@ -360,3 +360,55 @@ code.
 
 Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
 `golangci-lint run` — all clean (`./services/textract/...`).
+
+## 2026-09-06: InvalidS3ObjectException wiring (gopherstack-eshx)
+
+`AnalyzeDocument`/`AnalyzeExpense`/`AnalyzeID`/`DetectDocumentText`/`StartDocumentAnalysis`/
+`StartDocumentTextDetection`/`StartExpenseAnalysis`/`StartLendingAnalysis` all declare
+`InvalidS3ObjectException` in their real `deserializeOpError<Op>` switch (verified via the
+digit-safe `awk`+`grep -oE '"[A-Za-z0-9]+"'` extraction against
+`textract@v1.43.4/deserializers.go`, not the earlier `[A-Za-z]+` pattern that silently drops
+S3-named codes — see gopherstack-jkpi). Doc comment (types/errors.go:310):
+"Amazon Textract is unable to access the S3 object that's specified in the request." None of
+these ops previously checked a Document/DocumentLocation's S3Object against real S3 state at
+all — any bucket/key, existent or not, was accepted.
+
+Note: the 2026-08-31 error-envelope sweep (Notes above) recorded
+`InvalidS3ObjectException* (StartDocumentAnalysis only)` for the four Start ops -- re-verified
+this pass with the same digit-safe extraction and all four (`StartDocumentAnalysis`,
+`StartDocumentTextDetection`, `StartExpenseAnalysis`, `StartLendingAnalysis`) declare it
+identically. That earlier annotation was incorrect; corrected here rather than editing the
+historical entry.
+
+Followed the `services/cloudtrail` `S3Backend`/`SetS3Backend`/`wireXxxS3` precedent
+(gopherstack-g9b4): `S3Backend` interface (`interfaces.go`, `HeadObject` only) implemented
+directly by `s3.InMemoryBackend` (no adapter), `InMemoryBackend.SetS3Backend` setter
+(`store.go`), `Handler.checkS3Object` (`handler.go`) calling it, wired from `cli.go`'s
+`wireTextractS3` in `wireStorageAndSecretsIntegrations`. Unwired (no `SetS3Backend` call) or
+Backend not `*InMemoryBackend`: no-op, matching this repo's unwired-hook-stays-permissive
+convention. A `Document`/`DocumentPages` entry carrying inline `Bytes` instead of an S3Object
+(`bucket==""`) is never checked — `Document.Bytes` is a real alternative-member of the Document
+union (`Document.S3Object`/`Document.Bytes` in `types.go`), not an S3 reference. Only existence
+is checked (`s3.InMemoryBackend.HeadObject`, which itself distinguishes a missing bucket from a
+missing key) — "unreadable" or "wrong format" would require decoding the object, which this
+mock does not and should not simulate.
+
+`DocumentLocation` (`StartDocumentAnalysis`/`StartDocumentTextDetection`/
+`StartExpenseAnalysis`/`StartLendingAnalysis`) has no `Bytes` alternative in the real SDK — only
+`S3Object` — so every Start* request already required a non-empty bucket/key before this
+change; the new check runs after that existing requirement.
+
+Regression tests: `services/textract/s3_object_test.go` —
+`TestSyncDocumentOps_S3ObjectValidation` (table: AnalyzeDocument/AnalyzeExpense/
+DetectDocumentText), `TestAnalyzeID_S3ObjectValidation` (per-DocumentPages-entry),
+`TestStartOps_S3ObjectValidation` (table: all four Start ops), each asserting a missing
+bucket/key is rejected (400, `InvalidS3ObjectException`) and an existing one succeeds (200,
+proving the check does not reject everything). `TestAnalyzeDocument_UnwiredS3StaysPermissive` /
+`TestStartDocumentAnalysis_UnwiredS3StaysPermissive` prove the unwired path stays permissive.
+`TestAnalyzeDocument_InlineBytesUnaffected` proves inline `Bytes` is never checked. All fail
+against a neutered `checkS3Object` (HeadObject called but its result discarded) and pass
+against the fix. `cli_textract_rekognition_s3_wiring_test.go` (root package) drives the real
+`initializeServices` composition root end-to-end.
+
+Gates: `go build ./...`, `go test -race -count=1 ./services/textract/...` and `.` (root),
+`golangci-lint run ./ services/rekognition/... services/textract/...` — all clean.
