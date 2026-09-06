@@ -3555,6 +3555,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// referenced object exists (gopherstack-eshx).
 	wireTextractS3(byName["Textract"], byName["S3"])
 	wireRekognitionS3(byName["Rekognition"], byName["S3"])
+
+	// Wire Backup → S3 so StartBackupJob validates an S3-typed ResourceArn
+	// names a bucket that actually exists, instead of accepting any
+	// non-empty ResourceArn regardless of whether it resolves to a real
+	// resource (gopherstack-0o0q).
+	wireBackupS3(byName["Backup"], byName["S3"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -6022,6 +6028,30 @@ func wireCloudTrailS3(cloudtrailReg, s3Reg service.Registerable) {
 	}
 
 	ctH.Backend.SetS3Backend(s3Bk)
+}
+
+// wireBackupS3 connects the Backup backend to S3 so StartBackupJob validates
+// an S3-typed ResourceArn names a bucket that actually exists, instead of
+// accepting any non-empty ResourceArn regardless of whether it resolves to a
+// real resource (gopherstack-0o0q). s3.InMemoryBackend already satisfies
+// backup.S3Backend directly, so no adapter is needed.
+func wireBackupS3(backupReg, s3Reg service.Registerable) {
+	backupH, ok := backupReg.(*backupbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	backupH.Backend.SetS3Backend(s3Bk)
 }
 
 // wireTextractS3 connects the Textract backend to S3 so a Document/

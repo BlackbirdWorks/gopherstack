@@ -30,6 +30,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
+// SetS3Backend wires S3 so StartBackupJob validates an S3-typed ResourceArn
+// names a bucket that actually exists, instead of accepting any non-empty
+// ResourceArn regardless of whether it resolves to a real resource
+// (gopherstack-0o0q).
+func (b *InMemoryBackend) SetS3Backend(s3 S3Backend) {
+	b.s3 = s3
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 

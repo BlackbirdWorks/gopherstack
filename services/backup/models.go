@@ -424,6 +424,7 @@ type VaultNotificationConfig struct {
 // store_setup.go. A handful of maps remain plain map[string]string because
 // their values are not *T (mirroring services/ses's "policies" precedent).
 type InMemoryBackend struct {
+	s3                             S3Backend
 	regionSettings                 *RegionSettings
 	mu                             *lockmetrics.RWMutex
 	registry                       *store.Registry
