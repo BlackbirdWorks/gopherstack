@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 22 (20 ok, 1 partial, 1 gap) |
 | Feature families | 6 (5 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
@@ -25,7 +25,6 @@
 - GetPipelineExecution/ListPipelineExecutions omit ArtifactRevisions/Variables/SourceRevisions/StatusSummary/StopTrigger -- no artifact-store content model, pipeline-variable resolution engine, or stop-reason tracking exists anywhere else in this backend to source real values from (all are optional fields, SDK-safe to omit).
 - handleError's ResourceInUseException (DeleteCustomActionType) and InvalidActionException (dispatch's unknown-action fallback) both name no type codepipeline@v1.49.4 declares; left unfixed because no operation's own deserializer models a matching code to substitute -- see the 2026-08-29 errcodeaudit note near the top of this file for full SDK citations.
 - 2026-09-04 (gopherstack-ary): built-in action providers never actually do anything -- runOneAction (action_engine.go) marks every non-Approval action Succeeded unconditionally regardless of ActionTypeID.Category/Provider/Owner. A Lambda-invoke action never calls services/lambda, an S3 source/deploy action never reads/writes services/s3, a CodeBuild/CodeDeploy action never drives those services. Action configurations are accepted and stored (CreatePipeline) but are otherwise inert. Same root class as the JobData/ArtifactRevisions gaps above (no artifact-store, no cross-service action dispatch), but not previously called out explicitly for the built-in provider case. Not fixed -- a real fix means a per-provider dispatch subsystem calling into services/lambda, services/s3, services/codebuild, services/codedeploy, a new subsystem out of scope for this pass.
-- 2026-09-04 (gopherstack-ary): GetThirdPartyJobDetails/PutThirdPartyJobSuccessResult/PutThirdPartyJobFailureResult all discard their required clientToken parameter entirely (never validated against anything) -- confirmed required on all three plus AcknowledgeThirdPartyJob via api_op_*.go doc comments ('used to verify that the calling entity is allowed access to the job and its details'). Not fixed: same root cause as the already-documented PollForThirdPartyJobs ClientId gap -- this backend never issues a ClientId/clientToken pair anywhere, so there is nothing a submitted clientToken could be checked against without fabricating an issuance model wholesale.
 
 ### Deferred
 
