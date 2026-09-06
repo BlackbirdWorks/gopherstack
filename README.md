@@ -539,14 +539,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge](services/eventbridge/README.md) | A | 62 | 2 gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
-| [Pinpoint](services/pinpoint/README.md) | A | 48 | 3 deferred |
+| [Pinpoint](services/pinpoint/README.md) | A | 48 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 7 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 4 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 12 gaps; 1 deferred |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 7 gaps |
-| [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
+| [WorkMail](services/workmail/README.md) | A | 92 | 4 gaps |
 
 ### Analytics
 
