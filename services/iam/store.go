@@ -674,6 +674,10 @@ func (b *InMemoryBackend) Reset() {
 	b.sortedPolicyNames = nil
 	b.sortedGroupNames = nil
 	b.sortedIPNames = nil
+	b.passwordPolicy = nil
+	b.currentPassword = ""
+	b.currentPasswordHistory = nil
+	b.outboundFederationEnabled = true
 	b.resetComprehensiveLocked()
 }
 
