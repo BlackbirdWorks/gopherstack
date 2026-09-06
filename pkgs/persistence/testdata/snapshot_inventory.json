@@ -6712,6 +6712,23 @@
     ],
     "version": 1
   },
+  "cosmosdb": {
+    "fields": [
+      "backendSnapshot.Databases map[string]*storedDatabase `json:\"databases\"`",
+      "documentCompositeKey.ID string",
+      "documentCompositeKey.PartitionKeyJSON string",
+      "storedContainer.Documents map[documentCompositeKey]*storedDocument",
+      "storedContainer.ID string",
+      "storedContainer.PartitionKeyPath string",
+      "storedDatabase.Containers map[string]*storedContainer",
+      "storedDatabase.ID string",
+      "storedDocument.Body map[string]any",
+      "storedDocument.ID string",
+      "storedDocument.PartitionKeyJSON string",
+      "storedDocument.Timestamp time.Time"
+    ],
+    "version": 1
+  },
   "databrew": {
     "fields": [
       "CsvOptions.Delimiter string `json:\"Delimiter,omitempty\"`",

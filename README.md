@@ -477,7 +477,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 3 gaps; 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 7 gaps; 3 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 8 gaps; 3 deferred |
 | [EKS](services/eks/README.md) | A | 65 | 7 gaps; 1 deferred |
 
 ### Storage
@@ -519,9 +519,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 122 | 12 gaps; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 5 deferred |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 6 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
-| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 gaps; 1 deferred |
+| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 5 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
@@ -535,8 +535,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 3 gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 74 | 5 gaps; 2 deferred |
-| [EventBridge](services/eventbridge/README.md) | A | 62 | 1 gap; 2 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 7 gaps; 2 deferred |
+| [EventBridge](services/eventbridge/README.md) | A | 62 | 2 gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 48 | 3 deferred |
@@ -562,7 +562,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis](services/kinesis/README.md) | A | 39 | 12 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
-| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 6 gaps; 7 deferred |
+| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 6 gaps; 6 deferred |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 8 gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
@@ -573,7 +573,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [ACM](services/acm/README.md) | A | 38 | 6 gaps; 3 deferred |
+| [ACM](services/acm/README.md) | A | 38 | 7 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 9 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 3 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps; 1 structural gap; 5 deferred |
@@ -611,7 +611,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 5 gaps |
-| [CloudTrail](services/cloudtrail/README.md) | A | 60 | 12 gaps |
+| [CloudTrail](services/cloudtrail/README.md) | A | 60 | 13 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 84 | 30 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
@@ -622,7 +622,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 3 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 9 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 105 | 29 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 105 | 30 gaps |
 
 ### Developer Tools
 
@@ -673,7 +673,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 86 | clean |
+| [IoT Core](services/iot/README.md) | A | 87 | clean |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 5 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 15 | 1 gap |
 
@@ -694,6 +694,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azurequeue](services/azurequeue/README.md) | C | 9 | 7 gaps; 1 deferred |
 | [Azuretable](services/azuretable/README.md) | C | 10 | 6 gaps; 3 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | B | 6 | 3 gaps; 1 structural gap |
+| [Cosmosdb](services/cosmosdb/README.md) | C | 15 | 9 gaps; 5 deferred |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 3 gaps; 8 structural gaps; 1 deferred |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |

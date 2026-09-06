@@ -21,11 +21,11 @@
 - No SetQueueMetadata/GetQueueMetadata, no queue ACL (Set/Get Queue ACL / SAS-scoped access policies).
 - No poison-message / dead-letter handling -- DequeueCount is tracked and returned but nothing acts on it (contrast services/sqs's DLQ).
 - Visibility-timeout expiry is checked lazily at read time (Get/Peek Messages), not proactively swept -- functionally correct (a message becomes visible again exactly when TimeNextVisible passes, regardless of sweep timing) but differs from message-TTL expiry, which the Janitor does proactively sweep.
-- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M1/M2 split (see AZURE.md section 8's M2 entry), not oversights.
+- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M1 entry (see AZURE.md section 8), not oversights.
 
 ### Deferred
 
-- Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M2 (see AZURE.md section 8; note the milestone numbering there differs from this task's internal M1 naming). Structurally mirrors services/azureblob's M0 implementation and PARITY.md format; no prior audit history to reconcile.
+- Initial implementation pass (2026-09-04): seeded this service from scratch per AZURE.md M1 (see AZURE.md section 8). Structurally mirrors services/azureblob's M0 implementation and PARITY.md format; no prior audit history to reconcile.
 
 ## More
 

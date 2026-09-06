@@ -151,6 +151,18 @@ var azureQueueEndpoint string
 //nolint:gochecknoglobals // Set in TestMain for integration tests.
 var azureTableEndpoint string
 
+// cosmosDBEndpoint is the Azure Cosmos DB (Core/SQL API)-compatible endpoint
+// for the running Gopherstack container (its own dedicated port -- see
+// services/cosmosdb/provider.go and AZURE.md section 4 for why this service
+// cannot share the main AWS endpoint/port, or any of AzureBlob's/
+// AzureQueue's/AzureTable's own dedicated ports). Left empty (and Cosmos DB
+// tests skipped) if the mapped port cannot be determined, mirroring
+// azureTableEndpoint's non-fatal behavior above. This is initialized by
+// TestMain before running integration tests.
+//
+//nolint:gochecknoglobals // Set in TestMain for integration tests.
+var cosmosDBEndpoint string
+
 // sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
 // This is initialized by TestMain before running integration tests.
 //
@@ -209,6 +221,30 @@ func requireStaticELF(path string) error {
 	}
 
 	return nil
+}
+
+// resolveMappedEndpoint looks up container's host-mapped port for
+// containerPort and, on success, returns a "<scheme>://localhost:<port>"
+// endpoint after logging it as available under label. On failure it logs a
+// warning naming which tests will be skipped and returns "", leaving the
+// corresponding endpoint global unset -- callers must not treat "" as a
+// real endpoint.
+func resolveMappedEndpoint(
+	ctx context.Context, container testcontainers.Container, logger *slog.Logger,
+	containerPort, scheme, label, skippedTests string,
+) string {
+	port, err := container.MappedPort(ctx, containerPort)
+	if err != nil {
+		logger.WarnContext(ctx, "failed to get mapped port; tests will be skipped",
+			"label", label, "skipped", skippedTests, "error", err)
+
+		return ""
+	}
+
+	resolved := scheme + "://localhost:" + port.Port()
+	logger.InfoContext(ctx, label+" running", "endpoint", resolved)
+
+	return resolved
 }
 
 func TestMain(m *testing.M) {
@@ -275,7 +311,7 @@ func TestMain(m *testing.M) {
 				options.PullParent = false
 			},
 		},
-		ExposedPorts: []string{"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp"},
+		ExposedPorts: []string{"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "8081/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
 				WithPort("8000/tcp").
@@ -288,6 +324,8 @@ func TestMain(m *testing.M) {
 			wait.ForListeningPort("10001/tcp").
 				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("10002/tcp").
+				WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort("8081/tcp").
 				WithStartupTimeout(60*time.Second),
 		),
 	}
@@ -322,37 +360,15 @@ func TestMain(m *testing.M) {
 
 	logger.Info("gopherstack state reset; starting tests")
 
-	mqttPort, err := container.MappedPort(ctx, "1883")
-	if err != nil {
-		logger.Warn("failed to get MQTT mapped port; IoT tests will be skipped", "error", err)
-	} else {
-		mqttEndpoint = "tcp://localhost:" + mqttPort.Port()
-		logger.Info("MQTT broker running", "endpoint", mqttEndpoint)
-	}
-
-	azureBlobPort, err := container.MappedPort(ctx, "10000")
-	if err != nil {
-		logger.Warn("failed to get Azure Blob mapped port; Azure Blob tests will be skipped", "error", err)
-	} else {
-		azureBlobEndpoint = "http://localhost:" + azureBlobPort.Port()
-		logger.Info("Azure Blob Storage-compatible endpoint running", "endpoint", azureBlobEndpoint)
-	}
-
-	azureQueuePort, err := container.MappedPort(ctx, "10001")
-	if err != nil {
-		logger.Warn("failed to get Azure Queue mapped port; Azure Queue tests will be skipped", "error", err)
-	} else {
-		azureQueueEndpoint = "http://localhost:" + azureQueuePort.Port()
-		logger.Info("Azure Queue Storage-compatible endpoint running", "endpoint", azureQueueEndpoint)
-	}
-
-	azureTablePort, err := container.MappedPort(ctx, "10002")
-	if err != nil {
-		logger.Warn("failed to get Azure Table mapped port; Azure Table tests will be skipped", "error", err)
-	} else {
-		azureTableEndpoint = "http://localhost:" + azureTablePort.Port()
-		logger.Info("Azure Table Storage-compatible endpoint running", "endpoint", azureTableEndpoint)
-	}
+	mqttEndpoint = resolveMappedEndpoint(ctx, container, logger, "1883", "tcp", "MQTT broker", "IoT")
+	azureBlobEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10000", "http", "Azure Blob Storage-compatible endpoint", "Azure Blob")
+	azureQueueEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10001", "http", "Azure Queue Storage-compatible endpoint", "Azure Queue")
+	azureTableEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10002", "http", "Azure Table Storage-compatible endpoint", "Azure Table")
+	cosmosDBEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "8081", "http", "Cosmos DB (Core/SQL API)-compatible endpoint", "Cosmos DB")
 
 	code := m.Run()
 
