@@ -81,6 +81,10 @@ func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) 
 		return nil, ErrDetectorNotFound
 	}
 
+	if b.autoEnableOrgMembersAll(detectorID) {
+		return nil, ErrValidation
+	}
+
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
@@ -93,6 +97,18 @@ func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) 
 	}
 
 	return unprocessed, nil
+}
+
+// autoEnableOrgMembersAll reports whether the detector's org config has
+// autoEnableOrganizationMembers set to ALL, in which case real GuardDuty
+// rejects DeleteMembers/DisassociateMembers/StopMonitoringMembers for
+// accounts still in the organization. Member has no still-in-org-vs-left
+// field, so this approximates by rejecting for the whole detector rather
+// than per account.
+func (b *InMemoryBackend) autoEnableOrgMembersAll(detectorID string) bool {
+	cfg, ok := b.orgConfigs.Get(detectorID)
+
+	return ok && cfg.AutoEnableOrganizationMembers == "ALL"
 }
 
 // GetMembers retrieves member account details.
@@ -228,6 +244,10 @@ func (b *InMemoryBackend) StopMonitoringMembers(detectorID string, accountIDs []
 		return nil, ErrDetectorNotFound
 	}
 
+	if b.autoEnableOrgMembersAll(detectorID) {
+		return nil, ErrValidation
+	}
+
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
@@ -253,6 +273,10 @@ func (b *InMemoryBackend) DisassociateMembers(detectorID string, accountIDs []st
 
 	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
+	}
+
+	if b.autoEnableOrgMembersAll(detectorID) {
+		return nil, ErrValidation
 	}
 
 	var unprocessed []map[string]any
