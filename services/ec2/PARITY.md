@@ -3817,3 +3817,70 @@ Gates: `go build ./services/ec2/...` (clean), `go vet ./services/ec2/...`
 `GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/ec2/...` (0 issues,
 after `golines`-wrapping two over-length call sites). No banned `//nolint`s
 introduced. Did NOT commit, push, or run any `bd` write command.
+
+## 2026-09-06 -- closed the three IAM-instance-profile/security-group gaps left open above (gopherstack-2mk2, gopherstack-847g, gopherstack-hmfm)
+
+All three "NOTED, NOT FIXED" items from the 2026-09-03/04 pass above are now
+fixed, deliberately together since 847g and hmfm both touch
+`iamAssociations` state.
+
+FOUND AND FIXED: (1) `RunInstances` ignored `SecurityGroup.N` (group name)
+entirely, reading only `SecurityGroupId.N`. Real
+`RunInstancesInput.SecurityGroups` doc comment (`api_op_RunInstances.go`):
+"[Default VPC] The names of the security groups." -- a name only resolves
+for the account's default VPC; `validateSecurityGroupIDs`
+(`handler_filters.go`) now also parses `SecurityGroup.N`, resolves each name
+against the launch target's VPC (the given `SubnetId`'s VPC, or the default
+VPC), and rejects a name given for a subnet in a non-default VPC with
+`InvalidParameterCombination` ("The parameter groupName cannot be used with
+the parameter subnet"), matching real AWS. `SecurityGroupId.N` behavior is
+unchanged. (2) `AssociateIamInstanceProfile` had no check for an instance
+that already has an active association, though real AWS "cannot associate
+more than one IAM instance profile with an instance"
+(`api_op_AssociateIamInstanceProfile.go`); it now rejects a second
+association on the same instance with `IncorrectState` ("There is an
+existing association for instance ..."), consistent with this package's
+existing `IncorrectState` usage for other already-in-that-state conflicts.
+(3) `TerminateInstances` never disassociated a terminated instance's IAM
+instance profile association, so it was observable as `state=associated` in
+`DescribeIamInstanceProfileAssociations` forever, pointing at an instance
+that no longer accepts new associations. `TerminateInstances` now removes
+every `IamInstanceProfileAssociation` for the terminated instance (same
+hard-delete semantics `DisassociateIamInstanceProfile` already uses); a
+second instance's association is untouched. Association IDs are UUID-based
+and never reused, so disassociating on terminate does not introduce a
+reuse hazard.
+
+Fixing (3) exposed a latent, unrelated gap: `ErrIAMAssociationNotFound` was
+never registered in `errCodeLookup`, so `DisassociateIamInstanceProfile` (or
+`ReplaceIamInstanceProfileAssociation`) on an unknown association ID
+returned `InternalFailure`/500 instead of `InvalidAssociationID.NotFound`/
+400 -- unreachable before this pass (the association row lived forever), but
+now reachable via "terminate, then try to disassociate the same
+association". Registered it (`InvalidAssociationID.NotFound`, matching
+`ErrAssociationNotFound`'s code for the same not-found class used
+elsewhere for route-table/EIP/etc. associations). Factored the
+three-times-repeated `"InvalidAssociationID.NotFound"` literal into
+`errCodeInvalidAssociationIDNotFound` to satisfy `goconst`.
+
+No `Backend` interface signature changed; no persisted struct field/type
+changed (`IamInstanceProfileAssociation`/`SecurityGroup` shapes are
+untouched), so no `ec2SnapshotVersion` bump.
+
+New tests: `TestRunInstances_SecurityGroupNames` (name resolves in default
+VPC; name rejected for a non-default-VPC subnet; `SecurityGroupId.N` still
+works, in `run_instances_security_group_names_test.go`),
+`TestAssociateIamInstanceProfile_RejectsSecondAssociation` and
+`TestTerminateInstances_DisassociatesIamInstanceProfile`
+(`iam_instance_profile_lifecycle_test.go`) -- the latter two share one file
+given the interaction, and mutually confirm terminating one instance never
+disturbs a second instance's live association. Each guard was neutered
+individually (by line, `cp`/`git show HEAD:`-restored afterward, not `git
+checkout`) and confirmed to fail only its own test; the other two tests
+stayed green under each neuter.
+
+Gates: `go build ./services/ec2/...` and `go build ./...` (clean),
+`GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/ec2/...` (pass, full
+suite including the three new tests), `GOTOOLCHAIN=go1.26.6 golangci-lint
+run ./services/ec2/...` (0 issues). No banned `//nolint`s introduced. Did
+NOT commit, push, or run any `bd` write command.

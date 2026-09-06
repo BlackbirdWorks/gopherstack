@@ -997,6 +997,11 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// them is the safe, non-destructive equivalent.
 		// Also disassociate any Elastic IPs associated with the terminated instance.
 		b.detachVolumesAndEIPsLocked(id)
+
+		// A terminated instance can't hold an IAM instance profile association
+		// (gopherstack-hmfm): without this the association outlives the
+		// instance and DescribeIamInstanceProfileAssociations returns it forever.
+		b.disassociateIamInstanceProfilesLocked(id)
 	}
 
 	return result, nil

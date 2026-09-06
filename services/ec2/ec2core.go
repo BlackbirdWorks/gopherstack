@@ -53,6 +53,11 @@ var (
 	ErrEgressOnlyIGWNotFound = errors.New("InvalidEgressOnlyInternetGatewayID.NotFound")
 	// ErrIAMAssociationNotFound is returned when an IAM instance profile association is not found.
 	ErrIAMAssociationNotFound = errors.New("InvalidAssociationID.NotFound")
+	// ErrIAMInstanceProfileAlreadyAssociated is returned by AssociateIamInstanceProfile
+	// when the target instance already has an active association: real AWS
+	// "You cannot associate more than one IAM instance profile with an
+	// instance" (ec2@v1.319.1 api_op_AssociateIamInstanceProfile.go).
+	ErrIAMInstanceProfileAlreadyAssociated = errors.New("IncorrectState")
 	// ErrTGWRouteTableNotFound is returned when a transit gateway route table is not found.
 	ErrTGWRouteTableNotFound = errors.New("InvalidTransitGatewayRouteTableId.NotFound")
 )
@@ -220,6 +225,15 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
+	for _, existing := range b.iamAssociations.All() {
+		if existing.InstanceID == instanceID && existing.State == stateAssociated {
+			return nil, fmt.Errorf(
+				"%w: There is an existing association for instance %s",
+				ErrIAMInstanceProfileAlreadyAssociated, instanceID,
+			)
+		}
+	}
+
 	assoc := &IamInstanceProfileAssociation{
 		AssociationID:      newIAMInstanceProfileAssociationID(),
 		InstanceID:         instanceID,
@@ -254,6 +268,18 @@ func (b *InMemoryBackend) DisassociateIamInstanceProfile(
 	cp := *assoc
 
 	return &cp, nil
+}
+
+// disassociateIamInstanceProfilesLocked removes every IAM instance profile
+// association for instanceID. Called from TerminateInstances so a terminated
+// instance never leaves a ghost "associated" row behind (gopherstack-hmfm).
+// Must be called with b.mu held.
+func (b *InMemoryBackend) disassociateIamInstanceProfilesLocked(instanceID string) {
+	for _, assoc := range b.iamAssociations.All() {
+		if assoc.InstanceID == instanceID {
+			b.iamAssociations.Delete(assoc.AssociationID)
+		}
+	}
 }
 
 // DescribeIamInstanceProfileAssociations returns IAM instance profile associations,
