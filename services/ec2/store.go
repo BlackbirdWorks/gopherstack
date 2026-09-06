@@ -703,6 +703,20 @@ func (b *InMemoryBackend) Reset() {
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0
 
+	// Reset account-level default settings set via Enable/Disable/Modify*
+	// operations. These aren't store.Table-backed and, unlike the maps below,
+	// were never re-initialised by any init*Maps helper -- only their Go zero
+	// value at construction made them look reset.
+	b.instanceMetadataDefaults = nil
+	b.instanceEventNotifAttrs = nil
+	b.spotDatafeed = nil
+	b.snapshotBlockPublicAccess = ""
+	b.ebsDefaultKmsKeyID = ""
+	b.imageBlockPublicAccess = ""
+	b.defaultCreditSpec = ""
+	b.ebsEncryptionByDefault = false
+	b.serialConsoleAccess = false
+
 	b.resetNewOpsMapsLocked()
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
@@ -734,6 +748,8 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.addressTransfers = make(map[string]*AddressTransfer)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	initCoreExtraMaps(b)
+	initBatch6Maps(b)
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
