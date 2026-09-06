@@ -13,9 +13,17 @@ type ensureCall struct {
 	stream string
 }
 
+// putCall records one PutLogLines invocation.
+type putCall struct {
+	group    string
+	stream   string
+	messages []string
+}
+
 // mockECSCWLogsBackend is a test double for CWLogsBackend.
 type mockECSCWLogsBackend struct {
 	ensured []ensureCall
+	puts    []putCall
 	mu      sync.Mutex
 }
 
@@ -27,7 +35,14 @@ func (m *mockECSCWLogsBackend) EnsureLogGroupAndStream(groupName, streamName str
 	return nil
 }
 
-func (m *mockECSCWLogsBackend) PutLogLines(_, _ string, _ []string) error {
+// PutLogLines records every call so tests can assert on forwarded log
+// content (see docker_runner_internal_test.go's forwarding tests), instead
+// of only being usable to prove EnsureLogGroupAndStream calls as before.
+func (m *mockECSCWLogsBackend) PutLogLines(groupName, streamName string, messages []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.puts = append(m.puts, putCall{group: groupName, stream: streamName, messages: messages})
+
 	return nil
 }
 
@@ -36,6 +51,13 @@ func (m *mockECSCWLogsBackend) calls() []ensureCall {
 	defer m.mu.Unlock()
 
 	return append([]ensureCall(nil), m.ensured...)
+}
+
+func (m *mockECSCWLogsBackend) putCalls() []putCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]putCall(nil), m.puts...)
 }
 
 func awslogsContainerDef(group, streamPrefix string) ContainerDefinition {

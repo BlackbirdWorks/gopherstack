@@ -1,13 +1,17 @@
 package ecs
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
@@ -26,14 +30,24 @@ var (
 // fakeDockerClient is a test double for dockerClient.
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
-	startErrOnID  string
-	stopErrOnID   string
-	started       []string
-	stopped       []string
-	removed       []string
-	nextID        int
-	failAllStarts bool
-	mu            sync.Mutex
+	startErrOnID string
+	stopErrOnID  string
+	// containerLogs, keyed by container ID, is returned verbatim (already in
+	// stdcopy's multiplexed frame format -- see muxFrame) by ContainerLogs.
+	// A missing entry yields an empty, already-EOF stream.
+	containerLogs   map[string][]byte
+	started         []string
+	stopped         []string
+	removed         []string
+	logsRequestedOn []string
+	nextID          int
+	failAllStarts   bool
+	// blockLogsUntilCanceled, when true, makes ContainerLogs return a reader
+	// that blocks on its ctx instead of the fixed containerLogs payload --
+	// used to prove StopTask/rollback cancel an in-flight log forwarder.
+	blockLogsUntilCanceled bool
+	blockedReaderCanceled  atomic.Bool
+	mu                     sync.Mutex
 }
 
 func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.PullOptions) (io.ReadCloser, error) {
@@ -94,6 +108,57 @@ func (f *fakeDockerClient) ContainerRemove(_ context.Context, containerID string
 	f.removed = append(f.removed, containerID)
 
 	return nil
+}
+
+// ContainerLogs returns the fixed, already-EOF stream configured for
+// containerID in f.containerLogs (or an empty one). It ignores Follow: real
+// containers eventually stop producing output too, so a bounded fake stream
+// exercises the same "runs to completion" code path deterministically.
+func (f *fakeDockerClient) ContainerLogs(
+	ctx context.Context,
+	containerID string,
+	_ dockertypes.LogsOptions,
+) (io.ReadCloser, error) {
+	f.mu.Lock()
+	f.logsRequestedOn = append(f.logsRequestedOn, containerID)
+	block := f.blockLogsUntilCanceled
+	payload := f.containerLogs[containerID]
+	f.mu.Unlock()
+
+	if block {
+		return &ctxAwareReadCloser{ctx: ctx, canceled: &f.blockedReaderCanceled}, nil
+	}
+
+	return io.NopCloser(bytes.NewReader(payload)), nil
+}
+
+// ctxAwareReadCloser blocks on Read until ctx is done, then reports EOF and
+// records that it observed the cancellation.
+type ctxAwareReadCloser struct {
+	ctx      context.Context
+	canceled *atomic.Bool
+}
+
+func (r *ctxAwareReadCloser) Read(_ []byte) (int, error) {
+	<-r.ctx.Done()
+	r.canceled.Store(true)
+
+	return 0, io.EOF
+}
+
+func (r *ctxAwareReadCloser) Close() error { return nil }
+
+// muxFrame encodes payload as one stdcopy-framed chunk: an 8-byte header
+// (stream type, 3 zero bytes, big-endian uint32 length) followed by payload,
+// matching the wire format stdcopy.StdCopy demultiplexes (see
+// github.com/moby/moby/api/pkg/stdcopy@v1.55.0's stdcopy.go doc comment).
+func muxFrame(streamType byte, payload string) []byte {
+	frame := make([]byte, 8+len(payload))
+	frame[0] = streamType
+	binary.BigEndian.PutUint32(frame[4:8], uint32(len(payload)))
+	copy(frame[8:], payload)
+
+	return frame
 }
 
 func TestBuildPortMappings(t *testing.T) {
@@ -643,4 +708,130 @@ func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) {
 	fake.mu.Unlock()
 
 	assert.Equal(t, 1, stoppedCount, "container must be stopped via Docker runner")
+}
+
+// TestDockerRunner_ForwardsAwslogsContainerOutput proves gopherstack-jnct's
+// fix: an awslogs-driver container's real stdout/stderr -- read via
+// dockerClient.ContainerLogs and demultiplexed with stdcopy.StdCopy -- now
+// reaches CloudWatch Logs through PutLogLines, instead of the log
+// group/stream existing but staying forever empty because nothing ever read
+// the container's output.
+func TestDockerRunner_ForwardsAwslogsContainerOutput(t *testing.T) {
+	t.Parallel()
+
+	containerOneID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 1)
+
+	fake := &fakeDockerClient{
+		containerLogs: map[string][]byte{
+			containerOneID: append(
+				muxFrame(1, "stdout line\n"),
+				muxFrame(2, "stderr line\n")...,
+			),
+		},
+	}
+	runner := newDockerRunnerWithClient(context.Background(), fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+
+	mock := &mockECSCWLogsBackend{}
+	backend.SetCWLogsBackend(mock)
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "awslogs-docker",
+		ContainerDefinitions: []ContainerDefinition{awslogsContainerDef("/ecs/myapp", "")},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-docker"})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	wantStream := taskIDFromARN(tasks[0].TaskArn)
+
+	require.Eventually(t, func() bool {
+		return len(mock.putCalls()) >= 2
+	}, 2*time.Second, 10*time.Millisecond, "both log lines must be forwarded to CloudWatch Logs")
+
+	var gotLines []string
+
+	for _, p := range mock.putCalls() {
+		assert.Equal(t, "/ecs/myapp", p.group)
+		assert.Equal(t, wantStream, p.stream)
+		gotLines = append(gotLines, p.messages...)
+	}
+
+	assert.Equal(t, []string{"stdout line", "stderr line"}, gotLines)
+}
+
+// TestDockerRunner_NonAwslogsContainer_LogsNotRequested proves only an
+// awslogs-driver container triggers ContainerLogs -- a container with no
+// LogConfiguration (the common case) must not have its output read at all.
+func TestDockerRunner_NonAwslogsContainer_LogsNotRequested(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{}
+	runner := newDockerRunnerWithClient(context.Background(), fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+	backend.SetCWLogsBackend(&mockECSCWLogsBackend{})
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "no-logconfig",
+		ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "no-logconfig"})
+	require.NoError(t, err)
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	assert.Empty(t, fake.logsRequestedOn, "a container with no awslogs LogConfiguration must never have its logs read")
+}
+
+// TestDockerRunner_StopTask_CancelsLogForwarding proves that stopping a task
+// cancels its container's in-flight log forwarder rather than leaking the
+// goroutine blocked in ContainerLogs(Follow: true) forever. The fake's
+// ContainerLogs blocks on the context RunTask passed it and only reports
+// having observed cancellation once that context is done, so this can only
+// pass if StopTask actually cancels it.
+func TestDockerRunner_StopTask_CancelsLogForwarding(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{blockLogsUntilCanceled: true}
+	runner := newDockerRunnerWithClient(context.Background(), fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+	backend.SetCWLogsBackend(&mockECSCWLogsBackend{})
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "awslogs-block",
+		ContainerDefinitions: []ContainerDefinition{awslogsContainerDef("/ecs/blockapp", "")},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-block"})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	require.Eventually(t, func() bool {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+
+		return len(fake.logsRequestedOn) > 0
+	}, 2*time.Second, 10*time.Millisecond, "RunTask must have started forwarding before we stop the task")
+
+	_, err = backend.StopTask("test", tasks[0].TaskArn, "test stop")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return fake.blockedReaderCanceled.Load()
+	}, 2*time.Second, 10*time.Millisecond, "StopTask must cancel the container's in-flight log forwarder")
 }

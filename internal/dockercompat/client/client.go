@@ -178,6 +178,27 @@ func (c *Client) ContainerRemove(
 	return err
 }
 
+// ContainerLogs returns a stream of a container's stdout/stderr. The caller
+// must close it. Unless the container was created with a TTY, the stream is
+// multiplexed per moby/moby/client's ContainerLogsOptions doc and must be
+// demultiplexed with stdcopy.StdCopy before use.
+func (c *Client) ContainerLogs(
+	ctx context.Context,
+	containerID string,
+	options compatcontainer.LogsOptions,
+) (io.ReadCloser, error) {
+	return c.inner.ContainerLogs(ctx, containerID, mobyclient.ContainerLogsOptions{
+		ShowStdout: options.ShowStdout,
+		ShowStderr: options.ShowStderr,
+		Since:      options.Since,
+		Until:      options.Until,
+		Timestamps: options.Timestamps,
+		Follow:     options.Follow,
+		Tail:       options.Tail,
+		Details:    options.Details,
+	})
+}
+
 // ContainerList lists containers matching the provided filters.
 func (c *Client) ContainerList(
 	ctx context.Context,

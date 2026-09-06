@@ -44,3 +44,15 @@ type ListOptions struct {
 	All     bool
 	Size    bool
 }
+
+// LogsOptions models the subset of container logs options used in this repo.
+type LogsOptions struct {
+	Since      string
+	Until      string
+	Tail       string
+	ShowStdout bool
+	ShowStderr bool
+	Timestamps bool
+	Follow     bool
+	Details    bool
+}
