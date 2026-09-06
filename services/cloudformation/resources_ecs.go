@@ -219,7 +219,9 @@ func (rc *ResourceCreator) deleteECRRepository(ctx context.Context, arn string) 
 
 	name := resourceNameFromARN(arn)
 
-	_, err := rc.backends.ECR.Backend.DeleteRepository(ctx, name)
+	// force=true preserves pre-existing behavior: stack deletion has never
+	// enforced the repository-not-empty check (no EmptyOnDelete support yet).
+	_, err := rc.backends.ECR.Backend.DeleteRepository(ctx, name, true)
 
 	return err
 }
