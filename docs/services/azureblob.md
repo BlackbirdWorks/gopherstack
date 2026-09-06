@@ -11,7 +11,7 @@ Gopherstack provides an in-memory Azure Blob Storage implementation (Azurite-com
 | `DeleteContainer` | Delete a container |
 | `ListBlobs` | Flat listing of blobs in a container (single page, no pagination) |
 | `PutBlob` | Upload a blob (BlockBlob only, whole-body single-request PUT) |
-| `GetBlob` | Download a blob (supports single-range `Range` header) |
+| `GetBlob` | Download a blob (supports single-range `Range` or `x-ms-range` header) |
 | `GetBlobProperties` | Get blob metadata via `HEAD` |
 | `DeleteBlob` | Delete a blob |
 
@@ -82,7 +82,7 @@ curl "http://localhost:10000/devstoreaccount1/my-container/hello.txt"
 - No Copy Blob (server-side or cross-account) support.
 - No snapshot, versioning, soft-delete, lease, or storage-tier (hot/cool/archive) support.
 - `ListContainers`/`ListBlobs` return every result in one page — no prefix/marker/maxresults pagination.
-- `GetBlob` supports a single `Range`; multi-range requests (`bytes=0-1,3-4`) are rejected rather than served.
+- `GetBlob` supports a single range via `Range` or `x-ms-range` (the latter takes precedence when both are sent, matching real Azure); multi-range requests (`bytes=0-1,3-4`) are rejected rather than served.
 - Auth verification is not enforced (see Authentication above).
 
 ## More
