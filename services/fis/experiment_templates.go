@@ -162,7 +162,7 @@ func validateStopConditions(conditions []experimentTemplateStopConditionDTO) err
 					ErrValidation, i,
 				)
 			}
-		case "aws:cloudwatch:alarm":
+		case stopConditionSourceAlarm:
 			if strings.TrimSpace(sc.Value) == "" {
 				return fmt.Errorf(
 					"%w: stopConditions[%d].value is required when source is \"aws:cloudwatch:alarm\"",

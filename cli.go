@@ -2953,6 +2953,10 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
 	)
 
+	// Wire FIS "aws:cloudwatch:alarm" stop conditions → CloudWatch's
+	// alarm-state-change subscription (gopherstack-x842, gopherstack-9939).
+	wireFISStopConditions(byName["FIS"], byName["CloudWatch"])
+
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
 	// fabricating instance IDs with no EC2-side record.
@@ -5581,6 +5585,40 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
 		}
 	}
+}
+
+// fisAlarmStateSubscriber pins the compile-time check that CloudWatch's
+// InMemoryBackend satisfies fisbackend.AlarmStateSubscriber structurally, with
+// no adapter needed: both sides of the interface are designed in this repo, so
+// their SubscribeAlarmStateChange signatures are kept identical on purpose.
+var _ fisbackend.AlarmStateSubscriber = (*cwbackend.InMemoryBackend)(nil)
+
+// wireFISStopConditions connects FIS experiment stop conditions to CloudWatch's
+// alarm-state-change subscription, so an experiment stops when the alarm named
+// by its "aws:cloudwatch:alarm" stop condition transitions to ALARM
+// (gopherstack-x842, gopherstack-9939). Without this wiring, stop conditions are
+// validated and stored but experiments never react to the alarm they name.
+func wireFISStopConditions(fisReg, cwReg service.Registerable) {
+	type alarmStateSubscriberSetter interface {
+		SetAlarmStateSubscriber(fisbackend.AlarmStateSubscriber)
+	}
+
+	setter, ok := fisReg.(alarmStateSubscriberSetter)
+	if !ok {
+		return
+	}
+
+	cwH, ok := cwReg.(*cwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	setter.SetAlarmStateSubscriber(cwBk)
 }
 
 // cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.

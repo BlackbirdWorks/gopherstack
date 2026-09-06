@@ -594,6 +594,9 @@ func (b *InMemoryBackend) runExperiment(
 	tpl *ExperimentTemplate,
 	actionsMode string,
 ) {
+	unsubscribeStopConditions := b.subscribeStopConditions(expID, tpl.StopConditions)
+	defer unsubscribeStopConditions()
+
 	// PENDING → INITIATING.
 	b.setExperimentStatus(expID, statusInitiating)
 	b.setAllActionStatuses(expID, actionStatusInitiating)
@@ -645,6 +648,45 @@ func (b *InMemoryBackend) runExperiment(
 	}
 
 	b.waitForCompletionOrStop(ctx, expID, faultRules, maxDuration)
+}
+
+// subscribeStopConditions registers a CloudWatch alarm-state-change subscription
+// (gopherstack-9939) for each "aws:cloudwatch:alarm" stop condition in
+// conditions, stopping the experiment the same way StopExperiment does when the
+// named alarm transitions to ALARM. A nil alarmSubscriber (nothing wired into
+// FIS) makes this a no-op, leaving the experiment exactly as it behaved before
+// this feature. The returned func unsubscribes everything registered here and
+// must be called once the experiment reaches a terminal state.
+func (b *InMemoryBackend) subscribeStopConditions(
+	expID string, conditions []ExperimentTemplateStopCondition,
+) func() {
+	b.mu.RLock("subscribeStopConditions")
+	sub := b.alarmSubscriber
+	b.mu.RUnlock()
+
+	if sub == nil {
+		return func() {}
+	}
+
+	var unsubs []func()
+
+	for _, sc := range conditions {
+		if sc.Source != stopConditionSourceAlarm {
+			continue
+		}
+
+		unsubs = append(unsubs, sub.SubscribeAlarmStateChange(sc.Value, func(newState string) {
+			if newState == alarmStateValueAlarm {
+				_, _ = b.StopExperiment(expID)
+			}
+		}))
+	}
+
+	return func() {
+		for _, unsub := range unsubs {
+			unsub()
+		}
+	}
 }
 
 // waitForCompletionOrStop waits for the experiment's action duration to elapse

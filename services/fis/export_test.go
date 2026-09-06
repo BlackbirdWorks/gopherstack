@@ -16,6 +16,10 @@ import (
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
 const DefaultJanitorInterval = defaultFISJanitorInterval
 
+// LifecycleDelayForTest exposes lifecycleDelay so tests can advance a synctest
+// fake clock past a lifecycle transition without hardcoding the real duration.
+const LifecycleDelayForTest = lifecycleDelay
+
 // DefaultExperimentTTL exposes the package default experiment TTL for testing.
 const DefaultExperimentTTL = defaultFISExperimentTTL
 
