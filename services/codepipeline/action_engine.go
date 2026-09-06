@@ -1,6 +1,7 @@
 package codepipeline
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,8 +87,19 @@ func (b *InMemoryBackend) runPipelineActions(region string, p *Pipeline, exec *P
 
 			ae := b.runOneAction(region, p.Declaration.Name, exec.PipelineExecutionID, stage.Name, action)
 
-			if ae.Status == statusInProgress {
+			switch ae.Status {
+			case statusSucceeded:
+				// Move on to the next action.
+			case statusInProgress:
 				exec.Status = statusInProgress
+
+				return
+			default:
+				// statusFailed: a wired CodeBuild/Lambda action reported
+				// failure. The stage is broken and processing does not
+				// continue past it, matching real AWS's stage-scoped
+				// failure semantics (see the doc comment above).
+				exec.Status = statusFailed
 
 				return
 			}
@@ -150,8 +162,11 @@ func resolvedActionStatus(byKey map[string]*ActionExecution, stageName, actionNa
 }
 
 // runOneAction records and executes a single action: Approval-category
-// actions gate the run (InProgress + a fresh token); every other action
-// completes immediately (Succeeded). Callers must hold b.mu.Lock.
+// actions gate the run (InProgress + a fresh token); a built-in Build/
+// CodeBuild or Invoke/Lambda action calls its wired backend and fails the
+// action if that call does (runCodeBuildAction/runLambdaAction); every other
+// action, and either of those two when unwired, completes immediately
+// (Succeeded). Callers must hold b.mu.Lock.
 func (b *InMemoryBackend) runOneAction(
 	region, pipelineName, executionID, stageName string,
 	action Action,
@@ -168,13 +183,67 @@ func (b *InMemoryBackend) runOneAction(
 		LastUpdateTime:      now,
 	}
 
-	if action.ActionTypeID.Category == actionCategoryApproval {
+	switch {
+	case action.ActionTypeID.Category == actionCategoryApproval:
 		ae.Status = statusInProgress
 		ae.Token = uuid.NewString()
+	case isBuiltinAction(action, actionProviderCodeBuild) && b.codeBuildBackend != nil:
+		ae.Status = b.runCodeBuildAction(action)
+	case isBuiltinAction(action, actionProviderLambda) && b.lambdaBackend != nil:
+		ae.Status = b.runLambdaAction(action)
 	}
 
 	store := b.actionExecutionsStore(region)
 	store[pipelineName] = append(store[pipelineName], ae)
 
 	return ae
+}
+
+// isBuiltinAction reports whether action is the AWS-owned built-in action
+// type identified by provider (e.g. "CodeBuild", "Lambda"), as opposed to a
+// custom or third-party action type that happens to share the same category.
+func isBuiltinAction(action Action, provider string) bool {
+	return action.ActionTypeID.Owner == actionOwnerAWS && action.ActionTypeID.Provider == provider
+}
+
+// runCodeBuildAction starts a build for a Build/CodeBuild action's
+// configured ProjectName. A missing ProjectName is left to succeed
+// (nothing to call); a project StartBuild can't find fails the action,
+// matching real AWS's StartBuild ResourceNotFoundException. The emulator's
+// CodeBuild backend always eventually completes an accepted build (see
+// codebuild's janitor), so acceptance alone is this synchronous engine's
+// success signal -- it does not wait for the build to finish.
+func (b *InMemoryBackend) runCodeBuildAction(action Action) string {
+	projectName := action.Configuration[configKeyProjectName]
+	if projectName == "" {
+		return statusSucceeded
+	}
+
+	if err := b.codeBuildBackend.StartBuild(projectName); err != nil {
+		return statusFailed
+	}
+
+	return statusSucceeded
+}
+
+// runLambdaAction synchronously invokes an Invoke/Lambda action's configured
+// FunctionName. A missing FunctionName is left to succeed (nothing to call);
+// an invocation error (e.g. the function does not exist) fails the action.
+// This does not model real AWS's asynchronous PutJobSuccessResult/
+// PutJobFailureResult callback protocol for this action type -- see
+// PARITY.md.
+func (b *InMemoryBackend) runLambdaAction(action Action) string {
+	functionName := action.Configuration[configKeyFunctionName]
+	if functionName == "" {
+		return statusSucceeded
+	}
+
+	_, _, err := b.lambdaBackend.InvokeFunction(
+		context.Background(), functionName, "RequestResponse", []byte("{}"),
+	)
+	if err != nil {
+		return statusFailed
+	}
+
+	return statusSucceeded
 }

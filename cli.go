@@ -3616,6 +3616,14 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// non-empty ResourceArn regardless of whether it resolves to a real
 	// resource (gopherstack-0o0q).
 	wireBackupS3(byName["Backup"], byName["S3"])
+
+	// Wire CodePipeline → CodeBuild/Lambda so a Build/CodeBuild action's
+	// ProjectName and an Invoke/Lambda action's FunctionName actually reach
+	// their backend, instead of every non-Approval action being marked
+	// Succeeded unconditionally with no cross-service call at all
+	// (gopherstack-cb9l).
+	wireCodePipelineCodeBuild(byName["CodePipeline"], byName["CodeBuild"])
+	wireCodePipelineLambda(byName["CodePipeline"], byName["Lambda"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -6141,6 +6149,66 @@ func wireBackupS3(backupReg, s3Reg service.Registerable) {
 	}
 
 	backupH.Backend.SetS3Backend(s3Bk)
+}
+
+// wireCodePipelineCodeBuild connects the CodePipeline backend to CodeBuild so
+// a Build/CodeBuild action's ProjectName actually starts a build and fails
+// the action when the project doesn't exist, instead of every non-Approval
+// action being marked Succeeded unconditionally with no cross-service call
+// at all (gopherstack-cb9l). codebuild.InMemoryBackend's StartBuild takes a
+// codebuild-specific StartBuildConfig, so codepipelineCodeBuildAdapter
+// supplies the zero value CodePipeline's Build action has no per-run
+// overrides for.
+func wireCodePipelineCodeBuild(codepipelineReg, codebuildReg service.Registerable) {
+	cpH, ok := codepipelineReg.(*codepipelinebackend.Handler)
+	if !ok {
+		return
+	}
+
+	cbH, cbOk := codebuildReg.(*codebuildbackend.Handler)
+	if !cbOk {
+		return
+	}
+
+	cpH.Backend.SetCodeBuildBackend(&codepipelineCodeBuildAdapter{backend: cbH.Backend})
+}
+
+// codepipelineCodeBuildAdapter adapts the CodeBuild backend to the
+// codepipeline.CodeBuildStarter interface.
+type codepipelineCodeBuildAdapter struct {
+	backend *codebuildbackend.InMemoryBackend
+}
+
+func (a *codepipelineCodeBuildAdapter) StartBuild(projectName string) error {
+	_, err := a.backend.StartBuild(projectName, codebuildbackend.StartBuildConfig{})
+
+	return err
+}
+
+// wireCodePipelineLambda connects the CodePipeline backend to Lambda so an
+// Invoke/Lambda action's FunctionName is actually invoked and fails the
+// action on an invocation error, instead of every non-Approval action being
+// marked Succeeded unconditionally with no cross-service call at all
+// (gopherstack-cb9l). lambda.InMemoryBackend's InvokeFunction already
+// satisfies codepipeline.LambdaInvoker directly (InvocationType is aliased
+// to string), so no adapter is needed.
+func wireCodePipelineLambda(codepipelineReg, lambdaReg service.Registerable) {
+	cpH, ok := codepipelineReg.(*codepipelinebackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
+	if !lambdaOk {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	cpH.Backend.SetLambdaBackend(lambdaBk)
 }
 
 // wireTextractS3 connects the Textract backend to S3 so a Document/
