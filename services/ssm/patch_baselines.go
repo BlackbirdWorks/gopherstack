@@ -792,6 +792,8 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 
 	patchBaselines := b.patchBaselinesStore(region)
 	patchBaselines.Delete(input.BaselineID)
+	delete(b.miscResourceTagsStore(region), input.BaselineID)
+	cleanupEmptyInnerMap(b.miscResourceTags, region)
 
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }

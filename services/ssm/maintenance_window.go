@@ -831,6 +831,9 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 		}
 	}
 
+	delete(b.miscResourceTagsStore(region), input.WindowID)
+	cleanupEmptyInnerMap(b.miscResourceTags, region)
+
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil
 }
 

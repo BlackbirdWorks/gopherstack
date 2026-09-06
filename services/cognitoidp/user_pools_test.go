@@ -686,6 +686,65 @@ func TestInMemoryBackend_UserPoolReplicas(t *testing.T) {
 	}
 }
 
+// TestDeleteUserPoolReplica_CleansResourceTags covers gopherstack-rdq3:
+// unlike a user pool (random id), a replica's ARN is deterministic
+// (region + pool id), so deleting a replica and recreating one for the same
+// pool and Region genuinely inherits the dead replica's tags unless
+// DeleteUserPoolReplica clears resourceTags[replicaARN].
+func TestDeleteUserPoolReplica_CleansResourceTags(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateUserPool("replica-tags-pool")
+	require.NoError(t, err)
+
+	created, err := b.CreateUserPoolReplica(pool.ID, "us-west-2", map[string]string{"env": "prod"})
+	require.NoError(t, err)
+	replicaARN := created.ARN
+
+	require.NotEmpty(t, b.ListTagsForResource(replicaARN))
+
+	_, err = b.DeleteUserPoolReplica(pool.ID, "us-west-2")
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListTagsForResource(replicaARN), "deleted replica's ARN must not still resolve tags")
+
+	// Recreate a replica for the same pool+Region: since the ARN is
+	// deterministic, it must not inherit the dead replica's tags.
+	recreated, err := b.CreateUserPoolReplica(pool.ID, "us-west-2", nil)
+	require.NoError(t, err)
+	require.Equal(t, replicaARN, recreated.ARN, "replica ARN must be deterministic for the same pool+Region")
+
+	assert.Empty(
+		t, b.ListTagsForResource(recreated.ARN), "recreated replica must not inherit the deleted replica's tags",
+	)
+}
+
+// TestDeleteUserPoolReplica_DoesNotDisturbSiblingTags is the negative case:
+// deleting one pool's replica must not touch another pool's replica tags.
+func TestDeleteUserPoolReplica_DoesNotDisturbSiblingTags(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	keepPool, err := b.CreateUserPool("replica-keep-pool")
+	require.NoError(t, err)
+	doomedPool, err := b.CreateUserPool("replica-doomed-pool")
+	require.NoError(t, err)
+
+	kept, err := b.CreateUserPoolReplica(keepPool.ID, "us-west-2", map[string]string{"keep": "me"})
+	require.NoError(t, err)
+	doomed, err := b.CreateUserPoolReplica(doomedPool.ID, "us-west-2", map[string]string{"doomed": "yes"})
+	require.NoError(t, err)
+
+	_, err = b.DeleteUserPoolReplica(doomedPool.ID, "us-west-2")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"keep": "me"}, b.ListTagsForResource(kept.ARN))
+	assert.Empty(t, b.ListTagsForResource(doomed.ARN))
+}
+
 // TestHandler_UserPoolReplicas covers the HTTP handler wire shape for
 // CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/
 // DeleteUserPoolReplica end to end.

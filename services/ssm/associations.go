@@ -518,8 +518,11 @@ func (b *InMemoryBackend) DeleteAssociation(
 		delete(execs, input.AssociationID)
 	}
 
+	delete(b.miscResourceTagsStore(region), input.AssociationID)
+
 	cleanupEmptyInnerMap(b.associationExecutions, region)
 	cleanupEmptyInnerMap(b.associationExecTargets, region)
+	cleanupEmptyInnerMap(b.miscResourceTags, region)
 
 	return &DeleteAssociationOutput{}, nil
 }
