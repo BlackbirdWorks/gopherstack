@@ -25,6 +25,8 @@ const (
 	instanceStatusStopped   = "stopped"
 	instanceStatusRebooting = "rebooting"
 
+	clusterStatusFailingOver = "failing-over"
+
 	subscriptionStatusActive           = "active"
 	backtrackStatusApplying            = "applying"
 	blueGreenDeploymentStatusAvailable = "available"

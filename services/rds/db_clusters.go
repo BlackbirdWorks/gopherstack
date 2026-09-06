@@ -98,12 +98,15 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 		cp := *cluster
+		b.overlayFailoverStatusRLocked(&cp)
 
 		return []DBCluster{cp}, nil
 	}
 	result := make([]DBCluster, 0, b.clusters.Len())
 	for _, cluster := range b.clusters.All() {
-		result = append(result, *cluster)
+		cp := *cluster
+		b.overlayFailoverStatusRLocked(&cp)
+		result = append(result, cp)
 	}
 	slices.SortFunc(result, func(a, b DBCluster) int {
 		if a.DBClusterIdentifier < b.DBClusterIdentifier {
@@ -677,7 +680,7 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, targetDBInstanceIdentifie
 		})
 	}
 
-	cluster.Status = "failing-over"
+	cluster.Status = clusterStatusFailingOver
 	b.publishClusterEventLocked(cluster.DBClusterIdentifier, "DB cluster failover started")
 	if targetIdx >= 0 {
 		for i := range cluster.DBClusterMembers {
@@ -850,4 +853,27 @@ func (b *InMemoryBackend) IsClusterFailoverActive(clusterID string) bool {
 	}
 
 	return true
+}
+
+// clusterFailoverActiveRLocked reports whether a FIS failover fault is active
+// for clusterID, without mutating b.fisFailoverFaults. Caller must hold at
+// least b.mu.RLock(); an expired entry is left in place for the locked
+// IsClusterFailoverActive path to evict.
+func (b *InMemoryBackend) clusterFailoverActiveRLocked(clusterID string) bool {
+	exp, ok := b.fisFailoverFaults[clusterID]
+	if !ok {
+		return false
+	}
+
+	return exp.IsZero() || !time.Now().After(exp)
+}
+
+// overlayFailoverStatusRLocked sets cluster.Status to "failing-over" when a
+// FIS failover fault is active for it, so DescribeDBClusters observably
+// reflects an in-progress FIS failover experiment. Caller must hold at least
+// b.mu.RLock().
+func (b *InMemoryBackend) overlayFailoverStatusRLocked(cluster *DBCluster) {
+	if b.clusterFailoverActiveRLocked(cluster.DBClusterIdentifier) {
+		cluster.Status = clusterStatusFailingOver
+	}
 }
