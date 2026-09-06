@@ -12,9 +12,9 @@ overall: A            # A = ~1k genuine fixes found; B = already-accurate, prove
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateTrail: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "fixed prior pass: response KmsKeyId key case (was KMSKeyId). gopherstack-g9b4 (2026-09-06): now validates S3BucketName exists via the wired S3 backend (SetS3Backend), returning S3BucketDoesNotExistException when missing -- see Notes below. Unwired (no SetS3Backend call): unchanged, permissive."}
+  CreateTrail: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "fixed prior pass: response KmsKeyId key case (was KMSKeyId). gopherstack-g9b4 (2026-09-06): now validates S3BucketName exists via the wired S3 backend (SetS3Backend), returning S3BucketDoesNotExistException when missing -- see Notes below. Unwired (no SetS3Backend call): unchanged, permissive. gopherstack-f94x (2026-09-06): S3KeyPrefix's documented 200-character bound (types/types.go:912-914) was never enforced; now rejected with InvalidS3PrefixException, per the exception CreateTrail itself declares (types/errors.go:1565)."}
   GetTrail: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateTrail: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "gopherstack-g9b4 (2026-09-06): same S3BucketName existence check as CreateTrail when a new bucket is supplied; a rejected update leaves the trail's existing bucket unchanged."}
+  UpdateTrail: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "gopherstack-g9b4 (2026-09-06): same S3BucketName existence check as CreateTrail when a new bucket is supplied; a rejected update leaves the trail's existing bucket unchanged. gopherstack-f94x (2026-09-06): same S3KeyPrefix 200-character bound as CreateTrail now enforced."}
   DeleteTrail: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrails: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTrails: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken pagination via pkgs/page (was always one page)"}

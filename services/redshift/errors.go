@@ -131,4 +131,9 @@ var (
 	// access it, and other accounts' authorizations must be revoked before
 	// the snapshot can be deleted.
 	ErrSnapshotHasAuthorizedAccounts = errors.New("InvalidClusterSnapshotState")
+	// ErrInvalidS3KeyPrefix is returned by EnableLogging when S3KeyPrefix
+	// contains a character outside the set documented on
+	// EnableLoggingInput.S3KeyPrefix (ErrorCode() "InvalidS3KeyPrefixFault",
+	// verified against InvalidS3KeyPrefixFault in types/errors.go).
+	ErrInvalidS3KeyPrefix = errors.New("InvalidS3KeyPrefixFault")
 )
