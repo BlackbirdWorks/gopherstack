@@ -525,6 +525,7 @@ func (b *InMemoryBackend) DeleteSecurityProfile(name string, expectedVersion int
 	}
 	b.securityProfiles.Delete(name)
 	delete(b.securityProfileTargets, name)
+	delete(b.resourceTags, sp.SecurityProfileARN)
 
 	return nil
 }

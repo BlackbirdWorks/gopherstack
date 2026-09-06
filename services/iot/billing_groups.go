@@ -175,6 +175,13 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string, expectedVersion int64)
 			ErrVersionConflict, expectedVersion, bg.Version)
 	}
 	b.billingGroups.Delete(name)
+	delete(b.resourceTags, bg.BillingGroupARN)
+
+	for thingName, group := range b.thingBillingGroups {
+		if group == name {
+			delete(b.thingBillingGroups, thingName)
+		}
+	}
 
 	return nil
 }

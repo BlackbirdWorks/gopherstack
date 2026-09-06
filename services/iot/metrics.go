@@ -182,6 +182,7 @@ func (b *InMemoryBackend) DeleteFleetMetric(name string, expectedVersion int64) 
 			ErrVersionConflict, expectedVersion, fm.Version)
 	}
 	b.fleetMetrics.Delete(name)
+	delete(b.resourceTags, fm.MetricARN)
 
 	return nil
 }
@@ -296,6 +297,7 @@ func (b *InMemoryBackend) DeleteCustomMetric(name string) error {
 		return fmt.Errorf("custom metric %q not found: %w", name, ErrResourceNotFound)
 	}
 	b.customMetrics.Delete(name)
+	delete(b.resourceTags, b.customMetricARN(name))
 
 	return nil
 }
@@ -408,6 +410,7 @@ func (b *InMemoryBackend) DeleteDimension(name string) error {
 		return fmt.Errorf("dimension %q not found: %w", name, ErrResourceNotFound)
 	}
 	b.dimensions.Delete(name)
+	delete(b.resourceTags, b.dimensionARN(name))
 
 	return nil
 }
