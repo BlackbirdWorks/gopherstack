@@ -2378,7 +2378,11 @@
       "pendingHookAction.Token string",
       "pendingHookAction.Transition string",
       "pendingHookAction.timeout time.Duration",
-      "pendingHookAction.timer *time.Timer"
+      "pendingHookAction.timer *time.Timer",
+      "pendingRefreshAction.GroupName string",
+      "pendingRefreshAction.ID string",
+      "pendingRefreshAction.NextStatus string",
+      "pendingRefreshAction.timer *time.Timer"
     ],
     "version": 1
   },

@@ -39,6 +39,18 @@ const (
 	statusInProgress = "InProgress"
 	// statusPending is the status for an instance refresh that has not yet started.
 	statusPending = "Pending"
+	// Instance refresh terminal/transitional statuses (autoscaling@v1.70.4
+	// types/enums.go:289-303, InstanceRefreshStatus).
+	statusSuccessful         = "Successful"
+	statusCancelling         = "Cancelling"
+	statusCancelled          = "Cancelled"
+	statusRollbackInProgress = "RollbackInProgress"
+	statusRollbackSuccessful = "RollbackSuccessful"
+	// instanceRefreshTransitionDelay is the simulated async delay before an
+	// instance refresh (or its cancel/rollback) reaches a terminal status,
+	// matching the time.AfterFunc pattern used by lifecycle hooks and eks's
+	// clusterTransitionDelay.
+	instanceRefreshTransitionDelay = 100 * time.Millisecond
 	// granularity1Minute is the only supported CloudWatch metric granularity.
 	granularity1Minute = "1Minute"
 	// lbStateAdded is the state for a load balancer that has been attached to the ASG.
@@ -81,7 +93,11 @@ type InMemoryBackend struct {
 	// pendingHookTokens is a *store.Table for Get/Put/Delete/Range convenience
 	// but is deliberately NOT registered on registry — see registerAllTables.
 	pendingHookTokens *store.Table[pendingHookAction]
-	registry          *store.Registry
+	// pendingRefreshActions tracks in-flight instance-refresh transition
+	// timers, keyed by InstanceRefreshID. Deliberately NOT registered on
+	// registry, for the same reason as pendingHookTokens.
+	pendingRefreshActions *store.Table[pendingRefreshAction]
+	registry              *store.Registry
 	// instanceIndex maps instanceID → groupName for O(1) lookup.
 	instanceIndex map[string]string
 	mu            *lockmetrics.RWMutex
@@ -105,7 +121,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return b
 }
 
-// Close stops any in-flight lifecycle-hook expiry timers so their goroutines do
+// Close stops any in-flight lifecycle-hook and instance-refresh timers so their goroutines do
 // not outlive the backend. It is safe to call multiple times.
 func (b *InMemoryBackend) Close() {
 	b.mu.Lock("Close")
@@ -117,6 +133,13 @@ func (b *InMemoryBackend) Close() {
 		return true
 	})
 	b.pendingHookTokens.Reset()
+
+	b.pendingRefreshActions.Range(func(action *pendingRefreshAction) bool {
+		action.timer.Stop()
+
+		return true
+	})
+	b.pendingRefreshActions.Reset()
 }
 
 // Purge removes all AutoScaling groups and launch configurations created before the cutoff time.
@@ -136,6 +159,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		if g.CreatedTime.Before(cutoff) {
 			name := g.AutoScalingGroupName
 			b.cleanupHookTimers(name, "")
+			b.cleanupRefreshTimers(name)
 			b.groups.Delete(name)
 			delete(b.activities, name)
 			b.deleteScheduledActionsForGroupLocked(name)

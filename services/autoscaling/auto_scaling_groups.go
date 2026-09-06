@@ -594,6 +594,7 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	b.cleanupHookTimers(name, "")
+	b.cleanupRefreshTimers(name)
 
 	for _, inst := range g.Instances {
 		delete(b.instanceIndex, inst.InstanceID)
