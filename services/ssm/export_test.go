@@ -289,6 +289,52 @@ func (b *InMemoryBackend) AddAvailablePatchInternal(p Patch) {
 	b.availablePatches[b.Region()] = append(b.availablePatches[b.Region()], p)
 }
 
+// InstancePatchStateCount returns the number of instance patch states stored
+// for the current region, without lazily creating the table.
+func (b *InMemoryBackend) InstancePatchStateCount() int {
+	b.mu.RLock("InstancePatchStateCount")
+	defer b.mu.RUnlock()
+
+	t, ok := b.instancePatchStates[b.Region()]
+	if !ok {
+		return 0
+	}
+
+	return t.Len()
+}
+
+// InstancePropertyCount returns the number of instance properties stored for
+// the current region, without lazily creating the table.
+func (b *InMemoryBackend) InstancePropertyCount() int {
+	b.mu.RLock("InstancePropertyCount")
+	defer b.mu.RUnlock()
+
+	t, ok := b.instanceProperties[b.Region()]
+	if !ok {
+		return 0
+	}
+
+	return t.Len()
+}
+
+// InstancePatchesCount returns the number of instances with stored patch
+// compliance data for the current region.
+func (b *InMemoryBackend) InstancePatchesCount() int {
+	b.mu.RLock("InstancePatchesCount")
+	defer b.mu.RUnlock()
+
+	return len(b.instancePatches[b.Region()])
+}
+
+// AvailablePatchesCount returns the number of catalogued available patches
+// for the current region.
+func (b *InMemoryBackend) AvailablePatchesCount() int {
+	b.mu.RLock("AvailablePatchesCount")
+	defer b.mu.RUnlock()
+
+	return len(b.availablePatches[b.Region()])
+}
+
 // ForceCompleteCommands forces every InProgress command in every region to its
 // terminal state, regardless of its exec delay. Used by tests to deterministically
 // exercise the lazy completion path without sleeping.
