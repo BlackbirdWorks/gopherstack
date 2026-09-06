@@ -81,7 +81,9 @@ families:
   Phone: {status: ok, note: "gopherstack-lffs (2026-08-20): same wrapper-key bug as Messaging, both directions on PhoneNumberValidate (see ops)."}
   Route matcher: {status: ok, note: "gopherstack-jqh2: added TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go), a permanent per-op method+path diff of all 122 real ops extracted from pinpoint@v1.42.4 serializers.go against ExtractOperation, including the generic {TemplateName}/{TemplateType}/versions and /active-version paths (discriminated from the per-type Create/Get/Update/Delete paths, which use a literal type segment, not a placeholder). 122/122 pass; no route-matcher bugs found, no duplicate op-resolution table, no query-flag-discriminated ops, no wrong-date-prefix paths."}
   Persistence: {status: ok, note: "was the biggest structural gap: persistRegistry() excluded voiceTemplates/endpoints/eventStreams/channels (all store.Table-backed — mechanical fix, just needed registering) and appSettings/campaignVersions/segmentVersions/templateVersionHistory/campaignActivities/journeyRuns/appEvents/sentMessages/otpCodes (map-shaped state, added as direct JSON fields on backendSnapshot since every value type is already plain-JSON-friendly). Snapshot version bumped 1->2 so an old on-disk snapshot is cleanly discarded (not partially misdecoded) rather than silently accepted with a shape mismatch. Locked by the rewritten TestSnapshotRestore_FullStateRoundTrip, which now asserts these resource kinds SURVIVE a restart instead of asserting they don't"}
-gaps: []                 # no known divergences left open this pass
+gaps:
+  - "gopherstack-coib: PutEvents' documented per-individual-event size quota (1,000 KB) is not enforced -- only its request-level 4 MB quota is. See the gopherstack-coib Notes section."
+  - "gopherstack-coib: PayloadTooLargeException size checks are wired for the 39 ops that both model the exception (digit-safe-extracted from deserializers.go: 113 of 122 ops) and have an observable non-trivial request body in this handler. The other 74 modeled ops (GET/DELETE with an empty body) and TagResource/UntagResource/ListTagsForResource/Create{Email,InApp,Push,Sms,Voice}Template (the 9 ops that don't model the exception at all) are left unenforced -- see Notes."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "GetApplicationDateRangeKpi/GetCampaignDateRangeKpi/GetJourneyDateRangeKpi always return an empty KpiResult.Rows — acceptable stub-shaped-but-real-state pattern (queries real backend, returns AWS-accurate empty analytics), not re-flagged"
   - "SendMessages has thin per-channel-type payload assertions (SMS/EMAIL/push body shape) — response envelope itself is fully covered, but content-shape assertions per channel type could be deepened in a future pass"
@@ -397,3 +399,73 @@ all 5 fail against unmodified code (`api error ConflictException`).
 
 Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
 `golangci-lint run` — all clean (`./services/pinpoint/...`).
+
+### gopherstack-coib (2026-09-06): PayloadTooLargeException wired for the ops with an observable request body
+
+`PayloadTooLargeException` (`pinpoint@v1.42.4/types/errors.go:179`) is modeled by 113 of the
+122 ops with a `deserializeOpError<Op>` function (digit-safe-extracted:
+`awk "/^func awsRestjson1_deserializeOpError<Op>\(/,/^}/" deserializers.go | grep -oE
+'"[A-Za-z0-9]+"'`) but the handler never emitted it. `types/errors.go`'s doc comment on the
+type ("Provides information about an API request or response.") is generic boilerplate shared
+verbatim by all 8 exception types in that file, not resource-specific documentation, so it
+carries no numeric information.
+
+The pinned SDK has no numeric size field to verify a threshold against, so the number is
+**sourced from AWS documentation, not the SDK**: https://docs.aws.amazon.com/pinpoint/latest/developerguide/quotas.html,
+API request quotas section, verbatim: "The maximum size of an invocation (request and response)
+payload is 7 MB, unless otherwise specified for a particular type of resource." That qualifier
+matters: the same page specifies smaller limits for two resource types --
+
+- Event ingestion quotas: "Maximum size of a request | 4 MB" (supersedes the general 7 MB for
+  `PutEvents`).
+- Endpoint quotas: "Endpoint size | Maximum size 15 KB" (supersedes the general 7 MB for a
+  single `UpdateEndpoint` body). The same table's `EndpointBatchItem`/`EndpointBatchRequest`
+  row reaffirms the general 7 MB for `UpdateEndpointsBatch` rather than overriding it, so that
+  op keeps the general limit.
+
+A single blanket 7 MB check across every op would have contradicted the page it cites, so
+implementation is scoped: the general 7 MB ceiling (`maxInvocationPayloadBytes`,
+`payload_size.go`) applies to every op below that models the exception and has no more specific
+documented limit; `PutEvents` and `UpdateEndpoint` get their own, smaller constants.
+
+**39 ops enforced** (every write handler where `httputils.ReadBody`'s raw byte length is
+observable before JSON-decoding): `CreateApp`, `CreateCampaign`, `CreateExportJob`,
+`CreateImportJob`, `CreateJourney`, `CreateRecommenderConfiguration`, `CreateSegment`,
+`PhoneNumberValidate`, `PutEventStream`, `PutEvents`, `RemoveAttributes`, `SendMessages`,
+`SendOTPMessage`, `SendUsersMessages`, `Update{Adm,Apns,ApnsSandbox,ApnsVoip,ApnsVoipSandbox,
+Baidu,Email,Gcm,Sms,Voice}Channel`, `UpdateApplicationSettings`, `UpdateCampaign`,
+`UpdateEndpoint`, `UpdateEndpointsBatch`, `Update{Email,InApp,Push,Sms,Voice}Template`,
+`UpdateJourney`, `UpdateJourneyState`, `UpdateRecommenderConfiguration`, `UpdateSegment`,
+`UpdateTemplateActiveVersion`, `VerifyOTPMessage`.
+
+**Deliberately left unenforced**, both disclosed as `gaps` above:
+
+- The other 74 ops that model `PayloadTooLargeException` are GET/DELETE ops with no
+  meaningful request body in this handler (an empty body can never exceed any positive
+  threshold), plus the 9 ops the SDK does *not* model the exception on at all
+  (`TagResource`/`UntagResource`/`ListTagsForResource`,
+  `Create{Email,InApp,Push,Sms,Voice}Template`) are untouched. AWS's own exception applies to
+  the response side too ("invocation (request **and response**) payload"), which would in
+  principle apply to these read ops' output, but this backend has no chokepoint that measures
+  an assembled response body's size before writing it, and retrofitting one is a materially
+  larger change than wiring the modeled-but-unemitted exception this bug is about.
+- `PutEvents`' per-individual-event quota ("Maximum size of an individual event | 1,000 KB",
+  same Event ingestion quotas table) is not enforced. Once the raw body is JSON-decoded into
+  `putEventsRequest` (`wire.go`), an individual event's raw byte length is no longer observable
+  without a raw-message decode path (e.g. `map[string]json.RawMessage`) this handler doesn't
+  have; adding one is a distinct, larger change than the request-level check, which reuses the
+  same raw-`body`-length pattern already used everywhere else in this fix.
+
+7 MB / 4 MB are implemented as `7 * 1024 * 1024` / `4 * 1024 * 1024` bytes (binary, not decimal)
+to match this repo's existing convention for AWS's own "MB" quota language
+(`pkgs/httputils.MaxRequestBodyBytes` documents Lambda's "6 MB" synchronous-invoke limit as
+6 MiB); 15 KB is `15 * 1024` bytes for the same reason.
+
+Regression coverage: `payload_size_test.go` boundary-tests all three thresholds (at-limit
+succeeds, one byte over is rejected with `PayloadTooLargeException`/413) via `CreateApp`
+(general), `PutEvents` (event-specific, plus a case between 4 MB and 7 MB proving the specific
+limit — not the general one — governs), and `UpdateEndpoint` (endpoint-specific, plus a case
+between 15 KB and 7 MB proving the same). All three failed against pre-fix code (verified by
+reverting the 15 touched files to `HEAD`, confirming the package still built, running the new
+tests to see them fail with the exact predicted status-code mismatch, then restoring the fix
+byte-for-byte).

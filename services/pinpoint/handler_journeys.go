@@ -238,6 +238,10 @@ func (h *Handler) handleUpdateJourneyState(c *echo.Context, appID, journeyID str
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
 	}
 
+	if !checkPayloadSize(c, body, maxInvocationPayloadBytes) {
+		return nil
+	}
+
 	var req updateJourneyStateRequest
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")

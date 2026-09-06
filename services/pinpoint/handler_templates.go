@@ -348,6 +348,10 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context, templateName, templateTy
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
 	}
 
+	if !checkPayloadSize(c, body, maxInvocationPayloadBytes) {
+		return nil
+	}
+
 	if updateErr := h.applyTemplateUpdate(c, body, templateName, templateType); updateErr != nil {
 		return updateErr
 	}
@@ -535,7 +539,11 @@ func (h *Handler) handleListTemplateVersions(c *echo.Context, templateName, temp
 
 // handleUpdateTemplateActiveVersion handles PUT /v1/templates/{templateName}/{type}/active-version.
 func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateName, templateType string) error {
-	_, _ = httputils.ReadBody(c.Request())
+	body, _ := httputils.ReadBody(c.Request())
+
+	if !checkPayloadSize(c, body, maxInvocationPayloadBytes) {
+		return nil
+	}
 
 	if err := h.Backend.UpdateTemplateActiveVersion(templateName, templateType); err != nil {
 		return writeNotFoundOrInternal(c, err)
