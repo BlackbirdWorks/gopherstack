@@ -118,8 +118,18 @@ func (b *InMemoryBackend) advanceOneJobLocked(j *Job, now float64) bool {
 	return false
 }
 
-// advanceSubmittedLocked transitions a SUBMITTED job to PROGRESSING/PROBING.
+// advanceSubmittedLocked transitions a SUBMITTED job to PROGRESSING/PROBING,
+// unless the job's queue is PAUSED. Queue.Status doc (aws-sdk-go-v2
+// mediaconvert types.go): "If you pause a queue, the service won't begin
+// processing jobs in that queue." A job assigned to a queue that is paused
+// stays SUBMITTED until the queue is reactivated.
 func (b *InMemoryBackend) advanceSubmittedLocked(j *Job, now float64) bool {
+	if j.QueueArn != "" {
+		if matches := b.queuesByArn.Get(j.QueueArn); len(matches) > 0 && matches[0].Status == statusPaused {
+			return false
+		}
+	}
+
 	// Decrement SUBMITTED counter, increment PROGRESSING counter.
 	b.adjustQueueCounterLocked(j.QueueArn, jobStatusSubmitted, -1)
 	b.adjustQueueCounterLocked(j.QueueArn, jobStatusProgressing, +1)

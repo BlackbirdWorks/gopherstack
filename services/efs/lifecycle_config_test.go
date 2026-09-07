@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/stretchr/testify/require"
@@ -113,6 +114,47 @@ func TestLifecyclePolicy_EverySDKEnumValueAccepted(t *testing.T) {
 				[]efs.LifecyclePolicy{{TransitionToArchive: string(v)}},
 			)
 			require.NoError(t, err, "expected SDK TransitionToArchiveRules %s to be accepted", v)
+		})
+	}
+}
+
+// TestPutLifecycleConfiguration_RequiresAvailableFileSystem verifies
+// PutLifecycleConfiguration rejects requests while the file system's
+// lifecycle state is not "available" (efs@v1.44.4 types/errors.go:
+// IncorrectFileSystemLifeCycleState, "Returned if the file system's lifecycle
+// state is not \"available\"").
+func TestPutLifecycleConfiguration_RequiresAvailableFileSystem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr       error
+		name          string
+		activateDelay time.Duration
+	}{
+		{name: "creating_state_rejected", activateDelay: time.Hour, wantErr: efs.ErrIncorrectFileSystemLifeCycleState},
+		{name: "available_state_allowed", activateDelay: 0, wantErr: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			efs.SetFSActivationDelay(b, tt.activateDelay)
+
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-lc-lifecycle-"+tt.name))
+			require.NoError(t, err)
+
+			_, err = b.PutLifecycleConfiguration(
+				context.Background(),
+				fs.FileSystemID,
+				[]efs.LifecyclePolicy{{TransitionToIA: "AFTER_30_DAYS"}},
+			)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

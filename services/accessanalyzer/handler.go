@@ -389,8 +389,6 @@ func extractLastSegment(path, prefix string) string {
 	return ""
 }
 
-// queryParamValue returns the first value of the given "&"-delimited query
-// parameter, or "" if absent.
 // queryParamValue reads a single value from a raw (still percent-encoded)
 // URL query string, the form c.Request().URL.RawQuery and every op's own
 // httpbinding-serialized request carries it in. ARNs contain ":" and "/",
@@ -399,9 +397,6 @@ func extractLastSegment(path, prefix string) string {
 // in aws-sdk-go-v2/service/accessanalyzer@v1.51.4 serializers.go), so the
 // value must be unescaped before use -- an unescaped comparison against a
 // decoded ARN stored by the backend never matches.
-// site happens to want "analyzerArn", but the parameter documents intent.
-//
-//nolint:unparam // key is a general-purpose lookup key; every current call
 func queryParamValue(query, key string) string {
 	prefix := key + "="
 

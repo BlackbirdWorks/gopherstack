@@ -19,7 +19,7 @@ func (b *InMemoryBackend) GenerateMac(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) GenerateMac(
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "GenerateMac"); err != nil {
 		return nil, err
 	}
 
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) VerifyMac(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) VerifyMac(
 		return nil, algErr
 	}
 
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "VerifyMac"); err != nil {
 		return nil, err
 	}
 

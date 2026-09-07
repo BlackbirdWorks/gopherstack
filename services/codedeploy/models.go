@@ -10,7 +10,7 @@ import (
 type TagFilter struct {
 	Key   string `json:"Key,omitempty"`
 	Value string `json:"Value,omitempty"`
-	Type  string `json:"Type,omitempty"` // EQUALS | KEY_ONLY | VALUE_ONLY
+	Type  string `json:"Type,omitempty"` // KEY_ONLY | VALUE_ONLY | KEY_AND_VALUE
 }
 
 // TagSet is a list of tag filters combined with AND logic.
@@ -323,6 +323,22 @@ type RevisionListFilter struct {
 	S3KeyPrefix string
 	SortBy      string // registerTime | firstUsedTime | lastUsedTime
 	SortOrder   string // ascending | descending
+}
+
+// InstanceListFilter holds ListDeploymentInstances' optional instanceStatusFilter
+// (TargetStatus values) and instanceTypeFilter (Blue/Green, case-insensitive
+// against this backend's BLUE/GREEN InstanceLabel values).
+type InstanceListFilter struct {
+	StatusFilter []string
+	TypeFilter   []string
+}
+
+// TargetListFilter holds ListDeploymentTargets' optional targetFilters map,
+// keyed by "TargetStatus" or "ServerInstanceLabel" (the two SDK-defined
+// TargetFilterName values).
+type TargetListFilter struct {
+	TargetStatus        []string
+	ServerInstanceLabel []string
 }
 
 // DeploymentTargetRecord describes one participant (instance/ECS service/Lambda

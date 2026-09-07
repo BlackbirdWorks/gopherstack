@@ -116,6 +116,75 @@ func TestHandler_GetIntrospectionSchema(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/schema", nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.hasSchema {
+				assert.Equal(t, `type Query { hello: String }`, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_GetIntrospectionSchema_Format(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkBody  func(t *testing.T, body string)
+		name       string
+		query      string
+		wantStatus int
+	}{
+		{
+			name:       "explicit_sdl_returns_raw_sdl",
+			query:      "?format=SDL",
+			wantStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Equal(t, `type Query { hello: String }`, body)
+			},
+		},
+		{
+			name:       "json_returns_introspection_document",
+			query:      "?format=JSON",
+			wantStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				t.Helper()
+
+				require.True(t, json.Valid([]byte(body)))
+
+				var doc map[string]any
+				require.NoError(t, json.Unmarshal([]byte(body), &doc))
+
+				data, ok := doc["data"].(map[string]any)
+				require.True(t, ok)
+				schema, ok := data["__schema"].(map[string]any)
+				require.True(t, ok)
+				queryType, ok := schema["queryType"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "Query", queryType["name"])
+			},
+		},
+		{
+			name:       "unrecognized_format_is_bad_request",
+			query:      "?format=XML",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			_, err := b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/schema"+tt.query, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkBody != nil {
+				tt.checkBody(t, rec.Body.String())
+			}
 		})
 	}
 }

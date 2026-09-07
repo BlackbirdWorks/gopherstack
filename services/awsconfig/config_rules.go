@@ -112,6 +112,7 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 
 	b.configRules.Delete(name)
 	b.clearRuleEvaluationsLocked(name)
+	delete(b.remediationExceptions, name)
 
 	return nil
 }

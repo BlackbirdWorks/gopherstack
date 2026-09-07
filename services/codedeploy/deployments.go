@@ -137,7 +137,11 @@ func (b *InMemoryBackend) ListDeployments(filter DeploymentFilter) []string {
 	return ids
 }
 
-// StopDeployment marks a deployment as Stopped.
+// StopDeployment marks a deployment as Stopped. Real AWS rejects stopping a
+// deployment that is already in a terminal state (types/errors.go:221, "The
+// deployment is already complete."); Stopped is the only terminal state this
+// backend's instant-completion CreateDeployment can ever reach through a
+// second StopDeployment call, since it always creates deployments Succeeded.
 func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 	b.mu.Lock("StopDeployment")
 	defer b.mu.Unlock()
@@ -145,6 +149,10 @@ func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	if d.Status == statusStopped {
+		return fmt.Errorf("%w: deployment %s is already complete", ErrDeploymentAlreadyCompleted, deploymentID)
 	}
 
 	d.Status = statusStopped

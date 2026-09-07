@@ -17,6 +17,9 @@ var (
 	ErrVirtualNodeNotFound = awserr.New("virtual node not found", awserr.ErrNotFound)
 	// ErrVirtualNodeAlreadyExists is returned when a virtual node already exists.
 	ErrVirtualNodeAlreadyExists = awserr.New("virtual node already exists", awserr.ErrAlreadyExists)
+	// ErrVirtualNodeInUse is returned when a virtual service still lists the
+	// virtual node as its provider.
+	ErrVirtualNodeInUse = awserr.New("virtual node is referenced by a virtual service", awserr.ErrConflict)
 	// ErrVirtualRouterNotFound is returned when a virtual router does not exist.
 	ErrVirtualRouterNotFound = awserr.New("virtual router not found", awserr.ErrNotFound)
 	// ErrVirtualRouterAlreadyExists is returned when a virtual router already exists.

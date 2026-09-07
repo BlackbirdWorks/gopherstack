@@ -123,6 +123,8 @@ func (b *InMemoryBackend) DeleteRemediationConfiguration(ruleName string) error 
 		b.remediationExecutions.Delete(remediationExecutionKeyFn(e))
 	}
 
+	delete(b.remediationExceptions, ruleName)
+
 	return nil
 }
 

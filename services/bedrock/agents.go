@@ -197,6 +197,7 @@ func (b *InMemoryBackend) DeleteAgent(agentID string) error {
 	}
 
 	delete(b.agentsByName, ag.AgentName)
+	delete(b.agentTags, ag.AgentArn)
 	b.agents.Delete(agentID)
 
 	return nil

@@ -407,9 +407,15 @@ type cachedResolution struct {
 
 // resolveKeyID resolves an alias name or ARN to a plain key UUID and region.
 // Must be called with at least a read lock held.
+//
+// malformedARNErr is the sentinel a malformed KeyId ARN is wrapped with (gopherstack-qxaj):
+// callers whose own deserializeOpError recognizes InvalidArnException pass ErrInvalidArn;
+// callers that don't (the crypto ops -- Encrypt, Decrypt, Sign, GenerateDataKey, ...) pass
+// ErrKeyNotFound, the only resource-shaped code they do recognize.
 func (b *InMemoryBackend) resolveKeyID(
 	ctx context.Context,
 	keyID string,
+	malformedARNErr error,
 ) (string, string, error) {
 	ctxRegion := getRegion(ctx, b.defaultRegion)
 
@@ -445,7 +451,7 @@ func (b *InMemoryBackend) resolveKeyID(
 	}
 
 	if strings.HasPrefix(keyID, "arn:") {
-		resolved, arnRegion, arnErr := b.resolveARNKeyID(keyID)
+		resolved, arnRegion, arnErr := b.resolveARNKeyID(keyID, malformedARNErr)
 		if arnErr != nil {
 			return "", "", arnErr
 		}
@@ -458,10 +464,12 @@ func (b *InMemoryBackend) resolveKeyID(
 	return keyID, ctxRegion, nil
 }
 
-func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) {
+// resolveARNKeyID parses a KMS ARN into its plain key UUID and region. See
+// resolveKeyID for malformedARNErr.
+func (b *InMemoryBackend) resolveARNKeyID(keyID string, malformedARNErr error) (string, string, error) {
 	parsed, parseErr := awsarn.Parse(keyID)
 	if parseErr != nil {
-		return "", "", fmt.Errorf("%w: invalid key ARN %q", ErrValidation, keyID)
+		return "", "", fmt.Errorf("%w: invalid key ARN %q", malformedARNErr, keyID)
 	}
 
 	if strings.HasPrefix(parsed.Resource, "alias/") {
@@ -477,7 +485,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) 
 		return after, parsed.Region, nil
 	}
 
-	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", ErrValidation, parsed.Resource)
+	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", malformedARNErr, parsed.Resource)
 }
 
 // isAliasKeyID reports whether keyID identifies a key via an alias -- either a
@@ -581,8 +589,9 @@ func (b *InMemoryBackend) requireKeyMaterial(region, keyID string) (*keyMaterial
 func (b *InMemoryBackend) resolveKeyAndRegion(
 	ctx context.Context,
 	keyID string,
+	malformedARNErr error,
 ) (*Key, string, error) {
-	resolved, region, err := b.resolveKeyID(ctx, keyID)
+	resolved, region, err := b.resolveKeyID(ctx, keyID, malformedARNErr)
 	if err != nil {
 		return nil, "", err
 	}
@@ -606,15 +615,17 @@ func (b *InMemoryBackend) resolveKeyAndRegion(
 }
 
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, error) {
-	key, _, err := b.resolveKeyAndRegion(ctx, keyID)
+// See resolveKeyID for malformedARNErr.
+func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string, malformedARNErr error) (*Key, error) {
+	key, _, err := b.resolveKeyAndRegion(ctx, keyID, malformedARNErr)
 
 	return key, err
 }
 
 // lookupKeyWrite finds a key by ID, alias, or ARN. Caller must hold a write lock.
-func (b *InMemoryBackend) lookupKeyWrite(ctx context.Context, keyID string) (*Key, error) {
-	return b.lookupKey(ctx, keyID)
+// See resolveKeyID for malformedARNErr.
+func (b *InMemoryBackend) lookupKeyWrite(ctx context.Context, keyID string, malformedARNErr error) (*Key, error) {
+	return b.lookupKey(ctx, keyID, malformedARNErr)
 }
 
 // keyStateError returns the appropriate error for a key that is not in the Enabled state.
@@ -660,6 +671,8 @@ func (b *InMemoryBackend) Reset() {
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
 	b.clearResolutionCache()
+	b.importWrappingKeys = sync.Map{}
+	b.lastUsage = sync.Map{}
 }
 
 // AddKeyInternal inserts a key directly into the backend without going through CreateKey.

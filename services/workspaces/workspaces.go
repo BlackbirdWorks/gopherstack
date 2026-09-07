@@ -30,6 +30,7 @@ const (
 	stateAdminMaintenance = "ADMIN_MAINTENANCE"
 	stateStopped          = "STOPPED"
 	statePending          = "PENDING"
+	stateUnhealthy        = "UNHEALTHY"
 	errMsgNotFound        = "Workspace not found"
 
 	// describeWorkspacesMaxResults is the AWS maximum results per page.
@@ -45,7 +46,7 @@ const (
 // full real allow-list is checked for correctness.
 func isRebootableWorkspaceState(state string) bool {
 	switch state {
-	case stateAvailable, "UNHEALTHY", "REBOOTING":
+	case stateAvailable, stateUnhealthy, "REBOOTING":
 		return true
 	}
 
@@ -58,7 +59,27 @@ func isRebootableWorkspaceState(state string) bool {
 // comment).
 func isRebuildableWorkspaceState(state string) bool {
 	switch state {
-	case stateAvailable, "ERROR", "UNHEALTHY", stateStopped, "REBOOTING":
+	case stateAvailable, "ERROR", stateUnhealthy, stateStopped, "REBOOTING":
+		return true
+	}
+
+	return false
+}
+
+// isStartableWorkspaceState matches StartWorkspaces's real precondition:
+// "You cannot start a WorkSpace unless it has a running mode of AutoStop or
+// Manual and a state of STOPPED" (api_op_StartWorkspaces.go doc comment).
+func isStartableWorkspaceState(state string) bool {
+	return state == stateStopped
+}
+
+// isStoppableWorkspaceState matches StopWorkspaces's real precondition:
+// "You cannot stop a WorkSpace unless it has a running mode of AutoStop or
+// Manual and a state of AVAILABLE, IMPAIRED, UNHEALTHY, or ERROR"
+// (api_op_StopWorkspaces.go doc comment).
+func isStoppableWorkspaceState(state string) bool {
+	switch state {
+	case stateAvailable, "IMPAIRED", stateUnhealthy, "ERROR":
 		return true
 	}
 
@@ -438,7 +459,9 @@ func (b *InMemoryBackend) RebuildWorkspaces(workspaceIDs []string) ([]FailedRequ
 	return b.collectStateFailures(workspaceIDs, isRebuildableWorkspaceState), nil
 }
 
-// StartWorkspaces starts the given workspaces, transitioning STOPPED workspaces to AVAILABLE.
+// StartWorkspaces starts the given workspaces, transitioning STOPPED workspaces to
+// AVAILABLE. Returns a per-item failure for unknown IDs or a workspace whose state
+// doesn't support starting.
 func (b *InMemoryBackend) StartWorkspaces(workspaceIDs []string) ([]FailedRequest, error) {
 	b.mu.Lock("StartWorkspaces")
 	defer b.mu.Unlock()
@@ -457,15 +480,21 @@ func (b *InMemoryBackend) StartWorkspaces(workspaceIDs []string) ([]FailedReques
 			continue
 		}
 
-		if w.State == stateStopped {
-			w.State = stateAvailable
+		if !isStartableWorkspaceState(w.State) {
+			failures = append(failures, stateFailure(id, w.State))
+
+			continue
 		}
+
+		w.State = stateAvailable
 	}
 
 	return failures, nil
 }
 
 // StopWorkspaces stops the given workspaces, transitioning them to STOPPED state.
+// Returns a per-item failure for unknown IDs or a workspace whose state doesn't
+// support stopping.
 func (b *InMemoryBackend) StopWorkspaces(workspaceIDs []string) ([]FailedRequest, error) {
 	b.mu.Lock("StopWorkspaces")
 	defer b.mu.Unlock()
@@ -484,12 +513,32 @@ func (b *InMemoryBackend) StopWorkspaces(workspaceIDs []string) ([]FailedRequest
 			continue
 		}
 
-		if w.State == stateAvailable {
-			w.State = stateStopped
+		if !isStoppableWorkspaceState(w.State) {
+			failures = append(failures, stateFailure(id, w.State))
+
+			continue
 		}
+
+		w.State = stateStopped
 	}
 
 	return failures, nil
+}
+
+// stateFailure builds a per-item FailedRequest for a workspace whose current
+// state doesn't support the requested operation. Start/StopWorkspaces uniquely
+// model InvalidResourceStateException at the operation level (unlike Reboot/
+// Rebuild, which model only OperationNotSupportedException -- see
+// collectStateFailures), so that is the ErrorCode used here.
+func stateFailure(id, state string) FailedRequest {
+	return FailedRequest{
+		WorkspaceID: id,
+		ErrorCode:   errInvalidResourceState,
+		ErrorMessage: fmt.Sprintf(
+			"WorkSpace %s is not in a state that supports this operation (current state: %s)",
+			id, state,
+		),
+	}
 }
 
 // TerminateWorkspaces terminates (deletes) the given workspaces, returning failures for unknown IDs.

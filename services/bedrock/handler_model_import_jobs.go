@@ -59,6 +59,10 @@ func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, modelImportJobToOutput(job))
 }
 
+// parseListModelImportJobsQuery builds the backend filter/sort/pagination
+// input from the real ListModelImportJobs query-string bindings.
+//
+//nolint:dupl // mirrors sibling List*Query parsers over a distinct filter set.
 func parseListModelImportJobsQuery(c *echo.Context) *ListModelImportJobsInput {
 	q := c.Request().URL.Query()
 

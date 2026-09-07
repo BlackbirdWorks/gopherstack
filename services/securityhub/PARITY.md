@@ -12,17 +12,17 @@ overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, Secu
                        # against the bumped SDK; no other new families found beyond the 7 assigned ops.
 ops:
   EnableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisableSecurityHub: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-1qf: DisableHub never checked AWS's documented precondition (api_op_DisableSecurityHub.go) that the account isn't currently the Security Hub administrator -- CreateMembers is this backend's only path to that relationship (Organizations delegated admin never creates Member records). Now refused with InvalidAccessException while any member is non-Removed. See Notes."}
   DescribeHub: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSecurityHubConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes. ALSO FIXED this pass (gopherstack-uox6 value-semantics sweep) -- matchesStringFilter combined every entry of a field's []StringFilter list with a strict AND; types.StringFilter's doc comment documents CONTAINS/EQUALS/PREFIX entries on the same field joined by OR and NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS joined by AND, the two groups then AND'd together. A real client's `Title CONTAINS X OR Title CONTAINS Y`-shaped filter (the documented example) matched nothing under the old code. Also affects BatchUpdateFindings/UpdateFindings, which share matchesFindingFilters. See Notes."}
-  BatchImportFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- re-import now preserves Note/UserDefinedFields/VerificationState/Workflow per AWS's documented semantics, see Notes"}
+  BatchImportFindings: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "re-import preserves Note/UserDefinedFields/VerificationState/Workflow per AWS's documented semantics. gopherstack-1qf: also now evaluates every ENABLED automation rule's Criteria against each imported finding and applies matching FINDING_FIELDS_UPDATE actions (ascending RuleOrder, stops at first terminal match) -- previously automation rules were pure CRUD with zero call sites evaluating Criteria/Actions against findings. See Notes."}
   BatchUpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass -- BatchImportFindings/BatchUpdateFindings/UpdateFindings now record real FindingHistoryRecord entries (findingHistory map, snapshot-persisted); GetFindingHistory returns them filtered by StartTime/EndTime and paginated. See Notes."}
   CreateInsight: {wire: ok, errors: ok, state: ok, persist: ok}
   GetInsights: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetInsightResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResultValues always empty (no real aggregation) -- acceptable mock behavior, not a stub since Insight itself is real"}
+  GetInsightResults: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-1qf: ResultValues was always empty regardless of Filters/GroupByAttribute/finding count -- fixed via aggregateInsightResults, which reuses matchesFindingFilters/findingFieldString (same field-name-mapped subset GetFindings already supports) to group matching findings by GroupByAttribute and count. See Notes."}
   UpdateInsight: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInsight: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchEnableStandards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): stamped StandardsStatus PENDING and nothing else in this backend ever advanced it -- EnableHub's own default-standards subscriptions are stamped the terminal READY directly at creation (no async work modeled for those either), which is exactly the sibling-resource contrast this bug class hides behind. Confirmed no async mechanism anywhere in the package (no ticker/goroutine/janitor/work.After/runDelayed/reconciler; grepped all non-test .go files). BatchDisableStandards's DELETING stamp is NOT this bug: it deletes the record synchronously and returns the transitional value on the removed copy, so a later GetEnabledStandards correctly omits it -- the ephemeral-response-literal shape, not a stall. Fixed via GetEnabledStandards, see below."}
@@ -954,3 +954,152 @@ Gates: `go build ./services/securityhub/...`, `go vet ./services/securityhub/...
 `go test -race -count=1 ./services/securityhub/...`, `golangci-lint run
 ./services/securityhub/...`. Work left uncommitted per this pass's
 instructions.
+
+## gopherstack-1qf (2026-09-04): three ACCEPTED-BUT-NEVER-DONE gaps fixed
+
+Full-service audit for AWS parity/correctness. Independently re-verified
+PARITY.md's own claims per the campaign's "don't treat prior audits as
+ground truth" instruction rather than trusting them; found three genuine
+"accepted but never done" bugs (pattern class (b)) plus one missing delete
+precondition (class (f)), none previously flagged as bugs in this file's
+`gaps`/`ops` (two were explicitly noted as *deliberate, acceptable* mock
+limitations, which this pass disagrees with -- see each entry).
+
+1. **Automation rules were pure CRUD -- `Criteria`/`Actions` were stored and
+   echoed back but zero call sites in the package ever evaluated them
+   against a finding** (`automation_rules.go`/`findings.go`). Same shape as
+   guardduty's dead filter Action. Strong evidence this was a real gap, not
+   a deliberate omission: `findings.go`'s own `findingCustomerManagedFields`
+   doc comment already states `BatchImportFindings` cannot set
+   `Note`/`UserDefinedFields`/`VerificationState`/`Workflow` "since they're
+   managed by Security Hub customers/**automation rules**" -- automation
+   rules are the only mechanism that manages those fields, so the comment's
+   own premise was false until this fix. Added `applyAutomationRules`
+   (`automation_rules.go`), called from `ImportFindings` after
+   `preserveCustomerManagedFields`: evaluates every `RuleStatus=="ENABLED"`
+   rule in ascending `RuleOrder` (ties broken by `RuleArn`) via
+   `matchesFindingFilters` against `rule.Criteria` (the same field-name-mapped
+   subset already used for `GetFindings`/`GetInsights` filters -- AWS's
+   `AutomationRulesFindingFilters`, securityhub@v1.75.4 types.go:575, has
+   additional `NumberFilter`/`DateFilter`/`MapFilter` members this file has no
+   evaluator for; left unevaluated per the no-fabrication rule, same as the
+   existing V2 filter gaps), and applies each match's `FINDING_FIELDS_UPDATE`
+   action (the only real `AutomationRulesActionType`, enums.go:119) via
+   `maps.Copy` -- the same mechanism `BatchUpdateFindings` already uses,
+   since `AutomationRulesFindingFieldsUpdate` (types.go:524) has the identical
+   field set. Stops at the first `IsTerminal` match. Proof:
+   `TestBatchImportFindings_AutomationRuleFires` (2 subtests,
+   `automation_rules_test.go`) -- confirmed failing (finding's Severity
+   unchanged) against `git show HEAD`, passing after, restored.
+
+2. **`DisableSecurityHub` never checked AWS's documented precondition.**
+   `api_op_DisableSecurityHub.go`'s doc comment: "You can't disable Security
+   Hub CSPM in an account that is currently the Security Hub CSPM
+   administrator." `DisableHub` (`hub.go`) only checked `hubEnabled`. Fixed:
+   refuses (new `ErrHubIsAdministrator` sentinel, mapped to
+   `InvalidAccessException`/400 -- one of `DisableSecurityHub`'s five modeled
+   error types, deserializers.go:7544, and the same code this file already
+   uses for analogous `hubEnabled`-gap fixes on `UpdateActionTarget`/
+   `DeleteActionTarget`/`DisableImportFindingsForProduct`) while any member
+   (`CreateMembers` is this backend's only path to the administrator
+   relationship -- Organizations delegated admin never creates `Member`
+   records, see `organizations.go`) has `MemberStatus != "Removed"`. Proof:
+   `TestDisableSecurityHub_RefusedWhileAdministrator` (2 subtests,
+   `hub_test.go`) -- confirmed failing (200 instead of 400) against
+   `git show HEAD`, passing after, restored, md5sum-confirmed byte-identical.
+
+3. **`GetInsightResults` always returned empty `ResultValues`.** PARITY.md
+   previously called this "acceptable mock behavior, not a stub since
+   Insight itself is real" -- this pass disagrees: `Insight.GroupByAttribute`/
+   `Filters` are real, stored, client-supplied values with a well-specified
+   real aggregation (`InsightResults`/`InsightResultValue`, types.go:15875-15912,
+   is just `{GroupByAttributeValue, Count}` per distinct value), and the
+   infrastructure to compute it (`matchesFindingFilters`, `findingFieldString`)
+   already existed in this same package for `GetFindings`/`GetInsights` --
+   returning it unconditionally empty is functionally indistinguishable from
+   a stub to any real client. Fixed via new `aggregateInsightResults`
+   (`insights.go`): filters `b.findings` by `insight.Filters`
+   (`matchesFindingFilters`, deliberately the same mapped-subset limitation
+   as every other reuse of that function in this file -- not a new gap),
+   groups by `findingFieldString(f, insight.GroupByAttribute)` (already
+   resolves the `SeverityLabel`/`WorkflowStatus`/`ComplianceStatus`
+   nested-field cases), counts, and returns values sorted for determinism.
+   Proof: `TestBackend_GetInsightResults_AggregatesFindings`
+   (`insights_test.go`) -- confirmed failing (all counts 0) against
+   `git show HEAD`, passing after, restored, md5sum-confirmed byte-identical.
+
+**Checked and confirmed correct (no bug), contra this pass's own
+speculation before reading the code:**
+
+- `BatchUpdateFindings`/`handleBatchUpdateFindings`'s "copy every body key
+  except FindingIdentifiers into updates" (`handler_findings.go`) looked
+  like an unbounded-field-write risk at first glance, but
+  `BatchUpdateFindingsInput` (api_op_BatchUpdateFindings.go) only ever
+  defines nine possible fields besides `FindingIdentifiers`
+  (`Confidence`/`Criticality`/`Note`/`RelatedFindings`/`Severity`/`Types`/
+  `UserDefinedFields`/`VerificationState`/`Workflow`) -- a real typed client
+  is structurally incapable of sending anything else, so this is CLEAN for
+  the client-observability bar this campaign uses, not a bug.
+- `DeleteMembers`'s missing check for AWS's documented "can't delete
+  Organizations-org members" restriction is moot in this backend:
+  `organizations.go` never creates `Member` records (delegated-admin
+  enable/disable is separate bookkeeping with no member-creation side
+  effect), so no org-managed member can ever exist here to violate the
+  restriction. Not a bug; architecturally inapplicable.
+- `DeleteInsight`/`DeleteActionTarget`/`DeleteFindingAggregator`/
+  `BatchDeleteAutomationRules`/`DisassociateMembers` all correctly validate
+  existence (or, for `DisassociateMembers`, correctly have nothing to
+  validate against -- `DisassociateMembersOutput` has zero members besides
+  `ResultMetadata`, so silently skipping an unknown id matches the real
+  wire shape exactly).
+- `CreateFindingAggregator`/cross-Region aggregation and
+  `BatchEnableStandards`/`BatchUpdateStandardsControlAssociations`/compliance
+  status are bookkeeping, not derived from real cross-region replication or
+  finding-vs-control evaluation -- structural (single-backend-instance mock
+  has no second region to replicate into, and no config-rule-evaluation
+  engine), same category as `DescribeStandards`'/`DescribeProducts`' static
+  catalogs, not a new finding.
+
+**Structural/absent, checked rather than assumed, not fixed this pass:**
+
+- **No cross-service integration.** Grepped `services/guardduty`,
+  `services/inspector*`, `services/macie*` for any call into
+  `services/securityhub` -- none exists. GuardDuty/Inspector/Macie appear in
+  this service only as static `DescribeProducts` catalog entries
+  (`products.go`); a real finding provider (or gopherstack's own emulated
+  GuardDuty/Inspector/Macie) must call `BatchImportFindings` itself for
+  findings to appear here. No EventBridge event publication on finding
+  create/update either (only one unrelated code comment mentions "change
+  events"; zero `events.`/`Publish` call sites in non-test files).
+  Organizations delegated admin (`organizations.go`) is standalone
+  bookkeeping with no cross-check against gopherstack's own Organizations
+  service state. All matches this file's existing "findings only ever enter
+  via BatchImportFindings" structural note -- reported here as the
+  cross-service-integration angle this audit brief specifically asked to
+  verify rather than assume.
+- Findings generation is import-only (`BatchImportFindings`/`ImportFindings`
+  is the only path that creates a finding) -- structural, already documented
+  elsewhere in this file, re-confirmed.
+
+**Performance**: read GetFindings/GetFindingsV2's filter+sort path and
+`paginateSlice` (already the subject of a dedicated 2026-08-30 sweep in this
+file). No quadratic loops found; every filter/aggregate op here (including
+the two new ones this pass added) is a single O(n) pass under the backend's
+one coarse lock, consistent with every other listing op in this service.
+Not independently re-benchmarked.
+
+**LocalStack parity**: NOT CHECKED -- no LocalStack instance available this
+pass.
+
+**Resource leaks**: re-confirmed the existing `findingHistory` ghost-row
+finding from a prior pass is a deliberate append-only audit log, not a leak
+(per this task's brief, not re-litigated). No new maps were added by this
+pass's fixes (automation-rule application mutates the finding map already
+being written; insight aggregation reads `b.findings` transiently, storing
+nothing new).
+
+Gates: `GOTOOLCHAIN=go1.26.6 go build ./services/securityhub/...`,
+`go vet ./services/securityhub/...`, `go test -race -count=1
+./services/securityhub/...` (all pass), `golangci-lint run
+./services/securityhub/...` (0 issues), `gofmt -l services/securityhub/`
+(clean).

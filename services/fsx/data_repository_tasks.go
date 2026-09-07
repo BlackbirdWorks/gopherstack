@@ -67,6 +67,10 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 		return nil, ErrFileSystemNotFound
 	}
 
+	if b.hasExecutingTaskLocked(input.FileSystemID) {
+		return nil, ErrDataRepositoryTaskExecuting
+	}
+
 	id := newDataRepositoryTaskID()
 	arn := b.drtARN(id)
 	now := time.Now().UTC()
@@ -88,6 +92,24 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	b.tags[arn] = tags
 
 	return t.toPublic(), nil
+}
+
+// hasExecutingTaskLocked reports whether fileSystemID already has a task
+// with Lifecycle EXECUTING. Caller must already hold b.mu.
+func (b *InMemoryBackend) hasExecutingTaskLocked(fileSystemID string) bool {
+	found := false
+
+	b.dataRepositoryTasks.Range(func(t *storedDataRepositoryTask) bool {
+		if t.FileSystemID == fileSystemID && t.Lifecycle == "EXECUTING" {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // CancelDataRepositoryTask marks a task as cancelled.

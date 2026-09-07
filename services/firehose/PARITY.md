@@ -4,9 +4,31 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
-last_audit_commit: da77e2959
-last_audit_date: 2026-08-29
+last_audit_commit: 3b475e203
+last_audit_date: 2026-09-04
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
+                      # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
+                      # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
+                      # reach the emulated CloudWatch Logs backend via SetCWLogsBackend/
+                      # wireFirehoseCWLogs, not just a local slog warning. See the gaps entry below.
+                      # 2026-09-04 pass (bd gopherstack-o4ny): closed the gopherstack-rop lead below --
+                      # wired cli.go's wireFirehoseKinesisSource (called from
+                      # wireStorageAndSecretsIntegrations) so SetKinesisBackend is now actually called
+                      # in a real running server, and a KinesisStreamAsSource delivery stream really
+                      # polls and ingests records from its source Kinesis stream. See kinesis_source ops
+                      # entry and the matching gaps entry below.
+                      # 2026-09-04 pass (bd gopherstack-rop): confirmed and fixed the services/kinesis
+                      # audit's lead -- KinesisStreamAsSource has never actually polled Kinesis in a
+                      # real running server (SetKinesisBackend is only ever called from this service's
+                      # own tests, not from cli.go); a client can create such a stream and it silently,
+                      # permanently never ingests anything. Fixed the honesty half in scope (a warning
+                      # log on create, matching the Redshift precedent) and documented the cli.go wiring
+                      # half as a new gap; the fix itself is cli.go, out of this pass's scope. Also found
+                      # and fixed a real resource leak: Reset() (reachable via the production
+                      # /_gopherstack/reset endpoint) never cancelled running Kinesis pollers, so any
+                      # live poller outlived a Reset() forever. Also newly disclosed (not fixed, same
+                      # deferred-wiring class as Redshift/Iceberg/Snowflake): CloudWatchLoggingOptions
+                      # never actually writes to the emulated CloudWatch Logs backend.
                       # 2026-08-07 pass (bd gopherstack-ohdc): found and fixed a genuine silent-breakage
                       # bug in Redshift delivery -- deliverToRedshift constructed a real
                       # aws-sdk-go-v2/service/redshiftdata client via sdk_rddata.NewFromConfig with no
@@ -44,7 +66,7 @@ ops:
 
 families:
   destination_delivery: {status: ok, note: "All 10 real SDK destination-configuration types now field-diffed and implemented: S3, ExtendedS3, HttpEndpoint, Redshift, Amazonopensearchservice, legacy Elasticsearch (NEW this pass), Splunk, Iceberg (NEW), Snowflake (NEW). S3/HTTP/Redshift/OpenSearch/Elasticsearch/Splunk delivery pipelines verified as real (Lambda transform, dynamic partitioning, S3 backup, error-output routing, retry/backoff) — not disguised no-ops. Elasticsearch reuses the OpenSearch bulk-API delivery path (the two share an identical wire protocol; only the Firehose destination-configuration shape differs). Iceberg/Snowflake land processed records into their required S3Configuration staging bucket via the same writeRecordsToBucket helper S3 delivery uses — genuine state mutation, not a stub — but neither drives a real Iceberg/Glue-catalog commit or Snowflake Snowpipe-Streaming ingest; see gaps (same documented-simplification pattern as the pre-existing Redshift gap). AmazonOpenSearchServerless (a distinct 11th real SDK destination-configuration type, `AmazonOpenSearchServerlessDestinationConfiguration`) remains unimplemented — out of scope for this pass's explicit destination list, not field-diffed, do not mark ok."}
-  kinesis_source: {status: ok, note: "KinesisStreamAsSource polling launches a real background poller (launchKinesisPoller) wired to the Kinesis backend; not audited in depth this pass (unchanged since prior work, well covered by kinesis_source_test.go)."}
+  kinesis_source: {status: ok, note: "KinesisStreamAsSource polling code (launchKinesisPoller) is real and well covered by kinesis_source_test.go. FIXED 2026-09-04 (gopherstack-o4ny): SetKinesisBackend is now actually called from cli.go -- wireFirehoseKinesisSource (cli.go, called from wireStorageAndSecretsIntegrations alongside wireFirehoseDelivery) wires the real Kinesis InMemoryBackend into Firehose via a kinesisStreamReaderAdapter (shared with kinesisanalyticsbackend's DiscoverInputSchema sampling -- both need the same narrow ListShards/GetShardIterator/GetRecords shape over the same real Kinesis backend), so shouldPoll now actually fires in a real running server and a KinesisStreamAsSource stream ingests records from its source stream for real. Previously (gopherstack-rop) SetKinesisBackend was only ever called from this service's own tests, so b.kinesisBackend was always nil in production; that pass added a CreateDeliveryStream WarnContext log for the nil-backend case (kept -- still correct for a deliberately-unwired backend, e.g. in tests), covered by TestFirehose_KinesisSource_NoBackendLogsWarning. The wiring fix itself is covered by TestFirehose_KinesisSource_Wiring in cli_test.go (asserts SetKinesisBackend's effect: a poller now starts and PollerCount goes to 1 immediately after CreateDeliveryStream on a wired backend) plus the pre-existing kinesis_source_test.go poller-mechanics tests."}
 
 gaps:
   - >
@@ -95,6 +117,45 @@ gaps:
     instead of silently succeeding. See CreateDeliveryStream/UpdateDestination ops entries
     and the 2026-08-23 Notes section below. The remaining, still-open half (a real
     OpenSearch-Serverless delivery pipeline) is unchanged and correctly still deferred.
+  - >
+    IDENTIFIED 2026-09-04 (gopherstack-rop, the services/kinesis audit's lead), FIXED
+    2026-09-04 (gopherstack-o4ny): KinesisStreamAsSource had never actually polled Kinesis
+    in a real running gopherstack server. The wire shape
+    (SourceDescription.KinesisStreamSourceDescription) and the background poller
+    (launchKinesisPoller/pollKinesisStream/pollKinesisShard in kinesis_source.go) were both
+    real and well-tested in isolation, but SetKinesisBackend -- the only way b.kinesisBackend
+    is ever set -- was called exclusively from this service's own tests, never from cli.go.
+    CreateDeliveryStream's shouldPoll gate requires b.kinesisBackend != nil, so in production
+    it was always false: a client could CreateDeliveryStream with
+    DeliveryStreamType=KinesisStreamAsSource and a valid KinesisStreamSourceDescription, get
+    back 200 OK and a real ARN, and that stream would never deliver a single record for as
+    long as it existed -- a silent, permanent, client-observable no-op, exactly the no-stub
+    violation parity-principles.md prohibits. gopherstack-rop fixed the honesty half in scope
+    at the time (a warning log on create, matching the Redshift precedent; kept -- still
+    correct for a deliberately-unwired backend, e.g. tests). gopherstack-o4ny fixed the wiring
+    itself: cli.go's wireFirehoseKinesisSource (called from wireStorageAndSecretsIntegrations
+    alongside wireFirehoseDelivery) now wires the real Kinesis InMemoryBackend into Firehose
+    via SetKinesisBackend, using a kinesisStreamReaderAdapter shared with
+    kinesisanalyticsbackend's DiscoverInputSchema sampling wiring (both need the same narrow
+    ListShards/GetShardIterator/GetRecords shape over the same real Kinesis backend). Proof:
+    TestInitializeServices_FirehoseKinesisSourceWiring (root package) drives the actual
+    initializeServices composition root, puts a record into a real Kinesis stream, and
+    verifies it lands in the destination S3 bucket through the real poller -- hand-reverted
+    (git show HEAD:cli.go > cli.go) it fails (no S3 object ever appears; 10s Eventually
+    timeout), restored it passes.
+  - >
+    FIXED 2026-09-06 (bd gopherstack-pe7x): CloudWatchLoggingOptions previously only
+    reached logDeliveryIssue (flush.go) as a local slog WarnContext record, never writing
+    an event to the emulated CloudWatch Logs backend's log group/stream. Added
+    firehose.CWLogsBackend (EnsureLogGroupAndStream/PutLogLines, mirroring
+    lambda.CWLogsBackend) plus SetCWLogsBackend, and wired it in cli.go's
+    wireFirehoseCWLogs, reusing the existing cwLogsAdapter (lambda's adapter already
+    matched the shape exactly). logDeliveryIssue now also calls
+    deliverCWLogEvent, which ensures the destination's LogGroupName/LogStreamName exist
+    and writes the same failure message via PutLogLines. Unwired (no SetCWLogsBackend
+    call, e.g. every test backend) stays a silent no-op -- delivery still proceeds
+    normally. See TestLambdaTransformError_DeliversCloudWatchLogEvent and
+    TestLambdaTransformError_UnwiredCloudWatchLogsStaysPermissive (flush_test.go).
 
 deferred:
   - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
@@ -117,7 +178,7 @@ deferred:
     empty slice (honest -- no snapshot has ever been taken -- not fabricated), and there is
     no database-source backend wiring, same structural gap class as MSK.
 
-leaks: {status: clean, note: "Kinesis poller cancel funcs tracked per region/name and cancelled on DeleteDeliveryStream; tags.Tags registries closed on Delete/Reset. streamCopy (store.go) deep-copies all destination pointer fields including the 3 new ones added this pass (Elasticsearch/Iceberg/Snowflake) — verified this was needed: a shallow struct copy alone would have shared destination-struct pointers between the backend's live state and every DescribeDeliveryStream/AddStreamInternal caller, an isolation bug. No new goroutines introduced this pass; IsStreamEncrypted (new PutRecord/PutRecordBatch Encrypted-field support) takes only a short-lived RLock."}
+leaks: {status: "fixed this pass", note: "FIXED 2026-09-04 (gopherstack-rop): Kinesis poller cancel funcs were tracked per region/name and cancelled on DeleteDeliveryStream, but NOT on Reset() -- the prior note's 'cancelled on DeleteDeliveryStream' claim was true but incomplete, since Reset() (reachable in production via the /_gopherstack/reset admin endpoint, cli.go's buildResetHandler) only cleared the streams table and closed Tags registries, leaving every b.pollerCancel entry both un-cancelled and un-forgotten: any live Kinesis-source poller goroutine kept running forever against a stream that had just been deleted out from under it (injectKinesisRecord's ErrNotFound on every attempt, logged forever, never terminating). Fixed by having Reset() cancel and clear every tracked poller, plus reset the pendingFlush/sortedNamesCache maps that had the same problem (stale region/name entries surviving a Reset with no compensating cleanup, unlike DeleteDeliveryStream which already clears both). Proof: kinesis_source_test.go's TestFirehose_KinesisSource_ResetCancelsPoller, hand-reverted (git show HEAD:services/firehose/store.go), confirmed failing (PollerCount stayed 1 after Reset instead of dropping to 0), restored, md5sum byte-identical. Prior-pass claims otherwise stand: tags.Tags registries closed on Delete/Reset; streamCopy (store.go) deep-copies all destination pointer fields correctly."}
 ---
 
 ## Notes

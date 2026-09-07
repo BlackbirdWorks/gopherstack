@@ -3,9 +3,10 @@ package eventbridge
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
 )
 
 type compiledPattern struct {
@@ -398,40 +399,12 @@ func matchNumeric(rules any, eventVal any) bool {
 		return false
 	}
 
-	num, ok := toFloat64(eventVal)
+	num, ok := eventpattern.ToFloat64(eventVal)
 	if !ok {
 		return false
 	}
 
-	const pairSize = 2
-	for i := 0; i+1 < len(ruleList); i += pairSize {
-		op, opOk := ruleList[i].(string)
-		val, valOk := toFloat64(ruleList[i+1])
-
-		if !opOk || !valOk || !compareNumeric(op, num, val) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// compareNumeric returns true if the comparison "num op val" holds.
-func compareNumeric(op string, num, val float64) bool {
-	switch op {
-	case ">":
-		return num > val
-	case ">=":
-		return num >= val
-	case "<":
-		return num < val
-	case "<=":
-		return num <= val
-	case "=":
-		return num == val
-	default:
-		return false
-	}
+	return eventpattern.MatchNumericRules(num, ruleList)
 }
 
 // matchAnythingBut matches when the event value does NOT satisfy the negated rule.
@@ -486,20 +459,6 @@ func matchAnythingButObject(ab map[string]any, eventVal any) bool {
 	return false
 }
 
-// toFloat64 converts a numeric value to float64.
-func toFloat64(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	default:
-		return 0, false
-	}
-}
-
 // matchCIDR returns true when the event value is an IP address that falls within the CIDR range.
 func matchCIDR(cidrVal, eventVal any) bool {
 	cidrStr, ok := cidrVal.(string)
@@ -512,17 +471,7 @@ func matchCIDR(cidrVal, eventVal any) bool {
 		return false
 	}
 
-	_, ipNet, err := net.ParseCIDR(cidrStr)
-	if err != nil {
-		return false
-	}
-
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return false
-	}
-
-	return ipNet.Contains(ip)
+	return eventpattern.MatchCIDR(cidrStr, ipStr)
 }
 
 // wildcardToken is one unit of a tokenized wildcard pattern: either a

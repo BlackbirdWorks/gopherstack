@@ -168,17 +168,19 @@ gaps:
     AWS's docs (checked the API reference and the Config service-limits page as of this
     pass -- no "connectors" row exists in either). Not enforced rather than guessing an
     unverifiable number; the wire error type isn't wired into errorWireMappings since
-    nothing in this backend raises it. Same caveat as the pre-existing, still-unenforced
-    single-customer-managed-recorder limit noted below.
-  - The single-customer-managed-configuration-recorder-per-account limit (AWS historically
-    allows exactly one) is still unenforced by PutConfigurationRecorder -- ErrAlreadyExists/
-    MaxNumberOfConfigurationRecordersExceededException exist in errors.go/handler.go's wire
-    mapping but nothing calls them; this predates this pass (PutConfigurationRecorder was
-    out of this pass's scope) and is called out here only because this pass's audit of
-    "how many recorders can an account have" touched the same code path. The NEW
-    PutThirdPartyServiceLinkedConfigurationRecorder's own one-per-ServicePrincipal limit
-    (see its ops entry above) IS enforced -- that op's ConflictException is real,
-    unlike this pre-existing gap.
+    nothing in this backend raises it.
+  - FIXED (parity sweep 2026-09-04): the single-customer-managed-recorder-per-account
+    limit ("You can create only one customer managed configuration recorder
+    for each account for each Amazon Web Services Region" -- api_op_PutConfigurationRecorder.go
+    doc comment) was unenforced: PutConfigurationRecorder created a new recorder for any
+    unseen name with no cap. Now hasCustomerManagedRecorderLocked (configuration_recorders.go)
+    rejects a second customer-managed recorder under a different name with
+    MaxNumberOfConfigurationRecordersExceededException (ErrAlreadyExists), matching the
+    modelled error on PutConfigurationRecorder's deserializer. Service-linked and
+    third-party service-linked recorders don't count against the limit -- confirmed via
+    PutThirdPartyServiceLinkedConfigurationRecorder's own, separately-enforced
+    one-per-ServicePrincipal limit (still real, unchanged). Test:
+    TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged.
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}

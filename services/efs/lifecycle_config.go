@@ -113,8 +113,12 @@ func (b *InMemoryBackend) PutLifecycleConfiguration(
 	b.mu.Lock("PutLifecycleConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems.Get(regionKey(region, fileSystemID)); !ok {
+	fs, ok := b.fileSystems.Get(regionKey(region, fileSystemID))
+	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+	if err := checkFileSystemAvailable(fs); err != nil {
+		return nil, err
 	}
 
 	stored := make([]LifecyclePolicy, len(policies))

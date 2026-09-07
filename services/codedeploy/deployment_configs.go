@@ -199,6 +199,15 @@ func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
 		return fmt.Errorf("%w: cannot delete built-in deployment config %s", ErrDeploymentConfigIsDefault, name)
 	}
 
+	for _, dg := range b.deploymentGroups.All() {
+		if dg.DeploymentConfigName == name {
+			return fmt.Errorf(
+				"%w: deployment config %s is used by deployment group %s",
+				ErrDeploymentConfigInUse, name, dg.DeploymentGroupName,
+			)
+		}
+	}
+
 	b.deploymentConfigs.Delete(name)
 
 	return nil

@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateKey(
 	if len(input.Tags) > maxTagsPerKey {
 		return nil, fmt.Errorf(
 			"%w: number of tags (%d) exceeds the maximum of %d",
-			ErrValidation, len(input.Tags), maxTagsPerKey,
+			ErrLimitExceeded, len(input.Tags), maxTagsPerKey,
 		)
 	}
 
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) DescribeKey(
 	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) DescribeKey(
 	// grant-token presence only (existence + TTL) -- consistent with Sign/Verify/
 	// GetPublicKey/DeriveSharedSecret. Empty GrantTokens is a no-op, which is the
 	// only case Terraform ever exercises.
-	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+	if err = b.validateGrantTokenPresence(input.GrantTokens, "DescribeKey"); err != nil {
 		return nil, err
 	}
 
@@ -282,19 +282,20 @@ func (b *InMemoryBackend) ListKeys(
 }
 
 // DisableKey disables the specified key.
-// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
+// AWS raises KMSInvalidStateException for keys pending deletion or import.
 func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput) error {
 	b.mu.Lock("DisableKey")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
 
-	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
+		key.KeyState == KeyStatePendingReplicaDeletion {
 		return keyStateError(key)
 	}
 
@@ -306,17 +307,18 @@ func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput
 }
 
 // EnableKey enables the specified key.
-// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
+// AWS raises KMSInvalidStateException for keys pending deletion or import.
 func (b *InMemoryBackend) EnableKey(ctx context.Context, input *EnableKeyInput) error {
 	b.mu.Lock("EnableKey")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
 
-	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
+		key.KeyState == KeyStatePendingReplicaDeletion {
 		return keyStateError(key)
 	}
 
@@ -339,7 +341,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -360,11 +362,28 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 		)
 	}
 
+	key.Enabled = false
+	key.PendingWindowInDays = days
+
+	// KMS will not delete a multi-Region primary key with existing replica
+	// keys: it moves to the non-final PendingReplicaDeletion state instead,
+	// with no DeletionDate yet -- the waiting period only starts once the
+	// last replica is actually deleted (see the janitor's promotion logic).
+	if b.isMultiRegionPrimaryWithReplicasLocked(key) {
+		key.KeyState = KeyStatePendingReplicaDeletion
+		key.DeletionDate = 0
+		b.evictAliasesFromCache(region, key.KeyID)
+
+		return &ScheduleKeyDeletionOutput{
+			KeyID:               key.KeyID,
+			KeyState:            key.KeyState,
+			PendingWindowInDays: days,
+		}, nil
+	}
+
 	deletionDate := time.Now().UTC().AddDate(0, 0, days)
 	key.KeyState = KeyStatePendingDeletion
-	key.Enabled = false
 	key.DeletionDate = UnixTimeFloat(deletionDate)
-	key.PendingWindowInDays = days
 	b.evictAliasesFromCache(region, key.KeyID)
 
 	return &ScheduleKeyDeletionOutput{
@@ -375,8 +394,30 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(
 	}, nil
 }
 
+// isMultiRegionPrimaryWithReplicasLocked reports whether key is a multi-Region
+// primary key that still has at least one replica key in existence. Must be
+// called with the backend write lock held.
+func (b *InMemoryBackend) isMultiRegionPrimaryWithReplicasLocked(key *Key) bool {
+	if !key.MultiRegion {
+		return false
+	}
+
+	if key.PrimaryRegion != "" && key.PrimaryRegion != extractRegionFromARN(key.Arn) {
+		return false // key is a replica, not a primary
+	}
+
+	for _, replicaID := range key.ReplicaKeyIDs {
+		if b.findKeyInAnyRegion(replicaID) != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
-// AWS raises KMSInvalidStateException if the key is not in PendingDeletion state.
+// AWS raises KMSInvalidStateException if the key is not pending deletion
+// (KeyStatePendingDeletion or KeyStatePendingReplicaDeletion).
 func (b *InMemoryBackend) CancelKeyDeletion(
 	ctx context.Context,
 	input *CancelKeyDeletionInput,
@@ -384,12 +425,12 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
 
-	if key.KeyState != KeyStatePendingDeletion {
+	if key.KeyState != KeyStatePendingDeletion && key.KeyState != KeyStatePendingReplicaDeletion {
 		return nil, keyStateError(key)
 	}
 
@@ -557,6 +598,39 @@ func (b *InMemoryBackend) findKeyInAnyRegion(keyID string) *Key {
 	return nil
 }
 
+// promoteMultiRegionPrimaryAfterReplicaPurgeLocked checks whether purgedKey was the
+// last surviving replica of a primary key in KeyStatePendingReplicaDeletion, and if
+// so, moves that primary to KeyStatePendingDeletion and starts its waiting period
+// now, using the PendingWindowInDays recorded by its original ScheduleKeyDeletion
+// call. Matches real AWS: "When the last of its replicas keys is deleted (not just
+// scheduled), the key state of the primary key changes to PendingDeletion and its
+// waiting period begins." Must be called with the backend write lock held, just
+// before purgedKey is removed from its store.
+func (b *InMemoryBackend) promoteMultiRegionPrimaryAfterReplicaPurgeLocked(purgedKey *Key) {
+	if !purgedKey.MultiRegion || purgedKey.PrimaryRegion == "" {
+		return
+	}
+
+	primary := b.findPrimaryKeyForReplica(purgedKey)
+	if primary == nil || primary.KeyState != KeyStatePendingReplicaDeletion {
+		return
+	}
+
+	for _, replicaID := range primary.ReplicaKeyIDs {
+		if replicaID == purgedKey.KeyID {
+			continue
+		}
+
+		if b.findKeyInAnyRegion(replicaID) != nil {
+			return // another replica still exists
+		}
+	}
+
+	deletionDate := time.Now().UTC().AddDate(0, 0, primary.PendingWindowInDays)
+	primary.KeyState = KeyStatePendingDeletion
+	primary.DeletionDate = UnixTimeFloat(deletionDate)
+}
+
 // findPrimaryKeyForReplica locates the primary key that lists replicaKey.KeyID in its
 // ReplicaKeyIDs. Must be called with at least a read lock held.
 func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
@@ -619,7 +693,7 @@ func (b *InMemoryBackend) UpdateKeyDescription(
 	b.mu.Lock("UpdateKeyDescription")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -652,9 +726,12 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 	input *GetKeyLastUsageInput,
 ) (*GetKeyLastUsageOutput, error) {
 	if isAliasKeyID(input.KeyID) {
+		// GetKeyLastUsage's own deserializeOpError recognizes NotFoundException,
+		// not ValidationException -- an alias name is a KeyId shape this op
+		// doesn't resolve, so it is classified the same as an unresolvable KeyId.
 		return nil, fmt.Errorf(
 			"%w: GetKeyLastUsage does not support alias names; specify a key ID or key ARN",
-			ErrValidation,
+			ErrKeyNotFound,
 		)
 	}
 
@@ -663,7 +740,7 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}

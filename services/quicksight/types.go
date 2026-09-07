@@ -202,11 +202,14 @@ type Ingestion struct {
 type Dashboard struct {
 	CreatedTime            time.Time
 	LastUpdatedTime        time.Time
+	LastPublishedTime      time.Time
 	Definition             map[string]any
 	DashboardID            string
 	Arn                    string
 	Name                   string
 	Status                 string
+	ThemeArn               string
+	VersionDescription     string
 	Permissions            []ResourcePermission
 	LinkEntities           []string
 	VersionNumber          int64
@@ -218,6 +221,8 @@ type DashboardVersion struct {
 	CreatedTime   time.Time
 	Arn           string
 	Status        string
+	ThemeArn      string
+	Description   string
 	VersionNumber int64
 }
 

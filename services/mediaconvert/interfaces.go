@@ -99,7 +99,7 @@ type StorageBackend interface {
 	// Jobs query / resource share operations
 	GetJobsQueryResults(queryID string) []*Job
 	StartJobsQuery(filterList []map[string]any, maxResults int, order string) (string, error)
-	CreateResourceShare(jobID string) (string, error)
+	CreateResourceShare(jobID, supportCaseID string) (string, error)
 
 	// Tag operations
 	GetTags(resourceARN string) map[string]string

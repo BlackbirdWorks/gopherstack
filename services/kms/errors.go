@@ -14,6 +14,11 @@ var (
 	ErrAliasNotFound = errors.New("NotFoundException")
 	// ErrAliasAlreadyExists is returned when an alias with the given name already exists.
 	ErrAliasAlreadyExists = errors.New("AlreadyExistsException")
+	// ErrInvalidAliasName is returned by CreateAlias when AliasName doesn't start with
+	// "alias/", is reserved ("alias/aws/"), exceeds the length limit, or contains
+	// disallowed characters. CreateAlias's own deserializeOpError (kms@v1.55.4
+	// deserializers.go) recognizes InvalidAliasNameException for exactly this.
+	ErrInvalidAliasName = errors.New("InvalidAliasNameException")
 	// ErrCustomKeyStoreAlreadyExists is returned when a custom key store with the given name already exists.
 	ErrCustomKeyStoreAlreadyExists = errors.New("CustomKeyStoreNameInUseException")
 	// ErrCustomKeyStoreNotFound is returned when a custom key store ID does not exist.
@@ -45,6 +50,15 @@ var (
 	// ErrUnsupportedOrigin is returned when an operation is incompatible with the key's origin.
 	ErrUnsupportedOrigin = errors.New("UnsupportedOperationException")
 	// ErrValidation is returned for invalid request parameters (maps to ValidationException).
+	// NOTE: "ValidationException" names no real type in kms@v1.55.4 (not in
+	// types/errors.go, not in any op's deserializeOpError). Sites with a real
+	// per-op fit (see ErrInvalidAliasName, ErrInvalidTag, ErrUnsupportedParameter,
+	// ErrInvalidImportToken, and the CustomKeyStoreNotFoundException /
+	// LimitExceededException / NotFoundException reuses) have been remapped.
+	// Remaining ErrValidation call sites were checked individually against their
+	// reaching operation's deserializeOpError and have no fitting recognized code
+	// (gopherstack-e3yu) -- most are smithy-required-field or range-trait checks a
+	// real AWS SDK client already rejects before the request reaches the wire.
 	ErrValidation = errors.New("ValidationException")
 	// ErrExpiredKeyMaterial is returned when a key's imported material has passed its ValidTo date.
 	ErrExpiredKeyMaterial = errors.New("ExpiredImportTokenException")
@@ -54,4 +68,28 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceededException")
 	// ErrInvalidAlgorithm is returned when an algorithm is not valid for the key spec.
 	ErrInvalidAlgorithm = errors.New("InvalidAlgorithmException")
+	// ErrAccessDenied is returned when a grant token is valid but its Operations list
+	// does not authorize the operation being performed.
+	ErrAccessDenied = errors.New("AccessDeniedException")
+	// ErrInvalidTag is returned when a tag key/value fails KMS's format constraints
+	// (empty key, length limit, reserved "aws:" prefix). TagResource, CreateKey and
+	// ReplicateKey's deserializeOpError all recognize TagException for this.
+	ErrInvalidTag = errors.New("TagException")
+	// ErrUnsupportedParameter is returned when a KeySpec/KeyPairSpec/WrappingAlgorithm/
+	// WrappingKeySpec value is not one this operation supports. CreateKey,
+	// GenerateDataKeyPair(WithoutPlaintext), GetParametersForImport and the rotation
+	// ops all recognize UnsupportedOperationException for an unsupported parameter
+	// value, per its doc ("a specified parameter is not supported").
+	ErrUnsupportedParameter = errors.New("UnsupportedOperationException")
+	// ErrInvalidImportToken is returned when ImportKeyMaterial's wrapped key material
+	// cannot be unwrapped because no GetParametersForImport wrapping key is on record
+	// for the target KMS key (stale or skipped GetParametersForImport call).
+	// ImportKeyMaterial's deserializeOpError recognizes InvalidImportTokenException.
+	ErrInvalidImportToken = errors.New("InvalidImportTokenException")
+	// ErrInvalidArn is returned by resolveKeyID/resolveARNKeyID for a malformed KeyId
+	// ARN, for the KeyId-accepting operations whose own deserializeOpError recognizes
+	// InvalidArnException (gopherstack-qxaj). Crypto ops (Encrypt, Decrypt, Sign,
+	// GenerateDataKey, ...) do not model it -- those callers pass ErrKeyNotFound
+	// instead, the only resource-shaped code they do recognize.
+	ErrInvalidArn = errors.New("InvalidArnException")
 )

@@ -83,8 +83,8 @@ func (h *Handler) handleGetCostAndUsage(
 		groupBy[i] = GroupBySpec(g)
 	}
 
-	results := h.Backend.GetCostAndUsage(
-		start, end, granularity, in.Metrics, groupBy, serviceDimensionFilter(in.Filter),
+	results := h.Backend.GetCostAndUsageFiltered(
+		start, end, granularity, in.Metrics, groupBy, in.Filter,
 	)
 
 	page, nextToken := paginateList(results, 0, in.NextPageToken, resultByTimeKey)

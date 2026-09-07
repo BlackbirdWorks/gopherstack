@@ -58,7 +58,11 @@ func (b *InMemoryBackend) CreateJob(
 		Timeout:                  extra.Timeout,
 	}
 	if recipeName != "" {
-		j.RecipeReference = &RecipeRef{Name: recipeName, RecipeVersion: "LATEST_WORKING"}
+		version := extra.RecipeVersion
+		if version == "" {
+			version = recipeVersionLatestWorking
+		}
+		j.RecipeReference = &RecipeRef{Name: recipeName, RecipeVersion: version}
 	}
 	t.Put(j)
 

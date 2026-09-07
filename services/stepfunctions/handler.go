@@ -350,6 +350,9 @@ func classifyError(reqErr error) (string, int) {
 		// alias name -- "StateMachineAliasAlreadyExists" names no type anywhere
 		// in this SDK.
 		{ErrStateMachineAliasAlreadyExists, "ConflictException", http.StatusConflict},
+		// AWS: DeleteStateMachineVersion's own error switch models
+		// ConflictException for a version still referenced by an alias.
+		{ErrStateMachineVersionReferencedByAlias, "ConflictException", http.StatusConflict},
 		{ErrExecutionAlreadyExists, "ExecutionAlreadyExists", http.StatusConflict},
 		{ErrActivityAlreadyExists, "ActivityAlreadyExists", http.StatusConflict},
 		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},

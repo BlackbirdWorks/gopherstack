@@ -212,11 +212,15 @@ type searchFacesByImageResp struct {
 }
 
 func (h *Handler) handleSearchFacesByImage(
-	_ context.Context,
+	ctx context.Context,
 	req *searchFacesByImageReq,
 ) (*searchFacesByImageResp, error) {
 	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
 	}
 
 	imageKey := imageRefKey(req.Image)
@@ -294,7 +298,15 @@ const (
 	compareFacesDistinctSimilarity  = 92.0
 )
 
-func (h *Handler) handleCompareFaces(_ context.Context, req *compareFacesReq) (*compareFacesResp, error) {
+func (h *Handler) handleCompareFaces(ctx context.Context, req *compareFacesReq) (*compareFacesResp, error) {
+	if err := h.checkImageRef(ctx, req.SourceImage); err != nil {
+		return nil, err
+	}
+
+	if err := h.checkImageRef(ctx, req.TargetImage); err != nil {
+		return nil, err
+	}
+
 	resp := &compareFacesResp{}
 	resp.SourceImageFace.Confidence = 99.9
 	resp.SourceImageFace.BoundingBox.Height = 0.5
@@ -343,7 +355,11 @@ type detectFacesResp struct {
 	FaceDetails           []faceDetailEntry `json:"FaceDetails"`
 }
 
-func (h *Handler) handleDetectFaces(_ context.Context, _ *detectFacesReq) (*detectFacesResp, error) {
+func (h *Handler) handleDetectFaces(ctx context.Context, req *detectFacesReq) (*detectFacesResp, error) {
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
 	return &detectFacesResp{
 		FaceDetails:           []faceDetailEntry{},
 		OrientationCorrection: orientationRotate0,
@@ -360,8 +376,12 @@ type startFaceDetectionReq struct {
 }
 
 func (h *Handler) handleStartFaceDetection(
-	_ context.Context, req *startFaceDetectionReq,
+	ctx context.Context, req *startFaceDetectionReq,
 ) (*startJobResp, error) {
+	if err := h.checkVideoRef(ctx, req.Video); err != nil {
+		return nil, err
+	}
+
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
@@ -406,8 +426,12 @@ type startFaceSearchReq struct {
 }
 
 func (h *Handler) handleStartFaceSearch(
-	_ context.Context, req *startFaceSearchReq,
+	ctx context.Context, req *startFaceSearchReq,
 ) (*startJobResp, error) {
+	if err := h.checkVideoRef(ctx, req.Video); err != nil {
+		return nil, err
+	}
+
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{

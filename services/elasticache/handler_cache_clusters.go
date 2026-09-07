@@ -51,6 +51,7 @@ type cacheClusterXML struct {
 	SnapshotWindow             string     `xml:"SnapshotWindow,omitempty"`
 	CacheNodes                 cacheNodes `xml:"CacheNodes"`
 	NumCacheNodes              int        `xml:"NumCacheNodes"`
+	SnapshotRetentionLimit     int        `xml:"SnapshotRetentionLimit,omitempty"`
 	TransitEncryptionEnabled   bool       `xml:"TransitEncryptionEnabled"`
 	AtRestEncryptionEnabled    bool       `xml:"AtRestEncryptionEnabled"`
 }
@@ -74,29 +75,11 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 	}
 
-	// AWS supports restoring a new cluster from an existing snapshot: the
-	// snapshot must exist, and its engine/node type become the defaults for
-	// any field the caller didn't explicitly override.
-	if snapshotName := form.Get("SnapshotName"); snapshotName != "" {
-		// SnapshotNotFoundFault isn't in CreateCacheCluster's modeled error
-		// list (api-2.json), so aws-sdk-go-v2 has no case for it in this
-		// operation's error deserializer and would fall back to a generic
-		// error; AWS instead surfaces a missing/invalid snapshot here as
-		// InvalidParameterValue, which the SDK does model for this op.
-		snaps, snapErr := h.Backend.DescribeSnapshots(ctx, snapshotName, "", "", "", "", 0)
-		if snapErr != nil || len(snaps.Data) == 0 {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue",
-				fmt.Sprintf("Cache cluster snapshot not found: %s", snapshotName))
-		}
+	var restoreErr error
 
-		src := snaps.Data[0]
-		if engine == "" {
-			engine = src.Engine
-		}
-
-		if nodeType == "" {
-			nodeType = src.NodeType
-		}
+	engine, nodeType, restoreErr = h.applySnapshotDefaults(ctx, c, form.Get("SnapshotName"), engine, nodeType)
+	if restoreErr != nil {
+		return restoreErr
 	}
 
 	cluster, err := h.Backend.CreateClusterWithOptions(ctx,
@@ -125,6 +108,14 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 
 	h.applyCreateTimeTags(ctx, form, cluster.ARN)
 
+	if sgErr := h.applyClusterSubnetGroup(ctx, c, form, id, cluster); sgErr != nil {
+		return sgErr
+	}
+
+	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, c, form, id, cluster); srErr != nil {
+		return srErr
+	}
+
 	type result struct {
 		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
 		Xmlns        string          `xml:"xmlns,attr"`
@@ -135,6 +126,87 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		Xmlns:        elasticacheNS,
 		CacheCluster: clusterToXML(cluster, cluster.Status),
 	})
+}
+
+// applyClusterSubnetGroup records CacheSubnetGroupName on a just-created cluster,
+// if the caller supplied one. Split out of createCacheCluster to keep its
+// cognitive complexity down.
+func (h *Handler) applyClusterSubnetGroup(
+	ctx context.Context, c *echo.Context, form url.Values, id string, cluster *Cluster,
+) error {
+	subnetGroupName := form.Get("CacheSubnetGroupName")
+	if subnetGroupName == "" {
+		return nil
+	}
+
+	if err := h.Backend.SetClusterSubnetGroupName(ctx, id, subnetGroupName); err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	cluster.SubnetGroupName = subnetGroupName
+
+	return nil
+}
+
+// applyClusterSnapshotRetentionLimit records SnapshotRetentionLimit on a
+// just-created cluster, if the caller supplied it. AWS documents 0 as a
+// meaningful explicit value ("automatic backups are disabled"), so presence
+// is checked on the raw form value, not on the parsed int being non-zero.
+// Split out of createCacheCluster to keep its cognitive complexity down.
+func (h *Handler) applyClusterSnapshotRetentionLimit(
+	ctx context.Context, c *echo.Context, form url.Values, id string, cluster *Cluster,
+) error {
+	s := form.Get("SnapshotRetentionLimit")
+	if s == "" {
+		return nil
+	}
+
+	n, parseErr := strconv.Atoi(s)
+	if parseErr != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "SnapshotRetentionLimit must be an integer")
+	}
+
+	if err := h.Backend.SetClusterSnapshotRetentionLimit(ctx, id, &n); err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	cluster.SnapshotRetentionLimit = n
+
+	return nil
+}
+
+// applySnapshotDefaults implements AWS's CreateCacheCluster-from-snapshot restore:
+// when snapshotName is set, the snapshot must exist and its engine/node type
+// become the defaults for whichever of engine/nodeType the caller left blank.
+// Split out of createCacheCluster to keep its cognitive complexity down.
+func (h *Handler) applySnapshotDefaults(
+	ctx context.Context, c *echo.Context, snapshotName, engine, nodeType string,
+) (string, string, error) {
+	if snapshotName == "" {
+		return engine, nodeType, nil
+	}
+
+	// SnapshotNotFoundFault isn't in CreateCacheCluster's modeled error list
+	// (api-2.json), so aws-sdk-go-v2 has no case for it in this operation's
+	// error deserializer and would fall back to a generic error; AWS instead
+	// surfaces a missing/invalid snapshot here as InvalidParameterValue, which
+	// the SDK does model for this op.
+	snaps, snapErr := h.Backend.DescribeSnapshots(ctx, snapshotName, "", "", "", "", 0)
+	if snapErr != nil || len(snaps.Data) == 0 {
+		return "", "", xmlError(c, http.StatusBadRequest, "InvalidParameterValue",
+			fmt.Sprintf("Cache cluster snapshot not found: %s", snapshotName))
+	}
+
+	src := snaps.Data[0]
+	if engine == "" {
+		engine = src.Engine
+	}
+
+	if nodeType == "" {
+		nodeType = src.NodeType
+	}
+
+	return engine, nodeType, nil
 }
 
 func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -156,7 +228,7 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
-		if errors.Is(err, ErrClusterNotAvailable) {
+		if errors.Is(err, ErrClusterNotAvailable) || errors.Is(err, ErrClusterInReplicationGroup) {
 			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
 		}
 
@@ -253,6 +325,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		ReplicationGroupID:         cl.ReplicationGroupID,
 		PreferredMaintenanceWindow: cl.PreferredMaintenanceWindow,
 		SnapshotWindow:             cl.SnapshotWindow,
+		SnapshotRetentionLimit:     cl.SnapshotRetentionLimit,
 		TransitEncryptionEnabled:   cl.TransitEncryptionEnabled,
 		AtRestEncryptionEnabled:    cl.AtRestEncryptionEnabled,
 		CreatedAt:                  cl.CreatedAt.UTC().Format(time.RFC3339),
@@ -298,6 +371,10 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, c, form, id, cluster); srErr != nil {
+		return srErr
 	}
 
 	type result struct {

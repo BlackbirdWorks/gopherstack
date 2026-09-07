@@ -19,6 +19,9 @@ const (
 	proposalStatusApproved = "APPROVED"
 	// proposalStatusRejected is the status for a rejected proposal.
 	proposalStatusRejected = "REJECTED"
+	// proposalStatusExpired is the status for a proposal whose voting period
+	// ended without enough votes to approve or reject it.
+	proposalStatusExpired = "EXPIRED"
 	// proposalExpirationHours is the number of hours before a proposal expires.
 	proposalExpirationHours = 24
 	// percentBase is the base used to convert a vote fraction to a percentage.
@@ -112,8 +115,8 @@ func (b *InMemoryBackend) CreateProposal(
 
 // GetProposal returns a proposal by network ID and proposal ID.
 func (b *InMemoryBackend) GetProposal(networkID, proposalID string) (*Proposal, error) {
-	b.mu.RLock("GetProposal")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetProposal")
+	defer b.mu.Unlock()
 
 	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
@@ -124,14 +127,16 @@ func (b *InMemoryBackend) GetProposal(networkID, proposalID string) (*Proposal, 
 		return nil, ErrProposalNotFound
 	}
 
+	expireProposalLocked(proposal)
+
 	return cloneProposal(proposal), nil
 }
 
 // ListProposals returns all proposals for a network sorted by proposal ID.
 // statusFilter, when non-empty, limits results to proposals with that status.
 func (b *InMemoryBackend) ListProposals(networkID, statusFilter string) ([]*Proposal, error) {
-	b.mu.RLock("ListProposals")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListProposals")
+	defer b.mu.Unlock()
 
 	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
@@ -141,6 +146,8 @@ func (b *InMemoryBackend) ListProposals(networkID, statusFilter string) ([]*Prop
 	all := make([]*Proposal, 0, len(proposals))
 
 	for _, p := range proposals {
+		expireProposalLocked(p)
+
 		if statusFilter != "" && p.Status != statusFilter {
 			continue
 		}
@@ -231,6 +238,8 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 		return ErrProposalNotFound
 	}
 
+	expireProposalLocked(proposal)
+
 	if proposal.Status != proposalStatusInProgress {
 		return ErrValidation
 	}
@@ -274,6 +283,24 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	b.applyVoteThresholdLocked(network, proposal, totalMembers)
 
 	return nil
+}
+
+// expireProposalLocked transitions an IN_PROGRESS proposal to EXPIRED once its
+// ExpirationDate has passed with no decisive vote. Must be called with mu held.
+//
+// Real AWS: "EXPIRED - Members did not cast the number of votes required to
+// determine the proposal outcome before the proposal expired." (AWS Managed
+// Blockchain Hyperledger Fabric dev guide, "View Proposals" proposal statuses.)
+func expireProposalLocked(proposal *Proposal) {
+	if proposal.Status != proposalStatusInProgress {
+		return
+	}
+
+	if proposal.ExpirationDate == nil || time.Now().UTC().Before(*proposal.ExpirationDate) {
+		return
+	}
+
+	proposal.Status = proposalStatusExpired
 }
 
 // applyVoteThresholdLocked checks vote counts against the network's voting policy
@@ -392,4 +419,6 @@ func (b *InMemoryBackend) executeProposalActionsLocked(network *Network, proposa
 			b.deleteNodesForMemberLocked(network.ID, memberID)
 		}
 	}
+
+	deleteNetworkIfEmptyLocked(b, network)
 }

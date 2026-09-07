@@ -84,11 +84,89 @@ func TestHandler_DBInstances(t *testing.T) {
 			if tt.name != "create_instance" {
 				createInstance(t, h, "test-instance", "inst-cluster")
 			}
+			if tt.name == "delete_instance" {
+				// A cluster's last instance can't be deleted, so give it a sibling.
+				createInstance(t, h, "test-instance-sibling", "inst-cluster")
+			}
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})
 	}
+}
+
+// TestHandler_DeleteDBInstance_OnlyInstanceInCluster asserts DeleteDBInstance
+// rejects deleting the only instance in a DB cluster (api_op_DeleteDBInstance.go:
+// "You can't delete a DB instance if it is the only instance in the DB
+// cluster").
+func TestHandler_DeleteDBInstance_OnlyInstanceInCluster(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "solo-cluster")
+	createInstance(t, h, "solo-inst", "solo-cluster")
+
+	recEarly := doRequest(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"solo-inst"},
+	})
+	assert.Equal(t, http.StatusBadRequest, recEarly.Code)
+	assert.Contains(t, recEarly.Body.String(), "InvalidDBInstanceState")
+
+	createInstance(t, h, "solo-inst-2", "solo-cluster")
+
+	recDelete := doRequest(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"solo-inst"},
+	})
+	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+// TestHandler_DeleteDBInstance_DeletionProtectionEnabled asserts DeleteDBInstance
+// rejects deleting an instance with deletion protection enabled
+// (api_op_DeleteDBInstance.go: "You can't delete a DB instance ... if it has
+// deletion protection enabled", and types.DBInstance.DeletionProtection's own
+// doc comment: "The instance can't be deleted when deletion protection is
+// enabled.").
+func TestHandler_DeleteDBInstance_DeletionProtectionEnabled(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "dp-cluster")
+	// A sibling instance keeps the only-instance-in-cluster rule out of play.
+	createInstance(t, h, "dp-inst-sibling", "dp-cluster")
+	doRequest(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"dp-inst"},
+		"DBClusterIdentifier":  {"dp-cluster"},
+		"DBInstanceClass":      {"db.r5.large"},
+		"DeletionProtection":   {"true"},
+	})
+
+	recProtected := doRequest(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"dp-inst"},
+	})
+	assert.Equal(t, http.StatusBadRequest, recProtected.Code)
+	assert.Contains(t, recProtected.Body.String(), "InvalidDBInstanceState")
+
+	doRequest(t, h, url.Values{
+		"Action":               {"ModifyDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"dp-inst"},
+		"DeletionProtection":   {"false"},
+	})
+
+	recDelete := doRequest(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"dp-inst"},
+	})
+	assert.Equal(t, http.StatusOK, recDelete.Code)
 }
 
 func TestHandler_DescribeEngineVersions(t *testing.T) {
@@ -322,6 +400,10 @@ func TestHandler_DeleteClusterAndInstance(t *testing.T) {
 			h := newTestHandler(t)
 			createCluster(t, h, "del-cluster")
 			createInstance(t, h, "del-inst", "del-cluster")
+			if tt.name == "delete instance" {
+				// A cluster's last instance can't be deleted, so give it a sibling.
+				createInstance(t, h, "del-inst-sibling", "del-cluster")
+			}
 
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantCode, rr.Code)

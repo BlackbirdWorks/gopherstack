@@ -672,6 +672,37 @@ func TestHandler_ContinueDeployment(t *testing.T) {
 	}
 }
 
+// TestDeployments_StopDeployment_AlreadyStopped proves stopping an
+// already-stopped deployment is rejected with DeploymentAlreadyCompletedException
+// (types/errors.go:221, "The deployment is already complete.") instead of
+// silently succeeding a second time.
+func TestDeployments_StopDeployment_AlreadyStopped(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createAppAndDG(t, h, "stop-twice-app", "stop-twice-dg")
+
+	createRec := doRequest(t, h, "CreateDeployment", map[string]any{
+		"applicationName":     "stop-twice-app",
+		"deploymentGroupName": "stop-twice-dg",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]string
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	deployID := createOut["deploymentId"]
+
+	firstStop := doRequest(t, h, "StopDeployment", map[string]any{"deploymentId": deployID})
+	require.Equal(t, http.StatusOK, firstStop.Code)
+
+	secondStop := doRequest(t, h, "StopDeployment", map[string]any{"deploymentId": deployID})
+	assert.Equal(t, http.StatusConflict, secondStop.Code)
+
+	var errResp map[string]string
+	require.NoError(t, json.Unmarshal(secondStop.Body.Bytes(), &errResp))
+	assert.Equal(t, "DeploymentAlreadyCompletedException", errResp["__type"])
+}
+
 func TestDeployments_StopDeploymentStatus(t *testing.T) {
 	t.Parallel()
 

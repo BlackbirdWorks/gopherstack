@@ -142,6 +142,12 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 						ChannelName: aws.String("test_channel"),
 					},
 				},
+				{
+					Datastore: &iotanalyticstype.DatastoreActivity{
+						Name:          aws.String("datastore_activity"),
+						DatastoreName: aws.String("test_datastore"),
+					},
+				},
 			},
 		},
 	)
@@ -255,6 +261,12 @@ func TestIntegration_IoTAnalytics_PipelineReprocessing(t *testing.T) {
 					Channel: &iotanalyticstype.ChannelActivity{
 						Name:        aws.String("channel_activity"),
 						ChannelName: aws.String("test_channel"),
+					},
+				},
+				{
+					Datastore: &iotanalyticstype.DatastoreActivity{
+						Name:          aws.String("datastore_activity"),
+						DatastoreName: aws.String("test_datastore"),
 					},
 				},
 			},

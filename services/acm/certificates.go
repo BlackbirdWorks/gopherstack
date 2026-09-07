@@ -390,6 +390,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		existing.SubjectCommonName = meta.subjectCommonName
 		existing.IssuerCommonName = meta.issuerCommonName
 		existing.SignatureAlgorithm = meta.signatureAlgorithm
+		existing.KeyAlgorithm = meta.keyAlgorithm
 		existing.ImportedAt = &now
 		existing.Status = statusIssued
 		existing.KeyUsage = meta.keyUsage
@@ -411,7 +412,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		Issuer:                             meta.issuer,
 		SubjectCommonName:                  meta.subjectCommonName,
 		IssuerCommonName:                   meta.issuerCommonName,
-		KeyAlgorithm:                       keyAlgorithmEC,
+		KeyAlgorithm:                       meta.keyAlgorithm,
 		SignatureAlgorithm:                 meta.signatureAlgorithm,
 		Status:                             statusIssued,
 		Type:                               certTypeImported,

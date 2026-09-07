@@ -142,9 +142,13 @@ Freeform findings from the 2026-07-05 sweep (bd: gopherstack-42s), for the next 
    ("missing errCodeLookup entries"). Fixed with a single-point fix: wrap with both
    `ErrValidation` and `errUnsupportedKeySpec` (Go 1.20+ multi-`%w`) at the source, so every
    current and future caller of `generateKeyMaterial` gets correct classification for free.
-   Proven with an HTTP-level test (`Test_KMS_InvalidKeySpec_Returns400ValidationException`)
+   Proven with an HTTP-level test (`TestKMS_InvalidKeySpec_Returns400UnsupportedOperationException`)
    that exercises the full `Handler().Handler()` echo path and checks both status code and
    `ErrorResponse.Type`.
+   **Update (gopherstack-e3yu):** `ValidationException` names no type in any KMS
+   operation's `deserializeOpError` (CreateKey and GenerateDataKeyPair included), so the
+   wrap now uses `ErrUnsupportedParameter` (`UnsupportedOperationException`, which both
+   operations' real deserializers do recognize) instead of `ErrValidation`; still 400.
 
 3. **`purgeKey` leaked the `grantsByKey` secondary-index submap (moderate, matches the
    "unbounded key/grant maps" pattern called out in the audit brief).** When the janitor
@@ -389,6 +393,19 @@ full `terraform apply`/`plan`/`destroy` cycle, since the CreateKey bug proved mo
 
 ### Cross-service KMS integration punch-list (Step 4, report-only — no edits made)
 
+**CORRECTION (gopherstack-utfj, verified against current `cli.go`):** Secrets Manager
+was listed below as unwired; `wireSecretsManagerKMS` (`cli.go:4551`, called from
+`cli.go:3385`) has wired it since commit `efc42cbc4` (2026-07-13), after this Step 4
+punch-list and the 2026-07-12 pass's closing paragraph were written and never updated.
+Moved to the wired list below. Also missing from this punch-list entirely: **Kinesis**
+(`wireKinesisKMS`, `cli.go:4502`, called from `cli.go:2876`) real-validates
+`StartStreamEncryption`'s `KeyId` via `kms.InMemoryBackend.DescribeKey` — this Step 4
+search's `KmsKeyId`/`KMSMasterKeyId`/`SSEKMSKeyId` field-name grep didn't match
+Kinesis's bare `KeyId` field, so it was never enumerated either way. Added below. The
+remaining "not wired" entries (S3, SQS, SNS, DynamoDB, RDS, EC2/EBS, CloudWatch Logs)
+were re-checked against current `cli.go` and still have no `wire*KMS` counterpart —
+still accurate.
+
 Searched the full non-KMS codebase (read-only) for `KmsKeyId`/`KMSMasterKeyId`/
 `SSEKMSKeyId`-style fields. **Already wired in `cli.go` (no gap):**
 
@@ -399,6 +416,17 @@ Searched the full non-KMS codebase (read-only) for `KmsKeyId`/`KMSMasterKeyId`/
 - **Resource Groups Tagging API** (`wireTaggingKMS` in `cli.go:5218`): uses
   `Handler.TaggedKeys`/`TagKeyByARN`/`UntagKeyByARN` (already exported on
   `kms.Handler` specifically for this). No action needed.
+- **Kinesis** (`wireKinesisKMS` in `cli.go:4502`): `kinesis.InMemoryBackend.WithKMSValidator`
+  + `kinesis.KMSKeyValidator` interface + a `cli.go`-local `kinesisKMSAdapter` calling
+  `kms.InMemoryBackend.DescribeKey` to real-validate `StartStreamEncryption`'s `KeyId`
+  (existence + `Enabled` state). No action needed.
+- **Secrets Manager** (`wireSecretsManagerKMS` in `cli.go:4551`, called from `cli.go:3385`):
+  `secretsmanager.InMemoryBackend.SetKMSEncryptor` + `secretsmanager.KMSEncryptor`
+  interface (`services/secretsmanager/kms.go`) + a `cli.go`-local
+  `secretsManagerKMSAdapter` calling `kms.InMemoryBackend.Encrypt`/`Decrypt`, mirroring
+  the SSM precedent. `SecretString`/`SecretBinary` are now *really* encrypted/decrypted
+  through KMS when a secret has a `KmsKeyId` (or the default alias). No action needed —
+  see the corrected entry below, formerly listed under "Not wired."
 - **CloudFormation** (`services/cloudformation/resources.go`,
   `resources_phase5.go`/`resources_phase6.go`): `AWS::KMS::Key`/`AWS::KMS::Alias`/
   `AWS::KMS::ReplicaKey` CFN resource types call `rc.backends.KMS.Backend.CreateKey`/
@@ -430,12 +458,10 @@ correctness requirement for `apply`/`plan`/`destroy` to succeed:
     format-validate the value (alias name / alias ARN / key ID / key ARN shape) but
     never checks it against a live KMS key and never actually encrypts messages. (a) no
     existence check (format-only). (b)/(c) no. (d) not needed for basic apply.
-  - **Secrets Manager** (`aws_secretsmanager_secret`, `KmsKeyID` in `backend.go`/
-    `models.go`): stored/echoed on the secret and its replicas, never validated or used
-    to encrypt `SecretString`/`SecretBinary` at rest. Same (a)-(d) answers as S3. This is
-    arguably the highest-value future wire-up (mirrors the SSM precedent almost exactly
-    — Secrets Manager's `SecretString` is conceptually identical to SSM's SecureString
-    `Value`), but still not required for `terraform apply` to succeed today.
+  - ~~**Secrets Manager**~~ **WIRED as of `efc42cbc4` (2026-07-13) — see the corrected
+    "Already wired" entry above (gopherstack-utfj).** This bullet's original claim
+    (stored/echoed only, never validated or encrypted) is stale; left struck through
+    rather than deleted so this pass's punch-list stays legible as a historical record.
   - **DynamoDB** (`aws_dynamodb_table`, `SSESpecification.KMSMasterKeyId` ->
     `SSEKMSMasterKeyArn` in `table_ops.go`): stored/echoed only. Same (a)-(d) as S3.
   - **RDS** (`aws_db_instance`/`aws_db_snapshot`, `KmsKeyId` throughout
@@ -503,13 +529,21 @@ the details.
    driven over Revoke/Retire-by-ARN/Retire-by-token/Retire-by-GrantId, all while ctx
    defaults to the primary's region).
 
-**Only remaining KMS-related follow-up is external (out of this service's scope):** the
-cross-service Secrets Manager → KMS wiring (real `SecretString`/`SecretBinary` encryption
-via a `secretsmanager.KMSEncryptor`-style adapter, mirroring the existing SSM precedent).
-That is `cli.go` + Secrets Manager backend work — main-thread / cross-service territory
-per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side export (`Handler.Backend`'s
-`Encrypt`/`Decrypt`/`DescribeKey` already suffice, as documented in the cross-service
-punch-list above). No KMS-local gaps remain.
+**UPDATE (gopherstack-utfj, 2026-09-06): done, not remaining.** The cross-service
+Secrets Manager → KMS wiring described below landed in `efc42cbc4` (2026-07-13), two
+days after this paragraph was written — `wireSecretsManagerKMS` (`cli.go:4551`) is
+called from `cli.go:3385`, and `services/secretsmanager/kms.go` implements the real
+`KMSEncryptor` adapter (`secretsManagerKMSAdapter` in `cli.go`) exactly as predicted
+below. This paragraph was never updated after that commit landed; left in place,
+struck through, as a historical record rather than deleted.
+
+~~**Only remaining KMS-related follow-up is external (out of this service's scope):**
+the cross-service Secrets Manager → KMS wiring (real `SecretString`/`SecretBinary`
+encryption via a `secretsmanager.KMSEncryptor`-style adapter, mirroring the existing
+SSM precedent). That is `cli.go` + Secrets Manager backend work — main-thread /
+cross-service territory per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side
+export (`Handler.Backend`'s `Encrypt`/`Decrypt`/`DescribeKey` already suffice, as
+documented in the cross-service punch-list above). No KMS-local gaps remain.~~
 
 ## 2026-07-23 gap-closure + leak-hunt pass (bd: none filed yet — see report)
 

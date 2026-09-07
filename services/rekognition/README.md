@@ -7,15 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 50 (49 ok, 1 partial) |
+| PARITY entries audited | 50 (47 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | 3 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
+- 2026-09-06 (gopherstack-eshx): IndexFaces never parses IndexFacesInput.Image at all (indexFacesReq has CollectionId/ExternalImageId only) -- a required member of a real IndexFaces request is silently dropped, not just unchecked against S3. Structural gap, out of this pass's scope (adding S3Object existence checking, not adding a missing wire field); IndexFaces is therefore excluded from this pass's InvalidS3ObjectException enforcement. Needs its own fix.
+- 2026-09-06 (gopherstack-eshx): CreateDataset never parses CreateDatasetInput.DatasetSource (createDatasetReq has ProjectArn/DatasetType only) -- DatasetSource.GroundTruthManifest.S3Object, the one Image-shaped field this op accepts, is silently dropped. Same structural-gap reasoning as IndexFaces above; excluded from this pass's InvalidS3ObjectException enforcement.
 
 ### Deferred
 

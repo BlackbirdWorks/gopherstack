@@ -898,3 +898,60 @@ func TestHandler_DescribeCacheClusters_ShowCacheClustersNotInReplicationGroups(t
 		})
 	}
 }
+
+// TestCacheCluster_SnapshotRetentionLimit locks two real bugs:
+//  1. SnapshotRetentionLimit was entirely dropped on Create/Modify/Describe for
+//     standalone cache clusters (unlike ReplicationGroup/ServerlessCache, which
+//     already wire it) -- api_op_CreateCacheCluster.go/api_op_ModifyCacheCluster.go
+//     both declare it, and api_op_ModifyCacheCluster.go documents 0 as a
+//     meaningful explicit value ("If the value of SnapshotRetentionLimit is set
+//     to zero (0), backups are turned off"), not "leave unchanged".
+//  2. Omitting SnapshotRetentionLimit on a later ModifyCacheCluster call must
+//     leave a previously-set value alone rather than clobbering it back to zero.
+func TestCacheCluster_SnapshotRetentionLimit(t *testing.T) {
+	t.Parallel()
+
+	client := newTestStack(t)
+
+	created, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+		CacheClusterId:         aws.String("srl-cluster"),
+		Engine:                 aws.String("redis"),
+		CacheNodeType:          aws.String("cache.t3.micro"),
+		SnapshotRetentionLimit: aws.Int32(5),
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(5), aws.ToInt32(created.CacheCluster.SnapshotRetentionLimit),
+		"SnapshotRetentionLimit must round-trip from CreateCacheCluster, not be silently dropped")
+
+	modifiedNoOp, err := client.ModifyCacheCluster(t.Context(), &elasticachesdk.ModifyCacheClusterInput{
+		CacheClusterId: aws.String("srl-cluster"),
+		EngineVersion:  aws.String("7.1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(5), aws.ToInt32(modifiedNoOp.CacheCluster.SnapshotRetentionLimit),
+		"omitting SnapshotRetentionLimit on Modify must leave the prior value alone, not clobber it to zero")
+
+	_, err = client.ModifyCacheCluster(t.Context(), &elasticachesdk.ModifyCacheClusterInput{
+		CacheClusterId:         aws.String("srl-cluster"),
+		SnapshotRetentionLimit: aws.Int32(0),
+	})
+	require.NoError(t, err)
+
+	// A second no-op Modify (SnapshotRetentionLimit omitted again) proves the
+	// explicit-zero write actually landed server-side rather than being
+	// silently ignored: if it had been ignored, the stored value would still
+	// be 5 and this describe would show 5, not 0.
+	_, err = client.ModifyCacheCluster(t.Context(), &elasticachesdk.ModifyCacheClusterInput{
+		CacheClusterId: aws.String("srl-cluster"),
+		EngineVersion:  aws.String("7.1"),
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
+		CacheClusterId: aws.String("srl-cluster"),
+	})
+	require.NoError(t, err)
+	require.Len(t, described.CacheClusters, 1)
+	assert.Equal(t, int32(0), aws.ToInt32(described.CacheClusters[0].SnapshotRetentionLimit),
+		"explicit SnapshotRetentionLimit=0 must be honoured (AWS: backups turned off) and persisted, not ignored")
+}

@@ -309,6 +309,8 @@ func (b *InMemoryBackend) Reset() {
 	// store_setup.go's registerAllTables doc), so they need an explicit Reset call.
 	b.invalidations.Reset()
 	b.tenantInvalidations.Reset()
+	b.invalidationReadyAt = make(map[string]map[string]time.Time)
+	b.tenantInvalidationReadyAt = make(map[string]map[string]time.Time)
 
 	b.resetDistributions()
 	b.resetPoliciesAndKeys()

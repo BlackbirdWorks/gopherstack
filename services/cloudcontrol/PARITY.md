@@ -14,7 +14,7 @@ overall: A            # wrapper-key/nested-shape sweep (2026-08-20): zero bugs f
 ops:
   CreateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now enforced as required (was silently accepted empty, matching CreateResourceInput.DesiredState 'This member is required'); ProgressEvent.ResourceModel populated; AlreadyExistsException/InvalidRequestException HTTP 400"}
   GetResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException HTTP 400"}
-  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PatchDocument now enforced as required (was silently no-op'd by applyPatch on an empty/missing patch, matching UpdateResourceInput.PatchDocument 'This member is required'); ClientToken idempotency added (real UpdateResourceInput.ClientToken field was previously dropped entirely -- accepted on the wire but never passed to the backend); ProgressEvent.ResourceModel reflects post-patch Properties; RFC6902 patch applied in place"}
+  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PatchDocument now enforced as required (was silently no-op'd by applyPatch on an empty/missing patch, matching UpdateResourceInput.PatchDocument 'This member is required'); ClientToken idempotency added (real UpdateResourceInput.ClientToken field was previously dropped entirely -- accepted on the wire but never passed to the backend); ProgressEvent.ResourceModel reflects post-patch Properties; applyPatch now resolves each Path as a real RFC 6901 JSON Pointer (nested objects + array elements/indices), fixing a bug where a multi-segment Path (e.g. /Tags/0/Value) was treated as a literal top-level map key instead of navigating -- see Notes below (2026-09-04 pass); all six RFC 6902 op types now implemented -- move/copy/test were previously accepted on the wire and silently skipped, now applied with real cross-path/value semantics and a failed test/move/copy aborts the WHOLE patch (InvalidRequestException), matching RFC 6902's atomic-patch contract -- see Notes below (2026-09-06 pass, gopherstack-j6lv)"}
   DeleteResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency added (real DeleteResourceInput.ClientToken field was previously dropped entirely)"}
   ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination via pkgs/page; InvalidRequestException on malformed TypeName; now returns defensive copies (see leaks note) instead of live backend pointers; ResourceModel (real 'resource model to use to select the resources to return' field) is now applied as a real filter -- see gopherstack-c9yf fix below"}
   GetResourceRequestStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "unknown token -> RequestTokenNotFoundException (the only error this op declares); output now includes HooksProgressEvent (real field on GetResourceRequestStatusOutput, always empty/omitted -- this backend has no Hooks concept)"}
@@ -34,6 +34,129 @@ leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is 
 ---
 
 ## Notes
+
+**Fixed this pass (2026-09-06, bd issue gopherstack-j6lv)**:
+
+- `applyPatch`'s `move`, `copy` and `test` RFC 6902 op types are now implemented
+  (previously accepted on the wire and silently skipped, per the 2026-09-04 note
+  below). All three resolve their pointers via the same RFC 6901 walk `add`/
+  `replace`/`remove` already use (`splitPointer`/a new read-only `resolvePointer`).
+  - `move` (RFC 6902 4.4: "remove the value at a specified location and add it to
+    the target location... functionally identical to a 'remove' operation... followed
+    immediately by an 'add' operation") is implemented as exactly that sequence, so
+    within-array moves reindex correctly (RFC 6902 4.4's own example). Per the RFC,
+    "a location cannot be moved into one of its children" -- `from` being a proper
+    prefix of `path` is rejected (`isProperPrefix`).
+  - `copy` (RFC 6902 4.5: "the value at a specified location... copied to the target
+    location") adds a **deep** copy of the source value (`deepCopyJSON`) so `path`
+    and `from` never alias the same backing `map[string]any`/`[]any` -- a mutation
+    reaching one through a later op in the SAME patch document must not corrupt the
+    other. Regression: `TestBackend_UpdateResource_CopyOp_DeepCopyIndependence`, which
+    copies a two-level-deep source (`{"Source":{"Inner":{"A":1}}}`) and mutates
+    `/Source/Inner/A` in the SAME patch document as the `copy` -- both properties
+    (depth >= 2, single call) are load-bearing: `Properties` is a JSON string, so a
+    SEPARATE `UpdateResource` call re-`Unmarshal`s it and destroys any aliasing before
+    a later call could observe it, and a one-level-deep source can't distinguish a
+    real deep copy from an outer-map-only shallow copy (a copied scalar value is a Go
+    value type regardless of how it got there). An earlier version of this test made
+    both mistakes (two separate `UpdateResource` calls, one-level-deep source) and
+    could not actually detect a missing/shallow `deepCopyJSON` -- confirmed by
+    reverting `deepCopyJSON(value)` to `value` at its call site and separately
+    shallowing `deepCopyJSON`'s map branch, one at a time: the old test passed either
+    way. The rewritten test fails under both neuters.
+  - `test` (RFC 6902 4.6: "test that a value at the target location is equal to a
+    specified value") compares by JSON structural equality, not Go `==`/
+    `reflect.DeepEqual` semantics assumed blindly: `json.Marshal`-then-compare on the
+    decoded `any` values (`jsonValuesEqual`), the same convention `matchesResourceModel`
+    already uses in this file. This is correct because `encoding/json` decodes every
+    JSON number to `float64` regardless of `1` vs `1.0` source spelling (so both marshal
+    back identically) and `json.Marshal` on a Go map always emits keys in sorted order
+    (so member order in the original document never affects the comparison), while
+    array element order is preserved and does affect it -- exactly RFC 6902 4.6's rule.
+  - **Failed-test error**: `UpdateResource` declares no `TestOperationFailedException`
+    or equivalent -- the SDK's declared error set for this op (`aws-sdk-go-v2/service/
+    cloudcontrol@v1.32.4`, `awk "/deserializeOpErrorUpdateResource\(/,/^}/" deserializers.go`)
+    is `UnknownError, AlreadyExistsException, ClientTokenConflictException,
+    ConcurrentOperationException, GeneralServiceException, HandlerFailureException,
+    HandlerInternalFailureException, InvalidCredentialsException,
+    InvalidRequestException, NetworkFailureException, NotStabilizedException,
+    NotUpdatableException, PrivateTypeException, ResourceConflictException,
+    ResourceNotFoundException, ServiceInternalErrorException,
+    ServiceLimitExceededException, ThrottlingException, TypeNotFoundException,
+    UnsupportedActionException`. A failed `test` (or an unresolvable `move`/`copy`
+    `from`/`path`, or a rejected `move` prefix) now maps to **`InvalidRequestException`**
+    (gopherstack's existing `ErrValidation`), whose own SDK doc comment reads "The
+    resource handler has returned that invalid input from the user has generated a
+    generic exception" (`types/errors.go`) -- this is CloudControl's only generic
+    client-input-validation error (confirmed no `ValidationException` exists in this
+    service's model, per the 2026-07-24 note below) and is already this exact file's
+    established mapping for every other malformed-request condition (bad `TypeName`,
+    missing `PatchDocument`, etc. -- `ErrValidation` throughout `resources.go`/
+    `handler.go`). No candidate in the declared set is a closer semantic fit: the
+    `*Fault`-suffixed handler errors (`HandlerFailureException`,
+    `NotStabilizedException`, `NotUpdatableException`, etc.) all describe a downstream
+    resource-handler-reported failure during actual provisioning, not a client-supplied
+    patch that fails to apply before any handler would even run. **Confidence: high**
+    for consistency with this codebase's own established error taxonomy; **moderate**
+    for exact real-AWS behavior, since a live account probe of "what does Cloud Control
+    actually return for a failed JSON Patch test op" isn't available in this
+    environment -- there is no dedicated exception for this condition in the SDK's
+    declared set either way, so `InvalidRequestException` is the least-fabricated,
+    best-evidenced choice available.
+  - **Atomicity**: per RFC 6902 3 ("Operations are applied sequentially in the order
+    they appear... If a normative requirement is violated... the entire patch
+    document... SHALL NOT be applied"), a failure at any op discards the WHOLE patch.
+    `applyPatch`'s existing structure already supported this without further changes:
+    it unmarshals `Properties` into a fresh local `doc` map, mutates only that local
+    value across the whole loop, and `UpdateResource` assigns the result to
+    `r.Properties` in a single statement only after `applyPatch` returns successfully
+    -- so an error return (which always carries back the original, pre-loop `document`
+    string, never the partially-mutated one) can never leak a half-applied patch into
+    backend state. Regression:
+    `TestBackend_UpdateResource_TestOp_Fails_AbortsWholePatch` (an earlier `replace` in
+    the same patch that already mutated the local `doc` is discarded when a later `test`
+    in the same patch fails).
+  - Regression tests: `TestBackend_UpdateResource_MoveOp` (3 subtests: top-level field,
+    into nested object, array element shifts index),
+    `TestBackend_UpdateResource_MoveOp_FromIsPrefixOfPath_Rejected`,
+    `TestBackend_UpdateResource_CopyOp` (2 subtests: top-level field, nested object),
+    `TestBackend_UpdateResource_CopyOp_DeepCopyIndependence`,
+    `TestBackend_UpdateResource_TestOp_Passes` (2 subtests: matching scalar, integer
+    matches float value), `TestBackend_UpdateResource_TestOp_Fails` (2 subtests: value
+    mismatch, path missing), `TestBackend_UpdateResource_TestOp_Fails_AbortsWholePatch`.
+  - **Known limitation, not fixed**: a root (`""`/`"/"`) `path` is silently skipped for
+    every op (pre-existing behavior inherited unchanged from `add`/`replace`/`remove`
+    -- this simplified engine has no well-defined "replace/remove the whole document"
+    container to mutate in place), and a root `from` on `move`/`copy` is rejected as
+    `InvalidRequestException` rather than supported (real RFC 6901 allows the empty
+    string as a valid whole-document pointer; this backend does not implement moving/
+    copying the entire document as a unit). Neither case is exercised by any real
+    resource-property patch this emulator has seen, and no test in this pass depends on
+    it, but it is a real, intentional gap worth flagging for the next auditor.
+
+**Fixed this pass (2026-09-04)**:
+
+- `UpdateResource`'s `applyPatch` treated `PatchDocument`'s per-op `Path` as a literal
+  top-level map key (`strings.TrimPrefix(op.Path, "/")` used directly as `doc[field]`)
+  instead of resolving it as an RFC 6901 JSON Pointer. The real
+  `UpdateResourceInput.PatchDocument` is "a JSON document listing the patch operations
+  that ... adheres to the RFC 6902 ... standard" (`api_op_UpdateResource.go`), and RFC
+  6902 paths are routinely multi-segment for real resource shapes (nested objects like
+  Lambda's `Environment.Variables`, array elements like a `Tags[i].Value`). A patch
+  `{"op":"replace","path":"/Tags/0/Value","value":"c"}` against
+  `{"Tags":[{"Key":"a","Value":"b"}]}` silently corrupted the document into
+  `{"Tags":[{"Key":"a","Value":"b"}],"Tags/0/Value":"c"}` -- the real field was left
+  unchanged and a bogus literal-slash-named top-level key was added instead. Fixed by
+  giving `applyPatch` a real pointer walk (`splitPointer`/`applyPointerOp`/
+  `applyArrayPointerOp`) that decodes RFC 6901 escaping (`~1`->`/`, `~0`->`~`) and
+  navigates nested `map[string]any`/`[]any` structures, including the `-` end-of-array
+  token and index-shifting array insert/remove. `move`/`copy`/`test` remain
+  unimplemented (accepted on the wire, silently skipped) since they need cross-path/
+  value semantics this best-effort engine doesn't attempt -- not a new gap, matches the
+  prior "simplified" scope, just now documented explicitly rather than silently
+  degrading `add`/`replace`/`remove` themselves. Regression test:
+  `TestBackend_UpdateResource_NestedPatchPaths` (7 subtests: nested-object
+  replace/add/remove, array-index replace/remove, array insert via `-` and via index).
 
 **Wrapper-key/nested-shape sweep (2026-08-20)**: all 8 ops (CreateResource,
 DeleteResource, GetResource, GetResourceRequestStatus, ListResourceRequests,

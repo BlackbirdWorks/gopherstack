@@ -30,4 +30,8 @@ var (
 	ErrValidation                      = errors.New("ValidationException")
 	ErrMapRunDoesNotExist              = errors.New("MapRunDoesNotExist")
 	ErrTooManyTags                     = errors.New("TooManyTags")
+	// ErrStateMachineVersionReferencedByAlias is returned by
+	// DeleteStateMachineVersion when the version is still referenced by one
+	// or more aliases' RoutingConfiguration.
+	ErrStateMachineVersionReferencedByAlias = errors.New("StateMachineVersionReferencedByAlias")
 )

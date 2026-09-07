@@ -66,7 +66,11 @@ func (b *InMemoryBackend) DisableStageTransition(
 	return nil
 }
 
-// EnableStageTransition re-enables a stage transition.
+// EnableStageTransition re-enables a stage transition and, since real AWS
+// resumes any artifacts that were waiting on it without requiring a further
+// client call, re-drives runPipelineActions for every InProgress execution
+// of the pipeline so a run parked at this gate (see runPipelineActions in
+// action_engine.go) can proceed.
 func (b *InMemoryBackend) EnableStageTransition(
 	ctx context.Context,
 	pipelineName, stageName, transitionType string,
@@ -76,7 +80,8 @@ func (b *InMemoryBackend) EnableStageTransition(
 
 	region := getRegion(ctx, b.region)
 
-	if !b.pipelines.Has(regionKey(region, pipelineName)) {
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
+	if !ok {
 		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
 	}
 
@@ -85,7 +90,31 @@ func (b *InMemoryBackend) EnableStageTransition(
 	}.String())
 	b.stageTransitions.Delete(key)
 
+	now := time.Now().UTC()
+
+	for _, exec := range b.executionsStore(region)[pipelineName] {
+		if exec.Status != statusInProgress {
+			continue
+		}
+
+		b.runPipelineActions(region, p, exec)
+		exec.LastUpdateTime = now
+	}
+
 	return nil
+}
+
+// stageTransitionDisabled reports whether stageName's inbound or outbound
+// transition (per transitionType) is currently disabled. Callers must hold
+// b.mu (RLock or Lock).
+func (b *InMemoryBackend) stageTransitionDisabled(region, pipelineName, stageName, transitionType string) bool {
+	key := regionKey(region, stageTransitionKey{
+		PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType,
+	}.String())
+
+	state, ok := b.stageTransitions.Get(key)
+
+	return ok && state.Disabled
 }
 
 // pipelineHasStage returns true if the pipeline contains a stage with the given name.

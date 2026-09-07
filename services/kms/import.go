@@ -30,7 +30,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 			return nil, fmt.Errorf(
 				"%w: WrappingAlgorithm %q is not valid; must be one of RSAES_PKCS1_V1_5, "+
 					"RSAES_OAEP_SHA_1, RSAES_OAEP_SHA_256, RSA_AES_KEY_WRAP_SHA_1, or RSA_AES_KEY_WRAP_SHA_256",
-				ErrValidation,
+				ErrUnsupportedParameter,
 				input.WrappingAlgorithm,
 			)
 		}
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 		if _, ok := validWrappingKeySpecs[input.WrappingKeySpec]; !ok {
 			return nil, fmt.Errorf(
 				"%w: WrappingKeySpec %q is not valid; must be RSA_2048, RSA_3072, or RSA_4096",
-				ErrValidation, input.WrappingKeySpec,
+				ErrUnsupportedParameter, input.WrappingKeySpec,
 			)
 		}
 	}
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 	b.mu.RLock("GetParametersForImport")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) resolveKeyMaterial(keyID string, material []byte) ([]b
 	if !loaded {
 		return nil, fmt.Errorf(
 			"%w: no wrapping key found for %s; call GetParametersForImport first",
-			ErrValidation, keyID,
+			ErrInvalidImportToken, keyID,
 		)
 	}
 
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) ImportKeyMaterial(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterial(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return err
 	}

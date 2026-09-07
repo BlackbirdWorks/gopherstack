@@ -5,6 +5,25 @@ import (
 	"fmt"
 )
 
+// isValidPullRequestEventType reports whether v is one of the nine
+// PullRequestEventType enum values (codecommit@v1.36.4 types/enums.go).
+func isValidPullRequestEventType(v string) bool {
+	switch v {
+	case "PULL_REQUEST_CREATED",
+		"PULL_REQUEST_STATUS_CHANGED",
+		"PULL_REQUEST_SOURCE_REFERENCE_UPDATED",
+		"PULL_REQUEST_MERGE_STATE_CHANGED",
+		"PULL_REQUEST_APPROVAL_RULE_CREATED",
+		"PULL_REQUEST_APPROVAL_RULE_UPDATED",
+		"PULL_REQUEST_APPROVAL_RULE_DELETED",
+		"PULL_REQUEST_APPROVAL_RULE_OVERRIDDEN",
+		"PULL_REQUEST_APPROVAL_STATE_CHANGED":
+		return true
+	}
+
+	return false
+}
+
 type pullRequestTargetInput struct {
 	RepositoryName       string `json:"repositoryName"`
 	SourceReference      string `json:"sourceReference"`
@@ -409,7 +428,8 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 
 func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 	var req struct {
-		PullRequestID string `json:"pullRequestId"`
+		PullRequestID        string `json:"pullRequestId"`
+		PullRequestEventType string `json:"pullRequestEventType"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -417,8 +437,12 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
+	if req.PullRequestEventType != "" && !isValidPullRequestEventType(req.PullRequestEventType) {
+		return nil, fmt.Errorf("%w: pullRequestEventType %q is not a valid value",
+			ErrInvalidPullRequestEventType, req.PullRequestEventType)
+	}
 
-	events, err := h.Backend.DescribePullRequestEvents(req.PullRequestID)
+	events, err := h.Backend.DescribePullRequestEvents(req.PullRequestID, req.PullRequestEventType)
 	if err != nil {
 		return nil, err
 	}

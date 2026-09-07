@@ -110,15 +110,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 
 	smName := sm.Name
 	definition := sm.Definition
-	lambdaInvoker := b.lambdaInvoker
-	sqsIntegration := b.sqsIntegration
-	snsIntegration := b.snsIntegration
-	ddbIntegration := b.ddbIntegration
-	ecsIntegration := b.ecsIntegration
-	glueIntegration := b.glueIntegration
-	ebIntegration := b.ebIntegration
-	s3Reader := b.s3Reader
-	s3ResultWriter := b.s3ResultWriter
+	integrations := b.snapshotIntegrationsLocked()
 	b.mu.RUnlock()
 
 	parsedSM, parseErr := asl.Parse(definition)
@@ -146,15 +138,8 @@ func (b *InMemoryBackend) StartSyncExecution(
 	defer syncCancel()
 
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
-	executor := asl.NewExecutor(parsedSM, lambdaInvoker, nil)
-	executor.SetSQSIntegration(sqsIntegration)
-	executor.SetSNSIntegration(snsIntegration)
-	executor.SetDynamoDBIntegration(ddbIntegration)
-	executor.SetECSIntegration(ecsIntegration)
-	executor.SetGlueIntegration(glueIntegration)
-	executor.SetEventBridgeIntegration(ebIntegration)
-	executor.SetS3Reader(s3Reader)
-	executor.SetS3ResultWriter(s3ResultWriter)
+	executor := asl.NewExecutor(parsedSM, integrations.lambdaInvoker, nil)
+	applyIntegrations(executor, integrations)
 	executor.SetActivityInvoker(b)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(
@@ -263,15 +248,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 // machine, the integration set to attach to the executor, and the context to
 // run the ASL interpreter goroutine under).
 type startedExecution struct {
-	lambdaInvoker   asl.LambdaInvoker
-	sqsIntegration  asl.SQSIntegration
-	snsIntegration  asl.SNSIntegration
-	ddbIntegration  asl.DynamoDBIntegration
-	ecsIntegration  asl.ECSIntegration
-	glueIntegration asl.GlueIntegration
-	ebIntegration   asl.EventBridgeIntegration
-	s3Reader        asl.S3Reader
-	s3ResultWriter  asl.S3Writer
+	integrations    integrationsSnapshot
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	exec            *Execution
@@ -347,15 +324,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		exec:            exec,
 		execArn:         execArn,
 		parsedSM:        parsedSM,
-		lambdaInvoker:   b.lambdaInvoker,
-		sqsIntegration:  b.sqsIntegration,
-		snsIntegration:  b.snsIntegration,
-		ddbIntegration:  b.ddbIntegration,
-		ecsIntegration:  b.ecsIntegration,
-		glueIntegration: b.glueIntegration,
-		ebIntegration:   b.ebIntegration,
-		s3Reader:        b.s3Reader,
-		s3ResultWriter:  b.s3ResultWriter,
+		integrations:    b.snapshotIntegrationsLocked(),
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -399,15 +368,7 @@ func (b *InMemoryBackend) StartExecutionWithTrace(
 		started.execArn,
 		started.parsedSM,
 		input,
-		started.lambdaInvoker,
-		started.sqsIntegration,
-		started.snsIntegration,
-		started.ddbIntegration,
-		started.ecsIntegration,
-		started.glueIntegration,
-		started.ebIntegration,
-		started.s3Reader,
-		started.s3ResultWriter,
+		started.integrations,
 		started.activityInvoker,
 	)
 
@@ -455,27 +416,12 @@ func (b *InMemoryBackend) runParsedExecution(
 	execARN string,
 	sm *asl.StateMachine,
 	input string,
-	lambdaInvoker asl.LambdaInvoker,
-	sqsIntegration asl.SQSIntegration,
-	snsIntegration asl.SNSIntegration,
-	ddbIntegration asl.DynamoDBIntegration,
-	ecsIntegration asl.ECSIntegration,
-	glueIntegration asl.GlueIntegration,
-	ebIntegration asl.EventBridgeIntegration,
-	s3Reader asl.S3Reader,
-	s3ResultWriter asl.S3Writer,
+	integrations integrationsSnapshot,
 	activityInvoker asl.ActivityInvoker,
 ) {
 	rec := &historyRecorder{backend: b}
-	executor := asl.NewExecutor(sm, lambdaInvoker, rec)
-	executor.SetSQSIntegration(sqsIntegration)
-	executor.SetSNSIntegration(snsIntegration)
-	executor.SetDynamoDBIntegration(ddbIntegration)
-	executor.SetECSIntegration(ecsIntegration)
-	executor.SetGlueIntegration(glueIntegration)
-	executor.SetEventBridgeIntegration(ebIntegration)
-	executor.SetS3Reader(s3Reader)
-	executor.SetS3ResultWriter(s3ResultWriter)
+	executor := asl.NewExecutor(sm, integrations.lambdaInvoker, rec)
+	applyIntegrations(executor, integrations)
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
@@ -694,15 +640,7 @@ func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN
 // redrivenExecution carries the state produced under lock by redriveExecutionLocked
 // that the caller needs once the lock has been released, mirroring startedExecution.
 type redrivenExecution struct {
-	lambdaInvoker   asl.LambdaInvoker
-	sqsIntegration  asl.SQSIntegration
-	snsIntegration  asl.SNSIntegration
-	ddbIntegration  asl.DynamoDBIntegration
-	ecsIntegration  asl.ECSIntegration
-	glueIntegration asl.GlueIntegration
-	ebIntegration   asl.EventBridgeIntegration
-	s3Reader        asl.S3Reader
-	s3ResultWriter  asl.S3Writer
+	integrations    integrationsSnapshot
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	parsedSM        *asl.StateMachine
@@ -770,15 +708,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	return &redrivenExecution{
 		originalInput:   originalInput,
 		parsedSM:        parsedSM,
-		lambdaInvoker:   b.lambdaInvoker,
-		sqsIntegration:  b.sqsIntegration,
-		snsIntegration:  b.snsIntegration,
-		ddbIntegration:  b.ddbIntegration,
-		ecsIntegration:  b.ecsIntegration,
-		glueIntegration: b.glueIntegration,
-		ebIntegration:   b.ebIntegration,
-		s3Reader:        b.s3Reader,
-		s3ResultWriter:  b.s3ResultWriter,
+		integrations:    b.snapshotIntegrationsLocked(),
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -816,15 +746,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 		executionARN,
 		redrive.parsedSM,
 		redrive.originalInput,
-		redrive.lambdaInvoker,
-		redrive.sqsIntegration,
-		redrive.snsIntegration,
-		redrive.ddbIntegration,
-		redrive.ecsIntegration,
-		redrive.glueIntegration,
-		redrive.ebIntegration,
-		redrive.s3Reader,
-		redrive.s3ResultWriter,
+		redrive.integrations,
 		redrive.activityInvoker,
 	)
 

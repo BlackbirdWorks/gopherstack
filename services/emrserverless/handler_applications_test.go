@@ -736,17 +736,21 @@ func TestHandler_DeleteApplication_CleansUpJobRunsAndSessions(t *testing.T) {
 	h := newTestHandler(t)
 	appID := createApp(t, h, "cleanup-app")
 
-	// Start a job run.
+	// Start a job run. autoStartConfiguration defaults to enabled, so this
+	// implicitly starts the application -- no explicit /start call needed
+	// (and one would now fail with "already in STARTED state").
 	jobRunID := startJobRun(t, h, appID)
 	require.NotEmpty(t, jobRunID)
 
-	// Start the app and create a session.
-	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/start", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
 	sessionID, _ := startSession(t, h, appID, "cleanup-token")
 	require.NotEmpty(t, sessionID)
 
-	// Stop the app first.
+	// Cancel the job run: StopApplication requires every job run under the
+	// application to already be completed or cancelled.
+	rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+jobRunID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Stop the app.
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+appID+"/stop", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -930,7 +934,12 @@ func TestHandler_ErrValidationMapping(t *testing.T) {
 }
 
 // TestHandler_ErrInvalidStateMapping verifies deleting a STARTED application
-// surfaces as a 400 RequestFailedException.
+// surfaces as a 400 ValidationException -- emrserverless's DeleteApplication
+// models only ConflictException/InternalServerException/
+// ResourceNotFoundException/ValidationException (types/errors.go); it has no
+// "RequestFailedException" type at all, so that code (the value ErrInvalidState
+// used to carry) would deserialize as an untyped *smithy.GenericAPIError in a
+// real SDK client rather than a recognised exception type.
 func TestHandler_ErrInvalidStateMapping(t *testing.T) {
 	t.Parallel()
 
@@ -947,5 +956,5 @@ func TestHandler_ErrInvalidStateMapping(t *testing.T) {
 
 	var out map[string]string
 	mustUnmarshal(t, rec, &out)
-	assert.Equal(t, "RequestFailedException", out["code"])
+	assert.Equal(t, "ValidationException", out["code"])
 }

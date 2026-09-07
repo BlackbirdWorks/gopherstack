@@ -16,18 +16,18 @@ ops:
   DeleteCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades: deletes all faces in the collection + its tags"}
   DescribeCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "UserCount field omitted from response (optional, client-side nil-safe — not a bug)"}
   ListCollections: {wire: ok, errors: ok, state: ok, persist: ok}
-  IndexFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real face storage; deterministic per-identity Confidence (not canned) — see backend.go faceConfidence. FaceDetail/BoundingBox/IndexFacesModelVersion/UserId fields on Face are omitted (optional pointer fields on the real SDK type, zero-value-safe on decode)"}
+  IndexFaces: {wire: partial, errors: ok, state: ok, persist: ok, note: "real face storage; deterministic per-identity Confidence (not canned) — see backend.go faceConfidence. FaceDetail/BoundingBox/IndexFacesModelVersion/UserId fields on Face are omitted (optional pointer fields on the real SDK type, zero-value-safe on decode). GAP found 2026-09-06 (gopherstack-eshx): indexFacesReq has no Image field at all -- IndexFacesInput's required Image member is never parsed, so IndexFaces cannot be given the InvalidS3ObjectException check this pass added to every other Image-taking op (see gaps)."}
   DeleteFaces: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real pagination via facesByCollection index. FIXED (gopherstack wrapper-key sweep, 2026-08-29): FaceIds and UserId filters (own doc comments, api_op_ListFaces.go) were read by nothing at all -- listFacesReq had no such fields, so every call returned every face in the collection regardless of what was requested. UserId now resolved against the associating user's storedUser.FaceIDs (see AssociateFaces)."}
   SearchFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "deterministic per-identity similarity (same ExternalImageId => 100.0), not canned — see faceSimilarity"}
-  SearchFacesByImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "similarity varies per imageKey (S3 path or byte length) via FNV-1a seed, not canned"}
+  SearchFacesByImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "similarity varies per imageKey (S3 path or byte length) via FNV-1a seed, not canned. 2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate UserId now returns ConflictException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real FaceId membership check against the collection; unknown faces reported in UnsuccessfulFaceAssociations with FACE_NOT_FOUND"}
   DisassociateFaces: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchUsers: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-2wvq (2026-08-21): handler unconditionally required UserId, but SearchUsersInput marks only CollectionId required (rekognition@v1.54.4 api_op_SearchUsers.go) -- 'The request must be provided with either FaceId or UserId... If a FaceId is provided, UserId isn't required to be present in the Collection.' Added SearchUsersByFace, reusing the existing facesByCollection index SearchFaces already uses (faces.go) rather than a new one, so a FaceId-only request now resolves (and errors ResourceNotFoundException if the face itself doesn't exist); UserId-absent-and-FaceId-absent still rejects. Response now emits SearchedFace (not SearchedUser) when searched by FaceId, matching the real SearchUsersOutput having both as distinct optional members."}
-  SearchUsersByImage: {wire: ok, errors: ok, state: ok, persist: ok}
+  SearchUsersByImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced when S3 is wired -- see Notes."}
   CreateStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are now parsed from the request and stored (see Notes #5). Also FIXED prior sweep: duplicate Name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now returns Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference/LastUpdateTimestamp/StatusMessage, all routed through epochSeconds() for the two timestamp fields — see Notes #5"}
@@ -50,7 +50,7 @@ ops:
   ListProjectPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1. FIXED 2026-08-31 (gopherstack-uox6): MaxResults omission default was 100 (this service's general default/cap), but this op's own doc comment states 'The largest value you can specify is 5 ... The default value is 5' — the only List/Describe op in this service with a 5-item default instead of 100. See Notes #7."}
   PutProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now rejects a duplicate (ProjectArn,DatasetType) pair with ResourceAlreadyExistsException (via an explicit b.datasets.Range scan, since datasetARN is still always uuid-suffixed so the table key itself never collides) — see Notes #5"}
+  CreateDataset: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now rejects a duplicate (ProjectArn,DatasetType) pair with ResourceAlreadyExistsException (via an explicit b.datasets.Range scan, since datasetARN is still always uuid-suffixed so the table key itself never collides) — see Notes #5. GAP found 2026-09-06 (gopherstack-eshx): createDatasetReq never parses DatasetSource/DatasetSource.GroundTruthManifest.S3Object at all (CreateDataset's only optional Image-shaped input, used for a MANUAL-type dataset's seed manifest) -- CreateDataset therefore is not given the InvalidS3ObjectException check this pass added elsewhere (see gaps)."}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
   ListDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ContainsLabels/Labeled/SourceRefContains/HasErrors (all four own doc comments, api_op_ListDatasetEntries.go) were read by nothing at all -- listDatasetEntriesReq had none of these fields. ContainsLabels/Labeled/SourceRefContains now parse the stored JSON-lines manifest entries (source-ref, *-metadata blocks) via entryLabels/entrySourceRef. HasErrors is honoured structurally, not fabricated: this backend has no entry-level error concept (see computeDatasetStats' ErrorEntries note), so HasErrors=true now correctly returns an empty result rather than inventing error entries."}
@@ -59,15 +59,17 @@ ops:
   DistributeDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateFaceLivenessSession: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFaceLivenessSessionResults: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartMediaAnalysisJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartMediaAnalysisJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced on Input.S3Object when S3 is wired -- see Notes."}
   GetMediaAnalysisJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
   ListMediaAnalysisJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
 families:
-  detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against. FIXED 2026-08-31 (gopherstack-uox6): DetectLabels' omitted-MinConfidence default was 50.0 but the op's own doc comment states 'The default is 55%.' — had zero observable effect against the current 7-entry synthetic label set (lowest confidence 55.4, above both values) but is now correct at the source (resolveMinConfidence, handler_labels.go) for any future addition to that set. See Notes #7."
-  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred"}
+  detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against. FIXED 2026-08-31 (gopherstack-uox6): DetectLabels' omitted-MinConfidence default was 50.0 but the op's own doc comment states 'The default is 55%.' — had zero observable effect against the current 7-entry synthetic label set (lowest confidence 55.4, above both values) but is now correct at the source (resolveMinConfidence, handler_labels.go) for any future addition to that set. See Notes #7. FIXED 2026-09-06 (gopherstack-eshx): CompareFaces (SourceImage+TargetImage)/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities all declare InvalidS3ObjectException and none checked Image.S3Object against real S3 state at all -- now enforced when S3 is wired, see Notes."
+  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred. FIXED 2026-09-06 (gopherstack-eshx): every Start* op declares InvalidS3ObjectException and none checked Video.S3Object against real S3 state at all -- now enforced when S3 is wired, see Notes."}
 routing: {status: ok, note: "single X-Amz-Target: RekognitionService.<Op> POST endpoint (awsjson1.1), verified every op in the dispatch map (buildOps + appendixAOps) against a real op name in aws-sdk-go-v2/service/rekognition; no name mismatches found"}
 gaps:
   - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
+  - "2026-09-06 (gopherstack-eshx): IndexFaces never parses IndexFacesInput.Image at all (indexFacesReq has CollectionId/ExternalImageId only) -- a required member of a real IndexFaces request is silently dropped, not just unchecked against S3. Structural gap, out of this pass's scope (adding S3Object existence checking, not adding a missing wire field); IndexFaces is therefore excluded from this pass's InvalidS3ObjectException enforcement. Needs its own fix."
+  - "2026-09-06 (gopherstack-eshx): CreateDataset never parses CreateDatasetInput.DatasetSource (createDatasetReq has ProjectArn/DatasetType only) -- DatasetSource.GroundTruthManifest.S3Object, the one Image-shaped field this op accepts, is silently dropped. Same structural-gap reasoning as IndexFaces above; excluded from this pass's InvalidS3ObjectException enforcement."
 deferred:
   - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
   - ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
@@ -449,3 +451,54 @@ uncommitted per this pass's instructions.
 
    No web pages fetched this pass; everything resolved from the pinned
    module cache.
+
+8. **2026-09-06: InvalidS3ObjectException wiring (gopherstack-eshx).** A large set of ops
+   declare `InvalidS3ObjectException` in their real `deserializeOpError<Op>` switch (verified
+   via the digit-safe `awk`+`grep -oE '"[A-Za-z0-9]+"'` extraction against
+   `rekognition@v1.54.4/deserializers.go`, not the earlier `[A-Za-z]+` pattern that silently
+   drops S3-named codes — see gopherstack-jkpi): `CompareFaces`, `CreateDataset`,
+   `DetectCustomLabels`, `DetectFaces`, `DetectLabels`, `DetectModerationLabels`,
+   `DetectProtectiveEquipment`, `DetectText`, `IndexFaces`, `RecognizeCelebrities`,
+   `SearchFacesByImage`, `SearchUsersByImage`, and every `Start<X>` async video/media-analysis
+   job (`StartCelebrityRecognition`, `StartContentModeration`, `StartFaceDetection`,
+   `StartFaceSearch`, `StartLabelDetection`, `StartMediaAnalysisJob`, `StartPersonTracking`,
+   `StartSegmentDetection`, `StartTextDetection`). Doc comment
+   (`types/errors.go:344`): "Amazon Rekognition is unable to access the S3 object specified in
+   the request." None of these ops previously checked an Image/Video/Input S3Object against
+   real S3 state at all.
+
+   Enforced for 19 of the 21: every op above except `IndexFaces` and `CreateDataset`, both of
+   which turned out to never parse the request's Image-shaped field at all (see `gaps`) — a
+   pre-existing structural gap, not something this pass's S3-check could reach without
+   fabricating a field this backend has never read.
+
+   Followed the `services/cloudtrail` `S3Backend`/`SetS3Backend`/`wireXxxS3` precedent
+   (gopherstack-g9b4): `S3Backend` interface (`interfaces.go`, `HeadObject` only) implemented
+   directly by `s3.InMemoryBackend` (no adapter), `InMemoryBackend.SetS3Backend` setter
+   (`store.go`), `Handler.checkS3Object`/`checkImageRef`/`checkVideoRef` (`handler.go`,
+   sharing the existing `imageRef`/`videoRef` wire types and `imageRefKey`/`videoRefS3`
+   helpers) calling it, wired from `cli.go`'s `wireRekognitionS3` in
+   `wireStorageAndSecretsIntegrations`. Unwired (no `SetS3Backend` call) or Backend not
+   `*InMemoryBackend`: no-op, matching this repo's unwired-hook-stays-permissive convention.
+   `Image.Bytes` (inline bytes, the real alternative to `Image.S3Object` on the `Image` union)
+   is never checked. Only existence is checked (`s3.InMemoryBackend.HeadObject`, which itself
+   distinguishes a missing bucket from a missing key) — "unreadable" or "wrong format" would
+   require decoding the object, which this mock does not and should not simulate.
+
+   Regression tests: `services/rekognition/s3_object_test.go` —
+   `TestImageOps_S3ObjectValidation` (table: the 7 single-Image sync ops),
+   `TestCompareFaces_S3ObjectValidation` (both SourceImage and TargetImage),
+   `TestSearchByImageOps_S3ObjectValidation` (SearchFacesByImage/SearchUsersByImage, against a
+   real created collection), `TestStartVideoOps_S3ObjectValidation` (table: all 8 Start* video
+   ops), `TestStartMediaAnalysisJob_S3ObjectValidation` (Input.S3Object) — each asserting a
+   missing bucket/key is rejected (400, `InvalidS3ObjectException`) and an existing one
+   succeeds (200, proving the check does not reject everything).
+   `TestDetectLabels_UnwiredS3StaysPermissive` / `TestStartLabelDetection_UnwiredS3StaysPermissive`
+   prove the unwired path stays permissive. `TestDetectLabels_InlineBytesUnaffected` proves
+   inline `Bytes` is never checked. All fail against a neutered `checkS3Object` (HeadObject
+   called but its result discarded) and pass against the fix.
+   `cli_textract_rekognition_s3_wiring_test.go` (root package) drives the real
+   `initializeServices` composition root end-to-end.
+
+   Gates: `go build ./...`, `go test -race -count=1 ./services/rekognition/...` and `.` (root),
+   `golangci-lint run ./ services/rekognition/... services/textract/...` — all clean.

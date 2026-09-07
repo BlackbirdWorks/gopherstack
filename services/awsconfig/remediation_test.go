@@ -60,6 +60,33 @@ func TestDeleteRemediationConfiguration(t *testing.T) {
 	}
 }
 
+// TestDeleteRemediationConfiguration_ClearsExceptions verifies that
+// DeleteRemediationConfiguration clears remediation exceptions for the rule.
+// Otherwise a new remediation configuration put back under the same
+// (user-chosen, reusable) ConfigRuleName inherits the deleted configuration's
+// stale exceptions.
+func TestDeleteRemediationConfiguration_ClearsExceptions(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+	require.NoError(t, b.PutRemediationConfigurations(
+		[]awsconfig.RemediationConfiguration{{ConfigRuleName: "reused-rule"}},
+	))
+	require.NoError(t, b.PutRemediationExceptions("reused-rule", []awsconfig.RemediationExceptionResourceKey{
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket1"},
+	}))
+	require.Len(t, b.DescribeRemediationExceptions("reused-rule"), 1)
+
+	require.NoError(t, b.DeleteRemediationConfiguration("reused-rule"))
+
+	require.NoError(t, b.PutRemediationConfigurations(
+		[]awsconfig.RemediationConfiguration{{ConfigRuleName: "reused-rule"}},
+	))
+
+	assert.Empty(t, b.DescribeRemediationExceptions("reused-rule"),
+		"recreated remediation configuration must not inherit the deleted configuration's exceptions")
+}
+
 // TestDeleteRemediationConfiguration_NotFound drives the real SDK client and
 // asserts the typed exception configservice's own deserializeOpError models
 // for this op (configservice@v1.68.4 deserializers.go, "You specified an

@@ -116,20 +116,38 @@ func TestInMemoryBackend_GetIntrospectionSchema(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
+		format    string
 		wantSDL   string
 		hasSchema bool
 		wantErr   bool
 	}{
 		{
-			name:      "returns_schema_sdl",
+			name:      "sdl_format_returns_schema_sdl_verbatim",
+			format:    "SDL",
+			hasSchema: true,
+			wantSDL:   `type Query { hello: String }`,
+		},
+		{
+			name:      "empty_format_defaults_to_sdl",
+			format:    "",
 			hasSchema: true,
 			wantSDL:   `type Query { hello: String }`,
 		},
 		{
 			name:      "error_when_no_schema",
+			format:    "SDL",
 			hasSchema: false,
 			wantErr:   true,
+			wantErrIs: awserr.ErrNotFound,
+		},
+		{
+			name:      "unrecognized_format_rejected",
+			format:    "XML",
+			hasSchema: true,
+			wantErr:   true,
+			wantErrIs: appsync.ErrValidation,
 		},
 	}
 
@@ -141,13 +159,17 @@ func TestInMemoryBackend_GetIntrospectionSchema(t *testing.T) {
 			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			if tt.hasSchema {
-				_, _ = b.StartSchemaCreation(api.APIID, tt.wantSDL)
+				_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 			}
 
-			sdl, err := b.GetIntrospectionSchema(api.APIID, "SDL")
+			sdl, err := b.GetIntrospectionSchema(api.APIID, tt.format, true)
 
 			if tt.wantErr {
 				require.Error(t, err)
+
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
 
 				return
 			}

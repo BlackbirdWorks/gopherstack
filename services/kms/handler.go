@@ -328,6 +328,7 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrKeyInvalidState, awsType: "KMSInvalidStateException"},
 		{sentinel: ErrInvalidKeyUsage, awsType: "InvalidKeyUsageException"},
 		{sentinel: ErrAliasAlreadyExists, awsType: "AlreadyExistsException"},
+		{sentinel: ErrInvalidAliasName, awsType: "InvalidAliasNameException"},
 		{sentinel: ErrCustomKeyStoreAlreadyExists, awsType: "CustomKeyStoreNameInUseException"},
 		{sentinel: ErrIncorrectKey, awsType: "IncorrectKeyException"},
 		{sentinel: ErrInvalidCiphertext, awsType: awsErrInvalidCiphertext},
@@ -337,10 +338,15 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrValidation, awsType: awsErrValidation},
 		{sentinel: ErrInvalidDataKeySize, awsType: awsErrValidation},
 		{sentinel: ErrInvalidGrantToken, awsType: "InvalidGrantTokenException"},
+		{sentinel: ErrAccessDenied, awsType: "AccessDeniedException"},
 		{sentinel: ErrLimitExceeded, awsType: "LimitExceededException"},
 		{sentinel: ErrInvalidAlgorithm, awsType: "InvalidAlgorithmException"},
 		{sentinel: ErrUnknownOperation, awsType: "UnknownOperationException"},
 		{sentinel: ErrExpiredKeyMaterial, awsType: "ExpiredImportTokenException"},
+		{sentinel: ErrInvalidTag, awsType: "TagException"},
+		{sentinel: ErrUnsupportedParameter, awsType: "UnsupportedOperationException"},
+		{sentinel: ErrInvalidImportToken, awsType: "InvalidImportTokenException"},
+		{sentinel: ErrInvalidArn, awsType: "InvalidArnException"},
 		// KeyUnavailableException is a server-fault exception in the real SDK
 		// (ErrorFault: Server) — real AWS returns it with a 500 status, unlike the
 		// client-fault exceptions above which are all 400.

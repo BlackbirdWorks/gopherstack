@@ -289,7 +289,7 @@ func TestConnectCustomKeyStore_EmptyID(t *testing.T) {
 
 	b := newTestBackend()
 	err := b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: ""})
-	require.ErrorIs(t, err, kms.ErrValidation)
+	require.ErrorIs(t, err, kms.ErrCustomKeyStoreNotFound)
 }
 
 func TestDisconnectCustomKeyStore_EmptyID(t *testing.T) {
@@ -297,7 +297,7 @@ func TestDisconnectCustomKeyStore_EmptyID(t *testing.T) {
 
 	b := newTestBackend()
 	err := b.DisconnectCustomKeyStore(context.Background(), &kms.DisconnectCustomKeyStoreInput{CustomKeyStoreID: ""})
-	require.ErrorIs(t, err, kms.ErrValidation)
+	require.ErrorIs(t, err, kms.ErrCustomKeyStoreNotFound)
 }
 
 func TestDeleteCustomKeyStore_EmptyID(t *testing.T) {
@@ -305,7 +305,7 @@ func TestDeleteCustomKeyStore_EmptyID(t *testing.T) {
 
 	b := newTestBackend()
 	err := b.DeleteCustomKeyStore(context.Background(), &kms.DeleteCustomKeyStoreInput{CustomKeyStoreID: ""})
-	require.ErrorIs(t, err, kms.ErrValidation)
+	require.ErrorIs(t, err, kms.ErrCustomKeyStoreNotFound)
 }
 
 func TestErrCustomKeyStoreNotFound_Sentinel(t *testing.T) {

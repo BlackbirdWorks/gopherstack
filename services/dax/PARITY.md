@@ -6,17 +6,18 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: da77e2959   # refreshed 2026-08-29 -- current HEAD at write time
-last_audit_date: 2026-08-29
+last_audit_commit: 9609c13a3   # refreshed 2026-09-04 -- current HEAD at write time
+last_audit_date: 2026-09-04
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
                       # 2026-08-20: wrapper-key / nested-shape sweep. Fixed one fabricated SourceType enum value ("NODE") emitted for node-level Events; the real types.SourceType enum has exactly CLUSTER/PARAMETER_GROUP/SUBNET_GROUP. All other wrapper keys, nesting levels, and per-member shapes across all 20 ops verified clean against the pinned SDK. See Notes.
                       # 2026-08-29: write-only-state sweep (gopherstack-6flj/21my), forward+reverse, over clusters/parameter_groups/subnet_groups/tags/events control-plane files plus their handlers. No new bug found -- confirms the 2026-08-20 sweep's coverage still holds; no dax-specific commits landed between the two passes. See Notes.
+                      # 2026-09-04: parity-sweep-2026-09-03 campaign. CreateCluster silently accepted an AvailabilityZones list whose length didn't match ReplicationFactor instead of rejecting it. See Notes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "IamRoleArn-required check now uses InvalidParameterValueException, not InvalidARNFault -- fixed 2026-08-10, see Notes"}
+  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "IamRoleArn-required check now uses InvalidParameterValueException, not InvalidARNFault -- fixed 2026-08-10; AvailabilityZones length is now validated against ReplicationFactor -- fixed 2026-09-04, see Notes"}
   DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "no longer mutates Description/PreferredMaintenanceWindow/SecurityGroupIDs before validating ParameterGroupName exists; ClusterName-required check now uses InvalidParameterValueException, not InvalidARNFault -- both fixed 2026-08-10, see Notes"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClusterName-required check now uses InvalidParameterValueException, not InvalidARNFault -- fixed 2026-08-10, see Notes"}
@@ -534,3 +535,80 @@ delete/abort, so the named part can never go missing between calls. See omics's 
 Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/dax/...` (pass, including
 `./services/dax/dataplane/...`), `golangci-lint run ./services/dax/...` (0 issues).
+
+## 2026-09-04 parity-sweep-2026-09-03 campaign
+
+Ran the campaign's two cheap mechanical checks across the whole control-plane package (never-
+returned sentinels, parsed-then-dropped request fields) plus a Delete/Update precondition read
+of every op's doc comment in `aws-sdk-go-v2/service/dax@v1.32.4`. All 16 sentinels in
+`errors.go` are reachable from non-`errors.go`/non-handler backend code (`ErrSubnetGroupInUse`
+and `ErrParameterGroupInUse` included -- both wired in `subnet_groups.go`/`parameter_groups.go`).
+Every Describe* filter/pagination field (`ClusterNames`, `SubnetGroupNames`,
+`ParameterGroupNames`, `Source`, `SourceName`/`SourceType`/`StartTime`/`EndTime`/`Duration` on
+`DescribeEvents`) and every `CreateCluster` nested member (`SSESpecification`,
+`ParameterGroupName`, `SecurityGroupIds`, `AvailabilityZones`, `NotificationTopicArn`) round-
+trips through the backend already.
+
+**Bug found and fixed:**
+
+1. **`CreateCluster` accepted an `AvailabilityZones` list whose length didn't match
+   `ReplicationFactor` instead of rejecting it.** `api_op_CreateCluster.go`'s
+   `ReplicationFactor` doc: *"If the AvailabilityZones parameter is provided, its length must
+   equal the ReplicationFactor parameter."* -- restated verbatim on the `AvailabilityZones`
+   field's own doc comment. `CreateCluster`'s modeled error set (`deserializeOpErrorCreateCluster`)
+   includes `InvalidParameterCombinationException`, the same fault gopherstack already uses for
+   every other `ReplicationFactor`-adjacent parameter-combination check in this op (min/max
+   bounds). Before this fix, `buildClusterNodes` silently handled a short list by falling back
+   to a single default AZ for the remaining nodes (`clusters.go`, `az := b.Region + "a"` when
+   `i >= len(input.AvailabilityZones)`) and silently ignored trailing entries in a long list --
+   neither surfaced any error. `IncreaseReplicationFactorInput.AvailabilityZones`'s doc has no
+   equivalent length constraint ("Use this parameter if you want to distribute the nodes across
+   multiple AZs"), so that op and `DecreaseReplicationFactor` (which uses `AvailabilityZones` to
+   select nodes to remove, not to size the cluster) were left unchanged -- this is a
+   `CreateCluster`-only precondition, not a general rule for every op that carries the field.
+   Fixed by adding `validateAvailabilityZonesLength` (`clusters.go`), called from
+   `validateCreateCluster` before the lock is taken, same as every other `CreateCluster`
+   validation. Decomposed into its own function rather than inlined, to stay under the banned
+   `cyclop` threshold.
+   `TestCreateClusterAvailabilityZonesLengthMustMatchReplicationFactor` (`clusters_test.go`)
+   covers omitted/matching/fewer/more; neutering the guard (`if false && len(azs) > 0 && ...`)
+   reproduces the bug -- both the fewer- and more-AZs subtests fail with `An error is expected
+   but got nil`; restoring the guard passes again.
+
+**Checked and found clean, no new fix:**
+
+- `UpdateCluster`/`UpdateParameterGroup` re-read against the current code: validation
+  (`ParameterGroupName` existence, `ParameterNameValues` batch) still runs before any field is
+  written, consistent with the 2026-08-10 fix holding. `UpdateCluster.SecurityGroupIds` and
+  `UpdateSubnetGroup.SubnetIds` are `len() > 0`-guarded (can't distinguish an explicit empty
+  list from an omitted one) but neither op's doc states what an explicit empty list should do,
+  so this wasn't escalated -- same "zero-guard, no doc evidence" reasoning the 2026-08-29 sweep
+  already applied to `UpdateCluster`'s string fields.
+- `DeleteSubnetGroup`/`DeleteParameterGroup` doc preconditions ("You cannot delete a subnet
+  group/parameter group if it is associated with any DAX clusters") are enforced via
+  `ErrSubnetGroupInUse`/`ErrParameterGroupInUse`, both reachable (see sentinel check above).
+- `DecreaseReplicationFactor`'s doc precondition ("You cannot use DecreaseReplicationFactor to
+  remove the last node") is enforced structurally: `minReplicationFactor = 1` rejects
+  `NewReplicationFactor < 1` via the already-modeled `InvalidParameterCombinationException`.
+- `NodeQuotaForClusterExceededFault`/`NodeQuotaForCustomerExceededFault` (modeled on
+  `CreateCluster`/`IncreaseReplicationFactor`) have no doc comment in this SDK version to derive
+  a trigger from -- left unmodeled, same reasoning as the 2026-08-10 pass's
+  `InsufficientClusterCapacityFault`/`ServiceLinkedRoleNotFoundFault` finding.
+- `cli.go`'s `wireTaggingDAX` (Resource Groups Tagging API cross-service wiring): DAX's
+  single taggable resource kind (`cache/{name}` ARN segment) and its bare-error-vs-
+  `(result, error)` adapter shape read correctly against `InMemoryBackend.TagResource`/
+  `UntagResource`.
+- Event ring buffer (`b.events`, `maxEventsPerBuffer` cap in `emitEventLocked`) and every
+  `go func() { time.Sleep(...); ... }()` async status-flip goroutine (all guarded by an
+  existence + expected-status check before mutating, all single-shot with a bounded sleep) --
+  no unbounded growth, no leaked goroutine.
+
+**Not reached this pass:** `services/dax/dataplane/` (~6900 LOC binary protocol, out of scope
+per this campaign's own instructions -- see `DATAPLANE.md`; its `TestMain` already runs
+`testleak.VerifyTestMain` against goroutine leaks). Performance dimension checked only by
+inspection (no profiling run) -- the only O(n)-under-write-lock scans found are the
+Delete*-in-use checks over `b.clusters.All()`, which are the same pattern every other
+gopherstack service uses for this precondition and run only on already-infrequent delete calls.
+
+Gates: `go build ./services/dax/...`, `go test -race -count=1 ./services/dax/...` (pass,
+including `./services/dax/dataplane/...`), `golangci-lint run ./services/dax/...` (0 issues).

@@ -439,6 +439,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	switch {
 	case errors.Is(reqErr, ErrInvalidAggregator):
 		return "InvalidAggregatorException", statusCode
+	case errors.Is(reqErr, ErrPatchBaselineInUse):
+		return "ResourceInUseException", statusCode
 	case errors.Is(reqErr, ErrCloudConnectorNotFound):
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAccessRequestNotFound):

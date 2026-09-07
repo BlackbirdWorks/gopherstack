@@ -78,3 +78,30 @@ func TestStartInvestigation_DerivesEntityType(t *testing.T) {
 		})
 	}
 }
+
+// TestStartInvestigation_ReachesTerminalStatus verifies GetInvestigation's
+// Status field ("based on the completion status of the investigation" per
+// aws-sdk-go-v2/service/detective/types.GetInvestigationOutput.Status doc
+// comment, with real terminal values RUNNING/FAILED/SUCCESSFUL) actually
+// reaches a terminal value. Indicator derivation (builtInIndicators) is a
+// pure function computed synchronously at StartInvestigation time, so
+// nothing is still "running" by the time it returns -- a client that polls
+// GetInvestigation waiting for RUNNING to end must not wait forever.
+func TestStartInvestigation_ReachesTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	b := detective.NewInMemoryBackend("000000000000", "us-east-1")
+
+	g, err := b.CreateGraph(nil)
+	require.NoError(t, err)
+
+	id, startErr := b.StartInvestigation(
+		g.Arn, "arn:aws:iam::123456789012:user/alice", time.Now().Add(-time.Hour).UTC(), time.Now().UTC(),
+	)
+	require.NoError(t, startErr)
+
+	inv, getErr := b.GetInvestigation(g.Arn, id)
+	require.NoError(t, getErr)
+	assert.NotEqual(t, "RUNNING", inv.Status, "investigation must reach a terminal Status, not stay RUNNING forever")
+	assert.Equal(t, "SUCCESSFUL", inv.Status)
+}

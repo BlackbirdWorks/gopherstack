@@ -284,12 +284,16 @@ func (b *InMemoryBackend) DeleteAcmeEndpoint(ctx context.Context, epARN string) 
 		return fmt.Errorf("%w: ACME endpoint %s not found", ErrAcmeResourceNotFound, epARN)
 	}
 
+	deletedEABs := make(map[string]struct{})
 	for _, eab := range b.eabsByEndpoint.Get(epARN) {
 		b.eabs.Delete(eab.ARN)
+		deletedEABs[eab.ARN] = struct{}{}
 	}
 
+	deletedDVs := make(map[string]struct{})
 	for _, dv := range b.domainValidationsByEndpoint.Get(epARN) {
 		b.domainValidations.Delete(dv.ARN)
+		deletedDVs[dv.ARN] = struct{}{}
 	}
 
 	for _, acct := range b.acmeAccountsByEndpoint.Get(epARN) {
@@ -298,9 +302,26 @@ func (b *InMemoryBackend) DeleteAcmeEndpoint(ctx context.Context, epARN string) 
 
 	b.endpoints.Delete(epARN)
 
+	// Drop idempotency-token entries for the endpoint itself and every
+	// EAB/domain-validation it just cascade-deleted, so those tokens do not
+	// sit orphaned (pointing at ARNs that no longer exist) until the
+	// janitor's next TTL sweep -- same reasoning as DeleteCertificate's own
+	// idempotency-entry cleanup.
 	for tok, entry := range b.endpointIdempotencyStore(region) {
 		if entry.ARN == epARN {
 			delete(b.endpointIdempotency[region], tok)
+		}
+	}
+
+	for tok, entry := range b.eabIdempotencyStore(region) {
+		if _, deleted := deletedEABs[entry.ARN]; deleted {
+			delete(b.eabIdempotency[region], tok)
+		}
+	}
+
+	for tok, entry := range b.domainValidationIdempotencyStore(region) {
+		if _, deleted := deletedDVs[entry.ARN]; deleted {
+			delete(b.domainValidationIdempotency[region], tok)
 		}
 	}
 

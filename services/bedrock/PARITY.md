@@ -284,7 +284,13 @@ leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps i
   ticker was added. AgentsHandler.Reset() additionally resets
   resourcePolicyRevisionCounter now (the table itself was already covered by
   registry.ResetAll, but the standalone revision counter needed an explicit
-  reset alongside this method's other manually-listed counters)."}
+  reset alongside this method's other manually-listed counters).
+
+  FIXED (gopherstack-cq0z, 2026-09-06): DeleteAgent never cleared
+  agentTags[AgentArn] -- TagAgentResource/ListAgentResourceTags have no
+  existence check against the agent, so ListAgentResourceTags on a deleted
+  agent's own ARN still returned its tags, and agentTags is persisted
+  verbatim in Snapshot(). See TestAgentsHandler_DeleteAgent_ClearsTags."}
 
 ## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
 

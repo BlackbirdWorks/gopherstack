@@ -951,10 +951,10 @@ func (db *InMemoryDB) replicaGSISettingsRLocked(
 			}
 		}
 		gsiDesc := types.ReplicaGlobalSecondaryIndexSettingsDescription{
-			IndexName:                                  &gsiName,
-			IndexStatus:                                types.IndexStatusActive,
-			ProvisionedReadCapacityUnits:               &rcu,
-			ProvisionedWriteCapacityUnits:              &wcu,
+			IndexName:                     &gsiName,
+			IndexStatus:                   types.IndexStatusActive,
+			ProvisionedReadCapacityUnits:  &rcu,
+			ProvisionedWriteCapacityUnits: &wcu,
 			ProvisionedReadCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(readAutoScaling),
 		}
 		gsiDesc.ProvisionedWriteCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(

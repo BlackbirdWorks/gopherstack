@@ -126,7 +126,7 @@ ops:
   ChangeServerLifeCycleState: {wire: ok, errors: ok, state: ok, persist: ok}
   DisconnectFromService: {wire: ok, errors: ok, state: ok, persist: ok}
   FinalizeCutover: {wire: ok, errors: ok, state: ok, persist: ok}
-  MarkAsArchived: {wire: ok, errors: ok, state: ok, persist: ok}
+  MarkAsArchived: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-04 delete/update precondition sweep): api_op_MarkAsArchived.go:13-14 (\"This command only works for SourceServers with a lifecycle. state which equals DISCONNECTED or CUTOVER.\") was never enforced -- any lifecycle state could be archived. Now returns ConflictException (modelled on this op) unless LifeCycleState is DISCONNECTED or CUTOVER."}
   StartTest: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: on Job completion, launches a real services/ec2 instance via launchParticipantInstanceLocked (cross_service.go), resolving AMI/instance type from the source server's LaunchConfiguration.Ec2LaunchTemplateID when it names a real EC2 launch template, else the EC2 backend's own stub AMI catalogue + a documented default instance type. Falls back to a synthetic gopherstack-format instance ID (newSyntheticInstanceID) only when the EC2 backend isn't wired (unit tests) or RunInstances itself fails -- verified end to end against a real Docker container in test/integration/mgn_test.go's TestIntegration_MGN_JobLifecycle (DescribeInstances against the launched ID)."}
   StartCutover: {wire: ok, errors: ok, state: ok, persist: ok, note: "same real-EC2-launch path as StartTest (jobs.go, cross_service.go)"}
   StartReplication: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -134,7 +134,7 @@ ops:
   PauseReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   RetryDataReplication: {wire: ok, errors: ok, state: ok, persist: ok}
-  TerminateTargetInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover"}
+  TerminateTargetInstances: {wire: ok, errors: ok, state: fixed, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover. FIXED (2026-09-04 delete/update precondition sweep): api_op_TerminateTargetInstances.go:13-14 (\"This command will not work for any Source Server with a lifecycle.state of TESTING, CUTTING_OVER, or CUTOVER.\") was never enforced -- requireLifecyclePrecondition had no case for InitiatedByTerminate at all. Now returns ConflictException (modelled on this op) when LifeCycleState is TESTING/CUTTING_OVER/CUTOVER."}
   # jobs (3)
   DescribeJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (value-semantics sweep, gopherstack-uox6): Filters.FromDate/ToDate were decoded off the wire but never applied -- a source comment claimed this was deliberate ('not exercised by round-trip tests'), but Job.CreationDateTime (nowRFC3339, fixed-width UTC) is real, comparable, backing data. Now both-inclusive lexicographic bounds against CreationDateTime; JobIDs filtering was already correct."}
   DescribeJobLogItems: {wire: ok, errors: ok, state: ok, persist: ok}

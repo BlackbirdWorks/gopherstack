@@ -200,7 +200,7 @@ gaps:
   - "gopherstack-6flj: ListResolverEndpointIpAddresses' per-item resolverEndpointIPAddressDetail is missing CreationTime/ModificationTime/StatusMessage, three real, non-required types.IpAddressResponse members (deserializers.go). The backend's IPAddress model (models.go) tracks no timestamps or status-detail for individual endpoint IPs at all (only IPID/SubnetID/IP/Ipv6) -- adding these would mean either fabricating values or a materially larger change (per-IP lifecycle tracking this backend doesn't otherwise need, since IPs attach/detach synchronously with no status transition). Disclosed, not fixed."
 deferred:
   - none -- full op surface audited this pass
-leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps guarded by the single lockmetrics.RWMutex"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps guarded by the single lockmetrics.RWMutex. FIXED (gopherstack-cq0z, 2026-09-06): DeleteFirewallRuleGroup, DeleteResolverQueryLogConfig and DeleteResolverRule all cleared the tags map for their ARN but missed the sibling resource-policy map (firewallRuleGroupPolicies/queryLogConfigPolicies/resolverRulePolicies). Get*Policy has no existence check against the resource, so it still returned the stale policy for a deleted resource's own ARN, and every policy map is persisted verbatim in Snapshot() regardless. Now cleared in all three delete paths. See TestDelete_ClearsResourcePolicy."}
 ---
 
 ## Notes
@@ -767,3 +767,63 @@ diffed against HEAD.
 dispatch coverage, no unread fields). `cmd/reqfielddiff`: 0 findings in
 every one of the 5 old runs and at HEAD (72 SDK operations resolved, 843
 emulator-declared fields, no undeclared SDK input fields). ZERO DAMAGE.
+
+## 2026-09-04: association-duplicate-detection sweep (parity-sweep-2026-09-03)
+
+Followed up on the 2026-08-31 error-target audit's disclosed-not-fixed gap:
+"ResourceExistsException genuinely going unmodeled for the six Resolver*
+association/creation ops that could produce it... those ops have no
+duplicate-detection logic at all." Scoped this pass to the two ops with an
+unambiguous, already-established duplicate identity (the same pair their own
+Disassociate op already keys on), rather than the three Create* ops whose
+CreatorRequestId idempotency semantics are not spelled out in the SDK doc
+comments and would require inventing a matching-vs-conflicting-parameters
+rule not verifiable from the model (left as a gap, see below).
+
+**AssociateResolverRule** (`rule_associations.go`): calling it twice with the
+same (ResolverRuleId, VPCId) silently created two associations instead of
+being rejected. `AssociateResolverRule`'s own deserializer models
+`ResourceExistsException` (confirmed against `deserializers.go`'s
+`awsAwsjson11_deserializeOpErrorAssociateResolverRule`), and the AWS API
+reference's Errors section (fetched this pass, not in the SDK doc comment)
+states: "ResourceExistsException: The resource that you tried to create
+already exists." `DisassociateResolverRule` already treats
+(ResolverRuleId, VPCId) as this association's identity. Added a duplicate
+check before creating the association.
+
+**AssociateResolverQueryLogConfig** (`query_log_associations.go`): same bug,
+same fix shape, keyed on (ResolverQueryLogConfigId, ResourceId) --
+`DisassociateResolverQueryLogConfig`'s existing identity pair. Confirmed
+`ResourceExistsException` modelled on this op's deserializer too; AWS API
+reference Errors section quotes the identical sentence.
+
+**Found while wiring the fix: `handler.go`'s central `handleError` switch had
+no `case` for `ErrAlreadyExists` at all** -- it fell through to the default
+`InternalServiceErrorException`/500 branch. This was invisible before this
+pass because the 2026-08-31 error-target audit had removed `ErrAlreadyExists`'s
+only production call site (`CreateFirewallRule`'s duplicate-domain-list check,
+swapped to `ErrBatchValidation` since `ResourceExistsException` doesn't apply
+to that op), so the sentinel had zero live producers reaching `handleError`
+between that pass and this one. Added the missing `case errors.Is(err,
+ErrAlreadyExists)` branch (ResourceExistsException/400, consistent with the
+AWS reference's "HTTP Status Code: 400").
+
+Not fixed, left as a gap: `CreateResolverEndpoint`/`CreateResolverQueryLogConfig`/
+`CreateResolverRule` also model `ResourceExistsException`, and all three
+accept a required `CreatorRequestId` ("allows failed requests to be retried
+without the risk of running the operation twice") that gopherstack stores
+but never checks for reuse. The idempotent-retry-vs-conflicting-duplicate
+distinction real AWS applies is not stated in the SDK doc comments for these
+three ops, and getting it wrong (e.g. treating every reused CreatorRequestId
+as an error, breaking legitimate retries) would be worse than the current
+honest gap. Needs a real verified source before it's implemented.
+
+New test: `TestAssociateDuplicate_ResourceExistsException_RealClient`
+(`error_target_fixes_test.go`), table-driven over both ops, driving the real
+aws-sdk-go-v2 client so the assertion (`errors.As` into
+`*types.ResourceExistsException`) proves both the backend duplicate check
+and the `handleError` dispatch fix together.
+
+Gates: `go build`, `go test -race -count=1 ./services/route53resolver/...`,
+`golangci-lint run ./services/route53resolver/...` -- all clean (0 lint
+issues, baseline was also 0 before this pass).

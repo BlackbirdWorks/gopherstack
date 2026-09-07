@@ -185,7 +185,11 @@ func (b *InMemoryBackend) StartInvestigation(
 		EntityType:      entityType,
 		Severity:        severityInformational,
 		State:           investigationStateActive,
-		Status:          investigationStatusRunning,
+		// builtInIndicators is a pure function computed synchronously, so
+		// indicator derivation is already complete by the time this
+		// returns -- there is no real async pipeline that could still be
+		// RUNNING or ever FAILED, so completion is immediate.
+		Status: investigationStatusSucceeded,
 	}
 
 	b.investigations.Put(inv)

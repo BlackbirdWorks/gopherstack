@@ -3,6 +3,7 @@ package efs_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -269,6 +270,42 @@ func TestDescribeAccessPoints_Pagination(t *testing.T) {
 				assert.Len(t, seen, tt.numAPs, "union of both pages must equal every created access point")
 			} else {
 				assert.Empty(t, nextToken)
+			}
+		})
+	}
+}
+
+// TestCreateAccessPoint_RequiresAvailableFileSystem verifies CreateAccessPoint
+// rejects requests while the file system's lifecycle state is not "available"
+// (efs@v1.44.4 types/errors.go: IncorrectFileSystemLifeCycleState, "Returned if
+// the file system's lifecycle state is not \"available\"").
+func TestCreateAccessPoint_RequiresAvailableFileSystem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr       error
+		name          string
+		activateDelay time.Duration
+	}{
+		{name: "creating_state_rejected", activateDelay: time.Hour, wantErr: efs.ErrIncorrectFileSystemLifeCycleState},
+		{name: "available_state_allowed", activateDelay: 0, wantErr: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			efs.SetFSActivationDelay(b, tt.activateDelay)
+
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-ap-lifecycle-"+tt.name))
+			require.NoError(t, err)
+
+			_, err = b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

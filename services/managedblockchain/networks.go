@@ -177,6 +177,19 @@ func cloneNetworkFrameworkAttributes(fa *NetworkFrameworkAttributesState) *Netwo
 	return cp
 }
 
+// deleteNetworkIfEmptyLocked deletes network once it has no members left: "If
+// MemberId is the last member in a network specified by the last Amazon Web
+// Services account, the network is deleted also." (aws-sdk-go-v2 managedblockchain
+// api_op_DeleteMember.go doc comment, v1.34.4). Must be called with mu held.
+func deleteNetworkIfEmptyLocked(b *InMemoryBackend, network *Network) {
+	if len(b.membersByNetwork.Get(network.ID)) > 0 {
+		return
+	}
+
+	delete(b.arnToResource, network.Arn)
+	b.networks.Delete(network.ID)
+}
+
 // GetNetwork returns the details of a network by ID.
 func (b *InMemoryBackend) GetNetwork(networkID string) (*Network, error) {
 	b.mu.RLock("GetNetwork")

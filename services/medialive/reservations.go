@@ -3,6 +3,7 @@ package medialive
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -160,13 +161,33 @@ func (b *InMemoryBackend) DescribeReservation(reservationID string) (*Reservatio
 	return r.toReservation(), nil
 }
 
-// DeleteReservation cancels a reservation.
+// effectiveState derives ACTIVE vs EXPIRED from the reservation term. There is
+// no expiry ticker, so a stored State alone would leave EXPIRED unreachable and
+// DeleteReservation permanently refusing.
+func (r *storedReservation) effectiveState() string {
+	if r.State != "ACTIVE" {
+		return r.State
+	}
+
+	end, err := time.Parse(time.RFC3339, r.End)
+	if err == nil && time.Now().After(end) {
+		return "EXPIRED"
+	}
+
+	return r.State
+}
+
+// DeleteReservation cancels a reservation. api_op_DeleteReservation.go
+// describes the op as deleting an expired reservation.
 func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation, error) {
 	b.mu.Lock("DeleteReservation")
 	defer b.mu.Unlock()
 	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
+	}
+	if r.effectiveState() != "EXPIRED" {
+		return nil, fmt.Errorf("%w: reservation must be expired before deleting", ErrConflict)
 	}
 	r.State = "CANCELED"
 	out := r.toReservation()

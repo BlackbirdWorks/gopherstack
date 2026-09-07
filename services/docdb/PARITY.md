@@ -41,7 +41,7 @@ ops:
   # DBClusterSnapshot family
   CreateDBClusterSnapshot: {wire: fixed, errors: ok, state: ok, persist: ok, note: "prior pass: now records a real activity-log event on create. FIXED THIS PASS (gopherstack-6flj), 2 bugs: (1) response wrongly emitted a bare DBClusterArn -- confirmed against awsAwsquery_deserializeDocumentDBClusterSnapshot that the real types.DBClusterSnapshot has NO such member (only DBClusterSnapshotArn); a real client's generated deserializer silently drops unknown elements, so this was over-emission, not a functional bug -- removed from the wire struct only, the backend field itself is retained for CopyDBClusterSnapshot's own internal use. (2) 5 real, backend-already-tracked-on-the-source-cluster members were never copied onto the snapshot at all: AvailabilityZones/KmsKeyId/MasterUsername/Port/ClusterCreateTime. Derived from the source DBCluster record at creation time (same derive-from-already-tracked-state class as this issue's prior passes)."}
   DescribeDBClusterSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS (gopherstack-6flj): reflects the CreateDBClusterSnapshot/CopyDBClusterSnapshot wire fixes. Disclosed, not fixed -- VpcId (real, resolvable only via an extra DBSubnetGroup lookup through the source cluster's DBSubnetGroupName, not attempted this pass) and StorageType (real, but no storage-tiering feature modeled at all). this pass (constraint-parameter audit): checked IncludePublic/IncludeShared -- both real filters, both currently unenforced. Judged structurally unobservable, not fixed: this is a single-account emulator with no cross-account snapshot visibility to reveal, and DBClusterSnapshotAttribute/ModifyDBClusterSnapshotAttribute track a snapshot's restore-attribute values but nothing here models a second account whose own DescribeDBClusterSnapshots call would need to see this account's public/shared snapshots. Every snapshot this account can already see is already returned by default (it's always the owner), so the filters have no observable effect to get wrong."}
-  DeleteDBClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: now records a real activity-log event on delete"}
+  DeleteDBClusterSnapshot: {wire: ok, errors: ok, state: fixed, persist: ok, note: "this pass: now records a real activity-log event on delete. FIXED 2026-09-05 (ghost-row-after-delete sweep): left the snapshotAttributes side-table entry (region|DBClusterSnapshotIdentifier-keyed, see ModifyDBClusterSnapshotAttribute) behind on delete -- a recreated snapshot under the same user-chosen identifier inherited the deleted snapshot's restore-attribute grants (an access-control artefact, same class as the elasticsearch vpcAccess finding in 6806b0f10). Now calls the new snapshotAttributesDelete helper alongside the existing tags cleanup."}
   CopyDBClusterSnapshot: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "prior pass: copy previously omitted a fresh SnapshotCreateTime (left zero-valued) -- now stamps the copy's own creation time. FIXED THIS PASS (gopherstack-6flj), a real discarded-input bug: the request's CopyTags (\"Set to true to copy all tags from the source cluster snapshot to the target\") and Tags members were parsed by neither the handler nor the backend at all, so a real client's CopyTags=true request was a silent no-op -- the copy always ended up with zero tags. Now reads both; an explicit Tags value takes precedence over CopyTags when both are given (the SDK doc comment states no precedence rule for this combination, so this is an interpretation, not a confirmed AWS rule -- disclosed as such). Also added the missing SourceDBClusterSnapshotArn response member (real, populated from the source snapshot's own ARN) and the same 5 source-derived fields CreateDBClusterSnapshot gained (copied from the source SNAPSHOT here, not the cluster, since Copy has no direct cluster reference)."}
   DescribeDBClusterSnapshotAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyDBClusterSnapshotAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -303,6 +303,49 @@ back, confirmed byte-identical via `md5sum`. Gates run clean: `go build
 `golangci-lint run ./services/docdb/...` (0 issues after adding an
 `unknownOp` constant elasticache already uses, to keep `goconst` happy with
 the third `"Unknown"` literal the migration introduced).
+
+## 2026-09-05 (parity sweep, gopherstack): re-verified two recent delete-guard fixes, found and fixed one more ghost row
+
+Checked in as part of a repo-wide parity sweep (branch `chore/parity-sweep-2026-09-03`). `last_audit_commit`
+NOT re-pointed -- narrower/deeper pass than a full op-by-op re-derivation, same precedent as the
+2026-08-15/2026-08-22/2026-08-29 passes above.
+
+Re-verified (not re-derived from scratch, trusted per this file's own header convention since the files were
+unchanged since `04b491369` except by two commits explicitly re-checked): `DeleteGlobalCluster`'s
+`GlobalClusterMembers`-non-empty guard (commit `ca3a1e21f`) against `api_op_DeleteGlobalCluster.go`'s doc
+comment ("The primary and secondary clusters must already be detached or deleted before attempting to delete
+a global cluster.") and its modeled `InvalidGlobalClusterStateFault` (confirmed present in
+`awsAwsquery_deserializeOpErrorDeleteGlobalCluster`); and `DeleteEventSubscription`'s tags cleanup (commit
+`6806b0f10`). Both correct as landed.
+
+**Found and fixed one more instance of the same ghost-row-after-delete class those two commits were sweeping
+for, which they did not catch in this service:** `DeleteDBClusterSnapshot` cleared the snapshot itself and
+its tags but never its `snapshotAttributes` side-table entry (`store_setup.go:snapshotAttributesKeyFn`, keyed
+by `region|DBClusterSnapshotIdentifier`, populated by `ModifyDBClusterSnapshotAttribute`'s restore-permission
+grants). `DBClusterSnapshotIdentifier` is user-chosen and freed for reuse on delete, so
+`CreateDBClusterSnapshot`/`CopyDBClusterSnapshot` recreating a snapshot under a previously-deleted identifier
+silently inherited the old snapshot's cross-account restore grants via `DescribeDBClusterSnapshotAttributes`
+-- an access-control artefact, not merely stale data (same discomfort level as the elasticsearch `vpcAccess`
+finding in `6806b0f10`). Fixed with a new `snapshotAttributesDelete` helper (`store.go`) called from
+`DeleteDBClusterSnapshot` (`db_cluster_snapshots.go`) alongside the existing tags cleanup. Regression test
+`TestDeleteDBClusterSnapshot_ClearsAttributes` (`handler_db_cluster_snapshots_test.go`): create cluster +
+snapshot, grant a restore attribute, delete, recreate under the same identifier, assert the grant is gone.
+Confirmed failing pre-fix with the stale grant present verbatim in the XML body; passes post-fix.
+
+Also checked and found clean this pass: every `sort.Slice` comparator in the package sorts on a field that is
+a table/map primary key (identifier, ARN, or subscription name) recomputed fresh on every Describe call, so
+the tie-prone-sort class (`pkgs/store.Index.remove`'s last-element swap reordering tied rows) does not apply
+here -- there are no ties to have. `DeleteDBCluster`/`DeleteDBInstance` preconditions re-checked directly
+against `api_op_DeleteDBCluster.go`/`api_op_DeleteDBInstance.go`: DocDB's `DeleteDBInstance` doc comment
+carries no "last instance in cluster" constraint (unlike the neptune gap `ca3a1e21f` fixed in a sibling
+service), so gopherstack correctly does not enforce one here. `cli.go`'s `wireTaggingDocDB` cross-service hook
+re-checked: keys off `HasTaggableResource`, which checks the real resource tables, not the tags/attributes
+side-maps, so it is unaffected by this fix in either direction.
+
+Gates: `GOTOOLCHAIN=go1.26.6 go build ./services/docdb/...`, `go vet`, `gofmt -l` (empty), `go test -race
+-count=1 ./services/docdb/...`, `golangci-lint run ./services/docdb/...` (0 issues) -- all green before and
+after the fix (baseline already clean; this pass added one bug, one fix, one test, no lint/format changes
+needed).
 
 ## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family, clean)
 

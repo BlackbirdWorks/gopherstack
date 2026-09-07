@@ -72,7 +72,9 @@ func (b *InMemoryBackend) DescribeDeliveryChannels(names []string) []DeliveryCha
 	return out
 }
 
-// DeleteDeliveryChannel removes a delivery channel by name.
+// DeleteDeliveryChannel removes a delivery channel by name. Real AWS:
+// "Before you can delete the delivery channel, you must stop the customer
+// managed configuration recorder".
 func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: DeliveryChannelName is required", ErrValidation)
@@ -83,6 +85,15 @@ func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 
 	if !b.channels.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchDeliveryChannel, name)
+	}
+
+	for _, r := range b.recorders.All() {
+		if r.Status == recorderStatusActive {
+			return fmt.Errorf(
+				"%w: configuration recorder %s is still recording",
+				ErrLastDeliveryChannelDeleteFailed, r.Name,
+			)
+		}
 	}
 
 	b.channels.Delete(name)

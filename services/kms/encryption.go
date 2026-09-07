@@ -56,7 +56,8 @@ func (b *InMemoryBackend) Encrypt(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	key, err := b.lookupKey(ctx, input.KeyID)
+	// Encrypt's deserializeOpError does not recognize InvalidArnException (gopherstack-qxaj).
+	key, err := b.lookupKey(ctx, input.KeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +83,7 @@ func (b *InMemoryBackend) Encrypt(
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, "Encrypt", input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -141,7 +142,9 @@ func (b *InMemoryBackend) verifyKeyIDHint(
 		return nil
 	}
 
-	hintResolved, _, err := b.resolveKeyID(ctx, hint)
+	// Neither Decrypt nor ReEncrypt (the two callers of this hint check) recognizes
+	// InvalidArnException (gopherstack-qxaj).
+	hintResolved, _, err := b.resolveKeyID(ctx, hint, ErrKeyNotFound)
 	if err != nil {
 		return err
 	}
@@ -181,7 +184,7 @@ func (b *InMemoryBackend) Decrypt(
 		return nil, err
 	}
 
-	key, lookupErr := b.lookupKey(ctx, keyID)
+	key, lookupErr := b.lookupKey(ctx, keyID, ErrKeyNotFound)
 	if lookupErr != nil {
 		return nil, lookupErr
 	}
@@ -207,7 +210,7 @@ func (b *InMemoryBackend) Decrypt(
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, "Decrypt", input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -335,7 +338,7 @@ func (b *InMemoryBackend) reEncryptDecrypt(
 		return nil, nil, err
 	}
 
-	sourceKey, err := b.lookupKey(ctx, sourceKeyID)
+	sourceKey, err := b.lookupKey(ctx, sourceKeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -383,7 +386,7 @@ func (b *InMemoryBackend) reEncryptEncrypt(
 	plaintext []byte,
 	input *ReEncryptInput,
 ) ([]byte, *Key, error) {
-	destKey, err := b.lookupKey(ctx, input.DestinationKeyID)
+	destKey, err := b.lookupKey(ctx, input.DestinationKeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, nil, err
 	}

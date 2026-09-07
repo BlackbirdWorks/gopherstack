@@ -241,6 +241,104 @@ func TestMemberBatchOps_UnknownDetector_NotFound(t *testing.T) {
 	}
 }
 
+// TestMemberOps_AutoEnableOrganizationMembersAll_Rejected proves
+// DeleteMembers/DisassociateMembers/StopMonitoringMembers each reject with
+// BadRequestException when the detector's autoEnableOrganizationMembers is
+// ALL, matching the AWS doc text for all three operations
+// ("With autoEnableOrganizationMembers configuration for your organization
+// set to ALL, you'll receive an error..."). Previously all three ignored
+// this org setting entirely and always returned 200 (gopherstack-krb1).
+func TestMemberOps_AutoEnableOrganizationMembersAll_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "delete_members", path: "/member/delete"},
+		{name: "disassociate_members", path: "/member/disassociate"},
+		{name: "stop_monitoring_members", path: "/member/stop"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := createTestDetector(t, h)
+
+			doRequest(t, h, http.MethodPost, "/detector/"+id+"/member", map[string]any{
+				"accountDetails": []map[string]any{
+					{"accountId": "111111111111", "email": "a@example.com"},
+				},
+			})
+
+			rec := doRequest(t, h, http.MethodPost, "/detector/"+id+"/admin", map[string]any{
+				"autoEnableOrganizationMembers": "ALL",
+			})
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			rec = doRequest(t, h, http.MethodPost, "/detector/"+id+tt.path, map[string]any{
+				"accountIds": []string{"111111111111"},
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+
+			var errOut map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+			assert.Equal(t, "BadRequestException", errOut["__type"])
+		})
+	}
+}
+
+// TestMemberOps_AutoEnableOrganizationMembers_NonALL_Allowed proves the
+// autoEnableOrganizationMembers guard only fires for ALL: unset, NEW, and
+// NONE must all still let DeleteMembers/DisassociateMembers/
+// StopMonitoringMembers succeed, so the fix for gopherstack-krb1 does not
+// reject more than the real API does.
+func TestMemberOps_AutoEnableOrganizationMembers_NonALL_Allowed(t *testing.T) {
+	t.Parallel()
+
+	opPaths := []string{"/member/delete", "/member/disassociate", "/member/stop"}
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "unset", value: ""},
+		{name: "new", value: "NEW"},
+		{name: "none", value: "NONE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, path := range opPaths {
+				h := newTestHandler(t)
+				id := createTestDetector(t, h)
+
+				doRequest(t, h, http.MethodPost, "/detector/"+id+"/member", map[string]any{
+					"accountDetails": []map[string]any{
+						{"accountId": "111111111111", "email": "a@example.com"},
+					},
+				})
+
+				if tt.value != "" {
+					rec := doRequest(t, h, http.MethodPost, "/detector/"+id+"/admin", map[string]any{
+						"autoEnableOrganizationMembers": tt.value,
+					})
+					require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				}
+
+				rec := doRequest(t, h, http.MethodPost, "/detector/"+id+path, map[string]any{
+					"accountIds": []string{"111111111111"},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code, "path=%s value=%q body=%s", path, tt.value, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestInvitations(t *testing.T) {
 	t.Parallel()
 

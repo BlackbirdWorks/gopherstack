@@ -388,6 +388,27 @@ func TestBackend_DeleteCluster_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, elasticache.ErrClusterNotFound)
 }
 
+func TestBackend_DeleteCluster_LastRGMemberRejected(t *testing.T) {
+	t.Parallel()
+
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+
+	elasticache.AddClusterInRGInternal(b, "rg-solo-member", "solo-rg")
+
+	err := b.DeleteCluster(context.Background(), "rg-solo-member")
+	require.ErrorIs(t, err, elasticache.ErrClusterInReplicationGroup)
+
+	// A non-last member may still be deleted directly.
+	elasticache.AddClusterInRGInternal(b, "rg-member-a", "pair-rg")
+	elasticache.AddClusterInRGInternal(b, "rg-member-b", "pair-rg")
+
+	require.NoError(t, b.DeleteCluster(context.Background(), "rg-member-a"))
+
+	// Now the sole remaining member is rejected too.
+	err = b.DeleteCluster(context.Background(), "rg-member-b")
+	require.ErrorIs(t, err, elasticache.ErrClusterInReplicationGroup)
+}
+
 func TestBackend_DescribeClusters_Pagination(t *testing.T) {
 	t.Parallel()
 

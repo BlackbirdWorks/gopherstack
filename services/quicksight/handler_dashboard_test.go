@@ -168,7 +168,9 @@ func TestQuickSight_Dashboards(t *testing.T) {
 				d, ok := body["Dashboard"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "dash2", d["DashboardId"])
-				assert.InDelta(t, float64(1), d["PublishedVersionNumber"], 0)
+				v, ok := d["Version"].(map[string]any)
+				require.True(t, ok)
+				assert.InDelta(t, float64(1), v["VersionNumber"], 0)
 			},
 		},
 		{

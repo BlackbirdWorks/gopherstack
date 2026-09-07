@@ -421,11 +421,14 @@ func TestHandler_VersionLabel_UnchangedResponse(t *testing.T) {
 	require.NotEmpty(t, rec1.Header().Get("Version-Label"))
 	nextToken := rec1.Header().Get("Next-Poll-Configuration-Token")
 
-	// Second poll — unchanged → 200 with an empty body, Version-Label must still be present
-	// (we set it always when non-empty).
+	// Second poll — unchanged → 200 with an empty body. Per the AWS doc comment on
+	// GetLatestConfigurationOutput.VersionLabel: "If the client already has the latest
+	// version of the configuration data, this value is empty." — so the header must be absent.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextToken, nil)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
+	assert.Empty(t, rec2.Header().Get("Version-Label"),
+		"Version-Label must be empty when the client already has the latest configuration")
 }
 
 // TestHandler_ConfigUpdateDetection verifies that after a configuration update, the next
@@ -742,6 +745,14 @@ func TestHandler_ResponseHeaders(t *testing.T) {
 				assert.NotEmpty(t, rec.Header().Get("Etag"), "ETag must be set when content changed")
 			} else {
 				assert.Empty(t, rec.Header().Get("Etag"), "ETag must not be set when unchanged")
+			}
+
+			if tt.wantVersionLabel {
+				assert.NotEmpty(t, rec.Header().Get("Version-Label"),
+					"Version-Label must be set when content changed")
+			} else {
+				assert.Empty(t, rec.Header().Get("Version-Label"),
+					"Version-Label must not be set when unchanged")
 			}
 
 			if tt.wantEmptyBody {

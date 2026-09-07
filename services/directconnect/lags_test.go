@@ -96,3 +96,118 @@ func TestDisassociateConnectionFromLag_MismatchIsClientError(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestDeleteLag_ActiveConnectionRejected verifies DeleteLag enforces
+// api_op_DeleteLag.go:12-13: "You cannot delete a LAG if it has active
+// virtual interfaces or hosted connections".
+func TestDeleteLag_ActiveConnectionRejected(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	lag, err := client.CreateLag(ctx, &directconnectsdk.CreateLagInput{
+		ConnectionsBandwidth: aws.String("1Gbps"),
+		LagName:              aws.String("lag-with-members"),
+		Location:             aws.String("EqDC2"),
+		NumberOfConnections:  1,
+	})
+	require.NoError(t, err)
+	require.Len(t, lag.Connections, 1)
+
+	_, err = client.DeleteLag(ctx, &directconnectsdk.DeleteLagInput{LagId: lag.LagId})
+	require.Error(t, err)
+
+	var clientErr *types.DirectConnectClientException
+	require.ErrorAs(t, err, &clientErr)
+}
+
+// TestDisassociateConnectionFromLag_MinimumLinks verifies
+// api_op_DisassociateConnectionFromLag.go:20-23: disassociating a
+// connection that would drop the LAG below MinimumLinks fails, except when
+// it is the LAG's last member (which is allowed, leaving an empty LAG).
+func TestDisassociateConnectionFromLag_MinimumLinks(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	lag, err := client.CreateLag(ctx, &directconnectsdk.CreateLagInput{
+		ConnectionsBandwidth: aws.String("1Gbps"),
+		LagName:              aws.String("lag-min-links"),
+		Location:             aws.String("EqDC2"),
+		NumberOfConnections:  2,
+	})
+	require.NoError(t, err)
+	require.Len(t, lag.Connections, 2)
+
+	_, err = client.UpdateLag(ctx, &directconnectsdk.UpdateLagInput{
+		LagId:        lag.LagId,
+		MinimumLinks: 2,
+	})
+	require.NoError(t, err)
+
+	first := lag.Connections[0].ConnectionId
+	second := lag.Connections[1].ConnectionId
+
+	_, err = client.DisassociateConnectionFromLag(ctx, &directconnectsdk.DisassociateConnectionFromLagInput{
+		ConnectionId: first,
+		LagId:        lag.LagId,
+	})
+	require.Error(t, err, "dropping to 1 connection with MinimumLinks=2 must fail")
+
+	var clientErr *types.DirectConnectClientException
+	require.ErrorAs(t, err, &clientErr)
+
+	_, err = client.UpdateLag(ctx, &directconnectsdk.UpdateLagInput{
+		LagId:        lag.LagId,
+		MinimumLinks: 1,
+	})
+	require.NoError(t, err)
+
+	_, err = client.DisassociateConnectionFromLag(ctx, &directconnectsdk.DisassociateConnectionFromLagInput{
+		ConnectionId: first,
+		LagId:        lag.LagId,
+	})
+	require.NoError(t, err, "1 remaining connection meets MinimumLinks=1")
+
+	_, err = client.DisassociateConnectionFromLag(ctx, &directconnectsdk.DisassociateConnectionFromLagInput{
+		ConnectionId: second,
+		LagId:        lag.LagId,
+	})
+	require.NoError(t, err, "the last member of a LAG may always be disassociated, even below MinimumLinks")
+}
+
+// TestAssociateConnectionWithLag_BandwidthMismatch verifies
+// api_op_AssociateConnectionWithLag.go:15-16: "its bandwidth must match the
+// bandwidth for the LAG".
+func TestAssociateConnectionWithLag_BandwidthMismatch(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	lag, err := client.CreateLag(ctx, &directconnectsdk.CreateLagInput{
+		ConnectionsBandwidth: aws.String("1Gbps"),
+		LagName:              aws.String("lag-1gbps"),
+		Location:             aws.String("EqDC2"),
+		NumberOfConnections:  1,
+	})
+	require.NoError(t, err)
+
+	mismatched, err := client.CreateConnection(ctx, &directconnectsdk.CreateConnectionInput{
+		Bandwidth:      aws.String("10Gbps"),
+		ConnectionName: aws.String("10gbps-conn"),
+		Location:       aws.String("EqDC2"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AssociateConnectionWithLag(ctx, &directconnectsdk.AssociateConnectionWithLagInput{
+		ConnectionId: mismatched.ConnectionId,
+		LagId:        lag.LagId,
+	})
+	require.Error(t, err)
+
+	var clientErr *types.DirectConnectClientException
+	require.ErrorAs(t, err, &clientErr)
+}

@@ -96,9 +96,12 @@ type httpAPILambdaResponse struct {
 func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
 	req := c.Request()
 
-	// Fetch stage variables (best-effort — $default stage may not exist).
+	// Fetch the stage (best-effort — $default stage may not exist) for stage
+	// variables and, below, its pinned deployment snapshot.
+	stage := h.lookupStage(apiID, stageName)
+
 	var stageVars map[string]string
-	if stage, err := h.Backend.GetStage(apiID, stageName); err == nil && stage != nil {
+	if stage != nil {
 		stageVars = stage.StageVariables
 	}
 
@@ -120,8 +123,10 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		writeCORSHeaders(c.Response(), c.Request(), api.CorsConfiguration)
 	}
 
-	// Route matching.
-	routes, err := h.Backend.GetRoutes(apiID)
+	// Route matching against the stage's pinned deployment snapshot when one
+	// exists (gopherstack-cfr1); an undeployed stage, or one whose pinned
+	// deployment was since deleted, falls back to the API's live routes.
+	routes, deployment, err := h.resolveHTTPAPIRoutes(apiID, stage)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal Server Error")
 	}
@@ -131,9 +136,10 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return c.String(http.StatusNotFound, "Not Found")
 	}
 
-	// Route authorization enforcement (NONE / JWT / CUSTOM / AWS_IAM).
-	if authErr := h.enforceRouteAuth(c, apiID, stageName, resourcePath, matchedRoute); authErr != nil {
-		return authErr
+	// Throttle (RouteSettings/DefaultRouteSettings) then authorization (NONE /
+	// JWT / CUSTOM / AWS_IAM) enforcement for the matched route.
+	if ctrlErr := h.applyRouteControls(c, apiID, stageName, resourcePath, matchedRoute); ctrlErr != nil {
+		return ctrlErr
 	}
 
 	// Resolve integration.
@@ -143,7 +149,7 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 
 	integrationID := strings.TrimPrefix(matchedRoute.Target, "integrations/")
 
-	integration, err := h.Backend.GetIntegration(apiID, integrationID)
+	integration, err := h.resolveHTTPAPIIntegration(apiID, integrationID, deployment)
 	if err != nil {
 		log := logger.Load(req.Context())
 		log.Error("apigatewayv2: integration not found", "id", integrationID)
@@ -162,6 +168,95 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return h.forwardHTTPAPIHTTPIntegration(c, integration, stageVars)
 	default:
 		return c.String(http.StatusInternalServerError, "Unsupported integration type: "+integration.IntegrationType)
+	}
+}
+
+// lookupStage returns apiID's stageName Stage, or nil if it doesn't exist.
+func (h *Handler) lookupStage(apiID, stageName string) *Stage {
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	if err != nil {
+		return nil
+	}
+
+	return stage
+}
+
+// resolveHTTPAPIRoutes returns the routes to match a request against, and the
+// deployment they came from (nil when serving live state). A stage pinned to
+// a deployment (stage.DeploymentID != "") serves that deployment's frozen
+// route snapshot; a stage with no deployment yet, or whose pinned deployment
+// was since deleted, falls back to the API's live routes so it still serves
+// traffic instead of 500ing (gopherstack-cfr1).
+func (h *Handler) resolveHTTPAPIRoutes(apiID string, stage *Stage) ([]Route, *Deployment, error) {
+	if stage != nil && stage.DeploymentID != "" {
+		if dep, err := h.Backend.GetDeployment(apiID, stage.DeploymentID); err == nil && dep != nil {
+			return dep.Routes, dep, nil
+		}
+	}
+
+	routes, err := h.Backend.GetRoutes(apiID)
+
+	return routes, nil, err
+}
+
+// resolveHTTPAPIIntegration looks up integrationID within deployment's frozen
+// snapshot when deployment is non-nil, otherwise reads the API's live
+// integrations. Mirrors resolveHTTPAPIRoutes' snapshot-vs-live split so a
+// route resolved from a deployment snapshot always resolves its integration
+// from that same snapshot, never a live one (gopherstack-cfr1).
+func (h *Handler) resolveHTTPAPIIntegration(apiID, integrationID string, deployment *Deployment) (*Integration, error) {
+	if deployment == nil {
+		return h.Backend.GetIntegration(apiID, integrationID)
+	}
+
+	for i := range deployment.Integrations {
+		if deployment.Integrations[i].IntegrationID == integrationID {
+			cp := deployment.Integrations[i]
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrIntegrationNotFound
+}
+
+// applyRouteControls runs the throttle and authorizer checks for the matched
+// route, in that order: throttle first, mirroring apigateway v1's
+// stage-throttle-before-authorizer precedence (proxy.go's
+// applyMethodControls) -- it's not client-specific, so it applies to traffic
+// regardless of whether the request is later authorized. Returns a non-nil
+// error (already written to c) when the request is denied.
+func (h *Handler) applyRouteControls(
+	c *echo.Context,
+	apiID, stageName, resourcePath string,
+	route *Route,
+) error {
+	if throttleErr := h.enforceRouteThrottle(c, apiID, stageName, route.RouteKey); throttleErr != nil {
+		return throttleErr
+	}
+
+	return h.enforceRouteAuth(c, apiID, stageName, resourcePath, route)
+}
+
+// enforceRouteThrottle applies the stage's RouteSettings/DefaultRouteSettings
+// throttling for routeKey and writes the AWS-accurate 429 response when the
+// limit is exceeded. Returns nil (request allowed) when unthrottled.
+func (h *Handler) enforceRouteThrottle(c *echo.Context, apiID, stageName, routeKey string) error {
+	log := logger.Load(c.Request().Context())
+
+	err := h.Backend.EnforceRouteThrottle(apiID, stageName, routeKey)
+
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrThrottled):
+		log.Info("apigatewayv2: route throttle exceeded", "apiId", apiID, "stage", stageName, "routeKey", routeKey)
+
+		return writeErr(c, http.StatusTooManyRequests, "Too Many Requests")
+	default:
+		log.Warn("apigatewayv2: route-throttle enforcement error", "error", err)
+
+		return nil
 	}
 }
 

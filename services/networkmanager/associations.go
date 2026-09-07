@@ -52,14 +52,15 @@ func requireCrossServiceARN(arnValue, fieldName string, resolve func(string) boo
 // associateDeviceLinkedResource is the shared shape behind
 // AssociateCustomerGateway/AssociateTransitGatewayConnectPeer: validate
 // deviceID belongs to globalNetworkID, validate/resolve the cross-service
-// ARN, store the caller-built PENDING association, and schedule its real
+// ARN, require an already-associated link when the caller specified one,
+// store the caller-built PENDING association, and schedule its real
 // PENDING->AVAILABLE advance.
 func associateDeviceLinkedResource[T any, PT interface {
 	*T
 	clone() *T
 }](
 	b *InMemoryBackend,
-	label, globalNetworkID, deviceID, arnValue, fieldName string,
+	label, globalNetworkID, deviceID, arnValue, fieldName, linkID string,
 	resolve func(string) bool, notFoundResourceType string,
 	table *store.Table[T], key string,
 	build func() PT,
@@ -71,6 +72,15 @@ func associateDeviceLinkedResource[T any, PT interface {
 
 	if err := requireCrossServiceARN(arnValue, fieldName, resolve, notFoundResourceType); err != nil {
 		return nil, err
+	}
+
+	// Both AssociateCustomerGateway and AssociateTransitGatewayConnectPeer
+	// document: "If you specify a link, it must be associated with the
+	// specified device."
+	if linkID != "" {
+		if _, ok := b.linkAssociations.Get(linkAssociationKey(globalNetworkID, deviceID, linkID)); !ok {
+			return nil, conflictError(resourceLink, linkID, "link is not associated with device "+deviceID)
+		}
 	}
 
 	v := build()
@@ -95,7 +105,7 @@ func (b *InMemoryBackend) AssociateCustomerGateway(
 
 	return associateDeviceLinkedResource(
 		b, "CustomerGatewayAssociationAvailable", globalNetworkID, deviceID, customerGatewayArn,
-		"CustomerGatewayArn", resolve, resourceEC2CustomerGateway,
+		"CustomerGatewayArn", linkID, resolve, resourceEC2CustomerGateway,
 		b.customerGatewayAssociations, customerGatewayAssociationKey(globalNetworkID, customerGatewayArn),
 		func() *CustomerGatewayAssociation {
 			return &CustomerGatewayAssociation{
@@ -247,7 +257,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayConnectPeer(
 
 	return associateDeviceLinkedResource(
 		b, "TransitGatewayConnectPeerAssociationAvailable", globalNetworkID, deviceID, transitGatewayConnectPeerArn,
-		"TransitGatewayConnectPeerArn", resolve, resourceEC2TransitGatewayConnectPeer,
+		"TransitGatewayConnectPeerArn", linkID, resolve, resourceEC2TransitGatewayConnectPeer,
 		b.transitGatewayConnectPeerAssociations,
 		transitGatewayConnectPeerAssociationKey(globalNetworkID, transitGatewayConnectPeerArn),
 		func() *TransitGatewayConnectPeerAssociation {
@@ -317,6 +327,14 @@ func (b *InMemoryBackend) AssociateConnectPeer(
 
 	if _, ok := b.connectPeers.Get(connectPeerID); !ok {
 		return nil, notFoundError(resourceConnectPeer, connectPeerID)
+	}
+
+	// AssociateConnectPeer doc (api_op_AssociateConnectPeer.go): "If you
+	// specify a link, it must be associated with the specified device."
+	if linkID != "" {
+		if _, ok := b.linkAssociations.Get(linkAssociationKey(globalNetworkID, deviceID, linkID)); !ok {
+			return nil, conflictError(resourceLink, linkID, "link is not associated with device "+deviceID)
+		}
 	}
 
 	a := &ConnectPeerAssociation{

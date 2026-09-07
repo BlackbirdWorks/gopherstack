@@ -225,6 +225,23 @@ func TestCreateLoadBalancerPolicy(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name: "unknown_attribute_name_rejected",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "policy-badattr-lb")
+			},
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"policy-badattr-lb"},
+				"PolicyName":       {"my-badattr-policy"},
+				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				"PolicyAttributes.member.1.AttributeName":  {"NotARealAttribute"},
+				"PolicyAttributes.member.1.AttributeValue": {"true"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name: "duplicate_policy_returns_conflict",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()

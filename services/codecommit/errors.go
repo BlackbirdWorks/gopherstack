@@ -61,6 +61,8 @@ var (
 	ErrCommentNotFound = awserr.New("CommentDoesNotExistException", awserr.ErrNotFound)
 	// ErrApprovalRuleNotFound is returned when a pull request approval rule does not exist.
 	ErrApprovalRuleNotFound = awserr.New("ApprovalRuleDoesNotExistException", awserr.ErrNotFound)
+	// ErrInvalidPullRequestEventType is returned when pullRequestEventType is not a recognized enum value.
+	ErrInvalidPullRequestEventType = awserr.New("InvalidPullRequestEventTypeException", awserr.ErrInvalidParameter)
 )
 
 // repoNameRe matches valid CodeCommit repository names: alphanumeric, _, -, .

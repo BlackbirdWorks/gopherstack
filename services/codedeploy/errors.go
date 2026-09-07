@@ -17,10 +17,15 @@ var (
 	ErrIamArnRequired                = awserr.New("IamArnRequiredException", awserr.ErrInvalidParameter)
 	ErrMultipleIamArns               = awserr.New("MultipleIamArnsProvidedException", awserr.ErrInvalidParameter)
 	// ErrDeploymentConfigIsDefault guards DeleteDeploymentConfig's built-in-config
-	// case. DeleteDeploymentConfig's own deserializer models InvalidOperationException,
-	// not DeploymentConfigInUseException (that code belongs to AddTagsToOnPremisesInstances/
-	// RemoveTagsFromOnPremisesInstances/UpdateDeploymentGroup's tag-limit case instead).
-	ErrDeploymentConfigIsDefault  = awserr.New("InvalidOperationException", awserr.ErrConflict)
+	// case (InvalidOperationException); ErrDeploymentConfigInUse below guards its
+	// other modeled case (DeploymentConfigInUseException) -- distinct codes for
+	// the same op's two distinct delete-rejection reasons.
+	ErrDeploymentConfigIsDefault = awserr.New("InvalidOperationException", awserr.ErrConflict)
+	// ErrDeploymentConfigInUse guards DeleteDeploymentConfig's other own-modeled
+	// case: "A deployment configuration cannot be deleted if it is currently
+	// in use." (api_op_DeleteDeploymentConfig.go). DeploymentConfigInUseException
+	// is modeled by no other operation in this package.
+	ErrDeploymentConfigInUse      = awserr.New("DeploymentConfigInUseException", awserr.ErrConflict)
 	ErrGitHubAccountTokenNotFound = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
 	ErrRevisionNotFound           = awserr.New("RevisionDoesNotExistException", awserr.ErrNotFound)
 	ErrDeploymentTargetNotFound   = awserr.New("DeploymentTargetDoesNotExistException", awserr.ErrNotFound)
@@ -28,6 +33,16 @@ var (
 	ErrDeploymentNotInReadyState  = awserr.New("DeploymentIsNotInReadyStateException", awserr.ErrConflict)
 	ErrInvalidDeploymentWaitType  = awserr.New("InvalidDeploymentWaitTypeException", awserr.ErrInvalidParameter)
 	ErrInvalidFileExistsBehavior  = awserr.New("InvalidFileExistsBehaviorException", awserr.ErrInvalidParameter)
+	// ErrInvalidEC2TagCombination and ErrInvalidOnPremisesTagCombination guard
+	// CreateDeploymentGroup/UpdateDeploymentGroup's own modeled rule that at
+	// most one of each Ec2TagFilters/Ec2TagSet and
+	// OnPremisesInstanceTagFilters/OnPremisesTagSet pair may be set per call.
+	ErrInvalidEC2TagCombination        = awserr.New("InvalidEC2TagCombinationException", awserr.ErrInvalidParameter)
+	ErrInvalidOnPremisesTagCombination = awserr.New(
+		"InvalidOnPremisesTagCombinationException", awserr.ErrInvalidParameter)
+	// ErrInvalidEC2Tag guards an Ec2TagFilters entry whose Type isn't a real
+	// EC2TagFilterType value.
+	ErrInvalidEC2Tag = awserr.New("InvalidEC2TagException", awserr.ErrInvalidParameter)
 
 	// ErrInvalidTagsToAdd covers every TagResource-rejected tag (reserved "aws:"
 	// prefix, oversized key/value, or the 50-tag-per-resource cap): TagResource's

@@ -136,6 +136,8 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 			preserveCustomerManagedFields(stored, existing)
 		}
 
+		b.applyAutomationRules(stored)
+
 		b.findings[key] = stored
 		successCount++
 

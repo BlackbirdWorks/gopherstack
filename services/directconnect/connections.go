@@ -355,6 +355,14 @@ func (b *InMemoryBackend) AssociateConnectionWithLag(connectionID, lagID string)
 		return nil, notFoundError(resourceLag, lagID)
 	}
 
+	// "its bandwidth must match the bandwidth for the LAG"
+	// (api_op_AssociateConnectionWithLag.go:15-16).
+	if c.Bandwidth != lag.ConnectionsBandwidth {
+		return nil, clientError(
+			"connection " + connectionID + " bandwidth does not match LAG " + lagID + "'s bandwidth",
+		)
+	}
+
 	if c.LagID != lagID {
 		maxConns := int(lagMaxConnections(lag.ConnectionsBandwidth))
 		if len(b.connectionsByLagLocked(lagID)) >= maxConns {
@@ -379,6 +387,19 @@ func (b *InMemoryBackend) DisassociateConnectionFromLag(connectionID, lagID stri
 
 	if c.LagID != lagID {
 		return nil, clientError("connection " + connectionID + " is not associated with LAG " + lagID)
+	}
+
+	// "If disassociating the connection would cause the LAG to fall below
+	// its setting for minimum number of operational connections, the
+	// request fails, except when it's the last member of the LAG"
+	// (api_op_DisassociateConnectionFromLag.go:20-22).
+	if lag, lagFound := b.lags.Get(lagID); lagFound {
+		remaining := len(b.connectionsByLagLocked(lagID)) - 1
+		if remaining > 0 && remaining < int(lag.MinimumLinks) {
+			return nil, clientError(
+				"disassociating " + connectionID + " would drop LAG " + lagID + " below its minimum links",
+			)
+		}
 	}
 
 	c.LagID = ""
