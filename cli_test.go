@@ -2150,7 +2150,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				schBk := schedulerbackend.NewInMemoryBackend(accountID, region)
 				g, err := schBk.CreateScheduleGroup(
-					context.Background(), "wiring-test-group", "", map[string]string{wantTagKey: wantTagValue},
+					context.Background(), "wiring-test-group", map[string]string{wantTagKey: wantTagValue},
 				)
 				require.NoError(t, err)
 
