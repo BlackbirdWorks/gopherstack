@@ -3932,3 +3932,123 @@ Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/ec2/...` (pass,
 including the new test), `GOTOOLCHAIN=go1.26.6 golangci-lint run
 services/ec2/...` (0 issues). No banned `//nolint`s introduced. Did NOT
 commit, push, or run any `bd` write command.
+
+## 2026-09-06 -- gopherstack-y71o, VPC main route table implemented (partial)
+
+Split out of gopherstack-0o97 above. `CreateVpc` (`vpcs.go`) now also
+creates a main route table for the new VPC, mirroring the default security
+group it already created: a `RouteTable{Main: true}` with one local route
+(`Route{DestinationCIDR: cidr, GatewayID: "local"}` -- ec2@v1.319.1
+api_op_ReplaceRoute.go:77 documents `local` as the fixed target of a
+route table's local route) and one implicit VPC-wide association
+(`RouteAssociation{Main: true}`, empty `SubnetID` -- ec2@v1.319.1
+`types.RouteTableAssociation.Main` doc: "Indicates whether this is the
+main route table"; `SubnetId`'s doc: "A subnet ID is not returned for an
+implicit association"). `RouteTable` and `RouteAssociation`
+(`route_tables.go`) each gained a `Main bool` field as the discriminator.
+
+**Landmine handled**: registering the main table's ID in
+`routeTableIDsByVPC` (via the existing `indexRouteTableLocked`) would have
+made `vpcIndexedDependencyViolationLocked`'s `len(...) > 0` check block
+every `DeleteVpc` with a spurious `DependencyViolation`. That check
+(`vpcs.go`) now loops the VPC's route tables and only objects to a
+**non-main** one, mirroring the existing default-security-group carve-out
+(`sg.Name != defaultSecurityGroupName`). `DeleteVpc` itself now also
+cascade-deletes the main table, matching `api_op_DeleteVpc.go:16` ("it
+deletes the default security group, network ACL, and route table for the
+VPC"). Proven by `TestDeleteVpc_MainRouteTableCascades`
+(`main_route_table_test.go`): a VPC with nothing but its auto-created main
+table deletes cleanly in one call.
+
+Two more guards, both needed once an association can have an empty
+`SubnetID`: `DeleteRouteTable` now rejects deleting a `Main` table
+directly (`ErrDependencyViolation` -- real AWS requires reassigning main
+status first; only `DeleteVpc` removes it) and `DisassociateRouteTable`
+now rejects disassociating the implicit main association
+(`ErrInvalidParameter` -- there is nothing to fall back to). Neither
+operation's real deserializer declares a specific named error code for
+this case (`awk "/deserializeOpErrorDeleteRouteTable\(/,/^}/"
+deserializers.go` and the `DisassociateRouteTable` equivalent both show
+only the generic `"UnknownError"` fallback, no `switch` cases), so both
+reuse this file's existing generic-error sentinels rather than fabricate
+an unverified AWS code.
+
+**Real bug found and fixed while adding this**: `ReplaceRouteTableAssociation`
+(`ec2core.go`) located the old association by testing `subnetID != ""`
+as its "found" sentinel, then spliced the association out of its table
+*before* that check. Any association with an empty `SubnetID` -- which
+did not exist before this change but now does, on every main table --
+would have been destructively removed and then the call would still
+return `ErrAssociationNotFound`, leaving the main table's implicit
+association gone with no rollback. Rewritten to track `found` explicitly
+and only mutate state after all validation passes. The same fix also
+implements the deliberate scope cut below: reassigning a VPC's main route
+table via `ReplaceRouteTableAssociation` (ec2@v1.319.1
+api_op_ReplaceRouteTableAssociation.go:17: "You can also use this
+operation to change which table is the main route table in the VPC") is
+rejected with a clear `ErrInvalidParameter` rather than silently doing a
+plain subnet-style reassignment, which would have left the old table
+still flagged `Main` internally with no association to show for it.
+Proven by `TestReplaceRouteTableAssociation_MainAssociationRejected`,
+which also asserts the implicit association was NOT removed by the
+rejected call.
+
+`DescribeRouteTables`' wire response (`handler_route_tables.go`)
+now emits `<main>` on every association item (`assocItem.Main`, no
+`omitempty` -- real AWS emits it unconditionally per
+`awsEc2query_deserializeDocumentRouteTableAssociation`, deserializers.go).
+
+**What was implemented**: (1) the main route table itself, with its local
+route; (2) the implicit VPC-wide association, satisfying "implicit
+association for subnets with no explicit association" as the single
+always-present entry AWS shows for a main table (no per-subnet implicit
+record is synthesized -- see below); (3) `Main` surfaced correctly on
+`DescribeRouteTables` associations.
+
+**Deliberately left absent** (documented here per the issue's scope note,
+not silently missing):
+- `ReplaceRouteTableAssociation`'s main-table reassignment (capability 4
+  from the issue) is explicitly rejected, not implemented. Doing it
+  properly means moving `Main` from the old table to the new one and
+  regenerating the implicit association; half-implementing it risked
+  exactly the "half-wired" state the issue warned against, so it was cut
+  and documented instead.
+- No `association.main` (or any other) `DescribeRouteTables` filter reads
+  the new `Main` field -- `routeTableMatchesFilter` (`handler_filters.go`)
+  is unchanged. Real AWS supports filtering on `association.main`.
+- The backend's always-present seeded default VPC (`vpc-default`, built
+  directly by `initDefaults`/`Reset` in `store.go`, not through
+  `CreateVpc`) and `CreateDefaultVpc` (`vpcs.go`, which -- pre-existing,
+  unrelated to this issue -- doesn't even create a default security
+  group) still have no main route table. Only the `CreateVpc` codepath
+  named in the issue was changed, to keep blast radius contained; touching
+  the two seeding paths above would have altered the fixture shape of
+  hundreds of unrelated existing tests.
+- Every custom (non-main) route table still has no local route on
+  creation. Real AWS gives one to every route table, not just the main
+  one, but the issue text only asked for the main table's local route and
+  the pinned SDK's `CreateRouteTable` doc comment doesn't document this
+  either way, so it was left alone rather than guessed at.
+
+New tests, all in `main_route_table_test.go`:
+`TestCreateVpc_MainRouteTable`, `TestDeleteVpc_MainRouteTableCascades`
+(the landmine proof), `TestDeleteRouteTable_MainRouteTableRejected`,
+`TestDisassociateRouteTable_MainAssociationRejected`,
+`TestReplaceRouteTableAssociation_MainAssociationRejected`,
+`TestHandler_DescribeRouteTables_MainAssociation`. All fail to compile
+against unmodified code (they reference the new `Main` fields), confirmed
+by reverting the four production files and running them before restoring.
+
+Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/ec2/...` (pass),
+`GOTOOLCHAIN=go1.26.6 golangci-lint run services/ec2/...` (0 issues).
+`GOTOOLCHAIN=go1.26.6 go test ./pkgs/persistence/ -run
+TestSnapshotVersionGuard` (read-only, no `-update`): FAILS, reporting
+`ec2: backendSnapshot fields changed without a version bump; ... this is
+bookkeeping, not a version-bump case: every old field is still present
+unchanged, so the diff is additive only and needs no bump` -- expected,
+since `RouteTable`/`RouteAssociation` gained `Main bool` fields (both
+`omitempty`, so existing snapshots with `Main` false are byte-identical).
+The same run also reports a `scheduler` failure that is NOT this change
+(no `scheduler` files were touched); left for whoever owns that package.
+Neither failure was addressed with `-update` per this task's scope limits.
+Did NOT commit, push, or run any `bd` write command.
