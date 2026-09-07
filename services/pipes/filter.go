@@ -3,10 +3,11 @@ package pipes
 import (
 	"bytes"
 	"encoding/json"
-	"net"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
 )
 
 // matchesAnyFilter returns true if body passes at least one of the given filters.
@@ -292,13 +293,12 @@ func matchesSuffixRule(msgVal, suffixRaw json.RawMessage) bool {
 }
 
 // matchesNumericRule applies numeric comparison rules like [">", 5, "<", 10]
-// (eb-filtering-numeric-matching). Rules come in pairs: [op, val, op, val, ...].
-// msgVal must decode as a JSON number; a string-encoded number (as DynamoDB
-// Streams' "N" attribute wrapper produces) does not match, consistent with
-// services/eventbridge/pattern.go's matchNumeric/toFloat64, which has the
-// same restriction.
+// (eb-filtering-numeric-matching) via pkgs/eventpattern, shared with
+// services/eventbridge/pattern.go's matchNumeric. msgVal must decode as a
+// JSON number; a string-encoded number (as DynamoDB Streams' "N" attribute
+// wrapper produces) does not match.
 func matchesNumericRule(msgVal, rulesRaw json.RawMessage) bool {
-	var ruleList []json.RawMessage
+	var ruleList []any
 	if err := json.Unmarshal(rulesRaw, &ruleList); err != nil {
 		return false
 	}
@@ -308,38 +308,12 @@ func matchesNumericRule(msgVal, rulesRaw json.RawMessage) bool {
 		return false
 	}
 
-	const pairSize = 2
-	for i := 0; i+1 < len(ruleList); i += pairSize {
-		op, opOK := decodeString(ruleList[i])
-		val, valOK := decodeFloat(ruleList[i+1])
-
-		if !opOK || !valOK || !compareNumeric(op, num, val) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func compareNumeric(op string, num, val float64) bool {
-	switch op {
-	case ">":
-		return num > val
-	case ">=":
-		return num >= val
-	case "<":
-		return num < val
-	case "<=":
-		return num <= val
-	case "=":
-		return num == val
-	default:
-		return false
-	}
+	return eventpattern.MatchNumericRules(num, ruleList)
 }
 
 // matchesCIDRRule reports whether the string msgVal is an IP address inside
-// the given CIDR range (eb-filtering-ip-address).
+// the given CIDR range (eb-filtering-ip-address), via pkgs/eventpattern,
+// shared with services/eventbridge/pattern.go's matchCIDR.
 func matchesCIDRRule(msgVal, cidrRaw json.RawMessage) bool {
 	ipStr, ok := decodeString(msgVal)
 	if !ok {
@@ -351,17 +325,7 @@ func matchesCIDRRule(msgVal, cidrRaw json.RawMessage) bool {
 		return false
 	}
 
-	_, ipNet, err := net.ParseCIDR(cidrStr)
-	if err != nil {
-		return false
-	}
-
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return false
-	}
-
-	return ipNet.Contains(ip)
+	return eventpattern.MatchCIDR(cidrStr, ipStr)
 }
 
 // existsWant extracts {"exists": true/false}'s boolean, ok=false if the key
