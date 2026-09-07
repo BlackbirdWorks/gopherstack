@@ -178,7 +178,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	b.AddDataShareInternal(&redshift.DataShare{DataShareArn: "arn:aws:redshift:us-east-1:000000000000:datashare:ds-1"})
 
-	_, err = b.CreateClusterSecurityGroup("rt-secgroup", "desc")
+	_, err = b.CreateClusterSecurityGroup("rt-secgroup", "desc", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateClusterSnapshot("rt-snapshot", "rt-cluster")
@@ -190,7 +190,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = b.CreateClusterParameterGroup("rt-paramgroup", "redshift-1.0", "desc")
 	require.NoError(t, err)
 
-	_, err = b.CreateClusterSubnetGroup("rt-subnetgroup", "desc", "vpc-1", []string{"subnet-1"})
+	_, err = b.CreateClusterSubnetGroup("rt-subnetgroup", "desc", "vpc-1", []string{"subnet-1"}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateEventSubscription(

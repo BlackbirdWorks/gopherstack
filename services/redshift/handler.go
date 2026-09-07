@@ -778,6 +778,16 @@ func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 		MasterUsername:             c.MasterUsername,
 		KmsKeyID:                   c.KmsKeyID,
 		PreferredMaintenanceWindow: c.PreferredMaintenanceWindow,
+		ClusterVersion:             c.ClusterVersion,
+		PubliclyAccessible:         c.PubliclyAccessible,
+		VpcSecurityGroups: func() []xmlVpcSecurityGroupMembership {
+			members := make([]xmlVpcSecurityGroupMembership, 0, len(c.VpcSecurityGroupIDs))
+			for _, id := range c.VpcSecurityGroupIDs {
+				members = append(members, xmlVpcSecurityGroupMembership{VpcSecurityGroupID: id, Status: "active"})
+			}
+
+			return members
+		}(),
 		IamRoles: func() xmlIamRoles {
 			roles := make([]xmlIamRole, 0, len(c.IamRoles))
 			for _, arn := range c.IamRoles {
@@ -916,32 +926,35 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
-	MasterUsername                   string                `xml:"MasterUsername"`
-	PreferredMaintenanceWindow       string                `xml:"PreferredMaintenanceWindow,omitempty"`
-	ClusterType                      string                `xml:"ClusterType,omitempty"`
-	Endpoint                         string                `xml:"Endpoint>Address"`
-	ClusterStatus                    string                `xml:"ClusterStatus"`
-	NodeType                         string                `xml:"NodeType"`
-	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
-	MultiAZ                          string                `xml:"MultiAZ"`
-	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
-	SnapshotScheduleIdentifier       string                `xml:"SnapshotScheduleIdentifier,omitempty"`
-	DBName                           string                `xml:"DBName"`
-	KmsKeyID                         string                `xml:"KmsKeyId,omitempty"`
-	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
-	SnapshotScheduleState            string                `xml:"SnapshotScheduleState,omitempty"`
-	CatalogArn                       string                `xml:"CatalogArn,omitempty"`
-	LakehouseRegistrationStatus      string                `xml:"LakehouseRegistrationStatus,omitempty"`
-	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
-	ClusterSecurityGroups            xmlClusterSecGroups   `xml:"ClusterSecurityGroups"`
-	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
-	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
-	Tags                             []svcTags.KV          `xml:"Tags>Tag,omitempty"`
-	NumberOfNodes                    int                   `xml:"NumberOfNodes,omitempty"`
-	EndpointPort                     int                   `xml:"Endpoint>Port,omitempty"`
-	EnhancedVpcRouting               bool                  `xml:"EnhancedVpcRouting"`
-	Encrypted                        bool                  `xml:"Encrypted"`
+	AquaConfiguration                xmlAquaConfig                   `xml:"AquaConfiguration"`
+	MasterUsername                   string                          `xml:"MasterUsername"`
+	PreferredMaintenanceWindow       string                          `xml:"PreferredMaintenanceWindow,omitempty"`
+	ClusterType                      string                          `xml:"ClusterType,omitempty"`
+	Endpoint                         string                          `xml:"Endpoint>Address"`
+	ClusterStatus                    string                          `xml:"ClusterStatus"`
+	NodeType                         string                          `xml:"NodeType"`
+	ClusterAvailabilityStatus        string                          `xml:"ClusterAvailabilityStatus"`
+	MultiAZ                          string                          `xml:"MultiAZ"`
+	ClusterIdentifier                string                          `xml:"ClusterIdentifier"`
+	SnapshotScheduleIdentifier       string                          `xml:"SnapshotScheduleIdentifier,omitempty"`
+	DBName                           string                          `xml:"DBName"`
+	KmsKeyID                         string                          `xml:"KmsKeyId,omitempty"`
+	AvailabilityZoneRelocationStatus string                          `xml:"AvailabilityZoneRelocationStatus"`
+	SnapshotScheduleState            string                          `xml:"SnapshotScheduleState,omitempty"`
+	CatalogArn                       string                          `xml:"CatalogArn,omitempty"`
+	LakehouseRegistrationStatus      string                          `xml:"LakehouseRegistrationStatus,omitempty"`
+	ClusterParameterGroups           xmlClusterParamGroups           `xml:"ClusterParameterGroups"`
+	ClusterSecurityGroups            xmlClusterSecGroups             `xml:"ClusterSecurityGroups"`
+	ClusterNodes                     xmlClusterNodes                 `xml:"ClusterNodes"`
+	IamRoles                         xmlIamRoles                     `xml:"IamRoles"`
+	Tags                             []svcTags.KV                    `xml:"Tags>Tag,omitempty"`
+	ClusterVersion                   string                          `xml:"ClusterVersion,omitempty"`
+	VpcSecurityGroups                []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroups>VpcSecurityGroup,omitempty"`
+	NumberOfNodes                    int                             `xml:"NumberOfNodes,omitempty"`
+	EndpointPort                     int                             `xml:"Endpoint>Port,omitempty"`
+	EnhancedVpcRouting               bool                            `xml:"EnhancedVpcRouting"`
+	Encrypted                        bool                            `xml:"Encrypted"`
+	PubliclyAccessible               bool                            `xml:"PubliclyAccessible"`
 }
 
 type xmlAquaConfig struct {
