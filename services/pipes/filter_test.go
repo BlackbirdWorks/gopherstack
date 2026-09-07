@@ -490,3 +490,100 @@ func TestFilter_NestedPatterns(t *testing.T) {
 		})
 	}
 }
+
+// TestFilter_ExactMatchTypeSensitivity pins matchesExactRule's type-sensitive
+// exact-match semantics (gopherstack-50hq, following up gopherstack-a2vk): a
+// string pattern element no longer coerces to match a numerically- or
+// boolean-equal event value, matching EventBridge's real behavior. The last
+// case also exercises a non-comparable decoded type (a JSON array as a
+// pattern element) to pin the use of reflect.DeepEqual over == -- == would
+// panic there instead of just failing to match.
+func TestFilter_ExactMatchTypeSensitivity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pattern   string
+		msgBody   string
+		wantMatch bool
+	}{
+		{
+			name:      "string_pattern_vs_numeric_value_no_match",
+			pattern:   `{"amount":["5"]}`,
+			msgBody:   `{"amount":5}`,
+			wantMatch: false,
+		},
+		{
+			name:      "numeric_pattern_vs_numeric_value_matches",
+			pattern:   `{"amount":[5]}`,
+			msgBody:   `{"amount":5}`,
+			wantMatch: true,
+		},
+		{
+			name:      "bool_pattern_vs_bool_value_matches",
+			pattern:   `{"active":[true]}`,
+			msgBody:   `{"active":true}`,
+			wantMatch: true,
+		},
+		{
+			name:      "string_pattern_vs_bool_value_no_match",
+			pattern:   `{"active":["true"]}`,
+			msgBody:   `{"active":true}`,
+			wantMatch: false,
+		},
+		{
+			// The rule element itself is a JSON array (not an object, so it
+			// isn't treated as a content-filter like {"prefix":...}), and
+			// the message field is also an array -- both decode to the same
+			// non-comparable dynamic type ([]any), which is exactly the
+			// shape that panics under == but not under reflect.DeepEqual.
+			name:      "array_pattern_element_vs_array_value_no_match_no_panic",
+			pattern:   `{"payload":[[1,2]]}`,
+			msgBody:   `{"payload":[3,4]}`,
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := b3Backend()
+			_, err := b.CreatePipe(t.Context(), pipes.CreatePipeInput{
+				Name:         "ts-" + tt.name,
+				RoleARN:      "arn:aws:iam::111122223333:role/r",
+				Source:       b3SQSSource,
+				Target:       b3LambdaTarget,
+				DesiredState: "RUNNING",
+				SourceParameters: &pipes.SourceParameters{
+					FilterCriteria: &pipes.FilterCriteria{
+						Filters: []pipes.Filter{{Pattern: tt.pattern}},
+					},
+				},
+			})
+			require.NoError(t, err)
+			pipes.WaitPipeRunning(t, b, "ts-"+tt.name)
+
+			sqsReader := &b3MockSQSReader{
+				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: tt.msgBody}},
+			}
+			lambdaInvoker := &b3MockLambdaInvoker{}
+
+			runner := pipes.NewRunner(b)
+			runner.SetSQSReader(sqsReader)
+			runner.SetLambdaInvoker(lambdaInvoker)
+
+			pipes.PollAllPipesOnce(t.Context(), runner)
+
+			sqsReader.mu.Lock()
+			deleted := sqsReader.deleted
+			sqsReader.mu.Unlock()
+
+			if tt.wantMatch {
+				assert.Equal(t, []string{"rh1"}, deleted, "message should pass filter and be deleted")
+			} else {
+				assert.Empty(t, deleted, "message should be dropped by filter and not deleted")
+			}
+		})
+	}
+}

@@ -728,6 +728,11 @@ should have been filtered out to *leak through*. Covered by
 (`filter_test.go`), using `{"wildcard": "ord*"}` as the unsupported
 operator.
 
+**Exact-match type-sensitivity pinned by tests (2026-09-06, gopherstack-50hq):**
+`matchesExactRule`'s type-sensitive comparison and its `reflect.DeepEqual`
+(not `==`, which panics on a non-comparable decoded array/object) are now
+covered by `TestFilter_ExactMatchTypeSensitivity` (`filter_test.go`).
+
 **`filter.go`'s doc comment corrected** (was inaccurate after the
 2026-08-30 pass already fixed `exists`/`anything-but`, and is now further
 out of date):
