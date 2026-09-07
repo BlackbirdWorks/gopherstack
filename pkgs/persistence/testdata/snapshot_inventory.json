@@ -27087,6 +27087,7 @@
       "XssMatchTuple.FieldToMatch FieldToMatch `json:\"FieldToMatch\"`",
       "XssMatchTuple.TextTransformation string `json:\"TextTransformation\"`",
       "backendSnapshot.ChangeTokens map[string]string `json:\"changeTokens\"`",
+      "backendSnapshot.OutstandingChangeToken string `json:\"outstandingChangeToken,omitempty\"`",
       "backendSnapshot.PermissionPolicies map[string]string `json:\"permissionPolicies\"`",
       "backendSnapshot.RuleGroupRules map[string][]ActivatedRule `json:\"ruleGroupRules\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",

@@ -10,12 +10,19 @@ package waf
 // with no lint suppression needed.
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // --- ByteMatchSet ---
+
+func (b *InMemoryBackend) byteMatchSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("bytematchset/%s", id))
+}
 
 // CreateByteMatchSet creates a new ByteMatchSet.
 func (b *InMemoryBackend) CreateByteMatchSet(name, changeToken string) (*ByteMatchSet, error) {
@@ -104,6 +111,7 @@ func (b *InMemoryBackend) DeleteByteMatchSet(id, changeToken string) error {
 	}
 
 	b.byteMatchSets.Delete(id)
+	delete(b.tags, b.byteMatchSetARN(id))
 
 	return nil
 }
@@ -128,6 +136,10 @@ func (b *InMemoryBackend) ListByteMatchSets() []ByteMatchSetSummary {
 }
 
 // --- SizeConstraintSet ---
+
+func (b *InMemoryBackend) sizeConstraintSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("sizeconstraintset/%s", id))
+}
 
 // CreateSizeConstraintSet creates a new SizeConstraintSet.
 func (b *InMemoryBackend) CreateSizeConstraintSet(name, changeToken string) (*SizeConstraintSet, error) {
@@ -219,6 +231,7 @@ func (b *InMemoryBackend) DeleteSizeConstraintSet(id, changeToken string) error 
 	}
 
 	b.sizeConstraintSets.Delete(id)
+	delete(b.tags, b.sizeConstraintSetARN(id))
 
 	return nil
 }
@@ -245,6 +258,10 @@ func (b *InMemoryBackend) ListSizeConstraintSets() []SizeConstraintSetSummary {
 }
 
 // --- SqlInjectionMatchSet ---
+
+func (b *InMemoryBackend) sqlInjectionMatchSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("sqlinjectionmatchset/%s", id))
+}
 
 // CreateSqlInjectionMatchSet creates a new SqlInjectionMatchSet.
 //
@@ -347,6 +364,7 @@ func (b *InMemoryBackend) DeleteSqlInjectionMatchSet(id, changeToken string) err
 	}
 
 	b.sqlInjectionMatchSets.Delete(id)
+	delete(b.tags, b.sqlInjectionMatchSetARN(id))
 
 	return nil
 }
@@ -375,6 +393,10 @@ func (b *InMemoryBackend) ListSqlInjectionMatchSets() []SqlInjectionMatchSetSumm
 }
 
 // --- XssMatchSet ---
+
+func (b *InMemoryBackend) xssMatchSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("xssmatchset/%s", id))
+}
 
 // CreateXssMatchSet creates a new XssMatchSet.
 //
@@ -471,6 +493,7 @@ func (b *InMemoryBackend) DeleteXssMatchSet(id, changeToken string) error {
 	}
 
 	b.xssMatchSets.Delete(id)
+	delete(b.tags, b.xssMatchSetARN(id))
 
 	return nil
 }
@@ -497,6 +520,10 @@ func (b *InMemoryBackend) ListXssMatchSets() []XssMatchSetSummary {
 }
 
 // --- GeoMatchSet ---
+
+func (b *InMemoryBackend) geoMatchSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("geomatchset/%s", id))
+}
 
 // CreateGeoMatchSet creates a new GeoMatchSet.
 func (b *InMemoryBackend) CreateGeoMatchSet(name, changeToken string) (*GeoMatchSet, error) {
@@ -583,6 +610,7 @@ func (b *InMemoryBackend) DeleteGeoMatchSet(id, changeToken string) error {
 	}
 
 	b.geoMatchSets.Delete(id)
+	delete(b.tags, b.geoMatchSetARN(id))
 
 	return nil
 }
@@ -607,6 +635,10 @@ func (b *InMemoryBackend) ListGeoMatchSets() []GeoMatchSetSummary {
 }
 
 // --- RegexPatternSet ---
+
+func (b *InMemoryBackend) regexPatternSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("regexpatternset/%s", id))
+}
 
 // CreateRegexPatternSet creates a new RegexPatternSet.
 func (b *InMemoryBackend) CreateRegexPatternSet(name, changeToken string) (*RegexPatternSet, error) {
@@ -696,6 +728,7 @@ func (b *InMemoryBackend) DeleteRegexPatternSet(id, changeToken string) error {
 	}
 
 	b.regexPatternSets.Delete(id)
+	delete(b.tags, b.regexPatternSetARN(id))
 
 	return nil
 }
@@ -719,6 +752,10 @@ func (b *InMemoryBackend) ListRegexPatternSets() []RegexPatternSetSummary {
 }
 
 // --- RegexMatchSet ---
+
+func (b *InMemoryBackend) regexMatchSetARN(id string) string {
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("regexmatchset/%s", id))
+}
 
 // CreateRegexMatchSet creates a new RegexMatchSet.
 func (b *InMemoryBackend) CreateRegexMatchSet(name, changeToken string) (*RegexMatchSet, error) {
@@ -807,6 +844,7 @@ func (b *InMemoryBackend) DeleteRegexMatchSet(id, changeToken string) error {
 	}
 
 	b.regexMatchSets.Delete(id)
+	delete(b.tags, b.regexMatchSetARN(id))
 
 	return nil
 }

@@ -17,12 +17,15 @@ import (
 // ipSetARN/rateBasedRuleARN/ruleGroupARN/ruleARN helpers build internally.
 const wafAccountID = "123456789012"
 
-// TestWAF_Delete_ClearsTags verifies every WAF resource delete path clears
-// its entry in the tags map. ListTagsForResource has no existence check
-// against the resource itself, so a leaked entry is directly observable:
-// tagging a resource, deleting it, then listing tags for the same ARN would
-// otherwise still return the stale tags, and the tags map is persisted
-// verbatim in Snapshot(), so the leak also grows the snapshot without bound.
+// TestWAF_Delete_ClearsTags verifies every one of the twelve WAF resource
+// delete paths (WebACL, Rule, RateBasedRule, IPSet, RuleGroup, and the seven
+// match-set families: ByteMatchSet, SizeConstraintSet, SqlInjectionMatchSet,
+// XssMatchSet, GeoMatchSet, RegexPatternSet, RegexMatchSet) clears its entry
+// in the tags map. ListTagsForResource has no existence check against the
+// resource itself, so a leaked entry is directly observable: tagging a
+// resource, deleting it, then listing tags for the same ARN would otherwise
+// still return the stale tags, and the tags map is persisted verbatim in
+// Snapshot(), so the leak also grows the snapshot without bound.
 func TestWAF_Delete_ClearsTags(t *testing.T) {
 	t.Parallel()
 
@@ -92,6 +95,121 @@ func TestWAF_Delete_ClearsTags(t *testing.T) {
 				t.Helper()
 
 				rec := wafDo(t, h, "DeleteRule", map[string]any{"ChangeToken": token, "RuleId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "byte match set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateByteMatchSet(t, h, "tag-leak-bms")
+
+				return id, arn.Build("waf", "", wafAccountID, "bytematchset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteByteMatchSet", map[string]any{"ChangeToken": token, "ByteMatchSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "size constraint set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateSizeConstraintSet(t, h, "tag-leak-scs")
+
+				return id, arn.Build("waf", "", wafAccountID, "sizeconstraintset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteSizeConstraintSet",
+					map[string]any{"ChangeToken": token, "SizeConstraintSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "sql injection match set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateSQLInjectionMatchSet(t, h, "tag-leak-sims")
+
+				return id, arn.Build("waf", "", wafAccountID, "sqlinjectionmatchset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteSqlInjectionMatchSet",
+					map[string]any{"ChangeToken": token, "SqlInjectionMatchSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "xss match set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateXSSMatchSet(t, h, "tag-leak-xms")
+
+				return id, arn.Build("waf", "", wafAccountID, "xssmatchset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteXssMatchSet", map[string]any{"ChangeToken": token, "XssMatchSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "geo match set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateGeoMatchSet(t, h, "tag-leak-gms")
+
+				return id, arn.Build("waf", "", wafAccountID, "geomatchset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteGeoMatchSet", map[string]any{"ChangeToken": token, "GeoMatchSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "regex pattern set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateRegexPatternSet(t, h, "tag-leak-rps")
+
+				return id, arn.Build("waf", "", wafAccountID, "regexpatternset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteRegexPatternSet",
+					map[string]any{"ChangeToken": token, "RegexPatternSetId": id})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			},
+		},
+		{
+			name: "regex match set",
+			create: func(t *testing.T, h *waf.Handler) (string, string) {
+				t.Helper()
+
+				id := wafCreateRegexMatchSet(t, h, "tag-leak-rms")
+
+				return id, arn.Build("waf", "", wafAccountID, "regexmatchset/"+id)
+			},
+			delete: func(t *testing.T, h *waf.Handler, token, id string) {
+				t.Helper()
+
+				rec := wafDo(t, h, "DeleteRegexMatchSet", map[string]any{"ChangeToken": token, "RegexMatchSetId": id})
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			},
 		},
