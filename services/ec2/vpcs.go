@@ -291,9 +291,10 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 // CreateVpc creates a new VPC with the given CIDR block and instance
 // tenancy ("default" or "dedicated"; ec2@v1.319.1 api_op_CreateVpc.go
 // documents InstanceTenancy's default as "default"). Matching real AWS,
-// a default security group named "default" is created for the new VPC (AWS
-// also creates a default network ACL and a main route table, which are not
-// yet modeled here — see PARITY.md).
+// a default security group named "default" is created and stored for the
+// new VPC. The default network ACL is not stored here -- DescribeNetworkAcls
+// derives it per-VPC instead (do not add a stored duplicate). The main route
+// table remains unmodeled -- see PARITY.md.
 func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)

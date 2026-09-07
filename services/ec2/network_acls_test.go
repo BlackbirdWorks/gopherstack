@@ -399,4 +399,36 @@ func TestHTTP_CreateNetworkAcl(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "acl-")
 }
 
+// TestDescribeNetworkAcls_DefaultACLCascadesOnVpcDelete pins the cascade
+// gopherstack-0o97 questioned: DeleteVpc doesn't store default network ACLs
+// to delete, but DescribeNetworkAcls derives them per-VPC (see
+// deepdive_ops.go), so a deleted VPC's default ACL stops appearing without
+// any explicit cascade step, and an unrelated VPC's default ACL is
+// untouched.
+func TestDescribeNetworkAcls_DefaultACLCascadesOnVpcDelete(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	vpcA, err := b.CreateVpc("10.10.0.0/16", "default")
+	require.NoError(t, err)
+
+	vpcB, err := b.CreateVpc("10.20.0.0/16", "default")
+	require.NoError(t, err)
+
+	aclsA := b.DescribeNetworkAcls([]string{vpcA.ID})
+	require.Len(t, aclsA, 1)
+	assert.True(t, aclsA[0].IsDefault)
+
+	require.NoError(t, b.DeleteVpc(vpcA.ID))
+
+	assert.Empty(t, b.DescribeNetworkAcls([]string{vpcA.ID}),
+		"deleted VPC's default ACL must no longer be returned")
+
+	aclsB := b.DescribeNetworkAcls([]string{vpcB.ID})
+	require.Len(t, aclsB, 1, "unrelated VPC's default ACL must be unaffected")
+	assert.Equal(t, vpcB.ID, aclsB[0].VPCID)
+	assert.True(t, aclsB[0].IsDefault)
+}
+
 // TestHTTP_DeleteLaunchTemplate verifies the HTTP handler for DeleteLaunchTemplate.

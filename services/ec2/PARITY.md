@@ -3884,3 +3884,51 @@ Gates: `go build ./services/ec2/...` and `go build ./...` (clean),
 suite including the three new tests), `GOTOOLCHAIN=go1.26.6 golangci-lint
 run ./services/ec2/...` (0 issues). No banned `//nolint`s introduced. Did
 NOT commit, push, or run any `bd` write command.
+
+## 2026-09-06 -- gopherstack-0o97 (DeleteVpc default ACL/route table), closed NOT A BUG
+
+`api_op_DeleteVpc.go:16` (ec2@v1.319.1): "When you delete the VPC, it
+deletes the default security group, network ACL, and route table for the
+VPC." gopherstack-0o97 alleged `DeleteVpc` only cascades the default
+security group and leaves the default network ACL and main route table
+behind.
+
+Not a bug for the ACL half: the default network ACL is never stored in
+`b.networkACLs` in the first place. `DescribeNetworkAcls`
+(`deepdive_ops.go`) derives one default ACL per VPC on every call, by
+iterating `b.vpcs.All()` and synthesizing `acl-default-<vpcID>`. Deleting
+the VPC removes it from `b.vpcs`, so the derived ACL simply stops being
+produced -- the documented cascade, achieved by derivation instead of an
+explicit delete step. `vpcIndexedDependencyViolationLocked`/
+`vpcScannedDependencyViolationLocked` (`vpcs.go`) only scan `b.networkACLs`
+(stored, non-default ACLs), so this derived default ACL never spuriously
+blocks `DeleteVpc` either.
+
+Main/default route table remains a genuine, honest gap: `RouteTable`
+(`route_tables.go`) has no `Main`/`IsDefault` field, and `CreateVpc`
+(`vpcs.go`) creates only the default security group -- no route table at
+all. Nothing is created, so nothing is left behind; there's no dangling
+resource for a bug report to point at, but the model still doesn't have a
+main route table concept. Fixed the stale doc comment on `CreateVpc` that
+still claimed the default ACL was unmodeled (`vpcs.go`).
+
+If default network ACLs are ever changed to be stored (mirroring
+`StoredNetworkACL`) instead of derived, `vpcScannedDependencyViolationLocked`
+will need a default-ACL exception carved out, the same way
+`vpcIndexedDependencyViolationLocked` already special-cases the default
+security group (`sg.Name != defaultSecurityGroupName`) -- otherwise a
+stored default ACL would make every `DeleteVpc` fail with a spurious
+`DependencyViolation`.
+
+New test: `TestDescribeNetworkAcls_DefaultACLCascadesOnVpcDelete`
+(`network_acls_test.go`) -- characterization test, pins current (correct)
+behavior rather than fixing anything. Creates two VPCs, deletes one, and
+asserts its default ACL stops appearing while the other VPC's default ACL
+is unaffected. Passes against current code by construction; it exists to
+fail if a future change stores default ACLs without also handling the
+cascade.
+
+Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/ec2/...` (pass,
+including the new test), `GOTOOLCHAIN=go1.26.6 golangci-lint run
+services/ec2/...` (0 issues). No banned `//nolint`s introduced. Did NOT
+commit, push, or run any `bd` write command.
