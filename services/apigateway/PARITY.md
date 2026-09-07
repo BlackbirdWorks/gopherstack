@@ -71,6 +71,17 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # fail against the pre-fix code (git-show revert of proxy_integrations.go alone,
 # package still compiles since the new SetSQSSender/SetSNSPublisher hooks and
 # interfaces stay in proxy.go/handler.go).
+# 2026-09-06 follow-up (bd: gopherstack-8mge): closed a silent-success defect and two
+# untested guards found while verifying gopherstack-is2a. dispatchSQS's segment-count
+# mismatch branch returned nil (success, HTTP 200 with no message sent) instead of an
+# error -- unreachable today since canDispatchToTarget validates spec first via
+# sqsQueuePathValid, but nothing would catch it if the two ever drift; now returns
+# errSQSQueuePathMalformed. Also added coverage proving the two guards actually
+# matter: sqsQueuePathValid (TestHandleAWSIntegration_SQSTarget_MalformedPath) and
+# awsIntegrationTarget's URI field-count guard
+# (TestHandleAWSIntegration_ShortURINotParsedAsServiceTarget, whose absence panics on
+# parts[3]/parts[4]/parts[5] indexing) -- both previously passed with the guard
+# neutered; both now fail when neutered.
 ops:
   UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). This sweep: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added"}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}

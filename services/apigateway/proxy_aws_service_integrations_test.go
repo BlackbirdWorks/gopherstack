@@ -161,6 +161,82 @@ func TestHandleAWSIntegration_SNSTarget_Unwired(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
+// TestHandleAWSIntegration_SQSTarget_MalformedPath proves a malformed sqs path-style
+// service_api is rejected by sqsQueuePathValid and falls through to the pre-existing
+// Lambda path, not a silent SQS send (gopherstack-8mge).
+func TestHandleAWSIntegration_SQSTarget_MalformedPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		spec string
+	}{
+		{"one_segment", "123456789012"},
+		{"three_segments", "123456789012/my-queue/extra"},
+		{"empty_account_id", "/my-queue"},
+		{"empty_queue_name", "123456789012/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			uri := "arn:aws:apigateway:us-east-1:sqs:path/" + tt.spec
+			h, e, apiID := setupProxyAPIViaHandler(t, "AWS", uri)
+
+			sender := &mockSQSSender{}
+			h.SetSQSSender(sender)
+			invoker := &proxyMockInvoker{}
+			h.SetLambdaInvoker(invoker)
+
+			rec := proxyReq(t, h, e, apiID, "/items", `{}`)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.False(t, sender.called)
+			assert.Equal(t, uri, invoker.capturedFn)
+		})
+	}
+}
+
+// TestHandleAWSIntegration_ShortURINotParsedAsServiceTarget proves that an integration
+// URI too short for the arn:aws:apigateway:{region}:{service}:path|action/{service_api}
+// shape is not parsed as an sqs/sns target and still routes to Lambda (gopherstack-8mge).
+func TestHandleAWSIntegration_ShortURINotParsedAsServiceTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		uri        string
+		wantFnName string
+	}{
+		{"bare_function_name", "my-function", "my-function"},
+		{
+			"plain_lambda_arn",
+			"arn:aws:lambda:us-east-1:123456789012:function:my-function",
+			"my-function",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e, apiID := setupProxyAPIViaHandler(t, "AWS", tt.uri)
+
+			sender := &mockSQSSender{}
+			h.SetSQSSender(sender)
+			invoker := &proxyMockInvoker{}
+			h.SetLambdaInvoker(invoker)
+
+			rec := proxyReq(t, h, e, apiID, "/items", `{}`)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.False(t, sender.called)
+			assert.Equal(t, tt.wantFnName, invoker.capturedFn)
+		})
+	}
+}
+
 // TestHandleAWSIntegration_LambdaTarget_StillRoutesToLambda proves that an AWS
 // integration whose URI matches the full apigateway path-style Lambda grammar
 // (arn:aws:apigateway:{region}:lambda:path/.../functions/{arn}/invocations) is

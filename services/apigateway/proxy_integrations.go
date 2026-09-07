@@ -277,13 +277,18 @@ const sqsQueuePathSegments = 2
 func (h *Handler) dispatchSQS(ctx context.Context, region, spec string, payload []byte) error {
 	segments := strings.Split(spec, "/")
 	if len(segments) != sqsQueuePathSegments {
-		return nil // unreachable: canDispatchToTarget already validated spec
+		// Unreachable today (canDispatchToTarget validates spec first) -- must never report success.
+		return errSQSQueuePathMalformed
 	}
 
 	queueARN := "arn:aws:sqs:" + region + ":" + segments[0] + ":" + segments[1]
 
 	return h.sqsSender.SendMessageToQueue(ctx, queueARN, string(payload))
 }
+
+// errSQSQueuePathMalformed is returned when dispatchSQS's spec fails the
+// "{accountId}/{queueName}" path-segment check.
+var errSQSQueuePathMalformed = errors.New("apigateway: sqs integration service_api path is malformed")
 
 // errSNSTopicArnUnresolved is returned when an sns action/Publish integration has no
 // resolvable TopicArn -- neither via its RequestParameters mapping nor a TopicArn
