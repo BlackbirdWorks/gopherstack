@@ -3284,6 +3284,10 @@ func (a *elbEC2ResolverAdapter) SubnetExists(id string) bool {
 	return len(a.backend.DescribeSubnets([]string{id})) > 0
 }
 
+func (a *elbEC2ResolverAdapter) InstanceExists(id string) bool {
+	return len(a.backend.DescribeInstances([]string{id}, "")) > 0
+}
+
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
 // elb.CertificateResolver interface. AWS accepts either an ACM or an IAM
 // server-certificate ARN for SSLCertificateId (see elb.CertificateResolver's

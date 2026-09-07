@@ -17,7 +17,7 @@ ops:
   DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: fixed missing LoadBalancerDescription.Policies field -- was entirely absent from the response struct, so every real client saw an always-empty Policies regardless of what stickiness/other policies existed; now populates AppCookieStickinessPolicies/LBCookieStickinessPolicies/OtherPolicies from the LB's policy set"}
   CreateLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed UnsupportedProtocol error code via shared parseOneListener; parity-3: fixed classic-listeners limit-exceeded error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/CertificateNotFound/DuplicateListener/LoadBalancerNotFound/UnsupportedProtocol); inline SSLCertificateId now format-validated (see CreateLoadBalancer note); gopherstack-6851: now also existence-checked via the same CertificateResolver as CreateLoadBalancer/SetLoadBalancerListenerSSLCertificate"}
   DeleteLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: deleted invented classic-registered-instances (1000) hard-reject -- real op's typed-error switch only recognizes InvalidInstance/LoadBalancerNotFound, no typed exception exists for exceeding this DescribeAccountLimits-advertised limit, so enforcing it rejected requests a real AWS client would have had accepted"}
+  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: deleted invented classic-registered-instances (1000) hard-reject -- real op's typed-error switch only recognizes InvalidInstance/LoadBalancerNotFound, no typed exception exists for exceeding this DescribeAccountLimits-advertised limit, so enforcing it rejected requests a real AWS client would have had accepted; gopherstack-5c3m: now raises InvalidInstance for an instance id that doesn't resolve against the real EC2 backend, via a new elb.EC2Resolver.InstanceExists method (existing EC2Resolver, previously SecurityGroupExists/SubnetExists only); nil resolver stays permissive; cli.go's wireELBCrossService wiring is OUTSTANDING (cli.go was out of scope for this pass) -- elbEC2ResolverAdapter needs an InstanceExists method added before the repo-wide build passes again"}
   DeregisterInstancesFromLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
   ConfigureHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyLoadBalancerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -35,7 +35,7 @@ ops:
   SetLoadBalancerPoliciesForBackendServer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateAppCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateLBCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
-  CreateLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; fixed PolicyTypeNotFound error code (was generic ValidationError); added missing PublicKeyPolicyType to allowlist; TooManyPolicies not enforced (gap, see below)"}
+  CreateLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; fixed PolicyTypeNotFound error code (was generic ValidationError); added missing PublicKeyPolicyType to allowlist; TooManyPolicies not enforced (gap, see below); gopherstack-ogvw: PolicyAttributes.member.N.AttributeName is now checked against the given PolicyTypeName's builtinPolicyTypes() schema, raising InvalidConfigurationRequest for a name the type doesn't declare (previously any attribute name was silently accepted and stored); Cardinality (ONE/ZERO_OR_ONE/ZERO_OR_MORE/ONE_OR_MORE) is deliberately NOT enforced -- see validatePolicyAttributes doc comment in policies.go"}
   DeleteLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; parity-3: fixed policy-still-in-use error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/LoadBalancerNotFound -- a ValidationError code would not deserialize into InvalidConfigurationRequestException, so errors.As would silently fail to match on a real client). Proven by Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped"}
   DescribeAccountLimits: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED this pass (gopherstack-uhsb): Marker/PageSize were parsed nowhere -- the (fixed, 3-row) limit catalog was always returned in full with no NextMarker, regardless of what a client asked for. Now paginates for real via the same opaque-offset Marker scheme (encodePageMarker/decodePageMarker) DescribeLoadBalancers already uses. Low real-world impact (the catalog only ever has 3 rows, per the official quota table -- see the gaps entry above), but the fix is cheap and the prior behavior was a genuine, if rarely-observable, divergence: a client requesting PageSize=1 got all 3 rows back with a 200 instead of 1 row plus a NextMarker."}
   DescribeInstanceHealth: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -403,3 +403,74 @@ specific shape) exists anywhere in this service's deserializers -- confirmed by
 service.** `go build`, `go vet` (repo-wide, clean), `go test -race
 ./services/elb/...` all pass on the unmodified tree. No AWS documentation was
 fetched this pass.
+
+### 2026-09-06 (gopherstack-5c3m, gopherstack-ogvw -- title-only issues, re-derived)
+
+Both issues were filed with a title and no description; scope and fix were re-derived
+from the pinned SDK before any code was written.
+
+**gopherstack-5c3m** (`RegisterInstancesWithLoadBalancer` instance-existence check):
+confirmed no existence check existed against an EC2 instance id -- only format
+(`i-[a-f0-9]{8,17}`) was checked. `elb.EC2Resolver` already existed
+(`services/elb/crossservice.go`) with `SecurityGroupExists`/`SubnetExists`, wired by
+cli.go's `wireELBCrossService`/`elbEC2ResolverAdapter` for `ApplySecurityGroupsToLoadBalancer`/
+`AttachLoadBalancerToSubnets` -- the title's claim of "no hook wired" was right for
+instances specifically but the interface/setter/wiring convention was already
+established, so this extends it rather than inventing a new mechanism. Error extraction
+(`awk "/deserializeOpErrorRegisterInstancesWithLoadBalancer\(/,/^}/" deserializers.go`):
+`RegisterInstancesWithLoadBalancerResult`, `UnknownError`, `InvalidInstance`,
+`LoadBalancerNotFound` -- confirms `InvalidInstance` (already an existing sentinel,
+`ErrInvalidInstance`, used elsewhere for `DescribeInstanceHealth`'s "not registered"
+case) is a real typed error for this op. Added `InstanceExists(id string) bool` to
+`elb.EC2Resolver`; `RegisterInstancesWithLoadBalancer` now calls it per instance (nil
+resolver skips the check entirely -- proven by `TestRegisterInstancesWithLoadBalancer_EC2Resolver/no_resolver_wired_accepts_any_id`).
+**cli.go wiring is OUTSTANDING**: `cli.go` was out of scope for this pass, and
+extending `EC2Resolver` with a new method means `cli.go`'s `elbEC2ResolverAdapter`
+(which implements only `SecurityGroupExists`/`SubnetExists`) no longer satisfies the
+interface -- `go build ./services/elb/...` is unaffected (elb doesn't import cli.go),
+but a repo-wide `go build ./...` will fail until `elbEC2ResolverAdapter` gains an
+`InstanceExists(id string) bool` method (e.g. `len(a.backend.DescribeInstances([]string{id}, ""))
+> 0`, mirroring its existing `SecurityGroupExists`/`SubnetExists`) and `wireELBCrossService`
+is otherwise unchanged (`SetEC2Resolver` already carries it through).
+
+**gopherstack-ogvw** (`CreateLoadBalancerPolicy` attribute-schema validation): the
+policy-type attribute schema IS fully modeled -- `builtinPolicyTypes()` (`policies.go`)
+already carries `PolicyAttributeTypeDescription{AttributeName, AttributeType,
+Cardinality, DefaultValue, Description}` per type, and `handler_policies.go` already
+validates `PolicyTypeName` itself against `knownPolicyTypes` before calling the
+backend. What was missing: nothing checked that a submitted `PolicyAttributes.member.N.AttributeName`
+was actually declared by that policy type -- any name/value pair was accepted and
+stored verbatim. Error extraction
+(`awk "/deserializeOpErrorCreateLoadBalancerPolicy\(/,/^}/" deserializers.go`):
+`CreateLoadBalancerPolicyResult`, `UnknownError`, `DuplicatePolicyName`,
+`InvalidConfigurationRequest`, `LoadBalancerNotFound`, `PolicyTypeNotFound`,
+`TooManyPolicies` -- `InvalidConfigurationRequestException`'s doc comment
+(`types/errors.go:197`, verbatim: "The requested configuration change is not valid.")
+is the natural fit and is the sentinel this codebase already uses for
+`CreateLoadBalancerPolicy`-adjacent misconfiguration (`ErrInvalidConfiguration`). Added
+`validatePolicyAttributes` (`policies.go`), called from `CreateLoadBalancerPolicy`
+before the load balancer is touched: rejects any attribute name not in the given
+type's schema with `ErrInvalidConfiguration`. `PolicyAttributeTypeDescription.Cardinality`'s
+doc (`types/types.go:479-490`, verbatim: "ONE(1) : Single value required",
+"ZERO_OR_ONE(0..1) : Up to one value is allowed", "ZERO_OR_MORE(0..*) : Optional.
+Multiple values are allowed", "ONE_OR_MORE(1..*0) : Required. Multiple values are
+allowed") pins a precise meaning, but literal enforcement was deliberately NOT
+implemented: `ProxyProtocolPolicyType`'s sole attribute (`ProxyProtocol`) has
+`Cardinality: "ONE"` plus a `DefaultValue`, and this package's own pre-existing tests
+(e.g. `TestCreateLoadBalancerPolicy/duplicate_policy_returns_conflict`'s setup,
+`sdk_roundtrip_test.go`'s `rt-bad-pol`/describe-policy-types tests) create that policy
+type while supplying zero `PolicyAttributes` and expect success -- a literal "single
+value required" reading would break those and contradicts this backend's established
+default-substitution behavior for `ONE`-cardinality attributes with a `DefaultValue`.
+Name-membership validation is the genuinely well-founded fix; cardinality enforcement
+is left as a documented non-fix (see `validatePolicyAttributes`' doc comment).
+
+Regression tests: `TestRegisterInstancesWithLoadBalancer_EC2Resolver` (3 subtests,
+`crossservice_test.go`) and `TestCreateLoadBalancerPolicy/unknown_attribute_name_rejected`
+(`policies_test.go`). Both proven to fail against the unmodified backend (reverted the
+production diff, kept the tests, ran them: `unknown_instance_rejected` and
+`unknown_attribute_name_rejected` each failed with `expected: 400, actual: 200`;
+restored the production diff afterward). Gates: `go test -race ./services/elb/...` ok;
+`golangci-lint run services/elb/...` 0 issues; `go test ./pkgs/persistence/ -run
+TestSnapshotVersionGuard` pass (read-only, unrelated to this change -- no field was
+added to any persisted struct).
