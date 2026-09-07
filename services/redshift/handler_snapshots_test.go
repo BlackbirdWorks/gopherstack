@@ -420,6 +420,100 @@ func TestRedshiftHandler_DescribeClusterSnapshots_SnapshotTypeFilter(t *testing.
 	assert.NotContains(t, rec.Body.String(), "manual-snap")
 }
 
+// TestRedshiftHandler_DescribeClusterSnapshots_ClusterExistsFilter verifies
+// ClusterExists filters by whether the snapshot's source cluster still exists in
+// this account (gopherstack-do4v): true selects a still-existing cluster's
+// snapshots and requires ClusterIdentifier, false selects snapshots whose cluster
+// no longer exists (every orphaned snapshot when ClusterIdentifier is omitted, or
+// that one deleted cluster's snapshots when it is given), and omitting the flag
+// leaves every match through unfiltered.
+func TestRedshiftHandler_DescribeClusterSnapshots_ClusterExistsFilter(t *testing.T) {
+	t.Parallel()
+
+	setup := func(h *redshift.Handler) {
+		postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=ce-live")
+		postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+			"&SnapshotIdentifier=ce-live-snap&ClusterIdentifier=ce-live")
+		postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=ce-dead")
+		postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+			"&SnapshotIdentifier=ce-dead-snap&ClusterIdentifier=ce-dead")
+		postRedshiftForm(t, h, "Action=DeleteCluster&Version=2012-12-01&ClusterIdentifier=ce-dead")
+	}
+
+	tests := []struct {
+		name        string
+		query       string
+		wantContain []string
+		wantAbsent  []string
+		wantCode    int
+	}{
+		{
+			name:        "omitted_pins_both_snapshots",
+			query:       "Action=DescribeClusterSnapshots&Version=2012-12-01",
+			wantCode:    http.StatusOK,
+			wantContain: []string{"ce-live-snap", "ce-dead-snap"},
+		},
+		{
+			name:        "true_existing_cluster_included",
+			query:       "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=true&ClusterIdentifier=ce-live",
+			wantCode:    http.StatusOK,
+			wantContain: []string{"ce-live-snap"},
+		},
+		{
+			name:       "true_deleted_cluster_excluded",
+			query:      "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=true&ClusterIdentifier=ce-dead",
+			wantCode:   http.StatusOK,
+			wantAbsent: []string{"ce-dead-snap"},
+		},
+		{
+			name:        "true_without_cluster_identifier_is_invalid",
+			query:       "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=true",
+			wantCode:    http.StatusBadRequest,
+			wantContain: []string{"InvalidParameterValue"},
+		},
+		{
+			name:        "false_without_identifier_returns_only_orphaned",
+			query:       "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=false",
+			wantCode:    http.StatusOK,
+			wantContain: []string{"ce-dead-snap"},
+			wantAbsent:  []string{"ce-live-snap"},
+		},
+		{
+			name:        "false_deleted_cluster_identifier_included",
+			query:       "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=false&ClusterIdentifier=ce-dead",
+			wantCode:    http.StatusOK,
+			wantContain: []string{"ce-dead-snap"},
+		},
+		{
+			name:       "false_existing_cluster_identifier_excluded",
+			query:      "Action=DescribeClusterSnapshots&Version=2012-12-01&ClusterExists=false&ClusterIdentifier=ce-live",
+			wantCode:   http.StatusOK,
+			wantAbsent: []string{"ce-live-snap"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			setup(h)
+
+			rec := postRedshiftForm(t, h, tt.query)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContain {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+
+			for _, s := range tt.wantAbsent {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
 // ----- DescribeClusterSnapshots pagination -----
 
 // TestDescribeClusterSnapshots_Pagination verifies that MaxRecords and Marker

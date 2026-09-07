@@ -81,7 +81,7 @@ func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 	markerStr := vals.Get("Marker")
 	maxRecordsStr := vals.Get("MaxRecords")
 
-	snaps, err := h.Backend.DescribeClusterSnapshots(snapshotID, clusterID, snapshotType)
+	snaps, err := h.Backend.DescribeClusterSnapshots(snapshotID, clusterID, snapshotType, parseClusterExists(vals))
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +145,20 @@ func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 		Marker:    nextMarker,
 		Snapshots: xmlSnapshotList{Members: members},
 	}, nil
+}
+
+// parseClusterExists parses the optional ClusterExists request parameter into a
+// tri-state *bool, matching DescribeClusterSnapshotsInput's *bool ClusterExists
+// field (nil means "not specified", distinct from explicit false).
+func parseClusterExists(vals url.Values) *bool {
+	v := vals.Get("ClusterExists")
+	if v == "" {
+		return nil
+	}
+
+	b := v == paramValueTrue
+
+	return &b
 }
 
 // snapshotSortEntity is a parsed SortingEntities.SnapshotSortingEntity entry

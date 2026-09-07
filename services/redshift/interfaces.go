@@ -66,7 +66,7 @@ type StorageBackend interface {
 	// Snapshot operations
 	CreateClusterSnapshot(snapshotID, clusterID string) (*Snapshot, error)
 	DeleteClusterSnapshot(snapshotID string) (*Snapshot, error)
-	DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string) ([]Snapshot, error)
+	DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string, clusterExists *bool) ([]Snapshot, error)
 	CopyClusterSnapshot(sourceSnapshotID, destinationSnapshotID string) (*Snapshot, error)
 	RestoreFromClusterSnapshot(clusterID, snapshotID string) (*Cluster, error)
 	AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
