@@ -584,7 +584,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Security Hub](services/securityhub/README.md) | A | 116 | 5 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 5 gaps |
-| [WAF](services/waf/README.md) | A | 4 | 1 gap; 2 structural gaps |
+| [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 3 gaps; 1 structural gap |
 
 ### Identity & Access
@@ -702,7 +702,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 5 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 5 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 5 gaps; 2 structural gaps |
-| [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 6 structural gaps |
+| [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 7 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 3 gaps |
