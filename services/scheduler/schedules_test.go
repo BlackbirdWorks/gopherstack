@@ -1221,7 +1221,7 @@ func TestDeleteSchedule_InCustomGroup(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup(context.Background(), "custom", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "custom", nil)
 	require.NoError(t, err)
 
 	createScheduleViaHandler(t, h, "del-sched", "custom", "rate(1 minute)")
