@@ -65,6 +65,12 @@ const (
 	arnPartCountPrincipal = 6
 	// arnAccountIdx is the index of the account field in a colon-split ARN.
 	arnAccountIdx = 4
+	// arnServiceIdx is the index of the service field in a colon-split ARN.
+	arnServiceIdx = 2
+	// arnServiceIAM is the ARN service segment for IAM role/user principals.
+	arnServiceIAM = "iam"
+	// arnPrefix is the first colon-split field of every AWS ARN.
+	arnPrefix = "arn"
 
 	// Resource type strings shared between backend and built-in permission seeds.
 	resourceTypeEC2Subnet         = "ec2:Subnet"

@@ -110,6 +110,83 @@ deferred:
 leaks: {status: clean, note: "no goroutines/janitors in this backend; all state is plain maps/slices (plus the new replaceWorks store.Table) behind the single lockmetrics.RWMutex, snapshotted/restored atomically under that lock. DisassociateResourceSharePermission now prunes an empty sharePermissions[shareARN] map entry when its last permission is removed, closing a minor unbounded-empty-map-entry accumulation path. DisassociateResourceShare/AssociateResourceShare no longer produce duplicate association rows for repeated disassociate/re-associate cycles on the same entity (see AssociateResourceShare note) -- previously this was bounded (hard-delete kept the slice from growing) but the status-aware reactivation is now also memory-neutral, reusing the existing row instead of allocating a new one."}
 ---
 
+## gopherstack-q91e (2026-09-06): a resource share genuinely has no effect anywhere outside services/ram/ -- structural, not a code bug
+
+**Premise confirmed.** `grep -rn "services/ram" --include=*.go .` outside `services/ram/`
+turns up exactly three call sites, none of them an authorization check:
+`cli.go`/`dashboard/ui.go`/`internal/teststack/teststack.go` construct the backend (registration
+boilerplate), and `cli.go:11087` (`wireTaggingRAM`) wires RAM into the Resource Groups Tagging
+API purely so a share's tags show up in `GetResources` -- it reads `ResourceShare.Tags`, never
+`b.associations`, and grants nothing. No other service consults a `ResourceShareAssociation`,
+a `SharePermissionAssociation`, or any RAM state before deciding whether to grant access to
+anything. The title's claim is accurate as filed.
+
+**Why a real fix is not achievable at this scope.** Every AWS RAM use case that actually *does*
+something -- the reason `AssociateResourceShare`'s own doc says "Principals that already have
+access to this resource share immediately receive access to the added resources"
+(`ram@v1.39.4` `api_op_AssociateResourceShare.go:12-14`) -- is a **cross-account** grant: an
+owning account shares a resource so a *different* account can use it. This backend cannot
+represent that state, structurally, not by omission:
+
+- `CreateResourceShare` unconditionally sets `OwningAccountID: b.accountID`
+  (`resource_shares.go:53`); no operation in this backend's entire public surface can ever
+  create a resource share owned by any account other than the caller's own.
+- `listSharedWithMe` (`resource_shares.go:158-189`, backing `ListResourceShares` with
+  `resourceOwner=OTHER-ACCOUNTS`) is consequently dead code by construction: it filters for
+  `rs.OwningAccountID != b.accountID`, a condition nothing can ever satisfy.
+- This is not a gap unique to RAM. `services/mq/models.go:70-74` and
+  `services/mq/brokers.go:1031-1037` independently document the identical conclusion for MQ's
+  own real RAM-consuming SDK operation (`DescribeSharedResources`): "This backend does not
+  model RAM resource sharing, so it never fabricates a shared resource entry." Every resource
+  type this backend's own `ListResourceTypes` advertises as RAM-shareable (`ec2:Subnet/VPC/
+  TransitGateway/LocalGateway/PrefixList`, `route53resolver:ResolverRule/FirewallRuleGroup`,
+  `license-manager:LicenseConfiguration`, `codebuild:Project/ReportGroup`,
+  `glue:Catalog/Database/Table`, `handler_resources.go:164-`) is, in real AWS, shared
+  specifically to grant a *different* account access -- none of those consuming services in
+  this repo model more than one account either, so there is no "other account's request" for
+  any of them to gate in the first place. `services/managedblockchain/members.go:201` and
+  `services/ce/handler_savings_plans.go:180` record the same standing, repo-wide limitation
+  independently.
+- The one RAM principal kind that *is* structurally same-account -- an IAM role/user ARN
+  (`AssociateResourceShareInput.Principals` doc: "An ARN of an IAM role... An ARN of an IAM
+  user", always addressed within the resource share's own account) -- would require gating
+  through this repo's single existing cross-service authorization chokepoint,
+  `iam.EnforcementMiddleware` (see `services/ram/iam_enforcement_test.go`), which is wired
+  uniformly in front of every one of ~150 services. Special-casing RAM into that shared
+  chokepoint is exactly the "RAM check bolted into many services" shape this task rules out,
+  just centralized into one call site instead of many -- it would still make RAM authoritative
+  over every other service's authorization decision, which is out of scope here and belongs to
+  a repo-wide design decision, not a P2 RAM fix.
+
+**No hook was wired into any consuming service.** Nothing outside `services/ram/` was touched.
+
+**One genuine defect found and fixed while investigating principal validation**
+(`resource_shares.go`'s `isExternalPrincipal`): it treated *every* non-12-digit-account-ID
+principal as external, including a same-account IAM role/user ARN
+(`arn:aws:iam::<this account>:role/...`). Real AWS's `AllowExternalPrincipals` gates "principals
+outside your organization" (`api_op_CreateResourceShare.go:45-49`) -- an account concept, not an
+IAM-identity one -- and IAM role/user principals are always scoped to the resource share's own
+account per `AssociateResourceShareInput.Principals`' own doc list. The bug had two observable
+effects: (1) `CreateResourceShare`/`AssociateResourceShare` with `AllowExternalPrincipals=false`
+incorrectly rejected a same-account IAM role/user principal with `ErrValidation`, and (2) even
+when allowed, it fabricated a spurious pending invitation to the caller's own account (external
+handling always calls `createInvitationLocked`). Fixed by extracting the ARN's account segment
+for `iam`-service ARNs specifically and comparing it to `b.accountID`, same as the existing
+bare-account-ID case; organization/OU ARNs are deliberately left external unconditionally even
+when their account segment (the org's management account) matches the caller, since an org/OU
+principal can admit arbitrary other member accounts regardless of whose account authored it.
+
+Regression tests (fail on unmodified code, confirmed by hand-revert):
+`TestAllowExternalPrincipals_FalseAllowsSameAccountIAMPrincipal` (`resource_shares_test.go`) and
+two new subtests of `TestAssociateResourceShare_External` (`share_associations_test.go`):
+`iam_role_ARN_same_account_-_not_external` and `iam_user_ARN_same_account_-_not_external`. A
+third new subtest, `organization_ARN_same_account_segment_-_still_external`, guards against a
+naive fix that would also stop treating same-account-segment org/OU ARNs as external.
+
+Gates: `go build ./services/ram/...` clean; `go test -race -count=1 ./services/ram/...` passes;
+`golangci-lint run services/ram/... ./` reports `0 issues.`. No `cli.go` or other-service files
+touched, so the repo-wide blast-radius gates were not required.
+
 ## Notes
 
 Protocol: REST-JSON (restjson1), single-segment lowercase POST paths (e.g.

@@ -121,7 +121,7 @@ func principalReceiverAccountID(principal string) string {
 
 	// ARN format: arn:partition:service:region:account-id:...
 	parts := strings.SplitN(principal, ":", arnPartCountPrincipal)
-	if len(parts) >= arnAccountIdx+1 && parts[0] == "arn" {
+	if len(parts) >= arnAccountIdx+1 && parts[0] == arnPrefix {
 		return parts[arnAccountIdx]
 	}
 
