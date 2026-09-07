@@ -17,7 +17,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   route_matcher: {status: ok, note: "verified every op's (method,path) against aws-sdk-go-v2/service/pipes v1.23.18 serializers.go opPath/request.Method literals; added handler_route_matcher_test.go driving RouteMatcher(c)+Handler()(c) end-to-end (prior tests all bypassed RouteMatcher via h.Handler()(c) directly, and the /tags/ prefix is shared across many services -- test also pins that a pipes-shaped path with a non-pipes SigV4 credential-scope service is correctly rejected)"}
-  filter_semantics: {status: fixed, note: "2026-08-30 (gopherstack-uox6 value-semantics pass): FilterCriteria.Filters[].Pattern (types.Filter, a bare *string -- the wire type documents no grammar of its own, linking out to the EventBridge event-pattern guide) was hand-rolled in filter.go against that guide. Two documented operators, both marked 'Pipe support: Yes' on the operator table, were broken: (1) exists (true/false) was structurally unreachable -- matchesJSONPattern short-circuited to false whenever a pattern's field was absent from the message, before ever consulting the rule, so {\"exists\":false} (which must match on absence) could never match, and matchesRule had no exists case at all, so {\"exists\":true} on a *present* field also always returned false. (2) anything-but only accepted a JSON array of strings; the guide's own primary example (`\"state\": [ { \"anything-but\": \"initializing\" } ]`) is a single bare string, which failed to unmarshal into []string and fell through to an unconditional false -- excluding every message regardless of value, the opposite of anything-but's purpose. Fixed: matchesJSONPattern/fieldMatchesRule/matchesRule now thread field-presence through explicitly so exists can be evaluated before (and independent of) presence-gating everything else; matchesAnythingBut accepts both the single-value and list forms. TestFilter_PatternOperators (filter_test.go) gained 6 new table cases (2 anything-but-single-value, 4 exists true/false x present/absent), each driven end-to-end through CreatePipe+Runner+mock SQS reader/deleter, not a unit call into the matcher directly; all 6 hand-verified to fail against unfixed code first. filterKinesisRecords/filterDynamoDBRecords (sources_poll.go) both call the same matchesAnyFilter entrypoint, so the fix covers all three source types without separate changes. Not touched, disclosed as gaps below: numeric matching ({\"numeric\":[...]}) and $or are both documented ('Pipe support: Yes') but entirely unimplemented -- msgStr's json.Unmarshal-into-string silently fails for any non-string message value, and $or is not special-cased as a pattern key at all, so both are structural feature absences rather than a value applied wrong (this class's scope), not fixed here. ListPipesInput.NamePrefix's own SDK doc comment reads 'will return all endpoints with \"ABC\" in the name' (substring, and 'endpoints' is the wrong noun for this API -- looks like a codegen doc-comment artifact copied from another service's template) but matchesFilter (pipes.go) implements prefix matching, matching the field's literal name and the universal AWS List-filter-prefix convention across the SDK; left as-is, doc comment treated as unreliable rather than followed literally, consistent with the PatchOrchestratorFilter lesson (read the operation's own type/behavior, not a possibly-templated doc string) -- flagged here rather than silently changed."}
+  filter_semantics: {status: fixed, note: "2026-08-30 (gopherstack-uox6 value-semantics pass): FilterCriteria.Filters[].Pattern (types.Filter, a bare *string -- the wire type documents no grammar of its own, linking out to the EventBridge event-pattern guide) was hand-rolled in filter.go against that guide. Two documented operators, both marked 'Pipe support: Yes' on the operator table, were broken: (1) exists (true/false) was structurally unreachable -- matchesJSONPattern short-circuited to false whenever a pattern's field was absent from the message, before ever consulting the rule, so {\"exists\":false} (which must match on absence) could never match, and matchesRule had no exists case at all, so {\"exists\":true} on a *present* field also always returned false. (2) anything-but only accepted a JSON array of strings; the guide's own primary example (`\"state\": [ { \"anything-but\": \"initializing\" } ]`) is a single bare string, which failed to unmarshal into []string and fell through to an unconditional false -- excluding every message regardless of value, the opposite of anything-but's purpose. Fixed: matchesJSONPattern/fieldMatchesRule/matchesRule now thread field-presence through explicitly so exists can be evaluated before (and independent of) presence-gating everything else; matchesAnythingBut accepts both the single-value and list forms. TestFilter_PatternOperators (filter_test.go) gained 6 new table cases (2 anything-but-single-value, 4 exists true/false x present/absent), each driven end-to-end through CreatePipe+Runner+mock SQS reader/deleter, not a unit call into the matcher directly; all 6 hand-verified to fail against unfixed code first. filterKinesisRecords/filterDynamoDBRecords (sources_poll.go) both call the same matchesAnyFilter entrypoint, so the fix covers all three source types without separate changes. Not touched, disclosed as gaps below (2026-08-30): numeric matching ({\"numeric\":[...]}) and $or are both documented ('Pipe support: Yes') but entirely unimplemented -- msgStr's json.Unmarshal-into-string silently fails for any non-string message value, and $or is not special-cased as a pattern key at all, so both are structural feature absences rather than a value applied wrong (this class's scope), not fixed here. FIXED (2026-09-06, gopherstack-a2vk): matchesJSONPattern only ever compared top-level pattern fields, so a nested EventBridge-style pattern such as {\"dynamodb\":{\"NewImage\":{\"id\":{\"S\":[\"1\"]}}}} (the real DynamoDB Streams shape, and the dominant real-world Pipes filter pattern) could never match past the first level. Fixed: matchesJSONPattern/fieldMatchesRule now detect whether a field's pattern value is a nested object (isJSONObject, byte-sniffed on the first non-whitespace char rather than probed via json.Unmarshal-into-map, since unmarshalling JSON null into a map succeeds with err=nil and would otherwise misclassify a literal null array element as an object) versus an array, and recurse via matchesPatternObject/matchesNestedRule when it is one. Also closed the numeric gap disclosed above ({\"numeric\":[\">\",5]}) plus added cidr ({\"cidr\":\"10.0.0.0/24\"}), both algorithmically ported from services/eventbridge/pattern.go's matchNumeric/matchCIDR (see this file's dated Notes entry below for the reuse-vs-rewrite decision -- eventbridge's matcher is unexported and pipes/ is a separate package, so this is a parallel, independently-tested implementation of the same documented AWS semantics, not a shared import). $or, wildcard, and the nested {\"prefix\":{\"equals-ignore-case\":...}} form remain unimplemented; matchesRuleObject's default case (any matcher-object key it does not recognize) deliberately returns false rather than silently matching everything. Exact-match comparison (matchesExactRule) was also hardened from a string-only equality check with a lossy quote-stripping fallback to a type-sensitive reflect.DeepEqual over both sides' json.Unmarshal(...,&any)-decoded values (DeepEqual, not ==, because a malformed pattern or event value can decode to a non-comparable Go type -- a JSON array or object -- which would panic under ==). ListPipesInput.NamePrefix's own SDK doc comment reads 'will return all endpoints with \"ABC\" in the name' (substring, and 'endpoints' is the wrong noun for this API -- looks like a codegen doc-comment artifact copied from another service's template) but matchesFilter (pipes.go) implements prefix matching, matching the field's literal name and the universal AWS List-filter-prefix convention across the SDK; left as-is, doc comment treated as unreliable rather than followed literally, consistent with the PatchOrchestratorFilter lesson (read the operation's own type/behavior, not a possibly-templated doc string) -- flagged here rather than silently changed."}
 gaps:
   - "MSK, self-managed Kafka, RabbitMQ, and ActiveMQ pipe sources are modeled in full in CreatePipe/UpdatePipe/DescribePipe wire shapes (sources.go) but are never polled by the runner, and this is a genuine impossibility rather than a deferred implementation: gopherstack has no in-process Kafka-wire-protocol broker or AMQP/OpenWire broker anywhere in the repo to read messages from. Verified by inspecting both candidate backends before writing this line: services/kafka (Amazon MSK) implements only the AWS *control-plane* HTTP API (CreateCluster/DescribeCluster/GetBootstrapBrokers/topic metadata CRUD) -- confirmed via `grep -rl 'func.*Produce\\|func.*Consume\\|func.*SendMessage\\|func.*ReceiveMessage'` returning nothing message-plane-shaped; services/mq (Amazon MQ, backs both RabbitMQ and ActiveMQ engine types) is the same shape (broker/user/configuration lifecycle CRUD only, zero produce/consume methods anywhere in the package). Neither package speaks the real wire protocol (Kafka's binary TCP protocol; AMQP 0-9-1 for RabbitMQ; OpenWire/STOMP for ActiveMQ), so even a cluster/broker created via those services' control planes has no data-plane to poll. runner.go's pollPipe routes only SQS/Kinesis/DynamoDB-Streams ARNs and leaves these four source types unrouted (with a doc comment explaining why) rather than faking delivery."
 deferred: []
@@ -644,3 +644,170 @@ closed as a duplicate of the already-closed `gopherstack-6ffg`; that bd
 bookkeeping was left to the orchestrator per this pass's scope (git/bd
 mutations reserved for the orchestrator). The unrelated `test/e2e` vet
 failure is also left for whichever session owns that file.
+
+## 2026-09-06 (gopherstack-a2vk): nested event-pattern filtering
+
+Confirmed the filed premise: `filter.go`'s `matchesJSONPattern` only ever
+walked the top level of `FilterCriteria.Filters[].Pattern` against the
+message body. A pattern shaped like the real-world DynamoDB Streams filter
+`{"dynamodb":{"NewImage":{"id":{"S":["1"]}}}}` -- the shape EventBridge's own
+docs (`eb-event-patterns-content-based-filtering.html`) use as the canonical
+example, and the shape a real DynamoDB Streams record actually produces --
+could never match past `dynamodb`, because the code had no branch for "this
+field's pattern value is itself an object, not an array of matchers." The
+old doc comment called this "future work"; it was a real, reachable gap, not
+overcautious hedging.
+
+**Sources consulted, in the order the brief specifies:**
+
+1. **In-repo precedent.** `services/eventbridge/pattern.go` already
+   implements a full nested EventBridge pattern matcher (`matchObject`/
+   `matchObjectField` recursion, `$or`, numeric, cidr, wildcard,
+   equals-ignore-case, anything-but) used by that service's `PutRule`/
+   `PutEvents` matching. Every one of its matcher functions is unexported
+   (`matchPattern`, `compilePattern`, `matchObject`, ... -- confirmed via
+   `grep -n '^func [A-Z]' services/eventbridge/pattern.go`, zero hits), so
+   `services/pipes/` cannot import it as-is; doing so would require either
+   exporting eventbridge's functions or lifting shared logic into a new
+   `pkgs/` package, both edits outside `services/eventbridge/`/`pkgs/` and
+   therefore outside this pass's file scope (`services/pipes/` only).
+   **Decision: do not rewrite a second, independently-designed matcher from
+   scratch.** Instead, `filter.go`'s existing `json.RawMessage`-based,
+   field-at-a-time matcher (already correctly handling `exists`/`prefix`/
+   `suffix`/`anything-but` per the 2026-08-30 pass above) was extended with
+   nested-object recursion plus `numeric`/`cidr`, each ported algorithmically
+   from `pattern.go`'s `matchNumeric`/`compareNumeric`/`matchCIDR` (same
+   op-pair-list numeric algorithm, same `net.ParseCIDR`/`ipNet.Contains`
+   cidr check) rather than reinvented. This keeps pipes' engine on its
+   existing `json.RawMessage` representation (avoiding a costly rewrite onto
+   eventbridge's `map[string]any` representation, which the rest of
+   `filter.go` and its tests are not built around) while not diverging on
+   the semantics that matter. **Flagging for a human/orchestrator decision,
+   not resolved here (out of this pass's file scope):** consolidating both
+   into one `pkgs/eventpattern`-style package is the structurally correct
+   long-term fix, since gopherstack now has two independently-tested but
+   textually different implementations of the same documented AWS matching
+   semantics; filed as a reuse-not-done gap rather than silently accepted.
+2. **Pinned SDK** (`aws-sdk-go-v2/service/pipes@v1.26.4`): `types.Filter`
+   (`types/types.go`) is `struct { Pattern *string }` with a doc comment
+   that says only "The event pattern." and links to the EventBridge content-
+   filtering guide -- confirming the SDK itself defines no pattern grammar of
+   its own; Pipes patterns are EventBridge patterns by reference, matching
+   this file's existing `filter_semantics` note.
+3. **AWS documentation**
+   (`docs.aws.amazon.com/eventbridge/latest/userguide/
+   eb-event-patterns-content-based-filtering.html`, the same source the
+   2026-08-30 pass already cited): "For each key in the event pattern, the
+   value ... must be an array" -- the array-not-bare-scalar rule; nested
+   objects "let you match nested JSON"; array entries within one key are
+   ORed and multiple keys are ANDed ("all the fields ... must match").
+
+**Exactly which content filters are supported, and what's not:**
+
+| Filter | Status |
+|---|---|
+| Nested object recursion | Supported (this pass) |
+| Exact-match array (`["v1","v2"]`), multi-key AND, multi-entry OR | Supported (nested-recursion pass reuses the pre-existing top-level AND/OR logic at every level) |
+| `{"exists": true/false}` | Supported (2026-08-30 pass) |
+| `{"prefix": "..."}` / `{"suffix": "..."}` (plain string form only) | Supported |
+| `{"anything-but": "x"}` / `{"anything-but": ["x","y"]}` (string only) | Supported (2026-08-30 pass) |
+| `{"numeric": [">", 5]}` | Supported (this pass) -- event value must decode as a true JSON number; a string-encoded number (e.g. DynamoDB's `{"N": "5"}` wrapper) does not match, matching `services/eventbridge/pattern.go`'s own `toFloat64` restriction |
+| `{"cidr": "10.0.0.0/24"}` | Supported (this pass) |
+| `{"prefix": {"equals-ignore-case": "..."}}` / `{"suffix": {"equals-ignore-case": ...}}` / bare `{"equals-ignore-case": "..."}` | **Not supported** -- falls through `matchesRuleObject`'s unrecognized-key default, never matches |
+| `{"wildcard": "..."}` | **Not supported** -- same fail-closed default |
+| `$or` combinator | **Not supported** -- not special-cased as a pattern key, so a literal `"$or"` field is matched as an ordinary (never-present) field name and the whole pattern fails to match |
+| A bare non-array, non-object pattern value (e.g. `{"type":"order"}` instead of `{"type":["order"]}`) | **Not supported** -- invalid per real EventBridge (`eventbridge/pattern.go`'s `validatePatternObject` rejects it outright); Pipes has no separate pattern-validation step at `CreatePipe` time, so this fails closed (never matches) rather than being silently treated as an exact-match scalar |
+| Event field itself is a JSON array (any-element-matches semantics) | **Not supported** -- an array-valued event field is compared as one opaque JSON value; exact-match compares it structurally (rarely useful), and every content filter (`prefix`/`suffix`/`numeric`/`cidr`/`anything-but`) fails to decode it and returns no-match |
+
+**Deliberate, tested fail-closed behavior:** any matcher-object key not in
+the supported list above falls through every `if _, ok := ruleObj["..."]`
+check in `matchesRuleObject` to its final `return false`, so an unsupported
+operator can only ever cause records to be *dropped*, never records that
+should have been filtered out to *leak through*. Covered by
+`TestFilter_NestedPatterns/unrecognized_matcher_object_never_matches`
+(`filter_test.go`), using `{"wildcard": "ord*"}` as the unsupported
+operator.
+
+**`filter.go`'s doc comment corrected** (was inaccurate after the
+2026-08-30 pass already fixed `exists`/`anything-but`, and is now further
+out of date):
+
+Old (`matchesJSONPattern`'s doc comment):
+```
+// matchesJSONPattern tests whether msgBody satisfies the EventBridge-style
+// JSON event pattern. Only top-level field matching is implemented; nested
+// field paths and advanced operators (prefix, suffix, numeric range, cidr,
+// exists, anything-but) are left as future work.
+//
+// Pattern shape:  {"field": ["value1", "value2", ...], ...}
+// Each field in the pattern must exist in the message and its value must
+// equal at least one of the listed rule values.
+```
+
+New:
+```
+// matchesJSONPattern tests whether msgBody satisfies the EventBridge-style
+// JSON event pattern (eb-event-patterns-content-based-filtering.html).
+// A nested pattern object recurses into the matching message field
+// (e.g. {"dynamodb":{"NewImage":{"id":{"S":["1"]}}}}); multiple fields at
+// one level are ANDed, multiple array entries for one field are ORed.
+//
+// Supported content filters (array elements shaped as an object): exists,
+// prefix, suffix, numeric, anything-but, cidr. Unsupported operators
+// (wildcard, equals-ignore-case, the nested {"prefix":{"equals-ignore-case":
+// ...}} form, $or) and any other unrecognized matcher object never match --
+// see matchesRuleObject -- rather than silently matching everything.
+//
+// Pattern shape:  {"field": ["value1", "value2", ...], "nested": {"field2": [...]}}
+// A field's pattern value must be either an array (of exact-match values
+// and/or content-filter objects) or a nested object; a bare scalar is not a
+// valid EventBridge pattern value and never matches (see isJSONObject).
+```
+
+**Tests:** `filter_test.go` gained `TestFilter_NestedPatterns` (14
+subtests, each driven end-to-end through `CreatePipe`+`Runner`+mock SQS
+reader/deleter, matching this file's existing test style, not a unit call
+into the matcher directly): `nested_dynamodb_newimage_matches`/
+`nested_dynamodb_newimage_value_mismatch` (the issue's own DynamoDB
+`NewImage` shape), `nested_field_absent_no_match`/
+`nested_parent_field_absent_no_match`, `multi_key_and_both_present_matches`/
+`multi_key_and_one_mismatched_no_match`, `multi_entry_or_second_value_matches`/
+`multi_entry_or_no_value_matches`, `numeric_operator_matches`/
+`numeric_operator_no_match`, `cidr_operator_matches`/`cidr_operator_no_match`,
+`bare_scalar_pattern_value_never_matches`, and
+`unrecognized_matcher_object_never_matches`.
+
+**Revert-proof (hand-reverted via `cp` from `git show HEAD:services/pipes/
+filter.go`, not `git checkout`):** with the production change reverted,
+`go test -race -run TestFilter_NestedPatterns -v ./services/pipes/...`
+failed 3 of the 14 subtests --
+`nested_dynamodb_newimage_matches`, `numeric_operator_matches`, and
+`cidr_operator_matches` -- each with `Not equal: expected: []string{"rh1"} /
+actual: []string(nil)` (the message that should have passed the filter was
+dropped instead). The other 11 subtests happen to also pass against the
+unmodified top-level-only matcher (their AND/absence/OR semantics hold at
+the top level too, or their content filter -- `anything-but` fails a
+different way pre-existing), so they are not revert-proof on their own, but
+are kept as regression coverage for AND/OR/absence semantics at the new
+nested-matcher code paths going forward. Restored via `cp` from the fixed
+version and `md5sum`-verified byte-identical
+(`af5b8b470628559e7b3da7103a9b6133`) before/after the revert-and-restore
+cycle.
+
+**Gates:** `GOTOOLCHAIN=go1.26.6 go build ./services/pipes/...` clean.
+`GOTOOLCHAIN=go1.26.6 go vet ./services/pipes/...` clean. `gofmt -l
+services/pipes/*.go` empty. `GOTOOLCHAIN=go1.26.6 go test -race -count=1
+./services/pipes/...` -- PASS (all subtests, including the 14 new ones).
+`GOTOOLCHAIN=go1.26.6 golangci-lint run services/pipes/...` -- `0 issues.`
+No `//nolint` for `cyclop`/`gocyclo`/`gocognit`/`funlen` added; the matcher
+was decomposed into one small named helper per matcher type instead
+(`matchesPrefixRule`/`matchesSuffixRule`/`matchesNumericRule`/
+`matchesCIDRRule`/`matchesAnythingBut`/`matchesNestedRule`/
+`matchesExactRule`/`matchesRuleObject`).
+
+**Files touched:** `services/pipes/filter.go` (nested recursion, numeric,
+cidr, `reflect.DeepEqual` exact-match hardening, corrected doc comment),
+`services/pipes/filter_test.go` (`TestFilter_NestedPatterns`),
+`services/pipes/PARITY.md` (this entry plus the `filter_semantics` YAML note
+update above). No file outside `services/pipes/` touched; no shared/`pkgs/`
+code lifted this pass (see the reuse-vs-rewrite decision above).
