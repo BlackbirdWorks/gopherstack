@@ -2916,6 +2916,9 @@ func wireAPIGatewayIntegrations(byName map[string]service.Registerable) {
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
+	// Wire API Gateway → SQS/SNS for AWS integrations (gopherstack-is2a).
+	wireAPIGatewaySQSSNS(byName["APIGateway"], byName["SQS"], byName["SNS"])
+
 	// Wire API Gateway → Cognito for JWT signature verification.
 	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
 
@@ -4928,6 +4931,28 @@ func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) 
 	}
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
 		apigwv2H.SetLambdaInvoker(lambdaBk)
+	}
+}
+
+// wireAPIGatewaySQSSNS connects the API Gateway handler to SQS and SNS so that AWS
+// integrations targeting sqs (SendMessage) or sns (Publish) reach the real target
+// service instead of always invoking Lambda (gopherstack-is2a).
+func wireAPIGatewaySQSSNS(apigwReg, sqsReg, snsReg service.Registerable) {
+	apigwH, ok := apigwReg.(*apigwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if sqsH, ok2 := sqsReg.(*sqsbackend.Handler); ok2 {
+		if sqsBk, ok3 := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok3 {
+			apigwH.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
+		}
+	}
+
+	if snsH, ok2 := snsReg.(*snsbackend.Handler); ok2 {
+		if snsBk, ok3 := snsH.Backend.(*snsbackend.InMemoryBackend); ok3 {
+			apigwH.SetSNSPublisher(&snsPublisherAdapter{backend: snsBk})
+		}
 	}
 }
 

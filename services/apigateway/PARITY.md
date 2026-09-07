@@ -41,6 +41,36 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # shape, MOCK, HTTP/HTTP_PROXY, TOKEN/REQUEST/COGNITO_USER_POOLS authorizers, API
 # key + usage plan enforcement, request validators) is real and wired -- see the
 # per-integration-type verdict table in the dated section at the end of this file.
+# 2026-09-06 follow-up (bd: gopherstack-is2a): PARTIALLY FIXED the "AWS" (non-proxy)
+# integration target gap gopherstack-fum documented above. Confirmed the bug first:
+# an "AWS" integration whose URI names sqs or sns (per aws-sdk-go-v2's documented
+# grammar, arn:aws:apigateway:{region}:{subdomain.service|service}:path|action/{service_api},
+# types.go:653-666) was unconditionally invoked as Lambda, reaching neither queue nor
+# topic. Wired two targets with a real backing service and an unambiguous action: sqs
+# path-style (arn:aws:apigateway:{region}:sqs:path/{accountId}/{queueName}) ->
+# SendMessage, and sns action-style (arn:aws:apigateway:{region}:sns:action/Publish)
+# -> Publish, each behind a new SetSQSSender/SetSNSPublisher hook (proxy.go, wired in
+# cli.go's wireAPIGatewaySQSSNS, reusing the existing sqsSenderAdapter/
+# snsPublisherAdapter already declared for eventbridge). No VTL library exists in this
+# module, so this is a documented simplified passthrough, not mapping-template
+# evaluation: the rendered request payload (raw body, or the existing $input.json/
+# $input.path/$util.* RenderTemplate machinery in vtl.go if a requestTemplate is
+# configured -- reused unchanged, not reimplemented) becomes the SQS MessageBody or
+# SNS Message verbatim, with none of real API Gateway's Action=...&... AWS
+# query-protocol encoding; the SNS TopicArn is resolved from the integration's
+# RequestParameters mapping or a "TopicArn" query parameter, since it is not encoded
+# in an action-style URI; and a successful call's HTTP response is a bare "{}" run
+# through the same applyResponseTemplate status-code/response-template matching the
+# Lambda path already used, not a real SQS/SNS response shape. DynamoDB, Kinesis, and
+# Step Functions direct integrations, and sqs/sns integrations with no hook wired,
+# are UNCHANGED -- still fall through to the original Lambda-invoke path, which is a
+# deliberate silent no-op (~150 services build test backends with no cross-service
+# hooks) rather than a new rejection; TestHandleAWSIntegration_{SQSTarget,SNSTarget}_
+# Unwired proves this. TestHandleAWSIntegration_LambdaTarget_StillRoutesToLambda
+# proves the Lambda path is unaffected. All four new dispatch tests were verified to
+# fail against the pre-fix code (git-show revert of proxy_integrations.go alone,
+# package still compiles since the new SetSQSSender/SetSNSPublisher hooks and
+# interfaces stay in proxy.go/handler.go).
 ops:
   UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). This sweep: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added"}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}
@@ -165,7 +195,7 @@ ops:
   ImportRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  proxy_invocation: {status: fixed, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch. 2026-09-04 (gopherstack-fum): FIXED -- handleProxyRequest never verified the URL's {stage} segment named a real deployed stage, so an undeployed RestApi (or any made-up stage name) still routed to and executed the configured integration; unmatched routes also returned a bare 404 instead of AWS's real 403 'Missing Authentication Token'. Both fixed (GetStage gate + writeMissingAuthenticationTokenResponse). Per-integration-type verdict: AWS_PROXY (Lambda proxy) wired and executing, event/response shape correct; AWS (Lambda, non-proxy, VTL) wired and executing; AWS (non-Lambda service target, e.g. DynamoDB/SQS/SNS/S3/Step Functions direct integration) accepted at PutIntegration with no validation but NEVER executes -- handleAWSIntegration unconditionally treats the URI as a Lambda function name regardless of target service, confirmed by reproduction (503/500, never reaches the target service) -- see gaps; HTTP/HTTP_PROXY wired and executing (real outbound HTTP request); MOCK wired and executing; VPC_LINK is not a distinct Integration.Type (it's HTTP/HTTP_PROXY + connectionType=VPC_LINK) and is routed identically to a plain HTTP_PROXY request to integration.URI -- no real VPC/NLB emulation exists to route through, a structural simplification, not separately verified against connectionId. TOKEN/REQUEST/COGNITO_USER_POOLS authorizers and API-key/usage-plan enforcement confirmed wired and executing (unchanged this pass)."}
+  proxy_invocation: {status: fixed, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch. 2026-09-04 (gopherstack-fum): FIXED -- handleProxyRequest never verified the URL's {stage} segment named a real deployed stage, so an undeployed RestApi (or any made-up stage name) still routed to and executed the configured integration; unmatched routes also returned a bare 404 instead of AWS's real 403 'Missing Authentication Token'. Both fixed (GetStage gate + writeMissingAuthenticationTokenResponse). Per-integration-type verdict: AWS_PROXY (Lambda proxy) wired and executing, event/response shape correct; AWS (Lambda, non-proxy, VTL) wired and executing; AWS (sqs SendMessage / sns Publish direct integration) FIXED 2026-09-06 (gopherstack-is2a) -- dispatches to the wired SQS/SNS hook via a simplified passthrough, see the dated note below and gaps; AWS (other non-Lambda service target, e.g. DynamoDB/Step Functions direct integration) STILL accepted at PutIntegration with no validation but NEVER executes -- see gaps; HTTP/HTTP_PROXY wired and executing (real outbound HTTP request); MOCK wired and executing; VPC_LINK is not a distinct Integration.Type (it's HTTP/HTTP_PROXY + connectionType=VPC_LINK) and is routed identically to a plain HTTP_PROXY request to integration.URI -- no real VPC/NLB emulation exists to route through, a structural simplification, not separately verified against connectionId. TOKEN/REQUEST/COGNITO_USER_POOLS authorizers and API-key/usage-plan enforcement confirmed wired and executing (unchanged this pass)."}
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps:
@@ -179,7 +209,7 @@ gaps:
   - "FIXED (bd: gopherstack-6q5h): UpdateAuthorizer's \"/providerARNs\" add/remove (patch-operations.html: add/remove supported, replace not). Added applyAuthorizerPatchOp, merging with the authorizer's existing ProviderARNs (a wholesale replace would otherwise drop every other ARN) the same way applyAPIKeyPatchOp's /stages case does. InMemoryBackend.UpdateAuthorizer's ProviderARNs merge switched from len()>0 to != nil so removing the last ARN actually clears it (same class of bug the gopherstack-oius sweep fixed 'everywhere these paths reach', but Authorizer wasn't in that sweep's scope). Before this fix the raw Value JSON string unmarshaled straight into a []string field via the generic fallback and FAILED THE WHOLE PATCH REQUEST with a 500 (same bug class as UpdateIntegration's /cacheKeyParameters) — confirmed against a git-worktree checkout of the pre-fix commit with TestSDK_UpdateAuthorizer_ProviderARNsPatch (patch_ops_sdk_test.go), a real aws-sdk-go-v2 client test."
   - "FIXED (bd: gopherstack-6q5h): UpdateBasePathMapping's PATCH paths were far more broken than a casing bug. patch-operations.html spells them lowercase (\"/basepath\", \"/restapiId\" — note even here the doc keeps a capital I in \"restapiId\"), but the AWS CLI reference's own worked example (docs.aws.amazon.com/cli/latest/reference/apigateway/update-base-path-mapping.html, mirrored in the AWS Doc SDK Examples code-library page) uses path='/basePath' and shows a real, changed \"basePath\" in its output — AWS's own sources disagree on the casing, so BOTH spellings are now accepted rather than picking one. But even the EXACT struct-tag-matching spelling \"/basePath\" did not work before this fix, for a reason unrelated to casing: UpdateBasePathMappingInput.BasePath is the REQUIRED identity used to find the mapping (populated from the URL path segment), and handler.go's pathParams-merge step (injectJSONFieldAPIGW) runs AFTER applyStructuredPatch and unconditionally overwrites whatever the patch resolver staged under \"basePath\" with the URL's OLD value — so a rename could never take effect regardless of spelling, and InMemoryBackend.UpdateBasePathMapping had no rename logic at all (BasePath was read-only, used solely as a lookup key). Fixed both: applyBasePathMappingPatchOp now stages a rename under a new NewBasePath field (private to this backend, no equivalent on the real AWS wire) that InMemoryBackend.UpdateBasePathMapping applies as an actual store.Table key rename (delete old key, mutate BasePath, re-Put — rejecting a collision with an existing mapping at the new path). \"/restapiId\" is now explicitly aliased to RestAPIID too, rather than relying on it incidentally working via json.Unmarshal's case-insensitive field match (it does, since RestAPIID isn't pathParams-clobbered, but that's an accident worth not depending on). \"/restApiId\" and \"/stage\" already worked via the generic fallback and needed no change. Verified with TestSDK_UpdateBasePathMapping_PatchOperations (patch_ops_sdk_test.go) against a real aws-sdk-go-v2 client, confirmed failing pre-fix for both \"/basepath\" (404 on the renamed lookup) and \"/basePath\" (silently kept the old value)."
   - "CASING SWEEP (bd: gopherstack-6q5h): compared all 22 patchOperations-taking ops' documented paths (a fresh patch-operations.html fetch) against their Update*Input json tags and, for UpdateStage's per-route method-settings properties and UpdateUsagePlan's per-route throttle path, the literal strings this dispatcher compares against (patch.go's stageMethodSettingProperty map / usagePlanThrottlePathMinSegs segmentation). UpdateBasePathMapping's /basepath and /restapiId (fixed this pass) were the ONLY casing mismatch found; every other operation's json tags match their documented path spelling exactly, letter for letter. Also found in passing, NOT fixed (a real casing question but out of this ticket's scope): UpdateAuthorizer's PATCH table separately documents \"/authType\" (types.Authorizer.AuthType, a real but different field from Authorizer's existing \"Type\"/authorizerType) which this backend does not model at all — an unmodeled-field gap, not a casing one; and UpdateRestApi's table documents \"/securityPolicy\", but neither RestAPI nor UpdateRestAPIInput has a SecurityPolicy field (only DomainName does) — also unmodeled, not casing."
-  - "2026-09-04 (bd: gopherstack-fum), NOT FIXED (needs cli.go wiring, out of services/apigateway-only scope): the 'AWS' (non-proxy) integration type only ever invokes Lambda -- handleAWSIntegration (proxy_integrations.go) calls ExtractLambdaFunctionName(integration.URI) and h.lambda.InvokeFunction unconditionally, regardless of what AWS service the URI actually names. A real, AWS-documented direct 'AWS' integration targeting DynamoDB/SQS/SNS/S3/Step Functions/etc. (e.g. uri=\"arn:aws:apigateway:us-east-1:dynamodb:action/PutItem\") is accepted at PutIntegration with no validation of the target service, but fails at invoke time -- either 503 'Lambda integration not configured' (no invoker wired) or a Lambda 'function not found' failure (invoker wired, ExtractLambdaFunctionName returns the DynamoDB ARN unchanged, which is not a real Lambda function). The target action never executes. Fixing this for real needs new per-service invoker interfaces (mirroring LambdaInvoker) wired in cli.go for each directly-integrable AWS service -- a large, multi-service change, not a services/apigateway-local fix."
+  - "2026-09-04 (bd: gopherstack-fum), PARTIALLY FIXED 2026-09-06 (bd: gopherstack-is2a): the 'AWS' (non-proxy) integration type used to invoke Lambda unconditionally, regardless of what AWS service the URI actually named. Now: sqs path-style integrations (uri=\"arn:aws:apigateway:{region}:sqs:path/{accountId}/{queueName}\") dispatch to SendMessage, and sns action-style integrations (uri=\"arn:aws:apigateway:{region}:sns:action/Publish\") dispatch to Publish, each via a SetSQSSender/SetSNSPublisher hook wired in cli.go -- SendMessage and Publish were chosen as the two targets with both a real backing service in this repo and an unambiguous single action. This is a simplified passthrough, NOT VTL mapping-template evaluation (no VTL library exists in this module): the rendered request payload becomes the SQS MessageBody or SNS Message verbatim (no Action=...&... AWS query-protocol encoding), the SNS TopicArn comes from the integration's RequestParameters mapping or a TopicArn query parameter (not from the URI, which action-style integrations never encode it in), and a successful response is a bare \"{}\" -- not a real SQS/SNS response shape. STILL NOT FIXED, unchanged from before: DynamoDB, Kinesis, Step Functions, S3, and any other 'AWS' integration target (e.g. uri=\"arn:aws:apigateway:us-east-1:dynamodb:action/PutItem\") is still accepted at PutIntegration with no validation and still unconditionally invokes Lambda at request time -- either a 503 'Lambda integration not configured' (no invoker wired) or a Lambda 'function not found' failure (invoker wired, ExtractLambdaFunctionName returns the target's ARN unchanged, not a real Lambda function). sqs/sns integrations also keep this exact unchanged behavior when SetSQSSender/SetSNSPublisher is not wired (TestHandleAWSIntegration_{SQSTarget,SNSTarget}_Unwired) -- an unwired hook is a silent no-op, never a rejection, matching the ~150 services in this repo whose test backends build with no cross-service hooks. Fixing the remaining targets for real needs either new per-service invoker interfaces for each (DynamoDB, Kinesis, Step Functions, S3, ...) or a real VTL evaluator plus AWS query-protocol request/response encoding for every target -- larger, out of this pass's narrow scope."
   - "2026-09-04 (bd: gopherstack-fum), documented, NOT FIXED (large architectural change): CreateDeployment does not freeze a routable snapshot of resources/methods/integrations. Deployment.APISummary is a lightweight display-only summary (matching the real SDK's ApiSummary field), not something the data plane routes against -- proxy_routing.go's routingTrie always calls Backend.ResourcesForRouting(apiID), which reads the RestApi's LIVE current resource tree, with no notion of 'as of which deployment'. Confirmed by reproduction: deploy a stage, then delete (or edit) a resource with NO new deployment -- the already-deployed stage's behavior changes immediately, where real AWS would keep serving the old, deployed configuration until a new deployment is created and the stage is repointed to it. Properly fixing this needs a real per-deployment resource/method/integration snapshot plus stage-to-deployment pinning enforced in the data plane -- a substantial redesign of the deployment model, out of scope for a targeted bug-fix pass."
 deferred:
   - "ApiKey.StageKeys's PATCH /labels add/remove path (listed in patch-operations.html's UpdateApiKey table) still has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey (re-verified this sweep) — likely a stale doc artifact from a pre-Tags API generation. Nothing to implement against; distinct from /stages, which this sweep DID implement (see Notes)."
@@ -836,7 +866,8 @@ never genuinely exercised? Per-integration-type verdict:
 |---|---|
 | AWS_PROXY (Lambda proxy) | wired and executing -- event shape (`LambdaProxyEvent`) and response translation (`statusCode`/`headers`/`body`/`isBase64Encoded`) verified against AWS's documented proxy integration contract |
 | AWS, Lambda target (non-proxy, VTL) | wired and executing -- request/response VTL templates render, Lambda invoked via the injected `LambdaInvoker` |
-| AWS, non-Lambda service target (DynamoDB/SQS/SNS/S3/Step Functions/etc.) | **accepted but never executes** -- see gaps below |
+| AWS, sqs SendMessage / sns Publish direct integration | FIXED 2026-09-06 (gopherstack-is2a) -- wired and executing via a simplified passthrough, see the dated note below and gaps |
+| AWS, other non-Lambda service target (DynamoDB/S3/Step Functions/etc.) | **accepted but never executes** -- see gaps below |
 | HTTP / HTTP_PROXY | wired and executing -- real outbound `http.Client` request to `integration.URI` |
 | MOCK | wired and executing |
 | VPC_LINK | not a distinct `Integration.Type` in real AWS (it's HTTP/HTTP_PROXY + `connectionType=VPC_LINK`); routed identically to a plain HTTP_PROXY request -- no VPC/NLB emulation exists, `connectionId` is not separately validated. Structural simplification, not a "never executes" bug. |
@@ -898,26 +929,77 @@ integration-test suites that create/delete many APIs). Fixed by adding
 `TestDeleteRestAPI_EvictsTrieCache` (new, `proxy_internal_test.go`, white-box)
 confirmed failing pre-fix and passing post-fix.
 
-**Confirmed, NOT fixed (out of services/apigateway-only scope): "AWS"
-(non-proxy) integration only ever invokes Lambda.** `handleAWSIntegration`
-(proxy_integrations.go) unconditionally calls
-`ExtractLambdaFunctionName(integration.URI)` and `h.lambda.InvokeFunction`,
-regardless of what AWS service the URI actually names. A real,
-AWS-documented direct "AWS" integration targeting DynamoDB, SQS, SNS, S3,
-Step Functions, etc. (e.g.
+**Confirmed 2026-09-04, PARTIALLY FIXED 2026-09-06 (bd: gopherstack-is2a):
+"AWS" (non-proxy) integration only ever invoked Lambda.**
+`handleAWSIntegration` (proxy_integrations.go) used to call
+`ExtractLambdaFunctionName(integration.URI)` and `h.lambda.InvokeFunction`
+unconditionally, regardless of what AWS service the URI actually names. A
+real, AWS-documented direct "AWS" integration targeting DynamoDB, SQS, SNS,
+S3, Step Functions, etc. (e.g.
 `uri: "arn:aws:apigateway:us-east-1:dynamodb:action/PutItem"`, a pattern AWS
-explicitly documents for API Gateway → DynamoDB direct integrations) is
+explicitly documents for API Gateway → DynamoDB direct integrations) was
 accepted by `PutIntegration` with zero validation of the target service, but
-the target action never executes: reproduced getting either a 503 ("Lambda
+the target action never executed: reproduced getting either a 503 ("Lambda
 integration not configured", no invoker wired) or, with the production
 `LambdaInvoker` wired the way `cli.go`'s `wireAPIGatewayLambda` wires it, a
 Lambda "function not found" failure (`ExtractLambdaFunctionName` returns the
 DynamoDB ARN unchanged, which resolves to no real Lambda function). This
-matches the campaign's "accepted on the wire, silently does nothing in a real
-server" bug class exactly. Not fixed here because a genuine fix needs new
-per-service invoker interfaces (mirroring `LambdaInvoker`) wired into each
-directly-integrable backend from `cli.go` -- a multi-service architectural
-change, not a services/apigateway-local one.
+matched the campaign's "accepted on the wire, silently does nothing in a
+real server" bug class exactly.
+
+**What gopherstack-is2a fixed:** two targets with both a real backing service
+in this repo and an unambiguous single action -- sqs `SendMessage` and sns
+`Publish`, the two candidates the retriage named. `awsIntegrationTarget`
+(proxy_integrations.go) parses the URI per the grammar quoted above and,
+when the target is `sqs` (path-style,
+`arn:aws:apigateway:{region}:sqs:path/{accountId}/{queueName}`) or `sns`
+(action-style, `arn:aws:apigateway:{region}:sns:action/Publish`) *and* the
+corresponding hook is wired, dispatches there instead of Lambda. The hooks
+are `SQSSender.SendMessageToQueue` and `SNSPublisher.PublishToTopic`
+(proxy.go), set via `Handler.SetSQSSender`/`SetSNSPublisher` (handler.go) and
+wired in `cli.go`'s `wireAPIGatewaySQSSNS`, which reuses the
+`sqsSenderAdapter`/`snsPublisherAdapter` types already declared for
+eventbridge (same method sets, satisfied structurally, no new adapter code
+needed). This module has no VTL/Velocity library, so the dispatch is a
+**documented simplified passthrough, not mapping-template evaluation**: the
+request payload -- raw body, or run through the pre-existing
+`RenderTemplate`/`VTLContext` machinery in vtl.go if the integration has a
+`requestTemplates["application/json"]` configured, exactly as the Lambda
+path already did -- becomes the SQS `MessageBody` or SNS `Message` verbatim,
+with none of real API Gateway's `Action=...&...` AWS query-protocol
+encoding. SNS's `TopicArn` is not encoded in an action-style URI at all in
+real AWS either -- it resolves from the integration's `RequestParameters`
+mapping (`integration.request.querystring.TopicArn`) or, absent one, a
+`TopicArn` query parameter on the incoming request; if neither resolves, the
+call fails with a 500 rather than guessing. A successful call's HTTP
+response is a bare `"{}"` run back through the existing
+`applyResponseTemplate` status-code/response-template matching -- not a real
+SQS/SNS response shape (message ID, MD5 of body, etc. are not modeled).
+
+**What is still NOT fixed, unchanged from before:** DynamoDB, Kinesis, Step
+Functions, S3, and any other "AWS" integration target still unconditionally
+invoke Lambda exactly as before -- `awsIntegrationTarget` only recognizes
+`sqs` and `sns`, so every other service token falls straight through to the
+original `h.lambda.InvokeFunction` call, unmodified. sqs/sns integrations
+also keep this exact original behavior when no `SQSSender`/`SNSPublisher` is
+wired -- an unwired hook is a silent no-op, never a rejection, matching the
+convention this repo already uses for LambdaInvoker and the ~150 services
+whose test backends build with no cross-service hooks at all
+(`TestHandleAWSIntegration_SQSTarget_Unwired`,
+`TestHandleAWSIntegration_SNSTarget_Unwired`).
+`TestHandleAWSIntegration_LambdaTarget_StillRoutesToLambda` confirms the
+Lambda path itself is unaffected. All four new dispatch tests
+(`TestHandleAWSIntegration_SQSTarget`, `_SQSTarget_SendError`,
+`_SNSTarget`, `_SNSTarget_TopicUnresolved`) were verified to fail against
+the pre-fix code: reverting proxy_integrations.go alone (via `git show
+HEAD:...`) while keeping the new `SetSQSSender`/`SetSNSPublisher`
+interfaces/hooks in proxy.go/handler.go, the package still compiled and
+every one of the four failed (503, not the expected 200/500) before the
+fix, and passed after restoring it. Fixing the remaining targets for real
+needs either new per-service invoker interfaces (DynamoDB, Kinesis, Step
+Functions, S3, ...) or a real VTL evaluator plus AWS query-protocol
+request/response encoding for every target -- a larger, multi-service change,
+not a narrow follow-up.
 
 **Documented, NOT fixed (large architectural change): `CreateDeployment`
 does not freeze a routable snapshot.** `Deployment.APISummary` is a

@@ -43,6 +43,21 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
+// SQSSender can send a message to an SQS queue by ARN, for AWS integrations whose
+// URI targets sqs (arn:aws:apigateway:{region}:sqs:path/{accountId}/{queueName}).
+// Mirrors the SQSSender interface already declared by eventbridge, s3, and pipes --
+// same consuming-service-declares-the-interface convention, wired in cli.go.
+type SQSSender interface {
+	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
+}
+
+// SNSPublisher can publish a message to an SNS topic by ARN, for AWS integrations
+// whose URI targets sns action/Publish. Mirrors the SNSPublisher interface already
+// declared by cloudwatch, eventbridge, pipes, s3, and ses.
+type SNSPublisher interface {
+	PublishToTopic(ctx context.Context, topicARN, message string) error
+}
+
 // LambdaProxyEvent is the API Gateway Lambda proxy event format.
 // https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
 type LambdaProxyEvent struct {
