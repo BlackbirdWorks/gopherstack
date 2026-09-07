@@ -2,6 +2,7 @@ package outposts
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -168,6 +169,18 @@ func (b *InMemoryBackend) DeleteOutpost(idOrARN string) error {
 	// that exact instance ID.
 	for _, ri := range b.runningInstancesByOutpost.Get(o.ID) {
 		b.runningInstances.Delete(ri.InstanceID)
+	}
+
+	// renewalIdempotency entries for o.ID are unreachable the instant o is
+	// gone -- CreateRenewal resolves idOrARN before ever consulting the
+	// cache, so a retried request fails at resolveOutpostLocked and never
+	// reaches renewalIdempotency. Pruning here is pure memory hygiene, not a
+	// behavior change.
+	prefix := o.ID + "::"
+	for k := range b.renewalIdempotency {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.renewalIdempotency, k)
+		}
 	}
 
 	if o.Tags != nil {

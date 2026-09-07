@@ -6,8 +6,63 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: outposts
 sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (unchanged)
-last_audit_commit: 8cae8a176 # HEAD immediately before this 2026-09-05 pass's own fix commit
-last_audit_date: 2026-09-05
+last_audit_commit: 4049cb9ee # HEAD immediately before this 2026-09-06 pass's own fix commit
+last_audit_date: 2026-09-06
+# 2026-09-06 pass: two filed issues (gopherstack-vsmv, gopherstack-glw7), one real fix, one
+# confirmed-no-change verdict.
+# (1) gopherstack-vsmv: renewals.go's renewalIdempotency (store.go) caches one CreateRenewalResult
+#     per (Outpost, ClientToken) CreateRenewal call, keyed "outpostID::clientToken" (renewals.go:60),
+#     and was never pruned when the Outpost was deleted -- confirmed the leak (DeleteOutpost had no
+#     touch of renewalIdempotency at all). Unlike Orders/Quotes (checked this pass: DeleteOutpost does
+#     NOT prune either -- they are genuinely retained as historical/FK-referenced records, matching
+#     the issue's own reasoning), renewalIdempotency is a pure idempotency cache, not a historical
+#     record, and its key is prefixed by the deleted Outpost's own ID (not merely a client-supplied
+#     token with no Outpost linkage), so pruning by "o.ID + \"::\"" prefix match is exact -- no index
+#     needed since the key already encodes the Outpost ID. Zero premature-eviction risk: CreateRenewal
+#     (renewals.go:55-58) resolves idOrARN via resolveOutpostLocked BEFORE ever consulting the cache,
+#     so a retried CreateRenewal against a deleted Outpost fails at notFoundError and never reaches
+#     renewalIdempotency regardless of whether the entry was pruned -- the entries are provably
+#     unreachable the instant the Outpost is gone, making this pure memory hygiene, not a behavior
+#     change. Fixed: DeleteOutpost (outposts.go) now deletes every renewalIdempotency key with that
+#     prefix. Regression: TestDeleteOutpost_PrunesRenewalIdempotencyCache
+#     (renewal_idempotency_delete_cleanup_test.go), asserts the cache is empty post-delete via a new
+#     export_test.go RenewalIdempotencyLenForTest() accessor -- fails before the fix (len=1), passes
+#     after (len=0); confirmed by reverting the production change and re-running (test failure
+#     pasted in the session report, fix then restored).
+# (2) gopherstack-glw7: re-examined UpdateSiteAddress's doc comment
+#     (api_op_UpdateSiteAddress.go:12-18) in full: "Updates the address of the specified site. You
+#     can't update a site address if there is an order in progress. You must wait for the order to
+#     complete or cancel the order. You can update the operating address before you place an order at
+#     the site, or after all Outposts that belong to the site have been deactivated." A prior pass
+#     (2026-08-07-ish, see the NOT-fixed note below) had already flagged this as an unresolved
+#     ambiguity and deliberately declined to implement the stricter reading. CONFIRMED that judgment
+#     this pass with new evidence the prior note did not cite: `grep -rni "deactiv"` over the ENTIRE
+#     outposts@v1.66.1 SDK module (every .go file, api_op_*.go/types/*.go/deserializers.go/etc.)
+#     matches exactly one line in the whole module -- api_op_UpdateSiteAddress.go:18 itself, the
+#     sentence being interpreted. The word "deactivated" names no lifecycle state anywhere else in
+#     this SDK: types.Outpost.LifeCycleStatus (types/types.go) is a bare *string documented only as
+#     "The life cycle status." with no enum type backing it anywhere in types/enums.go (already noted
+#     in consts.go, re-confirmed this pass), and this backend's own two life-cycle values (ACTIVE,
+#     PENDING_DECOMMISSION, consts.go:25-26) are themselves an explicitly-marked unconfirmed choice,
+#     not a real AWS-published state set. There is consequently no "deactivated" Outpost state
+#     representable anywhere in this backend's model (an Outpost here is ACTIVE, PENDING_DECOMMISSION,
+#     or deleted via DeleteOutpost -- it never reaches a third, still-existing "deactivated" terminal
+#     state) or in the real SDK's own types to hang a new gate on. The error side gives no further
+#     signal either: `awk "/deserializeOpErrorUpdateSiteAddress\(/,/^}/" deserializers.go | grep -oE
+#     '"[A-Za-z0-9]+"'` -> UnknownError, AccessDeniedException, ConflictException,
+#     InternalServerException, NotFoundException, ValidationException -- the same generic
+#     ConflictException (types/errors.go:37, doc: "Updating or deleting this resource can cause an
+#     inconsistent state.") already used for the existing order-in-progress check, with no
+#     deactivation-specific code or ResourceType value to distinguish the two readings.
+#     Verdict: NOT implemented, confirming the prior pass's judgment -- the second clause is
+#     unrepresentable in this backend/SDK today, not merely unconfirmed. Implementing it would require
+#     inventing what "deactivated" means (e.g. reusing PENDING_DECOMMISSION, which is explicitly
+#     "pending" not "deactivated", or treating "all Outposts deleted" as the gate, which duplicates
+#     DeleteSite's separate FK check under a different name) with zero SDK/doc backing for either
+#     choice -- exactly the fabrication risk parity-principles warns against. What would actually
+#     settle this: real AWS API behavior (a live UpdateSiteAddress call against a site with a
+#     DELIVERED/COMPLETED order and a still-ACTIVE Outpost) or a future SDK/doc revision that names an
+#     actual deactivated/decommissioned Outpost state. No code changed for this issue.
 # 2026-09-05 concurrency/leak pass (last service in the 163-service campaign): found and fixed two
 # real bugs, both in the disclosed-but-unfiled category this campaign specifically watches for.
 # (1) The 2026-08-31 sweep's own "OUT-OF-CLASS OBSERVATION" note (below) had already found and
@@ -129,7 +184,7 @@ overall: A
 ops:
   CreateOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /outposts (outposts.go); seeds one COMPUTE Asset (assets.go); LifeCycleStatus set to ACTIVE immediately -- see structural_gaps; enforces the real 10-Outposts-per-site quota (ServiceQuotaExceededException) as of this pass"}
   GetOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostId}, id-or-ARN via resolveOutpostLocked (resolve.go)"}
-  DeleteOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /outposts/{OutpostId}; Conflict while a REQUESTED capacity task exists; cascades its seeded Asset(s)"}
+  DeleteOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /outposts/{OutpostId}; Conflict while a REQUESTED capacity task exists; cascades its seeded Asset(s), its runningInstances rows, and (as of the 2026-09-06 pass, gopherstack-vsmv) its renewalIdempotency cache entries -- Orders/Quotes are deliberately NOT pruned here, they remain historical/FK-referenced records"}
   UpdateOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /outposts/{OutpostId}; merges Description/Name/SupportedHardwareType onto existing state"}
   ListOutposts: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts; AvailabilityZoneFilter/AvailabilityZoneIdFilter/LifeCycleStatusFilter all as repeated PascalCase query params (confirmed via serializers.go, NOT lowerCamel like grafana -- see wire.go), paginated via pkgs/page; clones before returning as of the 2026-09-05 pass (was racing UpdateOutpost/StartOutpostDecommission)"}
   StartOutpostDecommission: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /outposts/{OutpostIdentifier}/decommission; SKIPPED on idempotent replay, REQUESTED otherwise, BLOCKED never occurs (no cross-service blocking-resource data -- see gaps); ValidateOnly performs no mutation"}
@@ -185,6 +240,7 @@ structural_gaps:
   - "ServiceQuotaExceededException has no trigger path on CreateOrder specifically (CreateSite/CreateOutpost now enforce the two real published quotas -- see ops table), and OrderingRequirementType's MAXIMUM_ALLOWED_ORDERS_CHECK_ERROR (quotes.go's buildOrderingRequirements) is the same underlying gap surfaced a second way. No AWS-published default per-account or per-Outpost Order quota exists anywhere (confirmed directly against docs.aws.amazon.com/outposts/latest/userguide/outposts-limits.html this pass, which publishes only the Site and Outpost-per-site quotas) to enforce without fabricating a number, matching services/grafana's identical treatment of AccessDeniedException."
   - "OUTPOST_GENERATION_MISMATCH_ERROR (OrderingRequirementType) is not produced: types.Outpost (confirmed via types/types.go) carries NO generation field at all -- AvailabilityZone(Id)/Description/LifeCycleStatus/Name/OutpostArn/OutpostId/OwnerId/SiteArn/SiteId/SupportedHardwareType/Tags are the entire struct. OutpostGeneration only exists on OrderableInstanceType and ListOrderableInstanceTypesInput's own filter -- there is no field on the Outpost resource itself this backend (or any emulator) could read to know 'this Outpost's generation' to compare against, unlike SupportedHardwareType which does exist and backs RACK_PHYSICAL_PROPERTIES_CHECK_ERROR."
   - "ENTERPRISE_SUPPORT_ERROR (OrderingRequirementType) is not produced: it requires an AWS Support-plan model (which plan the account subscribes to) this backend has no state for, matching services/grafana's identical treatment of AccessDeniedException and this document's own existing ServiceQuotaExceededException precedent."
+  - "UpdateSiteAddress's doc comment second clause (\"or after all Outposts that belong to the site have been deactivated\", api_op_UpdateSiteAddress.go:17-18) is not enforced beyond the existing order-in-progress check (siteHasInProgressOrderLocked). gopherstack-glw7, re-examined 2026-09-06: confirmed with a whole-module grep that \"deactivated\" names no lifecycle state anywhere else in outposts@v1.66.1 -- types.Outpost.LifeCycleStatus has no SDK enum at all (see the LifeCycleStatus structural_gaps entry above), and this backend's own model has no third, still-existing \"deactivated\" Outpost state to gate on (an Outpost is ACTIVE, PENDING_DECOMMISSION, or deleted). Genuinely unrepresentable today, not merely unconfirmed -- see the 2026-09-06 frontmatter entry for the full evidence trail."
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer, now a 2-3-hop chain instead of one shot (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for; services/mgn's exportimport.go chained-After pattern confirmed the same shape holds for a multi-hop chain, not just one hop). DeleteOutpost now also cleans up runningInstancesByOutpost rows as of the 2026-09-05 pass (was an unbounded ghost-row leak if an Outpost was deleted while EC2 instances were still recorded as running on its Asset)."}
 ---
 
