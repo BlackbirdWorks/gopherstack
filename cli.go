@@ -5066,12 +5066,18 @@ func wireStepFunctionsServiceIntegrations(
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, ecsBkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); ecsBkOk {
 			sfnBk.SetECSIntegration(ecsBk)
+			// gopherstack-tdp6: poll RunTask's task(s) to STOPPED for the
+			// ".sync" integration pattern instead of dispatching fire-and-forget.
+			sfnBk.SetECSSyncWaiter(sfnbackend.NewECSSyncWaiter(ecsBk))
 		}
 	}
 
 	if glueH, glueOk := glueReg.(*gluebackend.Handler); glueOk {
 		if glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend); glueBkOk {
 			sfnBk.SetGlueIntegration(glueBk)
+			// gopherstack-tdp6: poll StartJobRun's JobRunState to a terminal
+			// state for the ".sync" integration pattern.
+			sfnBk.SetGlueSyncWaiter(sfnbackend.NewGlueSyncWaiter(glueBk))
 		}
 	}
 
