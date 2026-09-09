@@ -149,7 +149,7 @@ func TestIntegration_AzureARM_ResourceGroupAndStorageAccountLifecycle(t *testing
 
 	resp = armRequest(t, http.MethodPut, resourcePath,
 		[]byte(`{"location":"local","sku":{"name":"Standard_LRS"},"kind":"StorageV2"}`))
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	acctBody := armDecodeJSON(t, resp)
 	assert.Equal(t, acct, acctBody["name"])

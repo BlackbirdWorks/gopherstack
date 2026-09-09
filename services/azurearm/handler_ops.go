@@ -283,17 +283,25 @@ func (h *Handler) putGenericResource(c *echo.Context, id ResourceID) error {
 		return h.writeAPIError(c, err)
 	}
 
-	respBody, created, err := h.Registry.Put(c.Request().Context(), id, body)
+	respBody, _, err := h.Registry.Put(c.Request().Context(), id, body)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}
 
-	status := http.StatusOK
-	if created {
-		status = http.StatusCreated
-	}
-
-	return h.writeJSON(c, status, respBody)
+	// Always 200, never 201, regardless of whether this created or updated
+	// the resource. hashicorp/go-azure-sdk's generated per-resource clients
+	// each hardcode their own ExpectedStatusCodes for a PUT, and these
+	// disagree by resource type: resourcegroups.CreateOrUpdate accepts
+	// {200, 201}, but storageaccounts.Create -- and, per go-azure-sdk's
+	// consistent pattern, other data-resource clients M9/M10 will add --
+	// accepts only {200, 202}, hard-failing on 201 with "unexpected status
+	// 201 (201 Created)" before even reaching go-azure-sdk's
+	// provisioningState poller (which itself treats 200 as
+	// already-complete, same as it does 201). 200 is the one status code
+	// every such client accepts, and it costs nothing here since AZURE.md
+	// section 10.3 already commits this emulator to always-synchronous
+	// (no real LRO) semantics.
+	return h.writeJSON(c, http.StatusOK, respBody)
 }
 
 func (h *Handler) getGenericResource(c *echo.Context, id ResourceID) error {

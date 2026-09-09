@@ -213,7 +213,7 @@ func TestHandler_GenericResourceAndListKeys(t *testing.T) {
 		resourcePath,
 		[]byte(`{"location":"westus","sku":{"name":"Standard_LRS"}}`),
 	)
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "acct1", body["name"])
 
 	status, body = doRequest(t, h, http.MethodGet, resourcePath, nil)
@@ -307,7 +307,7 @@ func TestHandler_ResetClearsState(t *testing.T) {
 
 	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
 	status, _ := doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 
 	h.Reset()
 
@@ -335,7 +335,7 @@ func TestHandler_DeleteResourceGroup_CascadesToStorageProvider(t *testing.T) {
 
 	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
 	status, _ := doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 
 	status, _ = doRequest(t, h, http.MethodDelete, base+"/resourcegroups/rg1", nil)
 	require.Equal(t, http.StatusOK, status)
