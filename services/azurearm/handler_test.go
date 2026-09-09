@@ -80,6 +80,12 @@ func doRequest(t *testing.T, h *azurearm.Handler, method, path string, body []by
 	return rec.Code, decoded
 }
 
+// TestHandler_MetadataEndpoints proves the wire response is a single JSON
+// object, not an array -- hashicorp/go-azure-sdk's metadata_host client
+// (GetMetaData) unmarshals into a single struct and hard-fails on an array
+// (AZURE.md section 10.8), which is exactly the shape M7 originally shipped
+// and no test caught, since this decoded into a slice unconditionally
+// instead of asserting the wire shape a real consumer requires.
 func TestHandler_MetadataEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -88,11 +94,10 @@ func TestHandler_MetadataEndpoints(t *testing.T) {
 	status, body := doRequestRaw(t, h, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", nil)
 	require.Equal(t, http.StatusOK, status)
 
-	var docs []map[string]any
+	var doc map[string]any
 
-	require.NoError(t, json.Unmarshal(body, &docs))
-	require.Len(t, docs, 1)
-	assert.Equal(t, "gopherstack", docs[0]["name"])
+	require.NoError(t, json.Unmarshal(body, &doc))
+	assert.Equal(t, "gopherstack", doc["name"])
 }
 
 func TestHandler_OpenIDConfigurationAndInstanceDiscovery(t *testing.T) {

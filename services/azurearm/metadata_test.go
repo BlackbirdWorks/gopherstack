@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -15,15 +14,17 @@ import (
 // or resourceIdentifiers.microsoftGraphResourceId is a hard failure in the
 // real provider, and that graph/graphAudience/suffixes/authentication are
 // all part of the schema FromEndpoint parses.
+//
+// It also asserts the return type is a single EnvironmentDescriptor, not a
+// slice: FromEndpoint's underlying client (go-azure-sdk's GetMetaData)
+// unmarshals the response body into a single JSON object and hard-fails on
+// an array (AZURE.md section 10.8) -- a real M7 bug this test would not have
+// caught if it still indexed into docs[0] the way it originally did.
 func TestBuildMetadataEndpoints(t *testing.T) {
 	t.Parallel()
 
 	settings := azurearm.DefaultSettings()
-	docs := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
-
-	require.Len(t, docs, 1)
-
-	doc := docs[0]
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
 
 	// Every one of these must be non-empty: FromEndpoint hard-fails without them.
 	assert.Equal(t, settings.Environment, doc.Name, "name must equal the configured environment")
@@ -58,10 +59,7 @@ func TestBuildMetadataEndpoints_IPv6Host(t *testing.T) {
 	t.Parallel()
 
 	settings := azurearm.DefaultSettings()
-	docs := azurearm.BuildMetadataEndpoints("https://[::1]:10006", settings)
-
-	require.Len(t, docs, 1)
-	doc := docs[0]
+	doc := azurearm.BuildMetadataEndpoints("https://[::1]:10006", settings)
 
 	assert.NotContains(t, doc.Suffixes.KeyVaultDNS, "[")
 	assert.NotContains(t, doc.Suffixes.SQLServerHostname, "[")
@@ -75,8 +73,7 @@ func TestBuildMetadataEndpoints_CustomEnvironmentName(t *testing.T) {
 	settings := azurearm.DefaultSettings()
 	settings.Environment = "my-custom-cloud"
 
-	docs := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
 
-	require.Len(t, docs, 1)
-	assert.Equal(t, "my-custom-cloud", docs[0].Name)
+	assert.Equal(t, "my-custom-cloud", doc.Name)
 }

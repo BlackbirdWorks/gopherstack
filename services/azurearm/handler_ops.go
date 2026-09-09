@@ -13,9 +13,9 @@ import (
 // handleMetadataEndpoints serves GET /metadata/endpoints?api-version=2022-09-01.
 func (h *Handler) handleMetadataEndpoints(c *echo.Context) error {
 	baseURL := h.baseURLFor(c.Request())
-	docs := BuildMetadataEndpoints(baseURL, h.Settings)
+	doc := BuildMetadataEndpoints(baseURL, h.Settings)
 
-	return h.writeJSON(c, http.StatusOK, docs)
+	return h.writeJSON(c, http.StatusOK, doc)
 }
 
 // handleOpenIDConfiguration serves GET /{tenant}/v2.0/.well-known/openid-configuration.
