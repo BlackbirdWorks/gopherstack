@@ -424,6 +424,33 @@ func doRequestWithAuth(t *testing.T, h *azurearm.Handler, method, path, authHead
 // middleware -- these tests exercise wire behavior, not observability), so
 // httptest.NewRecorder-based requests can be dispatched exactly like
 // StartWorker's real listener would.
+// TestHandler_MetadataEndpoints_HonorsRequestHostPort proves the metadata
+// document's URLs reflect the port a client actually connected on, not
+// h.Port (the listener's own bind port). This matters whenever the ARM
+// port is published under a different host port than it's configured to
+// listen on -- e.g. test/terraform/azure's fixed 10006(container)->18006
+// (host) mapping -- where substituting h.Port would point every subsequent
+// request (including the OAuth token exchange) at an unreachable address.
+func TestHandler_MetadataEndpoints_HonorsRequestHostPort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.Port = 10006
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", http.NoBody)
+	req.Host = "localhost:18006"
+
+	rec := httptest.NewRecorder()
+	newEchoServer(h).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+
+	assert.Equal(t, "https://localhost:18006/", doc["resourceManagerEndpoint"])
+}
+
 func newEchoServer(h *azurearm.Handler) http.Handler {
 	e := echo.New()
 	e.Any("/*", h.Handler())

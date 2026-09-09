@@ -491,8 +491,25 @@ func hostFromHostHeader(hostport string) string {
 // baseURLFor builds this ARM listener's own externally-visible base URL
 // (scheme://host:port) from the request, always https (AZURE.md section
 // 10.8).
+//
+// Uses the port from the request's Host header when present, falling back
+// to h.Port (the listener's own bind port) only when the header carries
+// none. Always substituting h.Port was a real bug: when the container's
+// ARM port is published under a different host port (as
+// test/terraform/azure's fixed 10006->18006 mapping does), a client
+// connecting on the published port received metadata endpoints pointing
+// back at the unreachable container-internal port, and every subsequent
+// request -- including the OAuth token exchange -- failed with "connection
+// refused". The Host header a client sends is exactly the address it
+// dialed, so trusting its port is both simpler and correct where
+// substituting h.Port was not.
 func (h *Handler) baseURLFor(r *http.Request) string {
-	return "https://" + net.JoinHostPort(hostFromHostHeader(r.Host), strconv.Itoa(h.Port))
+	host, port, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host, port = r.Host, strconv.Itoa(h.Port)
+	}
+
+	return "https://" + net.JoinHostPort(host, port)
 }
 
 // decodeJSONBody decodes r's body as a JSON object. An empty body decodes to
