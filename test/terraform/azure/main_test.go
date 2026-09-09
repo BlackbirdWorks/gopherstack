@@ -18,7 +18,6 @@ package azure_test
 import (
 	"context"
 	"crypto/tls"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -34,6 +33,7 @@ import (
 	dockercontainer "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/test/internal/buildcheck"
 	"github.com/blackbirdworks/gopherstack/test/internal/tofu"
 
@@ -55,6 +55,18 @@ const (
 	hostPortTable = "18002"
 )
 
+// containerCertPath/containerKeyPath are where the stable dev certificate
+// (see prepareStableCert) is copied to inside the gopherstack container, and
+// AZURE_ARM_TLS_CERT/AZURE_ARM_TLS_KEY point services/azurearm's listener at
+// them (services/azurearm/settings.go, services/azurearm/handler.go's
+// loadOrGenerateCert). Root-level paths, not /tmp: the image is built FROM
+// scratch (see Dockerfile), which has no pre-existing directory structure
+// beyond the root filesystem itself.
+const (
+	containerCertPath = "/gopherstack-azurearm-cert.pem"
+	containerKeyPath  = "/gopherstack-azurearm-cert.key"
+)
+
 // endpoint is "host:port" (no scheme) for services/azurearm's HTTPS
 // listener -- exactly the metadata_host provider setting's expected shape.
 //
@@ -68,13 +80,21 @@ var endpoint string
 //nolint:gochecknoglobals // shared provider cache path, read-only after init
 var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-azurerm-provider-cache")
 
-// certPEMPath is where TestMain writes the ARM listener's self-signed
-// certificate (fetched via a real TLS handshake, since the cert is
-// generated fresh in-process on every run -- see fetchServerCertPEM), for
-// the tofu child process to trust via SSL_CERT_FILE.
+// certPEMPath is the host-side path of the stable dev certificate (see
+// prepareStableCert) that both the tofu child process (via SSL_CERT_FILE)
+// and the gopherstack container (via a copied-in file at containerCertPath,
+// see startGopherstackContainer) trust -- the same PEM bytes on both sides,
+// generated once and reused across runs rather than regenerated fresh every
+// time services/azurearm's listener starts (AZURE.md section 10.8).
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during tests
 var certPEMPath string
+
+// keyPEMPath is certPEMPath's matching private key, copied into the
+// container at containerKeyPath for AZURE_ARM_TLS_KEY.
+//
+//nolint:gochecknoglobals // set once in TestMain, read-only during tests
+var keyPEMPath string
 
 //nolint:gochecknoglobals // set once in TestMain, read-only during tests
 var tofuBinaryPath string
@@ -99,6 +119,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	skipReason := prepareStableCert(logger)
+	if skipReason != "" {
+		logger.Warn("skipping azure terraform suite", "reason", skipReason)
+		os.Exit(0)
+	}
+
 	ctx := context.Background()
 
 	container, err := startGopherstackContainer(ctx, logger)
@@ -118,10 +144,7 @@ func TestMain(m *testing.M) {
 	// hashicorp/azurerm provider (network access to registry.opentofu.org).
 	// Either failing is an environment limitation, not a code defect --
 	// skip cleanly rather than fail the build.
-	skipReason := prepareTofu(logger)
-	if skipReason == "" {
-		skipReason = prepareCertTrust(ctx, logger)
-	}
+	skipReason = prepareTofu(logger)
 
 	if skipReason != "" {
 		logger.Warn("skipping azure terraform suite", "reason", skipReason)
@@ -196,7 +219,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 	}
 
 	if binInfo, statErr := os.Stat(binPath); statErr == nil {
-		if freshErr := buildcheck.CheckFreshness(logger, binInfo); freshErr != nil {
+		if freshErr := buildcheck.CheckFreshness(logger, binInfo, "../../.."); freshErr != nil {
 			return nil, freshErr
 		}
 
@@ -222,6 +245,42 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"10001/tcp": hostPortQueue,
 				"10002/tcp": hostPortTable,
 			})
+		},
+		// M8: services/azurearm's advertiseEndpoint (rp_storage.go) defaults to
+		// scheme://<ARM request Host's hostname>:<the storage service's
+		// CONFIGURED (in-container) port> -- 10000/10001/10002 -- not the
+		// published HOST port this suite maps them to (18000/18001/18002). A
+		// tofu process running on the host cannot reach container-internal
+		// 10000/10001/10002, so without these overrides ARM would advertise
+		// unreachable endpoints and every direct-data-plane resource
+		// (azurerm_storage_container/_blob/_queue/_table) would fail to
+		// apply. AZURE.md section 10.4 anticipated exactly this and provided
+		// the AZURE_ARM_ADVERTISE_*_ENDPOINT env vars for it; this is a test
+		// harness fix, not a service-code change -- see rp_storage.go's
+		// advertiseEndpoint for the override branch these env vars select.
+		// LOG_LEVEL=debug lets TestTerraform_Azure_StorageDataPlane inspect
+		// container logs to confirm storage_use_azuread=false actually forces
+		// the SharedKey auth path (a malformed/non-SharedKey Authorization
+		// header reaching azureblob/azurequeue/azuretable logs a
+		// "malformed Authorization header accepted" DebugContext line -- see
+		// each service's checkAuth).
+		Env: map[string]string{
+			"AZURE_ARM_ADVERTISE_BLOB_ENDPOINT":  "http://localhost:" + hostPortBlob,
+			"AZURE_ARM_ADVERTISE_QUEUE_ENDPOINT": "http://localhost:" + hostPortQueue,
+			"AZURE_ARM_ADVERTISE_TABLE_ENDPOINT": "http://localhost:" + hostPortTable,
+			"LOG_LEVEL":                          "debug",
+			// A stable cert/key (see prepareStableCert), copied into the
+			// container below via Files, rather than services/azurearm's
+			// default of generating a fresh self-signed certificate on every
+			// start -- so the SAME certificate bytes can be trusted once by
+			// the tofu child process via SSL_CERT_FILE instead of needing a
+			// per-run re-trust step (AZURE.md section 10.8).
+			"AZURE_ARM_TLS_CERT": containerCertPath,
+			"AZURE_ARM_TLS_KEY":  containerKeyPath,
+		},
+		Files: []testcontainers.ContainerFile{
+			{HostFilePath: certPEMPath, ContainerFilePath: containerCertPath, FileMode: 0o444},
+			{HostFilePath: keyPEMPath, ContainerFilePath: containerKeyPath, FileMode: 0o400},
 		},
 		WaitingFor: wait.ForListeningPort("10006/tcp").WithStartupTimeout(60 * time.Second),
 	}
@@ -264,75 +323,70 @@ func prepareTofu(logger *slog.Logger) string {
 	return ""
 }
 
-// prepareCertTrust fetches the ARM listener's self-signed leaf certificate
-// via a real TLS handshake (the cert is generated fresh in-process on every
-// gopherstack start, so there is no static file to read) and writes it as
-// PEM to a temp file for SSL_CERT_FILE. Returns a non-empty skip reason on
-// failure.
-func prepareCertTrust(ctx context.Context, logger *slog.Logger) string {
-	certPEM, err := fetchServerCertPEM(ctx, "localhost:"+hostPortARM)
+// stableCertHostPath/stableKeyHostPath are the fixed host paths a stable
+// dev certificate is generated to (or reused from) once, rather than a
+// fresh os.CreateTemp path every run -- the entire point being that the
+// SAME certificate bytes persist across suite runs, matching the
+// AZURE_ARM_TLS_CERT/AZURE_ARM_TLS_KEY override AZURE.md section 10.8's
+// resolution added to services/azurearm (see services/azurearm/settings.go,
+// services/azurearm/handler.go's loadOrGenerateCert).
+//
+//nolint:gochecknoglobals // fixed derived path, read-only after init -- mirrors tofuProviderCacheDir above
+var stableCertHostPath = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.pem")
+
+//nolint:gochecknoglobals // fixed derived path, read-only after init -- mirrors tofuProviderCacheDir above
+var stableKeyHostPath = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.key")
+
+// prepareStableCert populates certPEMPath/keyPEMPath with a stable
+// self-signed dev certificate: reused as-is from stableCertHostPath/
+// stableKeyHostPath if both files already exist and parse as a valid key
+// pair, else freshly generated (pkgs/devtls) and written there for the next
+// run to reuse. Returns a non-empty skip reason on failure.
+func prepareStableCert(logger *slog.Logger) string {
+	if certExistsAndParses(stableCertHostPath, stableKeyHostPath) {
+		logger.Info("reusing existing stable ARM dev certificate", "cert", stableCertHostPath)
+		certPEMPath, keyPEMPath = stableCertHostPath, stableKeyHostPath
+
+		return ""
+	}
+
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM("localhost", "127.0.0.1")
 	if err != nil {
-		return fmt.Sprintf(
-			"could not fetch services/azurearm's self-signed certificate for SSL_CERT_FILE trust: %v",
-			err,
-		)
+		return fmt.Sprintf("could not generate stable ARM dev certificate: %v", err)
 	}
 
-	f, err := os.CreateTemp("", "gopherstack-azurearm-cert-*.pem")
-	if err != nil {
-		return fmt.Sprintf("could not create temp file for certificate: %v", err)
+	if writeErr := os.WriteFile(stableCertHostPath, certPEM, 0o600); writeErr != nil {
+		return fmt.Sprintf("could not write stable ARM dev certificate: %v", writeErr)
 	}
 
-	if _, err = f.Write(certPEM); err != nil {
-		_ = f.Close()
-
-		return fmt.Sprintf("could not write certificate to temp file: %v", err)
+	if writeErr := os.WriteFile(stableKeyHostPath, keyPEM, 0o600); writeErr != nil {
+		return fmt.Sprintf("could not write stable ARM dev certificate key: %v", writeErr)
 	}
 
-	if err = f.Close(); err != nil {
-		return fmt.Sprintf("could not close certificate temp file: %v", err)
-	}
-
-	certPEMPath = f.Name()
-
-	logger.InfoContext(
-		ctx,
-		"wrote services/azurearm's self-signed certificate for SSL_CERT_FILE trust",
-		"path",
-		certPEMPath,
-	)
+	certPEMPath, keyPEMPath = stableCertHostPath, stableKeyHostPath
+	logger.Info("generated stable ARM dev certificate", "cert", stableCertHostPath)
 
 	return ""
 }
 
-// fetchServerCertPEM dials addr over TLS (skipping verification, since we
-// don't yet trust the cert we're about to extract) and PEM-encodes the
-// leaf certificate the server presented.
-func fetchServerCertPEM(ctx context.Context, addr string) ([]byte, error) {
-	dialer := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
-
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+// certExistsAndParses reports whether certPath/keyPath both exist and parse
+// as a valid TLS key pair -- if either check fails, prepareStableCert
+// regenerates rather than reusing a stale or corrupt file.
+func certExistsAndParses(certPath, keyPath string) bool {
+	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
-		return nil, fmt.Errorf("dialing %s: %w", addr, err)
-	}
-	defer conn.Close()
-
-	tlsConn, ok := conn.(*tls.Conn)
-	if !ok {
-		return nil, errNotATLSConn
+		return false
 	}
 
-	certs := tlsConn.ConnectionState().PeerCertificates
-	if len(certs) == 0 {
-		return nil, errNoPeerCertificates
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		return false
 	}
 
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certs[0].Raw}), nil
+	_, err = tls.X509KeyPair(certPEM, keyPEM)
+
+	return err == nil
 }
-
-var errNotATLSConn = errors.New("dialed connection is not a *tls.Conn")
-
-var errNoPeerCertificates = errors.New("server presented no certificates")
 
 // azurermProviderBlock returns the HCL required_providers + provider
 // "azurerm" block pointing every ARM call at the running gopherstack
@@ -365,10 +419,12 @@ provider "azurerm" {
 }
 
 // azureResourceGroupAndStorageAccountFixture is the M7 acceptance fixture:
-// one resource group and one storage account, both pure-ARM resources (no
-// direct-data-plane azurerm_storage_container/_blob/_queue/_table -- those
-// are out of scope until M10, see AZURE.md section 10.8's second open
-// uncertainty).
+// one resource group and one storage account, both pure-ARM resources.
+// Direct-data-plane resources (azurerm_storage_container/_blob/_queue/_table)
+// are exercised separately by storage_dataplane_test.go's own fixture (M8,
+// see AZURE.md section 10.8's second resolved finding and section 10.10's M8
+// entry) rather than being added to this one, so the M7 and M8 fixtures stay
+// independently testable.
 const azureResourceGroupAndStorageAccountFixture = `
 resource "azurerm_resource_group" "test" {
   name     = "gopherstack-m7-test-rg"

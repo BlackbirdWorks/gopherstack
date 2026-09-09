@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-// repoRoot mirrors the relative path used by both test/terraform and
-// test/integration to reach the repo root: both packages live one
-// directory below test/, so `go test`'s package-directory CWD puts the
-// repo root at the same relative depth for either caller.
-const repoRoot = "../.."
-
 // ErrStaleBinary means bin/gopherstack-linux predates a .go file that builds
 // into it. Dockerfile.test serves that gitignored binary as-is (gopherstack-ydop):
 // a stale one makes container-backed tests silently validate old code and
@@ -28,6 +22,15 @@ var ErrStaleBinary = errors.New("bin/gopherstack-linux is stale")
 
 // CheckFreshness fails loudly when any .go file under services/, pkgs/, or
 // the root package is newer than the already-stat'd bin/gopherstack-linux.
+// repoRoot is the caller's relative path from its own package directory
+// (where `go test` sets CWD) to the repository root -- "../.." for a
+// package living one directory below test/ (test/terraform,
+// test/integration), "../../.." for one living two directories below it
+// (test/terraform/azure), and so on. There is no single constant that works
+// for every caller, which is exactly the bug this parameter fixes: an
+// earlier hardcoded "../.." silently resolved to the wrong directory (and
+// therefore a bogus "walking test/terraform/services: no such file or
+// directory" error) for test/terraform/azure.
 //
 // Skipped in CI: the build job for these suites compiles the binary fresh
 // from the exact commit under test, moments before this check would run.
@@ -35,7 +38,7 @@ var ErrStaleBinary = errors.New("bin/gopherstack-linux is stale")
 // from filesystem mtimes -- and mtimes are not a reliable signal across an
 // artifact upload/download round-trip, so comparing them here could turn
 // into exactly the permanent CI failure this check must not become.
-func CheckFreshness(logger *slog.Logger, binInfo fs.FileInfo) error {
+func CheckFreshness(logger *slog.Logger, binInfo fs.FileInfo, repoRoot string) error {
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
 		logger.Info("skipping bin/gopherstack-linux freshness check under CI; " +
 			"the build job compiles it fresh from this exact checkout")
@@ -43,7 +46,7 @@ func CheckFreshness(logger *slog.Logger, binInfo fs.FileInfo) error {
 		return nil
 	}
 
-	newestPath, newestMod, err := newestGoFile()
+	newestPath, newestMod, err := newestGoFile(repoRoot)
 	if err != nil {
 		return fmt.Errorf("checking bin/gopherstack-linux freshness: %w", err)
 	}
@@ -66,7 +69,7 @@ func CheckFreshness(logger *slog.Logger, binInfo fs.FileInfo) error {
 // newestGoFile returns the path and mtime of the most recently modified .go
 // file under services/, pkgs/, and the root package -- the source that
 // actually builds into bin/gopherstack-linux.
-func newestGoFile() (string, time.Time, error) {
+func newestGoFile(repoRoot string) (string, time.Time, error) {
 	var (
 		newestPath string
 		newestMod  time.Time

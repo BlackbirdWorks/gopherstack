@@ -435,8 +435,14 @@ jobs:
         run: |
           TOTAL_CHUNKS=8
           CHUNK=${{ matrix.chunk }}
-          # Discover all test functions from source (no Docker needed)
-          TESTS=$(grep -rh '^func Test' test/terraform/*_test.go | sed 's/func \(Test[^ (]*\).*/\1/' | sort -u)
+          # Discover all test functions from source (no Docker needed).
+          # test/terraform/azure is a separate package one directory deeper
+          # (AZURE.md section 10.10), so it needs its own glob term -- a bare
+          # test/terraform/*_test.go never matched it, meaning the Azure
+          # Terraform suite (M7/M8) never actually ran in CI despite
+          # `./test/terraform/...` being the -v target below.
+          TESTS=$(grep -rh '^func Test' test/terraform/*_test.go test/terraform/azure/*_test.go \
+            | sed 's/func \(Test[^ (]*\).*/\1/' | sort -u)
           # Round-robin distribute tests across chunks
           CHUNK_TESTS=$(echo "$TESTS" | awk "NR % ${TOTAL_CHUNKS} == ${CHUNK}")
           COUNT=$(echo "$CHUNK_TESTS" | wc -l | tr -d ' ')

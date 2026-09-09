@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -486,6 +490,100 @@ func TestHandler_StartWorker_BindsServesHTTPS(t *testing.T) {
 
 		return resp.StatusCode == http.StatusOK
 	}, 2*time.Second, 10*time.Millisecond, "dedicated HTTPS listener should become reachable")
+}
+
+// TestHandler_StartWorker_TLSCertOverride covers loadOrGenerateCert's three
+// branches: both --azure-arm-tls-cert/--azure-arm-tls-key set (the listener
+// must serve exactly that stable certificate, not a freshly generated
+// self-signed one -- the whole point of the override, see
+// test/terraform/azure/main_test.go), only one of the pair set (rejected
+// rather than silently falling back to self-signed, which would mask a
+// misconfiguration), and an unreadable cert path.
+func TestHandler_StartWorker_TLSCertOverride(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "cert.pem")
+	keyPath := filepath.Join(dir, "key.pem")
+	require.NoError(t, os.WriteFile(certPath, certPEM, 0o600))
+	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
+
+	tests := []struct {
+		name        string
+		certFile    string
+		keyFile     string
+		wantErrText string
+	}{
+		{
+			name:     "both set: the stable cert is served, not a fresh self-signed one",
+			certFile: certPath, keyFile: keyPath,
+		},
+		{name: "cert without key is rejected", certFile: certPath, keyFile: "", wantErrText: "tls-key"},
+		{name: "key without cert is rejected", certFile: "", keyFile: keyPath, wantErrText: "tls-cert"},
+		{
+			name:        "unreadable cert path fails loading, not a silent self-signed fallback",
+			certFile:    filepath.Join(dir, "does-not-exist.pem"),
+			keyFile:     keyPath,
+			wantErrText: "load TLS certificate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			port := freeEphemeralPort(t)
+			h := newTestHandler(t)
+			h.Port = port
+			h.Settings.TLSCertFile = tt.certFile
+			h.Settings.TLSKeyFile = tt.keyFile
+
+			startErr := h.StartWorker(t.Context())
+
+			if tt.wantErrText != "" {
+				require.Error(t, startErr)
+				assert.Contains(t, startErr.Error(), tt.wantErrText)
+
+				return
+			}
+
+			require.NoError(t, startErr)
+			t.Cleanup(func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				h.Shutdown(shutdownCtx)
+			})
+
+			var peerRaw []byte
+
+			require.Eventually(t, func() bool {
+				conn, dialErr := tls.Dial(
+					"tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{InsecureSkipVerify: true},
+				)
+				if dialErr != nil {
+					return false
+				}
+				defer conn.Close()
+
+				certs := conn.ConnectionState().PeerCertificates
+				if len(certs) == 0 {
+					return false
+				}
+
+				peerRaw = certs[0].Raw
+
+				return true
+			}, 2*time.Second, 10*time.Millisecond, "dedicated HTTPS listener should become reachable")
+
+			block, _ := pem.Decode(certPEM)
+			require.NotNil(t, block)
+			assert.Equal(t, block.Bytes, peerRaw,
+				"served certificate should be the stable TLSCertFile cert, not a freshly generated one")
+		})
+	}
 }
 
 func TestHandler_StartWorker_BindFailureIsSynchronous(t *testing.T) {

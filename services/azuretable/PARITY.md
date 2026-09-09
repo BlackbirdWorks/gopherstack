@@ -138,6 +138,9 @@ identical ETags, so `store.go`'s `bumpTimestamp` forces at least a 100ns
 forward step past the entity's previous `Timestamp` even when the injected
 clock hasn't advanced.
 
+### M8: Terraform-provisioned coverage
+`test/terraform/azure/storage_dataplane_test.go`'s `TestTerraform_Azure_StorageDataPlane` provisions an `azurerm_storage_table` (via an unmodified `hashicorp/azurerm` Terraform provider against `services/azurearm`'s Storage RP, M7) and inserts/queries an entity through it with `azure-sdk-for-go/sdk/data/aztables` (Terraform itself has no entity resource), alongside this service's existing Go-SDK integration coverage (`test/integration/azuretable_test.go`) -- see `AZURE.md` section 10.10's M8 entry for current pass/skip status, which can depend on the running host's TLS-trust behavior independent of this service.
+
 ## More
 
 - [Full parity audit](PARITY.md)

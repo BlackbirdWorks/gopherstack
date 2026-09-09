@@ -202,7 +202,7 @@ func TestMain(m *testing.M) {
 	}
 
 	if binInfo, err := os.Stat(binPath); err == nil {
-		if freshErr := buildcheck.CheckFreshness(logger, binInfo); freshErr != nil {
+		if freshErr := buildcheck.CheckFreshness(logger, binInfo, "../.."); freshErr != nil {
 			logger.Error(freshErr.Error())
 			os.Exit(1)
 		}
