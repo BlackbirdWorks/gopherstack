@@ -38,10 +38,22 @@ type EnvironmentDescriptor struct {
 }
 
 // EnvironmentAuth is EnvironmentDescriptor's "authentication" field.
+//
+// Tenant must be the literal string "common", and IdentityProvider must be
+// "AAD" -- not gopherstack's fixed tenant GUID. hashicorp/go-azure-sdk's
+// Environment.IsAzureStack() (sdk/environments/azure_stack.go) treats any
+// other combination as an Azure Stack environment, which
+// terraform-provider-azurerm explicitly refuses to run against
+// (internal/clients/builder.go: "does not support Azure Stack"). Real
+// Azure's own AzurePublic() environment (sdk/environments/azure_public.go)
+// hardcodes exactly these two values even though it obviously isn't
+// single-tenant -- this is a control field for auth flow selection, not a
+// place to plug in a real tenant ID.
 type EnvironmentAuth struct {
-	LoginEndpoint string   `json:"loginEndpoint"`
-	Tenant        string   `json:"tenant"`
-	Audiences     []string `json:"audiences"`
+	LoginEndpoint    string   `json:"loginEndpoint"`
+	IdentityProvider string   `json:"identityProvider"`
+	Tenant           string   `json:"tenant"`
+	Audiences        []string `json:"audiences"`
 }
 
 // EnvironmentSuffixes is EnvironmentDescriptor's "suffixes" field.
@@ -77,9 +89,10 @@ func BuildMetadataEndpoints(baseURL string, settings Settings) EnvironmentDescri
 		Name:   settings.Environment,
 		Portal: baseURL + "/portal",
 		Authentication: EnvironmentAuth{
-			LoginEndpoint: baseURL + "/",
-			Audiences:     []string{baseURL + "/", "https://management.core.windows.net/"},
-			Tenant:        settings.TenantID,
+			LoginEndpoint:    baseURL + "/",
+			Audiences:        []string{baseURL + "/", "https://management.core.windows.net/"},
+			IdentityProvider: "AAD",
+			Tenant:           "common",
 		},
 		Graph:                   baseURL + "/graph",
 		GraphAudience:           baseURL + "/graph",

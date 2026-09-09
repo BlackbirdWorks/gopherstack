@@ -35,7 +35,12 @@ func TestBuildMetadataEndpoints(t *testing.T) {
 
 	assert.NotEmpty(t, doc.Authentication.LoginEndpoint)
 	assert.NotEmpty(t, doc.Authentication.Audiences)
-	assert.Equal(t, settings.TenantID, doc.Authentication.Tenant)
+	// Tenant must be "common" and IdentityProvider "AAD" regardless of
+	// settings.TenantID: hashicorp/go-azure-sdk's Environment.IsAzureStack()
+	// treats any other value as an Azure Stack environment, which
+	// terraform-provider-azurerm refuses to run against.
+	assert.Equal(t, "common", doc.Authentication.Tenant)
+	assert.Equal(t, "AAD", doc.Authentication.IdentityProvider)
 
 	assert.NotEmpty(t, doc.Graph)
 	assert.NotEmpty(t, doc.GraphAudience)
