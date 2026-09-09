@@ -10,24 +10,31 @@ import (
 // for why this is non-obvious and easy to get backwards). Field set and
 // semantics verified against hashicorp/go-azure-sdk's
 // environments.FromEndpoint, which hard-fails on a document missing Name,
-// ResourceManagerEndpoint, or ResourceIdentifiers.MicrosoftGraphResourceID
-// (AZURE.md section 10.8) -- every one of those three, plus every other
-// field FromEndpoint reads, is populated below.
+// ResourceManagerEndpoint, or MicrosoftGraphResourceID (AZURE.md section
+// 10.8) -- every one of those three, plus every other field FromEndpoint
+// reads, is populated below.
+//
+// MicrosoftGraphResourceID is a TOP-LEVEL field ("microsoftGraphResourceId"),
+// not nested under a "resourceIdentifiers" object -- verified against
+// go-azure-sdk's sdk/internal/metadata/client.go's unexported
+// metaDataResponse wire struct, which has no ResourceIdentifiers field at
+// all. Nesting it silently zero-values the field on unmarshal (FromEndpoint
+// then fails with "no `microsoftGraphResourceId` was returned").
 type EnvironmentDescriptor struct {
-	Suffixes                EnvironmentSuffixes    `json:"suffixes"`
-	Gallery                 string                 `json:"gallery"`
-	Media                   string                 `json:"media,omitempty"`
-	Graph                   string                 `json:"graph"`
-	GraphAudience           string                 `json:"graphAudience"`
-	Name                    string                 `json:"name"`
-	ResourceManager         string                 `json:"resourceManager"`
-	ResourceManagerEndpoint string                 `json:"resourceManagerEndpoint"`
-	ActiveDirectoryDataLake string                 `json:"activeDirectoryDataLake,omitempty"`
-	SQLManagement           string                 `json:"sqlManagement,omitempty"`
-	Batch                   string                 `json:"batch,omitempty"`
-	Portal                  string                 `json:"portal"`
-	ResourceIdentifiers     EnvironmentResourceIDs `json:"resourceIdentifiers"`
-	Authentication          EnvironmentAuth        `json:"authentication"`
+	Suffixes                 EnvironmentSuffixes `json:"suffixes"`
+	Gallery                  string              `json:"gallery"`
+	Media                    string              `json:"media,omitempty"`
+	Graph                    string              `json:"graph"`
+	GraphAudience            string              `json:"graphAudience"`
+	Name                     string              `json:"name"`
+	ResourceManager          string              `json:"resourceManager"`
+	ResourceManagerEndpoint  string              `json:"resourceManagerEndpoint"`
+	ActiveDirectoryDataLake  string              `json:"activeDirectoryDataLake,omitempty"`
+	SQLManagement            string              `json:"sqlManagement,omitempty"`
+	Batch                    string              `json:"batch,omitempty"`
+	Portal                   string              `json:"portal"`
+	MicrosoftGraphResourceID string              `json:"microsoftGraphResourceId"`
+	Authentication           EnvironmentAuth     `json:"authentication"`
 }
 
 // EnvironmentAuth is EnvironmentDescriptor's "authentication" field.
@@ -44,12 +51,6 @@ type EnvironmentSuffixes struct {
 	SQLServerHostname  string `json:"sqlServerHostname"`
 	ACRLoginServer     string `json:"acrLoginServer"`
 	AzureDatalakeStore string `json:"azureDataLakeStoreFileSystem,omitempty"`
-}
-
-// EnvironmentResourceIDs is EnvironmentDescriptor's "resourceIdentifiers"
-// field -- FromEndpoint hard-fails without MicrosoftGraphResourceID.
-type EnvironmentResourceIDs struct {
-	MicrosoftGraphResourceID string `json:"microsoftGraphResourceId"`
 }
 
 // BuildMetadataEndpoints builds the GET /metadata/endpoints response body
@@ -91,9 +92,7 @@ func BuildMetadataEndpoints(baseURL string, settings Settings) EnvironmentDescri
 			SQLServerHostname: ".database." + hostnameOnly(baseURL),
 			ACRLoginServer:    ".azurecr." + hostnameOnly(baseURL),
 		},
-		ResourceIdentifiers: EnvironmentResourceIDs{
-			MicrosoftGraphResourceID: baseURL + "/graph",
-		},
+		MicrosoftGraphResourceID: baseURL + "/graph",
 	}
 }
 

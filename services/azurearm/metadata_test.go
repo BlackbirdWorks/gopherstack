@@ -11,9 +11,10 @@ import (
 // TestBuildMetadataEndpoints asserts the presence of every field
 // hashicorp/go-azure-sdk's environments.FromEndpoint requires or reads --
 // AZURE.md section 10.8 is explicit that missing name, resourceManagerEndpoint,
-// or resourceIdentifiers.microsoftGraphResourceId is a hard failure in the
-// real provider, and that graph/graphAudience/suffixes/authentication are
-// all part of the schema FromEndpoint parses.
+// or microsoftGraphResourceId (a top-level field, not nested under a
+// resourceIdentifiers object) is a hard failure in the real provider, and
+// that graph/graphAudience/suffixes/authentication are all part of the
+// schema FromEndpoint parses.
 //
 // It also asserts the return type is a single EnvironmentDescriptor, not a
 // slice: FromEndpoint's underlying client (go-azure-sdk's GetMetaData)
@@ -30,7 +31,7 @@ func TestBuildMetadataEndpoints(t *testing.T) {
 	assert.Equal(t, settings.Environment, doc.Name, "name must equal the configured environment")
 	assert.NotEmpty(t, doc.ResourceManager)
 	assert.NotEmpty(t, doc.ResourceManagerEndpoint)
-	assert.NotEmpty(t, doc.ResourceIdentifiers.MicrosoftGraphResourceID)
+	assert.NotEmpty(t, doc.MicrosoftGraphResourceID)
 
 	assert.NotEmpty(t, doc.Authentication.LoginEndpoint)
 	assert.NotEmpty(t, doc.Authentication.Audiences)
