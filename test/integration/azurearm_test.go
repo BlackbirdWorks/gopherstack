@@ -93,11 +93,10 @@ func TestIntegration_AzureARM_MetadataAndToken(t *testing.T) {
 	resp := armRequest(t, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var docs []map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&docs))
-	require.Len(t, docs, 1)
-	assert.Equal(t, "gopherstack", docs[0]["name"])
-	assert.NotEmpty(t, docs[0]["resourceManagerEndpoint"])
+	var doc map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&doc))
+	assert.Equal(t, "gopherstack", doc["name"])
+	assert.NotEmpty(t, doc["resourceManagerEndpoint"])
 
 	tenant := "00000000-0000-0000-0000-000000000000"
 
