@@ -732,3 +732,66 @@ handler return, never stored and re-checked. No other instance found.
 `go test -race ./services/lambda/...` and `golangci-lint run ./services/lambda/...` both clean
 after the fix. Full `go test ./services/...` also green (see gopherstack-3t96's cross-service
 report for the combined blast-radius run covering lambda, securityhub, and organizations).
+
+## 2026-09-09: mockBackend.InvokeFunction data race (gopherstack-cedf, P2) -- test-only, found and fixed
+
+`(*mockBackend).InvokeFunction` (handler_test.go:104) did `m.invokeCount++` and then read
+`m.functions[name]` while holding no lock, the sole outlier among the struct's methods --
+every sibling (`CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`,
+`UpdateFunction`) takes `m.mu` correctly. `TestExtractOperation_SDKRouteTable`
+(handler_paths_sdk_diff_test.go) shares one `mockBackend` across its parallel subtests and
+drives one of them through the invoke path, so concurrent subtests raced on `invokeCount`.
+Pre-existing and unrelated to any recent change; first surfaced (4/30 runs) by the
+gopherstack-9zx goleak-fix pass's own baseline measurement, tracked separately as this issue.
+
+**Test first.** Added `TestMockBackend_InvokeFunction_ConcurrentAccess` (handler_test.go): 50
+goroutines call `InvokeFunction` on one shared `mockBackend`, joined by a `sync.WaitGroup`, then
+the final count is asserted -- a deterministic reproducer rather than relying on the existing
+parallel subtests to happen to interleave. Confirmed failing against the unmodified method,
+verbatim (`go test -race -count=1 -run TestMockBackend_InvokeFunction_ConcurrentAccess
+./services/lambda/...`):
+
+```
+==================
+WARNING: DATA RACE
+Read at 0x00c000144170 by goroutine 47:
+  github.com/blackbirdworks/gopherstack/services/lambda_test.(*mockBackend).InvokeFunction()
+      /home/agbishop/gopherstack/services/lambda/handler_test.go:110 +0x9a
+  github.com/blackbirdworks/gopherstack/services/lambda_test.TestMockBackend_InvokeFunction_ConcurrentAccess.func1()
+      /home/agbishop/gopherstack/services/lambda/handler_test.go:825 +0xd9
+
+Previous write at 0x00c000144170 by goroutine 45:
+  github.com/blackbirdworks/gopherstack/services/lambda_test.(*mockBackend).InvokeFunction()
+      /home/agbishop/gopherstack/services/lambda/handler_test.go:110 +0xb2
+  github.com/blackbirdworks/gopherstack/services/lambda_test.TestMockBackend_InvokeFunction_ConcurrentAccess.func1()
+      /home/agbishop/gopherstack/services/lambda/handler_test.go:825 +0xd9
+==================
+--- FAIL: TestMockBackend_InvokeFunction_ConcurrentAccess (0.00s)
+    testing.go:1865: race detected during execution of test
+FAIL
+```
+20/20 separate process runs failed pre-fix (reliable, not occasional).
+
+Fixed by taking `m.mu.Lock()` with a deferred `Unlock()` at the top of `InvokeFunction`, matching
+its siblings -- it both writes `invokeCount` and reads `m.functions`, so the write lock is
+required, not `RLock`. The method has several early returns, so the deferred-unlock shape (not a
+manual unlock before each return) is what keeps every path covered.
+
+Line 785's `assert.Equal(t, 0, bk.invokeCount, ...)` (in `TestInvoke`, unrelated to the shared-
+backend race above -- each `TestInvoke` subtest gets its own `mockBackend` via `newHandler`) still
+read the field directly with no lock: locking inside `InvokeFunction` alone does not make an
+external, unlocked read of the same field race-free against any in-flight call. Added a locked
+accessor, `(*mockBackend).InvokeCount() int` (`m.mu.RLock`/`RUnlock`), and pointed line 785 at it.
+Grepped the rest of the package for other direct field access on `mockBackend`: every `bk.functions[...]
+= ...` setup call (handler_test.go, invocation_test.go) runs synchronously in a subtest's own
+`setup`/`setupMock` callback before the handler is invoked, against a `mockBackend` not shared with
+any other goroutine -- no lock needed there. `TestHandleInvokeWithResponseStream_EventStreamEncoding`
+(invocation_test.go:568-572) already wraps its direct `mb.functions[...]`/`mb.invokeResult` writes in
+`mb.mu.Lock()`/`Unlock()`; left as-is.
+
+No pre-existing assertion was weakened or removed -- line 785 still checks the same invariant
+(a rejected invocation header must never reach the backend), just through a locked accessor.
+
+Gates after the fix: `golangci-lint run ./services/lambda/...` 0 issues; 25 separate process
+invocations of `go test -p 1 -race -count=1 ./services/lambda/...` (a shell loop, not
+`-count=25`), 0/25 failures.

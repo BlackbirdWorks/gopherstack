@@ -107,6 +107,9 @@ func (m *mockBackend) InvokeFunction(
 	invocationType lambda.InvocationType,
 	_ []byte,
 ) ([]byte, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.invokeCount++
 
 	if m.invokeErr != nil {
@@ -131,6 +134,13 @@ func (m *mockBackend) InvokeFunction(
 	}
 
 	return result, http.StatusOK, nil
+}
+
+func (m *mockBackend) InvokeCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.invokeCount
 }
 
 func (m *mockBackend) Purge(_ context.Context, _ time.Time) {}
@@ -782,7 +792,7 @@ func TestInvoke(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantNoInvoke {
-				assert.Equal(t, 0, bk.invokeCount, "a rejected invocation header must not reach the backend")
+				assert.Equal(t, 0, bk.InvokeCount(), "a rejected invocation header must not reach the backend")
 			}
 
 			if tt.wantErrType != "" {
@@ -794,4 +804,35 @@ func TestInvoke(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMockBackend_InvokeFunction_ConcurrentAccess is a deterministic
+// reproducer for gopherstack-cedf: InvokeFunction mutated invokeCount and
+// read functions without m.mu, racing against every other goroutine calling
+// it concurrently (as TestExtractOperation_SDKRouteTable's parallel subtests
+// do against a shared mockBackend). N goroutines call InvokeFunction on a
+// shared mockBackend, joined by a WaitGroup, then the final count is
+// asserted.
+func TestMockBackend_InvokeFunction_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	bk := newMockBackend()
+	bk.functions["race-func"] = &lambda.FunctionConfiguration{FunctionName: "race-func"}
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_, _, _ = bk.InvokeFunction(context.Background(), "race-func", lambda.InvocationTypeRequestResponse, nil)
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, goroutines, bk.InvokeCount())
 }
