@@ -20,6 +20,13 @@ var (
 	ErrInvalidSnapshotSource              = errors.New(
 		"exactly one of CacheClusterId or ReplicationGroupId must be specified",
 	)
+	// ErrNodeTypeModSourceRequired matches ListAllowedNodeTypeModifications'
+	// documented constraint (api_op_ListAllowedNodeTypeModifications.go: "You
+	// must provide a value for either the CacheClusterId or the
+	// ReplicationGroupId").
+	ErrNodeTypeModSourceRequired = errors.New(
+		"you must provide a value for either the CacheClusterId or the ReplicationGroupId",
+	)
 )
 
 var (

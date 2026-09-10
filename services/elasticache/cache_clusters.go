@@ -522,11 +522,38 @@ func (b *InMemoryBackend) RebootCacheCluster(
 	return b.clusterView(c), nil
 }
 
-// ListAllowedNodeTypeModifications returns a list of allowed node type modifications.
-func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_ context.Context, _, _ string) ([]string, error) {
-	return []string{
-		nodeTypeT3Micro, "cache.t3.small", "cache.t3.medium",
-		"cache.m6g.large", "cache.m6g.xlarge",
-		"cache.r6g.large", "cache.r6g.xlarge", "cache.r6g.2xlarge",
-	}, nil
+// ListAllowedNodeTypeModifications returns the node types a cluster or
+// replication group could scale to, derived from its current node type's
+// memory size in nodeTypeMemoryGiB.
+func (b *InMemoryBackend) ListAllowedNodeTypeModifications(
+	ctx context.Context,
+	clusterID, replicationGroupID string,
+) ([]string, []string, error) {
+	b.mu.RLock("ListAllowedNodeTypeModifications")
+	defer b.mu.RUnlock()
+
+	if (clusterID == "") == (replicationGroupID == "") {
+		return nil, nil, ErrNodeTypeModSourceRequired
+	}
+
+	region := getRegion(ctx, b.region)
+
+	var currentType string
+	if clusterID != "" {
+		c, ok := b.clustersStoreRO(region).Get(clusterID)
+		if !ok {
+			return nil, nil, ErrClusterNotFound
+		}
+		currentType = c.NodeType
+	} else {
+		rg, ok := b.replicationGroupsStoreRO(region).Get(replicationGroupID)
+		if !ok {
+			return nil, nil, ErrReplicationGroupNotFound
+		}
+		currentType = rg.CacheNodeType
+	}
+
+	scaleUp, scaleDown, _ := allowedNodeTypeModifications(currentType)
+
+	return scaleUp, scaleDown, nil
 }

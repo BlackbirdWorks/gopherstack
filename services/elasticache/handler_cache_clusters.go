@@ -533,8 +533,18 @@ func (h *Handler) listAllowedNodeTypeModifications(ctx context.Context, c *echo.
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	mods, err := h.Backend.ListAllowedNodeTypeModifications(ctx, clusterID, replicationGroupID)
+	scaleUp, scaleDown, err := h.Backend.ListAllowedNodeTypeModifications(ctx, clusterID, replicationGroupID)
 	if err != nil {
+		if errors.Is(err, ErrNodeTypeModSourceRequired) {
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+		}
+		if errors.Is(err, ErrClusterNotFound) {
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+		}
+		if errors.Is(err, ErrReplicationGroupNotFound) {
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -550,7 +560,8 @@ func (h *Handler) listAllowedNodeTypeModifications(ctx context.Context, c *echo.
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                elasticacheNS,
-		ScaleUpModifications: scaleModsXML{Member: mods},
+		Xmlns:                  elasticacheNS,
+		ScaleUpModifications:   scaleModsXML{Member: scaleUp},
+		ScaleDownModifications: scaleModsXML{Member: scaleDown},
 	})
 }
