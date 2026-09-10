@@ -20,10 +20,11 @@ type AvailabilityZone struct {
 
 // SubnetMapping holds subnet configuration for CreateLoadBalancer and SetSubnets.
 type SubnetMapping struct {
-	SubnetID           string
-	AllocationID       string
-	PrivateIPv4Address string
-	IPv6Address        string
+	SubnetID            string
+	AllocationID        string
+	PrivateIPv4Address  string
+	IPv6Address         string
+	SourceNatIpv6Prefix string
 }
 
 // CapacityReservation holds the capacity reservation state for a load balancer,
@@ -81,10 +82,12 @@ type TargetGroup struct {
 
 // Target represents a registered target in a target group.
 type Target struct {
-	ID           string `json:"id"`
-	HealthState  string `json:"healthState,omitempty"`
-	HealthReason string `json:"healthReason,omitempty"`
-	Port         int32  `json:"port"`
+	ID               string `json:"id"`
+	HealthState      string `json:"healthState,omitempty"`
+	HealthReason     string `json:"healthReason,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	QuicServerID     string `json:"quicServerId,omitempty"`
+	Port             int32  `json:"port"`
 }
 
 // TargetHealthDescription describes the health state of a registered target.

@@ -363,6 +363,10 @@ const (
 	stateAnalysisSucceeded = "succeeded"
 	fleetTypeDefault       = "maintain"
 	fleetTypeInstant       = "instant"
+	// fleetExcessTerminationPolicy is FleetExcessCapacityTerminationPolicyTermination
+	// (ec2@v1.329.0 types/enums.go:3057), the default policy under which a
+	// capacity decrease terminates the excess instances.
+	fleetExcessTerminationPolicy = "termination"
 )
 
 type TrafficMirrorFilter struct {
@@ -436,17 +440,19 @@ type TrafficMirrorTarget struct {
 // Fleet holds an EC2 Fleet.
 
 type Fleet struct {
-	FleetID                          string   `json:"fleetId,omitempty"`
-	FleetState                       string   `json:"fleetState,omitempty"`
-	FleetType                        string   `json:"fleetType,omitempty"`
-	TargetCapacityUnitType           string   `json:"targetCapacityUnitType,omitempty"`
-	ExcessCapacityTerminationPolicy  string   `json:"excessCapacityTerminationPolicy,omitempty"`
-	DefaultTargetCapacityType        string   `json:"defaultTargetCapacityType,omitempty"`
-	InstanceIDs                      []string `json:"instanceIds,omitempty"`
-	TotalTargetCapacity              int      `json:"totalTargetCapacity,omitempty"`
-	OnDemandTargetCapacity           int      `json:"onDemandTargetCapacity,omitempty"`
-	SpotTargetCapacity               int      `json:"spotTargetCapacity,omitempty"`
-	TerminateInstancesWithExpiration bool     `json:"terminateInstancesWithExpiration,omitempty"`
+	FleetID                          string                      `json:"fleetId,omitempty"`
+	FleetState                       string                      `json:"fleetState,omitempty"`
+	FleetType                        string                      `json:"fleetType,omitempty"`
+	TargetCapacityUnitType           string                      `json:"targetCapacityUnitType,omitempty"`
+	ExcessCapacityTerminationPolicy  string                      `json:"excessCapacityTerminationPolicy,omitempty"`
+	DefaultTargetCapacityType        string                      `json:"defaultTargetCapacityType,omitempty"`
+	InstanceIDs                      []string                    `json:"instanceIds,omitempty"`
+	LaunchTemplateConfigs            []FleetLaunchTemplateConfig `json:"launchTemplateConfigs,omitempty"`
+	TotalTargetCapacity              int                         `json:"totalTargetCapacity,omitempty"`
+	OnDemandTargetCapacity           int                         `json:"onDemandTargetCapacity,omitempty"`
+	SpotTargetCapacity               int                         `json:"spotTargetCapacity,omitempty"`
+	FulfilledCapacity                float64                     `json:"fulfilledCapacity,omitempty"`
+	TerminateInstancesWithExpiration bool                        `json:"terminateInstancesWithExpiration,omitempty"`
 }
 
 // ---- Network Insights ----

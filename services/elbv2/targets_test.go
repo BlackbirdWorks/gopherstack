@@ -201,14 +201,14 @@ func TestDeregisterTargetsPortAware(t *testing.T) {
 	var resp struct {
 		Result struct {
 			TargetHealthDescriptions struct {
-				Members []struct { //nolint:govet // field order is chosen for readability
+				Members []struct {
+					TargetHealth struct {
+						State string `xml:"State"`
+					} `xml:"TargetHealth"`
 					Target struct {
 						ID   string `xml:"Id"`
 						Port int    `xml:"Port"`
 					} `xml:"Target"`
-					TargetHealth struct {
-						State string `xml:"State"`
-					} `xml:"TargetHealth"`
 				} `xml:"member"`
 			} `xml:"TargetHealthDescriptions"`
 		} `xml:"DescribeTargetHealthResult"`
@@ -695,4 +695,74 @@ func TestDescribeTargetHealth_FilterByTarget(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.TargetHealthDescriptions.Members, 1)
 	assert.Equal(t, "i-target-a", resp.Result.TargetHealthDescriptions.Members[0].Target.ID)
+}
+
+// TestDescribeTargetHealth_WireShape covers gopherstack-xh2a: TargetDescription's
+// AvailabilityZone/QuicServerId must round-trip through RegisterTargets into
+// DescribeTargetHealth's response, and Include must gate the AnomalyDetection
+// element (elasticloadbalancingv2@v1.58.5 types/types.go:1727).
+func TestDescribeTargetHealth_WireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		includeMembers url.Values
+		name           string
+		tgName         string
+		wantAnomaly    bool
+	}{
+		{name: "no include", tgName: "wire-shape-tg-none", wantAnomaly: false},
+		{
+			name:           "include anomaly detection",
+			tgName:         "wire-shape-tg-anomaly",
+			includeMembers: url.Values{"Include.member.1": {"AnomalyDetection"}},
+			wantAnomaly:    true,
+		},
+		{
+			name:           "include all",
+			tgName:         "wire-shape-tg-all",
+			includeMembers: url.Values{"Include.member.1": {"All"}},
+			wantAnomaly:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			tgArn := mustCreateTG(t, h, tt.tgName)
+
+			registerRec := doELBv2(t, h, url.Values{
+				"Action":                            {"RegisterTargets"},
+				"Version":                           {"2015-12-01"},
+				"TargetGroupArn":                    {tgArn},
+				"Targets.member.1.Id":               {"i-quic-target"},
+				"Targets.member.1.Port":             {"6081"},
+				"Targets.member.1.AvailabilityZone": {"all"},
+				"Targets.member.1.QuicServerId":     {"0x0123456789abcdef"},
+			})
+			require.Equal(t, http.StatusOK, registerRec.Code)
+
+			vals := url.Values{
+				"Action":         {"DescribeTargetHealth"},
+				"Version":        {"2015-12-01"},
+				"TargetGroupArn": {tgArn},
+			}
+			maps.Copy(vals, tt.includeMembers)
+
+			rec := doELBv2(t, h, vals)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			body := rec.Body.String()
+			assert.Contains(t, body, "<AvailabilityZone>all</AvailabilityZone>")
+			assert.Contains(t, body, "<QuicServerId>0x0123456789abcdef</QuicServerId>")
+
+			if tt.wantAnomaly {
+				assert.Contains(t, body, "<AnomalyDetection>")
+				assert.Contains(t, body, "<Result>normal</Result>")
+			} else {
+				assert.NotContains(t, body, "<AnomalyDetection>")
+			}
+		})
+	}
 }
