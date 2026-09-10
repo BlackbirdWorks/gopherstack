@@ -204,38 +204,46 @@ func wildcardMatchCaseInsensitive(pattern, value string) bool {
 
 // wildcardMatch performs wildcard pattern matching supporting * (zero or more chars) and ? (one char).
 // Both pattern and value are expected to already be in the desired case.
+//
+// Allocation-free greedy glob match: O(len(p)+len(v)) time, O(1) space. The
+// former DP table allocated O(len(p)*len(v)) from caller-supplied
+// SimulateCustomPolicy input (gopherstack-it6k). starIdx/matchIdx backtrack:
+// on a mismatch after a '*', retry it as having consumed one more value rune.
+// Equivalence with the old DP is fuzz-tested in
+// wildcard_match_whitebox_test.go (FuzzWildcardMatchMatchesDPReference).
 func wildcardMatch(pattern, value string) bool {
-	if pattern == "*" {
-		return true
-	}
-
 	p := []rune(pattern)
 	v := []rune(value)
 
-	// dp[i][j] = true if p[:i] matches v[:j]
-	dp := make([][]bool, len(p)+1)
-	for i := range dp {
-		dp[i] = make([]bool, len(v)+1)
-	}
+	var pIdx, vIdx int
 
-	dp[0][0] = true
+	starIdx, matchIdx := -1, 0
 
-	for i := 1; i <= len(p); i++ {
-		if p[i-1] == '*' {
-			dp[i][0] = dp[i-1][0]
+	for vIdx < len(v) {
+		switch {
+		// '*' must be checked before the literal/'?' case below: it is
+		// always a metacharacter, even when v[vIdx] happens to be the
+		// literal rune '*' too (p[pIdx] == v[vIdx] would otherwise match
+		// it as a literal '*' instead of opening a wildcard run).
+		case pIdx < len(p) && p[pIdx] == '*':
+			starIdx = pIdx
+			matchIdx = vIdx
+			pIdx++
+		case pIdx < len(p) && (p[pIdx] == '?' || p[pIdx] == v[vIdx]):
+			pIdx++
+			vIdx++
+		case starIdx != -1:
+			pIdx = starIdx + 1
+			matchIdx++
+			vIdx = matchIdx
+		default:
+			return false
 		}
 	}
 
-	for i := 1; i <= len(p); i++ {
-		for j := 1; j <= len(v); j++ {
-			switch p[i-1] {
-			case '*':
-				dp[i][j] = dp[i-1][j] || dp[i][j-1]
-			case '?', v[j-1]:
-				dp[i][j] = dp[i-1][j-1]
-			}
-		}
+	for pIdx < len(p) && p[pIdx] == '*' {
+		pIdx++
 	}
 
-	return dp[len(p)][len(v)]
+	return pIdx == len(p)
 }

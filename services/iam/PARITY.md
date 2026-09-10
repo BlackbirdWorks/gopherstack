@@ -756,3 +756,59 @@ Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
 (repo-wide, clean). No files under `services/iam/` were modified this pass
 (read-only verification); no `go test`/`golangci-lint` re-run needed beyond
 the repo-wide `go vet`.
+
+## 2026-09-08 -- gopherstack-it6k: allocation-size-overflow in wildcardMatch
+
+CodeQL (GitHub Advanced Security, HIGH, `go/allocation-size-overflow`)
+flagged `evaluator.go`'s `dp := make([][]bool, len(p)+1)` in `wildcardMatch`.
+Pre-existing: the same line is on `origin/main` (line 172), dating to
+05ba78066 (March 2026); it surfaced as "new" only because this branch touched
+the file elsewhere.
+
+**Where `p`/`v` come from.** `wildcardMatch(pattern, value)` matches an IAM
+policy `Action`/`Resource` pattern against a requested action/resource.
+- Live enforcement (`middleware.go`): `p` comes from stored policy documents,
+  bounded at write time by `maxUserPolicySize`/`maxRolePolicySize`/
+  `maxGroupPolicySize`/`maxManagedPolicySize` (2048-10240 bytes); `v` is
+  server-derived via `extractResourceARN`.
+- `SimulateCustomPolicy`/`SimulatePrincipalPolicy`: `PolicyInputList`,
+  `ActionNames`, and `ResourceArns` come straight from caller request
+  parameters with **no size check of their own** -- unlike `PutUserPolicy`/
+  `PutRolePolicy`/`CreatePolicy`. Only the blanket 16MiB body cap
+  (`pkgs/httputils.MaxRequestBodyBytes`) bounds them.
+
+Integer overflow of `len(p)+1` is unreachable (it needs a rune slice near
+`math.MaxInt`; 16MiB is nowhere close). The O(len(p)*len(v)) `[][]bool` table
+is the real problem: two 4MB caller-supplied strings is a 16-trillion-cell
+allocation, a memory-exhaustion DoS independent of the overflow the alert
+names.
+
+**A length guard was written first and rejected in review.** Returning
+`false` for oversized input is not uniformly fail-closed. In
+`stmtResourceMatches`/`stmtActionMatches`, a DENY statement whose pattern
+exceeds the cap stops matching, so `evaluate` skips the Deny; in the
+`NotAction`/`NotResource` branches the sense inverts and an oversized pattern
+makes an ALLOW match more broadly. Both are reachable from a stored policy --
+`maxRolePolicySize` is 10240, so a single Resource string past a 4096 cap is
+storable -- and real AWS does not silently stop matching long patterns, so it
+was a parity divergence too.
+
+**Shipped fix**: replaced the DP table with the standard greedy two-pointer
+glob matcher (O(len(p)+len(v)) time, O(1) space). With no allocation there is
+nothing for the CodeQL query to fire on, the exhaustion vector is gone at the
+root, and no input's match result changes. The `pattern == "*"` fast path was
+dropped as redundant.
+
+**Proof of equivalence.** `wildcard_match_whitebox_test.go` keeps the old DP
+body verbatim as `wildcardMatchDPReference` and fuzzes the two against each
+other (`FuzzWildcardMatchMatchesDPReference`). That fuzz found a real
+divergence during development -- pattern `"*"` against value `"*0"`, where
+checking the literal/`?` case before the `'*'` case consumed the `*` as a
+literal and returned false where the DP returned true. Fixed by ordering the
+`'*'` case first; the crasher is retained as a corpus entry under
+`testdata/fuzz/`. `TestWildcardMatch_Semantics` locks down `*`/`?`,
+prefix/suffix/middle matches, multiple stars, and the empty-string edges.
+`TestWildcardMatch_LongStarPatternStillMatches` is the regression test for the
+rejected guard's fail-open: a 5000-`*` pattern still matches a short value.
+Verified failing against the guard version (which compiled cleanly) and
+passing against the greedy matcher.
