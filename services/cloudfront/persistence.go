@@ -26,7 +26,12 @@ import (
 // on a version mismatch, so a bump costs every user their persisted snapshot.
 // KeyValueStoreData/KeyValueDataETags were added in gopherstack-4ara without a
 // bump: a v1 snapshot decodes into them as nil and Restore already seeds both.
-const cloudfrontSnapshotVersion = 1
+//
+// v1 -> v2 (gopherstack-to8g): TrustStore dropped Comment and
+// CertificateAuthorityCertificatesBundle (fabricated -- not real AWS fields) and gained
+// NumberOfCaCertificates/Reason/UseClientCertificateOCSPEndpoint/CACertificatesBundleSource.
+// The drop is a genuine removal, not purely additive, so this is not the safe case above.
+const cloudfrontSnapshotVersion = 2
 
 // invalidationSnapshot is the DTO used ONLY for Snapshot/Restore of both
 // invalidations and tenantInvalidations. It mirrors Invalidation field for field,

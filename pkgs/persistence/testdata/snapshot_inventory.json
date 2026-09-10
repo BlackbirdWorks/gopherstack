@@ -4782,17 +4782,19 @@
       "StreamingDistributionTrustedSigners.Enabled bool `json:\"enabled\"`",
       "StreamingDistributionTrustedSigners.Items []string `json:\"items,omitempty\"`",
       "TrustStore.ARN string `json:\"arn\"`",
-      "TrustStore.CertificateAuthorityCertificatesBundle TrustStoreCertificateBundle `json:\"certificateAuthorityCertificatesBundle\"`",
-      "TrustStore.Comment string `json:\"comment,omitempty\"`",
+      "TrustStore.CACertificatesBundleSource TrustStoreCACertificatesBundleSource `json:\"caCertificatesBundleSource\"`",
       "TrustStore.ETag string `json:\"etag\"`",
       "TrustStore.ID string `json:\"id\"`",
       "TrustStore.LastModifiedTime string `json:\"lastModifiedTime,omitempty\"`",
       "TrustStore.Name string `json:\"name\"`",
+      "TrustStore.NumberOfCaCertificates int32 `json:\"numberOfCaCertificates\"`",
+      "TrustStore.Reason string `json:\"reason,omitempty\"`",
       "TrustStore.Status string `json:\"status\"`",
       "TrustStore.Tags map[string]string `json:\"tags,omitempty\"`",
-      "TrustStoreCertificateBundle.InlineCertificateBundle string `json:\"inlineCertificateBundle,omitempty\"`",
-      "TrustStoreCertificateBundle.S3Bucket string `json:\"s3Bucket,omitempty\"`",
-      "TrustStoreCertificateBundle.S3Key string `json:\"s3Key,omitempty\"`",
+      "TrustStore.UseClientCertificateOCSPEndpoint bool `json:\"useClientCertificateOCSPEndpoint\"`",
+      "TrustStoreCACertificatesBundleSource.S3Bucket string `json:\"s3Bucket,omitempty\"`",
+      "TrustStoreCACertificatesBundleSource.S3Key string `json:\"s3Key,omitempty\"`",
+      "TrustStoreCACertificatesBundleSource.S3Region string `json:\"s3Region,omitempty\"`",
       "ValidationTokenDetail.Domain string `json:\"domain\"`",
       "ValidationTokenDetail.RedirectFrom string `json:\"redirectFrom,omitempty\"`",
       "ValidationTokenDetail.RedirectTo string `json:\"redirectTo,omitempty\"`",
@@ -4829,7 +4831,7 @@
       "invalidationSnapshot.Status string `json:\"status\"`",
       "resourcePolicyEntry.Policy string `json:\"policy\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "cloudtrail": {
     "fields": [

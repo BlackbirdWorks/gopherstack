@@ -832,9 +832,12 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 		Status     string   `xml:"Status"`
 		CreateTime string   `xml:"CreateTime"`
 	}
+	// Marker is required on InvalidationList (cloudfront@v1.67.4 types/types.go:3678-3688): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	type invList struct {
 		XMLName     xml.Name     `xml:"InvalidationList"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		Marker      string       `xml:"Marker"`
 		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []invSummary `xml:"Items>InvalidationSummary"`
 		MaxItems    int          `xml:"MaxItems"`
@@ -851,7 +854,7 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 		})
 	}
 	list := invList{
-		XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
 		IsTruncated: isTruncated, NextMarker: nextMarker,
 	}
 	out, xmlErr := xml.Marshal(list)

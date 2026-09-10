@@ -4,104 +4,71 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
 
-type trustStoreCertificateBundleXML struct {
-	S3Bucket                string `xml:"S3Bucket"`
-	S3Key                   string `xml:"S3Key"`
-	InlineCertificateBundle string `xml:"InlineCertificateBundle"`
+// caCertificatesBundleS3LocationXML matches CaCertificatesBundleS3Location (cloudfront@v1.67.4
+// types/types.go:301-317: Bucket/Key/Region, all required).
+type caCertificatesBundleS3LocationXML struct {
+	Bucket string `xml:"Bucket"`
+	Key    string `xml:"Key"`
+	Region string `xml:"Region"`
 }
 
-// updateTrustStoreRequestXML matches UpdateTrustStoreInput (cloudfront@v1.67.4
-// serializers.go: awsRestxml_serializeOpUpdateTrustStore). Its root element is
-// CaCertificatesBundleSource, with CaCertificatesBundleS3Location as its only
-// child (types.go: CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location)
-// -- UpdateTrustStoreInput has no Name or Comment member at all, so real AWS
-// cannot change either through this operation; Id/IfMatch travel as URI/header.
-// The previous root here was TrustStoreConfig, which never matched a real
-// client's root element, so xml.Unmarshal errored on the whole body (err
-// discarded) and every real UpdateTrustStore call silently no-opped.
+func (loc caCertificatesBundleS3LocationXML) bundle() TrustStoreCACertificatesBundleSource {
+	return TrustStoreCACertificatesBundleSource{S3Bucket: loc.Bucket, S3Key: loc.Key, S3Region: loc.Region}
+}
+
+// updateTrustStoreRequestXML matches UpdateTrustStoreInput's body (cloudfront@v1.67.4
+// api_op_UpdateTrustStore.go:28-46; serializers.go: awsRestxml_serializeOpUpdateTrustStore).
+// Its root element is CaCertificatesBundleSource, with CaCertificatesBundleS3Location as its
+// only child -- UpdateTrustStoreInput has no Name or Comment member at all, so real AWS cannot
+// change either through this operation; Id/IfMatch travel as URI/header, and unlike
+// CreateTrustStore, UseClientCertificateOCSPEndpoint travels as the
+// Useclientcertificateocspendpoint header, not the body
+// (awsRestxml_serializeOpHttpBindingsUpdateTrustStoreInput).
 type updateTrustStoreRequestXML struct {
-	XMLName                        xml.Name `xml:"CaCertificatesBundleSource"`
-	CaCertificatesBundleS3Location struct {
-		Bucket string `xml:"Bucket"`
-		Key    string `xml:"Key"`
-	} `xml:"CaCertificatesBundleS3Location"`
-	// CertificateAuthorityCertificatesBundle is not part of the real
-	// UpdateTrustStore request shape, but accepted here too for backward
-	// compatibility with callers that send the old shape.
-	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+	XMLName                        xml.Name                          `xml:"CaCertificatesBundleSource"`
+	CaCertificatesBundleS3Location caCertificatesBundleS3LocationXML `xml:"CaCertificatesBundleS3Location"`
 }
 
-// bundle resolves the CA certificate bundle from whichever shape was populated,
-// preferring the real SDK's CaCertificatesBundleSource>CaCertificatesBundleS3Location
-// shape.
-func (req updateTrustStoreRequestXML) bundle() TrustStoreCertificateBundle {
-	if req.CaCertificatesBundleS3Location.Bucket != "" || req.CaCertificatesBundleS3Location.Key != "" {
-		return TrustStoreCertificateBundle{
-			S3Bucket: req.CaCertificatesBundleS3Location.Bucket,
-			S3Key:    req.CaCertificatesBundleS3Location.Key,
-		}
-	}
-
-	return trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle)
+func (req updateTrustStoreRequestXML) bundle() TrustStoreCACertificatesBundleSource {
+	return req.CaCertificatesBundleS3Location.bundle()
 }
 
-// createTrustStoreRequestXML models the real CreateTrustStore wire request. The real SDK
-// (aws-sdk-go-v2/service/cloudfront) sends a root element <CreateTrustStoreRequest> containing
-// <CaCertificatesBundleSource><CaCertificatesBundleS3Location><Bucket>/<Key>/... and <Name> as
-// direct children (see serializers.go: awsRestxml_serializeOpDocumentCreateTrustStoreInput /
-// awsRestxml_serializeDocumentCaCertificatesBundleSource). The XMLName field is intentionally
-// omitted so Unmarshal does not reject the request based on the root element's name.
+// createTrustStoreRequestXML matches CreateTrustStoreInput (cloudfront@v1.67.4
+// api_op_CreateTrustStore.go:28-50; serializers.go:
+// awsRestxml_serializeOpDocumentCreateTrustStoreInput). The real root is
+// <CreateTrustStoreRequest>; the XMLName field is intentionally omitted so Unmarshal does not
+// reject the request based on the root element's name. AWS has no Comment member here.
 type createTrustStoreRequestXML struct {
-	Name                       string `xml:"Name"`
 	CaCertificatesBundleSource struct {
-		S3Location struct {
-			Bucket string `xml:"Bucket"`
-			Key    string `xml:"Key"`
-		} `xml:"CaCertificatesBundleS3Location"`
+		S3Location caCertificatesBundleS3LocationXML `xml:"CaCertificatesBundleS3Location"`
 	} `xml:"CaCertificatesBundleSource"`
-	// CertificateAuthorityCertificatesBundle is not part of the real CreateTrustStore request
-	// shape, but is accepted here too for backward compatibility with callers that send it.
-	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
-	Comment                                string                         `xml:"Comment"`
-	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
-	// Tags>Tag path (cloudfront@v1.67.4 serializers.go awsRestxml_serializeDocumentTags).
-	Tags []tagXML `xml:"Tags>Items>Tag"`
+	Name                             string   `xml:"Name"`
+	Tags                             []tagXML `xml:"Tags>Items>Tag"`
+	UseClientCertificateOCSPEndpoint bool     `xml:"UseClientCertificateOCSPEndpoint"`
 }
 
-// bundle resolves the CA certificate bundle from whichever shape was populated, preferring the
-// real SDK's CaCertificatesBundleSource>CaCertificatesBundleS3Location shape.
-func (req createTrustStoreRequestXML) bundle() TrustStoreCertificateBundle {
-	if req.CaCertificatesBundleSource.S3Location.Bucket != "" || req.CaCertificatesBundleSource.S3Location.Key != "" {
-		return TrustStoreCertificateBundle{
-			S3Bucket: req.CaCertificatesBundleSource.S3Location.Bucket,
-			S3Key:    req.CaCertificatesBundleSource.S3Location.Key,
-		}
-	}
-
-	return trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle)
+func (req createTrustStoreRequestXML) bundle() TrustStoreCACertificatesBundleSource {
+	return req.CaCertificatesBundleSource.S3Location.bundle()
 }
 
-func trustStoreBundleFromXML(x trustStoreCertificateBundleXML) TrustStoreCertificateBundle {
-	return TrustStoreCertificateBundle(x)
-}
-
+// trustStoreXML renders types.TrustStore (cloudfront@v1.67.4 types/types.go:6633-6661): Arn,
+// Id, LastModifiedTime, Name, NumberOfCaCertificates, Reason, Status,
+// UseClientCertificateOCSPEndpoint. AWS never echoes the CA bundle's content or location.
 func trustStoreXML(ns string, ts *TrustStore) string {
-	bundle := ts.CertificateAuthorityCertificatesBundle
-
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<TrustStore xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment><Status>%s</Status>`+
+		`<Id>%s</Id><Arn>%s</Arn><Name>%s</Name><Status>%s</Status><Reason>%s</Reason>`+
+		`<NumberOfCaCertificates>%d</NumberOfCaCertificates>`+
+		`<UseClientCertificateOCSPEndpoint>%t</UseClientCertificateOCSPEndpoint>`+
 		`<LastModifiedTime>%s</LastModifiedTime>`+
-		`<CertificateAuthorityCertificatesBundle>`+
-		`<S3Bucket>%s</S3Bucket><S3Key>%s</S3Key><InlineCertificateBundle>%s</InlineCertificateBundle>`+
-		`</CertificateAuthorityCertificatesBundle>`+
 		`</TrustStore>`,
-		ns, ts.ID, ts.ARN, ts.Name, ts.Comment, ts.Status, ts.LastModifiedTime,
-		bundle.S3Bucket, bundle.S3Key, bundle.InlineCertificateBundle)
+		ns, ts.ID, ts.ARN, ts.Name, ts.Status, ts.Reason,
+		ts.NumberOfCaCertificates, ts.UseClientCertificateOCSPEndpoint, ts.LastModifiedTime)
 }
 
 func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
@@ -124,7 +91,7 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 		tags[tag.Key] = tag.Value
 	}
 
-	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment, req.bundle(), tags)
+	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.bundle(), req.UseClientCertificateOCSPEndpoint, tags)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -183,15 +150,18 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	// ARN is tagged "Arn" (not "ARN") to match the real deserializer's exact-case
 	// literal (awsRestxml_deserializeDocumentTrustStoreSummary) -- a case-only
 	// mismatch that decoded correctly today only because the XML decoder folds
-	// case, per gopherstack-21my.
+	// case, per gopherstack-21my. Fields mirror types.TrustStoreSummary
+	// (cloudfront@v1.67.4 types/types.go:6681-6719).
 	type tsSummary struct {
-		XMLName          xml.Name `xml:"TrustStoreSummary"`
-		ID               string   `xml:"Id"`
-		ARN              string   `xml:"Arn"`
-		Name             string   `xml:"Name"`
-		Status           string   `xml:"Status"`
-		ETag             string   `xml:"ETag"`
-		LastModifiedTime string   `xml:"LastModifiedTime"`
+		XMLName                xml.Name `xml:"TrustStoreSummary"`
+		ID                     string   `xml:"Id"`
+		ARN                    string   `xml:"Arn"`
+		Name                   string   `xml:"Name"`
+		Status                 string   `xml:"Status"`
+		Reason                 string   `xml:"Reason,omitempty"`
+		ETag                   string   `xml:"ETag"`
+		LastModifiedTime       string   `xml:"LastModifiedTime"`
+		NumberOfCaCertificates int32    `xml:"NumberOfCaCertificates"`
 	}
 	// The real deserializer (awsRestxml_deserializeDocumentTrustStoreList) expects each
 	// TrustStoreSummary directly as a child of TrustStoreList, with no <Items> wrapper.
@@ -214,8 +184,9 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	summaries := make([]tsSummary, 0, len(page))
 	for _, ts := range page {
 		summaries = append(summaries, tsSummary{
-			ID: ts.ID, ARN: ts.ARN, Name: ts.Name,
-			Status: ts.Status, ETag: ts.ETag, LastModifiedTime: ts.LastModifiedTime,
+			ID: ts.ID, ARN: ts.ARN, Name: ts.Name, Status: ts.Status, Reason: ts.Reason,
+			ETag: ts.ETag, LastModifiedTime: ts.LastModifiedTime,
+			NumberOfCaCertificates: ts.NumberOfCaCertificates,
 		})
 	}
 	result := tsListResult{
@@ -261,7 +232,20 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 			)
 		}
 	}
-	ts, updateErr := h.Backend.UpdateTrustStore(id, "", "", req.bundle())
+	var useClientCertificateOCSPEndpoint *bool
+	if raw := c.Request().Header.Get("Useclientcertificateocspendpoint"); raw != "" {
+		parsed, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("InvalidArgument", "invalid Useclientcertificateocspendpoint header"),
+			)
+		}
+		useClientCertificateOCSPEndpoint = &parsed
+	}
+
+	ts, updateErr := h.Backend.UpdateTrustStore(id, req.bundle(), useClientCertificateOCSPEndpoint)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}

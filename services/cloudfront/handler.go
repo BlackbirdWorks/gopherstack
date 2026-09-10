@@ -577,10 +577,21 @@ func readBody(c *echo.Context) ([]byte, error) {
 
 // --- Cache Policy additional handlers ---
 
-// extractResourceID extracts the resource ID from a CloudFront API path.
+// extractResourceID extracts the resource ID from a CloudFront API path. The cut at the first
+// "/" strips a trailing action suffix some routes carry after the ID (e.g.
+// "distribution/{Id}/config", "distribution/{Id}/associate-web-acl"). Several identifiers this
+// helper also serves can be full ARNs (e.g. ListDistributionsByWebACLId's WebACLId for WAFV2,
+// GetDistributionTenant/GetConnectionGroup/GetManagedCertificateDetails's ARN-or-ID-or-name
+// Identifier, ListDistributionsByOwnedResource's always-ARN ResourceArn) whose resource part
+// itself contains slashes -- cutting at the first one truncates the ARN. None of those routes
+// carry a trailing suffix, so it is safe to skip the cut whenever the label is ARN-shaped.
 func extractResourceID(path, prefix string) string {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 	trimmed := strings.TrimPrefix(suffix, prefix)
+	if strings.HasPrefix(trimmed, "arn:") {
+		return trimmed
+	}
+
 	if id, _, found := strings.Cut(trimmed, "/"); found {
 		return id
 	}

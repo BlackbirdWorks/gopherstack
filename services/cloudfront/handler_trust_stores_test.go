@@ -21,12 +21,19 @@ func TestTrustStore_CRUD(t *testing.T) {
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
 
-	// Create
-	body := `<TrustStoreConfig><Name>my-store</Name><Comment>test</Comment></TrustStoreConfig>`
+	// Create. Real CreateTrustStoreInput has no Comment member (cloudfront@v1.67.4
+	// api_op_CreateTrustStore.go:28-49) -- only Name and CaCertificatesBundleSource.
+	body := `<CreateTrustStoreRequest><Name>my-store</Name>` +
+		`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>` +
+		`<Bucket>my-bucket</Bucket><Key>ca.pem</Key><Region>us-east-1</Region>` +
+		`</CaCertificatesBundleS3Location></CaCertificatesBundleSource></CreateTrustStoreRequest>`
 	out := cfOK(t, h, http.MethodPost, prefix+"trust-store", body)
 	id := extractXMLID(t, out)
 	if id == "" {
 		t.Fatalf("expected Id in response: %s", out)
+	}
+	if !strings.Contains(out, "<Status>active</Status>") {
+		t.Errorf("expected TrustStoreStatus 'active' (cloudfront@v1.67.4 types/enums.go:966-973), got: %s", out)
 	}
 
 	// Get
@@ -49,56 +56,108 @@ func TestTrustStore_CRUD(t *testing.T) {
 	cfOK(t, h, http.MethodDelete, prefix+"trust-store/"+id, "")
 }
 
-// TestTrustStore_BundleAndStatus verifies the certificate bundle, Status, and
+// TestTrustStore_BundleAndStatus verifies Status, NumberOfCaCertificates, and
 // LastModifiedTime round-trip through create/get/update, and that fields omitted on update
-// (empty bundle, empty comment) leave the existing values unchanged.
+// (no CaCertificatesBundleSource, no UseClientCertificateOCSPEndpoint) leave the existing
+// values unchanged. The real TrustStore response never echoes the CA bundle's content or
+// location (cloudfront@v1.67.4 types/types.go:6633-6661), so this cannot assert on it directly.
 func TestTrustStore_BundleAndStatus(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
 
-	createBody := `<TrustStoreConfig><Name>bundle-store</Name><Comment>initial</Comment>` +
-		`<CertificateAuthorityCertificatesBundle><S3Bucket>my-bucket</S3Bucket><S3Key>ca.pem</S3Key>` +
-		`</CertificateAuthorityCertificatesBundle></TrustStoreConfig>`
-	out := cfOK(t, h, http.MethodPost, prefix+"trust-store", createBody)
-	if !strings.Contains(out, "<Status>Deployed</Status>") {
-		t.Errorf("expected Deployed status, got: %s", out)
+	createBody := `<CreateTrustStoreRequest><Name>bundle-store</Name>` +
+		`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>` +
+		`<Bucket>my-bucket</Bucket><Key>ca.pem</Key><Region>us-east-1</Region>` +
+		`</CaCertificatesBundleS3Location></CaCertificatesBundleSource>` +
+		`<UseClientCertificateOCSPEndpoint>true</UseClientCertificateOCSPEndpoint></CreateTrustStoreRequest>`
+	createRR := cfRequest(t, h, http.MethodPost, prefix+"trust-store", createBody)
+	out := createRR.Body.String()
+	if !strings.Contains(out, "<Status>active</Status>") {
+		t.Errorf("expected active status, got: %s", out)
 	}
-	if !strings.Contains(out, "<S3Bucket>my-bucket</S3Bucket>") || !strings.Contains(out, "<S3Key>ca.pem</S3Key>") {
-		t.Errorf("expected bundle echoed back, got: %s", out)
+	if !strings.Contains(out, "<NumberOfCaCertificates>1</NumberOfCaCertificates>") {
+		t.Errorf("expected a non-empty bundle to report 1 CA certificate, got: %s", out)
+	}
+	if !strings.Contains(out, "<UseClientCertificateOCSPEndpoint>true</UseClientCertificateOCSPEndpoint>") {
+		t.Errorf("expected UseClientCertificateOCSPEndpoint to round-trip, got: %s", out)
 	}
 	if !strings.Contains(out, "<LastModifiedTime>") {
 		t.Errorf("expected LastModifiedTime, got: %s", out)
 	}
 	id := extractXMLID(t, out)
+	etag := createRR.Header().Get("ETag")
 
-	// Update with an empty body: bundle, name, and comment must all be preserved.
-	// UpdateTrustStoreInput has no Name/Comment member in the real API (only
-	// CaCertificatesBundleSource), so neither can ever change via this operation.
-	updateOut := cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id, "")
-	if !strings.Contains(updateOut, "<S3Bucket>my-bucket</S3Bucket>") {
-		t.Errorf("expected bundle preserved after no-op update, got: %s", updateOut)
-	}
+	// Update with an empty body: name, bundle, and UseClientCertificateOCSPEndpoint must all
+	// be preserved. UpdateTrustStoreInput has no Name member in the real API, so it can never
+	// change via this operation.
+	updateRR := cfRequest(t, h, http.MethodPut, prefix+"trust-store/"+id, "")
+	updateOut := updateRR.Body.String()
 	if !strings.Contains(updateOut, "<Name>bundle-store</Name>") {
 		t.Errorf("expected name preserved after no-op update, got: %s", updateOut)
 	}
-	if !strings.Contains(updateOut, "<Comment>initial</Comment>") {
-		t.Errorf("expected comment preserved (UpdateTrustStore cannot change it), got: %s", updateOut)
+	if !strings.Contains(updateOut, "<UseClientCertificateOCSPEndpoint>true</UseClientCertificateOCSPEndpoint>") {
+		t.Errorf("expected UseClientCertificateOCSPEndpoint preserved after no-op update, got: %s", updateOut)
+	}
+	if updateRR.Header().Get("ETag") == etag {
+		t.Errorf("expected ETag to rotate on update, still: %s", etag)
 	}
 
 	// Update with a new bundle via the real CaCertificatesBundleSource>
-	// CaCertificatesBundleS3Location shape (cloudfront@v1.67.4 serializers.go):
-	// it must fully replace the old one.
+	// CaCertificatesBundleS3Location shape (cloudfront@v1.67.4 serializers.go): the response
+	// still reports 1 CA certificate (the replacement bundle is also non-empty).
 	updateOut2 := cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id,
 		`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>`+
-			`<Bucket>new-bucket</Bucket><Key>new-ca.pem</Key>`+
+			`<Bucket>new-bucket</Bucket><Key>new-ca.pem</Key><Region>us-east-1</Region>`+
 			`</CaCertificatesBundleS3Location></CaCertificatesBundleSource>`)
-	if strings.Contains(updateOut2, "<S3Bucket>my-bucket</S3Bucket>") {
-		t.Errorf("expected old bundle replaced, got: %s", updateOut2)
+	if !strings.Contains(updateOut2, "<NumberOfCaCertificates>1</NumberOfCaCertificates>") {
+		t.Errorf("expected replacement bundle to still report 1 CA certificate, got: %s", updateOut2)
 	}
-	if !strings.Contains(updateOut2, "<S3Bucket>new-bucket</S3Bucket>") ||
-		!strings.Contains(updateOut2, "<S3Key>new-ca.pem</S3Key>") {
-		t.Errorf("expected new bundle present, got: %s", updateOut2)
+}
+
+// TestTrustStore_WireShape_RealFields is a regression test for gopherstack-to8g: the create and
+// get response XML must carry exactly types.TrustStore's real fields (cloudfront@v1.67.4
+// types/types.go:6633-6661) and none of the fabricated ones (Comment,
+// CertificateAuthorityCertificatesBundle) the handler used to emit.
+func TestTrustStore_WireShape_RealFields(t *testing.T) {
+	t.Parallel()
+
+	h := newCFHandler(t)
+	const prefix = "/2020-05-31/"
+
+	createBody := `<CreateTrustStoreRequest><Name>wire-shape-store</Name>` +
+		`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>` +
+		`<Bucket>my-bucket</Bucket><Key>ca.pem</Key><Region>us-east-1</Region>` +
+		`</CaCertificatesBundleS3Location></CaCertificatesBundleSource></CreateTrustStoreRequest>`
+	created := cfOK(t, h, http.MethodPost, prefix+"trust-store", createBody)
+	id := extractXMLID(t, created)
+	got := cfOK(t, h, http.MethodGet, prefix+"trust-store/"+id, "")
+
+	tests := []struct {
+		name string
+		xml  string
+	}{
+		{name: "create_response", xml: created},
+		{name: "get_response", xml: got},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Contains(t, tt.xml, "<Arn>")
+			assert.Contains(t, tt.xml, "<Id>")
+			assert.Contains(t, tt.xml, "<Name>wire-shape-store</Name>")
+			assert.Contains(t, tt.xml, "<Status>active</Status>")
+			assert.Contains(t, tt.xml, "<Reason></Reason>")
+			assert.Contains(t, tt.xml, "<NumberOfCaCertificates>1</NumberOfCaCertificates>")
+			assert.Contains(t, tt.xml, "<UseClientCertificateOCSPEndpoint>false</UseClientCertificateOCSPEndpoint>")
+			assert.Contains(t, tt.xml, "<LastModifiedTime>")
+			assert.NotContains(t, tt.xml, "<Comment>", "Comment is not a member of types.TrustStore")
+			assert.NotContains(t, tt.xml, "CertificateAuthorityCertificatesBundle",
+				"AWS never echoes the CA bundle's content or location")
+			assert.NotContains(t, tt.xml, "<S3Bucket>", "AWS never echoes the CA bundle's content or location")
+		})
 	}
 }
 
@@ -239,7 +298,10 @@ func TestTrustStore_Persistence(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	out := cfOK(t, h, http.MethodPost, prefix+"trust-store",
-		`<TrustStoreConfig><Name>persist-store</Name><Comment>persisted</Comment></TrustStoreConfig>`)
+		`<CreateTrustStoreRequest><Name>persist-store</Name>`+
+			`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>`+
+			`<Bucket>my-bucket</Bucket><Key>ca.pem</Key><Region>us-east-1</Region>`+
+			`</CaCertificatesBundleS3Location></CaCertificatesBundleSource></CreateTrustStoreRequest>`)
 	id := extractXMLID(t, out)
 	arn := fmt.Sprintf("arn:aws:cloudfront::123456789012:trust-store/%s", id)
 
@@ -258,10 +320,13 @@ func TestTrustStore_Persistence(t *testing.T) {
 	}
 	h2 := cloudfront.NewHandler(restored)
 
-	// The restored trust store must still be gettable.
+	// The restored trust store must still be gettable, with its bundle-derived state intact.
 	getOut := cfOK(t, h2, http.MethodGet, prefix+"trust-store/"+id, "")
-	if !strings.Contains(getOut, "persisted") {
-		t.Errorf("expected persisted comment after restore, got: %s", getOut)
+	if !strings.Contains(getOut, "<Name>persist-store</Name>") {
+		t.Errorf("expected name preserved after restore, got: %s", getOut)
+	}
+	if !strings.Contains(getOut, "<NumberOfCaCertificates>1</NumberOfCaCertificates>") {
+		t.Errorf("expected CA cert count preserved after restore, got: %s", getOut)
 	}
 
 	// Tags must still resolve via the restored ARN index.
@@ -306,10 +371,9 @@ func TestUpdateTrustStore_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, created.TrustStore)
+	require.False(t, aws.ToBool(created.TrustStore.UseClientCertificateOCSPEndpoint))
 
-	id := aws.ToString(created.TrustStore.Id)
-
-	_, err = client.UpdateTrustStore(t.Context(), &cfsdk.UpdateTrustStoreInput{
+	updated, err := client.UpdateTrustStore(t.Context(), &cfsdk.UpdateTrustStoreInput{
 		Id:      created.TrustStore.Id,
 		IfMatch: created.ETag,
 		CaCertificatesBundleSource: &types.CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location{
@@ -319,18 +383,20 @@ func TestUpdateTrustStore_RealClient(t *testing.T) {
 				Region: aws.String("us-east-1"),
 			},
 		},
+		UseClientCertificateOCSPEndpoint: aws.Bool(true),
 	})
 	require.NoError(t, err)
 
 	// The real SDK's TrustStore output shape has no field for the CA bundle at all
-	// (types.TrustStore, cloudfront@v1.67.4), so a client-side error alone can't prove
-	// the update took effect -- the unfixed handler also returned 200 while silently
-	// discarding the whole body. Verify via a raw GET of gopherstack's response, which
-	// echoes the bundle as an extension beyond the real API.
-	getOut := cfOK(t, h, http.MethodGet, "/2020-05-31/trust-store/"+id, "")
-	assert.Contains(t, getOut, "<S3Bucket>ca-bucket-2</S3Bucket>")
-	assert.Contains(t, getOut, "<S3Key>ca-2.pem</S3Key>")
-	assert.NotContains(t, getOut, "<S3Bucket>ca-bucket</S3Bucket>")
+	// (types.TrustStore, cloudfront@v1.67.4), so it can't prove the bundle replacement
+	// specifically -- but UseClientCertificateOCSPEndpoint is real and echoed, and the
+	// unfixed handler (wrong request root, error discarded) left it false because the
+	// whole body silently failed to parse.
+	assert.True(t, aws.ToBool(updated.TrustStore.UseClientCertificateOCSPEndpoint))
+
+	getOut, err := client.GetTrustStore(t.Context(), &cfsdk.GetTrustStoreInput{Identifier: created.TrustStore.Id})
+	require.NoError(t, err)
+	assert.True(t, aws.ToBool(getOut.TrustStore.UseClientCertificateOCSPEndpoint))
 }
 
 // TestUpdateTrustStore_MalformedBodyHandled verifies a malformed request body is
