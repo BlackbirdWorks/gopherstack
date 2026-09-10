@@ -116,25 +116,8 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			port := freeTCPPort(t)
-			stopChan := make(chan struct{})
-			errChan := make(chan error, 1)
 
-			go func() {
-				errChan <- startServerOnPort(t, port, tt.demo, stopChan)
-			}()
-
-			// Give the server time to start by polling the dashboard.
-			require.Eventually(t, func() bool {
-				client := &http.Client{Timeout: 1 * time.Second}
-				resp, err := client.Get(fmt.Sprintf("http://localhost:%d/dashboard", port))
-				if err != nil {
-					return false
-				}
-				defer resp.Body.Close()
-
-				return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusInternalServerError
-			}, 10*time.Second, 100*time.Millisecond, "failed to reach server on :%d", port)
+			port, stopChan, errChan := startServerRetryingPort(t, tt.demo)
 
 			t.Logf("Server responding successfully on port :%d", port)
 
@@ -147,6 +130,93 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 				require.FailNow(t, "server did not shut down within timeout")
 			}
 		})
+	}
+}
+
+// startServerRetryingPort starts Gopherstack on a freshly picked ephemeral port and waits for its
+// dashboard to answer. freeTCPPort's Listen-then-Close releases the port immediately, but the real
+// bind happens much later, at the end of run's init chain -- a wide TOCTOU window in which something
+// else can take the same port first. When that happens run exits with a bind error before the
+// dashboard ever comes up; this retries on a fresh port rather than burning the rest of the deadline
+// on a port already lost (gopherstack-tajh, following the pkgs/dns TOCTOU precedent fixed in
+// gopherstack-nn94/7tbt). A plain timeout with no error from run is a genuine hang, not a port race,
+// and is not retried -- retrying would not fix it and could make things worse under load.
+func startServerRetryingPort(t *testing.T, demo bool) (int, chan struct{}, chan error) {
+	t.Helper()
+
+	const (
+		maxAttempts   = 5
+		dashboardWait = 10 * time.Second
+		dashboardPoll = 100 * time.Millisecond
+	)
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		port := freeTCPPort(t)
+		stopChan := make(chan struct{})
+		errChan := make(chan error, 1)
+
+		go func() {
+			errChan <- startServerOnPort(t, port, demo, stopChan)
+		}()
+
+		up, runErr := waitForDashboard(port, errChan, dashboardWait, dashboardPoll)
+		if up {
+			return port, stopChan, errChan
+		}
+
+		if runErr == nil {
+			require.FailNow(t, fmt.Sprintf(
+				"failed to reach server on :%d: timed out after %s with no error from run (attempt %d/%d)",
+				port, dashboardWait, attempt, maxAttempts))
+
+			return 0, nil, nil
+		}
+
+		if attempt == maxAttempts {
+			require.FailNow(t, fmt.Sprintf(
+				"server on :%d failed to start after %d attempts, last error: %v", port, maxAttempts, runErr))
+
+			return 0, nil, nil
+		}
+
+		t.Logf("attempt %d/%d: server on :%d exited before answering (%v); retrying on a fresh port",
+			attempt, maxAttempts, port, runErr)
+	}
+
+	return 0, nil, nil
+}
+
+// waitForDashboard polls the dashboard on port until it answers, run exits (delivering to errChan),
+// or the deadline elapses. It mirrors require.Eventually's polling shape but, unlike Eventually,
+// never marks the test failed itself -- the caller decides whether a given outcome is retryable.
+func waitForDashboard(port int, errChan <-chan error, timeout, interval time.Duration) (bool, error) {
+	client := &http.Client{Timeout: 1 * time.Second}
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case runErr := <-errChan:
+			return false, runErr
+		default:
+		}
+
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/dashboard", port))
+		if err == nil {
+			ready := resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusInternalServerError
+			resp.Body.Close()
+
+			if ready {
+				return true, nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+
+		<-ticker.C
 	}
 }
 

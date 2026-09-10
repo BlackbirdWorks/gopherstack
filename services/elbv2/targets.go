@@ -21,6 +21,8 @@ const (
 
 // runHealthReconciler transitions registered targets from initial to healthy.
 func (b *InMemoryBackend) runHealthReconciler() {
+	defer close(b.healthDone)
+
 	ticker := time.NewTicker(targetHealthDelay / 5) //nolint:mnd // 5 ticks per delay period
 	defer ticker.Stop()
 
@@ -174,7 +176,7 @@ func (b *InMemoryBackend) removeDrainedTargets(drained []drainedTarget) {
 // probeTargetHTTP performs a real HTTP health check against the target.
 // Returns healthStateHealthy on 2xx, "unhealthy" otherwise. Falls back to healthStateHealthy on unreachable targets.
 func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
-	id := strings.SplitN(targetKey, ":", 2)[0] //nolint:mnd // key format: "id:port"
+	id, _, _ := strings.Cut(targetKey, ":")
 
 	port := tg.HealthCheckPort
 	if port == "" || port == "traffic-port" {

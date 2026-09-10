@@ -500,7 +500,7 @@ func TestIntegration_STS_DecodeAuthorizationMessage(t *testing.T) {
 		{
 			name:            "empty_message",
 			encodedMessage:  "",
-			wantErrContains: "InvalidParameter",
+			wantErrContains: "MissingParameter",
 		},
 	}
 

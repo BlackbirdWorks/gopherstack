@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"io"
@@ -249,6 +250,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Reset clears all backend state.
 func (h *Handler) Reset() { h.Backend.Reset() }
+
+// Shutdown stops the backend's invalidation reconciler and distribution
+// timers so no goroutine outlives the service. Invoked on server shutdown
+// via service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+
+var _ service.Shutdowner = (*Handler)(nil)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CloudFront" }

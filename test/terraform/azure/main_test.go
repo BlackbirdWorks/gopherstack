@@ -204,14 +204,12 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 	}
 
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:       "../../../",
-			Dockerfile:    dockerfile,
-			PrintBuildLog: true,
-			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
-				options.NoCache = false
-				options.PullParent = false
-			},
+		Context:       "../../../",
+		Dockerfile:    dockerfile,
+		PrintBuildLog: true,
+		BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+			options.NoCache = false
+			options.PullParent = false
 		},
 		AutoRemove:   true,
 		ExposedPorts: []string{"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp"},
