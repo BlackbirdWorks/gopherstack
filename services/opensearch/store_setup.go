@@ -99,7 +99,7 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 // Two groups, split by whether their store.Table can be snapshotted directly:
 //
 //   - "Clean" tables (domains, inboundConnections, outboundConnections,
-//     directQueryDataSources, vpcEndpoints, applications, packages,
+//     directQueryDataSources, applications, packages,
 //     reservedInstances, slCollections, slAccessPolicies, slSecurityConfigs,
 //     slEncryptionPolicies, slNetworkPolicies, dataSourceAttachments,
 //     capabilities, migrations, workspaces) are registered on b.registry via
@@ -110,12 +110,18 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 //     conversion, so it was already excluded from persistence before this
 //     change and remains so -- not a regression, just an existing quirk this
 //     conversion preserves byte-for-byte.)
-//   - "Dirty" tables (dryRuns, autoTunes, domainDataSources, domainIndexes)
-//     are built with store.New but deliberately NOT registered on b.registry.
-//     Their key depends on a field (DomainName) tagged `json:"-"` on the live
-//     type, so a direct json.Marshal/Unmarshal round trip through
-//     Table.Snapshot/Restore would silently drop that field and corrupt the
-//     table's key on restore. persistence.go instead builds a throwaway DTO
+//   - "Dirty" tables (dryRuns, autoTunes, domainDataSources, domainIndexes,
+//     vpcEndpoints) are built with store.New but deliberately NOT registered
+//     on b.registry. dryRuns/autoTunes/domainDataSources/domainIndexes are
+//     dirty because their key depends on a field (DomainName) tagged
+//     `json:"-"` on the live type; vpcEndpoints is dirty for a different
+//     reason (gopherstack-8mcb) -- VpcEndpoint.StatusUntil carries `json:"-"`
+//     not because it's an identity field, but because VpcEndpoint is also
+//     marshaled directly onto the wire by three handlers and real
+//     types.VpcEndpoint has no such member, so the tag must stay to avoid
+//     leaking it to clients. Either way, a direct json.Marshal/Unmarshal
+//     round trip through Table.Snapshot/Restore would silently drop the
+//     tagged field. persistence.go instead builds a throwaway DTO
 //     [store.Registry] purely to get a correctly-tagged JSON encoding (mirrors
 //     the services/sqs pilot, commit 0f09d77c, and services/apigateway,
 //     commit 6da0334e), then restores the live tables directly via
@@ -165,9 +171,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.directQueryDataSources = store.Register(
 			b.registry, "directQueryDataSources", store.New(directQueryDataSourceKeyFn),
 		)
-	},
-	func(b *InMemoryBackend) {
-		b.vpcEndpoints = store.Register(b.registry, "vpcEndpoints", store.New(vpcEndpointKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.applications = store.Register(b.registry, "applications", store.New(applicationKeyFn))
@@ -237,5 +240,8 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.domainIndexesByDomain = b.domainIndexes.AddIndex(
 			"byDomain", func(v *DomainIndex) string { return v.DomainName },
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.vpcEndpoints = store.New(vpcEndpointKeyFn)
 	},
 }

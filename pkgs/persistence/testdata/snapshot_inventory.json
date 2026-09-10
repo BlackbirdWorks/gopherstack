@@ -19736,7 +19736,14 @@
       "dryRunSnapshot.DryRunID string `json:\"dryRunId\"`",
       "dryRunSnapshot.DryRunStatus string `json:\"dryRunStatus\"`",
       "dryRunSnapshot.UpdateDate string `json:\"updateDate\"`",
-      "dryRunSnapshot.ValidationFailures []map[string]any `json:\"validationFailures\"`"
+      "dryRunSnapshot.ValidationFailures []map[string]any `json:\"validationFailures\"`",
+      "vpcEndpointSnapshot.DomainArn string `json:\"DomainArn\"`",
+      "vpcEndpointSnapshot.Endpoint string `json:\"Endpoint\"`",
+      "vpcEndpointSnapshot.Status string `json:\"Status\"`",
+      "vpcEndpointSnapshot.StatusUntil time.Time `json:\"statusUntil,omitzero\"`",
+      "vpcEndpointSnapshot.VpcEndpointID string `json:\"VpcEndpointId\"`",
+      "vpcEndpointSnapshot.VpcEndpointOwner string `json:\"VpcEndpointOwner\"`",
+      "vpcEndpointSnapshot.VpcOptions map[string]any `json:\"VpcOptions\"`"
     ],
     "version": 4
   },

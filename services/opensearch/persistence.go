@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -31,6 +32,13 @@ import (
 // about decoding an older snapshot became unsafe. Only bump this when a
 // registered/DTO table's value *shape* changes (as the 1->2 and 2->3 bumps
 // above did), not for pure table additions.
+// Also left at 4 despite moving vpcEndpoints from the "clean" group to the
+// "dirty" one (gopherstack-8mcb, see vpcEndpointSnapshot): the DTO keeps the
+// exact same table name and JSON tags the live type had, plus adds
+// statusUntil (previously json:"-", so absent from every existing
+// snapshot). A pre-existing entry still decodes -- statusUntil is simply
+// zero, matching the pre-fix behavior for data already written before this
+// change; only new snapshots carry the real deadline.
 const opensearchSnapshotVersion = 4
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
@@ -172,6 +180,54 @@ func fromDomainIndexSnapshot(v *domainIndexSnapshot) *DomainIndex {
 	}
 }
 
+// vpcEndpointSnapshot is VpcEndpoint's persisted twin (gopherstack-8mcb).
+// VpcEndpoint is marshaled directly onto the wire by three handlers
+// (Create/Update/DescribeVpcEndpoints), so its StatusUntil field carries
+// json:"-" to keep that internal DELETING-window deadline off the wire --
+// real types.VpcEndpoint (opensearch@v1.75.4 types/types.go:3442) has no
+// such member. That tag also suppressed the field from persistence, since
+// the "clean" table path (see store_setup.go's registerAllTables doc)
+// marshals the live type directly: a restarted process lost the deadline,
+// so any endpoint mid-DELETING at snapshot time came back stuck there
+// forever (statusWindowElapsed treats a zero deadline as never elapsed).
+// This DTO gives StatusUntil a real tag for persistence only, independent
+// of the wire-suppressing tag on the live type.
+type vpcEndpointSnapshot struct {
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
+	VpcOptions       map[string]any `json:"VpcOptions"`
+	VpcEndpointID    string         `json:"VpcEndpointId"`
+	VpcEndpointOwner string         `json:"VpcEndpointOwner"`
+	DomainArn        string         `json:"DomainArn"`
+	Status           string         `json:"Status"`
+	Endpoint         string         `json:"Endpoint"`
+}
+
+func vpcEndpointSnapshotKey(v *vpcEndpointSnapshot) string { return v.VpcEndpointID }
+
+func toVpcEndpointSnapshot(v *VpcEndpoint) *vpcEndpointSnapshot {
+	return &vpcEndpointSnapshot{
+		StatusUntil:      v.StatusUntil,
+		VpcOptions:       v.VpcOptions,
+		VpcEndpointID:    v.VpcEndpointID,
+		VpcEndpointOwner: v.VpcEndpointOwner,
+		DomainArn:        v.DomainArn,
+		Status:           v.Status,
+		Endpoint:         v.Endpoint,
+	}
+}
+
+func fromVpcEndpointSnapshot(v *vpcEndpointSnapshot) *VpcEndpoint {
+	return &VpcEndpoint{
+		StatusUntil:      v.StatusUntil,
+		VpcOptions:       v.VpcOptions,
+		VpcEndpointID:    v.VpcEndpointID,
+		VpcEndpointOwner: v.VpcEndpointOwner,
+		DomainArn:        v.DomainArn,
+		Status:           v.Status,
+		Endpoint:         v.Endpoint,
+	}
+}
+
 // dirtyTableNames lists the "dirty" table names shared by Snapshot and
 // Restore (see store_setup.go's registerAllTables doc). Both build an
 // ephemeral DTO [store.Registry] under these exact names, so a snapshot
@@ -180,12 +236,16 @@ func fromDomainIndexSnapshot(v *domainIndexSnapshot) *DomainIndex {
 //
 //nolint:gochecknoglobals // fixed lookup table, mirrors errCodeLookup-style tables elsewhere
 var dirtyTableNames = struct {
-	dryRuns, autoTunes, domainDataSources, domainIndexes string
+	dryRuns, autoTunes, domainDataSources, domainIndexes, vpcEndpoints string
 }{
 	dryRuns:           "dryRuns",
 	autoTunes:         "autoTunes",
 	domainDataSources: "domainDataSources",
 	domainIndexes:     "domainIndexes",
+	// Same table name the "clean" registry previously used for this table
+	// (store_setup.go), so an existing snapshot's "vpcEndpoints" entry still
+	// lines up with the same key under the DTO registry.
+	vpcEndpoints: "vpcEndpoints",
 }
 
 // backendSnapshot is the top-level on-disk shape for the OpenSearch backend.
@@ -238,14 +298,16 @@ func newDirtyDTORegistry() (
 	*store.Table[autoTuneSnapshot],
 	*store.Table[dataSourceSnapshot],
 	*store.Table[domainIndexSnapshot],
+	*store.Table[vpcEndpointSnapshot],
 ) {
 	dtoReg := store.NewRegistry()
 	dryRunDTOs := store.Register(dtoReg, dirtyTableNames.dryRuns, store.New(dryRunSnapshotKey))
 	autoTuneDTOs := store.Register(dtoReg, dirtyTableNames.autoTunes, store.New(autoTuneSnapshotKey))
 	dataSourceDTOs := store.Register(dtoReg, dirtyTableNames.domainDataSources, store.New(dataSourceSnapshotKey))
 	domainIndexDTOs := store.Register(dtoReg, dirtyTableNames.domainIndexes, store.New(domainIndexSnapshotKey))
+	vpcEndpointDTOs := store.Register(dtoReg, dirtyTableNames.vpcEndpoints, store.New(vpcEndpointSnapshotKey))
 
-	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs
+	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -265,7 +327,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs := newDirtyDTORegistry()
 
 	for _, v := range b.dryRuns.Snapshot() {
 		dryRunDTOs.Put(toDryRunSnapshot(v))
@@ -281,6 +343,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for _, v := range b.domainIndexes.Snapshot() {
 		domainIndexDTOs.Put(toDomainIndexSnapshot(v))
+	}
+
+	for _, v := range b.vpcEndpoints.Snapshot() {
+		vpcEndpointDTOs.Put(toVpcEndpointSnapshot(v))
 	}
 
 	dirtyTables, err := dtoReg.SnapshotAll()
@@ -350,6 +416,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.autoTunes.Reset()
 		b.domainDataSources.Reset()
 		b.domainIndexes.Reset()
+		b.vpcEndpoints.Reset()
 		b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 		b.scheduledActions = make(map[string][]*ScheduledAction)
 		b.packageAssociations = make(map[string]map[string]bool)
@@ -365,13 +432,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("opensearch: restore snapshot tables: %w", err)
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("opensearch: restore snapshot DTO tables: %w", err)
 	}
 
-	restoreDirtyTables(b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs)
+	restoreDirtyTables(b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs)
 
 	restoreRawMaps(b, &snap)
 
@@ -401,6 +468,7 @@ func restoreDirtyTables(
 	autoTuneDTOs *store.Table[autoTuneSnapshot],
 	dataSourceDTOs *store.Table[dataSourceSnapshot],
 	domainIndexDTOs *store.Table[domainIndexSnapshot],
+	vpcEndpointDTOs *store.Table[vpcEndpointSnapshot],
 ) {
 	dryRuns := make([]*DryRunStatus, 0, dryRunDTOs.Len())
 	for _, v := range dryRunDTOs.All() {
@@ -425,6 +493,12 @@ func restoreDirtyTables(
 		domainIndexes = append(domainIndexes, fromDomainIndexSnapshot(v))
 	}
 	b.domainIndexes.Restore(domainIndexes)
+
+	vpcEndpoints := make([]*VpcEndpoint, 0, vpcEndpointDTOs.Len())
+	for _, v := range vpcEndpointDTOs.All() {
+		vpcEndpoints = append(vpcEndpoints, fromVpcEndpointSnapshot(v))
+	}
+	b.vpcEndpoints.Restore(vpcEndpoints)
 }
 
 // restoreRawMaps restores the plain-map fields left unconverted by the

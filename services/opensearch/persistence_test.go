@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -115,6 +116,76 @@ func TestPersistence_VpcEndpointsRoundTrip(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "VPC endpoint should persist through snapshot/restore")
+}
+
+// TestPersistence_VpcEndpointStatusUntilRoundTrip covers gopherstack-8mcb: a
+// round trip through only a settled endpoint (StatusUntil always zero)
+// cannot see StatusUntil being dropped, so this specifically restores an
+// endpoint mid-DELETING and proves its window still elapses afterward.
+func TestPersistence_VpcEndpointStatusUntilRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	fixedNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		wantGoneAt time.Time
+		name       string
+		delay      time.Duration
+		delete     bool
+	}{
+		{
+			name:  "active_endpoint_unaffected",
+			delay: time.Hour,
+		},
+		{
+			name:       "mid_deleting_window_still_elapses",
+			delay:      time.Hour,
+			delete:     true,
+			wantGoneAt: fixedNow.Add(2 * time.Hour),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			b.SetClock(func() time.Time { return fixedNow })
+			b.SetProcessingDelay(tt.delay)
+			b.AddDomainInternal("vpc-status-domain", "")
+
+			domain, err := b.DescribeDomain("vpc-status-domain")
+			require.NoError(t, err)
+
+			ep, err := b.CreateVpcEndpoint(domain.ARN, map[string]any{"SubnetIds": []string{"subnet-1"}})
+			require.NoError(t, err)
+
+			if tt.delete {
+				_, deleteErr := b.DeleteVpcEndpoint(ep.VpcEndpointID)
+				require.NoError(t, deleteErr)
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			fresh.SetClock(func() time.Time { return fixedNow.Add(30 * time.Minute) })
+			found, foundErrs := fresh.DescribeVpcEndpoints([]string{ep.VpcEndpointID})
+			assert.Len(t, found, 1, "endpoint must still be visible before its window elapses")
+			assert.Empty(t, foundErrs)
+
+			if tt.wantGoneAt.IsZero() {
+				return
+			}
+
+			fresh.SetClock(func() time.Time { return tt.wantGoneAt })
+			gone, goneErrs := fresh.DescribeVpcEndpoints([]string{ep.VpcEndpointID})
+			assert.Empty(t, gone, "restored StatusUntil must still let the DELETING window elapse")
+			assert.Len(t, goneErrs, 1)
+		})
+	}
 }
 
 func TestPersistence_UpgradeHistoryRoundTrip(t *testing.T) {
