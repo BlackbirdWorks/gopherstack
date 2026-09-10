@@ -149,7 +149,8 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListFrameworks(c *echo.Context) error {
-	frameworks := h.Backend.ListFrameworks()
+	q := c.Request().URL.Query()
+	frameworks, nextToken := h.Backend.ListFrameworks(parseInt(q.Get("MaxResults")), q.Get("NextToken"))
 	items := make([]map[string]any, 0, len(frameworks))
 
 	for _, f := range frameworks {
@@ -161,9 +162,12 @@ func (h *Handler) handleListFrameworks(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Frameworks": items,
-	})
+	resp := map[string]any{"Frameworks": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateFrameworkBody struct {

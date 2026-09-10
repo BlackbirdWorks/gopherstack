@@ -146,7 +146,8 @@ func (h *Handler) dispatchLegalHoldOps(c *echo.Context, route backupRoute) (bool
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListLegalHolds:
-		lhs := h.Backend.ListLegalHolds()
+		q := c.Request().URL.Query()
+		lhs, nextToken := h.Backend.ListLegalHolds(parseInt(q.Get("maxResults")), q.Get("nextToken"))
 		items := make([]map[string]any, 0, len(lhs))
 		for _, lh := range lhs {
 			items = append(
@@ -159,7 +160,12 @@ func (h *Handler) dispatchLegalHoldOps(c *echo.Context, route backupRoute) (bool
 			)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"LegalHolds": items})
+		resp := map[string]any{"LegalHolds": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
+
+		return true, c.JSON(http.StatusOK, resp)
 	}
 
 	return false, nil

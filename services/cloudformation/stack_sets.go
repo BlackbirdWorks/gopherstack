@@ -396,31 +396,39 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	return nil
 }
 
+// ListStackSetOperationResults returns per-account/region operation
+// results, paginated by MaxResults/NextToken (real query-protocol form
+// fields, api_op_ListStackSetOperationResults.go).
 func (b *InMemoryBackend) ListStackSetOperationResults(
-	stackSetName, operationID, _ string,
-) ([]StackSetOperationResult, error) {
+	stackSetName, operationID string, maxResults int, nextToken string,
+) (page.Page[StackSetOperationResult], error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
 	if !b.stackSets.Has(stackSetName) {
-		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
+		return page.Page[StackSetOperationResult]{}, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
 	}
 	if _, ok := b.stackSetOperations[stackSetName][operationID]; !ok {
-		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
+		return page.Page[StackSetOperationResult]{}, fmt.Errorf(
+			"%w: %s in %s", ErrOperationNotFound, operationID, stackSetName,
+		)
 	}
 	results := b.stackSetOpResults[stackSetName][operationID]
 	out := make([]StackSetOperationResult, len(results))
 	copy(out, results)
 
-	return out, nil
+	return page.New(out, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
+// ListStackSetAutoDeploymentTargets returns a StackSet's automatic
+// deployment targets, paginated by MaxResults/NextToken (real
+// query-protocol form fields, api_op_ListStackSetAutoDeploymentTargets.go).
 func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
-	stackSetName string,
-) ([]AutoDeploymentTarget, error) {
+	stackSetName string, maxResults int, nextToken string,
+) (page.Page[AutoDeploymentTarget], error) {
 	b.mu.RLock("ListStackSetAutoDeploymentTargets")
 	defer b.mu.RUnlock()
 	if !b.stackSets.Has(stackSetName) {
-		return nil, ErrStackSetNotFound
+		return page.Page[AutoDeploymentTarget]{}, ErrStackSetNotFound
 	}
 
 	byOU := make(map[string]int) // OU ID -> index in targets
@@ -447,7 +455,7 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 		})
 	}
 
-	return targets, nil
+	return page.New(targets, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error) {

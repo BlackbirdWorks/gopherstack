@@ -241,9 +241,9 @@ func TestTypeVersioning_MultipleRegistrations(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			versions, err := b.ListTypeVersions("Acme::Ver::Type", "")
+			versions, err := b.ListTypeVersions("Acme::Ver::Type", "", 0, "")
 			require.NoError(t, err)
-			assert.Len(t, versions, tc.wantVersions)
+			assert.Len(t, versions.Data, tc.wantVersions)
 
 			details, err := b.DescribeType("Acme::Ver::Type", "", "")
 			require.NoError(t, err)
@@ -265,12 +265,12 @@ func TestListTypeVersions_MultipleVersions(t *testing.T) {
 	_, err = b.RegisterType("Acme::Multi::Ver", "s3://v3.zip")
 	require.NoError(t, err)
 
-	versions, err := b.ListTypeVersions("Acme::Multi::Ver", "")
+	versions, err := b.ListTypeVersions("Acme::Multi::Ver", "", 0, "")
 	require.NoError(t, err)
-	assert.Len(t, versions, 3)
-	assert.Contains(t, versions, "00000001")
-	assert.Contains(t, versions, "00000002")
-	assert.Contains(t, versions, "00000003")
+	assert.Len(t, versions.Data, 3)
+	assert.Contains(t, versions.Data, "00000001")
+	assert.Contains(t, versions.Data, "00000002")
+	assert.Contains(t, versions.Data, "00000003")
 }
 
 // ---- ListTypes visibility (table-driven) -----------------------------------------
@@ -318,11 +318,11 @@ func TestListTypes_Visibility(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(b)
 			}
-			types, err := b.ListTypes("")
+			types, err := b.ListTypes("", 0, "")
 			require.NoError(t, err)
 
-			typeMap := make(map[string]cloudformation.TypeSummary, len(types))
-			for _, typ := range types {
+			typeMap := make(map[string]cloudformation.TypeSummary, len(types.Data))
+			for _, typ := range types.Data {
 				typeMap[typ.TypeName] = typ
 			}
 

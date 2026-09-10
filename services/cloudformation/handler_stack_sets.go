@@ -743,7 +743,9 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
-	targets, err := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	p, err := h.Backend.ListStackSetAutoDeploymentTargets(
+		form.Get("StackSetName"), parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
@@ -751,7 +753,8 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 	// "Summaries", not "Targets" (cloudformation@v1.76.1 deserializers.go:
 	// awsAwsquery_deserializeOpDocumentListStackSetAutoDeploymentTargetsOutput).
 	type result struct {
-		Targets []AutoDeploymentTarget `xml:"Summaries>member"`
+		NextToken string                 `xml:"NextToken,omitempty"`
+		Targets   []AutoDeploymentTarget `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetAutoDeploymentTargetsResponse"`
@@ -762,7 +765,11 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Targets: targets}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{Targets: p.Data, NextToken: p.Next},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -863,7 +870,9 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		return h.xmlError(c, "ValidationError", "StackSetName and OperationId are required")
 	}
 
-	results, err := h.Backend.ListStackSetOperationResults(stackSetName, operationID, "")
+	p, err := h.Backend.ListStackSetOperationResults(
+		stackSetName, operationID, parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {
 			return h.xmlError(c, "StackSetNotFoundException", err.Error())
@@ -883,8 +892,8 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		Status            string          `xml:"Status,omitempty"`
 		StatusReason      string          `xml:"StatusReason,omitempty"`
 	}
-	items := make([]resultXML, 0, len(results))
-	for _, r := range results {
+	items := make([]resultXML, 0, len(p.Data))
+	for _, r := range p.Data {
 		item := resultXML{
 			Account:      r.Account,
 			Region:       r.Region,
@@ -907,12 +916,13 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 	type resultWrapper struct {
+		NextToken string      `xml:"NextToken,omitempty"`
 		Summaries []resultXML `xml:"Summaries>member"`
 	}
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    resultWrapper{Summaries: items},
+		Result:    resultWrapper{Summaries: items, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }

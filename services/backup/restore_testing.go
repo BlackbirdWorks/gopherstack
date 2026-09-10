@@ -113,8 +113,11 @@ func (b *InMemoryBackend) GetRestoreTestingPlan(planName string) (*RestoreTestin
 	return &cp, nil
 }
 
-// ListRestoreTestingPlans returns all restore testing plans.
-func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
+// ListRestoreTestingPlans returns restore testing plans, paginated by
+// MaxResults/NextToken (real query params, ListRestoreTestingPlans
+// serializers.go:7065-7071 -- capitalized "MaxResults"/"NextToken" on the
+// wire).
+func (b *InMemoryBackend) ListRestoreTestingPlans(maxResults int, nextToken string) ([]*RestoreTestingPlan, string) {
 	b.mu.RLock("ListRestoreTestingPlans")
 	defer b.mu.RUnlock()
 
@@ -136,7 +139,9 @@ func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
 		return 0
 	})
 
-	return list
+	return paginateByID(
+		list, func(rtp *RestoreTestingPlan) string { return rtp.RestoreTestingPlanName }, maxResults, nextToken,
+	)
 }
 
 // UpdateRestoreTestingPlan updates a restore testing plan.
@@ -221,14 +226,21 @@ func (b *InMemoryBackend) GetRestoreTestingSelection(
 }
 
 // ListRestoreTestingSelections returns all selections for a restore testing plan.
+// ListRestoreTestingSelections returns selections for a restore testing
+// plan, paginated by MaxResults/NextToken (real query params,
+// ListRestoreTestingSelections serializers.go:7135-7141 -- capitalized
+// "MaxResults"/"NextToken" on the wire; RestoreTestingPlanName is a
+// required URI label, not a query param).
 func (b *InMemoryBackend) ListRestoreTestingSelections(
 	planName string,
-) ([]*RestoreTestingSelection, error) {
+	maxResults int,
+	nextToken string,
+) ([]*RestoreTestingSelection, string, error) {
 	b.mu.RLock("ListRestoreTestingSelections")
 	defer b.mu.RUnlock()
 
 	if !b.restoreTestingPlans.Has(planName) {
-		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+		return nil, "", fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
 	}
 
 	sels := b.restoreTestingSelectionsByPlan.Get(planName)
@@ -249,7 +261,11 @@ func (b *InMemoryBackend) ListRestoreTestingSelections(
 		return 0
 	})
 
-	return list, nil
+	page, next := paginateByID(
+		list, func(s *RestoreTestingSelection) string { return s.RestoreTestingSelectionName }, maxResults, nextToken,
+	)
+
+	return page, next, nil
 }
 
 // UpdateRestoreTestingSelection updates a restore testing selection.

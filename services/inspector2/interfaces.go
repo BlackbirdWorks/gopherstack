@@ -16,7 +16,7 @@ type StorageBackend interface {
 	) (*Filter, error)
 	UpdateFilter(arn, action, description, reason string, criteria map[string]any) (*Filter, error)
 	DeleteFilter(arn string) error
-	ListFilters(arns []string, action string) ([]*Filter, error)
+	ListFilters(arns []string, action string, maxResults int, nextToken string) ([]*Filter, string, error)
 
 	ListFindings(
 		maxResults int32, nextToken string, filterCriteria map[string]any, sortField, sortOrder string,

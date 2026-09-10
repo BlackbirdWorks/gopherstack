@@ -18,6 +18,12 @@ const (
 
 	filterActionNone     = "NONE"
 	filterActionSuppress = "SUPPRESS"
+
+	// defaultListFiltersPageSize is ListFilters' documented maxResults
+	// ceiling (API_ListFilters.html: "Valid Range: Minimum value of 1.
+	// Maximum value of 100.") -- no lower default is documented, so an
+	// omitted maxResults returns up to the maximum.
+	defaultListFiltersPageSize = 100
 )
 
 // onceFilterNamePattern lazily compiles the real Inspector2 filter-name
@@ -235,8 +241,16 @@ func (b *InMemoryBackend) DeleteFilter(filterARN string) error {
 	return nil
 }
 
-// ListFilters returns all filters, optionally filtered by ARNs and action.
-func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, error) {
+// ListFilters returns filters matching arns/action, paginated by
+// maxResults/nextToken (real body params, ListFilters
+// serializers.go:4896-4923). The cursor is the filter's own ARN, the
+// table's unique key (Snapshot already sorts by it), mirroring ListFindings'
+// ARN-keyed cursor convention (findings.go). An unresolved token defaults to
+// the end of the collection rather than index 0, same landmine as
+// ListFindings.
+func (b *InMemoryBackend) ListFilters(
+	arns []string, action string, maxResults int, nextToken string,
+) ([]*Filter, string, error) {
 	b.mu.RLock("ListFilters")
 	defer b.mu.RUnlock()
 
@@ -245,7 +259,7 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	var result []*Filter
+	matched := make([]*Filter, 0, b.filters.Len())
 
 	for _, f := range b.filters.Snapshot() {
 		if len(arnSet) > 0 && !arnSet[f.Arn] {
@@ -256,8 +270,35 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 			continue
 		}
 
-		result = append(result, f)
+		clone := *f
+		matched = append(matched, &clone)
 	}
 
-	return result, nil
+	pageSize := maxResults
+	if pageSize <= 0 {
+		pageSize = defaultListFiltersPageSize
+	}
+
+	start := 0
+	if nextToken != "" {
+		start = len(matched)
+
+		for i, f := range matched {
+			if f.Arn == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+pageSize, len(matched))
+	page := matched[start:end]
+
+	next := ""
+	if end < len(matched) {
+		next = matched[end].Arn
+	}
+
+	return page, next, nil
 }

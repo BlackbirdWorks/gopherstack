@@ -181,7 +181,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// filters table.
-	filters, err := fresh.ListFilters(nil, "")
+	filters, _, err := fresh.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, filters, 1)
 	assert.Equal(t, "filter1", filters[0].Name)
@@ -345,7 +345,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	assert.Equal(t, 0, inspector2.FilterCount(b))
 	assert.Equal(t, 0, inspector2.FindingCount(b))
 
-	filters, err := b.ListFilters(nil, "")
+	filters, _, err := b.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, filters)
 
@@ -396,7 +396,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := inspector2.NewHandler(inspector2.NewInMemoryBackend("111111111111", "us-east-1"))
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	filters, err := h2.Backend.ListFilters(nil, "")
+	filters, _, err := h2.Backend.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, filters, 1)
 	assert.Equal(t, "filter1", filters[0].Name)

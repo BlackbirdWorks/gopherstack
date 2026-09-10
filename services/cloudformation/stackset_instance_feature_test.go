@@ -134,12 +134,13 @@ func TestStackSetOperationResults(t *testing.T) {
 			results, err := b.ListStackSetOperationResults(
 				"op-results-ss",
 				opsPage.Data[0].OperationID,
+				0,
 				"",
 			)
 			require.NoError(t, err)
-			assert.Len(t, results, tc.wantResultN)
+			assert.Len(t, results.Data, tc.wantResultN)
 
-			for _, r := range results {
+			for _, r := range results.Data {
 				assert.NotEmpty(t, r.Account)
 				assert.NotEmpty(t, r.Region)
 				for _, wantStatus := range tc.wantStatuses {

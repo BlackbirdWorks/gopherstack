@@ -88,9 +88,11 @@ type StorageBackend interface {
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(
-		stackSetName, operationID, nextToken string,
-	) ([]StackSetOperationResult, error)
-	ListStackSetAutoDeploymentTargets(stackSetName string) ([]AutoDeploymentTarget, error)
+		stackSetName, operationID string, maxResults int, nextToken string,
+	) (page.Page[StackSetOperationResult], error)
+	ListStackSetAutoDeploymentTargets(
+		stackSetName string, maxResults int, nextToken string,
+	) (page.Page[AutoDeploymentTarget], error)
 	ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error)
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
@@ -119,9 +121,11 @@ type StorageBackend interface {
 	BatchDescribeTypeConfigurations(
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
-	ListTypes(nextToken string) ([]TypeSummary, error)
-	ListTypeVersions(typeName, deprecatedStatus string) ([]string, error)
-	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
+	ListTypes(_ string, maxResults int, nextToken string) (page.Page[TypeSummary], error)
+	ListTypeVersions(
+		typeName, deprecatedStatus string, maxResults int, nextToken string,
+	) (page.Page[string], error)
+	ListTypeRegistrations(typeName, typeFilter string, maxResults int, nextToken string) (page.Page[string], error)
 	DescribeTypeRegistration(registrationToken string) (string, error)
 	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
 	TestType(typeName, arn string) (string, error)
@@ -135,8 +139,10 @@ type StorageBackend interface {
 	) (string, error)
 	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
 	ExecuteStackRefactor(stackRefactorID string) error
-	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
-	ListStackRefactorActions(stackRefactorID string) ([]StackRefactorAction, error)
+	ListStackRefactors(maxResults int, nextToken string) (page.Page[StackRefactorSummary], error)
+	ListStackRefactorActions(
+		stackRefactorID string, maxResults int, nextToken string,
+	) (page.Page[StackRefactorAction], error)
 	// Org access
 	ActivateOrganizationsAccess() error
 	DeactivateOrganizationsAccess() error

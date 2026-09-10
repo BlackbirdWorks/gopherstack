@@ -109,7 +109,9 @@ func (h *Handler) handleListBackupSelections(c *echo.Context, planID string) err
 		)
 	}
 
-	sels, err := h.Backend.ListBackupSelections(planID)
+	q := c.Request().URL.Query()
+
+	sels, nextToken, err := h.Backend.ListBackupSelections(planID, parseInt(q.Get("maxResults")), q.Get("nextToken"))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -126,9 +128,12 @@ func (h *Handler) handleListBackupSelections(c *echo.Context, planID string) err
 		items = append(items, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"BackupSelectionsList": items,
-	})
+	resp := map[string]any{"BackupSelectionsList": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteBackupSelection(c *echo.Context, resource string) error {

@@ -126,8 +126,9 @@ func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) error {
-	summaries, _ := h.Backend.ListStackRefactors(form.Get("NextToken"))
+	p, _ := h.Backend.ListStackRefactors(parseFormMaxResults(form), form.Get("NextToken"))
 	type result struct {
+		NextToken              string                 `xml:"NextToken,omitempty"`
 		StackRefactorSummaries []StackRefactorSummary `xml:"StackRefactorSummaries>member"`
 	}
 	type response struct {
@@ -141,7 +142,7 @@ func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) err
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackRefactorSummaries: summaries},
+			Result:    result{StackRefactorSummaries: p.Data, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)
@@ -189,12 +190,15 @@ func toStackRefactorActionXML(a StackRefactorAction) stackRefactorActionXML {
 }
 
 func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Context) error {
-	actions, _ := h.Backend.ListStackRefactorActions(form.Get("StackRefactorId"))
-	members := make([]stackRefactorActionXML, 0, len(actions))
-	for _, a := range actions {
+	p, _ := h.Backend.ListStackRefactorActions(
+		form.Get("StackRefactorId"), parseFormMaxResults(form), form.Get("NextToken"),
+	)
+	members := make([]stackRefactorActionXML, 0, len(p.Data))
+	for _, a := range p.Data {
 		members = append(members, toStackRefactorActionXML(a))
 	}
 	type result struct {
+		NextToken            string                   `xml:"NextToken,omitempty"`
 		StackRefactorActions []stackRefactorActionXML `xml:"StackRefactorActions>member"`
 	}
 	type response struct {
@@ -208,7 +212,7 @@ func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackRefactorActions: members},
+			Result:    result{StackRefactorActions: members, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)

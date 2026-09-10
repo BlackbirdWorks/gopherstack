@@ -407,8 +407,8 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 	)
 }
 
-func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
-	types, err := h.Backend.ListTypes("")
+func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
+	p, err := h.Backend.ListTypes("", parseFormMaxResults(form), form.Get("NextToken"))
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
@@ -419,8 +419,8 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 		DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
 		IsActivated      bool   `xml:"IsActivated,omitempty"`
 	}
-	members := make([]typeXML, 0, len(types))
-	for _, t := range types {
+	members := make([]typeXML, 0, len(p.Data))
+	for _, t := range p.Data {
 		members = append(members, typeXML{
 			TypeName:         t.TypeName,
 			TypeArn:          t.TypeArn,
@@ -430,6 +430,7 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 		})
 	}
 	type result struct {
+		NextToken     string    `xml:"NextToken,omitempty"`
 		TypeSummaries []typeXML `xml:"TypeSummaries>member"`
 	}
 	type response struct {
@@ -443,14 +444,17 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{TypeSummaries: members},
+			Result:    result{TypeSummaries: members, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)
 }
 
 func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error {
-	versionIDs, err := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("DeprecatedStatus"))
+	p, err := h.Backend.ListTypeVersions(
+		form.Get("TypeName"), form.Get("DeprecatedStatus"),
+		parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
@@ -460,12 +464,13 @@ func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error
 		Arn       string `xml:"Arn,omitempty"`
 		VersionID string `xml:"VersionId,omitempty"`
 	}
-	members := make([]versionXML, 0, len(versionIDs))
+	members := make([]versionXML, 0, len(p.Data))
 	typeArn := "arn:aws:cloudformation:::type/resource/" + form.Get("TypeName")
-	for _, v := range versionIDs {
+	for _, v := range p.Data {
 		members = append(members, versionXML{Arn: typeArn, VersionID: v})
 	}
 	type result struct {
+		NextToken            string       `xml:"NextToken,omitempty"`
 		TypeVersionSummaries []versionXML `xml:"TypeVersionSummaries>member"`
 	}
 	type response struct {
@@ -479,18 +484,22 @@ func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{TypeVersionSummaries: members},
+			Result:    result{TypeVersionSummaries: members, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)
 }
 
 func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) error {
-	tokens, err := h.Backend.ListTypeRegistrations(form.Get("TypeName"), form.Get("Type"))
+	p, err := h.Backend.ListTypeRegistrations(
+		form.Get("TypeName"), form.Get("Type"),
+		parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type result struct {
+		NextToken             string   `xml:"NextToken,omitempty"`
 		RegistrationTokenList []string `xml:"RegistrationTokenList>member"`
 	}
 	type response struct {
@@ -504,7 +513,7 @@ func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) 
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{RegistrationTokenList: tokens},
+			Result:    result{RegistrationTokenList: p.Data, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)

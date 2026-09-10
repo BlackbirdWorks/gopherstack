@@ -44,9 +44,19 @@ type DescribeMaintenanceWindowExecutionTaskInvocationsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTasksInput is the request payload.
 type DescribeMaintenanceWindowExecutionTasksInput struct {
-	MaxResults        *int32 `json:"MaxResults,omitempty"`
-	WindowExecutionID string `json:"WindowExecutionId"`
-	NextToken         string `json:"NextToken,omitempty"`
+	MaxResults        *int32                    `json:"MaxResults,omitempty"`
+	WindowExecutionID string                    `json:"WindowExecutionId"`
+	NextToken         string                    `json:"NextToken,omitempty"`
+	Filters           []MaintenanceWindowFilter `json:"Filters,omitempty"`
+}
+
+// MaintenanceWindowFilter is a Key/Values filter (real types.MaintenanceWindowFilter,
+// api_op_DescribeMaintenanceWindowTargets.go) shared by DescribeMaintenanceWindowTargets,
+// DescribeMaintenanceWindowTasks and DescribeMaintenanceWindowExecutionTasks -- each op
+// documents its own supported Key set in its own doc comment.
+type MaintenanceWindowFilter struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTasksOutput is the response payload.
@@ -70,9 +80,10 @@ type DescribeMaintenanceWindowScheduleOutput struct{}
 
 // DescribeMaintenanceWindowTargetsInput is the request payload.
 type DescribeMaintenanceWindowTargetsInput struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	WindowID   string `json:"WindowId"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int32                    `json:"MaxResults,omitempty"`
+	WindowID   string                    `json:"WindowId"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowTargetsOutput is the response payload.
@@ -83,9 +94,10 @@ type DescribeMaintenanceWindowTargetsOutput struct {
 
 // DescribeMaintenanceWindowTasksInput is the request payload.
 type DescribeMaintenanceWindowTasksInput struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	WindowID   string `json:"WindowId"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int32                    `json:"MaxResults,omitempty"`
+	WindowID   string                    `json:"WindowId"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowTasksOutput is the response payload.

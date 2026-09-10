@@ -132,9 +132,9 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, ops.Data)
 
-	versions, err := fresh.ListTypeVersions("Acme::Demo::Widget", "")
+	versions, err := fresh.ListTypeVersions("Acme::Demo::Widget", "", 0, "")
 	require.NoError(t, err)
-	require.NotEmpty(t, versions)
+	require.NotEmpty(t, versions.Data)
 
 	details, errs, unprocessed := fresh.BatchDescribeTypeConfigurations(
 		[]cloudformation.TypeConfigurationIdentifier{{TypeName: "Acme::Demo::Widget"}},

@@ -367,7 +367,7 @@ func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 			if !slices.Contains(f.Values, doc.TargetType) {
 				return false
 			}
-		case "PlatformTypes":
+		case filterKeyPlatformTypes:
 			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
 				return slices.Contains(f.Values, p)
 			}) {

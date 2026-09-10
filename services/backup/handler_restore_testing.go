@@ -268,7 +268,8 @@ func (h *Handler) handleGetRestoreTestingPlan(c *echo.Context, planName string) 
 }
 
 func (h *Handler) handleListRestoreTestingPlans(c *echo.Context) error {
-	plans := h.Backend.ListRestoreTestingPlans()
+	q := c.Request().URL.Query()
+	plans, nextToken := h.Backend.ListRestoreTestingPlans(parseInt(q.Get("MaxResults")), q.Get("NextToken"))
 	items := make([]map[string]any, 0, len(plans))
 
 	for _, rtp := range plans {
@@ -284,9 +285,12 @@ func (h *Handler) handleListRestoreTestingPlans(c *echo.Context) error {
 		items = append(items, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingPlans": items,
-	})
+	resp := map[string]any{"RestoreTestingPlans": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateRestoreTestingPlanBody struct {
@@ -375,7 +379,11 @@ func (h *Handler) handleListRestoreTestingSelections(c *echo.Context, planName s
 		)
 	}
 
-	sels, err := h.Backend.ListRestoreTestingSelections(planName)
+	q := c.Request().URL.Query()
+
+	sels, nextToken, err := h.Backend.ListRestoreTestingSelections(
+		planName, parseInt(q.Get("MaxResults")), q.Get("NextToken"),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -385,9 +393,12 @@ func (h *Handler) handleListRestoreTestingSelections(c *echo.Context, planName s
 		items = append(items, restoreTestingSelectionToJSON(sel))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingSelections": items,
-	})
+	resp := map[string]any{"RestoreTestingSelections": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateRestoreTestingSelectionBody struct {

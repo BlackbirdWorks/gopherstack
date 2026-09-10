@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (b *InMemoryBackend) CreateStackRefactor(
@@ -112,11 +114,17 @@ func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, error) {
+// ListStackRefactors returns stack refactors, paginated by
+// MaxResults/NextToken (real query-protocol form fields,
+// api_op_ListStackRefactors.go). Snapshot (not All) for a deterministic,
+// sortable-by-RefactorID order -- required for stable pagination.
+func (b *InMemoryBackend) ListStackRefactors(
+	maxResults int, nextToken string,
+) (page.Page[StackRefactorSummary], error) {
 	b.mu.RLock("ListStackRefactors")
 	defer b.mu.RUnlock()
 	summaries := make([]StackRefactorSummary, 0, b.stackRefactors.Len())
-	for _, r := range b.stackRefactors.All() {
+	for _, r := range b.stackRefactors.Snapshot() {
 		summaries = append(summaries, StackRefactorSummary{
 			StackRefactorID: r.RefactorID,
 			Status:          r.Status,
@@ -124,17 +132,20 @@ func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, 
 		})
 	}
 
-	return summaries, nil
+	return page.New(summaries, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
+// ListStackRefactorActions returns a stack refactor's actions, paginated by
+// MaxResults/NextToken (real query-protocol form fields,
+// api_op_ListStackRefactorActions.go).
 func (b *InMemoryBackend) ListStackRefactorActions(
-	stackRefactorID string,
-) ([]StackRefactorAction, error) {
+	stackRefactorID string, maxResults int, nextToken string,
+) (page.Page[StackRefactorAction], error) {
 	b.mu.RLock("ListStackRefactorActions")
 	defer b.mu.RUnlock()
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
-		return []StackRefactorAction{}, nil
+		return page.New([]StackRefactorAction{}, nextToken, maxResults, cfnDefaultPageSize), nil
 	}
 	actions := make([]StackRefactorAction, 0, len(r.ResourceMappings))
 	for _, m := range r.ResourceMappings {
@@ -156,5 +167,5 @@ func (b *InMemoryBackend) ListStackRefactorActions(
 		})
 	}
 
-	return actions, nil
+	return page.New(actions, nextToken, maxResults, cfnDefaultPageSize), nil
 }

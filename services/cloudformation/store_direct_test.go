@@ -211,13 +211,13 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, regStatus)
 
-	types, err := b.ListTypes("")
+	types, err := b.ListTypes("", 0, "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, types)
+	assert.NotEmpty(t, types.Data)
 
-	typeVersions, err := b.ListTypeVersions("MyCompany::MyService::MyType", "")
+	typeVersions, err := b.ListTypeVersions("MyCompany::MyService::MyType", "", 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, typeVersions)
+	assert.NotNil(t, typeVersions.Data)
 }
 
 func TestTypeManagement_ActivateDeactivate(t *testing.T) {
@@ -418,13 +418,13 @@ func TestStackRefactor_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, desc)
 
-	list, err := b.ListStackRefactors("")
+	list, err := b.ListStackRefactors(0, "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, list)
+	assert.NotEmpty(t, list.Data)
 
-	actions, err := b.ListStackRefactorActions(refactorID)
+	actions, err := b.ListStackRefactorActions(refactorID, 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, actions)
+	assert.NotNil(t, actions.Data)
 
 	err = b.ExecuteStackRefactor(refactorID)
 	require.NoError(t, err)
@@ -465,9 +465,9 @@ func TestListStackSetAutoDeploymentTargets(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	targets, err := b.ListStackSetAutoDeploymentTargets("auto-deploy-ss")
+	targets, err := b.ListStackSetAutoDeploymentTargets("auto-deploy-ss", 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, targets)
+	assert.NotNil(t, targets.Data)
 }
 
 // ---- Backend: DependsOn ordering in template -----------------------------------
