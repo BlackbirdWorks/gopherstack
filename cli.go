@@ -411,6 +411,7 @@ type CLI struct {
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
+	shutdownDeadline              time.Time
 	ElastiCacheEngine             string                          `                                    name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
 	EC2Provider                   string                          `                                    name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerImage                string                          `                                    name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
@@ -2088,9 +2089,14 @@ func run(ctx context.Context, cli CLI) error {
 
 	runInitHooks(ctx, &cli, log)
 	createS3InitBuckets(ctx, &cli, log)
-	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services)
+	// cli.shutdownDeadline is set once, when ctx is first observed as done,
+	// and shared by every teardown stage below (HTTP shutdown, Lambda close,
+	// service shutdown) so the whole sequence honors ONE shutdownTimeout
+	// budget rather than each stage restarting its own clock and stacking
+	// to a multiple of shutdownTimeout.
+	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
 
-	return startServer(ctx, cli.Port, e, tlsConfigFromCLI(&cli))
+	return startServer(ctx, cli.Port, e, tlsConfigFromCLI(&cli), &cli.shutdownDeadline)
 }
 
 // tlsSettings carries the resolved TLS configuration for the listener.
@@ -2186,7 +2192,9 @@ func buildInternalAWSConfig(
 
 // lambdaCloseFn returns a cleanup function that shuts down the Lambda backend's
 // function URL servers and runtime API servers, or nil if the handler is not a Lambda backend.
-func lambdaCloseFn(lambdaReg service.Registerable) func() {
+// deadline bounds the close call; it is shared with the other shutdown stages
+// so the whole sequence stays within one overall shutdownTimeout budget.
+func lambdaCloseFn(lambdaReg service.Registerable, deadline time.Time) func() {
 	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
 	if !lambdaOk {
 		return nil
@@ -2198,7 +2206,7 @@ func lambdaCloseFn(lambdaReg service.Registerable) func() {
 	}
 
 	return func() {
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		ctx, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
 		lambdaBk.Close(ctx)
 	}
@@ -2209,19 +2217,32 @@ func lambdaCloseFn(lambdaReg service.Registerable) func() {
 // called via defer after the HTTP server has stopped accepting requests.
 // janitorCancel is called first so that janitor goroutines stop before the
 // backends they access are torn down.
+//
+// shutdownDeadline points at the deadline startServer computes when ctx is
+// first observed as done; reusing it here (rather than starting a fresh
+// shutdownTimeout window) keeps the whole teardown sequence bounded by one
+// shutdownTimeout instead of stacking a separate one per stage. A zero value
+// means the HTTP server never got a chance to observe cancellation (e.g. it
+// failed to bind), so there is nothing to share a clock with.
 func shutdownBackends(
 	janitorCancel context.CancelFunc,
 	lambdaHandler service.Registerable,
 	services []service.Registerable,
+	shutdownDeadline *time.Time,
 ) {
 	// Stop janitor workers before closing backends they may still be accessing.
 	janitorCancel()
 
-	if closeFn := lambdaCloseFn(lambdaHandler); closeFn != nil {
+	deadline := *shutdownDeadline
+	if deadline.IsZero() {
+		deadline = time.Now().Add(shutdownTimeout)
+	}
+
+	if closeFn := lambdaCloseFn(lambdaHandler, deadline); closeFn != nil {
 		closeFn()
 	}
 
-	shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutCtx, shutCancel := context.WithDeadline(context.Background(), deadline)
 	defer shutCancel()
 
 	shutdownServices(shutCtx, services)
@@ -11477,7 +11498,18 @@ func startPprofServer(log *slog.Logger) {
 	}()
 }
 
-func startServer(ctx context.Context, port string, e *echo.Echo, tlsCfg tlsSettings) error {
+// shutdownDeadlineOut, if non-nil, receives the wall-clock deadline computed
+// for the graceful-shutdown wait as soon as ctx is observed done. The caller's
+// later teardown stages (see shutdownBackends) reuse that same deadline so
+// the whole shutdown sequence shares one shutdownTimeout budget instead of
+// each stage getting its own fresh window.
+func startServer(
+	ctx context.Context,
+	port string,
+	e *echo.Echo,
+	tlsCfg tlsSettings,
+	shutdownDeadlineOut *time.Time,
+) error {
 	log := logger.Load(ctx)
 
 	if port[0] != ':' {
@@ -11528,7 +11560,11 @@ func startServer(ctx context.Context, port string, e *echo.Echo, tlsCfg tlsSetti
 	select {
 	case <-ctx.Done():
 		log.InfoContext(ctx, "Shutting down server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		deadline := time.Now().Add(shutdownTimeout)
+		if shutdownDeadlineOut != nil {
+			*shutdownDeadlineOut = deadline
+		}
+		shutdownCtx, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {

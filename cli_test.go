@@ -105,6 +105,14 @@ import (
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
+// shutdownWaitTimeout bounds how long a test waits on errCh for run() to
+// return after canceling its context. It must exceed shutdownTimeout (the
+// budget the shutdown path itself gets, cli.go) with real margin: waiting
+// exactly shutdownTimeout races the production deadline byte-for-byte, and
+// loses under load from scheduling/channel-propagation overhead alone even
+// when shutdown itself completes on time (gopherstack-becu).
+const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
+
 // parseCLI parses the given args (key=value env pairs) into a CLI value
 // by setting environment variables then parsing an empty argument list.
 func parseCLI(t *testing.T, envPairs map[string]string) CLI {
@@ -306,7 +314,7 @@ func TestServerStartupAndShutdown(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err, "server should shutdown cleanly without error")
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -395,7 +403,7 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -428,7 +436,7 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	select {
 	case runErr := <-errCh:
 		require.NoError(t, runErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -455,7 +463,7 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -482,7 +490,7 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -524,7 +532,7 @@ func TestHealthCmd_Success(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -3058,7 +3066,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	select {
 	case shutdownErr := <-errCh:
 		require.NoError(t, shutdownErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -3165,7 +3173,7 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	select {
 	case shutdownErr := <-errCh:
 		require.NoError(t, shutdownErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
