@@ -80,7 +80,7 @@ func TestIntegration_CosmosDB_TableAPI_TableAndEntityLifecycle(t *testing.T) {
 
 	// Insert entity with a mixed-EDM-type property set.
 	entity := aztables.EDMEntity{
-		Entity: aztables.Entity{PartitionKey: "partition1", RowKey: "row1"},
+		PartitionKey: "partition1", RowKey: "row1",
 		Properties: map[string]any{
 			"StringProp": "hello",
 			"IntProp":    int32(42),
@@ -128,7 +128,7 @@ func TestIntegration_CosmosDB_TableAPI_TableAndEntityLifecycle(t *testing.T) {
 
 	// MergeEntity: only StringProp changes; other properties survive.
 	mergeEntity := aztables.EDMEntity{
-		Entity:     aztables.Entity{PartitionKey: "partition1", RowKey: "row1"},
+		PartitionKey: "partition1", RowKey: "row1",
 		Properties: map[string]any{"StringProp": "merged"},
 	}
 
@@ -152,7 +152,7 @@ func TestIntegration_CosmosDB_TableAPI_TableAndEntityLifecycle(t *testing.T) {
 
 	// ReplaceEntity: drops unrelated properties.
 	replaceEntity := aztables.EDMEntity{
-		Entity:     aztables.Entity{PartitionKey: "partition1", RowKey: "row1"},
+		PartitionKey: "partition1", RowKey: "row1",
 		Properties: map[string]any{"StringProp": "replaced"},
 	}
 
