@@ -19,17 +19,25 @@ type tagCleanupCase struct {
 	name   string
 }
 
+// arnOrErr turns a backend Create call's (out, err) pair into the (string,
+// error) a tagCleanupCase.create needs, reading the ARN off out only once
+// err is known nil.
+func arnOrErr[T any](out T, err error, arn func(T) string) (string, error) {
+	if err != nil {
+		return "", err
+	}
+
+	return arn(out), nil
+}
+
 func tagCleanupCases() []tagCleanupCase {
 	return []tagCleanupCase{
 		{
 			name: "billing_group",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateBillingGroup(&iot.CreateBillingGroupInput{BillingGroupName: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.BillingGroupARN, nil
+				return arnOrErr(out, err, func(o *iot.BillingGroup) string { return o.BillingGroupARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteBillingGroup(key, 0) },
 		},
@@ -40,11 +48,8 @@ func tagCleanupCases() []tagCleanupCase {
 					ScheduledAuditName: key,
 					Frequency:          "DAILY",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ScheduledAuditARN, nil
+				return arnOrErr(out, err, func(o *iot.ScheduledAudit) string { return o.ScheduledAuditARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteScheduledAudit(key) },
 		},
@@ -52,11 +57,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "mitigation_action",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateMitigationAction(&iot.CreateMitigationActionInput{ActionName: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ActionARN, nil
+				return arnOrErr(out, err, func(o *iot.MitigationAction) string { return o.ActionARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteMitigationAction(key) },
 		},
@@ -67,11 +69,8 @@ func tagCleanupCases() []tagCleanupCase {
 					AuthorizerName:        key,
 					AuthorizerFunctionARN: "arn:aws:lambda:us-east-1:123456789012:function:auth",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.AuthorizerARN, nil
+				return arnOrErr(out, err, func(o *iot.Authorizer) string { return o.AuthorizerARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteAuthorizer(key) },
 		},
@@ -79,11 +78,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "command",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateCommand(key, "display", "desc", "namespace", nil, nil)
-				if err != nil {
-					return "", err
-				}
 
-				return out.CommandARN, nil
+				return arnOrErr(out, err, func(o *iot.IoTCommand) string { return o.CommandARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteCommand(key) },
 		},
@@ -94,11 +90,8 @@ func tagCleanupCases() []tagCleanupCase {
 					CertificateProviderName: key,
 					LambdaFunctionARN:       "arn:aws:lambda:us-east-1:123456789012:function:cp",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ARN, nil
+				return arnOrErr(out, err, func(o *iot.CertificateProvider) string { return o.ARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteCertificateProvider(key) },
 		},
@@ -109,11 +102,8 @@ func tagCleanupCases() []tagCleanupCase {
 					MetricName:  key,
 					QueryString: "connectivity.connected = true",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.MetricARN, nil
+				return arnOrErr(out, err, func(o *iot.FleetMetric) string { return o.MetricARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteFleetMetric(key, 0) },
 		},
@@ -121,11 +111,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "custom_metric",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateCustomMetric(&iot.CreateCustomMetricInput{MetricName: key, MetricType: "number"})
-				if err != nil {
-					return "", err
-				}
 
-				return out.MetricARN, nil
+				return arnOrErr(out, err, func(o *iot.CustomMetric) string { return o.MetricARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteCustomMetric(key) },
 		},
@@ -137,11 +124,8 @@ func tagCleanupCases() []tagCleanupCase {
 					Type:         "TOPIC_FILTER",
 					StringValues: []string{"a/b"},
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ARN, nil
+				return arnOrErr(out, err, func(o *iot.Dimension) string { return o.ARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteDimension(key) },
 		},
@@ -149,11 +133,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "ota_update",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateOTAUpdate(key, "desc", "arn:aws:iam::123456789012:role/ota", nil, nil, nil)
-				if err != nil {
-					return "", err
-				}
 
-				return out.OTAUpdateARN, nil
+				return arnOrErr(out, err, func(o *iot.OTAUpdate) string { return o.OTAUpdateARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteOTAUpdate(key) },
 		},
@@ -161,11 +142,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "package",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateIoTPackage(key, "desc", nil)
-				if err != nil {
-					return "", err
-				}
 
-				return out.PackageARN, nil
+				return arnOrErr(out, err, func(o *iot.IoTPackage) string { return o.PackageARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteIoTPackage(key) },
 		},
@@ -173,11 +151,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "package_version",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateIoTPackageVersion(key, "v1", "desc", nil, iot.CreateIoTPackageVersionOptions{})
-				if err != nil {
-					return "", err
-				}
 
-				return out.PackageVersionARN, nil
+				return arnOrErr(out, err, func(o *iot.IoTPackageVersion) string { return o.PackageVersionARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteIoTPackageVersion(key, "v1") },
 		},
@@ -188,11 +163,8 @@ func tagCleanupCases() []tagCleanupCase {
 					RoleAlias: key,
 					RoleARN:   "arn:aws:iam::123456789012:role/x",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.RoleAliasARN, nil
+				return arnOrErr(out, err, func(o *iot.RoleAlias) string { return o.RoleAliasARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteRoleAlias(key) },
 		},
@@ -202,11 +174,8 @@ func tagCleanupCases() []tagCleanupCase {
 				out, err := b.CreateDomainConfiguration(
 					&iot.CreateDomainConfigurationInput{DomainConfigurationName: key},
 				)
-				if err != nil {
-					return "", err
-				}
 
-				return out.DomainConfigurationARN, nil
+				return arnOrErr(out, err, func(o *iot.DomainConfiguration) string { return o.DomainConfigurationARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteDomainConfiguration(key) },
 		},
@@ -217,11 +186,8 @@ func tagCleanupCases() []tagCleanupCase {
 					TemplateName: key,
 					TemplateBody: "{}",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.TemplateARN, nil
+				return arnOrErr(out, err, func(o *iot.ProvisioningTemplate) string { return o.TemplateARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteProvisioningTemplate(key) },
 		},
@@ -229,11 +195,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "stream",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateStream(&iot.CreateStreamInput{StreamID: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.StreamARN, nil
+				return arnOrErr(out, err, func(o *iot.IoTStream) string { return o.StreamARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteStream(key) },
 		},
@@ -241,11 +204,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "job",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateJob(&iot.CreateJobInput{JobID: key, Targets: []string{}})
-				if err != nil {
-					return "", err
-				}
 
-				return out.JobARN, nil
+				return arnOrErr(out, err, func(o *iot.Job) string { return o.JobARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteJob(key) },
 		},
@@ -253,30 +213,24 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "job_template",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateJobTemplate(&iot.CreateJobTemplateInput{JobTemplateID: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.JobTemplateARN, nil
+				return arnOrErr(out, err, func(o *iot.JobTemplate) string { return o.JobTemplateARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteJobTemplate(key) },
 		},
 		{
 			name: "topic_rule",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
-				err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
+				if err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
 					RuleName:         key,
 					TopicRulePayload: &iot.TopicRulePayload{SQL: "SELECT *", Actions: []iot.RuleAction{}},
-				})
-				if err != nil {
-					return "", err
-				}
-				r, err := b.GetTopicRule(key)
-				if err != nil {
+				}); err != nil {
 					return "", err
 				}
 
-				return r.ARN, nil
+				out, err := b.GetTopicRule(key)
+
+				return arnOrErr(out, err, func(o *iot.TopicRule) string { return o.ARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteTopicRule(key) },
 		},
@@ -284,11 +238,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "thing_group",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ThingGroupARN, nil
+				return arnOrErr(out, err, func(o *iot.ThingGroup) string { return o.ThingGroupARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteThingGroup(key, 0) },
 		},
@@ -299,11 +250,8 @@ func tagCleanupCases() []tagCleanupCase {
 					ThingGroupName: key,
 					QueryString:    "connectivity.connected = true",
 				})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ThingGroupARN, nil
+				return arnOrErr(out, err, func(o *iot.ThingGroup) string { return o.ThingGroupARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteDynamicThingGroup(key, 0) },
 		},
@@ -311,11 +259,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "thing_type",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateThingType(&iot.CreateThingTypeInput{ThingTypeName: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.ThingTypeARN, nil
+				return arnOrErr(out, err, func(o *iot.ThingType) string { return o.ThingTypeARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error {
 				if err := b.DeprecateThingType(&iot.DeprecateThingTypeInput{ThingTypeName: key}); err != nil {
@@ -329,11 +274,8 @@ func tagCleanupCases() []tagCleanupCase {
 			name: "security_profile",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				out, err := b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{SecurityProfileName: key})
-				if err != nil {
-					return "", err
-				}
 
-				return out.SecurityProfileARN, nil
+				return arnOrErr(out, err, func(o *iot.SecurityProfile) string { return o.SecurityProfileARN })
 			},
 			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteSecurityProfile(key, 0) },
 		},
