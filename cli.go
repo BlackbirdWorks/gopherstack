@@ -236,10 +236,15 @@ import (
 )
 
 const (
-	defaultPort              = "8000"
-	defaultRegion            = "us-east-1"
-	defaultTimeout           = 30 * time.Second
-	shutdownTimeout          = 5 * time.Second
+	defaultPort    = "8000"
+	defaultRegion  = "us-east-1"
+	defaultTimeout = 30 * time.Second
+	// 8s, not 5s: net/http.Server.Shutdown won't treat a connection accepted
+	// but never read from as idle until it's 5s old (net/http Issue 22682,
+	// unexported/unconfigurable), plus up to ~1s of Unix-second truncation
+	// slop and 500ms poll granularity. A same-or-lower budget races that
+	// floor and loses under load; measured stalls topped out at 5.34s.
+	shutdownTimeout          = 8 * time.Second
 	healthCheckTimeout       = 5 * time.Second
 	configFilename           = "config.json"
 	defaultReadHeaderTimeout = 5 * time.Second
