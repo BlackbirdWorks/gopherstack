@@ -580,26 +580,54 @@ X-Amz-Function-Error/X-Amz-Executed-Version/X-Amz-Log-Result headers) against
 HTTP response and all four headers are read exactly as this package sets them, no
 mismatch.
 
-Observed, not fixed (pre-existing, confirmed unrelated to this pass via hand-revert):
-`go test -race -count=1 ./services/lambda/...` intermittently reports a `goleak`
-failure (leftover `net/http.(*persistConn)` read/write-loop goroutines from
-`http.DefaultClient`, used directly by several `_test.go` files e.g.
-`handler_runtime_test.go`/`iam_enforcement_test.go`/`store_test.go`) -- reproduced on
-unmodified `HEAD` (2 of 3 runs failed, 1 passed) as well as with this pass's fix
-applied (1 of 3 runs failed), confirming it is a pre-existing test-infrastructure
-timing flake (idle keep-alive connections not yet closed when `TestMain`'s
-`goleak.VerifyTestMain` samples goroutines), not a production-code leak and not caused
-by this pass. Not investigated further or fixed -- root-causing which specific test(s)
-leave an idle connection open, and whether to add a `testleak` ignore or have those
-tests call `CloseIdleConnections`, is a separate, broader change than this pass's two
-targeted fixes.
+FIXED (gopherstack-neiq, 2026-09-08): the observation below was correct on the
+mechanism but the follow-up ("root-causing which specific test(s) leave an idle
+connection open ... is a separate, broader change") turned out to be tractable.
+`http.DefaultClient.Do` (`iam_enforcement_test.go:166`,
+`handler_runtime_test.go:290,442,471,489,895`) and zero-Transport
+`&http.Client{Timeout: ...}` literals (`handler_runtime_test.go:757`,
+`store_test.go:696,787,854`) all shared `http.DefaultTransport`'s idle-connection
+pool; response bodies were closed correctly but the parked
+`persistConn.readLoop`/`writeLoop` (client side) and `(*conn).serve` (server side,
+observed in this pass's own reproductions) goroutines raced `TestMain`'s
+`goleak.VerifyTestMain` sample. Fixed by giving every such test its own
+`http.Client{Transport: &http.Transport{}}` via a new `newHTTPClient(t, timeout)`
+helper (`test_helpers_test.go`) that registers `t.Cleanup(c.CloseIdleConnections)`;
+`iam_enforcement_test.go` uses `srv.Client()` instead (idiomatic since an
+`httptest.Server` is already in play) -- confirmed by reading
+`net/http/httptest/server.go` that `Server.Close` (already deferred via
+`t.Cleanup(srv.Close)`) calls `s.client.Transport.CloseIdleConnections()` whenever
+`s.client` is non-nil, so no extra close was needed there. Purely a client
+construction swap -- no test assertion changed.
+
+Verified with process-level repeat runs (each iteration a separate `go test`
+process, since the leak is about process teardown): before the fix, 3/25 runs
+(12%) failed on a genuine `goleak` leaked-goroutine report; after the fix, 0/30
+runs failed on `goleak` (30 clean). The remaining flakiness this pass's own
+baseline turned up -- a pre-existing, unrelated data race in
+`(*mockBackend).InvokeFunction` (`handler_test.go:110`, unguarded
+`m.invokeCount++` raced across `TestExtractOperation_SDKRouteTable`'s parallel
+subtests, 4/30 post-fix runs) and one `bind: address already in use` port
+collision -- are untouched by this fix and confirmed present in the unfixed
+baseline too; out of this issue's scope, flagged for a follow-up issue.
+
+The issue's suspected explanation for the branch's reported higher rate (60% vs
+28% on main, "several hundred lines of new tests ... widening goleak's sampling
+window") does NOT hold up under same-session remeasurement: this pass's own
+`goleak`-only rate was 3/25 (12%) on this branch and 4/20 (20%) on `origin/main`
+-- comparable, with main if anything higher, the opposite direction the
+hypothesis predicts. The branch's new test files were confirmed (via `grep`) to
+add zero new HTTP client/server call sites, and the branch's total `_test.go`
+line count (23,762 -> 24,106) is only a 1.4% increase -- too small to plausibly
+double a sampling-window-width effect even if that mechanism were real. The
+60%/28% figures do not reproduce; environmental run-to-run variance (this VM's
+load at measurement time) is the more likely explanation, not a structural
+branch effect. Refuted, not confirmed.
 
 Gates: `go build ./...`, `go vet ./services/lambda/...`, `gofmt -l services/lambda/`
-(no output), `go test -race -count=1 ./services/lambda/...` (3/3 clean runs after the
-fix). `golangci-lint run ./services/lambda/...` panics repo-wide on this toolchain
-(`honnef.co/go/tools@v0.7.0` / goanalysis `buildir`/`nilness`/`typedness`/`fact_purity`
-interface-conversion panics) -- confirmed pre-existing and environment-wide, not
-scoped to this package or this pass's changes.
+(no output), `golangci-lint run ./services/lambda/...` (0 issues), `go test -race
+-count=1 ./services/lambda/...` (0/30 goleak failures after the fix; see above for
+the 4 unrelated pre-existing failures).
 
 ## 2026-09-06: Code.ImageUri never resolved against ECR (gopherstack-vrpy)
 

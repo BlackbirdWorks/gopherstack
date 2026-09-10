@@ -163,7 +163,7 @@ func TestIAMEnforcement(t *testing.T) {
 					"/20260826/us-east-1/lambda/aws4_request, SignedHeaders=host, Signature=mock",
 			)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := srv.Client().Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
