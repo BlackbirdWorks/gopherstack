@@ -297,15 +297,22 @@ func TestIntegration_ServiceDiscovery_ServiceAttributesLifecycle(t *testing.T) {
 	assert.Contains(t, getBody, "ServiceAttributes")
 	assert.Contains(t, getBody, "staging")
 
-	// DeleteServiceAttributes.
-	deleteResp := servicediscoveryRequest(t, "DeleteServiceAttributes", map[string]any{"ServiceId": svcID})
+	// DeleteServiceAttributes. Attributes is a required field naming the keys to
+	// remove (real DeleteServiceAttributesRequest requires ServiceId + Attributes).
+	deleteResp := servicediscoveryRequest(t, "DeleteServiceAttributes", map[string]any{
+		"ServiceId":  svcID,
+		"Attributes": []string{"env", "version"},
+	})
 	deleteBody := servicediscoveryReadBody(t, deleteResp)
 	assert.Equal(t, http.StatusOK, deleteResp.StatusCode, "body: %s", deleteBody)
 
-	// GetServiceAttributes after delete should return 400.
+	// GetServiceAttributes after delete: real AWS declares only InvalidInput and
+	// ServiceNotFound as errors for this operation (no "no attributes" error), so a
+	// service with all attributes deleted still returns 200 with an empty map.
 	getResp2 := servicediscoveryRequest(t, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
 	getBody2 := servicediscoveryReadBody(t, getResp2)
-	assert.Equal(t, http.StatusBadRequest, getResp2.StatusCode, "body: %s", getBody2)
+	assert.Equal(t, http.StatusOK, getResp2.StatusCode, "body: %s", getBody2)
+	assert.NotContains(t, getBody2, "staging")
 }
 
 func TestIntegration_ServiceDiscovery_UpdateInstanceCustomHealthStatus(t *testing.T) {

@@ -799,6 +799,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 		{name: "delete_not_found_service", wantCode: http.StatusBadRequest},
 		{name: "delete_missing_attributes", wantCode: http.StatusBadRequest},
 		{name: "get_before_update", wantCode: http.StatusBadRequest},
+		{name: "delete_all_then_get", wantCode: http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -914,6 +915,29 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				// GetServiceAttributes before any UpdateServiceAttributes should fail
 				getRec := doSDRequest(t, h, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
 				assert.Equal(t, tt.wantCode, getRec.Code)
+
+			case "delete_all_then_get":
+				svcID, _ := createSvc()
+				doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
+					"ServiceId":  svcID,
+					"Attributes": map[string]string{"env": "staging", "version": "2.0"},
+				})
+				deleteRec := doSDRequest(t, h, "DeleteServiceAttributes", map[string]any{
+					"ServiceId":  svcID,
+					"Attributes": []string{"env", "version"},
+				})
+				require.Equal(t, http.StatusOK, deleteRec.Code)
+
+				// Real GetServiceAttributes declares only InvalidInput and
+				// ServiceNotFound errors -- deleting every attribute a service had
+				// still returns 200 with an empty map, not a not-found error.
+				getRec := doSDRequest(t, h, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
+				assert.Equal(t, tt.wantCode, getRec.Code, "body: %s", getRec.Body.String())
+
+				var getOut map[string]any
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+				attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"]
+				assert.Empty(t, attrs)
 			}
 		})
 	}
