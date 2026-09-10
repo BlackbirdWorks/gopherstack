@@ -78,6 +78,39 @@ func rhErrorCode(err error) string {
 	return ""
 }
 
+// mustCreateRHEKSSubnet creates a real VPC and subnet via ec2Client so an
+// EKS cluster created as a ResilienceHub cross-service test fixture carries
+// a subnet the EC2 backend actually knows about, rather than a fabricated
+// literal that would break the moment EKS gains an EC2Resolver.SubnetExists
+// check like EFS's (gopherstack-1o31). Cleanup for both is registered
+// immediately, before the caller creates its EKS cluster, so teardown
+// deletes the cluster first and the VPC/subnet after.
+func mustCreateRHEKSSubnet(ctx context.Context, t *testing.T, ec2Client *ec2sdk.Client, cidrBase string) string {
+	t.Helper()
+
+	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{
+		CidrBlock: aws.String(cidrBase + ".0.0/16"),
+	})
+	require.NoError(t, err, "CreateVpc should succeed")
+	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
+
+	subnetOut, err := ec2Client.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
+		VpcId:     aws.String(vpcID),
+		CidrBlock: aws.String(cidrBase + ".1.0/24"),
+	})
+	require.NoError(t, err, "CreateSubnet should succeed")
+	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
+
+	t.Cleanup(func() {
+		cctx, cancel := rhCleanupCtx()
+		defer cancel()
+		_, _ = ec2Client.DeleteSubnet(cctx, &ec2sdk.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+		_, _ = ec2Client.DeleteVpc(cctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
+	})
+
+	return subnetID
+}
+
 // createRHApp creates a standard app via the real SDK client, for tests
 // whose focus is a different op.
 func createRHApp(ctx context.Context, t *testing.T, client *resiliencehubsdk.Client) string {
@@ -889,11 +922,14 @@ func TestIntegration_ResilienceHub_ResourceMappingResolution(t *testing.T) {
 			mapping: func(t *testing.T) rhtypes.ResourceMapping {
 				t.Helper()
 
+				ec2Client := createEC2Client(t)
+				subnetID := mustCreateRHEKSSubnet(ctx, t, ec2Client, "172.28")
+
 				clusterName := "rh-eks-" + uuid.NewString()[:8]
 				_, err := eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
 					Name: aws.String(clusterName), Version: aws.String("1.27"),
 					RoleArn:            aws.String("arn:aws:iam::000000000000:role/eks-role"),
-					ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{"subnet-12345678"}},
+					ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{subnetID}},
 				})
 				require.NoError(t, err)
 
@@ -1064,11 +1100,13 @@ func TestIntegration_ResilienceHub_ImportResourcesResolution(t *testing.T) {
 		_, _ = ddbClient.DeleteTable(cctx, &ddbsdk.DeleteTableInput{TableName: aws.String(tableName)})
 	})
 
+	eksSubnetID := mustCreateRHEKSSubnet(ctx, t, ec2Client, "172.29")
+
 	clusterName := "rh-eks-import-" + uuid.NewString()[:8]
 	_, err = eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
 		Name: aws.String(clusterName), Version: aws.String("1.27"),
 		RoleArn:            aws.String("arn:aws:iam::000000000000:role/eks-role"),
-		ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{"subnet-12345678"}},
+		ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{eksSubnetID}},
 	})
 	require.NoError(t, err, "CreateCluster should succeed")
 	clusterArn := "arn:aws:eks:us-east-1:000000000000:cluster/" + clusterName
