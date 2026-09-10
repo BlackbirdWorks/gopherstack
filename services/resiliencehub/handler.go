@@ -42,6 +42,12 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	}
 }
 
+// Shutdown stops the backend's scheduled state-transition timers so none
+// outlives the service. Invoked on server shutdown via service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "ResilienceHub" }
 

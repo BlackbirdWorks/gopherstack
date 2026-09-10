@@ -1,15 +1,6 @@
-package outposts
+package resiliencehub
 
 import "time"
-
-// RenewalIdempotencyLenForTest returns the number of cached CreateRenewal
-// idempotency entries, for tests verifying DeleteOutpost's pruning.
-func (b *InMemoryBackend) RenewalIdempotencyLenForTest() int {
-	b.mu.RLock("RenewalIdempotencyLenForTest")
-	defer b.mu.RUnlock()
-
-	return len(b.renewalIdempotency)
-}
 
 // ArmProbeTimerForTest arms a trivial timer directly on the backend's
 // worker.Group and reports on the returned channel when it fires. Used by
