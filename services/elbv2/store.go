@@ -32,9 +32,12 @@ type InMemoryBackend struct {
 	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
 	mu                  *lockmetrics.RWMutex
 	stopCh              chan struct{}
-	accountID           string
-	region              string
-	ruleCounter         int // monotonically increasing counter for rule ARN generation
+	// healthDone is closed by runHealthReconciler when it returns, so Close
+	// can join it and guarantee the goroutine is gone before returning.
+	healthDone  chan struct{}
+	accountID   string
+	region      string
+	ruleCounter int // monotonically increasing counter for rule ARN generation
 	// revocationIDCounter mints RevocationId values for AddTrustStoreRevocations.
 	// Real AWS assigns RevocationId (int64) itself when it parses an uploaded
 	// revocation file -- callers never supply one -- so this emulator hands out a
@@ -54,6 +57,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		targetReadyAt:       make(map[string]map[string]time.Time),
 		targetDrainingUntil: make(map[string]map[string]time.Time),
 		stopCh:              make(chan struct{}),
+		healthDone:          make(chan struct{}),
 	}
 
 	registerAllTables(b)
@@ -84,13 +88,16 @@ func (b *InMemoryBackend) SetCertificateResolver(r CertificateResolver) {
 	b.certResolver = r
 }
 
-// Close stops the background health reconciler.
+// Close stops the background health reconciler, waiting for it to exit so
+// no goroutine outlives the backend. Safe to call more than once.
 func (b *InMemoryBackend) Close() {
 	select {
 	case <-b.stopCh:
 	default:
 		close(b.stopCh)
 	}
+
+	<-b.healthDone
 }
 
 // validatePort returns ErrInvalidParameter if port is not in the valid range 1-65535.

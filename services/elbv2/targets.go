@@ -21,6 +21,8 @@ const (
 
 // runHealthReconciler transitions registered targets from initial to healthy.
 func (b *InMemoryBackend) runHealthReconciler() {
+	defer close(b.healthDone)
+
 	ticker := time.NewTicker(targetHealthDelay / 5) //nolint:mnd // 5 ticks per delay period
 	defer ticker.Stop()
 

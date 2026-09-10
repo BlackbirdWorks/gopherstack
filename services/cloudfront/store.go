@@ -162,6 +162,10 @@ type InMemoryBackend struct {
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
 	stopCh                    chan struct{}
+	// invalidationDone is closed by runInvalidationReconciler when it returns,
+	// so Close can join it without a sync.WaitGroup widening this already-large
+	// struct's fieldalignment footprint.
+	invalidationDone chan struct{}
 	// work schedules each distribution's async InProgress -> Deployed
 	// transition (distributions.go), the same pkgs/worker idiom
 	// services/mgn/exportimport.go and services/outposts's order lifecycle
@@ -222,6 +226,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		invalidationReadyAt:                 make(map[string]map[string]time.Time),
 		tenantInvalidationReadyAt:           make(map[string]map[string]time.Time),
 		stopCh:                              make(chan struct{}),
+		invalidationDone:                    make(chan struct{}),
 		registry:                            store.NewRegistry(),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
@@ -237,7 +242,8 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 }
 
 // Close stops the background reconciler goroutine and every scheduled
-// distribution-deployment timer.
+// distribution-deployment timer, waiting for the reconciler to exit so no
+// goroutine outlives the backend. Safe to call more than once.
 func (b *InMemoryBackend) Close() {
 	select {
 	case <-b.stopCh:
@@ -245,11 +251,14 @@ func (b *InMemoryBackend) Close() {
 		close(b.stopCh)
 	}
 
+	<-b.invalidationDone
 	b.work.Stop()
 }
 
 // runInvalidationReconciler transitions InProgress invalidations to Completed.
 func (b *InMemoryBackend) runInvalidationReconciler() {
+	defer close(b.invalidationDone)
+
 	const tick = 20 * time.Millisecond
 
 	timer := time.NewTicker(tick)

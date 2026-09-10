@@ -1,6 +1,7 @@
 package elbv2
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -43,6 +44,16 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "ELBv2" }
+
+// Shutdown stops the backend's health reconciler goroutine so it does not
+// outlive the service. Invoked on server shutdown via service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(closer); ok {
+		c.Close()
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported ELBv2 operations.
 func (h *Handler) GetSupportedOperations() []string {
