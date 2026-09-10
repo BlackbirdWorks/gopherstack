@@ -49,14 +49,14 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	// Put scaling config
 	rec := callInMemoryHandler(
 		t, h, http.MethodPut,
-		"/2025-11-30/functions/"+fnName+"/function-scaling-config",
+		"/2025-11-30/functions/"+fnName+"/function-scaling-config?Qualifier=$LATEST",
 		`{"FunctionScalingConfig":{"MaxExecutionEnvironments":10}}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Get scaling config
 	rec = callInMemoryHandler(t, h, http.MethodGet,
-		"/2025-11-30/functions/"+fnName+"/function-scaling-config", "{}")
+		"/2025-11-30/functions/"+fnName+"/function-scaling-config?Qualifier=$LATEST", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetFunctionScalingConfigOutput
@@ -64,6 +64,49 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	require.NotNil(t, out.AppliedFunctionScalingConfig)
 	require.NotNil(t, out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
 	assert.Equal(t, int32(maxEnv), *out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
+}
+
+// TestFunctionScalingConfig_DistinctPerQualifier locks in gopherstack-gjn1:
+// functionScalingConfigs was keyed only by function name, so writing scaling
+// config for one qualifier silently overwrote every other qualifier's config.
+func TestFunctionScalingConfig_DistinctPerQualifier(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	fnName := "scaling-multi-fn"
+	createFunctionForTest(t, h, fnName)
+
+	putScaling := func(qualifier string, maxEnv int) {
+		rec := callInMemoryHandler(
+			t, h, http.MethodPut,
+			fmt.Sprintf(
+				"/2025-11-30/functions/%s/function-scaling-config?Qualifier=%s",
+				fnName, qualifier,
+			),
+			fmt.Sprintf(`{"FunctionScalingConfig":{"MaxExecutionEnvironments":%d}}`, maxEnv),
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	getScaling := func(qualifier string) int32 {
+		rec := callInMemoryHandler(t, h, http.MethodGet,
+			fmt.Sprintf("/2025-11-30/functions/%s/function-scaling-config?Qualifier=%s", fnName, qualifier),
+			"{}")
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out lambda.GetFunctionScalingConfigOutput
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NotNil(t, out.AppliedFunctionScalingConfig)
+		require.NotNil(t, out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
+
+		return *out.AppliedFunctionScalingConfig.MaxExecutionEnvironments
+	}
+
+	putScaling("$LATEST", 5)
+	putScaling("v1", 20)
+
+	assert.Equal(t, int32(5), getScaling("$LATEST"))
+	assert.Equal(t, int32(20), getScaling("v1"))
 }
 
 func TestRuntimeManagementConfig_PutGet(t *testing.T) {
@@ -290,6 +333,7 @@ func TestScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 	maxEnv := int32(1)
 	_, err := bk.PutFunctionScalingConfig(
 		"scaling-fn",
+		"$LATEST",
 		&lambda.PutFunctionScalingConfigInput{
 			FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &maxEnv},
 		},
@@ -324,6 +368,7 @@ func TestScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
 	zero := int32(0)
 	_, err := bk.PutFunctionScalingConfig(
 		"scaling-zero-fn",
+		"$LATEST",
 		&lambda.PutFunctionScalingConfigInput{
 			FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &zero},
 		},

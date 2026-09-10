@@ -541,8 +541,12 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 
 	reserved, hasLimit := b.functionConcurrencies[functionName]
 	if !hasLimit {
-		// No reserved concurrency limit — check scaling config MaxExecutionEnvironments instead.
-		if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
+		// No reserved concurrency limit — check scaling config MaxExecutionEnvironments
+		// instead. Invoke doesn't thread a Qualifier through to this call, so an
+		// unqualified invocation is enforced against $LATEST's scaling config,
+		// matching AWS's "no Qualifier means $LATEST" default.
+		if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, versionLatest)]; ok &&
+			sc.MaxExecutionEnvironments != nil {
 			active := b.activeConcurrencies[functionName]
 			if active >= int(*sc.MaxExecutionEnvironments) {
 				return false, fmt.Errorf(
@@ -579,7 +583,8 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 	}
 
 	// Also enforce MaxExecutionEnvironments from scaling config when set.
-	if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
+	if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, versionLatest)]; ok &&
+		sc.MaxExecutionEnvironments != nil {
 		if active >= int(*sc.MaxExecutionEnvironments) {
 			return false, fmt.Errorf(
 				"%w: scaling concurrency limit reached for function %s",

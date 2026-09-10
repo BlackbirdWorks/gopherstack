@@ -767,10 +767,12 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
   - `AcmeDomainValidation.FailureDetails` (deserializers.go:5613-5617) --
     consistent with the pre-existing gap that `AcmeDomainValidation.Status` never
     leaves `VALIDATING`, so there is never a failure to report.
-  - `AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`/`CertificateKeyPairOrigin`
+  - `AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`
     (deserializers.go:5157-5175, SearchCertificates' nested metadata) -- same root
     cause as the CertificateDetail gap above, already covered by an existing gaps
-    bullet for the metadata-filter side of this.
+    bullet for the metadata-filter side of this. `CertificateKeyPairOrigin` on
+    this same struct is now real (gopherstack-7j07): emitted via `certKeyPairOrigin`,
+    same derivation as the metadata-filter and `ListCertificates` sides.
   - `CertificateSummary.CertificateKeyPairOrigin` (deserializers.go:6975-6983) --
     never emitted; no code path tracks key-pair origin as summary-visible data
     separate from `CertificateKeyPairOrigin` more broadly.

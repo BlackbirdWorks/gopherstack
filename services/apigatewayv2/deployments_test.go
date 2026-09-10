@@ -69,3 +69,22 @@ func TestInMemoryBackend_CreateDeployment_ApiNotFound(t *testing.T) {
 	_, err := b.CreateDeployment("bad-api", apigatewayv2.CreateDeploymentInput{})
 	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
 }
+
+// TestInMemoryBackend_CreateDeployment_BadStageName_NoDeploymentLeftBehind
+// locks in gopherstack-7lxd: a rejected StageName must leave the backend as
+// if the call never happened, not merely return an error.
+func TestInMemoryBackend_CreateDeployment_BadStageName_NoDeploymentLeftBehind(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.CreateDeployment(api.APIID, apigatewayv2.CreateDeploymentInput{StageName: "no-such-stage"})
+	require.ErrorIs(t, err, apigatewayv2.ErrStageNotFound)
+
+	deployments, err := b.GetDeployments(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, deployments)
+}

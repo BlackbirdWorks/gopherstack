@@ -726,6 +726,90 @@ func TestUpdateService_CreatesOperation(t *testing.T) {
 	assert.Equal(t, "SUCCESS", op["Status"])
 }
 
+// TestUpdateService_OmittedConfigDeletesIt locks in gopherstack-hwyq: omitting
+// DnsConfig/HealthCheckConfig from an UpdateService request deletes the
+// existing configuration, per api_op_UpdateService.go:22-23 ("If you omit any
+// existing DnsRecords or HealthCheckConfig configurations from an
+// UpdateService request, the configurations are deleted from the service").
+func TestUpdateService_OmittedConfigDeletesIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update     map[string]any
+		name       string
+		wantDNS    bool
+		wantHealth bool
+	}{
+		{
+			name: "dns_records_deleted_when_dnsconfig_omitted",
+			update: map[string]any{
+				"Description":       "v2",
+				"HealthCheckConfig": map[string]any{"Type": "HTTP", "ResourcePath": "/health"},
+			},
+			wantDNS:    false,
+			wantHealth: true,
+		},
+		{
+			name: "health_check_deleted_when_omitted",
+			update: map[string]any{
+				"DnsConfig": map[string]any{"DnsRecords": []map[string]any{{"Type": "A", "TTL": 30}}},
+			},
+			wantDNS:    true,
+			wantHealth: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doSDRequest(t, h, "CreateService", map[string]any{
+				"Name": "svc-" + tt.name,
+				"DnsConfig": map[string]any{
+					"DnsRecords": []map[string]any{{"Type": "A", "TTL": 60}},
+				},
+				"HealthCheckConfig": map[string]any{"Type": "HTTP", "ResourcePath": "/health"},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			var created map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			svcID := created["Service"].(map[string]any)["Id"].(string)
+
+			updateRec := doSDRequest(t, h, "UpdateService", map[string]any{
+				"Id":      svcID,
+				"Service": tt.update,
+			})
+			require.Equal(t, http.StatusOK, updateRec.Code)
+
+			getRec := doSDRequest(t, h, "GetService", map[string]any{"Id": svcID})
+			require.Equal(t, http.StatusOK, getRec.Code)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			svc := out["Service"].(map[string]any)
+
+			if tt.wantDNS {
+				require.NotNil(t, svc["DnsConfig"])
+				records := svc["DnsConfig"].(map[string]any)["DnsRecords"].([]any)
+				assert.NotEmpty(t, records)
+			} else {
+				dc, ok := svc["DnsConfig"].(map[string]any)
+				if ok {
+					records, _ := dc["DnsRecords"].([]any)
+					assert.Empty(t, records, "DnsRecords should be deleted when omitted from update")
+				}
+			}
+
+			if tt.wantHealth {
+				assert.NotNil(t, svc["HealthCheckConfig"])
+			} else {
+				assert.Nil(t, svc["HealthCheckConfig"], "HealthCheckConfig should be deleted when omitted from update")
+			}
+		})
+	}
+}
+
 // TestHandler_UpdateService tests UpdateService.
 func TestHandler_UpdateService(t *testing.T) {
 	t.Parallel()

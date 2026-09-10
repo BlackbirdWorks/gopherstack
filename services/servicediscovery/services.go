@@ -217,10 +217,19 @@ func (b *InMemoryBackend) UpdateService(
 				svc.DNSConfig.DNSRecords[i].TTL = newRec.TTL
 			}
 		}
+	} else if svc.DNSConfig != nil {
+		// Omitting DnsRecords deletes them (api_op_UpdateService.go:22-23).
+		// DnsConfigChange carries only DnsRecords -- RoutingPolicy/NamespaceID
+		// are immutable service-level fields (types.go:1070-1071) and survive.
+		svc.DNSConfig.DNSRecords = nil
 	}
 
 	if hcc != nil {
 		svc.HealthCheckConfig = copyHealthCheckConfig(hcc)
+	} else {
+		// Omitting HealthCheckConfig deletes it (api_op_UpdateService.go:22-23);
+		// HealthCheckCustomConfig is a separate field UpdateService never touches.
+		svc.HealthCheckConfig = nil
 	}
 
 	now := time.Now()
