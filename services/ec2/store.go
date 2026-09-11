@@ -17,17 +17,18 @@ import (
 
 // Errors returned by the EC2 backend.
 var (
-	ErrInstanceNotFound      = errors.New("InvalidInstanceID.NotFound")
-	ErrSecurityGroupNotFound = errors.New("InvalidGroup.NotFound")
-	ErrVPCNotFound           = errors.New("InvalidVpcID.NotFound")
-	ErrSubnetNotFound        = errors.New("InvalidSubnetID.NotFound")
-	ErrInvalidParameter      = errors.New("InvalidParameterValue")
-	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
-	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
-	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
-	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
-	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
+	ErrInstanceNotFound          = errors.New("InvalidInstanceID.NotFound")
+	ErrSecurityGroupNotFound     = errors.New("InvalidGroup.NotFound")
+	ErrSecurityGroupRuleNotFound = errors.New("InvalidSecurityGroupRuleId.NotFound")
+	ErrVPCNotFound               = errors.New("InvalidVpcID.NotFound")
+	ErrSubnetNotFound            = errors.New("InvalidSubnetID.NotFound")
+	ErrInvalidParameter          = errors.New("InvalidParameterValue")
+	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
+	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
+	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrCIDRConflict              = errors.New("InvalidVpc.Conflict")
+	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
 
 	// ErrDependencyViolation is returned when an operation cannot complete
 	// because another resource still depends on the target resource.

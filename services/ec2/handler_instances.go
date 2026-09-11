@@ -735,10 +735,34 @@ func (h *Handler) handleGetConsoleScreenshot(vals url.Values, reqID string) (any
 	}, nil
 }
 
+// handleGetInstanceTypesFromInstanceRequirements requires ArchitectureTypes,
+// VirtualizationTypes, and InstanceRequirements.{VCpuCount,MemoryMiB} (api_op_
+// GetInstanceTypesFromInstanceRequirements.go / types.InstanceRequirementsRequest:
+// all "This member is required"; wire keys confirmed against serializers.go
+// ArchitectureType.N / VirtualizationType.N / InstanceRequirements.VCpuCount.Min
+// / InstanceRequirements.MemoryMiB.Min). This backend has no per-instance-type
+// architecture/vCPU/memory attribute catalog to filter its static instance
+// type list against, so presence validation is the fix; real requirements-based
+// matching is a missing subsystem, left (services/ec2/PARITY.md).
 func (h *Handler) handleGetInstanceTypesFromInstanceRequirements(
-	_ url.Values,
+	vals url.Values,
 	reqID string,
 ) (any, error) {
+	if len(parseMemberList(vals, "ArchitectureType")) == 0 {
+		return nil, fmt.Errorf("%w: ArchitectureTypes is required", ErrInvalidParameter)
+	}
+
+	if len(parseMemberList(vals, "VirtualizationType")) == 0 {
+		return nil, fmt.Errorf("%w: VirtualizationTypes is required", ErrInvalidParameter)
+	}
+
+	if vals.Get("InstanceRequirements.VCpuCount.Min") == "" || vals.Get("InstanceRequirements.MemoryMiB.Min") == "" {
+		return nil, fmt.Errorf(
+			"%w: InstanceRequirements.VCpuCount and InstanceRequirements.MemoryMiB are required",
+			ErrInvalidParameter,
+		)
+	}
+
 	types := h.Backend.GetInstanceTypesFromInstanceRequirements()
 
 	resp := &getInstanceTypesFromReqsResponse{RequestID: reqID}
@@ -757,9 +781,19 @@ func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
+
+	reasonCodes := parseMemberList(vals, "ReasonCode")
+	if len(reasonCodes) == 0 {
+		return nil, fmt.Errorf("%w: at least one ReasonCode is required", ErrInvalidParameter)
+	}
+
 	status := vals.Get("Status")
+	if status == "" {
+		return nil, fmt.Errorf("%w: Status is required", ErrInvalidParameter)
+	}
+
 	description := vals.Get("Description")
-	if err := h.Backend.ReportInstanceStatus(ids, status, description); err != nil {
+	if err := h.Backend.ReportInstanceStatus(ids, reasonCodes, status, description); err != nil {
 		return nil, err
 	}
 

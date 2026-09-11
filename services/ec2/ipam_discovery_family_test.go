@@ -482,3 +482,37 @@ func TestIpamDiscoveryFamily_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeResolversRec.Code)
 	assert.Contains(t, describeResolversRec.Body.String(), "<ipamPrefixListResolverSet>")
 }
+
+// TestProvisionIpamByoasn_AsnAuthorizationContextRequired covers
+// ProvisionIpamByoasnInput.AsnAuthorizationContext (api_op_
+// ProvisionIpamByoasn.go: "This member is required"). Before the fix the
+// handler never read it at all.
+func TestProvisionIpamByoasn_AsnAuthorizationContextRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		vals string
+	}{
+		{name: "missing entirely", vals: ""},
+		{name: "message without signature", vals: "&AsnAuthorizationContext.Message=m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := newTestBackend()
+			ipam, err := bk.CreateIpam()
+			require.NoError(t, err)
+
+			h := newTestHandlerWithBackend(bk)
+
+			rec := postForm(t, h, fmt.Sprintf(
+				"Action=ProvisionIpamByoasn&Version=2016-11-15&IpamId=%s&Asn=64512%s", ipam.IpamID, tt.vals,
+			))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+		})
+	}
+}

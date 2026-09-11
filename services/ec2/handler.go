@@ -671,6 +671,7 @@ var errCodeLookup = []struct {
 }{
 	{ErrInstanceNotFound, "InvalidInstanceID.NotFound"},
 	{ErrSecurityGroupNotFound, "InvalidGroup.NotFound"},
+	{ErrSecurityGroupRuleNotFound, "InvalidSecurityGroupRuleId.NotFound"},
 	{ErrVPCNotFound, "InvalidVpcID.NotFound"},
 	{ErrSubnetNotFound, "InvalidSubnetID.NotFound"},
 	{ErrDuplicateSGName, "InvalidGroup.Duplicate"},

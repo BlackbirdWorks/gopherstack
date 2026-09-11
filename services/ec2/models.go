@@ -355,6 +355,7 @@ type VerifiedAccessTrustProvider struct {
 	TrustProviderType             string `json:"trustProviderType,omitempty"`
 	Status                        string `json:"status,omitempty"`
 	Description                   string `json:"description,omitempty"`
+	PolicyReferenceName           string `json:"policyReferenceName,omitempty"`
 }
 
 // Traffic mirror / fleet / network insights / carrier gateway / reserved instances (formerly batch5).
@@ -552,6 +553,41 @@ type ReservedInstancesListing struct {
 	ReservedInstancesID        string `json:"reservedInstancesId,omitempty"`
 	Status                     string `json:"status,omitempty"`
 	StatusMessage              string `json:"statusMessage,omitempty"`
+	PriceSchedules             []PriceScheduleEntry
+	InstanceCounts             []InstanceCountEntry
+}
+
+// InstanceCountEntry mirrors types.InstanceCount (ec2@v1.329.0 types/types.go),
+// a breakdown of listed Reserved Instances by ListingState.
+type InstanceCountEntry struct {
+	State         string
+	InstanceCount int
+}
+
+// SecurityGroupRuleUpdate mirrors types.SecurityGroupRuleUpdate (ec2@v1.329.0
+// types/types.go), one targeted in-place edit of an existing security group
+// rule identified by SecurityGroupRuleId -- distinct from an
+// AuthorizeSecurityGroupIngress/Egress-style IpPermission.
+type SecurityGroupRuleUpdate struct {
+	SecurityGroupRuleID string
+	Protocol            string
+	CIDRIPv4            string
+	ReferencedGroupID   string
+	Description         string
+	FromPort            int
+	ToPort              int
+}
+
+// PriceScheduleEntry mirrors types.PriceSchedule (ec2@v1.329.0 types/types.go).
+// Active marks whichever schedule currently applies; this backend has no
+// time-elapsing term engine, so it honors the real API's documented ordering
+// convention (schedules given longest-remaining-term first) and marks only
+// the first supplied schedule active, rather than fabricating elapsed time.
+type PriceScheduleEntry struct {
+	CurrencyCode string
+	Price        float64
+	Term         int64
+	Active       bool
 }
 
 // ReservedInstancesModification holds a reserved instances modification.
@@ -560,6 +596,27 @@ type ReservedInstancesModification struct {
 	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
 	Status                          string `json:"status,omitempty"`
 	StatusMessage                   string `json:"statusMessage,omitempty"`
+	ReservedInstancesIDs            []string
+	ModificationResults             []ReservedInstancesModificationResult
+}
+
+// ReservedInstancesModificationResult mirrors types.ReservedInstancesModificationResult
+// (ec2@v1.329.0 types/types.go). ReservedInstancesID is left empty: this
+// backend does not model the real behavior of a fulfilled modification
+// minting a brand-new post-modification Reserved Instance, so it is honest
+// about not fabricating one rather than echoing a misleading ID.
+type ReservedInstancesModificationResult struct {
+	ReservedInstancesID string
+	TargetConfiguration ReservedInstancesConfigurationTarget
+}
+
+// ReservedInstancesConfigurationTarget mirrors types.ReservedInstancesConfiguration
+// (ec2@v1.329.0), the element type of ModifyReservedInstancesInput.TargetConfigurations.
+type ReservedInstancesConfigurationTarget struct {
+	AvailabilityZone   string
+	AvailabilityZoneID string
+	InstanceType       string
+	InstanceCount      int
 }
 
 // QueuedPurchaseDeletionResult holds one ReservedInstance ID's outcome from

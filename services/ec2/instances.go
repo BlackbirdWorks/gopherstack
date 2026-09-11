@@ -757,9 +757,13 @@ func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements() []string {
 // AWS validates every listed instance, not just the first (ec2@v1.319.1
 // serializers.go:91277, ReportInstanceStatusInput.Instances is a required,
 // unbounded list serialized as flat InstanceId.N).
-func (b *InMemoryBackend) ReportInstanceStatus(instanceIDs []string, _ string, _ string) error {
+func (b *InMemoryBackend) ReportInstanceStatus(instanceIDs, reasonCodes []string, _ string, _ string) error {
 	if len(instanceIDs) == 0 {
 		return fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	if len(reasonCodes) == 0 {
+		return fmt.Errorf("%w: ReasonCode is required", ErrInvalidParameter)
 	}
 
 	b.mu.RLock("ReportInstanceStatus")

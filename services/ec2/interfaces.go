@@ -292,7 +292,7 @@ type Backend interface {
 	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
 
 	// ModifySecurityGroupRules replaces all rules in the specified direction.
-	ModifySecurityGroupRules(groupID string, rules []SecurityGroupRule, egress bool) error
+	ModifySecurityGroupRules(groupID string, updates []SecurityGroupRuleUpdate) error
 
 	// ---- Launch template lifecycle ----
 
@@ -1388,7 +1388,7 @@ type Backend interface {
 	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
-	ReportInstanceStatus(instanceIDs []string, status, description string) error
+	ReportInstanceStatus(instanceIDs, reasonCodes []string, status, description string) error
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
@@ -1455,7 +1455,7 @@ type Backend interface {
 
 	// ---- batch4: TGW Peering ----
 	CreateTransitGatewayPeeringAttachment(
-		transitGatewayID, peerTransitGatewayID string, _ string,
+		transitGatewayID, peerTransitGatewayID, peerAccountID, peerRegion string,
 	) (*TransitGatewayPeeringAttachment, error)
 	DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error)
 	DescribeTransitGatewayPeeringAttachments(ids []string) []*TransitGatewayPeeringAttachment
@@ -1496,7 +1496,9 @@ type Backend interface {
 	CreateVerifiedAccessInstance(description string) (*VerifiedAccessInstance, error)
 	DeleteVerifiedAccessInstance(id string) (*VerifiedAccessInstance, error)
 	DescribeVerifiedAccessInstances(ids []string) []*VerifiedAccessInstance
-	CreateVerifiedAccessTrustProvider(trustProviderType, description string) (*VerifiedAccessTrustProvider, error)
+	CreateVerifiedAccessTrustProvider(
+		trustProviderType, description, policyReferenceName string,
+	) (*VerifiedAccessTrustProvider, error)
 	DeleteVerifiedAccessTrustProvider(id string) (*VerifiedAccessTrustProvider, error)
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
@@ -1598,14 +1600,15 @@ type Backend interface {
 	DescribeReservedInstances(ids []string) []*ReservedInstance
 	DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass string) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
-	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
+	CreateReservedInstancesListing(
+		reservedInstancesID string, instanceCount int, schedules []PriceScheduleEntry,
+	) (*ReservedInstancesListing, error)
 	CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error)
 	DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing
 	DescribeReservedInstancesModifications(ids []string) []*ReservedInstancesModification
 	ModifyReservedInstances(
 		reservedInstancesIDs []string,
-		targetInstanceType string,
-		targetCount int,
+		targets []ReservedInstancesConfigurationTarget,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 	GetReservedInstancesExchangeQuote(
@@ -1826,7 +1829,8 @@ type Backend interface {
 	DescribeScheduledInstanceAvailability(
 		filters map[string][]string,
 		minSlotDurationHours, maxSlotDurationHours int32,
-	) []ScheduledInstanceAvailability
+		earliestTime, latestTime time.Time,
+	) ([]ScheduledInstanceAvailability, error)
 	PurchaseScheduledInstances(requests []ScheduledInstancePurchaseRequest) ([]*ScheduledInstance, error)
 	DescribeScheduledInstances(ids []string) []*ScheduledInstance
 	RunScheduledInstances(scheduledInstanceID, imageID, keyName string, instanceCount int32) ([]string, error)
@@ -2090,7 +2094,9 @@ type Backend interface {
 	CancelImageLaunchPermission(imageID string) error
 	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
 	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
-	GetFlowLogsIntegrationTemplate(flowLogID, s3DestinationArn string) (string, error)
+	GetFlowLogsIntegrationTemplate(
+		flowLogID, s3DestinationArn, athenaResultS3DestinationArn, partitionLoadFrequency string,
+	) (string, error)
 
 	GetSpotPlacementScores(
 		instanceTypes, regionNames []string, singleAZ bool,

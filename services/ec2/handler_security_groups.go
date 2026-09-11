@@ -329,13 +329,47 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	}, nil
 }
 
+// handleModifySecurityGroupRules requires SecurityGroupRules (api_op_
+// ModifySecurityGroupRules.go: "This member is required"). Pre-fix this
+// handler read an "Egress" flag and IpPermissions.N.* that do not exist on
+// the real input at all (that shape belongs to Authorize/RevokeSecurityGroup
+// {Ingress,Egress}) and replaced the group's ENTIRE ingress or egress rule
+// set, discarding every rule not in the request -- a fabricated shape, not a
+// missing field. The real op targets individual existing rules by
+// SecurityGroupRuleId (wire key "SecurityGroupRule.N.SecurityGroupRuleId" /
+// "SecurityGroupRule.N.SecurityGroupRule.{CidrIpv4,Description,FromPort,
+// IpProtocol,ReferencedGroupId,ToPort}", serializers.go:
+// awsEc2query_serializeOpDocumentModifySecurityGroupRulesInput).
 func (h *Handler) handleModifySecurityGroupRules(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
-	egress := vals.Get("Egress") == ec2BooleanTrue
 
-	rules := parseIPPermissions(vals)
+	var updates []SecurityGroupRuleUpdate
 
-	if err := h.Backend.ModifySecurityGroupRules(groupID, rules, egress); err != nil {
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("SecurityGroupRule.%d.", i)
+
+		ruleID := vals.Get(prefix + "SecurityGroupRuleId")
+		if ruleID == "" {
+			break
+		}
+
+		fromPort := 0
+		parseIntValue(vals.Get(prefix+"SecurityGroupRule.FromPort"), &fromPort)
+		toPort := 0
+		parseIntValue(vals.Get(prefix+"SecurityGroupRule.ToPort"), &toPort)
+
+		updates = append(updates, SecurityGroupRuleUpdate{
+			SecurityGroupRuleID: ruleID,
+			Protocol:            vals.Get(prefix + "SecurityGroupRule.IpProtocol"),
+			CIDRIPv4:            vals.Get(prefix + "SecurityGroupRule.CidrIpv4"),
+			ReferencedGroupID:   vals.Get(prefix + "SecurityGroupRule.ReferencedGroupId"),
+			Description:         vals.Get(prefix + "SecurityGroupRule.Description"),
+			FromPort:            fromPort,
+			ToPort:              toPort,
+		})
+	}
+
+	if err := h.Backend.ModifySecurityGroupRules(groupID, updates); err != nil {
 		return nil, err
 	}
 

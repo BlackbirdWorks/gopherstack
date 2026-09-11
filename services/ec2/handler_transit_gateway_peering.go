@@ -163,10 +163,18 @@ func toTGWPeeringAttachmentItem(
 ) tgwPeeringAttachmentItem {
 	item := tgwPeeringAttachmentItem{
 		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-		RequesterTgwInfo:           peeringTgwInfoItem{TransitGatewayID: att.RequesterTransitGatewayID},
-		AccepterTgwInfo:            peeringTgwInfoItem{TransitGatewayID: att.AccepterTransitGatewayID},
-		State:                      att.State,
-		TagSet:                     tagItemsFromMap(tags),
+		RequesterTgwInfo: peeringTgwInfoItem{
+			TransitGatewayID: att.RequesterTransitGatewayID,
+			OwnerID:          att.RequesterOwnerID,
+			Region:           att.RequesterRegion,
+		},
+		AccepterTgwInfo: peeringTgwInfoItem{
+			TransitGatewayID: att.AccepterTransitGatewayID,
+			OwnerID:          att.AccepterOwnerID,
+			Region:           att.AccepterRegion,
+		},
+		State:  att.State,
+		TagSet: tagItemsFromMap(tags),
 	}
 	if !att.CreationTime.IsZero() {
 		item.CreationTime = att.CreationTime.Format(time.RFC3339)
@@ -181,9 +189,10 @@ func (h *Handler) handleCreateTransitGatewayPeeringAttachment(
 ) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	peerTGWID := vals.Get("PeerTransitGatewayId")
+	peerAccountID := vals.Get("PeerAccountId")
 	peerRegion := vals.Get("PeerRegion")
 
-	att, err := h.Backend.CreateTransitGatewayPeeringAttachment(tgwID, peerTGWID, peerRegion)
+	att, err := h.Backend.CreateTransitGatewayPeeringAttachment(tgwID, peerTGWID, peerAccountID, peerRegion)
 	if err != nil {
 		return nil, err
 	}

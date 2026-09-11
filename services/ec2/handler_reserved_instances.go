@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -42,11 +43,31 @@ type purchaseReservedInstancesOfferingResponse struct {
 	ReservedInstancesID string   `xml:"reservedInstancesId"`
 }
 
+// priceScheduleItem mirrors types.PriceSchedule (ec2@v1.329.0 types/types.go).
+type priceScheduleItem struct {
+	CurrencyCode string  `xml:"currencyCode,omitempty"`
+	Price        float64 `xml:"price,omitempty"`
+	Term         int64   `xml:"term,omitempty"`
+	Active       bool    `xml:"active"`
+}
+
+// instanceCountItem mirrors types.InstanceCount (ec2@v1.329.0 types/types.go).
+type instanceCountItem struct {
+	State         string `xml:"state,omitempty"`
+	InstanceCount int32  `xml:"instanceCount"`
+}
+
 type reservedInstancesListingItem struct {
 	ReservedInstancesListingID string `xml:"reservedInstancesListingId"`
 	ReservedInstancesID        string `xml:"reservedInstancesId,omitempty"`
 	Status                     string `xml:"status,omitempty"`
 	StatusMessage              string `xml:"statusMessage,omitempty"`
+	PriceSchedules             struct {
+		Items []priceScheduleItem `xml:"item"`
+	} `xml:"priceSchedules"`
+	InstanceCounts struct {
+		Items []instanceCountItem `xml:"item"`
+	} `xml:"instanceCounts"`
 }
 
 type createReservedInstancesListingResponse struct {
@@ -65,10 +86,38 @@ type describeReservedInstancesListingsResponse struct {
 	} `xml:"reservedInstancesListingsSet"`
 }
 
+// reservedInstancesConfigurationItem mirrors types.ReservedInstancesConfiguration
+// (ec2@v1.329.0 types/types.go), the ModifyReservedInstances target-configuration
+// shape -- distinct from types.TargetConfiguration used by the exchange-quote
+// family (targetConfigurationItem above).
+type reservedInstancesConfigurationItem struct {
+	AvailabilityZone   string `xml:"availabilityZone,omitempty"`
+	AvailabilityZoneID string `xml:"availabilityZoneId,omitempty"`
+	InstanceType       string `xml:"instanceType,omitempty"`
+	InstanceCount      int32  `xml:"instanceCount"`
+}
+
+type reservedInstancesModificationResultItem struct {
+	ReservedInstancesID string                             `xml:"reservedInstancesId,omitempty"`
+	TargetConfiguration reservedInstancesConfigurationItem `xml:"targetConfiguration"`
+}
+
 type reservedInstancesModificationItem struct {
 	ReservedInstancesModificationID string `xml:"reservedInstancesModificationId"`
 	Status                          string `xml:"status,omitempty"`
 	StatusMessage                   string `xml:"statusMessage,omitempty"`
+	ReservedInstancesSet            struct {
+		Items []reservedInstancesIDItem `xml:"item"`
+	} `xml:"reservedInstancesSet"`
+	ModificationResultSet struct {
+		Items []reservedInstancesModificationResultItem `xml:"item"`
+	} `xml:"modificationResultSet"`
+}
+
+// reservedInstancesIDItem mirrors types.ReservedInstancesId (ec2@v1.329.0
+// types/types.go): a one-field wrapper, not a bare string list.
+type reservedInstancesIDItem struct {
+	ReservedInstancesID string `xml:"reservedInstancesId,omitempty"`
 }
 
 type describeReservedInstancesModificationsResponse struct {
@@ -215,22 +264,61 @@ func toReservedInstancesOfferingItem(o *ReservedInstancesOffering) reservedInsta
 }
 
 func toReservedInstancesListingItem(l *ReservedInstancesListing) reservedInstancesListingItem {
-	return reservedInstancesListingItem{
+	item := reservedInstancesListingItem{
 		ReservedInstancesListingID: l.ReservedInstancesListingID,
 		ReservedInstancesID:        l.ReservedInstancesID,
 		Status:                     l.Status,
 		StatusMessage:              l.StatusMessage,
 	}
+
+	for _, s := range l.PriceSchedules {
+		item.PriceSchedules.Items = append(item.PriceSchedules.Items, priceScheduleItem(s))
+	}
+
+	for _, c := range l.InstanceCounts {
+		item.InstanceCounts.Items = append(item.InstanceCounts.Items, instanceCountItem{
+			InstanceCount: int32(c.InstanceCount), //nolint:gosec // request-bounded instance count
+			State:         c.State,
+		})
+	}
+
+	return item
 }
 
 func toReservedInstancesModificationItem(
 	m *ReservedInstancesModification,
 ) reservedInstancesModificationItem {
-	return reservedInstancesModificationItem{
+	item := reservedInstancesModificationItem{
 		ReservedInstancesModificationID: m.ReservedInstancesModificationID,
 		Status:                          m.Status,
 		StatusMessage:                   m.StatusMessage,
 	}
+
+	for _, riID := range m.ReservedInstancesIDs {
+		item.ReservedInstancesSet.Items = append(
+			item.ReservedInstancesSet.Items,
+			reservedInstancesIDItem{ReservedInstancesID: riID},
+		)
+	}
+
+	for _, r := range m.ModificationResults {
+		instanceCount := int32(r.TargetConfiguration.InstanceCount) //nolint:gosec // request-bounded target count
+
+		item.ModificationResultSet.Items = append(
+			item.ModificationResultSet.Items,
+			reservedInstancesModificationResultItem{
+				ReservedInstancesID: r.ReservedInstancesID,
+				TargetConfiguration: reservedInstancesConfigurationItem{
+					AvailabilityZone:   r.TargetConfiguration.AvailabilityZone,
+					AvailabilityZoneID: r.TargetConfiguration.AvailabilityZoneID,
+					InstanceCount:      instanceCount,
+					InstanceType:       r.TargetConfiguration.InstanceType,
+				},
+			},
+		)
+	}
+
+	return item
 }
 
 func (h *Handler) handleDescribeReservedInstances(vals url.Values, reqID string) (any, error) {
@@ -306,7 +394,9 @@ func (h *Handler) handleCreateReservedInstancesListing(vals url.Values, reqID st
 	instanceCount := 1
 	parseIntValue(vals.Get("InstanceCount"), &instanceCount)
 
-	listing, err := h.Backend.CreateReservedInstancesListing(riID, instanceCount)
+	schedules := parsePriceSchedules(vals)
+
+	listing, err := h.Backend.CreateReservedInstancesListing(riID, instanceCount, schedules)
 	if err != nil {
 		return nil, err
 	}
@@ -392,15 +482,9 @@ func (h *Handler) handleDescribeReservedInstancesModifications(
 
 func (h *Handler) handleModifyReservedInstances(vals url.Values, reqID string) (any, error) {
 	riIDs := parseMemberList(vals, "ReservedInstancesId")
-	targetInstanceType := vals.Get("ReservedInstancesConfigurationSetItemType.1.InstanceType")
+	targets := parseReservedInstancesConfigurationSet(vals)
 
-	targetCount := 0
-	parseIntValue(
-		vals.Get("ReservedInstancesConfigurationSetItemType.1.InstanceCount"),
-		&targetCount,
-	)
-
-	mod, err := h.Backend.ModifyReservedInstances(riIDs, targetInstanceType, targetCount)
+	mod, err := h.Backend.ModifyReservedInstances(riIDs, targets)
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +530,72 @@ func (h *Handler) handleDeleteQueuedReservedInstances(vals url.Values, reqID str
 // AcceptReservedInstancesExchangeQuote's TargetConfiguration.N.OfferingId /
 // TargetConfiguration.N.InstanceCount (serializers.go:87596-87601,67108-67123:
 // wire prefix "TargetConfiguration", not "TargetConfigurationRequest").
+// parseReservedInstancesConfigurationSet parses ModifyReservedInstances'
+// TargetConfigurations, which serializes flat as
+// "ReservedInstancesConfigurationSetItemType.N.{AvailabilityZone,
+// AvailabilityZoneId,InstanceCount,InstanceType}" (serializers.go:90533-90535,
+// FlatKey "ReservedInstancesConfigurationSetItemType") -- a different wire
+// prefix and shape from parseTargetConfigurations' exchange-quote family.
+func parseReservedInstancesConfigurationSet(vals url.Values) []ReservedInstancesConfigurationTarget {
+	var targets []ReservedInstancesConfigurationTarget
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ReservedInstancesConfigurationSetItemType.%d.", i)
+		instanceType := vals.Get(prefix + "InstanceType")
+		az := vals.Get(prefix + "AvailabilityZone")
+		azID := vals.Get(prefix + "AvailabilityZoneId")
+		countStr := vals.Get(prefix + "InstanceCount")
+
+		if instanceType == "" && az == "" && azID == "" && countStr == "" {
+			break
+		}
+
+		count := 0
+		parseIntValue(countStr, &count)
+
+		targets = append(targets, ReservedInstancesConfigurationTarget{
+			AvailabilityZone:   az,
+			AvailabilityZoneID: azID,
+			InstanceType:       instanceType,
+			InstanceCount:      count,
+		})
+	}
+
+	return targets
+}
+
+// parsePriceSchedules parses CreateReservedInstancesListing's required
+// PriceSchedules, which serializes flat as
+// "PriceSchedules.N.{CurrencyCode,Price,Term}" (serializers.go:73370-73372,
+// FlatKey "PriceSchedules").
+func parsePriceSchedules(vals url.Values) []PriceScheduleEntry {
+	var schedules []PriceScheduleEntry
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("PriceSchedules.%d.", i)
+		currencyCode := vals.Get(prefix + "CurrencyCode")
+		priceStr := vals.Get(prefix + "Price")
+		termStr := vals.Get(prefix + "Term")
+
+		if currencyCode == "" && priceStr == "" && termStr == "" {
+			break
+		}
+
+		price, _ := strconv.ParseFloat(priceStr, 64)
+
+		var term int
+		parseIntValue(termStr, &term)
+
+		schedules = append(schedules, PriceScheduleEntry{
+			CurrencyCode: currencyCode,
+			Price:        price,
+			Term:         int64(term),
+		})
+	}
+
+	return schedules
+}
+
 func parseTargetConfigurations(vals url.Values) []TargetConfigurationRequest {
 	var targets []TargetConfigurationRequest
 

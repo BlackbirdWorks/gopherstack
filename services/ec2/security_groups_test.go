@@ -32,32 +32,68 @@ func TestDescribeSecurityGroupRules(t *testing.T) {
 	assert.Equal(t, "tcp", rules[0].Protocol)
 }
 
-// TestModifySecurityGroupRules verifies SG rule replacement.
-
-// TestModifySecurityGroupRules verifies SG rule replacement.
+// TestModifySecurityGroupRules covers ModifySecurityGroupRulesInput's
+// required SecurityGroupRules (api_op_ModifySecurityGroupRules.go). The real
+// operation targets one existing rule at a time by SecurityGroupRuleId,
+// leaving every other rule (including the default egress allow-all rule)
+// untouched -- unlike Authorize/RevokeSecurityGroupIngress/Egress, which add
+// or remove whole rules.
 func TestModifySecurityGroupRules(t *testing.T) {
 	t.Parallel()
 
-	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Run("updates the targeted rule in place, leaving others untouched", func(t *testing.T) {
+		t.Parallel()
 
-	sg, err := b.CreateSecurityGroup("test-sg", "testing", "vpc-default")
-	require.NoError(t, err)
+		b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	require.NoError(t, b.AuthorizeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
-		{Protocol: "tcp", IPRange: "0.0.0.0/0", FromPort: 80, ToPort: 80},
-	}))
+		sg, err := b.CreateSecurityGroup("test-sg", "testing", "vpc-default")
+		require.NoError(t, err)
 
-	// replace with port 443
-	require.NoError(t, b.ModifySecurityGroupRules(sg.ID, []ec2.SecurityGroupRule{
-		{Protocol: "tcp", IPRange: "0.0.0.0/0", FromPort: 443, ToPort: 443},
-	}, false))
+		require.NoError(t, b.AuthorizeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", IPRange: "0.0.0.0/0", FromPort: 80, ToPort: 80},
+		}))
 
-	rules, err := b.DescribeSecurityGroupRules(sg.ID)
-	require.NoError(t, err)
-	// 2 = 1 modified ingress rule + 1 default egress allow-all rule.
-	require.Len(t, rules, 2)
-	// Ingress rules are returned first.
-	assert.Equal(t, 443, rules[0].FromPort)
+		before, err := b.DescribeSecurityGroupRules(sg.ID)
+		require.NoError(t, err)
+		require.Len(t, before, 2) // the added ingress rule + the default egress allow-all rule
+		ingressRuleID := before[0].SecurityGroupRuleID
+		egressRuleIDBefore := before[1].SecurityGroupRuleID
+
+		require.NoError(t, b.ModifySecurityGroupRules(sg.ID, []ec2.SecurityGroupRuleUpdate{
+			{SecurityGroupRuleID: ingressRuleID, Protocol: "tcp", CIDRIPv4: "0.0.0.0/0", FromPort: 443, ToPort: 443},
+		}))
+
+		after, err := b.DescribeSecurityGroupRules(sg.ID)
+		require.NoError(t, err)
+		require.Len(t, after, 2)
+		assert.Equal(t, 443, after[0].FromPort)
+		assert.Equal(t, egressRuleIDBefore, after[1].SecurityGroupRuleID, "egress rule must be untouched")
+	})
+
+	t.Run("unknown security group rule id is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+		sg, err := b.CreateSecurityGroup("test-sg", "testing", "vpc-default")
+		require.NoError(t, err)
+
+		err = b.ModifySecurityGroupRules(sg.ID, []ec2.SecurityGroupRuleUpdate{
+			{SecurityGroupRuleID: "sgr-doesnotexist", Protocol: "tcp"},
+		})
+		require.ErrorIs(t, err, ec2.ErrSecurityGroupRuleNotFound)
+	})
+
+	t.Run("missing security group rules is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+		sg, err := b.CreateSecurityGroup("test-sg", "testing", "vpc-default")
+		require.NoError(t, err)
+
+		require.ErrorIs(t, b.ModifySecurityGroupRules(sg.ID, nil), ec2.ErrInvalidParameter)
+	})
 }
 
 // TestDeleteLaunchTemplate verifies launch template deletion.

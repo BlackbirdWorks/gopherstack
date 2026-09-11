@@ -2,8 +2,13 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 )
+
+// verifiedAccessEndpointAttachmentTypeVPC is the sole real
+// VerifiedAccessEndpointAttachmentType enum value (ec2@v1.329.0 types/enums.go:13083).
+const verifiedAccessEndpointAttachmentTypeVPC = "vpc"
 
 type createVerifiedAccessEndpointResponse struct {
 	XMLName                xml.Name                   `xml:"CreateVerifiedAccessEndpointResponse"`
@@ -119,6 +124,7 @@ type verifiedAccessTrustProviderItem struct {
 	TrustProviderType             string          `xml:"trustProviderType"`
 	Status                        string          `xml:"status"`
 	Description                   string          `xml:"description,omitempty"`
+	PolicyReferenceName           string          `xml:"policyReferenceName,omitempty"`
 	TagSet                        []simpleTagItem `xml:"tagSet>item"`
 }
 
@@ -139,6 +145,13 @@ type describeVerifiedAccessTrustProvidersResponse struct {
 // ---- ManagedPrefixList handlers ----
 
 func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID string) (any, error) {
+	if vals.Get("AttachmentType") != verifiedAccessEndpointAttachmentTypeVPC {
+		return nil, fmt.Errorf(
+			"%w: AttachmentType is required and must be %q",
+			ErrInvalidParameter, verifiedAccessEndpointAttachmentTypeVPC,
+		)
+	}
+
 	groupID := vals.Get("VerifiedAccessGroupId")
 	endpointType := vals.Get("EndpointType")
 	description := vals.Get("Description")
@@ -329,8 +342,9 @@ func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID s
 func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID string) (any, error) {
 	providerType := vals.Get("TrustProviderType")
 	description := vals.Get("Description")
+	policyReferenceName := vals.Get("PolicyReferenceName")
 
-	tp, err := h.Backend.CreateVerifiedAccessTrustProvider(providerType, description)
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider(providerType, description, policyReferenceName)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +421,7 @@ func (h *Handler) toVerifiedAccessTrustProviderItem(tp *VerifiedAccessTrustProvi
 		TrustProviderType:             tp.TrustProviderType,
 		Status:                        tp.Status,
 		Description:                   tp.Description,
+		PolicyReferenceName:           tp.PolicyReferenceName,
 		TagSet:                        tagItemsFromMap(h.Backend.TagsForResource(tp.VerifiedAccessTrustProviderID)),
 	}
 }

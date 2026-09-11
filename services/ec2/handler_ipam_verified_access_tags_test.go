@@ -356,6 +356,7 @@ func testVerifiedAccessEndpointCreateTags(t *testing.T) {
 	createResp, err := dispatchHandler(h, url.Values{
 		"Action":                          []string{"CreateVerifiedAccessEndpoint"},
 		"VerifiedAccessGroupId":           []string{grpID},
+		"AttachmentType":                  []string{"vpc"},
 		"EndpointType":                    []string{"network-interface"},
 		"TagSpecification.1.ResourceType": []string{"verified-access-endpoint"},
 		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
@@ -383,6 +384,7 @@ func testVerifiedAccessTrustProviderCreateTags(t *testing.T) {
 	createResp, err := dispatchHandler(h, url.Values{
 		"Action":                          []string{"CreateVerifiedAccessTrustProvider"},
 		"TrustProviderType":               []string{"user"},
+		"PolicyReferenceName":             []string{"policy-ref"},
 		"TagSpecification.1.ResourceType": []string{"verified-access-trust-provider"},
 		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
 		"TagSpecification.1.Tag.1.Value":  []string{"demo"},

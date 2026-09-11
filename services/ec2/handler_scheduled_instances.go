@@ -192,7 +192,15 @@ func (h *Handler) handleDescribeScheduledInstanceAvailability(vals url.Values, r
 	minHours, _ := strconv.ParseInt(vals.Get("MinSlotDurationInHours"), 10, 32)
 	maxHours, _ := strconv.ParseInt(vals.Get("MaxSlotDurationInHours"), 10, 32)
 
-	entries := h.Backend.DescribeScheduledInstanceAvailability(filters, int32(minHours), int32(maxHours))
+	earliestTime, _ := time.Parse(time.RFC3339, vals.Get("FirstSlotStartTimeRange.EarliestTime"))
+	latestTime, _ := time.Parse(time.RFC3339, vals.Get("FirstSlotStartTimeRange.LatestTime"))
+
+	entries, err := h.Backend.DescribeScheduledInstanceAvailability(
+		filters, int32(minHours), int32(maxHours), earliestTime, latestTime,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals,

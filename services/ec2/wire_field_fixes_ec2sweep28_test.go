@@ -2,6 +2,7 @@ package ec2_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -103,7 +104,10 @@ func TestWireFieldFixesSweep28(t *testing.T) {
 			run: func(t *testing.T, b *ec2.InMemoryBackend, client *ec2sdk.Client) {
 				t.Helper()
 
-				catalog := b.DescribeScheduledInstanceAvailability(nil, 0, 0)
+				catalog, err := b.DescribeScheduledInstanceAvailability(
+					nil, 0, 0, time.Now(), time.Now().AddDate(0, 1, 0),
+				)
+				require.NoError(t, err)
 				require.NotEmpty(t, catalog)
 				token := catalog[0].PurchaseToken
 

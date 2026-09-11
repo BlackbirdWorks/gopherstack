@@ -327,9 +327,56 @@ func TestHTTP_GetInstanceTypesFromInstanceRequirements( //nolint:paralleltest //
 	h := newTestHandler()
 
 	_, err := dispatchHandler(h, url.Values{
-		"Action": []string{"GetInstanceTypesFromInstanceRequirements"},
+		"Action":                             []string{"GetInstanceTypesFromInstanceRequirements"},
+		"ArchitectureType.1":                 []string{"x86_64"},
+		"VirtualizationType.1":               []string{"hvm"},
+		"InstanceRequirements.VCpuCount.Min": []string{"1"},
+		"InstanceRequirements.MemoryMiB.Min": []string{"512"},
 	})
 	require.NoError(t, err)
+}
+
+// TestHTTP_GetInstanceTypesFromInstanceRequirements_RequiredFields covers
+// ArchitectureTypes, VirtualizationTypes, and InstanceRequirements (api_op_
+// GetInstanceTypesFromInstanceRequirements.go: all "This member is
+// required"). Before the fix the handler ignored the request entirely.
+func TestHTTP_GetInstanceTypesFromInstanceRequirements_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := func() url.Values {
+		return url.Values{
+			"Action":                             []string{"GetInstanceTypesFromInstanceRequirements"},
+			"ArchitectureType.1":                 []string{"x86_64"},
+			"VirtualizationType.1":               []string{"hvm"},
+			"InstanceRequirements.VCpuCount.Min": []string{"1"},
+			"InstanceRequirements.MemoryMiB.Min": []string{"512"},
+		}
+	}
+
+	tests := []struct {
+		name string
+		drop string
+	}{
+		{name: "missing architecture types", drop: "ArchitectureType.1"},
+		{name: "missing virtualization types", drop: "VirtualizationType.1"},
+		{name: "missing vcpu count", drop: "InstanceRequirements.VCpuCount.Min"},
+		{name: "missing memory", drop: "InstanceRequirements.MemoryMiB.Min"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			vals := base()
+			delete(vals, tt.drop)
+
+			_, err := dispatchHandler(h, vals)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "InvalidParameterValue")
+		})
+	}
 }
 
 // TestGetDefaultCreditSpecification_EchoesInstanceFamily verifies that

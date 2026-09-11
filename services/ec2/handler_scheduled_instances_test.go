@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,8 @@ func TestHandler_ScheduledInstances_DescribeAvailabilityPurchaseRun(t *testing.T
 	availVals := url.Values{}
 	availVals.Set("Action", "DescribeScheduledInstanceAvailability")
 	availVals.Set("Version", "2016-11-15")
+	availVals.Set("FirstSlotStartTimeRange.EarliestTime", time.Now().Format(time.RFC3339))
+	availVals.Set("FirstSlotStartTimeRange.LatestTime", time.Now().AddDate(0, 1, 0).Format(time.RFC3339))
 
 	availRec := postForm(t, h, availVals.Encode())
 	require.Equal(t, http.StatusOK, availRec.Code)
@@ -77,4 +80,42 @@ func TestHandler_ScheduledInstances_PurchaseInvalidTokenFails(t *testing.T) {
 	rec := postForm(t, h, vals.Encode())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<Errors>")
+}
+
+// TestHandler_DescribeScheduledInstanceAvailability_FirstSlotStartTimeRangeRequired
+// covers DescribeScheduledInstanceAvailabilityInput.FirstSlotStartTimeRange
+// (api_op_DescribeScheduledInstanceAvailability.go: "This member is
+// required"). Before the fix the handler never read it, so the static
+// catalog's fixed "now + 7 days" FirstSlotStartTime was never checked
+// against the caller's requested window at all.
+func TestHandler_DescribeScheduledInstanceAvailability_FirstSlotStartTimeRangeRequired(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing range is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+
+		vals := url.Values{"Action": {"DescribeScheduledInstanceAvailability"}, "Version": {"2016-11-15"}}
+
+		rec := postForm(t, h, vals.Encode())
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+	})
+
+	t.Run("window excluding the catalog's slot returns nothing", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+
+		vals := url.Values{}
+		vals.Set("Action", "DescribeScheduledInstanceAvailability")
+		vals.Set("Version", "2016-11-15")
+		vals.Set("FirstSlotStartTimeRange.EarliestTime", time.Now().AddDate(1, 0, 0).Format(time.RFC3339))
+		vals.Set("FirstSlotStartTimeRange.LatestTime", time.Now().AddDate(2, 0, 0).Format(time.RFC3339))
+
+		rec := postForm(t, h, vals.Encode())
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.NotContains(t, rec.Body.String(), "<purchaseToken>")
+	})
 }

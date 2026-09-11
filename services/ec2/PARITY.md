@@ -4241,3 +4241,174 @@ formatting diff; two `modernize` `min`/`max`-builtin suggestions; one
 `nlreturn`; two `testifylint` `require-error` suggestions on
 `assert.ErrorIs`) -- all fixed, no nolints added. Did NOT commit, push, or
 run any `bd` write command.
+
+**2026-09-11 pass (required-INPUT-member sweep pass 4b, gopherstack-569k)**:
+ran the pass 4a scanner (query-protocol member-indexed-array class handled,
+idempotency-token regex extended to catch bare `RequestId`) against ec2's 837
+required-field instances -> 63 raw survivors; hand-verified every one rather
+than reading the whole 384-file package. 46 confirmed false positives: 14 id-
+list ops read via `parseMemberList`/manual loops against the real *singular*
+wire key (`VpcEndpointId.N` for a Go field literally named
+`VpcEndpointIds`, etc — AcceptVpcEndpointConnections, AssociateNatGatewayAddress,
+CancelCapacityReservationFleets, CancelSpotFleetRequests,
+CancelSpotInstanceRequests, DeleteFleets, DeleteQueuedReservedInstances,
+DeleteVpcEndpointConnectionNotifications, DeleteVpcEndpointServiceConfigurations,
+DeleteVpcEndpoints, DescribeImageReferences, DisableFastSnapshotRestores,
+EnableFastSnapshotRestores, RejectVpcEndpointConnections);
+GetCapacityManagerMetricData/Dimensions similarly read `MetricName.1` for a
+`MetricNames` field; CreateDhcpOptions/CreateImageUsageReport/
+ModifyInstanceCreditSpecification/PurchaseScheduledInstances/
+UnassignPrivateNatGatewayAddress are the same singular-vs-plural pattern on
+struct-typed member-indexed arrays; CreateInstanceExportTask.ExportToS3Task is
+a wrapper struct read flattened via dotted-prefix (`ExportToS3.*`); 22
+candidates across the whole `BatchModifyIpamRoutingPolicyRegistrations`/
+`CreateIpamInternetRegistryAssociation`/... RIR-integration family are wholly
+unrouted and already honestly disclosed in `sdk_completeness_test.go`'s
+`notImplemented` list; GetIpamDiscoveredAccounts.DiscoveryRegion and
+GetIpamDiscoveredPublicAddresses.AddressRegion are pre-existing, already-
+documented always-empty stubs (no discovery pipeline modeled -- comment on
+each handler says so) where an unused filter changes nothing.
+
+**Real drops fixed (11 ops)**: `DescribeCapacityReservationBillingRequests`
+never read `Role` (required, `odcr-owner`/`unused-reservation-billing-owner`)
+-- now required + enum-validated; true per-role filtering needs a caller-
+identity distinct from this backend's single `AccountID`, which doesn't
+exist, so every request is returned for either valid role (documented, not
+fabricated). `CreateFpgaImage` never read `InputStorageLocation` -- now
+required (`Bucket`+`Key`); the real output never echoes it, so presence
+validation is the whole fix. `CreateTransitGatewayPeeringAttachment` never
+read `PeerAccountId`, and `PeerRegion` was read but silently discarded by the
+backend -- both now required and threaded through; `TransitGatewayPeeringAttachment`
+gained `RequesterOwnerID`/`RequesterRegion`/`AccepterOwnerID`/`AccepterRegion`,
+rendered under the real `requesterTgwInfo`/`accepterTgwInfo` nested `ownerId`/
+`region` elements (previously only `transitGatewayId` was ever populated).
+`CreateVerifiedAccessEndpoint` never read `AttachmentType` (required; the
+real enum has exactly one value, `"vpc"`) -- now required + validated.
+`CreateVerifiedAccessTrustProvider` never read `PolicyReferenceName`, which
+also round-trips on the real output type -- now required, stored, and
+rendered (`VerifiedAccessTrustProvider` gained `PolicyReferenceName`).
+`DescribeScheduledInstanceAvailability` never read `FirstSlotStartTimeRange`
+at all -- now required (`EarliestTime`/`LatestTime`) and the static catalog's
+fixed "now + 7 days" `FirstSlotStartTime` is filtered against the caller's
+window, matching real per-request semantics instead of ignoring it entirely.
+`GetFlowLogsIntegrationTemplate` never read `IntegrateServices` -- worse, the
+generated Athena WorkGroup's `OutputLocation` was wired from
+`ConfigDeliveryS3DestinationArn` (the template-delivery bucket), when the
+real field for that is `IntegrateServices.AthenaIntegrations[].
+IntegrationResultS3DestinationArn` (the Athena query-results bucket); both
+are now required and the correct one feeds the template. `ReportInstanceStatus`
+never read `ReasonCodes`, and both `ReasonCodes` and `Status` were previously
+unvalidated -- both now required. `GetInstanceTypesFromInstanceRequirements`
+ignored its request (`_ url.Values`) entirely, always returning the same
+5-item hardcoded list regardless of `ArchitectureTypes`/`VirtualizationTypes`/
+`InstanceRequirements` -- this backend has no per-instance-type architecture/
+vCPU/memory attribute catalog to filter against (a missing subsystem, left),
+so the fix is presence validation for all three required members rather than
+fabricating a match engine. `ProvisionIpamByoasn` never read
+`AsnAuthorizationContext` (`Message`+`Signature`, both required) -- the real
+output never echoes it and this backend has no RDAP/WHOIS signature
+verification to perform, so presence validation is the fix.
+
+**Fabricated shapes fixed (2 ops, both severe)**: `ModifyReservedInstances`
+only ever read `ReservedInstancesConfigurationSetItemType.1.*` (index 1
+hardcoded, silently dropping any additional `TargetConfigurations` entry and
+its `AvailabilityZone`/`AvailabilityZoneId`), and the backend method's
+signature was `(_ []string, _ string, _ int)` -- every argument discarded,
+including `ReservedInstancesIds` itself, so a call against a nonexistent
+Reserved Instance ID still fabricated a `{Status: fulfilled}` modification
+record. Rewrote to parse the full `ReservedInstancesConfigurationSetItemType.N`
+array, validate every listed RI ID actually exists
+(`ErrReservedInstancesNotFound`), and store/render the real
+`reservedInstancesSet`/`modificationResultSet` output shape (`ReservedInstancesModification`
+gained `ReservedInstancesIDs`/`ModificationResults`; `ModificationResults[].
+ReservedInstancesID` is deliberately left empty -- this backend has no engine
+for the real "fulfilled modification mints a new RI" behavior, so it doesn't
+fabricate an ID). `ModifySecurityGroupRules` was a disguised implementation
+of an entirely different operation: it read an `Egress` flag and
+`IpPermissions.N.*` -- a shape that does not exist anywhere on the real input
+(that belongs to `Authorize`/`RevokeSecurityGroupIngress`/`Egress`) -- and
+replaced the group's *entire* ingress-or-egress rule set with whatever was
+supplied, discarding every rule not in the request. The real operation edits
+individual existing rules in place by `SecurityGroupRuleId`
+(`SecurityGroupRule.N.SecurityGroupRuleId`/`SecurityGroupRule.N.
+SecurityGroupRule.{CidrIpv4,Description,FromPort,IpProtocol,
+ReferencedGroupId,ToPort}`, confirmed against `serializers.go`). Rewrote to
+decode the deterministic `sgr-<groupID>-{in,out}-<index>` IDs
+`DescribeSecurityGroupRules` already synthesizes, update only the targeted
+rule's fields in place, and report `InvalidSecurityGroupRuleId.NotFound`
+(new sentinel `ErrSecurityGroupRuleNotFound`) for an unrecognized one instead
+of silently discarding the caller's other rules.
+
+**Reused-value CreateReservedInstancesListing fix**: `PriceSchedules`
+(required) was never read at all, and `InstanceCount` was read by the
+handler but then discarded by the backend (`_ int`) -- reading the whole op
+rather than just the flagged field, per this file's own established
+practice, turned up the second drop for free. `ReservedInstancesListing`
+gained `PriceSchedules []PriceScheduleEntry` and `InstanceCounts
+[]InstanceCountEntry`; the first supplied schedule is marked `Active`
+(matching the real API's documented "schedules given longest-remaining-term
+first" convention -- this backend has no time-elapsing term engine to derive
+which schedule is currently active otherwise) and instance counts render
+under a single `"available"` entry sized from the real `InstanceCount`.
+
+**sagemaker (6 candidates, hand-verified)**: all false positives.
+`Create{DataQuality,ModelBias,ModelQuality,ModelExplainability}JobDefinition`
+decode into a generic `map[string]json.RawMessage` and validate presence of
+each type's `AppSpecification`/`JobOutputConfig` key via a *computed* string
+(`typePrefix+"JobOutputConfig"`) in `validateJobDefRequest` -- genuinely
+required and checked, just invisible to a literal-accessor scan. **lambda (1
+candidate)**: `InvokeAsync.InvokeArgs` is a real httpPayload raw-body stream,
+read via `readBodyOrEmpty` and passed to `bk.InvokeFunction` -- false
+positive (class 2). **apigateway, apigatewayv2, opensearch, mgn, route53**:
+0 raw candidates each, confirmed clean by the scanner.
+
+New tests (all table-driven, `t.Parallel()` outer + subtests, fail before
+their fix): `TestHandler_ModifyReservedInstances`,
+`TestHandler_CreateReservedInstancesListing_PriceSchedulesRequired`,
+`TestHandler_DescribeCapacityReservationBillingRequests_RoleRequired`,
+`TestHandler_CreateFpgaImage_InputStorageLocationRequired`,
+`TestTGW_PeeringAttachment_PeerAccountIdRequired`,
+`TestHandler_CreateVerifiedAccessEndpoint_AttachmentTypeRequired`,
+`TestHandler_CreateVerifiedAccessTrustProvider_PolicyReferenceNameRequired`,
+`TestHandler_DescribeScheduledInstanceAvailability_FirstSlotStartTimeRangeRequired`,
+`TestGetFlowLogsIntegrationTemplateHTTP_IntegrateServicesRequired` (plus a
+`TestGetFlowLogsIntegrationTemplate` rewrite covering the
+Athena-vs-config-delivery-ARN mixup), `TestHandler_ModifySecurityGroupRules`
+rewrite + `TestHandlerModifySecurityGroupRules_RequiredFieldsRejected`,
+`TestHandler_CreateReservedInstancesListing_PriceSchedulesRequired`,
+`TestHandler_DescribeCapacityReservationBillingRequests_RoleRequired`,
+`TestHTTP_GetInstanceTypesFromInstanceRequirements_RequiredFields`,
+`TestProvisionIpamByoasn_AsnAuthorizationContextRequired`. Existing wire-
+level tests that had encoded the old, wrong `ModifySecurityGroupRules`/
+`ModifyReservedInstances`/`CreateReservedInstancesListing`/
+`CreateTransitGatewayPeeringAttachment`/`CreateFpgaImage`/
+`CreateVerifiedAccessTrustProvider`/`CreateVerifiedAccessEndpoint`/
+`DescribeScheduledInstanceAvailability` shapes as expected behavior were
+updated to the real required-field shape, not deleted.
+
+**`pkgs/persistence/testdata/snapshot_inventory.json`**: regenerated via
+`-update`; diff adds rows only for the structs this pass changed
+(`ReservedInstancesModification.{ReservedInstancesIDs,ModificationResults}`,
+`ReservedInstancesModificationResult`, `ReservedInstancesConfigurationTarget`,
+`ReservedInstancesListing.{PriceSchedules,InstanceCounts}`,
+`PriceScheduleEntry`, `InstanceCountEntry`,
+`TransitGatewayPeeringAttachment.{RequesterOwnerID,RequesterRegion,
+AccepterOwnerID,AccepterRegion}`, `VerifiedAccessTrustProvider.PolicyReferenceName`)
+-- all purely additive, no `ec2SnapshotVersion` bump. Two unrelated services'
+rows (`appstream`, `medialive`) were mid-edit by other concurrently running
+agents at the time `-update` ran; their rows are left exactly as `-update`
+captured them, not hand-removed. `TestSnapshotVersionGuard` still fails on
+those two (unrelated in-flight work, not this pass) as of this writing --
+`ec2` itself is clean.
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` (clean). `go test -race -count=1 ./services/ec2/...`
+(`ok`). `go test -race -count=1 ./pkgs/persistence/...`: fails only on
+`appstream`/`medialive` (both other agents' concurrent in-flight work,
+confirmed via `git status`), not `ec2`. `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/...`: 0 issues (fixed fieldalignment on
+every new struct, a `shadow`/`nonamedreturns`/`nlreturn` cluster in the new
+`parseSecurityGroupRuleID`, a `modernize` `maps.Copy` suggestion, a
+`staticcheck` S1016 direct-conversion suggestion, and an `unparam` on a test
+helper's always-zero parameter -- no nolints added). Did NOT commit, push,
+or run any `bd` write command.

@@ -717,7 +717,20 @@ func (h *Handler) handleModifyIpamResourceCidr(vals url.Values, reqID string) (a
 
 // ---- BYOASN handlers ----
 
+// handleProvisionIpamByoasn requires AsnAuthorizationContext (api_op_
+// ProvisionIpamByoasn.go / types.AsnAuthorizationContext: all "This member
+// is required", wire keys "AsnAuthorizationContext.Message"/".Signature",
+// serializers.go:92230-92232). Byoasn's real output never echoes it back
+// (types.Byoasn has no authorization fields), and this backend has no RDAP/
+// WHOIS signature verification to perform, so presence validation is the fix.
 func (h *Handler) handleProvisionIpamByoasn(vals url.Values, reqID string) (any, error) {
+	if vals.Get("AsnAuthorizationContext.Message") == "" || vals.Get("AsnAuthorizationContext.Signature") == "" {
+		return nil, fmt.Errorf(
+			"%w: AsnAuthorizationContext.Message and AsnAuthorizationContext.Signature are required",
+			ErrInvalidParameter,
+		)
+	}
+
 	b, err := h.Backend.ProvisionIpamByoasn(vals.Get("IpamId"), vals.Get("Asn"))
 	if err != nil {
 		return nil, err

@@ -9,11 +9,11 @@ import (
 
 // CreateTransitGatewayPeeringAttachment creates a TGW peering attachment.
 func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
-	transitGatewayID, peerTransitGatewayID, _ string,
+	transitGatewayID, peerTransitGatewayID, peerAccountID, peerRegion string,
 ) (*TransitGatewayPeeringAttachment, error) {
-	if transitGatewayID == "" || peerTransitGatewayID == "" {
+	if transitGatewayID == "" || peerTransitGatewayID == "" || peerAccountID == "" || peerRegion == "" {
 		return nil, fmt.Errorf(
-			"%w: TransitGatewayId and PeerTransitGatewayId are required",
+			"%w: TransitGatewayId, PeerTransitGatewayId, PeerAccountId, and PeerRegion are required",
 			ErrInvalidParameter,
 		)
 	}
@@ -26,6 +26,10 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 		TransitGatewayAttachmentID: id,
 		RequesterTransitGatewayID:  transitGatewayID,
 		AccepterTransitGatewayID:   peerTransitGatewayID,
+		RequesterOwnerID:           b.AccountID,
+		RequesterRegion:            b.Region,
+		AccepterOwnerID:            peerAccountID,
+		AccepterRegion:             peerRegion,
 		State:                      "pendingAcceptance",
 	}
 	b.tgwPeeringAttachments.Put(att)

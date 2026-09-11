@@ -105,16 +105,31 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 
 func (b *InMemoryBackend) CreateReservedInstancesListing(
 	reservedInstancesID string,
-	_ int,
+	instanceCount int,
+	schedules []PriceScheduleEntry,
 ) (*ReservedInstancesListing, error) {
+	if len(schedules) == 0 {
+		return nil, fmt.Errorf("%w: PriceSchedules is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateReservedInstancesListing")
 	defer b.mu.Unlock()
+
+	// Real AWS marks the schedule for the remaining term active and the rest
+	// pending; this backend has no time-elapsing term engine, so it honors
+	// the documented convention that schedules are supplied longest-term
+	// first and marks only the first one active.
+	rendered := make([]PriceScheduleEntry, len(schedules))
+	copy(rendered, schedules)
+	rendered[0].Active = true
 
 	id := "rsl-" + uuid.New().String()[:8]
 	l := &ReservedInstancesListing{
 		ReservedInstancesListingID: id,
 		ReservedInstancesID:        reservedInstancesID,
 		Status:                     SpotFleetStateActive,
+		PriceSchedules:             rendered,
+		InstanceCounts:             []InstanceCountEntry{{State: "available", InstanceCount: instanceCount}},
 	}
 	b.reservedInstancesListings.Put(l)
 
@@ -184,18 +199,38 @@ func (b *InMemoryBackend) DescribeReservedInstancesModifications(ids []string) [
 }
 
 func (b *InMemoryBackend) ModifyReservedInstances(
-	_ []string,
-	_ string,
-	_ int,
+	ids []string,
+	targets []ReservedInstancesConfigurationTarget,
 ) (*ReservedInstancesModification, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: ReservedInstancesIds is required", ErrInvalidParameter)
+	}
+
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("%w: TargetConfigurations is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("ModifyReservedInstances")
 	defer b.mu.Unlock()
+
+	for _, riID := range ids {
+		if _, ok := b.reservedInstances.Get(riID); !ok {
+			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, riID)
+		}
+	}
+
+	results := make([]ReservedInstancesModificationResult, 0, len(targets))
+	for _, t := range targets {
+		results = append(results, ReservedInstancesModificationResult{TargetConfiguration: t})
+	}
 
 	id := "rimod-" + uuid.New().String()[:8]
 	m := &ReservedInstancesModification{
 		ReservedInstancesModificationID: id,
 		Status:                          "fulfilled",
 		StatusMessage:                   "Modification fulfilled",
+		ReservedInstancesIDs:            append([]string(nil), ids...),
+		ModificationResults:             results,
 	}
 	b.reservedInstancesModifications.Put(m)
 

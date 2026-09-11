@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -178,7 +179,19 @@ type modifyFpgaImageAttributeResponse struct {
 
 // ---- Handlers ----
 
+// handleCreateFpgaImage requires InputStorageLocation (api_op_CreateFpgaImage.go:
+// "This member is required", serializers.go:71585-71587, key "InputStorageLocation.
+// Bucket"/"InputStorageLocation.Key"). The real CreateFpgaImageOutput never echoes
+// it back (only FpgaImageId/FpgaImageGlobalId), so there is nothing to persist or
+// render -- presence validation is the whole fix.
 func (h *Handler) handleCreateFpgaImage(vals url.Values, reqID string) (any, error) {
+	if vals.Get("InputStorageLocation.Bucket") == "" || vals.Get("InputStorageLocation.Key") == "" {
+		return nil, fmt.Errorf(
+			"%w: InputStorageLocation.Bucket and InputStorageLocation.Key are required",
+			ErrInvalidParameter,
+		)
+	}
+
 	name := vals.Get("Name")
 	description := vals.Get("Description")
 

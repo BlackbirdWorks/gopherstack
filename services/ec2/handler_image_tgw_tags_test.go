@@ -78,6 +78,8 @@ func testCreateFpgaImageTags(t *testing.T) {
 	createResp, err := dispatchHandler(h, url.Values{
 		"Action":                          []string{"CreateFpgaImage"},
 		"Name":                            []string{"my-afi"},
+		"InputStorageLocation.Bucket":     []string{"afi-bucket"},
+		"InputStorageLocation.Key":        []string{"afi.tar"},
 		"TagSpecification.1.ResourceType": []string{"fpga-image"},
 		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
 		"TagSpecification.1.Tag.1.Value":  []string{"demo"},
@@ -198,6 +200,7 @@ func testCreateTransitGatewayPeeringAttachmentTags(t *testing.T) {
 		"Action":                          []string{"CreateTransitGatewayPeeringAttachment"},
 		"TransitGatewayId":                []string{tgw.ID},
 		"PeerTransitGatewayId":            []string{peerTgw.ID},
+		"PeerAccountId":                   []string{"999999999999"},
 		"PeerRegion":                      []string{"us-west-2"},
 		"TagSpecification.1.ResourceType": []string{"transit-gateway-attachment"},
 		"TagSpecification.1.Tag.1.Key":    []string{"Name"},

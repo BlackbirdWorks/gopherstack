@@ -14,8 +14,12 @@ type getFlowLogsIntegrationTemplateResponse struct {
 func (h *Handler) handleGetFlowLogsIntegrationTemplate(vals url.Values, reqID string) (any, error) {
 	flowLogID := vals.Get("FlowLogId")
 	s3DestinationArn := vals.Get("ConfigDeliveryS3DestinationArn")
+	athenaResultArn := vals.Get("IntegrateServices.AthenaIntegration.1.IntegrationResultS3DestinationArn")
+	partitionLoadFrequency := vals.Get("IntegrateServices.AthenaIntegration.1.PartitionLoadFrequency")
 
-	tmpl, err := h.Backend.GetFlowLogsIntegrationTemplate(flowLogID, s3DestinationArn)
+	tmpl, err := h.Backend.GetFlowLogsIntegrationTemplate(
+		flowLogID, s3DestinationArn, athenaResultArn, partitionLoadFrequency,
+	)
 	if err != nil {
 		return nil, err
 	}

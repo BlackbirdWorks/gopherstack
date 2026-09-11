@@ -72,6 +72,8 @@ type acceptTransitGatewayMulticastDomainAssociationsResponse struct {
 
 type peeringTgwInfoItem struct {
 	TransitGatewayID string `xml:"transitGatewayId,omitempty"`
+	OwnerID          string `xml:"ownerId,omitempty"`
+	Region           string `xml:"region,omitempty"`
 }
 
 // tgwPeeringAttachmentItem mirrors the real TransitGatewayPeeringAttachment

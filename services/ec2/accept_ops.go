@@ -80,6 +80,10 @@ type TransitGatewayPeeringAttachment struct {
 	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
 	RequesterTransitGatewayID  string    `json:"requesterTransitGatewayID,omitempty"`
 	AccepterTransitGatewayID   string    `json:"accepterTransitGatewayID,omitempty"`
+	RequesterOwnerID           string    `json:"requesterOwnerID,omitempty"`
+	RequesterRegion            string    `json:"requesterRegion,omitempty"`
+	AccepterOwnerID            string    `json:"accepterOwnerID,omitempty"`
+	AccepterRegion             string    `json:"accepterRegion,omitempty"`
 	State                      string    `json:"state,omitempty"`
 }
 
