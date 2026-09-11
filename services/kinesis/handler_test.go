@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -17,12 +18,29 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
+// testSubscribeToShardStreamDuration/PollInterval/HeartbeatInterval keep
+// SubscribeToShard's default ~5-minute open window (handler_consumers.go)
+// from making the many tests in this package that drive the handler
+// synchronously via httptest.NewRecorder (subscribeAndCollect, and
+// TestSubscribeToShard's own inline call) block for real minutes: the
+// handler function only returns when the stream closes, and these tests
+// have no goroutine/context-cancellation to interrupt it early.
+const (
+	testSubscribeToShardStreamDuration    = 500 * time.Millisecond
+	testSubscribeToShardPollInterval      = 10 * time.Millisecond
+	testSubscribeToShardHeartbeatInterval = 50 * time.Millisecond
+)
+
 func newTestHandler(t *testing.T) *kinesis.Handler {
 	t.Helper()
 
 	backend := kinesis.NewInMemoryBackend()
 
-	return kinesis.NewHandler(backend)
+	return kinesis.NewHandler(backend).WithSubscribeToShardTiming(
+		testSubscribeToShardStreamDuration,
+		testSubscribeToShardPollInterval,
+		testSubscribeToShardHeartbeatInterval,
+	)
 }
 
 // doRequest sends a JSON request to the handler with the given X-Amz-Target action.

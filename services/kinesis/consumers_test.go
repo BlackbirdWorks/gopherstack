@@ -19,7 +19,9 @@ import (
 
 // subscribeAndCollect performs a single SubscribeToShard HTTP call and
 // returns the raw response body bytes. It does NOT stream — the handler
-// self-terminates after subscribeToShardMaxIdlePolls empty intervals.
+// closes the connection once its (test-shortened, see newTestHandler)
+// stream duration elapses, sending periodic heartbeat SubscribeToShardEvent
+// frames while idle rather than closing early.
 func subscribeAndCollect(t *testing.T, h *kinesis.Handler, consumerARN, shardID string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -95,7 +97,8 @@ func TestSubscribeToShard_StreamClosesAfterIdle(t *testing.T) {
 
 	consumerARN := registerConsumerAndGetARN(t, h, streamARN, "idle-consumer")
 
-	// Subscribe with no records — stream should close after idle polls.
+	// Subscribe with no records — stream should close once its (test-shortened)
+	// duration elapses, having sent only heartbeat events in the meantime.
 	rec := subscribeAndCollect(t, h, consumerARN, shardID)
 
 	assert.Equal(t, http.StatusOK, rec.Code)

@@ -62,11 +62,23 @@ func (b *InMemoryBackend) GetShardIterator(
 		return nil, ErrInvalidArgument
 	}
 
+	now := b.nowFunc()
+
 	var position int
 
 	switch input.ShardIteratorType {
 	case iteratorTypeTrimHorizon:
-		position = 0
+		// "TRIM_HORIZON - Start reading at the last untrimmed record in the
+		// shard in the system, which is the oldest data record in the
+		// shard" (api_op_GetShardIterator.go). Position 0 in the ring
+		// buffer is only the oldest *currently retained* record once the
+		// background janitor sweep (janitor.go) has actually evicted
+		// expired ones, which can lag a retention decrease by up to its
+		// polling interval -- so this resolves the retention cutoff
+		// synchronously here instead of trusting position 0, honoring
+		// per-record ApproximateArrivalTimestamp against the stream's
+		// retention window even before the janitor catches up.
+		position = findTimestampPosition(&shard.Records, retentionCutoff(stream, now))
 	case iteratorTypeLatest:
 		position = shard.Records.len()
 	case iteratorTypeAtSequenceNumber, iteratorTypeAfterSequenceNumber:
@@ -85,7 +97,16 @@ func (b *InMemoryBackend) GetShardIterator(
 		if input.Timestamp == nil {
 			return nil, ErrInvalidArgument
 		}
-		position = findTimestampPosition(&shard.Records, *input.Timestamp)
+		// "If the time stamp is older than the current trim horizon, the
+		// iterator returned is for the oldest untrimmed data record
+		// (TRIM_HORIZON)." (api_op_GetShardIterator.go, Timestamp doc
+		// comment) -- clamp up to the retention cutoff before searching,
+		// same rationale as the TRIM_HORIZON case above.
+		ts := *input.Timestamp
+		if th := retentionCutoff(stream, now); ts.Before(th) {
+			ts = th
+		}
+		position = findTimestampPosition(&shard.Records, ts)
 	default:
 		return nil, ErrInvalidArgument
 	}
@@ -96,7 +117,7 @@ func (b *InMemoryBackend) GetShardIterator(
 		Position:       position,
 		SequenceNumber: input.StartingSequenceNumber,
 		Region:         region,
-		CreatedAt:      time.Now(),
+		CreatedAt:      now,
 	}
 
 	token, err := encodeIterator(it)

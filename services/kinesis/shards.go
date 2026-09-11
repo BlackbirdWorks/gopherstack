@@ -249,19 +249,37 @@ func earliestShardStart(shards []*Shard) time.Time {
 	return earliest
 }
 
-// trimHorizon returns the oldest point still within stream's retention
-// window, clamped so it never predates the stream's own oldest shard --
-// otherwise a freshly created stream (retention window older than the
-// stream itself) would report an empty AT_TRIM_HORIZON result, which
-// contradicts "TRIM_HORIZON always resolves to the oldest data still
-// available," not to a fixed wall-clock offset.
-func trimHorizon(stream *Stream) time.Time {
+// retentionCutoff returns the instant before which stream's retention period
+// would trim data, as of now: now minus the stream's RetentionPeriod (or
+// defaultRetentionHours if unset). This is the real per-record retention
+// boundary -- "records older than the retention period are trimmed" -- with
+// no allowance for shard lineage; a stream truly retaining nothing right now
+// (e.g. every record predates the cutoff) correctly yields an empty result
+// from this. now is caller-supplied (backend's nowFunc) rather than
+// time.Now() so callers can test retention edge cases deterministically.
+func retentionCutoff(stream *Stream, now time.Time) time.Time {
 	hours := stream.RetentionPeriod
 	if hours <= 0 {
 		hours = defaultRetentionHours
 	}
 
-	th := time.Now().Add(-time.Duration(hours) * time.Hour)
+	return now.Add(-time.Duration(hours) * time.Hour)
+}
+
+// trimHorizon wraps retentionCutoff with an additional clamp so it never
+// predates the stream's own oldest shard -- otherwise a freshly created
+// stream (retention window older than the stream itself) would report an
+// empty AT_TRIM_HORIZON *shard* result, which contradicts "TRIM_HORIZON
+// always resolves to the oldest data still available," not to a fixed
+// wall-clock offset. This clamp is specific to ListShards' ShardFilter
+// (a shard-existence/lineage query, resolveShardFilter below): it must NOT
+// be used to filter individual records (GetShardIterator, SubscribeToShard
+// use retentionCutoff directly), since a real record can legitimately
+// predate its shard's own StartedAt-relative window and still fall outside
+// retention -- clamping there would wrongly resurrect already-expired
+// records instead of correctly returning none.
+func trimHorizon(stream *Stream, now time.Time) time.Time {
+	th := retentionCutoff(stream, now)
 	if earliest := earliestShardStart(stream.Shards); !earliest.IsZero() && earliest.After(th) {
 		th = earliest
 	}
@@ -274,7 +292,7 @@ func trimHorizon(stream *Stream) time.Time {
 // per-shard time predicate. Returns ErrInvalidArgument if a timestamp-bound
 // filter type is used without a timestamp, and ErrValidation for an
 // unrecognized filter type.
-func resolveShardFilter(input *ListShardsInput, stream *Stream) (bool, func(*Shard) bool, error) {
+func resolveShardFilter(input *ListShardsInput, stream *Stream, now time.Time) (bool, func(*Shard) bool, error) {
 	// ShardFilterType is what the HTTP handler populates from the wire
 	// ShardFilter.Type; ShardFilter is the plain-string form some direct
 	// Go-level backend callers/tests still use. Both are honored, with
@@ -290,7 +308,7 @@ func resolveShardFilter(input *ListShardsInput, stream *Stream) (bool, func(*Sha
 	case shardFilterFromTrimHorizon, shardFilterAfterShardID:
 		return true, nil, nil
 	case shardFilterAtTrimHorizon:
-		ts := trimHorizon(stream)
+		ts := trimHorizon(stream, now)
 
 		return true, func(s *Shard) bool { return shardOpenAt(s, ts) }, nil
 	case shardFilterAtTimestamp:
@@ -306,7 +324,7 @@ func resolveShardFilter(input *ListShardsInput, stream *Stream) (bool, func(*Sha
 		}
 		ts := *input.ShardFilterTimestamp
 		// AWS corrects a FROM_TIMESTAMP value below TRIM_HORIZON up to TRIM_HORIZON.
-		if th := trimHorizon(stream); ts.Before(th) {
+		if th := trimHorizon(stream, now); ts.Before(th) {
 			ts = th
 		}
 
@@ -388,7 +406,7 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
-	includeAll, predicate, err := resolveShardFilter(input, stream)
+	includeAll, predicate, err := resolveShardFilter(input, stream, b.nowFunc())
 	if err != nil {
 		return nil, err
 	}

@@ -96,14 +96,16 @@ func (b *InMemoryBackend) putRecordLocked(
 	}
 
 	seq := shard.nextSequenceNumber()
+	now := b.nowFunc()
 	record := &Record{
 		PartitionKey:                input.PartitionKey,
 		Data:                        input.Data,
 		SequenceNumber:              seq,
-		ApproximateArrivalTimestamp: time.Now(),
+		ApproximateArrivalTimestamp: now,
 	}
 
 	shard.Records.push(record)
+	b.maybeAutoScaleOnDemand(streamKey(region, stream.Name), stream, now, len(input.Data))
 
 	enc := stream.EncryptionType
 	if enc == "" {

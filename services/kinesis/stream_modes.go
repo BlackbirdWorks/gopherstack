@@ -69,23 +69,20 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 		return ErrInvalidArgument
 	}
 
-	// AWS auto-scales a stream's shard count when it transitions to ON_DEMAND,
-	// "to handle up to double the maximum throughput ... or up to double the
-	// peak throughput within the last 30 days, whichever is higher." This
-	// emulator has no throughput-history model to compute that from, so it
-	// approximates with the same floor CreateStream uses for a fresh ON_DEMAND
-	// stream (defaultOnDemandShardCount): if the stream is currently under that
-	// floor, reshard up to it. A stream already at or above the floor is left
-	// alone (real AWS would only grow it further under sustained load, which
-	// this emulator also has no model for -- see PARITY.md). The reverse
-	// transition (ON_DEMAND -> PROVISIONED) keeps the current shard count as
-	// the new provisioned baseline; AWS does not reshard on that direction.
-	if stream.StreamMode == streamModeProvisioned && newMode == streamModeOnDemand {
-		if countOpenShards(stream.Shards) < defaultOnDemandShardCount {
-			reshardTo(stream, defaultOnDemandShardCount)
-		}
-	}
-
+	// PROVISIONED -> ON_DEMAND does NOT reshard at transition time: "When you
+	// switch from provisioned to on-demand capacity mode, your data stream
+	// initially retains whatever shard count it had before the transition,
+	// and from this point on, Kinesis Data Streams monitors your data
+	// traffic and scales the shard count of this on-demand data stream
+	// depending on your write throughput." (docs.aws.amazon.com/streams/
+	// latest/dev/how-do-i-size-a-stream.html#switchingmodes). Any needed
+	// growth happens reactively afterward, via maybeAutoScaleOnDemand on
+	// subsequent PutRecord calls (see ondemand_scaling.go and PARITY.md) --
+	// not here. A brand-new ON_DEMAND stream still starts at
+	// defaultOnDemandShardCount via CreateStream, which this transition path
+	// does not touch. ON_DEMAND -> PROVISIONED also keeps the current shard
+	// count as the new provisioned baseline; AWS does not reshard on that
+	// direction either.
 	stream.StreamMode = newMode
 
 	// WarmThroughputMiBps is "only valid when the stream mode is being

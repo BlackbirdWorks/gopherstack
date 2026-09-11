@@ -22,14 +22,44 @@ type Handler struct {
 	ops           map[string]kinesisDispatchFn
 	DefaultRegion string
 	AccountID     string
+	// subscribeToShardStreamDuration/PollInterval/HeartbeatInterval control
+	// handleSubscribeToShardHTTP's cadence (handler_consumers.go). Defaulted
+	// in NewHandler to the documented/inferred values; overridable via
+	// WithSubscribeToShardTiming (tests use short values so a synchronous
+	// httptest.ResponseRecorder call, or a full stream.Events() drain,
+	// completes quickly instead of waiting out the real 5-minute window).
+	subscribeToShardStreamDuration    time.Duration
+	subscribeToShardPollInterval      time.Duration
+	subscribeToShardHeartbeatInterval time.Duration
 }
 
 // NewHandler creates a new Kinesis Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
-		Backend: backend,
+		Backend:                           backend,
+		subscribeToShardStreamDuration:    defaultSubscribeToShardStreamDuration,
+		subscribeToShardPollInterval:      defaultSubscribeToShardPollInterval,
+		subscribeToShardHeartbeatInterval: defaultSubscribeToShardHeartbeatInterval,
 	}
 	h.ops = h.buildOps()
+
+	return h
+}
+
+// WithSubscribeToShardTiming overrides SubscribeToShard's stream duration,
+// poll interval, and heartbeat interval (see handler_consumers.go). A
+// zero argument keeps that setting's current value, mirroring
+// services/polly's WithStreamLimits zero-means-keep-default pattern.
+func (h *Handler) WithSubscribeToShardTiming(streamDuration, pollInterval, heartbeatInterval time.Duration) *Handler {
+	if streamDuration > 0 {
+		h.subscribeToShardStreamDuration = streamDuration
+	}
+	if pollInterval > 0 {
+		h.subscribeToShardPollInterval = pollInterval
+	}
+	if heartbeatInterval > 0 {
+		h.subscribeToShardHeartbeatInterval = heartbeatInterval
+	}
 
 	return h
 }
