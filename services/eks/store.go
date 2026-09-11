@@ -38,6 +38,8 @@ type InMemoryBackend struct {
 	subscriptions                    *store.Table[AnywhereSubscription]
 	updates                          *store.Table[Update]
 	updatesByCluster                 *store.Index[Update]
+	certificateAuthorities           *store.Table[CertificateAuthority]
+	certificateAuthoritiesByCluster  *store.Index[CertificateAuthority]
 	idempotency                      *store.Table[idempotencyRecord]
 	registry                         *store.Registry
 	mu                               *lockmetrics.RWMutex

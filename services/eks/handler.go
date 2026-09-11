@@ -80,6 +80,7 @@ const (
 	opListIdentityProviderConfigs  = "ListIdentityProviderConfigs"
 	opListInsights                 = "ListInsights"
 	opListUpdates                  = "ListUpdates"
+	opListCertificateAuthorities   = "ListCertificateAuthorities"
 )
 
 const (
@@ -90,6 +91,7 @@ const (
 	opDescribeInsight                    = "DescribeInsight"
 	opDescribeInsightsRefresh            = "DescribeInsightsRefresh"
 	opDescribeUpdate                     = "DescribeUpdate"
+	opDescribeCertificateAuthority       = "DescribeCertificateAuthority"
 )
 
 const (
@@ -123,6 +125,9 @@ const (
 	opDescribeEksAnywhereSubscription = "DescribeEksAnywhereSubscription"
 	opDescribeFargateProfile          = "DescribeFargateProfile"
 	opDescribeIdentityProviderConfig  = "DescribeIdentityProviderConfig"
+	opActivateCertificateAuthority    = "ActivateCertificateAuthority"
+	opCreateCertificateAuthority      = "CreateCertificateAuthority"
+	opDeleteCertificateAuthority      = "DeleteCertificateAuthority"
 )
 
 const (
@@ -240,6 +245,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		opRegisterCluster,
 		opDeregisterCluster,
 		opDescribeClusterVersions,
+		opActivateCertificateAuthority,
+		opCreateCertificateAuthority,
+		opDeleteCertificateAuthority,
+		opDescribeCertificateAuthority,
+		opListCertificateAuthorities,
 	}
 }
 
@@ -301,33 +311,48 @@ func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 		return eksRoute{operation: opUnknown}
 	}
 
-	switch parts[1] {
-	case "node-groups":
-		return parseNodegroupRoute(method, clusterName, parts)
-	case "access-entries":
-		return parseAccessEntryRoute(method, clusterName, parts)
-	case keyAddons:
-		return parseAddonRoute(method, clusterName, parts)
-	case "capabilities":
-		return parseCapabilityRoute(method, clusterName, parts)
-	case "fargate-profiles":
-		return parseFargateProfileRoute(method, clusterName, parts)
-	case "insights":
-		return parseInsightsRoute(method, clusterName, parts)
-	case "insights-refresh":
-		return parseInsightsRefreshRoute(method, clusterName, parts)
-	case "updates":
-		return parseUpdatesRoute(method, clusterName, parts)
-	case "update-config":
-		const updateConfigParts = 2
-		if len(parts) == updateConfigParts && method == http.MethodPost {
-			return eksRoute{operation: opUpdateClusterConfig, clusterName: clusterName}
-		}
-
-		return eksRoute{operation: opUnknown}
+	if r, ok := parseClusterResourceRoute(method, clusterName, parts); ok {
+		return r
 	}
 
 	return parseClusterAssocPath(method, clusterName, parts, maxPathParts)
+}
+
+// parseClusterResourceRoute handles the named-resource sub-paths of
+// /clusters/{name}/... (node-groups, access-entries, addons, capabilities,
+// fargate-profiles, certificate-authorities, insights[-refresh], updates,
+// update-config). ok is false when parts[1] names none of these, so the
+// caller falls through to parseClusterAssocPath.
+func parseClusterResourceRoute(method, clusterName string, parts []string) (eksRoute, bool) {
+	switch parts[1] {
+	case "node-groups":
+		return parseNodegroupRoute(method, clusterName, parts), true
+	case "access-entries":
+		return parseAccessEntryRoute(method, clusterName, parts), true
+	case keyAddons:
+		return parseAddonRoute(method, clusterName, parts), true
+	case "capabilities":
+		return parseCapabilityRoute(method, clusterName, parts), true
+	case "fargate-profiles":
+		return parseFargateProfileRoute(method, clusterName, parts), true
+	case "certificate-authorities":
+		return parseCertificateAuthorityRoute(method, clusterName, parts), true
+	case "insights":
+		return parseInsightsRoute(method, clusterName, parts), true
+	case "insights-refresh":
+		return parseInsightsRefreshRoute(method, clusterName, parts), true
+	case "updates":
+		return parseUpdatesRoute(method, clusterName, parts), true
+	case "update-config":
+		const updateConfigParts = 2
+		if len(parts) == updateConfigParts && method == http.MethodPost {
+			return eksRoute{operation: opUpdateClusterConfig, clusterName: clusterName}, true
+		}
+
+		return eksRoute{operation: opUnknown}, true
+	}
+
+	return eksRoute{}, false
 }
 
 // parseClusterAssocPath handles associate paths and pod-identity-associations.
@@ -506,6 +531,7 @@ func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
 		h.dispatchIDPOps,
 		h.dispatchInsightsOps,
 		h.dispatchUpdateOps,
+		h.dispatchCertificateAuthorityOps,
 	}
 
 	for _, fn := range dispatchers {

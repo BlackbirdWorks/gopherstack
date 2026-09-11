@@ -3,7 +3,7 @@
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
 last_audit_commit: 7c297a53  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-09-11  # gopherstack-wf8f: typed Capability.Configuration, honest Insight derivation, ClientRequestToken idempotency, ResourceLimitExceededException quotas -- see Notes below
+last_audit_date: 2026-09-11  # gopherstack-wf8f: typed Capability.Configuration, honest Insight derivation, ClientRequestToken idempotency, ResourceLimitExceededException quotas; gopherstack-lruaw: implemented the 5 CertificateAuthority ops -- see Notes below
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -24,7 +24,7 @@ last_audit_date: 2026-09-11  # gopherstack-wf8f: typed Capability.Configuration,
 # (real-SDK errors.As assertions, each confirmed failing pre-fix).
 # fargate_profiles_test.go/node_groups_test.go had 3 pre-existing tests
 # asserting the old wrong status codes as correct; corrected alongside the fix.
-overall: A            # route-matcher pass + gaps/deferred closeout pass + gopherstack-wf8f (typed capability config, honest insights, idempotency, resource limits)
+overall: A            # route-matcher pass + gaps/deferred closeout pass + gopherstack-wf8f (typed capability config, honest insights, idempotency, resource limits) + gopherstack-lruaw (5 CertificateAuthority ops implemented, closing the last route-table gap)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -93,19 +93,104 @@ ops:
   DescribeUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUpdates: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): NodegroupName was declared by ListUpdatesInput but never read; added Update.NodegroupName (backend-internal, json:\"-\", not part of the real wire shape) populated by UpdateNodegroupVersion/UpdateNodegroupConfig, and ListUpdates now filters by it. AddonName/CapabilityName remain unfixed -- no Update record is ever created for UpdateAddon/UpdateCapability in this backend (they return the mutated Addon/Capability directly, not an async Update the way the real API does), so there is nothing yet to filter; fixing those needs a separate, larger change to UpdateAddon/UpdateCapability's response shape"}
   CancelUpdate: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired -- fixes a real latent bug where a genuine same-token retry after a successful cancel would have hit CancelUpdate's own not-cancellable-twice InvalidRequestException instead of replaying the original success. implemented for real: POST /clusters/{name}/updates/{updateId}/cancel-update. Real EKS only performs cancellation for VersionRollback update types that are still InProgress (Kubernetes version rollback on EKS Auto Mode clusters, per the op's doc comment); any other type/status now returns InvalidRequestException (new ErrInvalidRequest sentinel) rather than silently no-opping or 404ing. On success sets Status=Cancelled and a Cancellation{Status,Reason} record, matching types.Update.Cancellation/types.Cancellation. No public op creates a VersionRollback update in this SDK version (it is an AWS-internal transition), so the success path is only reachable by seeding an update via the existing exported StoreUpdate — tests exercise this directly"}
+  ActivateCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch (see the 5-op family note below). POST /clusters/{name}/certificate-authorities/{id}/activate; ClientRequestToken travels in the JSON body (serializers.go's awsRestjson1_serializeOpDocumentActivateCertificateAuthorityInput). Real error set is InvalidParameterException/ResourceNotFoundException/ServerException/ServiceUnavailableException only -- no ResourceInUseException, no ResourceLimitExceededException -- so a CA that is not eligible (signingStatus != NOT_USED, or distributionStatus != COMPLETE) rejects with InvalidParameterException, matching the op's own doc comment ('must already be present on the cluster and fully distributed'). On success the target transitions NOT_USED -> ACTIVATING -> (async) IN_USE, and the previous IN_USE CA in the same cluster (if any) is retired to NOT_USED with RollbackAvailable=true (undocumented rollback-window TTL not modeled -- see gaps, same conservative treatment as the ClientRequestToken 24h window). Returns CertificateAuthoritySummary + an async Update (types.UpdateTypeCertificateAuthorityUpdate)."}
+  CreateCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. POST /clusters/{name}/certificate-authorities, body {clientRequestToken}. Enforces the real 'at most two certificate authorities at a time' structural cap stated in the op's own doc comment (maxCertificateAuthoritiesPerCluster, certificate_authorities.go -- not in limits.go's resourceLimits/WithResourceLimits struct because it is not a numbered, adjustable Service Quotas entry, same treatment as CreateCapability's one-per-type rule) as ResourceLimitExceededException. Generates a REAL self-signed ECDSA P-256 x509 CA certificate for the CertificateAuthority.Data field (generateCertificateAuthorityCert) rather than a fabricated string -- verified this op family's Input/Output shapes accept/return no client-supplied key, CSR, or certificate at all (neither api_op_*CertificateAuthorit*.go nor types/types.go declares such a member), so there is no real CSR-upload wire feature to emulate; only the resulting Data/Validity ever reach the wire, and the private key is discarded immediately after signing. New CA starts SigningStatus=NOT_USED, DistributionStatus=IN_PROGRESS -> async COMPLETE. Returns CertificateAuthoritySummary + an async Update."}
+  DeleteCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. DELETE /clusters/{name}/certificate-authorities/{id} -- the only op in this service whose ClientRequestToken travels as a QUERY parameter, not a JSON body (serializers.go's awsRestjson1_serializeOpHttpBindingsDeleteCertificateAuthorityInput uses encoder.SetQuery, not the body encoder every other op uses; DELETE carries no request document at all). Rejects with ResourceInUseException when the target CA's signingStatus is IN_USE, matching the doc comment ('You can't delete the certificate authority that's currently signing certificates'). The doc comment's other protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger in this backend: every CA here has CreatedBy=CUSTOMER (only the public CreateCertificateAuthority op creates one; nothing auto-provisions an EKS-created CA) -- disclosed in gaps, not silently dropped. Returns the deleted CA's summary (DistributionStatus stamped DELETING, mirroring DeleteFargateProfile's statusDeleting pattern) + an async Update."}
+  DescribeCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities/{id}, only ResourceNotFoundException/ServerException/ServiceUnavailableException declared. Returns the full types.CertificateAuthority shape (data/validity/rollbackAvailable/activatedAt/activatedBy in addition to the summary fields) -- verified field-by-field against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthority. ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is left absent: real EKS computes it from the CA's validity period with no published formula (WebFetch'd the certificate-authority-rotation user guide page 2026-09-11, no formula given) -- disclosed in gaps rather than fabricated."}
+  ListCertificateAuthorities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities, maxResults/nextToken query-param pagination via pkgs/page, matching every other GET-based List op in this service. Returns types.CertificateAuthoritySummary entries (verified against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthoritySummary), sorted by ID for deterministic responses."}
 gaps:
   - "ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return a fabricated Update-shaped map directly, not a stored Update), so there is no addon/capability-scoped Update to filter over yet"
   - "Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks (Kubernetes version end-of-support, version behind latest -- gopherstack-wf8f item 2) remains unmodeled: deprecated-Kubernetes-API-usage insights, AddonCompatibilityDetails, InsightCategorySpecificSummary.DeprecationDetails, Resources[]/InsightResourceDetail, and the entire MISCONFIGURATION category (EKS Hybrid Nodes) all require either a live Kubernetes API server or a hybrid-nodes model this backend does not have -- inherent emulator limitation, not something fixable by more wire-shape work"
   - "ArgoCdAwsIdcConfig.IdcManagedApplicationArn and ArgoCdConfig.ServerUrl (real AWS's server-computed IAM Identity Center application ARN and Argo CD web/API URL) have no documented derivation pattern anywhere in the pinned SDK's doc comments or the EKS user guide's capabilities/argocd pages (WebFetch'd 2026-09-11) -- left empty on every CreateCapability/DescribeCapability/UpdateCapability response rather than fabricated"
   - "ClientRequestToken idempotency (gopherstack-wf8f item 3) does not enforce the documented 24-hour token validity window (api_op_CreateCluster.go: 'This token is valid for 24 hours after creation.') -- tokens remain valid for the lifetime of the backend. Conservative (can only cause an over-eager replay of a token real AWS would have already expired, never fabricate a wrong new resource); no TTL sweep infrastructure was added for this"
-  - "ClientRequestToken idempotency is wired to every eks op that declares the field except the 5 CertificateAuthority ops below, which are unimplemented entirely"
-  - "5 new ops in this pinned SDK version (ActivateCertificateAuthority, CreateCertificateAuthority, DeleteCertificateAuthority, DescribeCertificateAuthority, ListCertificateAuthorities -- EKS Hybrid Nodes on-prem CA support) are not implemented at all in this service; discovered incidentally during gopherstack-wf8f's error-code sweep (comparing the SDK's 70 api_op_*.go files against gopherstack's 65-operation route table) and out of scope for that task. CreateCertificateAuthority also declares ResourceLimitExceededException, unenforced here since the op doesn't exist"
+  - "gopherstack-lruaw (2026-09-11): CertificateAuthority.ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is unmodeled -- no published derivation formula from the CA's validity period exists in the pinned SDK's doc comments or the EKS user guide"
+  - "gopherstack-lruaw (2026-09-11): ActivateCertificateAuthority's RollbackAvailable window ('For a limited period after activation, CA rollback is available') is set true on the retired outgoing CA but never expires -- no TTL sweep exists for it, the same disclosed simplification as the ClientRequestToken 24h window above"
+  - "gopherstack-lruaw (2026-09-11): DeleteCertificateAuthority's second documented protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger here -- every CA in this backend has CreatedBy=CUSTOMER, since nothing auto-provisions an EKS-created initial cluster CA into the new certificateAuthorities table (the pre-existing, unrelated Cluster.CertificateAuthority placeholder field is untouched by this pass)"
 deferred:
   - "gopherstack-wf8f (2026-09-11) closeout of the prior pass's error-code-granularity item: ResourceLimitExceededException is now enforced (item 4) for every op that declares it and has a real, published AWS quota this backend can plausibly hit (CreateAccessEntry, CreateCapability, CreateCluster, CreateEksAnywhereSubscription, CreateFargateProfile, CreateNodegroup, CreatePodIdentityAssociation, RegisterCluster -- see limits.go). ClientException/ServerException/ServiceUnavailableException/ThrottlingException are declared by this SDK's deserializers.go on some ops but remain structurally unreachable from this backend: re-ran cmd/errtargetaudit -dir eks this pass (0 class-A findings, matching the 2026-08-31 eks-is-clean sweep) and found no new reachable case for any of them -- ClientException/ServerException model IAM-permission-denial and server-side-fault conditions this backend has no authorization-denial or fault-injection mechanism for; ServiceUnavailableException/ThrottlingException model transient infrastructure conditions an in-memory backend structurally cannot produce. Consistent with every other gopherstack service's treatment of these codes, not unique to eks"
-leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). No new goroutines/tickers introduced this pass -- CancelUpdate and pagination are synchronous request/response paths"}
+leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions, plus gopherstack-lruaw's new certificate authority distribution/activation transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). CertificateAuthority carries no tags.Tags (real types.CertificateAuthority/CertificateAuthoritySummary have no tags member), so Reset/Delete need no new tag-closing code for it. No new goroutine/ticker primitive was introduced this pass -- scheduleCertificateAuthorityDistribution/scheduleCertificateAuthorityActivation reuse the existing b.work (*worker.Group), the same mechanism as every sibling CREATING->ACTIVE transition"}
 ---
 
 ## Notes
+
+### gopherstack-lruaw (2026-09-11): implemented the 5 CertificateAuthority ops
+
+Closes the gap gopherstack-wf8f disclosed: `ActivateCertificateAuthority`,
+`CreateCertificateAuthority`, `DeleteCertificateAuthority`,
+`DescribeCertificateAuthority`, `ListCertificateAuthorities` (EKS Hybrid
+Nodes on-prem CA rotation support, new in `eks@v1.98.0`) were entirely
+unimplemented and listed in `sdk_completeness_test.go`'s not-implemented
+manifest. Every wire fact (paths/methods, request/response field names, and
+each op's own error set) was re-derived directly from
+`aws-sdk-go-v2/service/eks@v1.98.0`'s `api_op_*CertificateAuthorit*.go`,
+`types/types.go`, `types/enums.go`, `validators.go`, `serializers.go`, and
+`deserializers.go` -- not guessed. See the per-op `ops:` entries above for
+file-level detail; summary of the notable findings:
+
+- **No CSR/certificate-upload wire feature exists.** The task's working
+  assumption going in was that `Activate` would take a client-signed
+  certificate completing a CSR `Create` handed back. Reading the real SDK
+  disproved this: `ActivateCertificateAuthorityInput` has exactly three
+  members (`CertificateAuthorityId`, `ClusterName`, `ClientRequestToken`) --
+  no certificate, no CSR. Real EKS generates and manages this CA's key
+  material entirely server-side; the client only ever names an existing CA
+  by ID. Building a CSR-verification flow would have been inventing a wire
+  feature that does not exist. Instead, `CreateCertificateAuthority`
+  generates a REAL self-signed ECDSA P-256 x509 CA certificate
+  (`generateCertificateAuthorityCert`, `certificate_authorities.go`) for the
+  `data` field -- a genuinely valid, parseable CA certificate, just not one a
+  client ever supplies or verifies, matching the real op's actual contract.
+- **`DeleteCertificateAuthority` is the only op in this entire service whose
+  `ClientRequestToken` serializes as a query parameter, not a JSON body**
+  (`serializers.go`'s `awsRestjson1_serializeOpHttpBindingsDeleteCertificateAuthorityInput`
+  uses `encoder.SetQuery`, since `DELETE` carries no request document at
+  all). `handleDeleteCertificateAuthority` reads it via `c.QueryParam`.
+- **All three write ops' JSON bodies carry `clientRequestToken` as their
+  ONLY member.** `Handler.withIdempotency`'s fingerprint hashes the request
+  body after stripping `clientRequestToken` -- for every pre-existing op that
+  uses it, the body has other real fields (e.g. `fargateProfileName`) that
+  keep two different requests' fingerprints apart. Here the real body always
+  canonicalizes to `{}` regardless of which cluster or certificate authority
+  the URL actually names, so fingerprinting the real body verbatim would let
+  a client that reused one token across two different clusters or CAs
+  silently replay the FIRST call's response for a completely different
+  request. Fixed by folding the route's own `clusterName`/`certificateAuthorityId`
+  into a synthesized fingerprint payload
+  (`certificateAuthorityIdempotencyFingerprintBody`,
+  `handler_certificate_authorities.go`) for all three write ops -- a reused
+  token against different identity now correctly gets the same
+  "already used with different parameters" `InvalidParameterException` every
+  other eks op's idempotency dedup already returns for a genuine parameter
+  mismatch, instead of either a wrong silent replay or a silently-allowed
+  fresh create. Proven by
+  `TestCertificateAuthority_ClientRequestToken_Create_DifferentCluster_Rejected`
+  and `TestCertificateAuthority_ClientRequestToken_Delete_DifferentID_Rejected`
+  (`certificate_authorities_test.go`).
+- **Structural rules taken directly from doc comments, not invented:** Create
+  enforces the "at most two certificate authorities at a time" cap
+  (`maxCertificateAuthoritiesPerCluster`) as `ResourceLimitExceededException`;
+  Delete enforces "can't delete the certificate authority that's currently
+  signing" as `ResourceInUseException`; Activate enforces "must already be
+  present ... and fully distributed" as `InvalidParameterException`. The EKS
+  Service Quotas page (WebFetch'd 2026-09-11) has no numbered entry for
+  certificate authorities at all -- consistent with this being a fixed
+  structural rule, not an AWS-adjustable quota, so it lives outside
+  `limits.go`'s `resourceLimits`/`WithResourceLimits`, the same treatment
+  `CreateCapability`'s one-per-type rule already gets.
+- Persisted via a new `certificateAuthorities` `store.Table` +
+  `byCluster` index (`store_setup.go`), composite-keyed like every other
+  cluster-nested resource in this service. Purely additive to the registry:
+  `eksSnapshotVersion` was NOT bumped (see `persistence.go`'s doc comment);
+  `pkgs/persistence/testdata/snapshot_inventory.json`'s `eks` entry was
+  regenerated via `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`
+  and the diff is exactly the 12 new `CertificateAuthority.*` field lines,
+  nothing else.
+- Real-client lifecycle (create -> distribution COMPLETE -> activate ->
+  ACTIVATING -> IN_USE -> outgoing CA retired to NOT_USED with
+  `RollbackAvailable`), every declared error path, pagination, and both
+  idempotency fixes above are covered by
+  `certificate_authorities_test.go` against the real `aws-sdk-go-v2` eks
+  client over `httptest`, following `wf8f_test.go`'s existing pattern.
 
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 65 ops' real
 method+path directly from `eks@v1.90.4` serializers.go and drove them

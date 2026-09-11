@@ -10,16 +10,15 @@ import "fmt"
 // "ResourceLimitExceededException"): CreateAccessEntry, CreateCapability,
 // CreateCluster, CreateEksAnywhereSubscription, CreateFargateProfile,
 // CreateNodegroup, CreatePodIdentityAssociation, RegisterCluster. (Two more
-// ops declare it too -- CreateCertificateAuthority and
-// UpdatePodIdentityAssociation -- but CreateCertificateAuthority and its
-// four ActivateCertificateAuthority/DeleteCertificateAuthority/
-// DescribeCertificateAuthority/ListCertificateAuthorities siblings are new
-// ops in this pinned SDK version this service has never implemented at all
-// -- a pre-existing gap discovered during this pass, out of scope for
-// gopherstack-wf8f, disclosed in PARITY.md rather than silently added.
-// UpdatePodIdentityAssociation modifies an existing association and cannot
-// itself push any count over a cardinality quota, so it has nothing to
-// enforce despite declaring the exception on the wire.)
+// ops declare it too: CreateCertificateAuthority enforces its own cap --
+// see maxCertificateAuthoritiesPerCluster in certificate_authorities.go, not
+// part of this struct because it is a fixed structural rule ("at most two
+// certificate authorities at a time" per the op's own doc comment) rather
+// than a numbered, AWS-adjustable Service Quotas entry, the same treatment
+// as capabilities.go's one-per-type rule below. UpdatePodIdentityAssociation
+// modifies an existing association and cannot itself push any count over a
+// cardinality quota, so it has nothing to enforce despite declaring the
+// exception on the wire.)
 //
 // Values are the real, published EKS defaults from
 // https://docs.aws.amazon.com/general/latest/gr/eks.html#limits_eks

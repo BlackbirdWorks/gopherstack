@@ -41,6 +41,12 @@ import (
 // back on (see TestRestore_Version2Fixture_TolerantDecode,
 // persistence_test.go, for the proof and a hand-written version-2 fixture
 // using both old shapes).
+//
+// gopherstack-lruaw (2026-09-11) registered a new certificateAuthorities
+// table (store_setup.go) for the CertificateAuthority ops. A new
+// store.Register call is purely additive to the Tables map -- an older
+// snapshot simply decodes with that table absent/empty -- so this did not
+// bump the version either.
 const eksSnapshotVersion = 2
 
 type backendSnapshot struct {

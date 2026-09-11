@@ -620,3 +620,32 @@ type Update struct {
 	Params        []UpdateParam `json:"params,omitempty"`
 	Errors        []UpdateError `json:"errors,omitempty"`
 }
+
+// CertificateAuthority represents an EKS Hybrid Nodes cluster certificate
+// authority (eks@v1.98.0's Create/Activate/Delete/Describe/
+// ListCertificateAuthorities family, types.CertificateAuthority/
+// types.CertificateAuthoritySummary). ClusterName carries a real json tag
+// (unlike Update.NodegroupName's json:"-" precedent above) because it keys
+// certificateAuthoritiesByCluster: losing it on restore would misfile every
+// persisted CA under the empty-string group. Neither real type puts a
+// cluster identity on the wire -- certificateAuthorityToJSON/
+// certificateAuthoritySummaryToJSON (handler_certificate_authorities.go)
+// never emit this field, so the tag only affects persistence, not the API
+// response. ScheduledEvents (types.CertificateAuthorityScheduledEvents) is
+// deliberately unmodeled: real EKS computes it from the CA's validity period
+// with no published formula, so nothing is fabricated in its place (see
+// PARITY.md gaps).
+type CertificateAuthority struct {
+	CreatedAt          time.Time  `json:"createdAt"`
+	NotBefore          time.Time  `json:"notBefore"`
+	NotAfter           time.Time  `json:"notAfter"`
+	ActivatedAt        *time.Time `json:"activatedAt,omitempty"`
+	ID                 string     `json:"id"`
+	ClusterName        string     `json:"clusterName"`
+	Data               string     `json:"data"`
+	CreatedBy          string     `json:"createdBy"`
+	ActivatedBy        string     `json:"activatedBy,omitempty"`
+	DistributionStatus string     `json:"distributionStatus"`
+	SigningStatus      string     `json:"signingStatus"`
+	RollbackAvailable  bool       `json:"rollbackAvailable"`
+}
