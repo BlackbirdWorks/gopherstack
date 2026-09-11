@@ -1248,7 +1248,7 @@
       "FlagValue.Enabled bool `json:\"Enabled\"`",
       "HostedConfigurationVersion.ApplicationID string `json:\"ApplicationId\"`",
       "HostedConfigurationVersion.ConfigurationProfileID string `json:\"ConfigurationProfileId\"`",
-      "HostedConfigurationVersion.Content []byte `json:\"-\"`",
+      "HostedConfigurationVersion.Content []byte `json:\"content\"`",
       "HostedConfigurationVersion.ContentType string `json:\"ContentType\"`",
       "HostedConfigurationVersion.CreatedAt time.Time `json:\"CreatedAt,omitzero\"`",
       "HostedConfigurationVersion.Description string `json:\"Description,omitempty\"`",

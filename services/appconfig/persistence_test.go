@@ -264,6 +264,7 @@ func assertHostedConfigVersionsRestored(t *testing.T, fresh *appconfig.InMemoryB
 	gotHCV, err := fresh.GetHostedConfigurationVersion(seed.app.ID, seed.profile.ID, seed.hcv.VersionNumber)
 	require.NoError(t, err)
 	assert.Equal(t, seed.hcv.Description, gotHCV.Description)
+	assert.Equal(t, seed.hcv.Content, gotHCV.Content, "gopherstack-zxdex: Content must survive a restart")
 
 	versionItems, _, err := fresh.ListHostedConfigurationVersions(seed.app.ID, seed.profile.ID, "", "", 0)
 	require.NoError(t, err)
