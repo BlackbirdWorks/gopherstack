@@ -1708,3 +1708,123 @@ stored-then-checked error.
 **No instance of the broken shape exists in quicksight.** No code changed. Gates:
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/quicksight/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/quicksight/...` ok.
+
+## 2026-09-11: ApprovalPolicy, DlpSetting, LimitsProfile op families implemented (gopherstack-569k pass 4a)
+
+Implemented the three op families the required-input sweep found unimplemented
+(15 ops total, `sdk_completeness_test.go`'s `notImplemented` list -- `BatchDescribeUserLimits`
+and the App family remain unimplemented and stay listed there):
+
+- **ApprovalPolicy**: `CreateApprovalPolicy`/`DescribeApprovalPolicy`/`UpdateApprovalPolicy`/
+  `DeleteApprovalPolicy`/`ListApprovalPolicies` (quicksight@v1.129.0
+  `api_op_{Create,Describe,Update,Delete,List}ApprovalPolicy.go`). Real, persisted resources
+  in `governance.go` (`storedApprovalPolicy`, table `approvalPolicies`), routed via
+  `handler_governance.go`.
+- **DlpSetting**: `CreateDlpSetting`/`DescribeDlpSetting`/`UpdateDlpSetting`/`DeleteDlpSetting`/
+  `ListDlpSettings` (`api_op_{Create,Describe,Update,Delete,List}DlpSetting.go`). Table
+  `dlpSettings`.
+- **LimitsProfile**: `CreateLimitsProfile`/`DescribeLimitsProfile`/`UpdateLimitsProfile`/
+  `DeleteLimitsProfile`/`ListLimitsProfiles` (`api_op_{Create,Describe,Update,Delete,List}LimitsProfile.go`).
+  Table `limitsProfiles`. No Associate/Disassociate ops exist for any of the three families
+  (confirmed by grepping the module's `api_op_*.go` for `ApprovalPolic\|DlpSetting\|LimitsProfile`
+  -- exactly these 15 files exist).
+
+**Non-standard wire shapes, confirmed against `serializers.go`'s `SplitURI` calls per op**:
+
+- ApprovalPolicy carries **no `AwsAccountId` member on any op's Input** (confirmed against
+  every `api_op_*ApprovalPolicy.go` Input struct) and is minted under
+  `/governance/approvalworkflows/policies[/{PolicyId}]` -- not `/accounts/{id}/...` at all.
+  `PolicyId` alone is the resource's identity on the real wire, so the backend and handler
+  route/key it without any account scoping (`approvalPolicyKey` in `store.go`).
+- LimitsProfile uses `AccountId` (not `AwsAccountId`) and is minted under
+  `/governance/limits/accounts/{accountId}/profiles[/{profileId}]`, also outside
+  `/accounts/{id}/...`. `ProfileId` is server-generated (`CreateLimitsProfileInput` has no
+  `ProfileId` member, only a required `ClientToken`) -- minted via `uuid.New()`, same
+  convention as `automation.go`'s `StartAutomationJob`.
+- DlpSetting uses the standard `AwsAccountId`/`/accounts/{id}/...` shape, but
+  `CreateDlpSettingInput` binds `DlpSettingId` into the URI (POST to the specific resource
+  path, not a collection POST), so the classifier's instance ID sits at `segSubRes`, not
+  `segSubResID` -- documented at `classifyDlpSettingPaths`'s doc comment.
+- Response body key casing differs by family and was verified against each op's
+  `awsRestjson1_deserializeOpDocument*Output`/`awsRestjson1_deserializeDocument*` functions:
+  ApprovalPolicy and DlpSetting use PascalCase (`Policy`/`Policies`, `DlpSetting`/
+  `DlpSettingSummaries`, `Arn`/`DlpSettingId`/`CreatedAt`/...); LimitsProfile uses lowerCamelCase
+  throughout (`profile`/`profiles`, `arn`/`profileId`/`createdAt`/`resourceLimits`/...).
+  `CreatedAt`/`UpdatedAt` are epoch-seconds JSON numbers on every family (the standard
+  quicksight timestamp wire format).
+- Per-op response body shapes are asymmetric and were read individually rather than assumed
+  uniform: `CreateApprovalPolicy`/`DescribeApprovalPolicy`/`UpdateApprovalPolicy` return the
+  full `Policy` object; `DeleteApprovalPolicy` returns only the envelope.
+  `Create/Update/DeleteDlpSetting` return only `Arn`+`DlpSettingId`; only `DescribeDlpSetting`
+  returns the full `DlpSetting` object, and `ListDlpSettings` returns the narrower
+  `DlpSettingSummary` shape (no `ProviderConfig`). `CreateLimitsProfile` returns `arn`+
+  `profileId`; `UpdateLimitsProfile`/`DeleteLimitsProfile` return only `arn` (no `profileId`
+  at all); only `DescribeLimitsProfile` returns the full object.
+
+**Error mapping, confirmed against each op's `deserializeOpError*` switch**: ApprovalPolicy's
+declared exception set has **no `ResourceExistsException`**, only `ConflictException`, so
+`CreateApprovalPolicy` duplicate-`PolicyId` maps to `ConflictException`
+(`ErrApprovalPolicyAlreadyExists` wraps `awserr.ErrAlreadyExists`, and `httpErr`'s generic
+mapping already emits `ConflictException` for that sentinel -- no special-casing needed,
+unlike folders/templates/etc.). `CreateDlpSetting` *does* declare `ResourceExistsException`,
+so `handleCreateDlpSetting` special-cases it the way `handleCreateFolder` does (`httpErr`'s
+generic switch always emits `ConflictException` for `ErrAlreadyExists`, which would be the
+wrong code here). `CreateLimitsProfile` declares neither `ResourceExistsException` nor
+`ResourceNotFoundException` -- moot in practice since `ProfileId` is server-generated
+(`uuid.New()`) and can never collide, so no duplicate-create error path exists for this
+family at all. `DeleteLimitsProfile` additionally declares `ConflictException` (likely for a
+profile still associated with a principal/namespace) but no Associate op exists in this
+backend to create that state, so it is never raised -- disclosed, not implemented.
+
+**Disclosed, not fabricated**: `DlpSettingDetails`/`DlpSettingSummary.Status` (`ACTIVE`/
+`INACTIVE`) is derived directly from `CreateDlpSettingInput.Enabled`/`UpdateDlpSettingInput.Enabled`
+-- both the SDK's `Enabled` doc comment ("whether DLP enforcement is active") and `Status`'s
+("The status of the DLP setting") describe the same fact, so this is an honest 1:1 derivation,
+not a guessed field. `CreateLimitsProfileInput.ClientToken`'s idempotency contract ("if this
+token matches a previous request, the service ignores the request, but does not return an
+error") is implemented: a repeated `ClientToken` on `CreateLimitsProfile` returns the existing
+profile instead of minting a second one (`ClientToken` stored on `storedLimitsProfile`,
+scanned linearly on create -- the same scale assumption `folders.go`'s linear scans already
+make for this backend). ARN resource-type segments (`approval-policy`, `dlp-setting`,
+`limits-profile`) are inferred, not confirmed against any AWS documentation or example --
+`Arn`/`PolicyArn` fields are opaque strings on the wire with no format spec in the pinned SDK
+model, and no `botocore` example for these ops was found either. Partial-update semantics for
+`UpdateApprovalPolicy`/`UpdateDlpSetting`/`UpdateLimitsProfile` follow this package's existing
+convention (an empty/zero string or nil slice means "field omitted, leave unchanged") rather
+than tracking JSON key presence, matching `UpdateFolder` and siblings; `UpdateDlpSetting.Enabled`
+is the one exception, modeled as `*bool` since `false` is a legitimate explicit update distinct
+from omission.
+
+**Persistence**: three new `store.Table`s registered in `store_setup.go`
+(`approvalPolicies`, `dlpSettings`, `limitsProfiles`), purely additive -- `RestoreAll` resets
+absent tables to empty on an older snapshot, so `quicksightSnapshotVersion` was not bumped.
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` failed before `-update` with
+exactly that "additive only, no bump needed" message; ran `-update` to refresh
+`pkgs/persistence/testdata/snapshot_inventory.json` (38 insertions, 0 deletions, all under the
+`quicksight` block; no foreign-service hunks touched); re-ran read-only and it passes.
+
+**Tests**: `handler_governance_test.go` (table-driven CRUD/error/pagination coverage per
+family, `ClientToken` idempotency, `ResourceType` list filter) and
+`handler_governance_realclient_test.go` (one full Create/Describe/Update/List/Delete lifecycle
+per family driven through the real `aws-sdk-go-v2` quicksight client against `httptest`,
+proving the non-standard paths, the PascalCase-vs-lowerCamelCase envelope split, the
+`ProviderConfig` union round-trip, and the `ResourceExistsException`/`ConflictException`/
+`ResourceNotFoundException` error shapes against the SDK's own deserializer). Added 15 rows to
+`handler_sdk_route_table_test.go`'s `sdkRouteCases`.
+
+**Gates** (`services/quicksight/` and `pkgs/persistence/` only): `go build ./...` (whole
+module) clean; `go vet ./services/quicksight/...` clean; `go test -race -count=1
+./services/quicksight/... ./pkgs/persistence/...` both `ok`;
+`GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/quicksight/...` -- `0 issues` (fixed along
+the way: `fieldalignment` on the three new stored/public structs via
+`golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment -fix`; `goconst`
+reuse of existing `keyCreatedAt`/`keyUpdatedAt`/`keyName`/`keyStatus`/`keyConnectorType`
+constants instead of repeating string literals; `nonamedreturns` and `unparam` cleanups).
+
+**Confidence**: high on the wire-shape reads (every field/key/error verified against
+`serializers.go`/`deserializers.go`/`validators.go`/`types/errors.go` directly, plus proven
+end-to-end by the three RealClient tests against the actual SDK client). Not independently
+verified: the real AWS ARN format for these three resource types (no SDK doc or `botocore`
+example found), and whether `DeleteLimitsProfile`'s undocumented-in-practice
+`ConflictException` path is reachable in real AWS at all (left unimplemented rather than
+guessed, per the Associate-op gap noted above).

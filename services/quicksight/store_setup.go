@@ -249,4 +249,27 @@ var tableRegistrations = []func(*InMemoryBackend){
 			}),
 		)
 	},
+	func(b *InMemoryBackend) {
+		b.approvalPolicies = store.Register(
+			b.registry,
+			"approvalPolicies",
+			store.New(func(v *storedApprovalPolicy) string {
+				return approvalPolicyKey(v.PolicyID)
+			}),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.dlpSettings = store.Register(b.registry, "dlpSettings", store.New(func(v *storedDlpSetting) string {
+			return dlpSettingKey(b.accountID, v.DlpSettingID)
+		}))
+	},
+	func(b *InMemoryBackend) {
+		b.limitsProfiles = store.Register(
+			b.registry,
+			"limitsProfiles",
+			store.New(func(v *storedLimitsProfile) string {
+				return limitsProfileKey(b.accountID, v.ProfileID)
+			}),
+		)
+	},
 }

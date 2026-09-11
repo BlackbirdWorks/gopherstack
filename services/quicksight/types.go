@@ -810,4 +810,81 @@ type SelfUpgradeRequestDetail struct {
 	LastUpdateAttemptTime   int64
 }
 
+// ApplicableTo represents the scoping configuration for an ApprovalPolicy:
+// which principals the policy applies to.
+type ApplicableTo struct {
+	Type      string
+	GroupArns []string
+}
+
+// ApprovalPolicy represents a QuickSight governance approval policy (which
+// governed actions on which asset types require approval from which groups).
+type ApprovalPolicy struct {
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	PolicyID       string
+	Arn            string
+	Name           string
+	Description    string
+	Actions        []string
+	AssetTypes     []string
+	ApprovalGroups []string
+	ApplicableTo   ApplicableTo
+}
+
+// LabelActionMapping maps one DLP-provider sensitivity label to an
+// enforcement action.
+type LabelActionMapping struct {
+	Action    string
+	LabelID   string
+	LabelName string
+}
+
+// MicrosoftPurviewProviderConfig is the Microsoft Purview variant of
+// DlpSetting's ProviderConfig union -- the only variant the pinned SDK
+// defines (quicksight@v1.129.0 types/types.go:17080's doc comment).
+type MicrosoftPurviewProviderConfig struct {
+	SecretArn           string
+	UnmappedAction      string
+	LabelActionMappings []LabelActionMapping
+}
+
+// ProviderConfig is a DlpSetting's provider-specific configuration. Exactly
+// one field is set, mirroring the SDK's ProviderConfig union type.
+type ProviderConfig struct {
+	MicrosoftPurview *MicrosoftPurviewProviderConfig
+}
+
+// DlpSetting represents a QuickSight data-loss-prevention setting.
+type DlpSetting struct {
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ProviderConfig       ProviderConfig
+	DlpSettingID         string
+	Arn                  string
+	Name                 string
+	ProviderType         string
+	ProviderOutageAction string
+	Enabled              bool
+}
+
+// ProfileLimitValue is one resource-type limit within a LimitsProfile.
+type ProfileLimitValue struct {
+	Unit     string
+	MaxValue int64
+}
+
+// LimitsProfile represents a QuickSight governance limits profile (a named
+// set of per-resource-type usage limits).
+type LimitsProfile struct {
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ResourceLimits map[string]ProfileLimitValue
+	ProfileID      string
+	Arn            string
+	AccountID      string
+	ProfileName    string
+	Description    string
+}
+
 var _ StorageBackend = (*InMemoryBackend)(nil)

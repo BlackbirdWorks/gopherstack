@@ -51,6 +51,37 @@ func decodePageToken(tok string) (int, error) {
 	return n, nil
 }
 
+// paginateOffset applies encodePageToken/decodePageToken offset pagination to
+// all, generically. Used by families (approval policies, DLP settings,
+// limits profiles) whose List op has no per-family filtering logic beyond
+// plain offset pagination, mirroring paginateFolders (folders.go) without
+// repeating its body per family.
+func paginateOffset[T any](all []T, maxResults int32, nextToken string) ([]T, string) {
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
+		}
+	}
+	if start > len(all) {
+		start = len(all)
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(all) {
+		next = encodePageToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], next
+}
+
 const (
 	defaultNamespace         = "default"
 	identityStoreQuickSight  = "QUICKSIGHT"
@@ -124,6 +155,10 @@ type InMemoryBackend struct {
 
 	selfUpgradeConfig   map[string]string
 	selfUpgradeRequests *store.Table[storedSelfUpgradeRequest]
+
+	approvalPolicies *store.Table[storedApprovalPolicy]
+	dlpSettings      *store.Table[storedDlpSetting]
+	limitsProfiles   *store.Table[storedLimitsProfile]
 
 	accountID string
 	region    string
@@ -513,6 +548,23 @@ func assetBundleJobKey(accountID, jobID string) string {
 
 func dashboardSnapshotJobKey(accountID, dashboardID, jobID string) string {
 	return accountID + "/" + dashboardID + "/" + jobID
+}
+
+// dlpSettingKey and limitsProfileKey are accountID-scoped, matching every
+// other family. approvalPolicyKey is not: ApprovalPolicy's Create/Describe/
+// Update/Delete/List inputs carry no AwsAccountId member at all (confirmed
+// against quicksight@v1.129.0 api_op_*ApprovalPolicy*.go) -- PolicyId alone
+// is the resource's identity on the real wire.
+func dlpSettingKey(accountID, dlpSettingID string) string {
+	return accountID + "/" + dlpSettingID
+}
+
+func limitsProfileKey(accountID, profileID string) string {
+	return accountID + "/" + profileID
+}
+
+func approvalPolicyKey(policyID string) string {
+	return policyID
 }
 
 // ---- ARN builder ----

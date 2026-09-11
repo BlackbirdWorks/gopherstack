@@ -760,6 +760,56 @@ type StorageBackend interface {
 	) ([]*SelfUpgradeRequestDetail, string, error)
 	UpdateSelfUpgrade(accountID, namespace, action, upgradeRequestID string) (*SelfUpgradeRequestDetail, error)
 
+	// Approval policies
+	CreateApprovalPolicy(
+		policyID, name, description string,
+		actions, assetTypes, approvalGroups []string,
+		applicableTo ApplicableTo,
+	) (*ApprovalPolicy, error)
+	DescribeApprovalPolicy(policyID string) (*ApprovalPolicy, error)
+	UpdateApprovalPolicy(
+		policyID, name, description string,
+		actions, assetTypes, approvalGroups []string,
+		applicableTo *ApplicableTo,
+	) (*ApprovalPolicy, error)
+	DeleteApprovalPolicy(policyID string) error
+	ListApprovalPolicies(maxResults int32, nextToken string) ([]*ApprovalPolicy, string, error)
+
+	// DLP settings
+	CreateDlpSetting(
+		accountID, dlpSettingID, name string,
+		enabled bool,
+		providerType, providerOutageAction string,
+		providerConfig ProviderConfig,
+		tags map[string]string,
+	) (*DlpSetting, error)
+	DescribeDlpSetting(accountID, dlpSettingID string) (*DlpSetting, error)
+	UpdateDlpSetting(
+		accountID, dlpSettingID, name string,
+		enabled *bool,
+		providerType, providerOutageAction string,
+		providerConfig *ProviderConfig,
+	) (*DlpSetting, error)
+	DeleteDlpSetting(accountID, dlpSettingID string) (string, error)
+	ListDlpSettings(accountID string, maxResults int32, nextToken string) ([]*DlpSetting, string, error)
+
+	// Limits profiles
+	CreateLimitsProfile(
+		accountID, clientToken, profileName, description string,
+		resourceLimits map[string]ProfileLimitValue,
+	) (*LimitsProfile, error)
+	DescribeLimitsProfile(accountID, profileID string) (*LimitsProfile, error)
+	UpdateLimitsProfile(
+		accountID, profileID, profileName, description string,
+		resourceLimits map[string]ProfileLimitValue,
+	) (*LimitsProfile, error)
+	DeleteLimitsProfile(accountID, profileID string) (string, error)
+	ListLimitsProfiles(
+		accountID, resourceType string,
+		maxResults int32,
+		nextToken string,
+	) ([]*LimitsProfile, string, error)
+
 	AccountID() string
 	Region() string
 	Reset()

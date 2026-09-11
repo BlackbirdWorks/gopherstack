@@ -200,4 +200,19 @@ var (
 	ErrSpaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrSpaceAlreadyExists is returned when a space already exists.
 	ErrSpaceAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrApprovalPolicyNotFound is returned when an approval policy does not exist.
+	ErrApprovalPolicyNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrApprovalPolicyAlreadyExists is returned when an approval policy already
+	// exists. CreateApprovalPolicy's declared exception set (quicksight@v1.129.0
+	// deserializers.go's deserializeOpErrorCreateApprovalPolicy) has no
+	// ResourceExistsException, only ConflictException, unlike most other
+	// duplicate-create cases in this package -- so this wraps errConflictException,
+	// not errResourceExists.
+	ErrApprovalPolicyAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrDlpSettingNotFound is returned when a DLP setting does not exist.
+	ErrDlpSettingNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDlpSettingAlreadyExists is returned when a DLP setting already exists.
+	ErrDlpSettingAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrLimitsProfileNotFound is returned when a limits profile does not exist.
+	ErrLimitsProfileNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )

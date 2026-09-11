@@ -31,8 +31,17 @@ const (
 	// comment in handler_paths.go). Safe to match broadly here since
 	// RouteMatcher still requires the Authorization header to name
 	// "quicksight" below, same disambiguation as quicksightPathPrefix.
-	quicksightV1PathPrefix  = "/v1/accounts/"
-	quicksightMatchPriority = service.PriorityPathVersioned + 1
+	quicksightV1PathPrefix = "/v1/accounts/"
+	// quicksightGovernancePathPrefix covers the ApprovalPolicy and
+	// LimitsProfile families, minted under "/governance/..." instead of
+	// "/accounts/..." (confirmed against quicksight@v1.129.0 serializers.go
+	// SplitURI calls: "/governance/approvalworkflows/policies..." and
+	// "/governance/limits/accounts/{accountId}/profiles..."). Safe to match
+	// broadly here since RouteMatcher still requires the Authorization
+	// header to name "quicksight" below, same disambiguation as
+	// quicksightPathPrefix.
+	quicksightGovernancePathPrefix = "/governance/"
+	quicksightMatchPriority        = service.PriorityPathVersioned + 1
 
 	opUnknown = "Unknown"
 
@@ -374,6 +383,27 @@ const (
 	opListSelfUpgrades          = "ListSelfUpgrades"
 	opUpdateSelfUpgrade         = "UpdateSelfUpgrade"
 
+	// approval policy ops.
+	opCreateApprovalPolicy   = "CreateApprovalPolicy"
+	opDescribeApprovalPolicy = "DescribeApprovalPolicy"
+	opUpdateApprovalPolicy   = "UpdateApprovalPolicy"
+	opDeleteApprovalPolicy   = "DeleteApprovalPolicy"
+	opListApprovalPolicies   = "ListApprovalPolicies"
+
+	// DLP setting ops.
+	opCreateDlpSetting   = "CreateDlpSetting"
+	opDescribeDlpSetting = "DescribeDlpSetting"
+	opUpdateDlpSetting   = "UpdateDlpSetting"
+	opDeleteDlpSetting   = "DeleteDlpSetting"
+	opListDlpSettings    = "ListDlpSettings"
+
+	// limits profile ops.
+	opCreateLimitsProfile   = "CreateLimitsProfile"
+	opDescribeLimitsProfile = "DescribeLimitsProfile"
+	opUpdateLimitsProfile   = "UpdateLimitsProfile"
+	opDeleteLimitsProfile   = "DeleteLimitsProfile"
+	opListLimitsProfiles    = "ListLimitsProfiles"
+
 	// path segment indices.
 	segAccountID   = 1
 	segResource    = 2
@@ -522,6 +552,14 @@ const (
 	pathSegUserCapacity         = "user-capacity"
 	pathSegBatchDelete          = "batch-delete"
 
+	// governance path segments (ApprovalPolicy, DLP setting, LimitsProfile).
+	pathSegGovernance         = "governance"
+	pathSegApprovalWorkflows  = "approvalworkflows"
+	pathSegPolicies           = "policies"
+	pathSegLimits             = "limits"
+	pathSegProfiles           = "profiles"
+	pathSegDataLossPrevention = "data-loss-prevention"
+
 	// error codes.
 	errInvalidParam = "InvalidParameterValueException"
 	errInvalidBody  = "invalid request body"
@@ -569,7 +607,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 		if strings.HasPrefix(path, quicksightPathPrefix) || strings.HasPrefix(path, quicksightTagPrefix) ||
 			strings.HasPrefix(path, quicksightV1PathPrefix) ||
-			strings.HasPrefix(path, quicksightAccountSubscriptionPrefix) {
+			strings.HasPrefix(path, quicksightAccountSubscriptionPrefix) ||
+			strings.HasPrefix(path, quicksightGovernancePathPrefix) {
 			return isQuickSightRequest(c)
 		}
 
@@ -637,6 +676,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		knowledgeBaseOps(),
 		spaceOps(),
 		userIndexCapacityOps(),
+		approvalPolicyOps(),
+		dlpSettingOps(),
+		limitsProfileOps(),
 	}
 
 	var ops []string
@@ -1105,6 +1147,36 @@ func spaceOps() []string {
 
 func userIndexCapacityOps() []string {
 	return []string{opListUsersIndexCapacity}
+}
+
+func approvalPolicyOps() []string {
+	return []string{
+		opCreateApprovalPolicy,
+		opDescribeApprovalPolicy,
+		opUpdateApprovalPolicy,
+		opDeleteApprovalPolicy,
+		opListApprovalPolicies,
+	}
+}
+
+func dlpSettingOps() []string {
+	return []string{
+		opCreateDlpSetting,
+		opDescribeDlpSetting,
+		opUpdateDlpSetting,
+		opDeleteDlpSetting,
+		opListDlpSettings,
+	}
+}
+
+func limitsProfileOps() []string {
+	return []string{
+		opCreateLimitsProfile,
+		opDescribeLimitsProfile,
+		opUpdateLimitsProfile,
+		opDeleteLimitsProfile,
+		opListLimitsProfiles,
+	}
 }
 
 // Handler returns the Echo handler function.
