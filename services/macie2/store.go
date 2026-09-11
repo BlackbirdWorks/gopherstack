@@ -33,10 +33,12 @@ const (
 	jobStatusCancelled  = "CANCELLED"
 	jobStatusUserPaused = "USER_PAUSED"
 
-	errResourceNotFound  = "ResourceNotFoundException"
-	errConflictException = "ConflictException"
-	errValidation        = "ValidationException"
-	errMacieNotEnabled   = "AccessDeniedException"
+	errResourceNotFound    = "ResourceNotFoundException"
+	errConflictException   = "ConflictException"
+	errValidation          = "ValidationException"
+	errMacieNotEnabled     = "AccessDeniedException"
+	errUnprocessableEntity = "UnprocessableEntityException"
+	errInternalServer      = "InternalServerException"
 
 	maxTagCount    = 50
 	maxTagKeyLen   = 128

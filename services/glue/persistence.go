@@ -137,9 +137,28 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	initSnapshotDefaults(&snap)
 	b.restoreFromSnapshot(snap)
+	b.restoreDeterministicARNs()
 	b.restoreResourceTags(snap.ResourceTags)
 
 	return nil
+}
+
+// restoreDeterministicARNs recomputes DevEndpoint.ARN and
+// UserDefinedFunction.FunctionARN after a restore. Both fields are json:"-":
+// real Glue's types.DevEndpoint and types.UserDefinedFunction expose no ARN
+// on the wire (aws-sdk-go-v2 service/glue/types/types.go), so neither is
+// persisted, and both read back as "" after RestoreAll otherwise. Recomputed
+// the same deterministic way CreateDevEndpoint/CreateUserDefinedFunction set
+// them (devEndpointARN/udfARN), matching restoreResourceTags's use of the
+// same helpers for the same reason (tags.go).
+func (b *InMemoryBackend) restoreDeterministicARNs() {
+	for _, dep := range b.devEndpoints.All() {
+		dep.ARN = b.devEndpointARN(dep.EndpointName)
+	}
+
+	for _, u := range b.udfs.All() {
+		u.FunctionARN = b.udfARN(u.DatabaseName, u.FunctionName)
+	}
 }
 
 // initSnapshotDefaults ensures every raw (non-store.Table) snapshot map is
