@@ -287,6 +287,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		// Stage invoke URLs (stageInvokeURL in store.go) land here; unclaimed, they fall
+		// through to S3's catch-all (S3 excludes /api/, /metrics/, /dashboard/, not /proxy/).
+		if strings.HasPrefix(path, "/proxy/") {
+			return true
+		}
+
 		// /tags/{arn} — only claim this path when the ARN is an API Gateway resource.
 		// API Gateway ARNs contain ":apigateway:" (e.g. arn:aws:apigateway:us-east-1::/restapis/xyz).
 		if after, ok := strings.CutPrefix(path, "/tags/"); ok {
