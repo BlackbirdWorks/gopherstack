@@ -3,6 +3,47 @@ service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: ca3a1e21f
 last_audit_date: 2026-09-08
+overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
+                       # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
+                       # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
+                       # Most were false positives (Create* client-side-validates the required
+                       # nested member, Update* never clears it -- RoutingRule.Actions[].InvokeApi,
+                       # DomainName/Api/Authorizer/Model/RouteResponse/Route/Stage/VpcLink List
+                       # items, CreateProductPage's DisplayContent, which unlike
+                       # ProductRestEndpointPage's shares one symmetric types.DisplayContent shape
+                       # for both request and response). GetPortal/UpdatePortal.Preview remains the
+                       # already-disclosed unmodeled gap (see gaps below, confirmed still accurate).
+                       # Five real fixes: (1) CreateProductRestEndpointPage echoed the raw request
+                       # map (None/Overrides union, types.go:521) verbatim as the response
+                       # DisplayContent, but the real response type is the DIFFERENTLY-SHAPED
+                       # EndpointDisplayContentResponse (types.go:534, Endpoint required, server-
+                       # synthesized from RestEndpointIdentifier unless overrides.endpoint replaces
+                       # it) -- Endpoint was always absent. Fixed via renderEndpointDisplayContent
+                       # (portals.go), applied at Create and Update. (2) ProductRestEndpointPageArn/
+                       # Status/TryItState/top-level Endpoint (ProductRestEndpointPageSummaryNoBody,
+                       # types.go:1096-1126, used by ListProductRestEndpointPages) were never
+                       # modeled at all; TryItState is also a real, silently-dropped Create/Update
+                       # input member. Added all four (Status defaults AVAILABLE -- this backend
+                       # creates/updates synchronously; TryItState defaults ENABLED when the client
+                       # omits it). (3) ProductPageArn/PageTitle (ProductPageSummaryNoBody,
+                       # types.go:1075/1080, used by ListProductPages) were likewise never modeled;
+                       # PageTitle mirrors DisplayContent's "title" key. (4) Portal.
+                       # IncludedPortalProductArns had `omitempty` despite being required on
+                       # PortalSummary (types.go:985, ListPortals) -- optional on CreatePortalInput,
+                       # so a portal created with none went through Go's slice-omitempty (which
+                       # drops on len==0, unlike a nil *pointer*) and silently dropped the required
+                       # key. (5) Same class: PortalProduct.Description, required on
+                       # PortalProductSummary (types.go:941, ListPortalProducts) but optional on
+                       # CreatePortalProductInput. All five proven via wire_field_fixes_respsweep_test.go
+                       # and an updated TestCreateProductRestEndpointPage_DisplayContent (its prior
+                       # assertion on a "title" key was itself wrong -- that key never existed on
+                       # the real EndpointDisplayContentResponse shape). productPageSnapshot/
+                       # productREPageSnapshot (persistence.go) extended with the new fields so they
+                       # survive a snapshot round trip; Portal/PortalProduct themselves remain
+                       # ENTIRELY UNPERSISTED (b.portals/b.portalProducts have no snapshot DTO at
+                       # all, pre-existing and out of this pass's scope -- newly disclosed, see
+                       # gaps).
+                       # ---- prior pass's note follows ----
 overall: A            # 2026-09-08 (gopherstack-wsvb, P1): enforceRouteThrottle/enforceRouteAuth
                        # (http_proxy.go) and enforceIAMAuth/enforceRequestAuthorizer/
                        # finishAuthDecision (authorizers.go) rejected a request by writing its
@@ -325,6 +366,17 @@ gaps:
     lists, and also lacks v2's autoDeploy/AutoDeployed model entirely (v1 has no auto-deployment
     concept, only explicit CreateDeployment), so the same fix shape does not carry over; scoped as
     its own, larger effort."
+  - "Portal/PortalProduct (and, transitively, their ProductPage/ProductRestEndpointPage children's
+    parent existence check) are NOT persisted at all -- persistence.go has snapshot DTOs for
+    ProductPage/ProductRestEndpointPage/PortalProductSharingPolicies but none for b.portals/
+    b.portalProducts themselves, so a server restart with persistence enabled loses every portal
+    and portal product while its child pages survive orphaned. Discovered 2026-09-11
+    (gopherstack-mven, required-OUTPUT-member sweep) while wiring the ProductPage/
+    ProductRestEndpointPage snapshot DTOs for this pass's new fields (ProductPageArn/PageTitle/
+    ProductRestEndpointPageArn/Endpoint/Status/TryItState) -- pre-existing, not introduced by this
+    pass, and out of its scope (the fix is a new snapshot DTO pair plus backendSnapshot/
+    restoreFromSnapshot wiring, the same shape as every other resource in this file, not a
+    required-output-field bug)."
 deferred:
   - "2026-08-23 (manifest harvest): UpdatePortal's real UpdatePortalInput (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_UpdatePortal.go) has optional Authorization/EndpointConfiguration/PortalContent members letting a caller replace a portal's auth config, domain/cert config, or displayed content post-creation -- gopherstack's UpdatePortalInput (models.go) has no fields for any of the three, so a real client sending them gets no error but no effect either. All three are already-modeled types (used by CreatePortal) and Create's existing validateCreatePortal{Authorization,EndpointConfiguration,Content} helpers look reusable for a nil-check-and-replace Update path; not implemented this pass to keep the fix scoped to the three accept-and-drop bugs found and closed alongside this note (IncludedPortalProductArns/RumAppMonitorName/LastPublished(Description), see the family's ops-table note) -- newly disclosed, not previously known."
   - PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit still not re-verified field-by-field against botocore (only Portal itself got a field-level audit this pass -- see the family's ops-table note)

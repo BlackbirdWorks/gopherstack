@@ -42,8 +42,11 @@ type ModelCard struct {
 	ModelCardName    string                   `json:"ModelCardName"`
 	ModelCardArn     string                   `json:"ModelCardArn"`
 	ModelCardStatus  string                   `json:"ModelCardStatus"`
-	Content          string                   `json:"Content,omitempty"`
-	ModelCardVersion int                      `json:"ModelCardVersion"`
+	// Content has no omitempty: required on CreateModelCardInput per
+	// validateOpCreateModelCardInput (*string, nil-checked only), so a
+	// conformant client can send an empty string and reach this field empty.
+	Content          string `json:"Content"`
+	ModelCardVersion int    `json:"ModelCardVersion"`
 }
 
 func cloneModelCard(c *ModelCard) *ModelCard {

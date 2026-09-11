@@ -2,6 +2,65 @@ service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
 last_audit_commit: 5f91d37c7                            # HEAD when this manifest was written
 last_audit_date: 2026-08-08
+                       # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, EC2/SageMaker
+                       # output-side batch): EC2 (ec2query) fully scanned per-op (flat + nested
+                       # required-member candidates against api_op_*.go/types.go,
+                       # aws-sdk-go-v2/service/ec2@v1.329.0) -- ZERO candidates, flat or nested.
+                       # Confirmed by construction, not assumption: every "This member is required"
+                       # occurrence in ec2's types.go belongs to a *Request (input-side) type; no
+                       # EC2 output type carries one. SageMaker (awsjson1.1) scanned the same way:
+                       # 459 flat + 245 nested required-output-field candidates across ~150 ops.
+                       # Hand-verified ~40 of the 95 flat Describe*/Create* candidates end to end
+                       # against their actual handler/backend construction sites (not the raw
+                       # domain-struct tags alone -- this service reuses per-op response builders
+                       # (map[string]any literals), dedicated Describe*Response wrapper structs,
+                       # and per-type MarshalJSON overrides extensively, all of which can make a
+                       # struct's own json tags irrelevant to what actually reaches the wire; a
+                       # naive struct-tag scan false-positived repeatedly until construction sites
+                       # were read directly). Overwhelming majority were false positives: either
+                       # unconditional map/wrapper construction, or the required field validated
+                       # non-empty/non-nil on the corresponding Create input with no Update path
+                       # that clears it (unreachable-empty). Four real fixes: (1) CompilationJob.
+                       # FailureReason had `omitempty` despite being required on
+                       # DescribeCompilationJobOutput -- always dropped for any non-failed job (the
+                       # common case). (2) CompilationJob.ModelArtifacts (also required) was
+                       # computed only on the async INPROGRESS->COMPLETED transition, so every
+                       # freshly created job's Describe response omitted it entirely; now computed
+                       # synchronously from OutputConfig.S3OutputLocation (the same deterministic
+                       # formula the completion callback already used) as soon as OutputConfig is
+                       # set. (3) ModelCard.Content had `omitempty` despite being required
+                       # (*string, nil-checked-only client-side, so a conformant client's empty
+                       # string reaches storage). (4) Two input-side accept-and-drop gaps found
+                       # while fixing the above and cross-checking sibling required-input fields
+                       # (per this issue's own established practice of checking both directions):
+                       # CreateOptimizationJob never validated StoppingCondition (required on both
+                       # the real input and DescribeOptimizationJobOutput); CreateComputeQuota never
+                       # validated ClusterArn/ComputeQuotaConfig/ComputeQuotaTarget (all required on
+                       # the real input; ComputeQuotaTarget is also required on
+                       # DescribeComputeQuotaOutput). All four proven via
+                       # wire_field_fixes_respsweep_test.go (raw-request-level, since the typed SDK
+                       # client can't distinguish "key absent" from "key present as the Go zero
+                       # value"), hand-confirmed failing against pre-fix HEAD in an isolated
+                       # `git worktree add --detach`. Also found and fixed, while reading
+                       # InferenceExperiment's Marshal/Unmarshal pair for the ModelVariants field:
+                       # its custom MarshalJSON already shadowed the embedded struct's stale
+                       # `ModelVariantConfigs` tag for the LIVE wire (an outer struct-literal field
+                       # always wins over a same-key promoted field regardless of the promoted
+                       # field's own tag, confirmed empirically), so this was not a live-wire bug --
+                       # but UnmarshalJSON has no such override, so persistence snapshot RESTORE
+                       # was silently losing ModelVariants (decoding looked for the never-actually-
+                       # written "ModelVariantConfigs" key). Renamed the tag to match reality
+                       # ("ModelVariants"), fixing the restore path.
+                       # NOT hand-verified this pass (SageMaker): the remaining ~55 flat Describe*/
+                       # Create* candidates, all 245 nested candidates, ~90 other-verb (Update/Stop/
+                       # etc.) candidates, and ~100 List* op candidates. Pattern established across
+                       # the ~40 checked is a >90% false-positive rate from the same handful of
+                       # causes above; no reason to expect the unchecked remainder differs
+                       # systematically, but it has not been read. Full raw candidate list preserved
+                       # at /tmp/claude-1000/-home-agbishop-gopherstack/e76c49e1-1353-4ada-bf09-684bbb7eaed4/
+                       # scratchpad/respsweep/ec2_sagemaker_candidates.json (session-scoped scratch,
+                       # may not survive to a future session) for a future pass to pick up.
+                       # ---- prior pass's note follows ----
                        # parity-6: fixed the actual gopherstack-e39w gap. parity-5's own note
                        # ("AutoMLJobInputDataConfig ... does not exist anywhere in
                        # aws-sdk-go-v2/service/sagemaker") was wrong — it IS real, it's the

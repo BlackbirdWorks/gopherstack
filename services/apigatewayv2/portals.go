@@ -102,6 +102,10 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 
 	id := randomID()
 	now := isoTime{time.Now()}
+	includedPortalProductArns := slices.Clone(input.IncludedPortalProductArns)
+	if includedPortalProductArns == nil {
+		includedPortalProductArns = []string{}
+	}
 	portal := &Portal{
 		PortalID:                  id,
 		PortalArn:                 "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
@@ -110,7 +114,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 		Tags:                      copyTags(input.Tags),
 		Authorization:             input.Authorization,
 		PortalContent:             input.PortalContent,
-		IncludedPortalProductArns: slices.Clone(input.IncludedPortalProductArns),
+		IncludedPortalProductArns: includedPortalProductArns,
 		RumAppMonitorName:         input.RumAppMonitorName,
 		EndpointConfiguration: endpointConfigurationResponseFromRequest(
 			id, input.EndpointConfiguration,
@@ -174,6 +178,15 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	return &cp, nil
 }
 
+// displayContentTitle extracts DisplayContent's "title" key (types.go:366,
+// serializers.go:10081), used to populate ProductPageSummaryNoBody.PageTitle
+// (types.go:1075) without echoing the full page body.
+func displayContentTitle(raw map[string]any) string {
+	title, _ := raw["title"].(string)
+
+	return title
+}
+
 // CreateProductPage creates a new product page for a portal product.
 func (b *InMemoryBackend) CreateProductPage(
 	portalProductID string,
@@ -190,8 +203,10 @@ func (b *InMemoryBackend) CreateProductPage(
 	id := randomID()
 	page := &ProductPage{
 		ProductPageID:   id,
+		ProductPageArn:  "arn:aws:apigateway:" + defaultRegion + "::/portalproducts/" + portalProductID + "/pages/" + id,
 		PortalProductID: portalProductID,
 		DisplayContent:  input.DisplayContent,
+		PageTitle:       displayContentTitle(input.DisplayContent),
 		LastModified:    &now,
 	}
 
@@ -200,6 +215,78 @@ func (b *InMemoryBackend) CreateProductPage(
 	cp := *page
 
 	return &cp, nil
+}
+
+// endpointDisplayContentEndpoint synthesizes the default execute-api invoke
+// URL for a REST endpoint identifier, matching DisplayContentOverrides.Endpoint's
+// doc comment ("By default, API Gateway uses the default execute API
+// endpoint. You can provide a custom domain to override this value.",
+// apigatewayv2@v1.37.4 types.go:379-381). Returns "" when IdentifierParts is
+// absent (RestEndpointIdentifier's only modeled variant is itself optional
+// per validateRestEndpointIdentifier) -- no synthesized value is possible.
+func endpointDisplayContentEndpoint(identifier *RestEndpointIdentifier) string {
+	if identifier == nil || identifier.IdentifierParts == nil {
+		return ""
+	}
+
+	ip := identifier.IdentifierParts
+
+	path := ip.Path
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return "https://" + ip.RestAPIID + ".execute-api." + defaultRegion + ".amazonaws.com/" + ip.Stage + path
+}
+
+// renderEndpointDisplayContent builds the response-shape
+// EndpointDisplayContentResponse (types.go:534 -- Endpoint required,
+// Body/OperationName optional) for a product REST endpoint page. Its input
+// counterpart, EndpointDisplayContent (types.go:521), is a None/Overrides
+// union with no Endpoint field at all -- AWS synthesizes Endpoint
+// server-side from the REST endpoint identifier unless overrides.endpoint
+// replaces it; Body/OperationName pass through from overrides when present.
+// A plain `DisplayContent: input.DisplayContent` echo (this backend's prior
+// behavior) therefore always dropped the required Endpoint member.
+func renderEndpointDisplayContent(identifier *RestEndpointIdentifier, raw map[string]any) map[string]any {
+	out := map[string]any{"endpoint": endpointDisplayContentEndpoint(identifier)}
+
+	ov, _ := raw["overrides"].(map[string]any)
+	if e, ok := ov["endpoint"].(string); ok && e != "" {
+		out["endpoint"] = e
+	}
+	if b, ok := ov["body"].(string); ok && b != "" {
+		out["body"] = b
+	}
+	if op, ok := ov["operationName"].(string); ok && op != "" {
+		out["operationName"] = op
+	}
+
+	return out
+}
+
+// tryItStateEnabled/tryItStateDisabled mirror types.TryItState's two enum
+// values (apigatewayv2@v1.37.4 enums.go:366-367).
+const (
+	tryItStateEnabled  = "ENABLED"
+	tryItStateDisabled = "DISABLED"
+)
+
+// productRestEndpointPageStatusAvailable mirrors types.StatusAvailable
+// (enums.go:345). This backend creates/updates product REST endpoint pages
+// synchronously, so there is no IN_PROGRESS/FAILED provisioning state to
+// simulate -- every page is AVAILABLE as soon as it exists.
+const productRestEndpointPageStatusAvailable = "AVAILABLE"
+
+// validateTryItState enforces TryItState's enum values whenever the client
+// supplies one (both Create/UpdateProductRestEndpointPageInput leave it
+// optional -- see api_op_{Create,Update}ProductRestEndpointPage.go).
+func validateTryItState(state string) error {
+	if state != "" && state != tryItStateEnabled && state != tryItStateDisabled {
+		return fmt.Errorf("%w: tryItState must be ENABLED or DISABLED", ErrBadRequest)
+	}
+
+	return nil
 }
 
 // CreateProductRestEndpointPage creates a new product REST endpoint page for a portal product.
@@ -225,6 +312,10 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		}
 	}
 
+	if err := validateTryItState(input.TryItState); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateProductRestEndpointPage")
 	defer b.mu.Unlock()
 
@@ -232,14 +323,27 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		return nil, ErrPortalProductNotFound
 	}
 
+	tryItState := input.TryItState
+	if tryItState == "" {
+		tryItState = tryItStateEnabled
+	}
+
+	displayContent := renderEndpointDisplayContent(input.RestEndpointIdentifier, input.DisplayContent)
+	endpoint, _ := displayContent["endpoint"].(string)
+
 	now := isoTime{time.Now()}
 	id := randomID()
 	page := &ProductRestEndpointPage{
 		ProductRestEndpointPageID: id,
-		PortalProductID:           portalProductID,
-		LastModified:              &now,
-		RestEndpointIdentifier:    input.RestEndpointIdentifier,
-		DisplayContent:            input.DisplayContent,
+		ProductRestEndpointPageArn: "arn:aws:apigateway:" + defaultRegion +
+			"::/portalproducts/" + portalProductID + "/restendpointpages/" + id,
+		PortalProductID:        portalProductID,
+		LastModified:           &now,
+		RestEndpointIdentifier: input.RestEndpointIdentifier,
+		DisplayContent:         displayContent,
+		Endpoint:               endpoint,
+		Status:                 productRestEndpointPageStatusAvailable,
+		TryItState:             tryItState,
 	}
 
 	b.productREPages.Put(page)
@@ -493,6 +597,7 @@ func (b *InMemoryBackend) UpdateProductPage(
 	now := isoTime{time.Now()}
 	if input.DisplayContent != nil {
 		page.DisplayContent = input.DisplayContent
+		page.PageTitle = displayContentTitle(input.DisplayContent)
 	}
 	page.LastModified = &now
 
@@ -506,6 +611,10 @@ func (b *InMemoryBackend) UpdateProductRestEndpointPage(
 	portalProductID, pageID string,
 	input UpdateProductRestEndpointPageInput,
 ) (*ProductRestEndpointPage, error) {
+	if err := validateTryItState(input.TryItState); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateProductRestEndpointPage")
 	defer b.mu.Unlock()
 
@@ -520,7 +629,12 @@ func (b *InMemoryBackend) UpdateProductRestEndpointPage(
 
 	now := isoTime{time.Now()}
 	if input.DisplayContent != nil {
-		page.DisplayContent = input.DisplayContent
+		displayContent := renderEndpointDisplayContent(page.RestEndpointIdentifier, input.DisplayContent)
+		page.DisplayContent = displayContent
+		page.Endpoint, _ = displayContent["endpoint"].(string)
+	}
+	if input.TryItState != "" {
+		page.TryItState = input.TryItState
 	}
 	page.LastModified = &now
 

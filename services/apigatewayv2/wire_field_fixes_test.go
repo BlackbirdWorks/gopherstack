@@ -530,15 +530,17 @@ func TestCreateProductPage_DisplayContent(t *testing.T) {
 // TestCreateProductRestEndpointPage_DisplayContent drives
 // CreateProductRestEndpointPage/GetProductRestEndpointPage at the raw-HTTP
 // level (not the typed SDK client: the real request member is
-// *types.EndpointDisplayContent, the real response member is the
-// differently-shaped *types.EndpointDisplayContentResponse, and gopherstack
-// stores/echoes both as an opaque map[string]any passthrough -- the same
-// simplification UpdateProductRestEndpointPage already uses, matched here
-// for parity between the two ops rather than fought). Before the fix,
-// CreateProductRestEndpointPageInput had no DisplayContent field at all, so
-// a real client's DisplayContent was silently dropped on create even though
-// Update already accepted and stored it correctly on the same
-// ProductRestEndpointPage.DisplayContent field.
+// *types.EndpointDisplayContent -- a None/Overrides union with no "title"
+// field at all -- while the real response member is the differently-shaped
+// *types.EndpointDisplayContentResponse, types.go:534, whose only required
+// member is Endpoint). Before the required-output-field fix
+// (gopherstack-mven), CreateProductRestEndpointPage echoed the raw request
+// map verbatim as the response DisplayContent, which both dropped the
+// required Endpoint member entirely and (as this test previously asserted)
+// echoed a "title" key that does not exist on the real response shape.
+// Endpoint is now synthesized from RestEndpointIdentifier
+// (renderEndpointDisplayContent, portals.go) unless overrides.endpoint
+// replaces it; overrides.body/operationName still pass through verbatim.
 func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 	t.Parallel()
 
@@ -559,8 +561,10 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 				"stage":     "prod",
 			},
 		},
-		"displayContent": map[string]any{"title": "My REST Page"},
+		"displayContent": map[string]any{"overrides": map[string]any{"body": "custom docs"}},
 	}
+
+	const wantEndpoint = "https://abc123.execute-api.us-east-1.amazonaws.com/prod/widgets"
 
 	path := fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", product.PortalProductID)
 	rr = doRequest(t, h, http.MethodPost, path, body)
@@ -568,7 +572,12 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 
 	var created apigatewayv2.ProductRestEndpointPage
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
-	require.Equal(t, "My REST Page", created.DisplayContent["title"])
+	assert.Equal(t, wantEndpoint, created.DisplayContent["endpoint"])
+	assert.Equal(t, "custom docs", created.DisplayContent["body"])
+	assert.Equal(t, wantEndpoint, created.Endpoint)
+	assert.NotEmpty(t, created.ProductRestEndpointPageArn)
+	assert.Equal(t, "AVAILABLE", created.Status)
+	assert.Equal(t, "ENABLED", created.TryItState)
 
 	rr = doRequest(t, h, http.MethodGet,
 		fmt.Sprintf("%s/%s", path, created.ProductRestEndpointPageID), nil)
@@ -576,7 +585,9 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 
 	var got apigatewayv2.ProductRestEndpointPage
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
-	require.Equal(t, "My REST Page", got.DisplayContent["title"])
+	assert.Equal(t, wantEndpoint, got.DisplayContent["endpoint"])
+	assert.Equal(t, "custom docs", got.DisplayContent["body"])
+	assert.Equal(t, wantEndpoint, got.Endpoint)
 }
 
 // TestUpdateAuthorizer_TTLAndSimpleResponsesCanBeCleared drives

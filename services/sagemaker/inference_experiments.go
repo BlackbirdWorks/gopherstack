@@ -152,7 +152,7 @@ type InferenceExperiment struct {
 	EndpointName      string                                `json:"EndpointName,omitempty"`
 	KmsKey            string                                `json:"KmsKey,omitempty"`
 	StatusReason      string                                `json:"StatusReason,omitempty"`
-	ModelVariants     []ModelVariantConfig                  `json:"ModelVariantConfigs,omitempty"`
+	ModelVariants     []ModelVariantConfig                  `json:"ModelVariants,omitempty"`
 }
 
 func cloneInferenceExperiment(e *InferenceExperiment) *InferenceExperiment {
