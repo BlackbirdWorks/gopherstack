@@ -3,6 +3,7 @@ package cloudwatchlogs_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -823,4 +824,170 @@ func TestHandler_Persistence(t *testing.T) {
 
 	// Restore should delegate to the backend without error.
 	require.NoError(t, h.Restore(t.Context(), data))
+}
+
+// TestInMemoryBackend_CreationFieldsSurviveRestore covers gopherstack-gqxy0:
+// six json:"-" fields across CWLDestination, Transformer, DeliveryDestination,
+// DeliverySource, CWLIntegration, and ImportTask were silently dropped by
+// every snapshot (all six tables were "clean" b.registry tables whose own
+// json.Marshal honored the wire-suppressing tag too). Each case creates a
+// resource, snapshots, restores into a fresh backend, and asserts the
+// Describe/Get response still shows the original value rather than a
+// zero/empty one. Reverting any of the six fields' persistence fix (the real
+// tag on CWLDestination/Transformer, or the *Snapshot DTO for the other
+// four) makes its case fail with exactly that symptom.
+func TestInMemoryBackend_CreationFieldsSurviveRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any
+		verify func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any)
+		name   string
+	}{
+		{
+			name: "destination_created_at",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				dest, err := b.PutDestination(
+					"my-dest", "arn:aws:kinesis:us-east-1:000000000000:stream/target",
+					"arn:aws:iam::000000000000:role/r",
+				)
+				require.NoError(t, err)
+				require.False(t, dest.CreatedAt.IsZero())
+
+				return dest.CreatedAt
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				dests, _ := b.DescribeDestinations("", 100, "")
+				require.Len(t, dests, 1)
+				assert.True(t, want.(time.Time).Equal(dests[0].CreatedAt))
+			},
+		},
+		{
+			name: "transformer_created_at",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				require.NoError(t, b.PutTransformer("my-group", []map[string]any{{"addKeys": map[string]any{}}}))
+
+				tr, err := b.GetTransformer("my-group")
+				require.NoError(t, err)
+				require.False(t, tr.CreatedAt.IsZero())
+
+				return tr.CreatedAt
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				tr, err := b.GetTransformer("my-group")
+				require.NoError(t, err)
+				assert.True(t, want.(time.Time).Equal(tr.CreatedAt))
+			},
+		},
+		{
+			name: "delivery_destination_created_at",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				dest, err := b.PutDeliveryDestination(
+					"my-dd", "arn:aws:s3:::my-bucket", "json", "S3", nil,
+				)
+				require.NoError(t, err)
+				require.False(t, dest.CreatedAt.IsZero())
+
+				return dest.CreatedAt
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				dest, err := b.GetDeliveryDestination("my-dd")
+				require.NoError(t, err)
+				assert.True(t, want.(time.Time).Equal(dest.CreatedAt))
+			},
+		},
+		{
+			name: "delivery_source_created_at",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				src, err := b.PutDeliverySource(
+					"my-ds", "APPLICATION_LOGS",
+					[]string{"arn:aws:lambda:us-east-1:000000000000:function:f"}, nil,
+				)
+				require.NoError(t, err)
+				require.False(t, src.CreatedAt.IsZero())
+
+				return src.CreatedAt
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				src, err := b.GetDeliverySource("my-ds")
+				require.NoError(t, err)
+				assert.True(t, want.(time.Time).Equal(src.CreatedAt))
+			},
+		},
+		{
+			name: "integration_created_at",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				ig, err := b.PutIntegration("my-ig", "OPENSEARCH", &cloudwatchlogs.OpenSearchResourceConfig{})
+				require.NoError(t, err)
+				require.False(t, ig.CreatedAt.IsZero())
+
+				return ig.CreatedAt
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				ig, err := b.GetIntegration("my-ig")
+				require.NoError(t, err)
+				assert.True(t, want.(time.Time).Equal(ig.CreatedAt))
+			},
+		},
+		{
+			name: "import_task_role_arn",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
+				t.Helper()
+
+				task, err := b.CreateImportTask(
+					t.Context(), "arn:aws:iam::000000000000:role/import-role",
+					"arn:aws:cloudtrail:us-east-1:000000000000:eventdatastore/eds",
+				)
+				require.NoError(t, err)
+				require.NotEmpty(t, task.ImportRoleArn)
+
+				return task.ImportRoleArn
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, want any) {
+				t.Helper()
+
+				tasks, _, err := b.DescribeImportTasks("", 100, "")
+				require.NoError(t, err)
+				require.Len(t, tasks, 1)
+				assert.Equal(t, want.(string), tasks[0].ImportRoleArn)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			want := tt.setup(t, original)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tt.verify(t, fresh, want)
+		})
+	}
 }

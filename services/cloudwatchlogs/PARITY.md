@@ -404,17 +404,42 @@ no bump applied, found via `pkgs/persistence`'s snapshot-version guard extended 
   discloses it has no real-AWS wire counterpart at all ("an earlier revision fabricated one").
   Losing it on restore reorders a list; it does not destroy any field a real AWS client would
   observe on `Delivery` itself.
-- `9f62f7f5d`'s `ImportTask.ImportRoleArn` `"importRoleArn"` -> `"-"` is a real bug but a
-  different class: `json:"-"` excludes the field from **every** future snapshot unconditionally,
-  old or new, so bumping the version constant cannot fix it (a fresh snapshot taken after the
-  bump would still lose it). Filed separately rather than folded into this bump; needs its own
-  fix (giving `ImportTask` a persistence-only DTO, mirroring `logGroupSnapshot` et al., that
-  carries `ImportRoleArn` under an exported key distinct from the wire response's own shape).
+- `9f62f7f5d`'s `ImportTask.ImportRoleArn` `"importRoleArn"` -> `"-"` was a real bug of a
+  different class: `json:"-"` excluded the field from **every** future snapshot unconditionally,
+  old or new, so bumping the version constant alone could not have fixed it. **FIXED
+  (gopherstack-gqxy0, this pass):** `ImportTask` moved off `b.registry` to a persistence-only
+  DTO (`importTaskSnapshot`, persistence.go) under the same `"importTasks"` table name, carrying
+  `ImportRoleArn` under a real `json:"importRoleArn"` tag distinct from the live type's
+  wire-suppressing `json:"-"` (confirmed against `types.Import`, which genuinely has no such
+  member -- the wire tag itself was always correct). No version bump: purely additive, an old
+  snapshot now decodes `ImportRoleArn` as `""`, same as before. See the same-session fix for
+  `CWLDestination`/`Transformer`/`DeliveryDestination`/`DeliverySource`/`CWLIntegration`'s
+  `CreatedAt` below (the exact same bug shape, five more fields in this file).
 - `567e2c4f8`'s `Anomaly` field renames (`suppressedState` -> `state`, plus several
   previously-absent required members) are moot for persistence: `Anomaly` is registered on
   `b.ephemeralRegistry` (`b.anomalies`), never included in `backendSnapshot` -- confirmed by
   `Snapshot`'s own doc comment, which lists `b.ephemeralRegistry` among the state deliberately
   excluded from every snapshot.
+
+**FIXED 2026-09-11 (gopherstack-gqxy0, same bug shape as `ImportTask.ImportRoleArn` above,
+found by the gopherstack-v8fz census):** `CWLDestination.CreatedAt` and `Transformer.CreatedAt`
+are real wire members (`types.Destination.CreationTime`, `GetTransformerOutput.CreationTime`,
+cloudwatchlogs@v1.86.0 -- epoch millis) that were only ever hand-copied onto the wire
+(`destinationWireShape`, `handleGetTransformer`); their `json:"-"` tag was pure omission, so
+both now carry real `json:"createdAt,omitzero"` tags in place -- `destinations`/`transformers`
+stay "clean" `b.registry` tables (store_setup.go), so the tag alone fixes persistence.
+`DeliveryDestination.CreatedAt`, `DeliverySource.CreatedAt`, and `CWLIntegration.CreatedAt` have
+no real-SDK counterpart at all (confirmed against `types.DeliveryDestination`,
+`types.DeliverySource`, `GetIntegrationOutput`/`IntegrationSummary`/`PutIntegrationOutput`) --
+correctly `json:"-"` for the wire -- so each moved to a persistence-only DTO instead
+(`deliveryDestinationSnapshot`, `deliverySourceSnapshot`, `cwlIntegrationSnapshot`,
+persistence.go), same shape as `ImportTask` above. Before this fix all six fields were silently
+dropped by every snapshot (all six tables were "clean" `b.registry` tables whose own
+`json.Marshal` honored the wire-suppressing tag too): a restarted process showed epoch-zero
+creation times for existing destinations/transformers/delivery destinations/delivery
+sources/integrations, and an empty `ImportRoleArn` for existing import tasks. No version bump:
+every change is purely additive, an old snapshot decodes the previously-dropped field as
+zero/empty, exactly as before (TestSnapshotVersionGuard did not demand one).
 
 **Proof:** `TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded` (persistence_test.go)
 builds a v1-shaped `indexPolicies` snapshot with an RFC3339-string `lastUpdateTime` and asserts

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -42,13 +43,20 @@ import (
 // Delivery.CreationTime "creationTime" -> "-" only affects an internal
 // bookkeeping field (DescribeDeliveries sort order) with no real-AWS wire
 // counterpart -- disclosed as fabricated in its own doc comment -- so losing
-// it on restore reorders a list, it does not destroy user data. 9f62f7f5d's
-// ImportTask.ImportRoleArn "importRoleArn" -> "-" is a distinct bug (the
-// field can no longer round-trip through ANY snapshot, old or new, since
-// json:"-" excludes it unconditionally) but is not a version-compatibility
-// issue a bump can fix -- filed separately, see PARITY.md. 567e2c4f8's
+// it on restore reorders a list, it does not destroy user data. 567e2c4f8's
 // Anomaly field renames are moot for persistence: Anomaly lives on
 // b.ephemeralRegistry, never included in backendSnapshot at all.
+//
+// Also NOT a bump (gopherstack-gqxy0, fixed this pass): CWLDestination.CreatedAt
+// and Transformer.CreatedAt gained real tags in place (both real wire members
+// per the SDK, previously json:"-" purely by omission -- see models.go), and
+// DeliveryDestination.CreatedAt/DeliverySource.CreatedAt/CWLIntegration.CreatedAt/
+// ImportTask.ImportRoleArn (the latter the "filed separately" bug this comment
+// used to note) each moved to a persisted twin under the same table name
+// (persistence.go's deliveryDestinationSnapshot et al.). Every case is purely
+// additive: an old snapshot decodes the previously-dropped field as zero/empty,
+// exactly as before, matching TestSnapshotVersionGuard's tolerance for this
+// shape (see opensearch's dbc50bc49/c5475e9a6 precedent for the same judgment).
 const cwlSnapshotVersion = 2
 
 // logGroupSnapshot, logStreamSnapshot, subscriptionFilterSnapshot, and
@@ -118,6 +126,177 @@ func newRegionDTORegistry() (
 	return reg, groups, streams, subFilters, metricFilters
 }
 
+// deliveryDestinationSnapshot, deliverySourceSnapshot, cwlIntegrationSnapshot,
+// and importTaskSnapshot are persisted twins for the four tables
+// registerDirtyDTOTables (store_setup.go) deliberately keeps off b.registry:
+// each duplicates its live type's field set, but gives the one field the
+// wire correctly excludes (json:"-") a real tag so it survives
+// Table.Snapshot's json.Marshal round trip (gopherstack-gqxy0).
+
+type deliveryDestinationSnapshot struct {
+	CreatedAt               time.Time         `json:"createdAt,omitzero"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	Name                    string            `json:"name"`
+	Arn                     string            `json:"arn"`
+	OutputFormat            string            `json:"outputFormat,omitempty"`
+	TargetArn               string            `json:"deliveryDestinationConfiguration,omitempty"`
+	DeliveryDestinationType string            `json:"deliveryDestinationType,omitempty"`
+	Policy                  string            `json:"policy,omitempty"`
+}
+
+func deliveryDestinationSnapshotKey(v *deliveryDestinationSnapshot) string { return v.Name }
+
+func toDeliveryDestinationSnapshot(d *DeliveryDestination) *deliveryDestinationSnapshot {
+	return &deliveryDestinationSnapshot{
+		CreatedAt:               d.CreatedAt,
+		Tags:                    d.Tags,
+		Name:                    d.Name,
+		Arn:                     d.Arn,
+		OutputFormat:            d.OutputFormat,
+		TargetArn:               d.TargetArn,
+		DeliveryDestinationType: d.DeliveryDestinationType,
+		Policy:                  d.Policy,
+	}
+}
+
+func fromDeliveryDestinationSnapshot(v *deliveryDestinationSnapshot) *DeliveryDestination {
+	return &DeliveryDestination{
+		CreatedAt:               v.CreatedAt,
+		Tags:                    v.Tags,
+		Name:                    v.Name,
+		Arn:                     v.Arn,
+		OutputFormat:            v.OutputFormat,
+		TargetArn:               v.TargetArn,
+		DeliveryDestinationType: v.DeliveryDestinationType,
+		Policy:                  v.Policy,
+	}
+}
+
+type deliverySourceSnapshot struct {
+	CreatedAt    time.Time         `json:"createdAt,omitzero"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	Name         string            `json:"name"`
+	Arn          string            `json:"arn"`
+	LogType      string            `json:"logType,omitempty"`
+	Service      string            `json:"service,omitempty"`
+	ResourceArns []string          `json:"resourceArns,omitempty"`
+}
+
+func deliverySourceSnapshotKey(v *deliverySourceSnapshot) string { return v.Name }
+
+func toDeliverySourceSnapshot(s *DeliverySource) *deliverySourceSnapshot {
+	return &deliverySourceSnapshot{
+		CreatedAt:    s.CreatedAt,
+		Tags:         s.Tags,
+		Name:         s.Name,
+		Arn:          s.Arn,
+		LogType:      s.LogType,
+		Service:      s.Service,
+		ResourceArns: s.ResourceArns,
+	}
+}
+
+func fromDeliverySourceSnapshot(v *deliverySourceSnapshot) *DeliverySource {
+	return &DeliverySource{
+		CreatedAt:    v.CreatedAt,
+		Tags:         v.Tags,
+		Name:         v.Name,
+		Arn:          v.Arn,
+		LogType:      v.LogType,
+		Service:      v.Service,
+		ResourceArns: v.ResourceArns,
+	}
+}
+
+type cwlIntegrationSnapshot struct {
+	CreatedAt                time.Time                 `json:"createdAt,omitzero"`
+	OpenSearchResourceConfig *OpenSearchResourceConfig `json:"openSearchResourceConfig,omitempty"`
+	Name                     string                    `json:"integrationName"`
+	Type                     string                    `json:"integrationType"`
+	Status                   string                    `json:"integrationStatus"`
+}
+
+func cwlIntegrationSnapshotKey(v *cwlIntegrationSnapshot) string { return v.Name }
+
+func toCWLIntegrationSnapshot(i *CWLIntegration) *cwlIntegrationSnapshot {
+	return &cwlIntegrationSnapshot{
+		CreatedAt:                i.CreatedAt,
+		OpenSearchResourceConfig: i.OpenSearchResourceConfig,
+		Name:                     i.Name,
+		Type:                     i.Type,
+		Status:                   i.Status,
+	}
+}
+
+func fromCWLIntegrationSnapshot(v *cwlIntegrationSnapshot) *CWLIntegration {
+	return &CWLIntegration{
+		CreatedAt:                v.CreatedAt,
+		OpenSearchResourceConfig: v.OpenSearchResourceConfig,
+		Name:                     v.Name,
+		Type:                     v.Type,
+		Status:                   v.Status,
+	}
+}
+
+type importTaskSnapshot struct {
+	ImportID             string `json:"importId"`
+	ImportSourceArn      string `json:"importSourceArn"`
+	ImportRoleArn        string `json:"importRoleArn"`
+	ImportDestinationArn string `json:"importDestinationArn"`
+	Status               string `json:"importStatus"`
+	CreationTime         int64  `json:"creationTime"`
+	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
+}
+
+func importTaskSnapshotKey(v *importTaskSnapshot) string { return v.ImportID }
+
+func toImportTaskSnapshot(t *ImportTask) *importTaskSnapshot {
+	return &importTaskSnapshot{
+		ImportID:             t.ImportID,
+		ImportSourceArn:      t.ImportSourceArn,
+		ImportRoleArn:        t.ImportRoleArn,
+		ImportDestinationArn: t.ImportDestinationArn,
+		Status:               t.Status,
+		CreationTime:         t.CreationTime,
+		LastUpdatedTime:      t.LastUpdatedTime,
+	}
+}
+
+func fromImportTaskSnapshot(v *importTaskSnapshot) *ImportTask {
+	return &ImportTask{
+		ImportID:             v.ImportID,
+		ImportSourceArn:      v.ImportSourceArn,
+		ImportRoleArn:        v.ImportRoleArn,
+		ImportDestinationArn: v.ImportDestinationArn,
+		Status:               v.Status,
+		CreationTime:         v.CreationTime,
+		LastUpdatedTime:      v.LastUpdatedTime,
+	}
+}
+
+// newDirtyDTORegistry builds the ephemeral registry used to encode/decode the
+// four tables registerDirtyDTOTables (store_setup.go) keeps off b.registry.
+// Like newRegionDTORegistry above, it is rebuilt fresh on every Snapshot/
+// Restore call purely to reuse store's deterministic, type-erased JSON
+// encoding. Each DTO is registered under the same table name these tables
+// used when they were still on b.registry, so an existing snapshot's entries
+// still line up (gopherstack-gqxy0).
+func newDirtyDTORegistry() (
+	*store.Registry,
+	*store.Table[deliveryDestinationSnapshot],
+	*store.Table[deliverySourceSnapshot],
+	*store.Table[cwlIntegrationSnapshot],
+	*store.Table[importTaskSnapshot],
+) {
+	reg := store.NewRegistry()
+	deliveryDestDTOs := store.Register(reg, "deliveryDestinations", store.New(deliveryDestinationSnapshotKey))
+	deliverySrcDTOs := store.Register(reg, "deliverySources", store.New(deliverySourceSnapshotKey))
+	integrationDTOs := store.Register(reg, "integrations", store.New(cwlIntegrationSnapshotKey))
+	importTaskDTOs := store.Register(reg, "importTasks", store.New(importTaskSnapshotKey))
+
+	return reg, deliveryDestDTOs, deliverySrcDTOs, integrationDTOs, importTaskDTOs
+}
+
 // backendSnapshot is the top-level on-disk shape for the cloudwatchlogs backend.
 //
 // Tables holds one JSON-encoded array per registered table, produced by
@@ -184,6 +363,34 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	maps.Copy(tables, dtoTables)
 
+	dirtyReg, deliveryDestDTOs, deliverySrcDTOs, integrationDTOs, importTaskDTOs := newDirtyDTORegistry()
+
+	for _, d := range b.deliveryDestinations.Snapshot() {
+		deliveryDestDTOs.Put(toDeliveryDestinationSnapshot(d))
+	}
+
+	for _, s := range b.deliverySources.Snapshot() {
+		deliverySrcDTOs.Put(toDeliverySourceSnapshot(s))
+	}
+
+	for _, i := range b.integrations.Snapshot() {
+		integrationDTOs.Put(toCWLIntegrationSnapshot(i))
+	}
+
+	for _, t := range b.importTasks.Snapshot() {
+		importTaskDTOs.Put(toImportTaskSnapshot(t))
+	}
+
+	dirtyTables, err := dirtyReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudwatchlogs: snapshot dirty-table marshal failed", "error", err)
+
+		return nil
+	}
+
+	maps.Copy(tables, dirtyTables)
+
 	snap := backendSnapshot{
 		Version:   cwlSnapshotVersion,
 		Tables:    tables,
@@ -222,6 +429,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.streams.Reset()
 		b.subscriptionFilters.Reset()
 		b.metricFilters.Reset()
+		b.deliveryDestinations.Reset()
+		b.deliverySources.Reset()
+		b.integrations.Reset()
+		b.importTasks.Reset()
 
 		return nil
 	}
@@ -236,6 +447,33 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("cloudwatchlogs: restore region-qualified snapshot tables: %w", err)
 	}
 
+	restoreRegionDTOTables(b, groupDTOs, streamDTOs, subFilterDTOs, metricFilterDTOs)
+
+	dirtyReg, deliveryDestDTOs, deliverySrcDTOs, integrationDTOs, importTaskDTOs := newDirtyDTORegistry()
+
+	if err := dirtyReg.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("cloudwatchlogs: restore dirty snapshot tables: %w", err)
+	}
+
+	restoreDirtyDTOTables(b, deliveryDestDTOs, deliverySrcDTOs, integrationDTOs, importTaskDTOs)
+
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	return nil
+}
+
+// restoreRegionDTOTables converts each of the four region-qualified DTO tables
+// newRegionDTORegistry builds back into its live type and restores it onto b,
+// split out of Restore to keep it under funlen's statement budget (this repo
+// bans a funlen nolint).
+func restoreRegionDTOTables(
+	b *InMemoryBackend,
+	groupDTOs *store.Table[logGroupSnapshot],
+	streamDTOs *store.Table[logStreamSnapshot],
+	subFilterDTOs *store.Table[subscriptionFilterSnapshot],
+	metricFilterDTOs *store.Table[metricFilterSnapshot],
+) {
 	liveGroups := make([]*LogGroup, 0, groupDTOs.Len())
 
 	for _, dto := range groupDTOs.All() {
@@ -277,11 +515,45 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.metricFilters.Restore(liveMetricFilters)
+}
 
-	b.accountID = snap.AccountID
-	b.region = snap.Region
+// restoreDirtyDTOTables converts each of the four DTO tables newDirtyDTORegistry
+// builds back into its live type and restores it onto b, split out of Restore
+// to keep it under funlen's statement budget (this repo bans a funlen nolint).
+func restoreDirtyDTOTables(
+	b *InMemoryBackend,
+	deliveryDestDTOs *store.Table[deliveryDestinationSnapshot],
+	deliverySrcDTOs *store.Table[deliverySourceSnapshot],
+	integrationDTOs *store.Table[cwlIntegrationSnapshot],
+	importTaskDTOs *store.Table[importTaskSnapshot],
+) {
+	liveDeliveryDests := make([]*DeliveryDestination, 0, deliveryDestDTOs.Len())
+	for _, dto := range deliveryDestDTOs.All() {
+		liveDeliveryDests = append(liveDeliveryDests, fromDeliveryDestinationSnapshot(dto))
+	}
 
-	return nil
+	b.deliveryDestinations.Restore(liveDeliveryDests)
+
+	liveDeliverySrcs := make([]*DeliverySource, 0, deliverySrcDTOs.Len())
+	for _, dto := range deliverySrcDTOs.All() {
+		liveDeliverySrcs = append(liveDeliverySrcs, fromDeliverySourceSnapshot(dto))
+	}
+
+	b.deliverySources.Restore(liveDeliverySrcs)
+
+	liveIntegrations := make([]*CWLIntegration, 0, integrationDTOs.Len())
+	for _, dto := range integrationDTOs.All() {
+		liveIntegrations = append(liveIntegrations, fromCWLIntegrationSnapshot(dto))
+	}
+
+	b.integrations.Restore(liveIntegrations)
+
+	liveImportTasks := make([]*ImportTask, 0, importTaskDTOs.Len())
+	for _, dto := range importTaskDTOs.All() {
+		liveImportTasks = append(liveImportTasks, fromImportTaskSnapshot(dto))
+	}
+
+	b.importTasks.Restore(liveImportTasks)
 }
 
 // handlerSnapshot is the full persisted state for a Handler, combining both
