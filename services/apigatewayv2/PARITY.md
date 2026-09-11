@@ -256,7 +256,30 @@ gaps:
     TooManyRequestsException, no BadRequestException or ConflictException, so there is no
     wire-verifiable error code to reject with -- guessing one would violate the wire-verification
     principle the same way UpdateRoute/UpdateStage's prior deferral (re-confirmed open, then
-    narrowed this pass) originally cited."
+    narrowed this pass) originally cited.
+    2026-09-11 re-verification (gopherstack-2tx, CITE-OR-DISCLOSE pass): fetched the official AWS
+    API Reference (not just the SDK's Go doc comments) for the three DELETE operations, to see
+    whether prose there names an error the SDK model omits. docs.aws.amazon.com/apigatewayv2/
+    latest/api-reference/apis-apiid-integrations-integrationid.html's apiGatewayManaged property:
+    'If you created an API using using quick create, the resulting integration is managed by API
+    Gateway. You can update a managed integration, but you can't delete it.' -- but that same page's
+    own DELETE Responses table lists only 204/404 NotFoundException/429 LimitExceededException, no
+    400/409. docs.aws.amazon.com/apigatewayv2/latest/api-reference/apis-apiid-stages-stagename.html
+    and .../apis-apiid-routes-routeid.html: apiGatewayManaged only documents a MODIFY restriction
+    ('You can't modify the $default stage' / '...the $default route key'), not a delete restriction,
+    and their DELETE Responses tables are equally limited to 404/429. Also independently confirmed
+    against a locally available botocore apigatewayv2/2018-11-29/service-2.json.gz (same source data
+    aws-sdk-go-v2 generates from): DeleteStage/DeleteIntegration/DeleteRoute operations{}.errors ==
+    [NotFoundException, TooManyRequestsException] exactly, matching the SDK model already cited
+    above. Net finding: the *behavior* (a managed integration can't be deleted) is authoritatively
+    documented in prose, but the *wire shape* to carry that rejection is not -- the same official
+    page's own structured Responses table contradicts its own prose by omitting any 4xx besides
+    404/429 for these three DELETE operations. This is not new information (the SDK's types.go
+    carries byte-identical prose, already read by the pass that first deferred this), but it does
+    rule out one route forward: implementing BadRequestException for these three deletes would
+    contradict the same authoritative source's own documented Responses/error set, not just be an
+    unverified guess. Still not implemented; closing the fixable half as disclosed (gopherstack-2tx)
+    rather than leaving it open against further passes re-deriving the same answer."
   - "ImportApi/ReimportApi's basepath query param now supports \"prepend\" (prefixes route paths
     with the spec's declared base path -- Swagger 2 basePath or OpenAPI 3 servers[0].url's path).
     \"split\" is not implemented (falls back to ignore-like behavior): API Gateway's split
@@ -485,6 +508,23 @@ Genuine bugs found and fixed in the `gopherstack-0xs7` follow-up pass (confirmed
     (`PutRoutingRule` previously mutated the existing rule's Priority/Actions/Conditions with zero
     validation). `routingRuleSnapshot`'s persistence DTO field types were updated to match; no
     snapshot version bump (JSON field names unchanged, only the Go type of two existing fields).
+    2026-09-11 re-verification: re-checked the union shapes against
+    `aws-sdk-go-v2/service/apigatewayv2@v1.37.4`'s `types.go`/`validators.go`/`deserializers.go` --
+    confirmed `RoutingRuleAction` has exactly one member, `InvokeApi` (no `UpdateHeaderAction`,
+    which the original issue text claimed but which does not exist anywhere in this pinned SDK
+    version -- issue text was stale), and `StripBasePath` is structurally a field of
+    `RoutingRuleActionInvokeApi` itself, not something settable on a "non-InvokeApi" action (there
+    is no other action variant to set it on). `RoutingRuleCondition.MatchBasePaths`/`MatchHeaders`
+    are both optional at the client-validator level (`validateRoutingRuleCondition`,
+    `validators.go:2690`) -- a condition with neither set passes the real SDK's own client-side
+    validation, so gopherstack correctly does not reject it either (no such validation to model).
+    Added two client-level tests exercising the real typed SDK (`wire_field_fixes_test.go`):
+    `TestGetRoutingRule_TypedRoundTrip` (Create with InvokeApi + both condition kinds ->
+    GetRoutingRule, typed fields asserted) and `TestCreateRoutingRule_MalformedActionRejected` (an
+    action with non-nil `InvokeApi` but empty `ApiId`/`Stage` -- passes the SDK's own client-side
+    nil-check but is still malformed -- rejected with `BadRequestException`, `ErrorCode()` asserted).
+    Backend-level validation tests (`domain_names_test.go`) and the snapshot/restore round-trip
+    (`persistence_full_test.go`) already existed and needed no changes.
 
 13. **Three `Update*` backends mutated fields before validating the whole input, so a rejected
     request could still leave earlier fields in the same call changed.** The session's most

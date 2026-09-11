@@ -70,6 +70,126 @@ func TestListRoutingRules_WireKey(t *testing.T) {
 	require.Equal(t, aws.ToString(created.RoutingRuleId), aws.ToString(out.RoutingRules[0].RoutingRuleId))
 }
 
+// TestGetRoutingRule_TypedRoundTrip drives CreateRoutingRule/GetRoutingRule
+// through the real SDK client with a full InvokeApi action and both
+// condition kinds set. Confirms the modeled union shapes (types.go:1280-1353,
+// aws-sdk-go-v2/service/apigatewayv2@v1.37.4) round-trip through the typed
+// client rather than the untyped []map[string]any this backend used before
+// gopherstack-e81 (see domain_names.go RoutingRuleAction/RoutingRuleCondition).
+func TestGetRoutingRule_TypedRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	dn, err := client.CreateDomainName(t.Context(), &apigatewayv2sdk.CreateDomainNameInput{
+		DomainName: aws.String("rr-roundtrip.example.com"),
+	})
+	require.NoError(t, err)
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("rr-roundtrip-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStage(t.Context(), &apigatewayv2sdk.CreateStageInput{
+		ApiId:     api.ApiId,
+		StageName: aws.String("prod"),
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateRoutingRule(t.Context(), &apigatewayv2sdk.CreateRoutingRuleInput{
+		DomainName: dn.DomainName,
+		Priority:   aws.Int32(7),
+		Actions: []apigatewayv2types.RoutingRuleAction{
+			{InvokeApi: &apigatewayv2types.RoutingRuleActionInvokeApi{
+				ApiId:         api.ApiId,
+				Stage:         aws.String("prod"),
+				StripBasePath: aws.Bool(true),
+			}},
+		},
+		Conditions: []apigatewayv2types.RoutingRuleCondition{
+			{MatchBasePaths: &apigatewayv2types.RoutingRuleMatchBasePaths{AnyOf: []string{"/foo"}}},
+			{MatchHeaders: &apigatewayv2types.RoutingRuleMatchHeaders{
+				AnyOf: []apigatewayv2types.RoutingRuleMatchHeaderValue{
+					{Header: aws.String("x-env"), ValueGlob: aws.String("prod*")},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetRoutingRule(t.Context(), &apigatewayv2sdk.GetRoutingRuleInput{
+		DomainName:    dn.DomainName,
+		RoutingRuleId: created.RoutingRuleId,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.Actions, 1)
+	require.NotNil(t, got.Actions[0].InvokeApi)
+	assert.Equal(t, aws.ToString(api.ApiId), aws.ToString(got.Actions[0].InvokeApi.ApiId))
+	assert.Equal(t, "prod", aws.ToString(got.Actions[0].InvokeApi.Stage))
+	assert.True(t, aws.ToBool(got.Actions[0].InvokeApi.StripBasePath))
+
+	require.Len(t, got.Conditions, 2)
+	require.NotNil(t, got.Conditions[0].MatchBasePaths)
+	assert.Equal(t, []string{"/foo"}, got.Conditions[0].MatchBasePaths.AnyOf)
+	require.NotNil(t, got.Conditions[1].MatchHeaders)
+	require.Len(t, got.Conditions[1].MatchHeaders.AnyOf, 1)
+	assert.Equal(t, "x-env", aws.ToString(got.Conditions[1].MatchHeaders.AnyOf[0].Header))
+	assert.Equal(t, "prod*", aws.ToString(got.Conditions[1].MatchHeaders.AnyOf[0].ValueGlob))
+}
+
+// TestCreateRoutingRule_MalformedActionRejected drives CreateRoutingRule
+// through the real SDK client with an action whose InvokeApi is present (a
+// nil InvokeApi is rejected client-side by the SDK's own
+// validateRoutingRuleAction, aws-sdk-go-v2/service/apigatewayv2@v1.37.4's
+// validators.go:2653, so it would never reach the server) but whose
+// required ApiId/Stage are empty strings -- a shape the client's validator
+// only checks for nil, not emptiness (validators.go:2672
+// validateRoutingRuleActionInvokeApi), so it does reach the server. Before
+// gopherstack-e81, Actions was []map[string]any and round-tripped this
+// arbitrary JSON with no validation at all. Must be rejected with
+// BadRequestException, matching validateRoutingRuleActions in
+// domain_names.go.
+func TestCreateRoutingRule_MalformedActionRejected(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	dn, err := client.CreateDomainName(t.Context(), &apigatewayv2sdk.CreateDomainNameInput{
+		DomainName: aws.String("rr-malformed.example.com"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRoutingRule(t.Context(), &apigatewayv2sdk.CreateRoutingRuleInput{
+		DomainName: dn.DomainName,
+		Priority:   aws.Int32(1),
+		Actions: []apigatewayv2types.RoutingRuleAction{
+			{InvokeApi: &apigatewayv2types.RoutingRuleActionInvokeApi{
+				ApiId: aws.String(""),
+				Stage: aws.String(""),
+			}},
+		},
+		Conditions: []apigatewayv2types.RoutingRuleCondition{
+			{MatchBasePaths: &apigatewayv2types.RoutingRuleMatchBasePaths{AnyOf: []string{"/foo"}}},
+		},
+	})
+	require.Error(t, err)
+
+	var badReq *apigatewayv2types.BadRequestException
+	require.ErrorAs(t, err, &badReq, "a malformed (empty apiId/stage) action must be rejected as a validation error")
+	assert.Equal(t, "BadRequestException", badReq.ErrorCode())
+
+	out, err := client.ListRoutingRules(t.Context(), &apigatewayv2sdk.ListRoutingRulesInput{
+		DomainName: dn.DomainName,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.RoutingRules, "a rejected CreateRoutingRule must not persist a partial rule")
+}
+
 // TestListRoutingRules_MaxResultsAndNextToken drives ListRoutingRules through
 // the real SDK client with MaxResults set. Before the fix,
 // handleRoutingRulesCollection never read the maxResults/nextToken query
