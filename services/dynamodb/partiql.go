@@ -94,7 +94,7 @@ type executeStatementRequest struct {
 	Limit                  *int32                       `json:"Limit,omitempty"`
 	Statement              string                       `json:"Statement"`
 	NextToken              string                       `json:"NextToken,omitempty"`
-	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"-"`
+	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"ReturnConsumedCapacity,omitempty"`
 	Parameters             []map[string]any             `json:"Parameters,omitempty"`
 	ConsistentRead         bool                         `json:"ConsistentRead,omitempty"`
 }
@@ -109,11 +109,12 @@ type executeStatementRequest struct {
 // it left any client reading output.LastEvaluatedKey (the Query/Scan-style
 // pagination field) always empty even when more pages existed.
 type executeStatementResponse struct {
-	LastEvaluatedKey map[string]any          `json:"LastEvaluatedKey,omitempty"`
-	ConsumedCapacity *types.ConsumedCapacity `json:"-"`
-	TableName        string                  `json:"-"`
-	NextToken        string                  `json:"NextToken,omitempty"`
-	Items            []map[string]any        `json:"Items"`
+	LastEvaluatedKey     map[string]any           `json:"LastEvaluatedKey,omitempty"`
+	ConsumedCapacity     *types.ConsumedCapacity  `json:"-"`
+	WireConsumedCapacity *models.ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	TableName            string                   `json:"-"`
+	NextToken            string                   `json:"NextToken,omitempty"`
+	Items                []map[string]any         `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
@@ -130,7 +131,8 @@ type batchStatementRequest struct {
 
 // batchExecuteStatementRequest is the wire format for BatchExecuteStatement.
 type batchExecuteStatementRequest struct {
-	Statements []batchStatementRequest `json:"Statements"`
+	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"ReturnConsumedCapacity,omitempty"`
+	Statements             []batchStatementRequest      `json:"Statements"`
 }
 
 // batchStatementResponse is one result entry inside BatchExecuteStatement response.
@@ -149,8 +151,12 @@ type batchStatementError struct {
 }
 
 // batchExecuteStatementResponse is the wire response for BatchExecuteStatement.
+// ConsumedCapacity is one entry per statement in request order (dynamodb SDK
+// v1.67.0 api_op_BatchExecuteStatement.go:70-71), a value slice (not pointers)
+// so a failed statement's zero-valued entry marshals to "{}", not "null".
 type batchExecuteStatementResponse struct {
-	Responses []batchStatementResponse `json:"Responses"`
+	Responses        []batchStatementResponse  `json:"Responses"`
+	ConsumedCapacity []models.ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
 }
 
 // partiQLRunner executes individual PartiQL statements against any StorageBackend.
@@ -221,6 +227,8 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 		return nil, err
 	}
 
+	out.WireConsumedCapacity = models.FromSDKConsumedCapacity(out.ConsumedCapacity)
+
 	return out, nil
 }
 
@@ -235,14 +243,52 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		return nil, err
 	}
 
-	// Pre-allocate responses and sdkStmts; track which original indices have pending
-	// SDK responses so the final slice can be assembled in original order.
-	responses := make([]batchStatementResponse, len(req.Statements))
-	sdkStmts := make([]types.BatchStatementRequest, 0, len(req.Statements))
-	// originalIdx maps sdkStmts position → req.Statements position.
-	originalIdx := make([]int, 0, len(req.Statements))
+	returnCC := req.ReturnConsumedCapacity != "" &&
+		req.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
-	for i, s := range req.Statements {
+	sdkStmts, originalIdx, responses := convertBatchStatements(req.Statements)
+
+	var consumedCapacity []models.ConsumedCapacity
+	if returnCC {
+		// A statement whose parameters fail to convert never reaches the
+		// backend, so its entry stays zero-valued -- same "no data available"
+		// treatment as a statement the backend itself fails (see
+		// InMemoryDB.BatchExecuteStatement).
+		consumedCapacity = make([]models.ConsumedCapacity, len(req.Statements))
+	}
+
+	if len(sdkStmts) > 0 {
+		out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
+			Statements:             sdkStmts,
+			ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		applyBatchExecuteStatementOutput(out, originalIdx, responses, consumedCapacity, returnCC)
+	}
+
+	return &batchExecuteStatementResponse{
+		Responses:        responses,
+		ConsumedCapacity: consumedCapacity,
+	}, nil
+}
+
+// convertBatchStatements converts each wire batchStatementRequest into an SDK
+// types.BatchStatementRequest. responses is pre-allocated to len(stmts) and
+// pre-filled with a ValidationError entry for any statement whose parameters
+// fail conversion, since that statement never reaches the backend. sdkStmts
+// and originalIdx carry only the statements that do reach it; originalIdx[j]
+// gives sdkStmts[j]'s position in stmts/responses.
+func convertBatchStatements(
+	stmts []batchStatementRequest,
+) ([]types.BatchStatementRequest, []int, []batchStatementResponse) {
+	responses := make([]batchStatementResponse, len(stmts))
+	sdkStmts := make([]types.BatchStatementRequest, 0, len(stmts))
+	originalIdx := make([]int, 0, len(stmts))
+
+	for i, s := range stmts {
 		sdkParams := make([]types.AttributeValue, 0, len(s.Parameters))
 
 		var convFailed bool
@@ -277,38 +323,47 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		originalIdx = append(originalIdx, i)
 	}
 
-	if len(sdkStmts) > 0 {
-		out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
-			Statements: sdkStmts,
-		})
-		if err != nil {
-			return nil, err
-		}
+	return sdkStmts, originalIdx, responses
+}
 
-		for j, resp := range out.Responses {
-			idx := originalIdx[j]
-			if resp.Error != nil {
-				responses[idx] = batchStatementResponse{
-					Error: &batchStatementError{
-						Code:    string(resp.Error.Code),
-						Message: aws.ToString(resp.Error.Message),
-					},
-					TableName: aws.ToString(resp.TableName),
-				}
-
-				continue
+// applyBatchExecuteStatementOutput copies the backend's per-statement
+// responses, and (when returnCC) ConsumedCapacity, into their original
+// request-order positions via originalIdx.
+func applyBatchExecuteStatementOutput(
+	out *dynamodb.BatchExecuteStatementOutput,
+	originalIdx []int,
+	responses []batchStatementResponse,
+	consumedCapacity []models.ConsumedCapacity,
+	returnCC bool,
+) {
+	for j, resp := range out.Responses {
+		idx := originalIdx[j]
+		if resp.Error != nil {
+			responses[idx] = batchStatementResponse{
+				Error: &batchStatementError{
+					Code:    string(resp.Error.Code),
+					Message: aws.ToString(resp.Error.Message),
+				},
+				TableName: aws.ToString(resp.TableName),
 			}
 
-			wireResp := batchStatementResponse{}
-			if resp.Item != nil {
-				wireResp.Item = models.FromSDKItem(resp.Item)
-			}
-
-			responses[idx] = wireResp
+			continue
 		}
+
+		wireResp := batchStatementResponse{}
+		if resp.Item != nil {
+			wireResp.Item = models.FromSDKItem(resp.Item)
+		}
+
+		responses[idx] = wireResp
 	}
 
-	return &batchExecuteStatementResponse{Responses: responses}, nil
+	if returnCC {
+		for j := range out.ConsumedCapacity {
+			idx := originalIdx[j]
+			consumedCapacity[idx] = *models.FromSDKConsumedCapacity(&out.ConsumedCapacity[j])
+		}
+	}
 }
 
 // partiqlExtractScanIndexForward returns false when an ORDER BY … DESC clause is

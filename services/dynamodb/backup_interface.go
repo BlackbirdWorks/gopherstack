@@ -768,56 +768,87 @@ func (db *InMemoryDB) BatchExecuteStatement(
 		)
 	}
 
+	returnCC := input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != sdktypes.ReturnConsumedCapacityNone
+
 	runner := &partiQLRunner{backend: db}
 	responses := make([]sdktypes.BatchStatementResponse, 0, len(input.Statements))
 
-	for _, stmt := range input.Statements {
-		params := make([]map[string]any, 0, len(stmt.Parameters))
+	var consumedCapacity []sdktypes.ConsumedCapacity
+	if returnCC {
+		// dynamodb SDK v1.67.0 api_op_BatchExecuteStatement.go:70-71: "The values
+		// of the list are ordered according to the ordering of the statements" --
+		// one entry per statement, like ExecuteTransaction, not merged per table.
+		// A failed statement leaves its entry zero-valued: the API gives no way to
+		// attach capacity to a BatchStatementResponse.Error, and none of this
+		// backend's write paths compute capacity before a failed condition check.
+		consumedCapacity = make([]sdktypes.ConsumedCapacity, len(input.Statements))
+	}
 
-		for _, p := range stmt.Parameters {
-			// models.FromSDKAttributeValue always returns map[string]any or nil.
-			if wireMap, ok := models.FromSDKAttributeValue(p).(map[string]any); ok {
-				params = append(params, wireMap)
-			}
-		}
-
-		req := executeStatementRequest{
-			Statement:      aws.ToString(stmt.Statement),
-			Parameters:     params,
-			ConsistentRead: aws.ToBool(stmt.ConsistentRead),
-		}
-
-		result, err := runner.executeStatement(ctx, req)
-		if err != nil {
-			resp := sdktypes.BatchStatementResponse{
-				Error: &sdktypes.BatchStatementError{
-					Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
-					Message: aws.String(err.Error()),
-				},
-			}
-			if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
-				resp.TableName = aws.String(tableName)
-			}
-
-			responses = append(responses, resp)
-
-			continue
-		}
-
-		resp := sdktypes.BatchStatementResponse{}
-		if len(result.Items) > 0 {
-			// BatchExecuteStatement returns at most one item per statement (AWS spec).
-			// INSERT/UPDATE/DELETE return no item; SELECT returns the first matching item.
-			sdkItem, convErr := models.ToSDKItem(result.Items[0])
-			if convErr == nil {
-				resp.Item = sdkItem
-			}
-		}
-
+	for i, stmt := range input.Statements {
+		resp, cc := runOneBatchStatement(ctx, runner, stmt, input.ReturnConsumedCapacity)
 		responses = append(responses, resp)
+
+		if returnCC && cc != nil {
+			consumedCapacity[i] = *cc
+		}
 	}
 
 	return &sdkdynamodb.BatchExecuteStatementOutput{
-		Responses: responses,
+		Responses:        responses,
+		ConsumedCapacity: consumedCapacity,
 	}, nil
+}
+
+// runOneBatchStatement executes a single BatchExecuteStatement entry and
+// returns its wire response plus the ConsumedCapacity the underlying op
+// reported (nil unless the statement succeeded and capacity was requested).
+func runOneBatchStatement(
+	ctx context.Context,
+	runner *partiQLRunner,
+	stmt sdktypes.BatchStatementRequest,
+	returnCC sdktypes.ReturnConsumedCapacity,
+) (sdktypes.BatchStatementResponse, *sdktypes.ConsumedCapacity) {
+	params := make([]map[string]any, 0, len(stmt.Parameters))
+
+	for _, p := range stmt.Parameters {
+		// models.FromSDKAttributeValue always returns map[string]any or nil.
+		if wireMap, ok := models.FromSDKAttributeValue(p).(map[string]any); ok {
+			params = append(params, wireMap)
+		}
+	}
+
+	req := executeStatementRequest{
+		Statement:              aws.ToString(stmt.Statement),
+		Parameters:             params,
+		ReturnConsumedCapacity: returnCC,
+		ConsistentRead:         aws.ToBool(stmt.ConsistentRead),
+	}
+
+	result, err := runner.executeStatement(ctx, req)
+	if err != nil {
+		resp := sdktypes.BatchStatementResponse{
+			Error: &sdktypes.BatchStatementError{
+				Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
+				Message: aws.String(err.Error()),
+			},
+		}
+		if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
+			resp.TableName = aws.String(tableName)
+		}
+
+		return resp, nil
+	}
+
+	resp := sdktypes.BatchStatementResponse{}
+	if len(result.Items) > 0 {
+		// BatchExecuteStatement returns at most one item per statement (AWS spec).
+		// INSERT/UPDATE/DELETE return no item; SELECT returns the first matching item.
+		sdkItem, convErr := models.ToSDKItem(result.Items[0])
+		if convErr == nil {
+			resp.Item = sdkItem
+		}
+	}
+
+	return resp, result.ConsumedCapacity
 }
