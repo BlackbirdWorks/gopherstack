@@ -281,6 +281,18 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 			ErrStreamValidation, options.Engine)
 	}
 
+	// ServiceQuotaExceededException/ThrottlingException are real, separately
+	// modeled exceptions for this op (see ErrServiceQuotaExceeded/ErrThrottling's
+	// doc comments) -- unlike the ValidationException remapping above, they must
+	// NOT be wrapped in ErrStreamValidation. Checked before reading the request
+	// body, matching real AWS throttling at the front door before any per-request
+	// work.
+	release, err := h.Backend.BeginSpeechSynthesisStream(options.Engine)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	text, textType, err := decodeStreamText(c.Request().Body)
 	if err != nil {
 		return fmt.Errorf("%w: invalid synthesis stream: %w", ErrStreamValidation, err)
@@ -607,6 +619,12 @@ type pollyErrorEntry struct {
 var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
 	return []pollyErrorEntry{
 		{ErrStreamValidation, "ValidationException", http.StatusBadRequest},
+		{ErrThrottling, "ThrottlingException", http.StatusBadRequest},
+		// ServiceQuotaExceededException's real httpStatusCode is 402 (Payment
+		// Required), not 400 -- confirmed via botocore's
+		// polly/2016-06-10/service-2.json shape metadata (error.httpStatusCode),
+		// which the Go SDK types don't carry themselves.
+		{ErrServiceQuotaExceeded, "ServiceQuotaExceededException", http.StatusPaymentRequired},
 		{ErrLexiconNotFound, "LexiconNotFoundException", http.StatusNotFound},
 		{ErrInvalidTaskID, "InvalidTaskIdException", http.StatusBadRequest},
 		// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
