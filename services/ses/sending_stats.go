@@ -22,10 +22,15 @@ const sendQuotaWindow = 24 * time.Hour
 // within window of now. b.emails is append-ordered by increasing Timestamp,
 // so iterating backward lets us stop at the first entry older than the
 // cutoff. Shared by the 24-hour (Max24HourSend) and per-second (MaxSendRate)
-// quota checks.
+// quota checks. When excludeSimulatorOnly is true, rows whose
+// Email.SimulatorOnly is set are skipped -- real AWS SES mailbox-simulator
+// sends "don't affect your daily sending quota" but "are limited by your
+// account's maximum sending rate" (see allRecipientsAreSimulator's doc
+// comment, email_sending.go), so the 24-hour caller passes true and the
+// per-second caller passes false.
 //
 // The caller MUST hold b.mu for reading or writing.
-func (b *InMemoryBackend) sentInWindowLocked(window time.Duration) int {
+func (b *InMemoryBackend) sentInWindowLocked(window time.Duration, excludeSimulatorOnly bool) int {
 	cutoff := time.Now().UTC().Add(-window)
 	sent := 0
 
@@ -34,24 +39,30 @@ func (b *InMemoryBackend) sentInWindowLocked(window time.Duration) int {
 			break
 		}
 
+		if excludeSimulatorOnly && v.SimulatorOnly {
+			continue
+		}
+
 		sent++
 	}
 
 	return sent
 }
 
-// sentLast24HoursLocked returns the count of emails sent within the past 24 hours.
+// sentLast24HoursLocked returns the count of non-simulator-only emails sent
+// within the past 24 hours (see sentInWindowLocked).
 //
 // The caller MUST hold b.mu for reading or writing.
 func (b *InMemoryBackend) sentLast24HoursLocked() int {
-	return b.sentInWindowLocked(sendQuotaWindow)
+	return b.sentInWindowLocked(sendQuotaWindow, true)
 }
 
-// sentLastSecondLocked returns the count of emails sent within the past second.
+// sentLastSecondLocked returns the count of emails (including
+// simulator-only ones) sent within the past second (see sentInWindowLocked).
 //
 // The caller MUST hold b.mu for reading or writing.
 func (b *InMemoryBackend) sentLastSecondLocked() int {
-	return b.sentInWindowLocked(time.Second)
+	return b.sentInWindowLocked(time.Second, false)
 }
 
 // GetSendQuota returns simulated quota values.

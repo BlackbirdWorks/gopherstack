@@ -132,6 +132,12 @@ type Email struct {
 	// classifySimulatedRecipients.
 	Bounced    bool `json:"bounced,omitempty"`
 	Complained bool `json:"complained,omitempty"`
+	// SimulatorOnly is set when every recipient (To+Cc+Bcc) is a mailbox
+	// simulator address. sentLast24HoursLocked (sending_stats.go) excludes
+	// these rows from the 24-hour send quota, matching real AWS SES: sends to
+	// the simulator "don't affect your daily sending quota" (see
+	// allRecipientsAreSimulator's doc comment, email_sending.go).
+	SimulatorOnly bool `json:"simulatorOnly,omitempty"`
 }
 
 // EmailTemplate represents a stored SES email template.

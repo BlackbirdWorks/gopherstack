@@ -18,14 +18,71 @@ const maxRecipientsPerMessage = 50
 // Oldest emails are evicted when the limit is exceeded.
 const maxRetainedEmails = 10000
 
-// AWS SES mailbox simulator addresses: the documented, deterministic way to
-// trigger a bounce or complaint outcome without a real receiving mailbox.
+// AWS SES mailbox simulator: the documented, deterministic way to trigger a
+// bounce/complaint/delivery outcome without a real receiving mailbox.
 // https://docs.aws.amazon.com/ses/latest/dg/send-an-email-from-console.html#send-email-simulator
+// ("Using the mailbox simulator manually" section):
+//   - success@ -- successful delivery (delivery notification if configured).
+//   - bounce@ -- hard bounce (SMTP 550 5.1.1).
+//   - ooto@ -- accepted+delivered, but triggers an automatic out-of-office
+//     reply; not itself a bounce or complaint, so it is a no-op here exactly
+//     like success@ (both simply fall through classifySimulatedRecipients
+//     unmatched, landing on the Delivery notification branch).
+//   - complaint@ -- accepted+delivered, recipient marks it spam.
+//   - suppressionlist@ -- "Amazon SES generates a hard bounce as if the
+//     recipient's address is on the global suppression list" (same doc
+//     table) -- this is a Bounce outcome, NOT a Reject; SES has no
+//     mailbox-simulator address for Reject events at all (see the doc's
+//     "Testing Reject events" section, which instead requires attaching an
+//     EICAR antivirus test file -- a content-scanning trigger this backend
+//     has no scanner to honor, hence GetSendStatistics.Rejects staying at 0,
+//     see sending_stats.go).
+//   - The simulator "supports labeling" (same doc, "Important considerations"):
+//     bounce+label@simulator.amazonses.com behaves identically to bounce@ --
+//     simulatorLocalPart strips the +label before matching.
+const simulatorDomain = "simulator.amazonses.com"
+
 const (
-	simulatorBounceAddress       = "bounce@simulator.amazonses.com"
-	simulatorSuppressionListAddr = "suppressionlist@simulator.amazonses.com"
-	simulatorComplaintAddress    = "complaint@simulator.amazonses.com"
+	simulatorLocalSuccess         = "success"
+	simulatorLocalBounce          = "bounce"
+	simulatorLocalOOTO            = "ooto"
+	simulatorLocalComplaint       = "complaint"
+	simulatorLocalSuppressionList = "suppressionlist"
 )
+
+// simulatorLocalPart returns addr's local part, lowercased and with any
+// +label suffix stripped, when addr's domain is the mailbox simulator's;
+// ok is false for any other address.
+func simulatorLocalPart(addr string) (string, bool) {
+	at := strings.LastIndex(addr, "@")
+	if at < 0 || !strings.EqualFold(addr[at+1:], simulatorDomain) {
+		return "", false
+	}
+
+	local := strings.ToLower(addr[:at])
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+
+	return local, true
+}
+
+// isSimulatorAddress reports whether addr is one of the mailbox simulator's
+// five recognised local parts (any label suffix ignored).
+func isSimulatorAddress(addr string) bool {
+	local, ok := simulatorLocalPart(addr)
+	if !ok {
+		return false
+	}
+
+	switch local {
+	case simulatorLocalSuccess, simulatorLocalBounce, simulatorLocalOOTO, simulatorLocalComplaint,
+		simulatorLocalSuppressionList:
+		return true
+	default:
+		return false
+	}
+}
 
 // classifySimulatedRecipients reports whether recipients contains one of the
 // SES mailbox simulator's bounce/suppression-list or complaint addresses.
@@ -33,15 +90,44 @@ func classifySimulatedRecipients(recipients []string) (bool, bool) {
 	var bounced, complained bool
 
 	for _, r := range recipients {
-		switch {
-		case strings.EqualFold(r, simulatorBounceAddress), strings.EqualFold(r, simulatorSuppressionListAddr):
+		local, ok := simulatorLocalPart(r)
+		if !ok {
+			continue
+		}
+
+		switch local {
+		case simulatorLocalBounce, simulatorLocalSuppressionList:
 			bounced = true
-		case strings.EqualFold(r, simulatorComplaintAddress):
+		case simulatorLocalComplaint:
 			complained = true
 		}
 	}
 
 	return bounced, complained
+}
+
+// allRecipientsAreSimulator reports whether every recipient (and there is at
+// least one) is a mailbox simulator address. Real AWS SES sends to the
+// simulator "are limited by your account's maximum sending rate, but they
+// don't affect your daily sending quota" (same doc, "Important
+// considerations") -- confirmed non-adjustable regardless of sandbox status.
+// A message with a mix of simulator and real recipients is treated as a
+// normal (quota-consuming) send: the doc's guarantee is about isolating
+// simulator traffic from the quota, not about partially exempting a message
+// that also reaches real recipients -- a disclosed simplification, since AWS
+// doesn't document per-recipient quota accounting within one message.
+func allRecipientsAreSimulator(recipients []string) bool {
+	if len(recipients) == 0 {
+		return false
+	}
+
+	for _, r := range recipients {
+		if !isSimulatorAddress(r) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // allRecipients concatenates To, Cc, and Bcc into a single slice.
@@ -57,12 +143,14 @@ func allRecipients(to, cc, bcc []string) []string {
 // checkSendingAllowedLocked validates every precondition shared by a direct
 // send call (SendEmail, SendRawEmail via SendEmail, SendTemplatedEmail): the
 // account/quota/configuration-set checks (checkAccountAndQuotaLocked) plus
-// the simulated per-second send rate (checkSendRateLocked). SendBulkTemplatedEmail
+// the simulated per-second send rate (checkSendRateLocked) -- unlike the
+// 24-hour quota, MaxSendRate is NOT waived for a simulator-only send (see
+// simulatorOnly's doc comment on checkAccountAndQuotaLocked). SendBulkTemplatedEmail
 // deliberately does NOT call this per destination -- see its own doc comment.
 //
 // The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string) error {
-	if err := b.checkAccountAndQuotaLocked(configurationSetName); err != nil {
+func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string, simulatorOnly bool) error {
+	if err := b.checkAccountAndQuotaLocked(configurationSetName, simulatorOnly); err != nil {
 		return err
 	}
 
@@ -78,13 +166,20 @@ func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string)
 // ConfigurationSetName must reference an existing configuration set,
 // matching ConfigurationSetDoesNotExist.
 //
+// simulatorOnly skips the 24-hour quota check entirely: real AWS SES
+// documents that mailbox-simulator sends "don't affect your daily sending
+// quota" (see allRecipientsAreSimulator's doc comment) -- this backend reads
+// that as sends to the simulator being outside the quota system altogether,
+// neither consuming it (sentLast24HoursLocked already excludes
+// Email.SimulatorOnly rows, see sending_stats.go) nor being blocked by it.
+//
 // The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) checkAccountAndQuotaLocked(configurationSetName string) error {
+func (b *InMemoryBackend) checkAccountAndQuotaLocked(configurationSetName string, simulatorOnly bool) error {
 	if !b.accountSendingEnabled {
 		return fmt.Errorf("%w: account-level sending is currently paused", ErrAccountSendingPaused)
 	}
 
-	if b.sentLast24HoursLocked() >= maxSendQuota24Hours {
+	if !simulatorOnly && b.sentLast24HoursLocked() >= maxSendQuota24Hours {
 		return fmt.Errorf(
 			"%w: 24-hour sending quota of %d messages exceeded",
 			ErrMessageRejected, maxSendQuota24Hours,
@@ -181,7 +276,10 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
 
-	if err := b.checkSendingAllowedLocked(in.ConfigurationSetName); err != nil {
+	recipients := allRecipients(in.To, in.Cc, in.Bcc)
+	simulatorOnly := allRecipientsAreSimulator(recipients)
+
+	if err := b.checkSendingAllowedLocked(in.ConfigurationSetName, simulatorOnly); err != nil {
 		return "", Email{}, sesNotificationTargets{}, err
 	}
 
@@ -192,8 +290,12 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 		)
 	}
 
+	if err := b.checkMailFromLocked(in.From); err != nil {
+		return "", Email{}, sesNotificationTargets{}, err
+	}
+
 	msgID := "ses-" + uuid.New().String()
-	bounced, complained := classifySimulatedRecipients(allRecipients(in.To, in.Cc, in.Bcc))
+	bounced, complained := classifySimulatedRecipients(recipients)
 
 	email := Email{
 		MessageID:            msgID,
@@ -213,6 +315,7 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 		Timestamp:            time.Now(),
 		Bounced:              bounced,
 		Complained:           complained,
+		SimulatorOnly:        simulatorOnly,
 	}
 	b.appendEmailLocked(email)
 
@@ -270,7 +373,10 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
-	if sendErr := b.checkAccountAndQuotaLocked(in.ConfigurationSetName); sendErr != nil {
+	recipients := allRecipients(in.To, in.Cc, in.Bcc)
+	simulatorOnly := allRecipientsAreSimulator(recipients)
+
+	if sendErr := b.checkAccountAndQuotaLocked(in.ConfigurationSetName, simulatorOnly); sendErr != nil {
 		return "", Email{}, sesNotificationTargets{}, sendErr
 	}
 
@@ -287,13 +393,17 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 		)
 	}
 
+	if sendErr := b.checkMailFromLocked(in.From); sendErr != nil {
+		return "", Email{}, sesNotificationTargets{}, sendErr
+	}
+
 	tmpl, ok := b.templates.Get(in.TemplateName)
 	if !ok {
 		return "", Email{}, sesNotificationTargets{}, fmt.Errorf("%w: %s", ErrTemplateNotFound, in.TemplateName)
 	}
 
 	msgID := "ses-" + uuid.New().String()
-	bounced, complained := classifySimulatedRecipients(allRecipients(in.To, in.Cc, in.Bcc))
+	bounced, complained := classifySimulatedRecipients(recipients)
 
 	email := Email{
 		MessageID:            msgID,
@@ -307,6 +417,7 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 		BodyText:             renderTemplateVars(tmpl.TextPart, vars),
 		ConfigurationSetName: in.ConfigurationSetName,
 		Tags:                 in.Tags,
+		SimulatorOnly:        simulatorOnly,
 		ReturnPath:           in.ReturnPath,
 		ReturnPathArn:        in.ReturnPathArn,
 		SourceArn:            in.SourceArn,

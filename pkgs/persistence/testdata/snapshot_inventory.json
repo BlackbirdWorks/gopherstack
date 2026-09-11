@@ -25173,6 +25173,7 @@
       "Email.ReplyTo []string `json:\"replyTo,omitempty\"`",
       "Email.ReturnPath string `json:\"returnPath,omitempty\"`",
       "Email.ReturnPathArn string `json:\"returnPathArn,omitempty\"`",
+      "Email.SimulatorOnly bool `json:\"simulatorOnly,omitempty\"`",
       "Email.SourceArn string `json:\"sourceArn,omitempty\"`",
       "Email.Subject string `json:\"subject\"`",
       "Email.Tags []Tag `json:\"tags,omitempty\"`",

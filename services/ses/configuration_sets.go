@@ -22,6 +22,10 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
 		return fmt.Errorf("%w: configuration set %s already exists", ErrConfigSetExists, name)
 	}
 
+	if b.configSets.Len() >= b.limits.configurationSets {
+		return limitExceeded("configuration sets")
+	}
+
 	b.configSets.Put(&ConfigurationSet{Name: name, SendingEnabled: true})
 
 	return nil
