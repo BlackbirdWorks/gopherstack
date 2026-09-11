@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -49,6 +50,7 @@ type userPoolSnapshot struct {
 	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
 	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
+	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
 	CreatedAt              string            `json:"createdAt,omitempty"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
@@ -181,6 +183,13 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 		ppSnap = &pp
 	}
 
+	var spSnap *SignInPolicy
+	if p.SignInPolicy != nil {
+		sp := *p.SignInPolicy
+		sp.AllowedFirstAuthFactors = slices.Clone(p.SignInPolicy.AllowedFirstAuthFactors)
+		spSnap = &sp
+	}
+
 	var avAttrs []string
 	if len(p.AutoVerifiedAttributes) > 0 {
 		avAttrs = make([]string, len(p.AutoVerifiedAttributes))
@@ -199,6 +208,7 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 		MfaConfiguration:       p.MfaConfiguration,
 		DeletionProtection:     p.DeletionProtection,
 		PasswordPolicy:         ppSnap,
+		SignInPolicy:           spSnap,
 		AutoVerifiedAttributes: avAttrs,
 		LambdaConfig:           p.LambdaConfig,
 		EmailConfiguration:     p.EmailConfiguration,
@@ -576,6 +586,7 @@ func restorePoolsFromSnapshot(poolSnapshots []*userPoolSnapshot) ([]*UserPool, e
 			MfaConfiguration:       ps.MfaConfiguration,
 			DeletionProtection:     ps.DeletionProtection,
 			PasswordPolicy:         ps.PasswordPolicy,
+			SignInPolicy:           ps.SignInPolicy,
 			AutoVerifiedAttributes: ps.AutoVerifiedAttributes,
 			LambdaConfig:           ps.LambdaConfig,
 			EmailConfiguration:     ps.EmailConfiguration,
