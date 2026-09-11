@@ -39,7 +39,7 @@ type Backend interface {
 
 	// Tasks
 
-	RunTask(input RunTaskInput) ([]Task, error)
+	RunTask(input RunTaskInput) ([]Task, []Failure, error)
 	DescribeTasks(cluster string, taskArns []string) ([]Task, []Failure, error)
 	StopTask(cluster, taskArn, reason string) (*Task, error)
 	ListTasks(cluster string) ([]string, error)

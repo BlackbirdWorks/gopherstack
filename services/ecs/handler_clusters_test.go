@@ -245,7 +245,7 @@ func TestECS_DeleteCluster_DependencyViolation(t *testing.T) {
 		_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "dcg-task-cluster"})
 		require.NoError(t, err)
 
-		tasks, err := backend.RunTask(ecs.RunTaskInput{
+		tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 			Cluster:        "dcg-task-cluster",
 			TaskDefinition: td.TaskDefinitionArn,
 		})
@@ -297,7 +297,7 @@ func TestECS_Backend_DefaultClusterAutoCreated(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run a task - default cluster should be auto-created.
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,
 	})
@@ -336,7 +336,7 @@ func TestECS_Backend_EnrichCluster_PendingTasks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run tasks so cluster has running count.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "enrich-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          2,

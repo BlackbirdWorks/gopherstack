@@ -674,7 +674,7 @@ func (b *InMemoryBackend) StartTaskForService(
 		}
 	}()
 
-	_, err := b.RunTask(RunTaskInput{
+	tasks, failures, err := b.RunTask(RunTaskInput{
 		Cluster:                 clusterName,
 		TaskDefinition:          taskDefinitionArn,
 		Count:                   1,
@@ -687,8 +687,20 @@ func (b *InMemoryBackend) StartTaskForService(
 		PlacementConstraints:    svcPlacementConstraints,
 		PlacementStrategy:       svcPlacementStrategy,
 	})
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Count==1 above, so RunTask returns either one task or one placement
+	// failure (see createTaskEntriesLocked), never both.
+	if len(tasks) == 0 && len(failures) > 0 {
+		return fmt.Errorf(
+			"%w for service %s: %s: %s",
+			errTaskPlacementFailed, serviceName, failures[0].Reason, failures[0].Detail,
+		)
+	}
+
+	return nil
 }
 
 // StopOldestServiceTask stops the oldest running task for a service.

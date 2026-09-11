@@ -91,19 +91,27 @@ func validateContainerDefinitions(defs []ContainerDefinition, networkMode string
 	return nil
 }
 
-// validatePortMappings enforces the awsvpc constraint that a container's
-// hostPort must match its containerPort.
+// validatePortMappings enforces the network-mode constraints on hostPort:
+// awsvpc requires hostPort to match containerPort (the task ENI shares the
+// container's network namespace), and per the ECS developer guide's Port
+// mappings section (task_definition_parameters_ec2.html, under
+// docs.aws.amazon.com/AmazonECS/latest/developerguide/), host mode requires
+// the same ("If the network mode of a task definition is set to host, host
+// ports must either be undefined or match the container port in the port
+// mapping."). bridge mode has no such constraint: a fixed or dynamic
+// hostPort is resolved per container instance at placement time (see
+// host_ports.go).
 func validatePortMappings(def ContainerDefinition, networkMode string) error {
-	if networkMode != networkModeAwsvpc {
+	if networkMode != networkModeAwsvpc && networkMode != networkModeHost {
 		return nil
 	}
 
 	for _, pm := range def.PortMappings {
 		if pm.HostPort != 0 && pm.HostPort != pm.ContainerPort {
 			return fmt.Errorf(
-				"%w: when networkMode=awsvpc, the host ports and container ports in "+
+				"%w: when networkMode=%s, the host ports and container ports in "+
 					"container port mappings must match; container %q maps hostPort %d to containerPort %d",
-				ErrClient, def.Name, pm.HostPort, pm.ContainerPort,
+				ErrClient, networkMode, def.Name, pm.HostPort, pm.ContainerPort,
 			)
 		}
 	}

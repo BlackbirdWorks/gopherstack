@@ -3815,6 +3815,14 @@ func TestEBECSTaskRunnerAdapter(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+
+				// EC2 launch type needs a container instance to place onto; the
+				// distinctInstance placement constraint below needs two, one per
+				// requested task (see createTaskEntriesLocked in services/ecs).
+				_, err = bk.RegisterContainerInstance("cluster-2", "i-eb-params-1")
+				require.NoError(t, err)
+				_, err = bk.RegisterContainerInstance("cluster-2", "i-eb-params-2")
+				require.NoError(t, err)
 			},
 			clusterARN: "cluster-2",
 			payload:    []byte(`{}`),

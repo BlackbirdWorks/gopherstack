@@ -143,6 +143,14 @@ func TestECS_Handler_RunTask_WithGroup(t *testing.T) {
 	h := newTestHandler(t)
 	tdArn := registerTestTaskDef(t, h, "group-task")
 
+	// EC2 launch type requires a registered container instance to place
+	// onto; without one RunTask reports a RESOURCE:* placement failure
+	// instead of a task (see createTaskEntriesLocked).
+	ciRec := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
+		"instanceIdentityDocument": `{"instanceId":"i-group-task"}`,
+	})
+	require.Equal(t, http.StatusOK, ciRec.Code)
+
 	rec := doECSRequest(t, h, "RunTask", map[string]any{
 		"taskDefinition": tdArn,
 		"count":          1,
@@ -171,7 +179,7 @@ func TestECS_Backend_RunTask_LaunchTypeDefault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,
 	})
@@ -224,7 +232,7 @@ func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,
 	})
@@ -252,7 +260,7 @@ func TestECS_Backend_RunTask_TransitionToRunningWithRunner(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,
 	})

@@ -4631,7 +4631,7 @@ func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
 	payload []byte,
 ) error {
 	runInput := buildECSRunInput(clusterARN, params, payload)
-	_, err := a.backend.RunTask(runInput)
+	_, _, err := a.backend.RunTask(runInput)
 
 	return err
 }

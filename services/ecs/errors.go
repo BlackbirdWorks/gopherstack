@@ -1,6 +1,10 @@
 package ecs
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 var (
 	// ErrClusterNotFound is returned when a cluster does not exist.
@@ -47,6 +51,12 @@ var (
 var errServiceDeploymentAlreadyStopped = awserr.New(
 	"ConflictException", awserr.ErrInvalidParameter,
 )
+
+// errTaskPlacementFailed is returned by StartTaskForService when RunTask
+// could not place the task (see createTaskEntriesLocked's Failure cases).
+// Purely internal -- StartTaskForService is not itself a wire operation, so
+// unlike the exceptions above this needs no awserr.Kind mapping.
+var errTaskPlacementFailed = errors.New("ecs: task placement failed")
 
 // errNoLifecycleHook is returned by ContinueServiceDeployment: this backend
 // never pauses a deployment at a lifecycle hook (blue/green PAUSE stages

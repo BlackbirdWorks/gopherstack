@@ -19,7 +19,7 @@ func runOneTask(t *testing.T, b *InMemoryBackend) string {
 		t.Fatalf("CreateCluster: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{Cluster: lcCluster, TaskDefinition: tdArn, Count: 1})
+	tasks, _, err := b.RunTask(RunTaskInput{Cluster: lcCluster, TaskDefinition: tdArn, Count: 1})
 	if err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestStartTaskLifecycle_ObservableIntermediateStates(t *testing.T) {
 		t.Fatalf("CreateCluster: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{Cluster: "lc", TaskDefinition: tdArn, Count: 1})
+	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "lc", TaskDefinition: tdArn, Count: 1})
 	if err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestStopTask_DuringStartDelay_DoesNotResurrect(t *testing.T) {
 		t.Fatalf("CreateCluster: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{Cluster: "lc", TaskDefinition: tdArn, Count: 1})
+	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "lc", TaskDefinition: tdArn, Count: 1})
 	if err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}

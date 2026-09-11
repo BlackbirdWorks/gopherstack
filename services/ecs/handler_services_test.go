@@ -314,7 +314,7 @@ func TestECS_Backend_CountRunningTasksForService(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run tasks with the service group.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          2,
@@ -497,7 +497,7 @@ func TestECS_Backend_EnrichService_PendingTasks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run tasks to populate service running count.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "enrich-svc-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          2,

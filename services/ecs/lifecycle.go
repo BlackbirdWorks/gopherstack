@@ -174,6 +174,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	b.unindexTaskFromInstance(lc.clusterName, task.ContainerInstanceArn, task.TaskArn)
 	b.taskProtections.Delete(task.TaskArn)
 	b.deregisterTaskFromELBv2Locked(task, lc.clusterName)
+	b.releaseTaskHostPortsLocked(lc.clusterName, task)
 
 	return true
 }
