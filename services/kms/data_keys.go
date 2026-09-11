@@ -56,13 +56,6 @@ func (b *InMemoryBackend) generateDataKey(
 		}
 	}
 
-	keyBytes := min(dataKeySize(input.KeySpec, input.NumberOfBytes), maxDataKeyBytes)
-
-	plaintextKey := make([]byte, keyBytes)
-	if _, randErr := io.ReadFull(rand.Reader, plaintextKey); randErr != nil {
-		return nil, randErr
-	}
-
 	km, err := b.requireKeyMaterial(region, key)
 	if err != nil {
 		return nil, err
@@ -70,6 +63,17 @@ func (b *InMemoryBackend) generateDataKey(
 
 	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, operation, input.EncryptionContext); err != nil {
 		return nil, err
+	}
+
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
+	keyBytes := min(dataKeySize(input.KeySpec, input.NumberOfBytes), maxDataKeyBytes)
+
+	plaintextKey := make([]byte, keyBytes)
+	if _, randErr := io.ReadFull(rand.Reader, plaintextKey); randErr != nil {
+		return nil, randErr
 	}
 
 	blob, encErr := encryptData(plaintextKey, key.KeyID, input.EncryptionContext, km)
@@ -109,6 +113,7 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 		NumberOfBytes:     input.NumberOfBytes,
 		EncryptionContext: input.EncryptionContext,
 		GrantTokens:       input.GrantTokens,
+		DryRun:            input.DryRun,
 	}, "GenerateDataKeyWithoutPlaintext")
 	if err != nil {
 		return nil, err
@@ -174,6 +179,10 @@ func (b *InMemoryBackend) generateDataKeyPair(
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	pairKM, err := generateKeyMaterial(input.KeyPairSpec)
 	if err != nil {
 		return nil, fmt.Errorf("generating key pair for spec %q: %w", input.KeyPairSpec, err)
@@ -215,6 +224,7 @@ func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
 		KeyPairSpec:       input.KeyPairSpec,
 		EncryptionContext: input.EncryptionContext,
 		GrantTokens:       input.GrantTokens,
+		DryRun:            input.DryRun,
 	}, "GenerateDataKeyPairWithoutPlaintext")
 	if err != nil {
 		return nil, err

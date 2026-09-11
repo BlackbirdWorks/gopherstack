@@ -625,14 +625,9 @@ re-verified against the vendored SDK, not propagated forward pass after pass.
    destabilizing the grant-token expiry/constraint-checking logic
    (`validateGrantTokenConstraints`/`validateGrantTokenPresence`) under time pressure.
    Left for a dedicated follow-up pass.
-2. **`DryRun` is not implemented on any KMS operation.** The real SDK has a `DryRun
-   *bool` field on `CreateGrantInput` (and several other KMS inputs). gopherstack
-   implements `DryRun` for EC2 (`ec2/handler.go`: validate-then-`ErrDryRunOperation`/412
-   pattern) but nowhere in KMS. This is a broad, multi-op feature addition (every
-   DryRun-capable KMS op, not just CreateGrant) rather than a single documented gap this
-   file was already tracking, so it's out of scope for this pass's 5-gaps/2-deferred
-   closure brief. Noted for a future KMS pass; not a regression (nothing broke — DryRun
-   was already absent).
+2. **`DryRun` is not implemented on any KMS operation.** FIXED 2026-09-11 (gopherstack-i8ln)
+   -- see the dated entry below. This item is retained, unedited, as the historical record
+   of when the gap was first found.
 
 Both `items_still_open` above are genuinely new findings (not previously tracked
 anywhere in this file), surfaced by the same real-SDK field-diffing this pass applied to
@@ -780,3 +775,88 @@ Gates: `go build ./services/kms/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/kms/...`, `golangci-lint run
 ./services/kms/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+## 2026-09-11 (gopherstack-i8ln): DryRun implemented on all 15 carrying ops
+
+FIX: `DryRun` was unimplemented on every KMS operation (see the 2026-08-23
+`items_still_open` entry above). Grepped `DryRun \*bool` across
+`aws-sdk-go-v2/service/kms@v1.54.0`'s `api_op_*.go` and confirmed the exact
+set of 15 ops that carry it: `CreateGrant`, `Decrypt`, `DeriveSharedSecret`,
+`Encrypt`, `GenerateDataKey`, `GenerateDataKeyPair`,
+`GenerateDataKeyPairWithoutPlaintext`, `GenerateDataKeyWithoutPlaintext`,
+`GenerateMac`, `ReEncrypt`, `RetireGrant`, `RevokeGrant`, `Sign`, `Verify`,
+`VerifyMac`. `DryRunOperationException` (`types/errors.go`: "The request was
+rejected because the DryRun parameter was specified", `ErrorFault:
+smithy.FaultClient`) is in all 15 ops' `deserializeOpError` case lists
+(`deserializers.go`), confirmed by grep -- HTTP status is the client-fault
+default 400 (KMS/awsjson11 has no per-shape `httpResponseCode` trait
+override here).
+
+Implementation: added `DryRun bool \`json:"DryRun,omitempty"\`` to all 15
+`*Input` structs (`models.go`), added `ErrDryRun = errors.New
+("DryRunOperationException")` (`errors.go`) and its `kmsErrorTable` entry
+(`handler.go`, default 400), and inserted `if input.DryRun { return
+..., ErrDryRun }` as the LAST gate in each backend method -- after every
+validation check that method already performs (key lookup, `KeyState`,
+`KeyUsage`, algorithm/spec validation, grant-token constraints/presence,
+`requireKeyMaterial`) and strictly before the first side-effecting step
+(random generation, the actual encrypt/decrypt/sign/verify/MAC/ECDH call, or
+the grant `Put`/`Delete`). This mirrors this backend's own validation
+surface, not real AWS's IAM/policy simulation (which doesn't exist here) --
+same documented scope boundary as every other "checks this emulator can
+perform" note in this file.
+
+`ReEncrypt` needed a real restructure, not just an inserted `if`: it
+decrypts under the source key using `decryptData`/`decryptWithHistory` as
+part of what used to be a single "resolve+decrypt" step, then separately
+resolves the destination key. Both must be FULLY validated (existence,
+`KeyState`, `KeyUsage`, key material) before the DryRun gate fires, per the
+task's "run the full validation path... then return
+DryRunOperationException" contract -- so `reEncryptDecrypt`/
+`reEncryptEncrypt` were split into `validateReEncryptSource`/
+`validateReEncryptDest` (checks only, no decrypt/encrypt) called before the
+gate, and a slimmed `reEncryptDecrypt` (decrypt only, given already-validated
+key+material) called after it, with the final `encryptData` call inlined
+into `ReEncrypt` itself.
+
+`RetireGrant` has three lookup branches (by `GrantToken`; by `GrantId` +
+`KeyId`; by `GrantId` alone across all regions) -- each needed its own
+`if input.DryRun { return ErrDryRun }` gate placed after that branch's own
+existence check and before its `Delete`, since which branch runs depends on
+which fields the caller populated.
+
+Verified precedence is correct, not merely "some error wins": a disabled
+key's `Encrypt` with `DryRun: true` still returns `DisabledException`
+(`KeyState` is checked before the DryRun gate is ever reached), not
+`DryRunOperationException` -- see `TestEncrypt_DryRun_DisabledKey_RealClient`.
+
+Tests added in `dryrun_test.go`: `TestDryRun_AllOps_RealClient` (table,
+one subtest per op, all through a real `aws-sdk-go-v2/service/kms` client)
+plus `TestEncrypt_DryRun_ValidKey_RealClient` and
+`TestEncrypt_DryRun_DisabledKey_RealClient`. The `create_grant`/
+`revoke_grant`/`retire_grant` subtests additionally assert via `ListGrants`
+that the grant was NOT created/revoked/retired -- proving DryRun performs no
+side effect, not just that it returns an error. Confirmed failing pre-fix:
+temporarily neutralized all 15 `if input.DryRun { ... }` gates (`if false &&
+input.DryRun`) across `encryption.go`/`data_keys.go`/`grants.go`/`hmac.go`/
+`key_agreement.go`/`signing.go`, reran `TestDryRun_AllOps_RealClient` --
+all 15 subtests failed (the disabled-key precedence test correctly still
+passed, since that check precedes the neutralized gate) -- then restored;
+`git diff` on those six files was clean after restore, confirmed by
+`go build`/full `go test ./services/kms/...` passing again.
+
+DISCLOSE (both re-confirmed unchanged, not touched this pass):
+`GrantConstraints.SourceArn` enforcement still needs cross-service
+request-context plumbing (bd gopherstack-w3k; see the RESOLVED 2026-07-23
+entry above -- SourceArn is stored/round-tripped but never checked against
+anything, since no operation threads a caller/resource ARN through crypto
+calls). `CreateGrantInput.Name`-based retry idempotency (same `GrantId`,
+fresh `GrantToken` on a matching retry) is still entirely unimplemented --
+see `items_still_open` item 1 above; it needs a `Grant`/`store.Table`
+storage-model change (multiple valid tokens per grant), not a field
+addition, and was out of scope for this DryRun-focused pass.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
+`go test -count=1 ./services/kms/...` clean (existing suite unaffected,
+6.2s); `golangci-lint run ./services/kms/...` clean, 0 issues, no
+cyclop/gocyclo/gocognit/funlen nolints added.

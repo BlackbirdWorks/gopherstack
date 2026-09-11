@@ -299,3 +299,36 @@ func TestDeclineInvitations_RelationshipStatus_RealClient(t *testing.T) {
 	require.Len(t, out.Invitations, 1)
 	assert.Equal(t, types.RelationshipStatusResigned, out.Invitations[0].RelationshipStatus)
 }
+
+// TestDescribeClassificationJob_LastRunTime_RealClient proves
+// DescribeClassificationJobOutput.LastRunTime is non-nil. Per its doc
+// (aws-sdk-go-v2/service/macie2 api_op_DescribeClassificationJob.go:111-113):
+// "the date and time ... when the job started. If the job is a recurring
+// job, this value indicates when the most recent run started or, if the job
+// hasn't run yet, when the job was created." This emulator runs no
+// classification-job execution engine (no janitor/ticker -- see PARITY.md's
+// "leaks" section): a job's run is effectively instantaneous at creation, so
+// LastRunTime is set to the creation time for both ONE_TIME and SCHEDULED
+// jobs, matching the doc's "hasn't run yet" fallback.
+func TestDescribeClassificationJob_LastRunTime_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := macie2.NewHandler(macie2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestMacie2SDKClient(t, h)
+
+	created, err := client.CreateClassificationJob(t.Context(), &macie2sdk.CreateClassificationJobInput{
+		Name:    aws.String("test-job"),
+		JobType: types.JobTypeOneTime,
+		S3JobDefinition: &types.S3JobDefinition{
+			BucketDefinitions: []types.S3BucketDefinitionForJob{},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeClassificationJob(t.Context(), &macie2sdk.DescribeClassificationJobInput{
+		JobId: created.JobId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.LastRunTime)
+	assert.False(t, out.LastRunTime.IsZero())
+}

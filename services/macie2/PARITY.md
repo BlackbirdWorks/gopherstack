@@ -566,3 +566,34 @@ all clean after the fix.
   envelope -- no `errors.As` ground truth applies. Same class as
   `glue/jobs.go:471`, `ce/cost_allocation_tags.go:64`,
   `xray/handler_trace_segments.go:43` (bd gopherstack-r3pr).
+
+## 2026-09-11 (gopherstack-132i follow-up): LastRunTime confirmed already fixed
+
+`bd gopherstack-132i` asked to fix `ClassificationJob.LastRunTime` always
+being nil. It was already fixed in `fb80d66c` (2026-08-18,
+`classification_jobs.go:60`, `CreateClassificationJob` sets
+`LastRunTime: &now`) -- the bd issue (filed 2026-07-23) predates that fix
+and was never closed. No janitor/ticker runs classification jobs in this
+emulator (confirmed: no `time.Sleep`/ticker/goroutine touches
+`classificationJobs`; see this file's "leaks" section), so a job's run is
+instantaneous at creation -- `LastRunTime` is set to the creation clock read,
+matching `DescribeClassificationJobOutput.LastRunTime`'s doc fallback
+("if the job hasn't run yet, when the job was created",
+`aws-sdk-go-v2/service/macie2@v1.54.4/api_op_DescribeClassificationJob.go:111-113`).
+This holds for both `ONE_TIME` and `SCHEDULED` (starts `IDLE`) jobs; no
+scheduled re-run is modelled, so `LastRunTime` never advances past creation
+for a `SCHEDULED` job, consistent with "hasn't run yet".
+
+Added `TestDescribeClassificationJob_LastRunTime_RealClient`
+(`wire_field_fixes_test.go`) driving the real SDK client; confirmed it fails
+against `classification_jobs.go` with the `LastRunTime: &now` assignment
+commented out (`LastRunTime` nil over the wire), then confirmed the restore
+is diff-clean. Note: the real `types.JobSummary` (list view) has no
+`LastRunTime` member at all -- gopherstack's `ClassificationJobSummary.
+LastRunTime` is a harmless extra field a real client silently ignores, not
+part of this fix.
+
+The disclosed `PolicyDetails`/`FindingAction`/`FindingActor` gap (POLICY-
+category sample findings; no actor/API-call data source in this backend) was
+already recorded in the 2026-08-15 pass notes above -- confirmed still
+accurate, no new gap found.

@@ -164,3 +164,53 @@ func Test_SDKRoundTrip_ServiceJob_QuotaShareAndPreemption(t *testing.T) {
 	require.Len(t, listOut.JobSummaryList, 1)
 	assert.Equal(t, "qs-1", aws.ToString(listOut.JobSummaryList[0].QuotaShareName))
 }
+
+// Test_SDKRoundTrip_EksContainer_ImagePullFields proves
+// RegisterJobDefinitionOutput/DescribeJobDefinitionsOutput's EKS container
+// spec round-trips EksContainer.ImagePullPolicy (per-container, real
+// aws-sdk-go-v2/service/batch@v1.68.4/types/types.go:2202) and
+// EksPodProperties.ImagePullSecrets (pod-level, types.go:2669) through a
+// real SDK client. gopherstack-gakc's DescribeJobs (JobDetail-level, not job
+// definition) eksProperties gap is separate and out of scope -- see
+// PARITY.md.
+func Test_SDKRoundTrip_EksContainer_ImagePullFields(t *testing.T) {
+	t.Parallel()
+
+	h := batch.NewHandler(batch.NewInMemoryBackend("000000000000", rtTestRegion))
+	client := newTestBatchClient(t, h)
+	ctx := t.Context()
+
+	jdName := "jd-eks-imagepull-" + uuid.NewString()[:8]
+
+	_, err := client.RegisterJobDefinition(ctx, &batchsdk.RegisterJobDefinitionInput{
+		JobDefinitionName: aws.String(jdName),
+		Type:              types.JobDefinitionTypeContainer,
+		EksProperties: &types.EksProperties{
+			PodProperties: &types.EksPodProperties{
+				Containers: []types.EksContainer{
+					{
+						Name:            aws.String("main"),
+						Image:           aws.String("alpine:latest"),
+						ImagePullPolicy: aws.String("Always"),
+					},
+				},
+				ImagePullSecrets: []types.ImagePullSecret{
+					{Name: aws.String("my-reg-secret")},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeJobDefinitions(ctx, &batchsdk.DescribeJobDefinitionsInput{
+		JobDefinitionName: aws.String(jdName),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.JobDefinitions, 1)
+
+	podProps := out.JobDefinitions[0].EksProperties.PodProperties
+	require.Len(t, podProps.Containers, 1)
+	assert.Equal(t, "Always", aws.ToString(podProps.Containers[0].ImagePullPolicy))
+	require.Len(t, podProps.ImagePullSecrets, 1)
+	assert.Equal(t, "my-reg-secret", aws.ToString(podProps.ImagePullSecrets[0].Name))
+}

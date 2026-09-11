@@ -206,6 +206,7 @@ type EncryptInput struct {
 	GrantTokens []string `json:"GrantTokens,omitempty"`
 	KeyID       string   `json:"KeyId"`
 	Plaintext   []byte   `json:"Plaintext"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // EncryptOutput is the response payload for Encrypt.
@@ -222,6 +223,7 @@ type DecryptInput struct {
 	GrantTokens    []string `json:"GrantTokens,omitempty"`
 	KeyID          string   `json:"KeyId,omitempty"`
 	CiphertextBlob []byte   `json:"CiphertextBlob"`
+	DryRun         bool     `json:"DryRun,omitempty"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
@@ -238,6 +240,7 @@ type GenerateDataKeyInput struct {
 	KeyID             string            `json:"KeyId"`
 	KeySpec           string            `json:"KeySpec,omitempty"`
 	GrantTokens       []string          `json:"GrantTokens,omitempty"`
+	DryRun            bool              `json:"DryRun,omitempty"`
 }
 
 // GenerateDataKeyOutput is the response payload for GenerateDataKey.
@@ -254,6 +257,7 @@ type ReEncryptInput struct {
 	DestinationKeyID             string            `json:"DestinationKeyId"`
 	SourceKeyID                  string            `json:"SourceKeyId,omitempty"`
 	CiphertextBlob               []byte            `json:"CiphertextBlob"`
+	DryRun                       bool              `json:"DryRun,omitempty"`
 }
 
 // ReEncryptOutput is the response payload for ReEncrypt.
@@ -478,6 +482,7 @@ type CreateGrantInput struct {
 	// and otherwise a no-op -- the same documented scope boundary as
 	// CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // CreateGrantOutput is the response payload for CreateGrant.
@@ -543,6 +548,7 @@ func toGrantListEntry(g *Grant) GrantListEntry {
 type RevokeGrantInput struct {
 	KeyID   string `json:"KeyId"`
 	GrantID string `json:"GrantId"`
+	DryRun  bool   `json:"DryRun,omitempty"`
 }
 
 // RetireGrantInput is the request payload for RetireGrant.
@@ -550,6 +556,7 @@ type RetireGrantInput struct {
 	GrantToken string `json:"GrantToken,omitempty"`
 	GrantID    string `json:"GrantId,omitempty"`
 	KeyID      string `json:"KeyId,omitempty"`
+	DryRun     bool   `json:"DryRun,omitempty"`
 }
 
 // ListRetirableGrantsInput is the request payload for ListRetirableGrants.
@@ -569,6 +576,7 @@ type GenerateDataKeyWithoutPlaintextInput struct {
 	KeyID             string            `json:"KeyId"`
 	KeySpec           string            `json:"KeySpec,omitempty"`
 	GrantTokens       []string          `json:"GrantTokens,omitempty"`
+	DryRun            bool              `json:"DryRun,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextOutput is the response payload for GenerateDataKeyWithoutPlaintext.
@@ -603,6 +611,7 @@ type SignInput struct {
 	SigningAlgorithm string   `json:"SigningAlgorithm"`
 	Message          []byte   `json:"Message"`
 	GrantTokens      []string `json:"GrantTokens,omitempty"`
+	DryRun           bool     `json:"DryRun,omitempty"`
 }
 
 // SignOutput is the response payload for Sign.
@@ -620,6 +629,7 @@ type VerifyInput struct {
 	Message          []byte   `json:"Message"`
 	Signature        []byte   `json:"Signature"`
 	GrantTokens      []string `json:"GrantTokens,omitempty"`
+	DryRun           bool     `json:"DryRun,omitempty"`
 }
 
 // VerifyOutput is the response payload for Verify.
@@ -888,6 +898,7 @@ type DeriveSharedSecretInput struct {
 	PublicKey []byte `json:"PublicKey"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // DeriveSharedSecretOutput is the response payload for DeriveSharedSecret.
@@ -907,6 +918,7 @@ type GenerateDataKeyPairInput struct {
 	KeyPairSpec string `json:"KeyPairSpec"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // GenerateDataKeyPairOutput is the response payload for GenerateDataKeyPair.
@@ -933,6 +945,7 @@ type GenerateDataKeyPairWithoutPlaintextInput struct {
 	KeyPairSpec string `json:"KeyPairSpec"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // GenerateDataKeyPairWithoutPlaintextOutput is the response payload for GenerateDataKeyPairWithoutPlaintext.
@@ -957,6 +970,7 @@ type GenerateMacInput struct {
 	Message []byte `json:"Message"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // GenerateMacOutput is the response payload for GenerateMac.
@@ -990,6 +1004,7 @@ type VerifyMacInput struct {
 	Mac []byte `json:"Mac"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
 	GrantTokens []string `json:"GrantTokens,omitempty"`
+	DryRun      bool     `json:"DryRun,omitempty"`
 }
 
 // VerifyMacOutput is the response payload for VerifyMac.

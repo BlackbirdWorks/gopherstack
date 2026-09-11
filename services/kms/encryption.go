@@ -87,6 +87,10 @@ func (b *InMemoryBackend) Encrypt(
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	blob, err := b.encryptPayload(input.Plaintext, key.KeyID, input.EncryptionContext, km)
 	if err != nil {
 		return nil, err
@@ -214,6 +218,10 @@ func (b *InMemoryBackend) Decrypt(
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	cipherPayload := input.CiphertextBlob[keyIDPrefixLen:]
 
 	plaintext, err := b.decryptPayload(
@@ -301,12 +309,26 @@ func (b *InMemoryBackend) ReEncrypt(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	plaintext, sourceKey, err := b.reEncryptDecrypt(ctx, region, input)
+	sourceKey, sourceKM, err := b.validateReEncryptSource(ctx, region, input)
 	if err != nil {
 		return nil, err
 	}
 
-	blob, destKey, err := b.reEncryptEncrypt(ctx, region, plaintext, input)
+	destKey, destKM, err := b.validateReEncryptDest(ctx, region, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
+	plaintext, err := b.reEncryptDecrypt(region, sourceKey, sourceKM, input)
+	if err != nil {
+		return nil, err
+	}
+
+	blob, err := encryptData(plaintext, destKey.KeyID, input.DestinationEncryptionContext, destKM)
 	if err != nil {
 		return nil, err
 	}
@@ -323,11 +345,13 @@ func (b *InMemoryBackend) ReEncrypt(
 	}, nil
 }
 
-func (b *InMemoryBackend) reEncryptDecrypt(
+// validateReEncryptSource resolves and validates the source key (existence, state, usage,
+// key material) without decrypting anything. Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateReEncryptSource(
 	ctx context.Context,
 	region string,
 	input *ReEncryptInput,
-) ([]byte, *Key, error) {
+) (*Key, *keyMaterial, error) {
 	if len(input.CiphertextBlob) < keyIDPrefixLen {
 		return nil, nil, ErrCiphertextTooShort
 	}
@@ -360,32 +384,16 @@ func (b *InMemoryBackend) reEncryptDecrypt(
 		return nil, nil, err
 	}
 
-	plaintext, _, decErr := decryptData(
-		input.CiphertextBlob,
-		input.SourceEncryptionContext,
-		sourceKM,
-	)
-	if decErr != nil {
-		plaintext, decErr = b.decryptWithHistory(
-			region,
-			input.CiphertextBlob,
-			input.SourceEncryptionContext,
-			sourceKey.KeyID,
-		)
-		if decErr != nil {
-			return nil, nil, decErr
-		}
-	}
-
-	return plaintext, sourceKey, nil
+	return sourceKey, sourceKM, nil
 }
 
-func (b *InMemoryBackend) reEncryptEncrypt(
+// validateReEncryptDest resolves and validates the destination key (existence, state, usage,
+// key material) without encrypting anything. Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateReEncryptDest(
 	ctx context.Context,
 	region string,
-	plaintext []byte,
 	input *ReEncryptInput,
-) ([]byte, *Key, error) {
+) (*Key, *keyMaterial, error) {
 	destKey, err := b.lookupKey(ctx, input.DestinationKeyID, ErrKeyNotFound)
 	if err != nil {
 		return nil, nil, err
@@ -408,15 +416,35 @@ func (b *InMemoryBackend) reEncryptEncrypt(
 		return nil, nil, err
 	}
 
-	blob, err := encryptData(
-		plaintext,
-		destKey.KeyID,
-		input.DestinationEncryptionContext,
-		destKM,
+	return destKey, destKM, nil
+}
+
+// reEncryptDecrypt decrypts the source ciphertext, falling back to previous key material
+// versions on failure. Must be called with at least a read lock held.
+func (b *InMemoryBackend) reEncryptDecrypt(
+	region string,
+	sourceKey *Key,
+	sourceKM *keyMaterial,
+	input *ReEncryptInput,
+) ([]byte, error) {
+	plaintext, _, decErr := decryptData(
+		input.CiphertextBlob,
+		input.SourceEncryptionContext,
+		sourceKM,
 	)
-	if err != nil {
-		return nil, nil, err
+	if decErr == nil {
+		return plaintext, nil
 	}
 
-	return blob, destKey, nil
+	plaintext, decErr = b.decryptWithHistory(
+		region,
+		input.CiphertextBlob,
+		input.SourceEncryptionContext,
+		sourceKey.KeyID,
+	)
+	if decErr != nil {
+		return nil, decErr
+	}
+
+	return plaintext, nil
 }
