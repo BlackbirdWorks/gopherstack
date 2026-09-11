@@ -238,6 +238,8 @@ func (b *InMemoryBackend) AssociateTransitGatewayMulticastDomain(
 		return nil, fmt.Errorf("%w: %s", ErrTGWMulticastDomainNotFound, domainID)
 	}
 
+	resourceID := b.resolveTGWVpcAttachmentResourceIDLocked(attachmentID)
+
 	assocs := make([]*TransitGatewayMulticastDomainAssociation, 0, len(subnetIDs))
 
 	for _, subnetID := range subnetIDs {
@@ -246,6 +248,9 @@ func (b *InMemoryBackend) AssociateTransitGatewayMulticastDomain(
 			TransitGatewayAttachmentID:      attachmentID,
 			SubnetID:                        subnetID,
 			State:                           tgwMcastAssocStateAssociated,
+			ResourceID:                      resourceID,
+			ResourceOwnerID:                 b.AccountID,
+			ResourceType:                    tgwResourceTypeVPC,
 		}
 		b.tgwMulticastDomainAssociations.Put(assoc)
 
@@ -254,6 +259,21 @@ func (b *InMemoryBackend) AssociateTransitGatewayMulticastDomain(
 	}
 
 	return assocs, nil
+}
+
+// resolveTGWVpcAttachmentResourceIDLocked resolves a transit gateway
+// attachment ID to the VPC it attaches, as reported on ResourceId by
+// GetTransitGatewayMulticastDomainAssociations (pinned SDK
+// types.go:24606-24625, TransitGatewayMulticastDomainAssociation.ResourceId).
+// Transit Gateway Multicast only ever backs VPC attachments, matching this
+// package's existing unconditional ResourceType: tgwResourceTypeVPC. Must be
+// called with b.mu held (read or write).
+func (b *InMemoryBackend) resolveTGWVpcAttachmentResourceIDLocked(attachmentID string) string {
+	if att, ok := b.tgwVpcAttachments.Get(attachmentID); ok {
+		return att.VpcID
+	}
+
+	return ""
 }
 
 // DisassociateTransitGatewayMulticastDomain removes the association between the
@@ -289,6 +309,9 @@ func (b *InMemoryBackend) DisassociateTransitGatewayMulticastDomain(
 				TransitGatewayMulticastDomainID: domainID,
 				TransitGatewayAttachmentID:      attachmentID,
 				SubnetID:                        subnetID,
+				ResourceID:                      b.resolveTGWVpcAttachmentResourceIDLocked(attachmentID),
+				ResourceOwnerID:                 b.AccountID,
+				ResourceType:                    tgwResourceTypeVPC,
 			}
 		}
 

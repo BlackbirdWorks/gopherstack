@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -454,6 +455,13 @@ func assocsToAggregate(
 	for _, a := range assocs {
 		agg.TransitGatewayAttachmentID = a.TransitGatewayAttachmentID
 		agg.TransitGatewayMulticastDomainID = a.TransitGatewayMulticastDomainID
+		agg.ResourceID = a.ResourceID
+		agg.ResourceOwnerID = a.ResourceOwnerID
+
+		if a.ResourceType != "" {
+			agg.ResourceType = a.ResourceType
+		}
+
 		agg.Subnets.Items = append(agg.Subnets.Items, subnetAssociationItem{
 			State:    a.State,
 			SubnetID: a.SubnetID,
@@ -528,7 +536,9 @@ func (h *Handler) handleGetTransitGatewayMulticastDomainAssociations(
 		resp.MulticastDomainAssociations.Items = append(
 			resp.MulticastDomainAssociations.Items,
 			tgwMulticastGetAssociationItem{
-				ResourceType:               tgwResourceTypeVPC,
+				ResourceID:                 a.ResourceID,
+				ResourceOwnerID:            a.ResourceOwnerID,
+				ResourceType:               cmp.Or(a.ResourceType, tgwResourceTypeVPC),
 				TransitGatewayAttachmentID: a.TransitGatewayAttachmentID,
 				Subnet: subnetAssociationItem{
 					State:    a.State,

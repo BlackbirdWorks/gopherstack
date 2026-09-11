@@ -69,6 +69,9 @@ type TransitGatewayMulticastDomainAssociation struct {
 	TransitGatewayAttachmentID      string `json:"transitGatewayAttachmentID,omitempty"`
 	SubnetID                        string `json:"subnetID,omitempty"`
 	State                           string `json:"state,omitempty"`
+	ResourceID                      string `json:"resourceID,omitempty"`
+	ResourceOwnerID                 string `json:"resourceOwnerID,omitempty"`
+	ResourceType                    string `json:"resourceType,omitempty"`
 }
 
 // TransitGatewayPeeringAttachment represents a TGW peering attachment.

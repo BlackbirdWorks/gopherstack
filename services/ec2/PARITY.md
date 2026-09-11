@@ -1592,11 +1592,6 @@ confirmed by reading the surrounding function.
 
 Modelling gaps and false positives ruled out, separately from the bugs above:
 
-- **`ResourceID`/`ResourceOwnerID` never populated on multicast domain
-  associations** (see sibling check above) -- real fields, real wire tags,
-  no backing data in this backend's association model. Not fixed; flagged
-  for whoever next touches `accept_ops.go`'s
-  `TransitGatewayMulticastDomainAssociation`.
 - **`ResourceOwnerId`/`SubnetId` missing entirely from `tgwMulticastGroupItem`**
   (real fields on `types.TransitGatewayMulticastGroup`, `types/types.go:24172`)
   -- same shape of gap, not fixed, `TransitGatewayMulticastGroupEntry` has no
