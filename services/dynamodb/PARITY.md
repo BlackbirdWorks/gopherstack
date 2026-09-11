@@ -24,7 +24,28 @@ families:
   global_table_settings_autoscaling: {status: fixed, note: "2026-08-23 (manifest-harvest pass): UpdateGlobalTableSettingsInput's GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate, GlobalTableGlobalSecondaryIndexSettingsUpdate (global, not per-replica, per-GSI write autoscaling), ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and ReplicaGlobalSecondaryIndexSettingsUpdate[].ProvisionedReadCapacityAutoScalingSettingsUpdate (api_op_UpdateGlobalTableSettings.go, types.go:2891/2962/1881) were all accepted on the wire (handler_global_tables.go's updateGlobalTableSettingsInput had no struct fields for any of them) then silently dropped -- an accept-and-drop wire gap, same class as UpdateTableReplicaAutoScaling's pre-1vv2-fix clobber bug but never wired at all rather than clobbered. Fixed: StoredGlobalTable gained WriteCapacityAutoScaling/GSIWriteCapacityAutoScaling, StoredReplicaSettings/StoredReplicaGSISettings gained ReadCapacityAutoScaling, all reusing the existing autoScalingThroughput persisted shape and throughputFromUpdate/sdkAutoScalingSettingsDescription converters UpdateTableReplicaAutoScaling already has (autoscaling.go) -- no new evaluator. Both UpdateGlobalTableSettings and DescribeGlobalTableSettings now echo the same stored settings (global write-capacity autoscaling applies uniformly across replicas, matching how WriteCapacityUnits already does, since it is a global-table-level setting in the v1 API, not per-replica). Verified via TestGlobalTableSettings_AutoScaling, driven through the real aws-sdk-go-v2 client, hand-reverted (services/dynamodb/{global_tables,handler_global_tables,store}.go) to confirm it fails against unfixed code (nil ReplicaProvisionedWriteCapacityAutoScalingSettings), restored, md5sum identical. Additive-only struct fields; pkgs/persistence snapshot-version guard confirmed no bump needed."}
   kinesis_streaming_disable_echo: {status: fixed, note: "2026-08-23 (manifest-harvest pass): DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration (deserializers.go:18931 -- a real modeled response member on Disable despite its SDK doc comment reading 'the destination for the Kinesis streaming information that is being enabled', a codegen doc-comment artifact shared with Enable/Update, not evidence the field is request-only) was never populated; DisableKinesisStreamingDestination always returned it as nil/absent even though the backend already tracked the destination's precision (KinesisDestinationEntry.Precision) right up until deleting it. Fixed: removeKinesisDestinationLocked now returns the removed entry's precision, echoed back as EnableKinesisStreamingConfiguration (defaulting to MILLISECOND, matching Enable/Describe's existing default). Verified via TestDisableKinesisStreamingDestination_EchoesConfig, hand-reverted (kinesis_streaming.go, handler_kinesis_streaming.go) to confirm nil response before the fix, restored, md5sum identical."}
   pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited every List/Describe/Query/Scan op with a page-size + continuation member against the pinned SDK. ListGlobalTables' applyGlobalTableLimit only capped the page when the caller supplied an explicit Limit; an omitted Limit (ListGlobalTablesInput.Limit doc, api_op_ListGlobalTables.go:35, 'if the parameter is not specified, DynamoDB defaults to 100') returned every global table uncapped with no LastEvaluatedGlobalTableName. Fixed: applyGlobalTableLimit now falls back to defaultListGlobalTablesLimit=100. TestListGlobalTables_DefaultLimitPagination (wire_field_fixes_test.go) creates 105 global tables, drives the real SDK client through the full pagination loop with no Limit set, and asserts each page is <=100 and the union is exactly the 105 names with no duplicates; hand-reverted to confirm it fails against unfixed code (page of 105), restored. Everything else audited CORRECT: Query/Scan's Limit-as-items-examined + post-limit-filter + ExclusiveStartKey/LastEvaluatedKey semantics (item_ops_query.go/item_ops_scan.go) match AWS's own documented 'LastEvaluatedKey may be non-nil with nothing left to return' behavior -- collectQueryPage emits LastEvaluatedKey whenever the Limit boundary is hit, including on the true last item (no i<len-1 guard, unlike scanPage's), which is correct-but-surprising, not a bug: a client resuming from that key gets an empty page with a nil LastEvaluatedKey next call, one harmless extra round trip, exactly the documented AWS gotcha. ListBackups/ListContributorInsights/ListExports/ListImports/ListTables all correctly consume+truncate+emit. ListTagsOfResource ignores NextToken/returns everything in one call by design: the real op has no MaxResults input member at all and no documented default page size to impose (DO-NOT-INVENT-A-PAGE-SIZE), so returning the full <=50-tag set in one page is the only non-fabricated implementation."}
+  global_table_settings_rcu_writethrough: {status: fixed, note: "2026-09-11 (gopherstack-l3vv part b): UpdateGlobalTableSettings cached ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityUnits into gt.ReplicaSettings[region].ReadCapacityUnits and echoed it back on its own response, but never wrote it through to the real replica Table's ProvisionedThroughput.ReadCapacityUnits. DescribeGlobalTableSettings reads that value from the real table (replicaTableCapacityRLocked -> getTableInRegionRLocked/provisionedThroughputRLocked), never from the cache, so after a single UpdateGlobalTableSettings call the two ops could permanently disagree with no way to reconcile. Fixed with a collect-then-apply split rather than nesting locks: updateGlobalTableSettingsLocked (already under db.mu.Lock) now also resolves each updated region's real *Table pointer via the new collectReplicaCapacityWritesLocked and returns it as []pendingReplicaCapacityWrite; UpdateGlobalTableSettings applies them (applyPendingReplicaCapacityWrites, one table.mu.Lock per replica) only after updateGlobalTableSettingsLocked's defer has released db.mu. This package never holds db.mu and a Table's own mu at the same time anywhere -- every table.mu acquisition (getTable/tableStatusRLocked, replicaTableCapacityRLocked/provisionedThroughputRLocked, applyUpdateTableLocked/table_ops.go:1028) happens strictly after the db.mu-holding call that looked the Table pointer up has already returned; the one place in this exact file that mutates a live *Table's fields while db.mu is still held (ensureReplicaTablesLocked's `existing.GlobalTableName = name`/`t.Replicas = ...`) does so WITHOUT table.mu at all, which is a pre-existing lock-bypass, not evidence of a safe nested order -- so no established nested precedent existed to follow, and restructuring to release-then-lock was the correct call per the issue's own guidance. GlobalTableProvisionedWriteCapacityUnits (a global, not per-replica, v1 field) has the identical read-from-real-table-only divergence in replicaTableCapacityRLocked's wcu return, confirmed while fixing this, but is OUT OF SCOPE here (the issue's own triage names only ReplicaProvisionedReadCapacityUnits) -- flagged for a follow-up, not fixed. TestGlobalTableSettings_UpdateWritesThroughToReplicaTable (global_table_settings_writethrough_test.go) drives the real aws-sdk-go-v2 client against two differently-configured region clients, updates RCU on one replica, and asserts both DescribeTable on that replica and DescribeGlobalTableSettings agree on the new value; hand-verified to fail against the pre-fix code (both read back the stale initial RCU). Also fixed in the same file, unrelated to the lock work: buildGlobalTableReplicaDesc built its ReplicaGlobalSecondaryIndexSettings slice by ranging rs.GSISettings (a map) directly -- nondeterministic order; now goes through the new sortedGSISettingsNames. No persisted field added; pkgs/persistence snapshot-version guard unaffected."}
 gaps:
+  - "2026-09-11 (gopherstack-l3vv part c, disclosed, not modeled): ReplicaProvisionedReadCapacityAutoScalingSettings/
+    ReplicaProvisionedWriteCapacityAutoScalingSettings (both top-level, via
+    GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate/
+    ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and per-GSI) DO echo real
+    MinimumUnits/MaximumUnits/AutoScalingDisabled (fixed 2026-08-23, see
+    global_table_settings_autoscaling above, reusing autoscaling.go's
+    autoScalingThroughput/sdkAutoScalingSettingsDescription), but the real
+    AutoScalingSettingsDescription (dynamodb@v1.67.0 types.go) also carries
+    AutoScalingRoleArn *string and ScalingPolicies []AutoScalingPolicyDescription
+    (each a TargetTrackingScalingPolicyConfiguration with
+    PredefinedMetricSpecification/TargetValue/Scale{In,Out}Cooldown/
+    DisableScaleIn) -- a real IAM-role-backed autoscaling policy object, not
+    a throughput range. This backend tracks no such policy state anywhere for
+    legacy v1 global tables (nor does the separate v2 UpdateTableReplicaAutoScaling
+    path on Table.AutoScaling): AutoScalingRoleArn and ScalingPolicies are always
+    left nil/empty on every AutoScalingSettingsDescription this package emits.
+    Fabricating a role ARN or a policy list with no real policy engine behind it
+    would violate the no-fabricated-data rule; left honestly absent, same category
+    as the already-documented incremental-export and per-replica-autoscaling-via-
+    ReplicaUpdates gaps -- a genuine feature gap, not a wire drop."
   - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
     never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
     replicaAutoScalingDescriptionsRLocked only ever echoes table-level Write settings per
@@ -662,3 +683,41 @@ Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
 `golangci-lint run ./services/dynamodb/...` (0 issues). No `nolint`
 directives in either file touched (`handler_import.go`,
 `import_export_s3.go`).
+
+## 2026-09-11 gopherstack-l3vv: legacy Global Tables v1 RCU write-through, plus a stale bd issue
+
+gopherstack-l3vv was filed 2026-08-14 against `services/dynamodb`'s legacy Global Tables v1
+`ReplicaSettingsDescription`/`ReplicaSettingsUpdate` support, with three parts: (a) model
+`ReplicaGlobalSecondaryIndexSettings`/`ReplicaGlobalSecondaryIndexSettingsUpdate`, (b) fix the
+RCU write-through divergence between `UpdateGlobalTableSettings` and
+`DescribeGlobalTableSettings`, (c) disclose (not fabricate) the autoscaling-policy gap. Before
+touching any code, re-read `global_tables.go`/`store.go` against the issue's own description
+and found part (a) had **already been fully implemented and tested** by an undocumented later
+pass (commit `fb80d66cd`, 2026-08-17, and the 2026-08-23 "manifest-harvest pass" recorded above
+as the `global_table_settings_autoscaling` family) -- `StoredReplicaGSISettings`,
+`StoredReplicaSettings.GSISettings`, `replicaGSISettingsRLocked`, and
+`applyGSISettingsUpdates` all exist and are exercised by
+`TestGlobalTableSettings_GSISettings`/`TestGlobalTableSettings_AutoScaling`
+(`global_table_settings_wire_test.go`), both green before this session started. Same shape as
+the sibling `gopherstack-miw` (elb) finding this session: real work landed, the bd issue was
+simply never closed against it. Re-verified against the pinned SDK anyway
+(`dynamodb@v1.67.0` `types/types.go:2891` `ReplicaGlobalSecondaryIndexSettingsUpdate` has only
+`IndexName`/`ProvisionedReadCapacityUnits`/`ProvisionedReadCapacityAutoScalingSettingsUpdate` --
+no write field -- while `types/types.go:2851` `...SettingsDescription` has both read and write;
+the existing code models exactly that asymmetry, landmine comment already correct).
+
+Part (b) was genuinely still open and is fixed this pass -- see the
+`global_table_settings_rcu_writethrough` family entry above for the full writeup, lock-order
+finding (this file has no established db.mu-then-table.mu nested order; the one place that
+looked like precedent, `ensureReplicaTablesLocked`, mutates `*Table` fields under db.mu
+WITHOUT table.mu at all, which is a bypass, not a safe order to imitate), and citations.
+
+Part (c) is disclosed, not modeled -- see the new gaps entry above
+(`AutoScalingRoleArn`/`ScalingPolicies`, dynamodb@v1.67.0 `types.go:314`).
+
+Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
+`go test -count=1 ./services/elb/... ./services/dynamodb/... ./pkgs/persistence/...` ok;
+`go test -race -count=1 ./services/dynamodb/...` ok; `golangci-lint run ./services/elb/...
+./services/dynamodb/...` 0 issues. No persisted field added (`pendingReplicaCapacityWrite` is
+an unexported, transient, non-persisted struct); `pkgs/persistence` snapshot-inventory guard
+passed unchanged, confirming no version bump was needed.

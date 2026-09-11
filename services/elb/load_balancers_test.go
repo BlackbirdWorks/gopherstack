@@ -414,7 +414,7 @@ func TestAZSubnetMutualExclusivity(t *testing.T) {
 				"AvailabilityZones.member.1":          {"us-east-1a"},
 				"Subnets.member.1":                    {"subnet-000a"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name: "neither_az_nor_subnet_rejected",

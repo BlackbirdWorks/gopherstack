@@ -205,7 +205,7 @@ func TestAttachSubnetsEC2ClassicRejected(t *testing.T) {
 		wantStatus int
 		isVPC      bool
 	}{
-		{"ec2_classic_rejected", http.StatusBadRequest, false},
+		{"ec2_classic_rejected", http.StatusConflict, false},
 		{"vpc_lb_accepted", http.StatusOK, true},
 	}
 
