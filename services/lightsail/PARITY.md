@@ -1340,13 +1340,21 @@ unexported handler: `AllocateStaticIp`, `AttachLoadBalancerTlsCertificate`, `Att
 
 Verified directly rather than assumed: ran the unpatched tool from
 `ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
-both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
-across all 5 old runs and HEAD (161 SDK operations compared) -- the
-determinism defect never flipped a finding here, because the resolution
-that actually mattered (this package's dispatch-table union) already
-carried the correct field set regardless of which fold candidate won.
+both `cmd/reqfieldscan` and `cmd/reqfielddiff` (161 SDK operations
+compared). Not literally byte-identical: the summary line's raw
+declared-field count flickered between 1244 and 1250 across the pre-fix
+runs -- a package-wide count unrelated to any specific finding, the same
+benign class already documented for cleanrooms (see that service's
+`gopherstack-fr30` note). Three fields also shifted confidence tier
+between pre- and post-fix runs: `GetOperation.OperationId`,
+`SetupInstanceHttps.CertificateProvider`, and
+`SetupInstanceHttps.DomainNames`, all tier3 -> tier4. In every run, pre-
+and post-fix alike, all three stayed flagged undeclared -- the tier shift
+never flipped which ops/fields were reported, so re-running this
+comparison later should not be mistaken for a regression.
 
-Verdict: confirmed zero damage, not merely predicted.
+Verdict: the substantive finding is unchanged -- confirmed zero damage
+to what's reported, not a literally byte-identical tool run.
 
 ## 2026-09-06: StartInstance now reassigns the dynamic public IP (gopherstack-i2s6)
 

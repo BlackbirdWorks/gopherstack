@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	casdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	"github.com/aws/aws-sdk-go-v2/service/codeartifact/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
@@ -116,4 +117,160 @@ func TestListRepositoriesInDomain_AdministratorAccountFilter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Empty(t, nonMatching.Repositories)
+}
+
+// TestListAllowedRepositoriesForGroup_Filters proves ListAllowedRepositoriesForGroup's
+// two identifying query-bound parameters (serializers.go's
+// awsRestjson1_serializeOpHttpBindingsListAllowedRepositoriesForGroupInput:
+// SetQuery("package-group") and SetQuery("originRestrictionType")) each narrow the
+// result on their own, rather than one silently returning every allowed repository
+// regardless of the other's value. The op's filter is honoured (gopherstack-bd54's
+// audit found no bug here) but was previously untested for cross-type/cross-group
+// narrowing -- only single-group, single-type add/remove was covered.
+func TestListAllowedRepositoriesForGroup_Filters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, client *casdk.Client)
+		name string
+	}{
+		{
+			name: "restriction type narrows within one group",
+			run: func(t *testing.T, client *casdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateDomain(t.Context(), &casdk.CreateDomainInput{
+					Domain: aws.String("larg-type-domain"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+					Domain: aws.String("larg-type-domain"), Repository: aws.String("repo-publish"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+					Domain: aws.String("larg-type-domain"), Repository: aws.String("repo-upstream"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreatePackageGroup(t.Context(), &casdk.CreatePackageGroupInput{
+					Domain: aws.String("larg-type-domain"), PackageGroup: aws.String("/npm/*"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.UpdatePackageGroupOriginConfiguration(
+					t.Context(), &casdk.UpdatePackageGroupOriginConfigurationInput{
+						Domain:       aws.String("larg-type-domain"),
+						PackageGroup: aws.String("/npm/*"),
+						Restrictions: map[string]types.PackageGroupOriginRestrictionMode{
+							"PUBLISH":           types.PackageGroupOriginRestrictionModeAllowSpecificRepositories,
+							"EXTERNAL_UPSTREAM": types.PackageGroupOriginRestrictionModeAllowSpecificRepositories,
+						},
+						AddAllowedRepositories: []types.PackageGroupAllowedRepository{
+							{
+								OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
+								RepositoryName:        aws.String("repo-publish"),
+							},
+							{
+								OriginRestrictionType: types.PackageGroupOriginRestrictionTypeExternalUpstream,
+								RepositoryName:        aws.String("repo-upstream"),
+							},
+						},
+					},
+				)
+				require.NoError(t, err)
+
+				publishOnly, err := client.ListAllowedRepositoriesForGroup(
+					t.Context(), &casdk.ListAllowedRepositoriesForGroupInput{
+						Domain: aws.String("larg-type-domain"), PackageGroup: aws.String("/npm/*"),
+						OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
+					},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, []string{"repo-publish"}, publishOnly.AllowedRepositories)
+
+				upstreamOnly, err := client.ListAllowedRepositoriesForGroup(
+					t.Context(), &casdk.ListAllowedRepositoriesForGroupInput{
+						Domain: aws.String("larg-type-domain"), PackageGroup: aws.String("/npm/*"),
+						OriginRestrictionType: types.PackageGroupOriginRestrictionTypeExternalUpstream,
+					},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, []string{"repo-upstream"}, upstreamOnly.AllowedRepositories)
+			},
+		},
+		{
+			name: "package group narrows across groups",
+			run: func(t *testing.T, client *casdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateDomain(t.Context(), &casdk.CreateDomainInput{
+					Domain: aws.String("larg-group-domain"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+					Domain: aws.String("larg-group-domain"), Repository: aws.String("repo-npm"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+					Domain: aws.String("larg-group-domain"), Repository: aws.String("repo-pypi"),
+				})
+				require.NoError(t, err)
+
+				for _, pattern := range []string{"/npm/*", "/pypi/*"} {
+					_, err = client.CreatePackageGroup(t.Context(), &casdk.CreatePackageGroupInput{
+						Domain: aws.String("larg-group-domain"), PackageGroup: aws.String(pattern),
+					})
+					require.NoError(t, err)
+				}
+
+				addRepoTo := func(pattern, repo string) {
+					_, err = client.UpdatePackageGroupOriginConfiguration(
+						t.Context(), &casdk.UpdatePackageGroupOriginConfigurationInput{
+							Domain:       aws.String("larg-group-domain"),
+							PackageGroup: aws.String(pattern),
+							Restrictions: map[string]types.PackageGroupOriginRestrictionMode{
+								"PUBLISH": types.PackageGroupOriginRestrictionModeAllowSpecificRepositories,
+							},
+							AddAllowedRepositories: []types.PackageGroupAllowedRepository{
+								{
+									OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
+									RepositoryName:        aws.String(repo),
+								},
+							},
+						},
+					)
+					require.NoError(t, err)
+				}
+				addRepoTo("/npm/*", "repo-npm")
+				addRepoTo("/pypi/*", "repo-pypi")
+
+				npmList, err := client.ListAllowedRepositoriesForGroup(
+					t.Context(), &casdk.ListAllowedRepositoriesForGroupInput{
+						Domain: aws.String("larg-group-domain"), PackageGroup: aws.String("/npm/*"),
+						OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
+					},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, []string{"repo-npm"}, npmList.AllowedRepositories)
+
+				pypiList, err := client.ListAllowedRepositoriesForGroup(
+					t.Context(), &casdk.ListAllowedRepositoriesForGroupInput{
+						Domain: aws.String("larg-group-domain"), PackageGroup: aws.String("/pypi/*"),
+						OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
+					},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, []string{"repo-pypi"}, pypiList.AllowedRepositories)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := codeartifact.NewHandler(codeartifact.NewInMemoryBackend("000000000000", "us-east-1"))
+			client := newTestCodeArtifactClient(t, h)
+			tt.run(t, client)
+		})
+	}
 }
