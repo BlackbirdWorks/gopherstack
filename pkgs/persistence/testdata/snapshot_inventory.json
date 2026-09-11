@@ -25507,6 +25507,7 @@
       "Queue.delayedCount int",
       "Queue.dlq *Queue",
       "Queue.fifoSendTimes map[string][]time.Time",
+      "Queue.fifoSendTimesQueue []time.Time",
       "Queue.fifoSeqCounter uint64",
       "Queue.hasActivity atomic.Bool",
       "Queue.inFlightByHandle map[string]*InFlightMessage",
