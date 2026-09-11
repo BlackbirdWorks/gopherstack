@@ -457,8 +457,16 @@ type UserStackAssociationError struct {
 }
 
 // Session represents an active AppStream streaming session.
+//
+// MaxExpirationTime is derived, not stored: real AWS defines it as
+// StartTime plus the owning fleet's MaxUserDurationInSeconds (SDK doc
+// comment on types.Session.MaxExpirationTime, appstream@v1.64.5
+// types/types.go:1540-1546). It is left zero when the owning fleet can no
+// longer be found (deleted mid-session); callers must check IsZero before
+// emitting it.
 type Session struct {
 	StartTime          time.Time
+	MaxExpirationTime  time.Time
 	ID                 string
 	FleetName          string
 	StackName          string

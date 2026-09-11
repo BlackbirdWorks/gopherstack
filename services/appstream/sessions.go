@@ -75,7 +75,13 @@ func (b *InMemoryBackend) DescribeSessions(
 			continue
 		}
 
-		result = append(result, s.toSession())
+		sess := s.toSession()
+
+		if f, ok := b.fleets.Get(s.FleetName); ok {
+			sess.MaxExpirationTime = s.StartTime.Add(time.Duration(f.MaxUserDurationSecs) * time.Second)
+		}
+
+		result = append(result, sess)
 	}
 
 	return result, nil
@@ -129,7 +135,7 @@ func (b *InMemoryBackend) CreateStreamingURL(
 
 	sessionID := b.nextSessionID()
 	s := &storedSession{
-		StartTime:          time.Now().UTC(),
+		StartTime:          b.now(),
 		ID:                 sessionID,
 		FleetName:          fleetName,
 		StackName:          stackName,
@@ -145,7 +151,7 @@ func (b *InMemoryBackend) CreateStreamingURL(
 		validity = defaultStreamingURLValiditySeconds
 	}
 
-	expires := time.Now().UTC().Add(time.Duration(validity) * time.Second)
+	expires := b.now().Add(time.Duration(validity) * time.Second)
 
 	url := fmt.Sprintf(
 		"https://appstream2.%s.aws.amazon.com/authenticate?param=%s", b.region, sessionID,

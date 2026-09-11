@@ -46,11 +46,12 @@ const maxCBORBodyBytes = 1 << 20
 // operation starts emitting a new timestamp-shaped field, its key must be
 // added here or the SDK will fail to parse that field.
 var timestampKeys = map[string]bool{ //nolint:gochecknoglobals // static lookup table, not mutated
-	"CreatedTime":      true, //nolint:goconst // existing issue: see handler.go/handler_*.go's own "CreatedTime" literals.
-	"CreatedDate":      true,
-	"LastModifiedTime": true,
-	"StartTime":        true,
-	"Expires":          true,
+	"CreatedTime":       true, //nolint:goconst // existing issue: see handler*.go's own "CreatedTime" literals.
+	"CreatedDate":       true,
+	"LastModifiedTime":  true,
+	"StartTime":         true,
+	"Expires":           true,
+	"MaxExpirationTime": true,
 }
 
 // isCBORRequest returns true when the request uses the rpc-v2-cbor (Smithy

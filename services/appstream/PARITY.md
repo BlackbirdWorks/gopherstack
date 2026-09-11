@@ -588,3 +588,168 @@ clean), `go test -race -count=1 ./services/appstream/...` (pass, no new
 tests -- both findings above are disclosed-not-fixed, so no regression to
 guard), `golangci-lint run ./services/appstream/...` (0 issues). No source
 changes this pass.
+
+## 2026-09-11 Never-emitted output members (kind-sweep follow-up)
+
+Follow-up to the earlier appstream half of gopherstack-g479 item 2
+(scratchpad `cborkind/NOTES.md`), which found six Timestamp-shaped output
+members this service's `deserializeCBOR_*` functions declare
+(appstream@v1.64.5 `deserializers.go`) but gopherstack never emits at all.
+This pass verified each against its real source of truth and fixed the one
+with an honest, already-stored source; the other five stay disclosed, not
+fabricated.
+
+### The six Timestamp members
+
+| member | deserializer (func, line) | verdict |
+|---|---|---|
+| `Session.MaxExpirationTime` | `deserializeCBOR_Session`, :8965 | **fixed** -- see below |
+| `ResourceError.ErrorTimestamp` | `deserializeCBOR_ResourceError`, :8633 | disclosed: this backend never produces a `ResourceError` at all |
+| `Image.PublicBaseImageReleasedDate` | `deserializeCBOR_Image`, :7720 | disclosed: no public base image catalog exists |
+| `UsageReportSubscription.LastGeneratedReportDate` | `deserializeCBOR_UsageReportSubscription`, :9852 | disclosed: no report generation exists |
+| `AdminAppLicenseUsageRecord.SubscriptionFirstUsedDate` | `deserializeCBOR_AdminAppLicenseUsageRecord`, :5450 | disclosed: no license-usage tracking exists |
+| `AdminAppLicenseUsageRecord.SubscriptionLastUsedDate` | `deserializeCBOR_AdminAppLicenseUsageRecord`, :5461 | disclosed: no license-usage tracking exists |
+
+**`Session.MaxExpirationTime` -- fixed.** Real `types.Session.MaxExpirationTime`'s
+doc comment (`types/types.go:1540-1546`) says the value is "based on the
+MaxUserDurationinSeconds value" of the streaming session's fleet
+(`types.Fleet.MaxUserDurationInSeconds`, `types/types.go:1004`, "Specify a
+value between 600 and 360000"). Both source values already exist in this
+backend (`storedSession.StartTime`, `storedFleet.MaxUserDurationSecs`), so
+`DescribeSessions` (`sessions.go`) now looks up the session's fleet and sets
+`Session.MaxExpirationTime = StartTime + fleet.MaxUserDurationSecs` when the
+fleet still exists (a session survives fleet deletion in this backend, so
+the field is left zero and omitted from the wire in that edge case --
+matches this file's established "conditional field" convention, e.g.
+`Fleet.ImageName`/`ImageArn` in `fleetToResponse`). `"MaxExpirationTime"`
+added to `rpcv2cbor.go`'s `timestampKeys` (the CBOR Tag-1 encode gate).
+
+Introduced an injectable backend clock (`InMemoryBackend.clock` +
+`now()` + `SetClock()`, `store.go`) following the exact pattern already
+used by `services/elasticache`, `services/memorydb`, and
+`services/awsconfig`'s `InMemoryBackend.clock`/`SetClock` (this service had
+none before). `CreateStreamingURL`'s `StartTime`/`Expires` now go through
+`b.now()` instead of a bare `time.Now().UTC()`, which is what lets the new
+test (`session_max_expiration_test.go`) assert an exact
+`MaxExpirationTime` without a sleep.
+
+**The other five -- disclosed, not fixed**, each verified by grepping the
+parent type/concept out of gopherstack entirely, not just the field:
+
+- `ResourceError` (backing `Fleet.FleetErrors`, `Image.ImageErrors`,
+  `ImageBuilder.ImageBuilderErrors`, `AppBlockBuilder.AppBlockBuilderErrors`,
+  `Stack.StackErrors`, `AppBlock.AppBlockErrors`,
+  `UsageReportSubscription.SubscriptionErrors`) has no Go type anywhere in
+  `services/appstream` and no backend code path ever constructs one --
+  every one of those error-list members is structurally absent, not just
+  `ErrorTimestamp`. Nothing to timestamp.
+- `Image.Visibility` is unconditionally `"PRIVATE"` for every image this
+  backend creates (`images.go`, `DescribeImages`'s own doc comment: "every
+  image this backend creates has Visibility ... never PUBLIC or SHARED from
+  another account") -- there is no public base image, seeded or otherwise,
+  so there is no real `PublicBaseImageReleasedDate` to source.
+- `CreateUsageReportSubscription`/`DescribeUsageReportSubscriptions`
+  (`usage_report_subscriptions.go`) model the subscription record only; no
+  code path ever runs a report or writes to S3. `LastGeneratedReportDate`
+  would have to be invented.
+- `DescribeAppLicenseUsage` (`applications.go:199-205`) already documents
+  why it always returns an empty list: "This backend tracks no BYOL/
+  license-included application state." With no
+  `AdminAppLicenseUsageRecord` ever constructed, both of its Timestamp
+  members are moot, not merely unfilled.
+
+### Wider sweep: every other `deserializeCBOR_*` output member gopherstack never emits
+
+Extracted the full member list of every `deserializeCBOR_<Shape>` function
+backing a domain type this service actually models (Fleet, Image,
+ImageBuilder, Application, Stack, AppBlockBuilder, AppBlock, Session,
+UsageReportSubscription, DirectoryConfig, Entitlement, Theme, User,
+ExportImageTask), and diffed against each `*ToResponse` builder's emitted
+keys. `Entitlement`, `Theme`, `User`, and `DirectoryConfig` are complete
+(every real member emitted, conditionally where real AWS also treats it as
+optional). The rest have real gaps, all structural (the backend has no
+concept for the field at all, not a wrong value) -- disclosed here, not
+fixed, same rule as the six Timestamp members: honest source or disclosed
+absence, no invented data.
+
+- **Fleet** (`fleetToResponse`, `handler.go:727`): never emits `VpcConfig`,
+  `FleetErrors`, `DomainJoinInfo`, `IamRoleArn`, `StreamView`, `Platform`,
+  `MaxConcurrentSessions`, `UsbDeviceFilterStrings`,
+  `SessionScriptS3Location`, `MaxSessionsPerInstance`, `RootVolumeConfig`,
+  `DisableIMDSV1` -- none of these concepts exist in `CreateFleet`'s
+  parameters or `storedFleet`. `ComputeCapacityStatus`'s elastic-fleet
+  session-count fields (`DesiredUserSessions` etc.) are the pre-existing gap
+  already on record (2026-08-31 sweep).
+- **Image** (`imageToResponse`, `handler_image.go:506`): never emits
+  `ImageBuilderSupported`, `ImageBuilderName`, `StateChangeReason`,
+  `Applications`, `AppstreamAgentVersion`, `ImagePermissions` (embedded --
+  the separate `DescribeImagePermissions` op is implemented),
+  `ImageErrors`, `LatestAppstreamAgentVersion`, `SupportedInstanceFamilies`,
+  `DynamicAppProvidersEnabled`, `ImageSharedWithOthers`,
+  `ManagedSoftwareIncluded`, `ImageType`.
+- **ImageBuilder** (`imageBuilderToResponse`, `handler_image.go:520`):
+  never emits `VpcConfig`, `IamRoleArn`, `StateChangeReason`,
+  `EnableDefaultInternetAccess`, `DomainJoinInfo`,
+  `NetworkAccessConfiguration`, `ImageBuilderErrors`,
+  `AppstreamAgentVersion`, `AccessEndpoints`, `RootVolumeConfig`,
+  `LatestAppstreamAgentVersion`, `DisableIMDSV1`. (Its pre-existing
+  `ImageName`-vs-`ImageArn` wire-key mismatch, and `AppBlockBuilder`'s
+  now-resolved `VpcConfig` gap, are already on record above -- not
+  duplicated here.)
+- **Application** (`applicationToResponse`, `handler_application.go:497`):
+  never emits `IconURL`, `LaunchParameters`, `Enabled`, `Metadata`,
+  `WorkingDirectory`.
+- **Stack** (`stackToResponse`, `handler.go:716`): never emits
+  `StorageConnectors`, `RedirectURL`, `FeedbackURL`, `StackErrors`,
+  `UserSettings`, `ApplicationSettings`, `AccessEndpoints`,
+  `EmbedHostDomains`, `StreamingExperienceSettings`, `ContentRedirection`,
+  `AgentAccessConfig`.
+- **AppBlock** (`appBlockToResponse`, `handler_appblock.go:313`): never
+  emits `DisplayName`, `SourceS3Location`, `SetupScriptDetails`,
+  `PostSetupScriptDetails`, `PackagingType`, `AppBlockErrors` --
+  `CreateAppBlock`'s own parameters (`name, description string, tags`) never
+  accept any of these, so the gap runs all the way back to Create.
+- **AppBlockBuilder** (`appBlockBuilderToResponse`,
+  `handler_appblock.go:324`): never emits `DisplayName`,
+  `EnableDefaultInternetAccess`, `IamRoleArn`, `AppBlockBuilderErrors`,
+  `StateChangeReason`, `AccessEndpoints`, `DisableIMDSV1` -- same pattern,
+  `CreateAppBlockBuilder`'s parameters don't accept a display name at all.
+- **Session** (`sessionToResponse`, `handler_user.go:505`, this pass):
+  never emits `NetworkAccessConfiguration`, `InstanceId`,
+  `InstanceDrainStatus` -- this backend has no streaming-instance concept
+  (already on record: `DescribeSessions`'s own doc comment).
+- **UsageReportSubscription**: never emits `SubscriptionErrors` (see
+  `ResourceError` above) in addition to `LastGeneratedReportDate`.
+- **ExportImageTask** (`exportImageTaskToResponse`, `handler_image.go:537`):
+  never emits `ErrorDetails` -- export tasks in this backend never fail, so
+  there is nothing to report.
+
+None of these were fabricated or fixed this pass; each is a genuine
+structural absence (the owning Go type/Create parameter doesn't exist),
+not a wrong value under an existing field. Filing all of them as
+implementation gaps is future work, not in scope here.
+
+### Also found, unrelated to Timestamp/member coverage
+
+`Fleet`, `Application`, and `Stack` (`fleetToResponse`, `stackToResponse`,
+`applicationToResponse`) each emit a `Tags` key that is **not a member of
+any of their real deserializers** (checked: `Tags` never appears in
+`deserializeCBOR_Fleet`/`_Application`/`_Stack`'s key switch) -- the same
+harmless-extra-field pattern already on record for `AppBlockBuilder`/
+`ImageBuilder` (2026-08-31 sweep, finding 1: a real client's CBOR decoder
+silently ignores an unrecognized key). Not fixed, not new; recorded here
+only because this pass's full member extraction surfaced it on three more
+structs than previously documented.
+
+Gates: `go build ./...` (whole module; `services/quicksight` was mid-edit
+by a concurrent session and failed to build at the repo root throughout --
+verified this package's changes build clean in an isolated
+`git worktree add --detach` copy), `go vet ./services/appstream/...
+./pkgs/persistence/...` clean, `go test -race -count=1
+./services/appstream/... ./pkgs/persistence/...` all pass (one new test,
+`TestSession_MaxExpirationTimeRealClient`, 2 subtests, drives a real
+`aws-sdk-go-v2/service/appstream` client through `DescribeSessions`),
+`golangci-lint run ./services/appstream/...` 0 issues. No persisted fields
+added (`MaxExpirationTime` is derived at read time from already-stored
+`StartTime`/`MaxUserDurationSecs`, never stored itself) -- `pkgs/persistence/
+testdata/snapshot_inventory.json` untouched, no version bump.

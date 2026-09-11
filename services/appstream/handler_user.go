@@ -503,7 +503,7 @@ func userToResponse(u *User) map[string]any {
 }
 
 func sessionToResponse(s *Session) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Id":                 s.ID,
 		keyFleetName:         s.FleetName,
 		"StackName":          s.StackName,
@@ -513,6 +513,12 @@ func sessionToResponse(s *Session) map[string]any {
 		"AuthenticationType": s.AuthenticationType,
 		"StartTime":          awstime.Epoch(s.StartTime),
 	}
+
+	if !s.MaxExpirationTime.IsZero() {
+		resp["MaxExpirationTime"] = awstime.Epoch(s.MaxExpirationTime)
+	}
+
+	return resp
 }
 
 func themeToResponse(th *Theme) map[string]any {
