@@ -3666,7 +3666,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire IoT Analytics' RunPipelineActivity lambda/deviceRegistryEnrich/
 	// deviceShadowEnrich activities to the real Lambda and IoT backends.
-	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"])
+	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"], byName["IoTDataPlane"])
 
 	// Wire Kinesis Analytics' DiscoverInputSchema to the real Kinesis and S3 backends so it
 	// samples real records instead of returning UnableToDetectSchemaException for every
@@ -12794,31 +12794,32 @@ func (a *iotAnalyticsThingRegistryAdapter) DescribeThing(thingName string) (map[
 	}, nil
 }
 
-// iotAnalyticsThingShadowAdapter adapts the IoT backend's GetThingShadow (classic shadow) to
-// the iotanalytics.ThingShadowStore interface for the "deviceShadowEnrich" pipeline activity
-// (iot:GetThingShadow).
+// iotAnalyticsThingShadowAdapter adapts the IoT Data Plane backend's GetThingShadow (classic
+// shadow) to the iotanalytics.ThingShadowStore interface for the "deviceShadowEnrich" pipeline
+// activity (iotdata:GetThingShadow).
 type iotAnalyticsThingShadowAdapter struct {
-	backend *iotbackend.InMemoryBackend
+	backend *iotdataplanebackend.InMemoryBackend
 }
 
 func (a *iotAnalyticsThingShadowAdapter) GetThingShadow(thingName string) (map[string]any, error) {
-	s, err := a.backend.GetThingShadow(thingName, "")
+	doc, err := a.backend.GetThingShadow(thingName, "")
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"state":    s.State,
-		"metadata": s.Metadata,
-		"version":  s.Version,
-	}, nil
+	var data map[string]any
+	if unmarshalErr := json.Unmarshal(doc, &data); unmarshalErr != nil {
+		return nil, fmt.Errorf("iotanalytics: unmarshal thing shadow document: %w", unmarshalErr)
+	}
+
+	return data, nil
 }
 
 // wireIoTAnalyticsCrossService wires RunPipelineActivity's lambda/deviceRegistryEnrich/
-// deviceShadowEnrich activities (services/iotanalytics/pipelines.go) to the real Lambda and
-// IoT backends, following the same LambdaInvoker/adapter patterns wireStorageAndSecretsIntegrations
-// already uses for SNS, Firehose, and SecretsManager.
-func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerable) {
+// deviceShadowEnrich activities (services/iotanalytics/pipelines.go) to the real Lambda,
+// IoT, and IoT Data Plane backends, following the same LambdaInvoker/adapter patterns
+// wireStorageAndSecretsIntegrations already uses for SNS, Firehose, and SecretsManager.
+func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg, iotDPReg service.Registerable) {
 	iotaH, ok := iotaReg.(*iotanalyticsbackend.Handler)
 	if !ok {
 		return
@@ -12835,18 +12836,17 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerabl
 		}
 	}
 
-	iotH, iotOk := iotReg.(*iotbackend.Handler)
-	if !iotOk {
-		return
+	if iotH, iotOk := iotReg.(*iotbackend.Handler); iotOk {
+		if iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend); ibkOk {
+			iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
+		}
 	}
 
-	iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
-	if !ibkOk {
-		return
+	if iotDPH, iotDPOk := iotDPReg.(*iotdataplanebackend.Handler); iotDPOk {
+		if iotDPBk, idpbkOk := iotDPH.Backend.(*iotdataplanebackend.InMemoryBackend); idpbkOk {
+			iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotDPBk})
+		}
 	}
-
-	iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
-	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
 }
 
 // ddbKinesisStreamRecordData mirrors the "dynamodb" node of the JSON payload
