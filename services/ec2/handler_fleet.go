@@ -86,12 +86,13 @@ type describeFleetHistoryResponse struct {
 }
 
 type networkInsightsPathItem struct {
-	NetworkInsightsPathID  string `xml:"networkInsightsPathId"`
-	NetworkInsightsPathArn string `xml:"networkInsightsPathArn,omitempty"`
-	SourceID               string `xml:"source,omitempty"`
-	DestinationID          string `xml:"destination,omitempty"`
-	Protocol               string `xml:"protocol,omitempty"`
-	DestinationPort        int    `xml:"destinationPort,omitempty"`
+	NetworkInsightsPathID  string          `xml:"networkInsightsPathId"`
+	NetworkInsightsPathArn string          `xml:"networkInsightsPathArn,omitempty"`
+	SourceID               string          `xml:"source,omitempty"`
+	DestinationID          string          `xml:"destination,omitempty"`
+	Protocol               string          `xml:"protocol,omitempty"`
+	TagSet                 []simpleTagItem `xml:"tagSet>item"`
+	DestinationPort        int             `xml:"destinationPort,omitempty"`
 }
 
 func toFleetItem(f *Fleet) fleetItem {

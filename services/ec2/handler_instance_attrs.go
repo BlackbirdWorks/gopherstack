@@ -379,7 +379,8 @@ func (h *Handler) handleAssociateInstanceEventWindow(vals url.Values, reqID stri
 	}
 
 	return &associateInstanceEventWindowResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, InstanceEventWindow: toInstanceEventWindowItem(ew),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		InstanceEventWindow: toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 	}, nil
 }
 
@@ -393,7 +394,8 @@ func (h *Handler) handleDisassociateInstanceEventWindow(vals url.Values, reqID s
 	}
 
 	return &disassociateInstanceEventWindowResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, InstanceEventWindow: toInstanceEventWindowItem(ew),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		InstanceEventWindow: toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 	}, nil
 }
 

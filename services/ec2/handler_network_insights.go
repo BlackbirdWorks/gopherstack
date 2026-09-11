@@ -41,8 +41,9 @@ type describeNetworkInsightsAnalysesResponse struct {
 }
 
 type networkInsightsAccessScopeItem struct {
-	NetworkInsightsAccessScopeID  string `xml:"networkInsightsAccessScopeId"`
-	NetworkInsightsAccessScopeArn string `xml:"networkInsightsAccessScopeArn,omitempty"`
+	NetworkInsightsAccessScopeID  string          `xml:"networkInsightsAccessScopeId"`
+	NetworkInsightsAccessScopeArn string          `xml:"networkInsightsAccessScopeArn,omitempty"`
+	TagSet                        []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createNetworkInsightsAccessScopeResponse struct {
@@ -105,7 +106,7 @@ type getNetworkInsightsAccessScopeAnalysisFindingsResponse struct {
 	} `xml:"analysisFindingSet"`
 }
 
-func toNetworkInsightsPathItem(p *NetworkInsightsPath) networkInsightsPathItem {
+func toNetworkInsightsPathItem(p *NetworkInsightsPath, tags map[string]string) networkInsightsPathItem {
 	return networkInsightsPathItem{
 		NetworkInsightsPathID:  p.NetworkInsightsPathID,
 		NetworkInsightsPathArn: p.NetworkInsightsPathArn,
@@ -113,6 +114,7 @@ func toNetworkInsightsPathItem(p *NetworkInsightsPath) networkInsightsPathItem {
 		DestinationID:          p.DestinationID,
 		Protocol:               p.Protocol,
 		DestinationPort:        p.DestinationPort,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -129,9 +131,16 @@ func (h *Handler) handleCreateNetworkInsightsPath(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "network-insights-path")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{p.NetworkInsightsPathID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createNetworkInsightsPathResponse{
 		RequestID:           reqID,
-		NetworkInsightsPath: toNetworkInsightsPathItem(p),
+		NetworkInsightsPath: toNetworkInsightsPathItem(p, tags),
 	}, nil
 }
 
@@ -161,7 +170,7 @@ func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID stri
 	for _, p := range paths {
 		resp.NetworkInsightsPaths.Items = append(
 			resp.NetworkInsightsPaths.Items,
-			toNetworkInsightsPathItem(p),
+			toNetworkInsightsPathItem(p, h.Backend.TagsForResource(p.NetworkInsightsPathID)),
 		)
 	}
 
@@ -233,22 +242,31 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(
 
 func toNetworkInsightsAccessScopeItem(
 	s *NetworkInsightsAccessScope,
+	tags map[string]string,
 ) networkInsightsAccessScopeItem {
 	return networkInsightsAccessScopeItem{
 		NetworkInsightsAccessScopeID:  s.NetworkInsightsAccessScopeID,
 		NetworkInsightsAccessScopeArn: s.NetworkInsightsAccessScopeArn,
+		TagSet:                        tagItemsFromMap(tags),
 	}
 }
 
-func (h *Handler) handleCreateNetworkInsightsAccessScope(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateNetworkInsightsAccessScope(vals url.Values, reqID string) (any, error) {
 	s, err := h.Backend.CreateNetworkInsightsAccessScope()
 	if err != nil {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "network-insights-access-scope")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{s.NetworkInsightsAccessScopeID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createNetworkInsightsAccessScopeResponse{
 		RequestID:                  reqID,
-		NetworkInsightsAccessScope: toNetworkInsightsAccessScopeItem(s),
+		NetworkInsightsAccessScope: toNetworkInsightsAccessScopeItem(s, tags),
 	}, nil
 }
 
@@ -284,7 +302,7 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopes(
 	for _, s := range scopes {
 		resp.NetworkInsightsAccessScopes.Items = append(
 			resp.NetworkInsightsAccessScopes.Items,
-			toNetworkInsightsAccessScopeItem(s),
+			toNetworkInsightsAccessScopeItem(s, h.Backend.TagsForResource(s.NetworkInsightsAccessScopeID)),
 		)
 	}
 

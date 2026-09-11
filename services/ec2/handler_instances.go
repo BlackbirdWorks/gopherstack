@@ -448,6 +448,7 @@ type instanceEventWindowItem struct {
 	CronExpression        string                                   `xml:"cronExpression,omitempty"`
 	State                 string                                   `xml:"state"`
 	AssociationTarget     instanceEventWindowAssociationTargetItem `xml:"associationTarget"`
+	TagSet                []simpleTagItem                          `xml:"tagSet>item"`
 }
 
 type createInstanceEventWindowResponse struct {
@@ -498,13 +499,17 @@ type getInstanceTypesFromReqsResponse struct {
 	} `xml:"instanceTypeSet"`
 }
 
-func toInstanceConnectEndpointItem(ep *InstanceConnectEndpoint) instanceConnectEndpointItem {
+func toInstanceConnectEndpointItem(
+	ep *InstanceConnectEndpoint,
+	tags map[string]string,
+) instanceConnectEndpointItem {
 	return instanceConnectEndpointItem{
 		InstanceConnectEndpointID: ep.InstanceConnectEndpointID,
 		SubnetID:                  ep.SubnetID,
 		VPCID:                     ep.VPCID,
 		State:                     ep.State,
 		PreserveClientIP:          ep.PreserveClientIP,
+		TagSet:                    tagItemsFromMap(tags),
 	}
 }
 
@@ -518,9 +523,16 @@ func (h *Handler) handleCreateInstanceConnectEndpoint(vals url.Values, reqID str
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "instance-connect-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.InstanceConnectEndpointID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInstanceConnectEndpointResponse{
 		RequestID:               reqID,
-		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep),
+		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep, tags),
 	}, nil
 }
 
@@ -532,6 +544,7 @@ type deleteInstanceConnectEndpointResponse struct {
 
 func (h *Handler) handleDeleteInstanceConnectEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceConnectEndpointId")
+	tags := h.Backend.TagsForResource(id)
 
 	ep, err := h.Backend.DeleteInstanceConnectEndpoint(id)
 	if err != nil {
@@ -540,7 +553,7 @@ func (h *Handler) handleDeleteInstanceConnectEndpoint(vals url.Values, reqID str
 
 	return &deleteInstanceConnectEndpointResponse{
 		RequestID:               reqID,
-		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep),
+		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep, tags),
 	}, nil
 }
 
@@ -563,7 +576,7 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 	for _, ep := range eps {
 		resp.InstanceConnectEndpointSet.Items = append(
 			resp.InstanceConnectEndpointSet.Items,
-			toInstanceConnectEndpointItem(ep),
+			toInstanceConnectEndpointItem(ep, h.Backend.TagsForResource(ep.InstanceConnectEndpointID)),
 		)
 	}
 
@@ -584,7 +597,7 @@ func (h *Handler) handleModifyInstanceConnectEndpoint(vals url.Values, reqID str
 	}, nil
 }
 
-func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem {
+func toInstanceEventWindowItem(ew *InstanceEventWindow, tags map[string]string) instanceEventWindowItem {
 	return instanceEventWindowItem{
 		InstanceEventWindowID: ew.InstanceEventWindowID,
 		Name:                  ew.Name,
@@ -594,6 +607,7 @@ func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem 
 			InstanceIDs:      ew.InstanceIDs,
 			DedicatedHostIDs: ew.DedicatedHostIDs,
 		},
+		TagSet: tagItemsFromMap(tags),
 	}
 }
 
@@ -606,9 +620,16 @@ func (h *Handler) handleCreateInstanceEventWindow(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "instance-event-window")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ew.InstanceEventWindowID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInstanceEventWindowResponse{
 		RequestID:           reqID,
-		InstanceEventWindow: toInstanceEventWindowItem(ew),
+		InstanceEventWindow: toInstanceEventWindowItem(ew, tags),
 	}, nil
 }
 
@@ -656,7 +677,7 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	for _, ew := range ews {
 		resp.InstanceEventWindowSet.Items = append(
 			resp.InstanceEventWindowSet.Items,
-			toInstanceEventWindowItem(ew),
+			toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 		)
 	}
 
@@ -681,7 +702,7 @@ func (h *Handler) handleModifyInstanceEventWindow(vals url.Values, reqID string)
 
 	return &modifyInstanceEventWindowResponse{
 		RequestID:           reqID,
-		InstanceEventWindow: toInstanceEventWindowItem(ew),
+		InstanceEventWindow: toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 	}, nil
 }
 

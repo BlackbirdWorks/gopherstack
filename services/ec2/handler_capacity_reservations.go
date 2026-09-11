@@ -13,11 +13,12 @@ type createCapacityReservationResponse struct {
 }
 
 type instanceConnectEndpointItem struct {
-	InstanceConnectEndpointID string `xml:"instanceConnectEndpointId"`
-	SubnetID                  string `xml:"subnetId"`
-	VPCID                     string `xml:"vpcId"`
-	State                     string `xml:"state"`
-	PreserveClientIP          bool   `xml:"preserveClientIp"`
+	InstanceConnectEndpointID string          `xml:"instanceConnectEndpointId"`
+	SubnetID                  string          `xml:"subnetId"`
+	VPCID                     string          `xml:"vpcId"`
+	State                     string          `xml:"state"`
+	TagSet                    []simpleTagItem `xml:"tagSet>item"`
+	PreserveClientIP          bool            `xml:"preserveClientIp"`
 }
 
 type groupsForCapacityReservationResponse struct {

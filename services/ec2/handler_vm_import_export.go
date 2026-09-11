@@ -257,9 +257,10 @@ type exportTaskItem struct {
 	StatusMessage         string                    `xml:"statusMessage,omitempty"`
 	InstanceExportDetails instanceExportDetailsItem `xml:"instanceExport"`
 	ExportToS3Task        exportToS3TaskItem        `xml:"exportToS3"`
+	TagSet                []simpleTagItem           `xml:"tagSet>item"`
 }
 
-func toExportTaskItem(t *ExportTask) exportTaskItem {
+func toExportTaskItem(t *ExportTask, tags map[string]string) exportTaskItem {
 	return exportTaskItem{
 		Description:   t.Description,
 		ExportTaskID:  t.ExportTaskID,
@@ -275,6 +276,7 @@ func toExportTaskItem(t *ExportTask) exportTaskItem {
 			S3Bucket:        t.S3Bucket,
 			S3Key:           t.S3Key,
 		},
+		TagSet: tagItemsFromMap(tags),
 	}
 }
 
@@ -417,8 +419,17 @@ func (h *Handler) handleCreateInstanceExportTask(vals url.Values, reqID string) 
 		return nil, err
 	}
 
+	// CreateInstanceExportTaskInput's ResourceType enum value is
+	// "export-instance-task", not "instance-export-task" (enums.go:10490).
+	tags := parseTagSpecification(vals, "export-instance-task")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{task.ExportTaskID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInstanceExportTaskResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, ExportTask: toExportTaskItem(task),
+		Xmlns: ec2XMLNS, RequestID: reqID, ExportTask: toExportTaskItem(task, tags),
 	}, nil
 }
 
@@ -436,7 +447,10 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values, reqID string) (any,
 
 	resp := &describeExportTasksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range tasks {
-		resp.ExportTaskSet.Items = append(resp.ExportTaskSet.Items, toExportTaskItem(t))
+		resp.ExportTaskSet.Items = append(
+			resp.ExportTaskSet.Items,
+			toExportTaskItem(t, h.Backend.TagsForResource(t.ExportTaskID)),
+		)
 	}
 
 	return resp, nil
