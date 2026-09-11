@@ -221,6 +221,17 @@ func (h *Handler) handleDeleteIntegration(vals url.Values) (any, error) {
 	}, nil
 }
 
+// DescribeIntegrations' Filters is intentionally left unfiltered
+// (gopherstack-vl4m). Unlike this batch's other six ops, neither the pinned
+// SDK's own doc comment (rds@v1.124.1 api_op_DescribeIntegrations.go:31,
+// "A filter that specifies one or more resources to return.") nor AWS's live
+// API/CLI reference documents any actual filter name for this op -- the CLI
+// reference's own "actions that can be filtered" list omits
+// DescribeIntegrations entirely. Guessing names (e.g. integration-arn,
+// source-arn, target-arn, status, inferred only from the Integration type's
+// own fields) risks the wire-shape-mismatch bug class parity-principles.md
+// warns about, so this is left as a known gap pending a verified filter-name
+// list.
 func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 	identifier := vals.Get("IntegrationIdentifier")
 

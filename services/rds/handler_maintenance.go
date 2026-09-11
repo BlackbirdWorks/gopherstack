@@ -66,6 +66,10 @@ type describePendingMaintenanceActionsResponse struct {
 func (h *Handler) handleDescribePendingMaintenanceActions(vals url.Values) (any, error) {
 	resourceARN := vals.Get("ResourceIdentifier")
 	actions := h.Backend.DescribePendingMaintenanceActions(resourceARN)
+	actions, err := applyPendingMaintenanceActionFilters(vals, actions)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlResourcePendingMaintenanceActions, 0, len(actions))
 	for _, a := range actions {
 		members = append(members, xmlResourcePendingMaintenanceActions{

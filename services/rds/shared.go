@@ -1,7 +1,9 @@
 package rds
 
 import (
+	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -35,6 +37,57 @@ const (
 	// narrowing a Describe* result set by snapshot type (manual/automated).
 	// Shared by DescribeDBSnapshots and DescribeDBClusterSnapshots.
 	filterNameSnapshotType = "snapshot-type"
+	// filterNameParameterName is the AWS Filters.Filter.N.Name value for
+	// narrowing a Describe* result set by parameter name. Shared by
+	// DescribeDBParameters and DescribeDBClusterParameters, whose own doc
+	// comments each say "The only supported filter is parameter-name".
+	filterNameParameterName = "parameter-name"
+	// filterNameDBClusterEndpointType is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterEndpoints by endpoint type (reader/writer/custom).
+	filterNameDBClusterEndpointType = "db-cluster-endpoint-type"
+	// filterNameDBClusterEndpointCustomType is the Filters.Filter.N.Name
+	// value for narrowing DescribeDBClusterEndpoints by a custom endpoint's
+	// sub-type (reader/any). Accepted but not modeled — see
+	// isKnownDBClusterEndpointFilterName.
+	filterNameDBClusterEndpointCustomType = "db-cluster-endpoint-custom-type"
+	// filterNameDBClusterEndpointID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterEndpoints by endpoint identifier.
+	filterNameDBClusterEndpointID = "db-cluster-endpoint-id"
+	// filterNameDBClusterEndpointStatus is the Filters.Filter.N.Name value
+	// for narrowing DescribeDBClusterEndpoints by endpoint status.
+	filterNameDBClusterEndpointStatus = "db-cluster-endpoint-status"
+	// filterNameDBParameterGroupFamily is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBEngineVersions by parameter group family. Accepted
+	// but not modeled — DBEngineVersion carries no family attribute.
+	filterNameDBParameterGroupFamily = "db-parameter-group-family"
+	// filterNameEngineMode is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBEngineVersions by engine mode. Accepted but not modeled —
+	// DBEngineVersion carries no engine-mode attribute.
+	filterNameEngineMode = "engine-mode"
+	// filterNameEngineVersion is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBEngineVersions by engine version.
+	filterNameEngineVersion = "engine-version"
+	// filterNameStatus is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBEngineVersions and DescribeExportTasks by status. Accepted
+	// but not modeled for DescribeDBEngineVersions — DBEngineVersion carries
+	// no status attribute.
+	filterNameStatus = "status"
+	// filterNameRegion is the Filters.Filter.N.Name value for narrowing
+	// DescribeGlobalClusters by member region. Accepted but not modeled — no
+	// gopherstack API path ever populates GlobalCluster.PrimaryRegion or
+	// GlobalClusterMembers (handler_global_clusters.go's own comment on
+	// AddGlobalClusterMemberInternal), so there is no real region data to
+	// match against.
+	filterNameRegion = "region"
+	// filterNameExportTaskIdentifier is the Filters.Filter.N.Name value for
+	// narrowing DescribeExportTasks by export task identifier.
+	filterNameExportTaskIdentifier = "export-task-identifier"
+	// filterNameS3Bucket is the Filters.Filter.N.Name value for narrowing
+	// DescribeExportTasks by destination S3 bucket.
+	filterNameS3Bucket = "s3-bucket"
+	// filterNameSourceArn is the Filters.Filter.N.Name value for narrowing
+	// DescribeExportTasks by the exported resource's ARN.
+	filterNameSourceArn = "source-arn"
 	// snapshotTypeManual is the SnapshotType value AWS assigns to
 	// user-initiated (as opposed to automated) DB and DB cluster snapshots.
 	snapshotTypeManual = "manual"
@@ -120,6 +173,35 @@ func copyParameterGroupTo(src *DBParameterGroup, targetName, targetDescription s
 	maps.Copy(pg.Parameters, src.Parameters)
 
 	return pg
+}
+
+// applyDBParameterFilters narrows params per the Filters contract shared by
+// DescribeDBParameters (api_op_DescribeDBParameters.go:40-44) and
+// DescribeDBClusterParameters (api_op_DescribeDBClusterParameters.go:48-52):
+// each op's own doc comment says, verbatim, "The only supported filter is
+// parameter-name." An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBParameterFilters(vals url.Values, params []DBParameter) ([]DBParameter, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return params, nil
+	}
+
+	for name := range filters {
+		if name != filterNameParameterName {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	values := filters[filterNameParameterName]
+	filtered := make([]DBParameter, 0, len(params))
+	for _, p := range params {
+		if slices.Contains(values, p.ParameterName) {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return filtered, nil
 }
 
 // applySnapshotAttributeChange modifies a list of snapshot attributes by adding and removing values.

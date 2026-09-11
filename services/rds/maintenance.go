@@ -1,6 +1,9 @@
 package rds
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 // isValidOptInType reports whether optInType is one of
 // ApplyPendingMaintenanceActionInput.OptInType's legal values, taken from
@@ -62,6 +65,76 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 }
 
 // DescribePendingMaintenanceActions returns pending maintenance actions.
+//
+// This backend never generates a real pending maintenance action for any
+// resource (see ApplyPendingMaintenanceAction's own doc comment above), so
+// this always returns an empty slice -- filed as gopherstack-vl4m's
+// follow-up for the structural gap. applyPendingMaintenanceActionFilters
+// below still validates and narrows the Filters contract for wire
+// correctness (and so it's ready the moment that gap is fixed), but with no
+// data ever populated, only its unrecognized-filter-name rejection is
+// observable through the real API today.
 func (b *InMemoryBackend) DescribePendingMaintenanceActions(_ string) []PendingMaintenanceAction {
 	return []PendingMaintenanceAction{}
+}
+
+// isKnownPendingMaintenanceActionFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for
+// DescribePendingMaintenanceActions (rds@v1.124.1
+// api_op_DescribePendingMaintenanceActions.go:38-50).
+func isKnownPendingMaintenanceActionFilterName(name string) bool {
+	switch name {
+	case filterNameDBClusterID, filterNameDBInstanceID:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyPendingMaintenanceActionFilters narrows actions per the AWS
+// DescribePendingMaintenanceActions Filters contract: each filter ANDs
+// together, and a filter's Values list (identifiers or ARNs, per the op's
+// own doc comment) is OR-matched against the action's own ResourceIdentifier
+// (which real AWS -- and ApplyPendingMaintenanceAction's echo of it above --
+// stores as either a DB cluster or a DB instance ARN, so the filter's
+// db-cluster-id/db-instance-id distinction isn't separable from the
+// resource's ARN type on this backend's own data; both filter names match
+// against the same resolved identifier). An unrecognized filter name returns
+// InvalidParameterValue, matching real AWS.
+func applyPendingMaintenanceActionFilters(
+	vals url.Values, actions []PendingMaintenanceAction,
+) ([]PendingMaintenanceAction, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return actions, nil
+	}
+
+	for name := range filters {
+		if !isKnownPendingMaintenanceActionFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]PendingMaintenanceAction, 0, len(actions))
+	for _, a := range actions {
+		if matchesAllPendingMaintenanceActionFilters(a, filters) {
+			filtered = append(filtered, a)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllPendingMaintenanceActionFilters(a PendingMaintenanceAction, filters map[string][]string) bool {
+	ident := rdsIDFromARN(a.ResourceIdentifier)
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterID, filterNameDBInstanceID:
+			if !containsFoldIDOrARN(values, ident) {
+				return false
+			}
+		}
+	}
+
+	return true
 }

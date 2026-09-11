@@ -29,6 +29,10 @@ func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error)
 	if err != nil {
 		return nil, err
 	}
+	endpoints, err = applyDBClusterEndpointFilters(vals, endpoints)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBClusterEndpointFields, 0, len(endpoints))
 	for _, ep := range endpoints {
 		cp := ep

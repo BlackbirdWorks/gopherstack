@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 )
 
@@ -59,8 +60,52 @@ func (b *InMemoryBackend) DescribeGlobalClusters(id string) ([]GlobalCluster, er
 	for _, gc := range b.globalClusters.All() {
 		result = append(result, *gc)
 	}
+	slices.SortFunc(result, func(a, b GlobalCluster) int {
+		if a.GlobalClusterIdentifier < b.GlobalClusterIdentifier {
+			return -1
+		}
+		if a.GlobalClusterIdentifier > b.GlobalClusterIdentifier {
+			return 1
+		}
+
+		return 0
+	})
 
 	return result, nil
+}
+
+// isKnownGlobalClusterFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeGlobalClusters.
+// Its own doc comment (rds@v1.124.1 api_op_DescribeGlobalClusters.go:38-45)
+// says "Currently, the only supported filter is region".
+func isKnownGlobalClusterFilterName(name string) bool {
+	return name == filterNameRegion
+}
+
+// applyGlobalClusterFilters validates the DescribeGlobalClusters Filters
+// contract but does not narrow gcs: "region" is a real, documented filter
+// (unlike the 22 rds ops whose Filters doc says "This parameter isn't
+// currently supported"), but no gopherstack API path ever populates
+// GlobalCluster.PrimaryRegion or GlobalClusterMembers -- CreateGlobalCluster
+// leaves PrimaryRegion empty, and handler_global_clusters.go's own comment
+// on AddGlobalClusterMemberInternal says membership is a test-only seam. With
+// no real region data to match against, "region" is accepted (an
+// unrecognized filter name still returns InvalidParameterValue, matching
+// real AWS) but matches vacuously, the same treatment as the existing
+// DescribeDBInstances "domain" precedent (db_instances.go).
+func applyGlobalClusterFilters(vals url.Values, gcs []GlobalCluster) ([]GlobalCluster, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return gcs, nil
+	}
+
+	for name := range filters {
+		if !isKnownGlobalClusterFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	return gcs, nil
 }
 
 // DeleteGlobalCluster removes the given global cluster.

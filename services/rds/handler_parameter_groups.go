@@ -91,6 +91,10 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	params, err = applyDBParameterFilters(vals, params)
+	if err != nil {
+		return nil, err
+	}
 	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
 		return a.ParameterName < b.ParameterName
 	}, func(item DBParameter) xmlDBParameter {
