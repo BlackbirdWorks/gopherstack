@@ -140,6 +140,243 @@ func TestInMemoryBackend_RevocationConfiguration(t *testing.T) {
 	})
 }
 
+// TestInMemoryBackend_RevocationConfiguration_FieldValidation covers the
+// CustomCname/OcspCustomCname (RFC2396 + no protocol prefix), S3BucketName
+// (S3 bucket naming rules), ExpirationInDays (1-5000), and OmitExtension-vs-
+// CustomCname constraints documented on CrlConfiguration/OcspConfiguration.
+func TestInMemoryBackend_RevocationConfiguration_FieldValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		rc      *acmpca.RevocationConfiguration
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "CustomCname with http scheme is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", CustomCname: "http://crl.example.com",
+			}},
+			wantErr: true,
+		},
+		{
+			name: "CustomCname with https scheme is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", CustomCname: "https://crl.example.com",
+			}},
+			wantErr: true,
+		},
+		{
+			name: "CustomCname with disallowed characters is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", CustomCname: "crl.example.com/<script>",
+			}},
+			wantErr: true,
+		},
+		{
+			name: "valid CustomCname is accepted",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", CustomCname: "crl.example.com",
+			}},
+			wantErr: false,
+		},
+		{
+			name: "OcspCustomCname with http scheme is rejected",
+			rc: &acmpca.RevocationConfiguration{
+				OcspConfiguration: &acmpca.OcspConfiguration{Enabled: true, OcspCustomCname: "http://ocsp.example.com"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "S3BucketName too short is rejected",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "ab"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "S3BucketName with uppercase is rejected (real S3 naming rules)",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "My-Bucket"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "S3BucketName with leading hyphen is rejected",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "-my-bucket"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "S3BucketName with consecutive periods is rejected",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "my..bucket"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ExpirationInDays below 1 is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", ExpirationInDays: -1,
+			}},
+			wantErr: true,
+		},
+		{
+			name: "ExpirationInDays above 5000 is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", ExpirationInDays: 5001,
+			}},
+			wantErr: true,
+		},
+		{
+			name: "ExpirationInDays at the boundaries is accepted",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", ExpirationInDays: 5000,
+			}},
+			wantErr: false,
+		},
+		{
+			name: "OmitExtension with CustomCname set is rejected",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", CustomCname: "crl.example.com", OmitExtension: true,
+			}},
+			wantErr: true,
+		},
+		{
+			name: "OmitExtension without CustomCname is accepted",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-bucket", OmitExtension: true,
+			}},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			_, err := b.CreateCertificateAuthority(
+				context.Background(), "ROOT", rootCACfg("Field Validation CA"),
+				acmpca.WithCreateCARevocationConfiguration(tt.rc),
+			)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, acmpca.ErrInvalidArgs)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestInMemoryBackend_IssueCertificate_CRLDistributionPoint proves the
+// issued certificate's cRLDistributionPoints extension (2.5.29.31) reflects
+// the issuing CA's RevocationConfiguration: the custom CNAME when set,
+// omitted entirely when OmitExtension is set or CRLs are disabled, and a
+// RootCACertificate-templated cert never gets one at all (self-signed certs
+// cannot be revoked).
+func TestInMemoryBackend_IssueCertificate_CRLDistributionPoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		rc          *acmpca.RevocationConfiguration
+		check       func(t *testing.T, cdp []string)
+		name        string
+		templateArn string
+	}{
+		{
+			name: "no RevocationConfiguration means no CDP",
+			rc:   nil,
+			check: func(t *testing.T, cdp []string) {
+				t.Helper()
+				assert.Empty(t, cdp)
+			},
+		},
+		{
+			name: "CRL enabled with S3BucketName only",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "my-crl-bucket"},
+			},
+			check: func(t *testing.T, cdp []string) {
+				t.Helper()
+				require.Len(t, cdp, 1)
+				assert.Contains(t, cdp[0], "my-crl-bucket")
+			},
+		},
+		{
+			name: "CRL enabled with CustomCname uses the CNAME, not the bucket",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-crl-bucket", CustomCname: "crl.example.com",
+			}},
+			check: func(t *testing.T, cdp []string) {
+				t.Helper()
+				require.Len(t, cdp, 1)
+				assert.Contains(t, cdp[0], "crl.example.com")
+				assert.NotContains(t, cdp[0], "my-crl-bucket")
+			},
+		},
+		{
+			name: "OmitExtension suppresses the CDP even with CRLs enabled",
+			rc: &acmpca.RevocationConfiguration{CrlConfiguration: &acmpca.CrlConfiguration{
+				Enabled: true, S3BucketName: "my-crl-bucket", OmitExtension: true,
+			}},
+			check: func(t *testing.T, cdp []string) {
+				t.Helper()
+				assert.Empty(t, cdp)
+			},
+		},
+		{
+			name: "RootCACertificate template never gets a CDP even with CRLs enabled",
+			rc: &acmpca.RevocationConfiguration{
+				CrlConfiguration: &acmpca.CrlConfiguration{Enabled: true, S3BucketName: "my-crl-bucket"},
+			},
+			templateArn: "arn:aws:acm-pca:::template/RootCACertificate/V1",
+			check: func(t *testing.T, cdp []string) {
+				t.Helper()
+				assert.Empty(t, cdp)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			var opts []acmpca.CreateCAOption
+			if tt.rc != nil {
+				opts = append(opts, acmpca.WithCreateCARevocationConfiguration(tt.rc))
+			}
+
+			ca, err := b.CreateCertificateAuthority(context.Background(), "ROOT", rootCACfg("CDP CA"), opts...)
+			require.NoError(t, err)
+
+			subCA, err := b.CreateCertificateAuthority(context.Background(), "SUBORDINATE", rootCACfg("Leaf"))
+			require.NoError(t, err)
+
+			csr, err := b.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
+			require.NoError(t, err)
+
+			var issueOpts []acmpca.IssueCertOption
+			if tt.templateArn != "" {
+				issueOpts = append(issueOpts, acmpca.WithIssueCertTemplateArn(tt.templateArn))
+			}
+
+			cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 30, issueOpts...)
+			require.NoError(t, err)
+
+			parsed := parsePEMCert(t, cert.CertBody)
+			tt.check(t, parsed.CRLDistributionPoints)
+		})
+	}
+}
+
 // TestInMemoryBackend_UsageMode_ShortLivedCertificateValidityCap verifies that
 // a SHORT_LIVED_CERTIFICATE-usage-mode CA enforces the real API's documented
 // 7-day certificate validity cap.

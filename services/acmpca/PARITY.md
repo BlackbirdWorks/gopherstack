@@ -7,12 +7,12 @@
 service: acmpca
 sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
 last_audit_commit: 3cec3729                          # HEAD when this manifest was written
-last_audit_date: 2026-08-20
-overall: A            # wrapper-key/nested-shape re-audit this pass: zero new wire bugs found (see Notes)
+last_audit_date: 2026-09-11
+overall: A            # gopherstack-cq4o: ASN.1-heavy ApiPassthrough residuals implemented for real (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "ROOT auto-signs+activates; SUBORDINATE -> PENDING_CERTIFICATE. FIXED THIS PASS: IdempotencyToken now deduplicated (5-min window); KeyStorageSecurityStandard/UsageMode/RevocationConfiguration now accepted, validated, stored, and echoed (previously entirely absent from the model -- a gap not listed in the prior manifest, found via full field-diff)."}
+  CreateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "ROOT auto-signs+activates; SUBORDINATE -> PENDING_CERTIFICATE. IdempotencyToken deduplicated (5-min window); KeyStorageSecurityStandard/UsageMode/RevocationConfiguration accepted, validated, stored, and echoed. FIXED gopherstack-cq4o (2026-09-11): RevocationConfiguration.CrlConfiguration.CustomCname/OcspConfiguration.OcspCustomCname now validated against the documented RFC2396 Pattern + 253-char cap + no-protocol-prefix rule (API_CrlConfiguration.html/API_OcspConfiguration.html); S3BucketName now validated against both its own documented Pattern/length (3-255, [-a-zA-Z0-9._/]+) and the real Amazon S3 bucket naming rules its doc comment defers to (3-63, lowercase, no leading/trailing hyphen, no consecutive periods); ExpirationInDays now bounded to the documented 1-5000 range; CrlDistributionPointExtensionConfiguration.OmitExtension now rejected when combined with a CustomCname ('This configuration cannot be enabled with a custom CNAME set.'). Previously all of these were accepted as any non-empty string/int32."}
   DescribeCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "reports RestorableUntil, LastStateChangeAt (new field, fixed this pass), KeyStorageSecurityStandard, UsageMode, RevocationConfiguration (omitted entirely when unconfigured, matching a nil *types.RevocationConfiguration). A CA past its RestorableUntil deadline now correctly returns ResourceNotFoundException (fixed this pass -- see gaps)."}
   ListCertificateAuthorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: ResourceOwner now validated and enforced -- SELF/empty lists this account's CAs, OTHER_ACCOUNTS returns an empty page (no cross-account sharing modeled), anything else is InvalidArgsException (corrected gopherstack-r3pr, 2026-08-30 -- was previously the fabricated InvalidParameterException). Also now filters out CAs past their RestorableUntil deadline. gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): MaxResults' documented ceiling (api_op_ListCertificateAuthorities.go: 'Although the maximum value is 1000, the action only returns a maximum of 100 items.') was not applied -- a caller-requested MaxResults above 100 (up to the accepted max of 1000) returned that many items in one page instead of AWS's hard 100-item page cap. Fixed: certificate_authorities.go's ListCertificateAuthorities now clamps to defaultMaxItems (100) whenever the requested value is <=0 or >100, matching the doc comment exactly (not just the omitted-parameter default). TestInMemoryBackend_ListCertificateAuthorities_MaxResultsCappedAt100 (list_certificate_authorities_maxresults_test.go) confirmed failing pre-fix for MaxResults=500 and MaxResults=1000 (both returned the full requested count against 105 seeded CAs)."}
   DeleteCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "tracks RestorableUntil (default 30d) and sets LastStateChangeAt (new field, fixed this pass)."}
@@ -21,7 +21,7 @@ ops:
   GetCertificateAuthorityCsr: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportCertificateAuthorityCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "sets LastStateChangeAt (fixed this pass)."}
   GetCertificateAuthorityCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
-  IssueCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (severe wire bug, found via field-diff): the certificate ARN's final path segment must be the certificate's own serial number in decimal (see IssueCertificateOutput's doc example) -- gopherstack instead appended an unrelated crypto/rand ID, meaning every issued cert ARN was wrong-shaped. Also FIXED: IdempotencyToken deduplication (5-min window); TemplateArn now gates ApiPassthrough per the real API's documented 'ignored unless an APIPassthrough/APICSRPassthrough template variant is selected' rule; ApiPassthrough now really applies Subject/KeyUsage/ExtendedKeyUsage/SubjectAlternativeNames(DNS+IP+email)/CustomExtensions overrides to the issued cert (previously silently ignored entirely). UsageMode=SHORT_LIVED_CERTIFICATE now enforces the real API's 7-day validity cap. Still not implemented: ApiPassthrough.Extensions.CertificatePolicies, the ASN1Subject RDN types beyond CommonName/Country/Organization/OrganizationalUnit/State/Locality/SerialNumber, and the GeneralName variants beyond DnsName/IpAddress/Rfc822Name -- all explicitly REJECTED (InvalidArgsException, corrected gopherstack-r3pr) rather than silently dropped when a caller sets them; TemplateArn's per-template default extension profile (e.g. SubordinateCACertificate_PathLenN's path-length constraint) is not modeled beyond the APIPassthrough-gating behavior. END_DATE validity type is still treated as epoch seconds like ABSOLUTE rather than true UTCTime/GeneralizedTime -- pre-existing intentional simplification, unchanged this pass (see Traps)."}
+  IssueCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED gopherstack-cq4o (2026-09-11): ApiPassthrough.Extensions.CertificatePolicies now hand-encodes the real RFC 5280 certificatePolicies extension (2.5.29.32, CertPolicyId OID + CPS PolicyQualifiers -- the SDK's only supported qualifier); ASN1Subject's full field set (DistinguishedNameQualifier, GenerationQualifier, GivenName, Initials, Pseudonym, Surname, Title, CustomAttributes) now maps to its RFC 5280/RFC 4519 OID via pkix.Name.ExtraNames; GeneralName's exotic variants (OtherName, DirectoryName, EdiPartyName, RegisteredId, UniformResourceIdentifier) now hand-build the whole subjectAltName extension (2.5.29.17) since crypto/x509 cannot emit them itself; TemplateArn now resolves a real per-family fixed-extension profile (KeyUsage/ExtendedKeyUsage/BasicConstraints per template-definitions.md, including Critical-EKU CodeSigning/OCSPSigning and non-critical-BasicConstraints Blank leaf variants) applied with template-highest-priority over ApiPassthrough/CSR per template-order-of-operations.md; an unrecognized/malformed TemplateArn is now rejected with InvalidArgsException instead of silently defaulting. Also FIXED: the issued cert's CRLDistributionPoints now reflects the issuing CA's RevocationConfiguration (CustomCname when set, else the S3 bucket; omitted when OmitExtension is set or the template is RootCACertificate-family, since a self-signed cert cannot be revoked). Prior-pass fixes retained: certificate ARN embeds the serial in decimal, IdempotencyToken dedup, UsageMode=SHORT_LIVED_CERTIFICATE's 7-day cap. END_DATE validity type is still treated as epoch seconds like ABSOLUTE rather than true UTCTime/GeneralizedTime -- pre-existing intentional simplification, unchanged this pass (see Traps)."}
   GetCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (gopherstack-5xc, state-machine sweep): RevokeCertificate's own deserializeOpError uniquely models RequestAlreadyProcessedException ('Your request has already been completed') among every op in this service -- no other op declares it -- evidence a repeat revocation must be rejected. Previously a second RevokeCertificate call on an already-REVOKED certificate silently succeeded and overwrote RevokedAt/RevocationReason; now rejected. Prior pass CORRECTED: the older manifest's gap note ('does not require CRL/OCSP to be enabled before revoking') was a misdiagnosis -- re-checked against the real SDK's RevokeCertificate doc comment, which describes CRL/OCSP as purely optional side-effects of revocation, not a precondition for it. No such requirement exists in the real API; that was never actually a gap and no fix was needed there."}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -38,18 +38,169 @@ ops:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "NEW (found this pass): CertificateAuthority.FailureReason (types.FailureReason: REQUEST_TIMED_OUT/UNSUPPORTED_ALGORITHM/OTHER) and CertificateAuthorityStatus's FAILED/EXPIRED enum values are entirely unmodeled -- CreateCertificateAuthority is synchronous and always succeeds or returns an immediate validation error, so no CA ever reaches FAILED, and no expiry-driven ACTIVE->EXPIRED transition is simulated. FailureReason is correctly never emitted (matching the real API omitting it whenever Status != FAILED), so this is a state-machine depth gap, not a wire-shape bug -- disclosed, not fixed (would need a new terminal status + expiry sweep, out of scope for a wrapper-key/nesting sweep)."
   - "NEW (found this pass): CertificateAuthorityConfiguration.CsrExtensions (nested CsrExtensions{KeyUsage, SubjectInformationAccess->AccessDescription{AccessMethod,GeneralName}}) is accepted by neither CreateCertificateAuthority's input decoding (caConfigInput has no CsrExtensions field) nor echoed by Describe/List -- silently dropped on the request side rather than rejected. Real AWS would echo a caller-supplied CsrExtensions back on every subsequent Describe/List; gopherstack never stores it, so a caller setting it gets no error but also never sees it round-trip. Disclosed, not fixed -- same class of gap as the already-documented ASN1Subject exotic RDN types, but this one lacks the explicit-rejection treatment those get in decodeASN1Subject/decodeExtensions (handler_certificates.go); a caller has no signal the field was ignored."
-  - ApiPassthrough.Extensions.CertificatePolicies is rejected (InvalidArgsException, corrected gopherstack-r3pr) rather than implemented -- would require arbitrary OID/PolicyQualifier ASN.1 encoding beyond a simple pkix.Extension passthrough
-  - ApiPassthrough.Subject's exotic RDN types (DistinguishedNameQualifier, GenerationQualifier, Initials, Pseudonym, Surname, Title, CustomAttributes) are rejected rather than implemented -- crypto/x509's pkix.Name has no direct fields for most of these
-  - ApiPassthrough.Extensions.SubjectAlternativeNames' exotic GeneralName variants (OtherName, DirectoryName, EdiPartyName, UniformResourceIdentifier, RegisteredId) are rejected rather than implemented -- only DnsName/IpAddress/Rfc822Name (the three Terraform's aws_acmpca_certificate resource actually exposes) are modeled
-  - TemplateArn's per-template default X.509 extension profile (e.g. SubordinateCACertificate_PathLenN's CA path-length constraint, OCSPSigningCertificate/CodeSigningCertificate's preset KeyUsage/ExtendedKeyUsage) is not modeled; only the documented APIPassthrough/APICSRPassthrough-gating behavior (whether ApiPassthrough is honored at all) is implemented -- every issued cert uses the same flat extension baseline (optionally overridden by ApiPassthrough) regardless of TemplateArn's specific value
-  - RevocationConfiguration.CrlConfiguration/OcspConfiguration's CNAME fields (CustomCname, OcspCustomCname) and S3BucketName are accepted as any non-empty string; the real API's RFC2396/S3-bucket-naming-rule validation is not enforced
   - IssueCertificate's END_DATE validity type is still treated as Unix epoch seconds (same as ABSOLUTE) rather than true UTCTime/GeneralizedTime -- pre-existing intentional simplification, not touched this pass (see Traps)
+  - "gopherstack-cq4o residual: TemplateArn's CSRPassthrough/APICSRPassthrough varieties only honor Subject/DNSNames already parsed from the CSR by crypto/x509 (the pre-existing behavior); a CSR's own embedded X.509 extensions (e.g. a requested KeyUsage/ExtendedKeyUsage/SAN via a PKCS#10 extensionRequest attribute) are not separately extracted and passed through for Blank*_CSRPassthrough templates -- only ApiPassthrough-sourced KeyUsage/ExtendedKeyUsage/SAN are honored for those. Narrower than a full CSR-extension-passthrough implementation; the documented per-family fixed-extension profiles (the bulk of TemplateArn's behavior) are otherwise fully implemented."
+  - "gopherstack-cq4o residual: the per-template CRL-distribution-point sourcing nuance ('[Passthrough from CA configuration or CSR]' on *CSRPassthrough/*APICSRPassthrough template families) is not modeled -- gopherstack always sources the CRL distribution point from the CA's own RevocationConfiguration regardless of template passthrough kind (matching the non-CSRPassthrough families exactly); a CSR-embedded CRL distribution point extension is never parsed or honored."
+  - "gopherstack-cq4o residual: TemplateArn's CA-hierarchy path-length inheritance rule ('The CA depth configured on a subordinate CA certificate must not exceed the limit set by its parents in the CA hierarchy') is not enforced -- SubordinateCACertificate_PathLenN's fixed pathLenConstraint is applied to the issued certificate correctly, but no cross-check against the issuing CA's own position in a CA hierarchy is performed (this backend does not model CA hierarchies/parent-child relationships at all)."
   - DELETED CAs past their RestorableUntil deadline are hidden from every read path (Describe/List/Get/Issue/etc. all treat them as not-found, matching real AWS's user-visible behavior) and RestoreCertificateAuthority correctly rejects them, but the row is not physically freed from the in-memory store.Table until the next process Reset() -- consistent with how every other terminal-state resource in this backend (revoked certs, etc.) is retained rather than garbage-collected; not a new leak, just not a true memory-reclaiming sweep
 deferred: []              # both prior deferred items (ApiPassthrough, TemplateArn) now substantially implemented -- remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/store.Index behind the coarse b.mu lockmetrics.RWMutex, matching pkgs-catalog guidance. The RestorableUntil-deadline enforcement added this pass is a lazy read-time filter (caGet/casInRegion in store.go), not a background sweep -- no new goroutine, no new lock, no new leak surface."}
 ---
 
 ## Notes
+
+### 2026-09-11 ASN.1-heavy ApiPassthrough residuals (gopherstack-cq4o)
+
+Implemented the five residuals this bd issue tracked, each verified against
+`acmpca@v1.50.0`'s `types/types.go` doc comments and AWS's UsingTemplates
+userguide pages (template-varieties.md, template-order-of-operations.md,
+template-definitions.md), with real-SDK-client integration tests that
+asn1-decode the issued certificate's raw DER (not just gopherstack's own
+JSON wire assertions).
+
+1. **CertificatePolicies** (`certificate_extensions.go`'s
+   `applyCertificatePolicies`): hand-builds the real RFC 5280 §4.2.1.4
+   certificatePolicies extension (2.5.29.32) via `encoding/asn1` --
+   `PolicyInformation{PolicyIdentifier, PolicyQualifiers}` with the CPS
+   qualifier (`id-qt-cps` 1.3.6.1.5.5.7.2.1; verified `PolicyQualifierId`'s
+   only enum value is `"CPS"` via `enums.go`). Left in `ExtraExtensions`
+   (not `x509.Certificate.Policies`/`PolicyIdentifiers`, which cannot
+   express qualifiers) -- verified this does not also trigger a duplicate
+   auto-generated extension by reading `x509.go`'s `buildCertExtensions`,
+   which checks `oidInExtensions` against `ExtraExtensions` before emitting
+   its own copy of any extension. Proven by `TestIssueCertificate_
+   CertificatePolicies_RealClient`: parses the issued cert with
+   `crypto/x509` (`PolicyIdentifiers` contains the OID) and separately
+   asn1-decodes the raw extension with a from-scratch local struct (not
+   gopherstack's own encoder) to confirm the CPS URI qualifier round-trips.
+
+2. **Subject exotic RDN types**: every `ASN1Subject` field (previously only
+   7 of 15 were modeled) now maps to its RFC 5280 Appendix A.1 / RFC 4519
+   OID -- pseudonym 2.5.4.65, generationQualifier 2.5.4.44, dnQualifier
+   2.5.4.46, title 2.5.4.12, initials 2.5.4.43, givenName 2.5.4.42, surname
+   2.5.4.4 -- via `pkix.Name.ExtraNames` (`apiPassthroughSubjectToPKIX` in
+   `certificate_extensions.go`), which `pkix.Name.ToRDNSequence` appends as
+   individual RDNs alongside the standard fields. `CustomAttributes`
+   (arbitrary OID + value) uses the same mechanism. Proven by
+   `TestIssueCertificate_ExoticSubjectRDNs_RealClient`, which re-parses the
+   issued cert's raw `RawSubject` RDNSequence independently of
+   `pkix.Name`'s own (incomplete, for exotic OIDs) field parsing.
+
+3. **SAN GeneralName exotic variants**: `OtherName`, `DirectoryName`,
+   `EdiPartyName`, `RegisteredId` (crypto/x509 cannot emit any of these) now
+   hand-build the whole subjectAltName extension (2.5.29.17), merged with
+   the simple variants (DnsName/IpAddress/Rfc822Name/
+   UniformResourceIdentifier) in the same pass -- `applySubjectAlternativeNames`
+   always hand-builds when any `SubjectAlternativeNames` entry is present,
+   clearing `tmpl.DNSNames`/`IPAddresses`/`EmailAddresses`/`URIs` so
+   crypto/x509 does not also try to emit its own copy. `OtherName`'s
+   ANY-DEFINED-BY value is encoded as UTF8String (RFC 5280 does not fix a
+   type here, and neither does the SDK doc comment -- a documented design
+   choice, not a verified fact). `DirectoryName`/`EdiPartyName`'s inner
+   [N] tags are EXPLICIT rather than IMPLICIT because their underlying
+   types (`Name`, `DirectoryString`) are themselves CHOICE types, which
+   X.680 forbids tagging IMPLICITly even under RFC 5280's IMPLICIT-tagging
+   module default. `decodeGeneralName` (`handler_certificates.go`) now
+   enforces the SDK doc comment's "Providing more than one option results
+   in an InvalidArgsException" rule across all 8 variants, not just the
+   3 previously modeled. Proven by `TestIssueCertificate_ExoticSAN_RealClient`,
+   which asn1-decodes the raw subjectAltName extension from scratch (a
+   local decoder, not gopherstack's own `reTagImplicit`) and independently
+   re-encodes each context-tagged CHOICE alternative as a universal
+   SEQUENCE to decode its contents through ordinary Go structs.
+
+4. **TemplateArn per-template extension profiles**
+   (`certificate_templates.go`): `resolveTemplateArn` parses a TemplateArn
+   into its family (EndEntityCertificate, EndEntityClientAuthCertificate,
+   EndEntityServerAuthCertificate, CodeSigningCertificate,
+   OCSPSigningCertificate, RootCACertificate, SubordinateCACertificate_
+   PathLenN, and the Blank* variants) and passthrough kind
+   (""/CSRPassthrough/APIPassthrough/APICSRPassthrough), then
+   `templateProfileFor` maps the family to its documented fixed KeyUsage/
+   ExtendedKeyUsage/BasicConstraints (template-definitions.md), including
+   two fidelity details crypto/x509 cannot express through its ordinary
+   template fields: a **Critical** ExtendedKeyUsage for CodeSigningCertificate/
+   OCSPSigningCertificate (crypto/x509's `marshalExtKeyUsage` always emits
+   non-critical; hand-built via `criticalExtKeyUsageExtension`), and a
+   **non-critical** BasicConstraints for the plain (non-
+   `_CriticalBasicConstraints`) Blank end-entity family (crypto/x509's
+   `marshalBasicConstraints` always emits critical; hand-built via
+   `basicConstraintsExtension`). `applyTemplateFixedExtensions` runs after
+   ApiPassthrough/CSR application so the template's fixed values always win,
+   per template-order-of-operations.md's documented precedence ("the
+   template definition has highest priority, followed by API passthrough
+   values, followed by CSR passthrough extensions") -- proven by
+   `TestIssueCertificate_TemplateProfiles_APIPassthroughOverriddenByFixedEKU`,
+   which supplies a conflicting ApiPassthrough EKU against a fixed-EKU
+   template and confirms the template's value wins while Subject (not
+   template-fixed) still applies from ApiPassthrough. An ApiPassthrough
+   on a non-passthrough template is still silently ignored, not rejected --
+   verified against `IssueCertificateInput.ApiPassthrough`'s doc comment,
+   which says "this parameter is ignored" (not that it errors); a
+   genuinely malformed/unrecognized TemplateArn (unknown family, missing
+   or forbidden PathLenN suffix) is rejected with InvalidArgsException
+   (IssueCertificate's own `deserializeOpError` models it -- verified via
+   `deserializers.go`). Proven by
+   `TestIssueCertificate_TemplateProfiles_FixedExtensions`'s 9 subtests
+   spanning every family, each asserting KeyUsage/ExtKeyUsage/
+   BasicConstraints/Critical-flags on a real-client-issued, real-client-parsed
+   certificate. Two residuals disclosed, not fixed (see `gaps`): CSR-embedded
+   extension passthrough (only ApiPassthrough-sourced KU/EKU/SAN are honored
+   for `*CSRPassthrough`/`*APICSRPassthrough` Blank templates; Subject/DNSNames
+   were already CSR-sourced before this pass) and CA-hierarchy path-length
+   inheritance (this backend does not model CA hierarchies at all).
+
+5. **RevocationConfiguration validation** (`certificate_authorities.go`):
+   `CrlConfiguration.CustomCname`/`OcspConfiguration.OcspCustomCname` now
+   validated against the exact documented Pattern
+   (`[-a-zA-Z0-9;/?:@&=+$,%_.!~*()']*`, 253-char cap) plus the documented
+   "must not include a protocol prefix such as http:// or https://" rule
+   (`validateCname`); `S3BucketName` validated against both its own
+   documented Pattern/length (`API_CrlConfiguration.html`: `[-a-zA-Z0-9._/]+`,
+   3-255 chars) and the real Amazon S3 bucket naming rules its doc comment
+   separately defers to (3-63 chars, lowercase, must start/end with a
+   letter or digit, no consecutive periods); `ExpirationInDays` bounded to
+   the documented Valid Range (1-5000); `CrlDistributionPointExtensionConfiguration.
+   OmitExtension` (flattened into `CrlConfiguration.OmitExtension`) now
+   rejected when combined with a `CustomCname`, per its own doc comment
+   ("This configuration cannot be enabled with a custom CNAME set"). Also
+   fixed: the issued certificate's cRLDistributionPoints extension
+   (2.5.29.31, via `x509.Certificate.CRLDistributionPoints` -- a field
+   `x509.CreateCertificate` supports natively, so no hand-built extension
+   was needed here) now actually reflects the issuing CA's
+   RevocationConfiguration (the CustomCname when set, else the S3 bucket
+   host; omitted entirely when CRLs are disabled, `OmitExtension` is set,
+   or the template is RootCACertificate-family, matching
+   template-definitions.md's "No CRL information is specified because a
+   self-signed certificate cannot be revoked"). Previously every issued
+   certificate had no CRL distribution point at all, regardless of the
+   CA's configuration. Proven by
+   `TestInMemoryBackend_RevocationConfiguration_FieldValidation` (13
+   subtests covering every new rejection/acceptance case) and
+   `TestInMemoryBackend_IssueCertificate_CRLDistributionPoint` (5 subtests
+   parsing the actual issued certificate's `CRLDistributionPoints` field).
+
+**Also fixed incidentally**: the default (no TemplateArn) certificate's
+ExtendedKeyUsage was missing `ClientAuth` -- `EndEntityCertificate/V1`'s
+documented EKU is "TLS web server authentication, TLS web client
+authentication" (both), but gopherstack's prior hardcoded default set only
+`ServerAuth`. Found while building the EndEntityCertificate template
+profile and cross-checking it against the prior default; fixed as part of
+`templateProfileFor`'s `"EndEntityCertificate"` case, which is now also the
+default profile.
+
+**Test correction**: `api_passthrough_test.go`'s
+`TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected`
+asserted that CertificatePolicies/Subject.Title/SubjectAlternativeNames.
+RegisteredId were rejected -- exactly the residuals this pass implements.
+Replaced with `TestACMPCAHandler_IssueCertificate_ApiPassthrough_
+InvalidFieldsRejected`, which asserts the fields are accepted but malformed
+*values* within them (bad OIDs, unsupported PolicyQualifierId, two
+GeneralName variants on one entry) are still rejected -- confirmed by
+running the original test unmodified against the new code first and
+observing it fail exactly as expected (200 instead of 400) before rewriting
+it, so the correction is a genuine behavior change, not a rewrite chasing a
+red test.
 
 ### 2026-09-04 state-machine sweep (gopherstack-5xc)
 
