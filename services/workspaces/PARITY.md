@@ -536,10 +536,13 @@ are all clean.
   INVERSE FOUND at the time, since closed by later (undated-in-this-file) work:
   `DataReplicationSettings`/`IpAddress`/`RelatedWorkspaces` are real, backend-tracked
   data as of `CreateStandbyWorkspaces` (see that op's note) and `IpAddress` was always
-  set at `CreateWorkspace` time; `ModificationStates`/`StandbyWorkspacesProperties`
-  round-trip a real field but this backend has no code path that ever populates either
-  (correct-by-absence, not fabricated -- no modification-tracking or extra
-  standby-property feature exists to source them from). `WorkspaceName` was wired onto
+  set at `CreateWorkspace` time; `ModificationStates` rounds-trip a real field but this
+  backend has no code path that ever populates it (correct-by-absence, not fabricated --
+  no modification-tracking feature exists to source it from; see gopherstack-jukr below).
+  UPDATE 2026-09-11 (gopherstack-jukr): `StandbyWorkspacesProperties` is no longer in
+  that correct-by-absence set -- `CreateStandbyWorkspace` (gopherstack-zzd9, same date)
+  now appends an entry onto the primary's `StandbyWorkspacesProperties` when a standby
+  is created. `WorkspaceName` was wired onto
   the wire (`workspaceResp`/`pendingWorkspace` both gained the JSON key) sometime after
   this note was written, but WITHOUT actually closing the gap this note described:
   `WorkspaceRequest.WorkspaceName` (the real *input* field) was still accepted by
@@ -569,6 +572,38 @@ are all clean.
   Don't re-add a "no cross-region visibility" skip here without re-checking whether
   this emulator has grown real multi-instance/multi-region backends by the time you
   read this.
+- CLOSED (gopherstack-jukr, 2026-09-11): `types.Workspace` declares six members
+  (`DataReplicationSettings`, `IpAddress`, `ModificationStates`, `RelatedWorkspaces`,
+  `StandbyWorkspacesProperties`, `WorkspaceName`) this backend once modeled nowhere.
+  `DataReplicationSettings`/`RelatedWorkspaces`/`StandbyWorkspacesProperties` were
+  closed by gopherstack-zzd9 (same date, see above). Of the remaining three:
+  `WorkspaceName` and `IpAddress` had already been fixed by the 2026-08-23 pass this
+  file documents above (`CreateWorkspaces`/`DescribeWorkspaces` ops rows) -- except
+  `CreateStandbyWorkspace` (`workspaces.go`), added 2026-08-17 (fb80d66cd9, five days
+  *before* the 2026-08-23 fix), still fabricated the standby's `WorkspaceName` as its
+  own generated `WorkspaceId`. Same bug class the 2026-08-23 pass closed for the normal
+  create path, missed here because it's a separate code path. `StandbyWorkspace`
+  (workspaces v1.79.0 types.go:3042) has no `WorkspaceName` input member -- real AWS
+  gives this backend nothing to derive one from -- so it is now left empty (omitempty)
+  like a normal user-assigned WorkSpace's, not fabricated. `IpAddress` needs no gating
+  fix: `CreateWorkspace` sets `State: stateAvailable` immediately (this backend has no
+  PENDING window for a normal create) so IpAddress is always set together with
+  AVAILABLE; `CreateStandbyWorkspace` sets `State: statePending` and never sets
+  IPAddress, so a PENDING WorkSpace already has none -- the AVAILABLE/PENDING split
+  the issue asked for falls out of the existing two code paths without a code change.
+  `ModificationStates` stays correct-by-absence: `ModifyWorkspaceProperties`
+  (`workspaces.go`) applies every change synchronously (`w.Properties = &p`, no queue,
+  no janitor), so there is never a window where a real `ModificationState{Resource:
+  COMPUTE_TYPE|ROOT_VOLUME|USER_VOLUME|PROTOCOL|NESTED_VIRTUALIZATION, State:
+  UPDATE_INITIATED|UPDATE_IN_PROGRESS|UPDATE_FAILED}` (workspaces v1.79.0
+  `types/enums.go:871-910`) would be true. The shape is fully wired end to end
+  (`storedWorkspace.ModificationStates` -> `Workspace.ModificationStates` ->
+  `workspaceResp.ModificationStates`, `json:"ModificationStates,omitempty"`) and
+  correctly renders as an absent key rather than a fabricated in-progress entry --
+  matching this file's bedrock-asset-filter/codedeploy-pagination precedent for an
+  inert-but-real shape. Regression: `TestCreateStandbyWorkspaces_WorkspaceNameNotFabricated`,
+  `TestWorkspace_IpAddress_AvailableVsPending`, `TestWorkspace_ModificationStatesEmpty`
+  (workspaces_test.go).
 - `DescribeImageAssociations`/`DescribeBundleAssociations` will always return an
   empty `Associations` list in this backend — this is correct, not a stub. Real
   AWS's WorkSpaces Application Manager has no public API to create an

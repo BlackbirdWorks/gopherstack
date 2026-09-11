@@ -735,9 +735,12 @@ func (b *InMemoryBackend) CreateStandbyWorkspace(
 	id := b.nextID(workspaceIDPrefix)
 	tags := cloneTags(spec.Tags)
 
+	// WorkspaceName is left empty, not derived from id: StandbyWorkspace
+	// (workspaces v1.79.0 types.go:3042) carries no WorkspaceName input member,
+	// and fabricating one from the WorkspaceId repeats the exact bug class
+	// CreateWorkspace's WorkspaceName fix closed (gopherstack-jukr).
 	w := &storedWorkspace{
 		WorkspaceID:         id,
-		WorkspaceName:       id,
 		DirectoryID:         spec.DirectoryID,
 		PrimaryWorkspaceID:  spec.PrimaryWorkspaceID,
 		DataReplication:     spec.DataReplication,
