@@ -135,6 +135,41 @@ type lifecycleNoncurrentTransition struct {
 	NoncurrentDays int    `xml:"NoncurrentDays"`
 }
 
+// computeAbortIncompleteMultipartUpload finds the first enabled lifecycle rule
+// with an AbortIncompleteMultipartUpload.DaysAfterInitiation whose prefix
+// matches key, and returns the computed abort date (initiated + days) and the
+// rule's ID. ok is false when no such rule applies to key -- callers must omit
+// x-amz-abort-date/x-amz-abort-rule-id entirely in that case, matching real S3
+// (CreateMultipartUpload/ListParts, s3@v1.111.0 deserializers.go:1124,11737).
+func computeAbortIncompleteMultipartUpload(
+	lcXML, key string, initiated time.Time,
+) (time.Time, string, bool) {
+	if lcXML == "" {
+		return time.Time{}, "", false
+	}
+
+	var cfg lifecycleConfiguration
+	if err := xml.Unmarshal([]byte(lcXML), &cfg); err != nil {
+		return time.Time{}, "", false
+	}
+
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if !strings.EqualFold(rule.Status, statusEnabled) {
+			continue
+		}
+
+		days := rule.AbortIncompleteMultipartUpload.DaysAfterInitiation
+		if days == nil || !strings.HasPrefix(key, rule.prefix()) {
+			continue
+		}
+
+		return initiated.Add(time.Duration(*days) * 24 * time.Hour), rule.ID, true
+	}
+
+	return time.Time{}, "", false
+}
+
 // sweepLifecycle iterates over all active buckets, evaluates lifecycle rules,
 // and deletes objects that have exceeded their expiration age.
 func (j *Janitor) sweepLifecycle(ctx context.Context) {

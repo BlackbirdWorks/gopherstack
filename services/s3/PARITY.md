@@ -15,7 +15,8 @@ families:
   bucket_delete: {status: ok, note: "FIXED 2026-07-24: DeleteBucket previously accepted ANY bucket (objects, versions, delete markers, and even incomplete multipart uploads) and silently queued an async janitor drain — real S3 rejects with 409 BucketNotEmpty until the caller empties it. Now checked synchronously under b.mu before marking DeletePending; janitor drain loop kept as a no-op-in-practice safety net (bucket is already empty by the time it's marked pending)."}
   bucket_config_lists: {status: ok, note: "FIXED 2026-07-24 (phase 2, SEVERE): writeConfigListXML (shared by ListBucketAnalyticsConfigurations/ListBucketIntelligentTieringConfigurations/ListBucketInventoryConfigurations/ListBucketMetricsConfigurations) was wrapping each already-XML-rooted stored config (Put*Configuration's request body IS the full `<XConfiguration>...</XConfiguration>` document per the real SDK's serializer) in ANOTHER copy of the same root element, producing doubly-nested XML no real SDK client could parse Id/Filter/etc back out of. Fixed by emitting each stored config verbatim (unwrapped) — matches the real deserializer's *ListUnwrapped decode logic. Regression test decodes the real element shape and fails if double-nesting regresses."}
 ops:
-  GetObject/HeadObject: {wire: ok, errors: ok, state: ok, persist: ok, note: FIXED response-* override query params (content-type/disposition/expires/cache-control)}
+  GetObject/HeadObject: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED response-* override query params (content-type/disposition/expires/cache-control). FIXED 2026-09-11 (gopherstack-l4ywn): Expires, x-amz-object-lock-mode, x-amz-object-lock-legal-hold, x-amz-object-lock-retain-until-date were parsed by the real deserializer (s3@v1.111.0 deserializers.go:6936-6989, :8899-8952) but never stored/emitted -- see dated section below."}
+  CreateMultipartUpload/ListParts (abort headers): {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-11 (gopherstack-l4ywn): x-amz-abort-date/x-amz-abort-rule-id (deserializers.go:1124, :11737) were never computed from the bucket's AbortIncompleteMultipartUpload lifecycle rule -- see dated section below."}
   PutBucketAcl:         {wire: ok, errors: ok, state: ok, persist: ok, note: FIXED reject object-only canned ACLs; read AccessControlPolicy body}
   PutBucketReplication: {wire: ok, errors: ok, state: ok, persist: ok, note: FIXED require versioning=Enabled}
   GetObjectAttributes:  {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED ObjectSize 0-byte, Last-Modified, and ObjectParts (types.GetObjectAttributesParts multipart breakdown)"}
@@ -1158,3 +1159,119 @@ Gates: `go build ./...` (whole module), `go vet ./services/s3/...`,
 `go test -race -count=1 ./services/s3/...` (pass), `go test -count=1
 ./pkgs/persistence/...` (pass, unaffected), `golangci-lint run
 ./services/s3/...` (0 issues).
+
+## 2026-09-11 -- gopherstack-l4ywn: Expires, abort-incomplete-multipart-upload, object-lock headers
+
+Three families of HTTP-date/ISO8601 response headers that the real s3@v1.111.0
+deserializer parses were never stored or emitted by this backend at all
+(structural completeness gaps, found by an earlier same-day sweep --
+scratchpad/cborkind/NOTES.md's "s3 HTTP-header HTTPDate class" section --
+which deliberately left them unfixed as out of that pass's kind-mismatch-only
+scope; this pass implements them from honest state).
+
+**(a) Expires** (GetObject/HeadObject, deserializers.go:6936/8899, via
+`deserializeS3Expires`/raw `ExpiresString`). Added `Expires time.Time` to
+`StoredObjectVersion` (additive) and `StoredMultipartUpload` (additive,
+applied to the completed object on `CompleteMultipartUpload`, same
+session-init-capture pattern already used for SSE/StorageClass/Tagging).
+`PutObject`/`CopyObject`/`CreateMultipartUpload` all accept the request's
+`Expires` header (confirmed sent as HTTP-date by all three real serializers,
+serializers.go:461,1032,8598) via a shared `parseExpiresHeader`. `CopyObject`
+applies the same `x-amz-metadata-directive` logic `buildCopyMetadata` already
+uses for Content-Type: COPY (default) preserves the source's Expires; REPLACE
+requires the copy request's own header. `GetObjectOutput`/
+`HeadObjectOutput.Expires` (`*time.Time`) is deprecated in the pinned SDK
+("handled inconsistently across AWS SDKs... prefer ExpiresString",
+api_op_GetObject.go:570-576) -- this backend only ever populates the sibling
+`ExpiresString` field on those two response structs (a plain HTTP-date
+string, `expiresStringPtr`), never the deprecated time field, so a real
+client's `GetObjectOutput.ExpiresString`/`.Expires` (the latter reparsed
+client-side from the same header) both come back correct without this
+backend importing the deprecated identifier itself.
+
+**(b) x-amz-abort-date / x-amz-abort-rule-id** (CreateMultipartUpload
+deserializers.go:1124, ListParts :11737). New `computeAbortIncompleteMultipartUpload`
+(janitor_lifecycle.go, reusing the existing private `lifecycleConfiguration`/
+`lifecycleRule` XML types) finds the first *enabled* lifecycle rule with an
+`AbortIncompleteMultipartUpload.DaysAfterInitiation` whose prefix matches the
+upload's key, and returns `initiated + days` plus the rule's ID; both headers
+are omitted entirely when no rule applies (matches real S3). Wired into both
+`CreateMultipartUpload` (computed once at session-init from `time.Now()`) and
+`ListParts` (recomputed from the upload's stored `Initiated`, so it reflects
+the *current* live lifecycle config rather than a frozen Create-time value --
+matches real S3, where a lifecycle rule added or changed after a multipart
+upload begins still governs it). Shared via a new `abortIncompleteInfoForUpload`
+helper so both call sites read `bucket.LifecycleConfig` identically.
+
+**Found in passing, NOT fixed:** the pre-existing janitor sweep
+(`abortStaleMultipartUploads`, janitor.go) that actually EVICTS stale
+uploads does not filter by key prefix at all -- it aborts every upload in a
+bucket older than the rule's `DaysAfterInitiation`, regardless of whether the
+rule's `Filter.Prefix` matches the upload's key. This pass's header
+computation (`computeAbortIncompleteMultipartUpload`) correctly applies the
+prefix filter for what CreateMultipartUpload/ListParts *report*, but the
+actual background eviction can fire earlier/broader than what those headers
+promised. Not fixed here -- the issue this pass targets is header
+correctness, not the sweep's own filter bug, and fixing the sweep touches a
+different code path (`janitor.go`'s `applyLifecycleRule` -> `abortStaleMultipartUploads`)
+with its own blast radius. Flagged for a dedicated pass; not filed as a new
+bd issue since it's adjacent/discovered-in-passing per this task's framing.
+
+**(c) x-amz-object-lock-mode / x-amz-object-lock-legal-hold /
+x-amz-object-lock-retain-until-date** (GetObject/HeadObject,
+deserializers.go:6969-6989/:8933-8952). The underlying state already existed
+(`StoredObjectVersion.RetentionMode`/`RetainUntil`/`LegalHold`, written by
+the pre-existing `PutObjectRetention`/`PutObjectLegalHold` sub-resource ops)
+but was never echoed on GetObject/HeadObject itself. Now surfaced via
+`buildGetObjectOutput`/`buildHeadObjectOutput` populating
+`ObjectLockMode`/`ObjectLockLegalHoldStatus`/`ObjectLockRetainUntilDate` on
+the (non-deprecated) SDK output structs, and `setObjectLockHeaders`
+(object_ops_headers.go, shared by both ops via `setCommonHeaders`) writing
+the three headers -- mode/legal-hold as plain enum strings,
+retain-until-date as ISO8601 (`time.RFC3339`, which `smithytime.ParseDateTime`'s
+optional-fractional-seconds grammar accepts, same convention already used
+by `GetObjectRetention`'s XML body in object_ops_retention.go).
+
+**Deliberate simplification, disclosed:** `x-amz-object-lock-legal-hold` is
+only emitted when a hold is actually `ON`; an object with no legal hold ever
+applied gets no header at all rather than an explicit `OFF`. This backend's
+`LegalHold` is a plain `bool` with no separate "was this ever explicitly set"
+flag, so it cannot distinguish "explicitly turned off" from "never
+configured" -- and real S3 itself only emits the header at all for
+object-lock-enabled buckets, which this backend does not gate against here
+either (see `legalHoldStatus`/`retainUntilPtr` doc comments, objects.go).
+Not treated as a gap worth a separate bd issue: the alternative (emitting
+`OFF` unconditionally on every object in every bucket) would be a more
+confidently WRONG signal than omitting it.
+
+`pkgs/persistence/testdata/snapshot_inventory.json`: three new purely-additive
+rows (`MetricAlarm.Unit` -- cloudwatch half of this same issue,
+`StoredObjectVersion.Expires`, `StoredMultipartUpload.Expires`), all
+`omitempty`/`omitzero` JSON fields on already-plain-JSON structs.
+`s3SnapshotVersion`/`cloudwatchSnapshotVersion` NOT bumped -- both additions
+are purely additive per the guard's own criterion, same precedent as the
+`GetObjectLambdaConfigSink`/`ObjectLambdaConfig` addition documented above.
+
+Real-client tests (`date_headers_realclient_test.go`, all through a real
+`aws-sdk-go-v2/service/s3` client against `httptest` via the existing
+`newRealS3ClientTest` helper): `TestExpires_PutObject_RealClient` (table:
+Expires set / omitted, round-tripped through GetObject and HeadObject's
+`ExpiresString`), `TestExpires_CopyObject_RealClient` (COPY directive
+preserves source Expires; REPLACE sets a new one),
+`TestObjectLockHeaders_RealClient` (PutObjectRetention + PutObjectLegalHold
+via the real client, then GetObject/HeadObject assert
+`ObjectLockMode`/`ObjectLockLegalHoldStatus`/`ObjectLockRetainUntilDate`; a
+third subtest confirms an object with no lock configured gets none of the
+three), `TestAbortIncompleteMultipartUpload_RealClient` (a lifecycle rule
+scoped to `incoming/`: a matching-prefix upload gets both abort headers on
+both CreateMultipartUpload and ListParts with matching dates; a
+non-matching-prefix upload gets neither).
+
+Gates: `go build ./...` clean; `go vet ./services/s3/...` clean; `go test
+-race -count=1 ./services/s3/...` all pass; `go test -race -count=1
+./pkgs/persistence/...` (includes `TestSnapshotVersionGuard`) passes;
+`golangci-lint run ./services/s3/...` 0 issues (after extracting
+`abortIncompleteInfoForUpload` to keep `ListParts` under the cyclop budget,
+and a `copyDirectiveReplace` constant to satisfy goconst once
+`buildCopyExpires` added a third `"REPLACE"` comparison in
+object_ops_copy.go).

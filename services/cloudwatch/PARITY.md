@@ -55,7 +55,7 @@ ops:
   GetMetricStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: period-aligned buckets, Average/Sum/Min/Max/SampleCount, extended-statistic percentiles via collectRawBuckets, anomaly band annotation"}
   GetMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: metric-math expressions (topo-sorted), ScanBy asc/desc, MaxDatapoints pagination with resumable cursor, PartialData/ArithmeticError messages, cross-account AccountId returns empty not error"}
   ListMetrics: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
-  PutMetricAlarm: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "CBOR error code FIXED 2026-08-29 — see error-codes family note. Metrics (metric-math alarms) FIXED 2026-08-30 (gopherstack-p1ph) — cborPutMetricAlarm never read the 'Metrics' member; the dead legacy XML handlePutMetricAlarm parsed it via parseMetricDataQueriesFromForm but no real client reaches that path. Now parsed via parseMetricDataQueries(input, \"Metrics\") (generalized from the existing GetMetricData.MetricDataQueries parser — both share the _MetricDataQueries wire shape per schemas.go) and echoed back on DescribeAlarms/DescribeAlarmsForMetric via new buildMetricDataQueriesCBOR. Proven with a real aws-sdk-go-v2 write-then-read round trip (metric_math_alarm_p1ph_test.go). MetricStat.Unit remains unmodeled (repo's MetricStat struct has no Unit field, matching the legacy XML parser's pre-existing gap) — not fixed, noted in Notes."}
+  PutMetricAlarm: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "CBOR error code FIXED 2026-08-29 — see error-codes family note. Metrics (metric-math alarms) FIXED 2026-08-30 (gopherstack-p1ph) — cborPutMetricAlarm never read the 'Metrics' member; the dead legacy XML handlePutMetricAlarm parsed it via parseMetricDataQueriesFromForm but no real client reaches that path. Now parsed via parseMetricDataQueries(input, \"Metrics\") (generalized from the existing GetMetricData.MetricDataQueries parser — both share the _MetricDataQueries wire shape per schemas.go) and echoed back on DescribeAlarms/DescribeAlarmsForMetric via new buildMetricDataQueriesCBOR. Proven with a real aws-sdk-go-v2 write-then-read round trip (metric_math_alarm_p1ph_test.go). MetricStat.Unit remains unmodeled (repo's MetricStat struct has no Unit field, matching the legacy XML parser's pre-existing gap) — not fixed, noted in Notes. MetricAlarm.Unit (the alarm's own top-level Unit, schemas.go:3855/4473) FIXED 2026-09-11 (gopherstack-l4ywn) — modeled on MetricAlarm, parsed+validated against the StandardUnit enum on both wire paths, emitted on DescribeAlarms/DescribeAlarmsForMetric, and honored by the alarm evaluator (a Unit-scoped alarm only evaluates datapoints published with that unit) — see dated section below."}
   PutCompositeAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlarmRule AND/OR/NOT parsing with cycle + depth-limit detection proven correct"}
   PutLogAlarm: {wire: ok, errors: fixed, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment. CBOR error code FIXED 2026-08-29 — see error-codes family note."}
   DescribeAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns three lists (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms), single combined MaxRecords/NextToken pagination window extended across all three. FIXED THIS PASS (bd gopherstack-yvb7): includeComposite previously defaulted to true when AlarmTypes was omitted, contradicting DescribeAlarmsInput.AlarmTypes's own doc comment (\"If you omit this parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the account\", confirmed against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go). Now includeComposite := typeSet[\"CompositeAlarm\"] -- composite alarms, like log alarms, are excluded by default and returned only when AlarmTypes explicitly requests them. wire restored to ok; see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes for the before/after and the list of tests updated to assert the corrected default."}
@@ -138,7 +138,7 @@ deferred:                 # consciously not audited this pass (scope) — next p
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - "IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf): metric-stream Firehose delivery -- see families.metric-streams-delivery. Remaining: opentelemetry0.7/opentelemetry1.0 OutputFormat byte-level OTLP protobuf shape not encoded (json only); SetFirehosePutter cli.go wiring itself is deferred (forbidden in this pass's scope), so delivery does not fire in a real running gopherstack server yet, only under test with a wired mock/real backend."
   - "DEEPENED 2026-08-07 (bd gopherstack-lrmf): insight-rule Definition schema validation -- see PutInsightRule row. Remaining: Contribution.Filters per-match-type field shape (Match/In/NotIn/StartsWith/EqualTo/NotEqualTo) and CLF's Fields position-mapping requirement are not enforced, deliberately, since neither is part of the generated SDK model and this pass could not verify their exact shape against a typed struct."
-  - MetricAlarm/LogAlarm fields added to the real SDK model alongside this pass's SDK bump but not part of the 7 named new operations: types.MetricAlarm now also has StateUpdatedTimestamp, EvaluationCriteria, EvaluationInterval, EvaluationWindow, EvaluateLowSampleCountPercentile, and Unit, none of which gopherstack's MetricAlarm struct carries (StateUpdatedTimestamp WAS added to the new LogAlarm type this pass, since that type was authored fresh — but retrofitting it and the other new fields onto the pre-existing MetricAlarm struct is a larger, separate change against a type used across ~15 files, out of scope here). Discovered while field-diffing LogAlarm against MetricAlarm for comparison; worth a dedicated pass.
+  - MetricAlarm/LogAlarm fields added to the real SDK model alongside this pass's SDK bump but not part of the 7 named new operations: types.MetricAlarm now also has StateUpdatedTimestamp, EvaluationCriteria, EvaluationInterval, EvaluationWindow, EvaluateLowSampleCountPercentile, none of which gopherstack's MetricAlarm struct carries (StateUpdatedTimestamp WAS added to the new LogAlarm type this pass, since that type was authored fresh — but retrofitting it and the other new fields onto the pre-existing MetricAlarm struct is a larger, separate change against a type used across ~15 files, out of scope here). Unit WAS added 2026-09-11 (gopherstack-l4ywn) — see dated section below; removed from this list. Discovered while field-diffing LogAlarm against MetricAlarm for comparison; worth a dedicated pass.
   - inline Tags on PutLogAlarm's request (PutLogAlarmInput.Tags []types.Tag) is parsed nowhere, matching the exact same pre-existing gap on PutMetricAlarmInput.Tags/PutInsightRuleInput.Tags (neither is parsed either) — deliberately NOT fixed to single out PutLogAlarm, since that would make it inconsistent with its two Put* siblings; tagging still works via the separate TagResource op for all three.
 leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers introduced this pass. New tables (logAlarms, datasets, otelEnrichment, registered in store_setup.go) are plain store.Table[T] with no background workers; log alarms have no automatic evaluation loop (no CloudWatch Logs query engine exists here) so nothing was added to janitor.go's sweep."}
 ---
@@ -884,7 +884,10 @@ which failed against unmodified code (0 metrics came back) before the fix.
 Still unread on the CBOR path, deliberately left alone: `MetricStat.Unit` --
 this repo's own `MetricStat` model (`models.go`) has no `Unit` field at all,
 a gap that predates this fix and matches the legacy XML parser's identical
-omission, so adding it would be a new feature, not this bug's fix.
+omission, so adding it would be a new feature, not this bug's fix. (NOTE:
+`MetricAlarm.Unit` -- a different field, PutMetricAlarm's own top-level Unit,
+not MetricStat's -- WAS added 2026-09-11, gopherstack-l4ywn; see dated
+section below. `MetricStat.Unit` itself remains unmodeled.)
 
 **Dead legacy XML/Query path, spot-checked but not exhaustively
 cross-referenced:** the pinned SDK has no serializer for this protocol at
@@ -1158,3 +1161,83 @@ unrelated to this change; left untouched.
 Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
 ./services/cloudwatch/...` all pass; `golangci-lint run
 ./services/cloudwatch/...` 0 issues, 0 new nolints.
+
+## 2026-09-11 -- gopherstack-l4ywn: MetricAlarm.Unit modeled
+
+`MetricAlarm.Unit` (cloudwatch@v1.66.3 `schemas/schemas.go:3855`,
+`MetricAlarm_Unit = MetricAlarm.AddMember("Unit", StandardUnit)`; input
+member at `schemas.go:4473`, `PutMetricAlarmInput_Unit`) was entirely
+unmodeled -- no field on gopherstack's `MetricAlarm` struct at all (found by
+a prior sweep, see the "deferred" entry and the `Notes` caveat above, both
+now updated).
+
+Added `Unit string` to `MetricAlarm` (`models.go`, additive/`omitempty`),
+parsed on both request paths (`handler_alarms.go`'s `handlePutMetricAlarm`
+reads the `Unit` form field; `rpcv2cbor_alarms.go`'s `cborPutMetricAlarm`
+reads `cborStr(input, "Unit")` -- both wire names are `"Unit"`), validated
+against the 27-value `StandardUnit` enum (`types/enums.go:263-289`) via a new
+`validStandardUnit`/`standardUnitValues` in `alarms.go`'s `PutMetricAlarm`,
+and emitted on both response paths (`metricAlarmToXML`/`metricAlarmXML` for
+XML; `buildMetricAlarmCBOR` for CBOR, decomposed into
+`addMetricAlarmTimestampsCBOR`/`addMetricAlarmOptionalScalarsCBOR`/
+`addMetricAlarmListsCBOR` to stay under the cyclop budget after the new
+branch pushed the single function over 15). An out-of-enum Unit is rejected
+`InvalidParameterValue`/`InvalidParameterValueException` on both paths (same
+`ErrValidation` pattern as the existing Statistic/ExtendedStatistic mutual-
+exclusion check).
+
+**Alarm evaluator honors Unit.** Per the PutMetricAlarm API doc ("the unit
+that you want to use when the comparison operation compares the actual
+metric value against the threshold") and the CloudWatch alarms console doc,
+a Unit-scoped alarm only evaluates datapoints published under that exact
+unit. `GetMetricStatistics` was split into a thin public wrapper (unit="",
+unchanged behavior/signature for its ~20 existing call sites, no test
+churn) plus a new private `getMetricStatisticsForUnit(..., unit string)`
+that filters the raw `[]MetricDatum` by `d.Unit == unit` before bucketing
+when `unit != ""`. `alarm_eval.go`'s `fetchSingleMetricBuckets` now calls
+`getMetricStatisticsForUnit(..., alarm.Unit)` instead of the public method.
+Multi-metric (metric-math) alarms (`fetchMultiMetricBuckets`, which goes
+through `GetMetricData`/`MetricDataQuery` instead) are unaffected -- Unit is
+a `MetricAlarm`-level field with no equivalent on `MetricDataQuery`, so
+there is nothing to filter there; this matches real CloudWatch, where
+`PutMetricAlarmInput.Unit` is only meaningful for the single-metric shape.
+
+Note: `GetMetricStatisticsInput` itself also has a real, separate `Unit`
+input parameter (unrelated to this alarm's `Unit`) that gopherstack's
+`handleGetMetricStatistics`/`cborGetMetricStatistics` still do not read --
+pre-existing, out of this issue's scope (the issue is about
+`MetricAlarm.Unit`, not `GetMetricStatistics`'s own Unit filter), left
+unfixed and not separately tracked since it's adjacent to the already-logged
+`DescribeAlarmsForMetric` Unit-filter gap (`## 2026-08-30` section above).
+
+Real-client round trip: `alarm_unit_realclient_test.go`
+(`TestPutMetricAlarm_Unit_RoundTrips_RealClient` -- Count/Bytes-Second/Percent
+table; `TestPutMetricAlarm_UnitOmitted_RealClient`;
+`TestPutMetricAlarm_InvalidUnit_RealClient`), all through a real
+`aws-sdk-go-v2/service/cloudwatch` client against `httptest`
+(`newTestHandlerAndClient`), which per `sdk_roundtrip_helper_test.go`'s own
+comment only ever exercises the CBOR path (`cloudwatch@v1.66.3` has no
+`awsQuery` serializer). XML-path table test:
+`handler_alarm_unit_xml_test.go`'s `TestHandler_PutMetricAlarm_Unit_XMLPath`,
+posting raw form-encoded requests directly at the handler (the only way to
+reach `handler_alarms.go`, since no real client speaks this protocol
+anymore). Evaluator behavior: `alarm_unit_eval_test.go`'s
+`TestAlarmEvaluator_UnitFilter` -- a breaching datapoint published under a
+mismatched unit leaves a Unit-scoped alarm at `INSUFFICIENT_DATA`; the same
+value under the matching unit transitions it to `ALARM`; an alarm with no
+Unit set matches datapoints of any unit (unchanged pre-existing behavior).
+
+`pkgs/persistence/testdata/snapshot_inventory.json`: one new purely-additive
+row, `MetricAlarm.Unit` (`omitempty` JSON field on an existing
+registry-table struct); `cloudwatchSnapshotVersion` not bumped -- the
+guard's own additive-diff rule applies, same precedent as the
+`StateUpdatedTimestamp` addition documented above.
+
+Gates: `go build ./...` clean; `go vet ./services/cloudwatch/...` clean;
+`go test -race -count=1 ./services/cloudwatch/...` all pass; `golangci-lint
+run ./services/cloudwatch/...` 0 issues (after `fieldalignment -fix` on
+`models.go` to absorb the new field, and decomposing `buildMetricAlarmCBOR`
+for cyclop; the new `standardUnitValues` lookup table carries the same
+`//nolint:gochecknoglobals // read-only lookup table, mirrors a fixed AWS
+enum` precedent already used by `knownDashboardWidgetTypes` in this
+package).

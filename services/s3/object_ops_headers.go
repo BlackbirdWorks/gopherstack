@@ -24,6 +24,12 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("Last-Modified", out.LastModified.Format(http.TimeFormat))
 	}
 
+	if out.ExpiresString != nil {
+		w.Header().Set("Expires", *out.ExpiresString)
+	}
+
+	h.setObjectLockHeaders(w, out)
+
 	if out.ContentType != nil {
 		w.Header().Set("Content-Type", *out.ContentType)
 	} else {
@@ -56,6 +62,27 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 	}
 
 	h.setChecksumHeaders(w, out)
+}
+
+// setObjectLockHeaders writes GetObject/HeadObject's three object-lock response
+// headers (s3@v1.111.0 deserializers.go:6969-6989 for GetObject,
+// :8933-8952 for HeadObject): x-amz-object-lock-mode and
+// x-amz-object-lock-legal-hold are plain enums; x-amz-object-lock-retain-until-date
+// is ISO8601 (smithytime.ParseDateTime), matched here with time.RFC3339 (accepted
+// by ParseDateTime's optional-fractional-seconds format, same convention already
+// used by GetObjectRetention's XML body in object_ops_retention.go).
+func (h *S3Handler) setObjectLockHeaders(w http.ResponseWriter, out objectCommonDetails) {
+	if out.ObjectLockMode != "" {
+		w.Header().Set("X-Amz-Object-Lock-Mode", out.ObjectLockMode)
+	}
+
+	if out.ObjectLockLegalHoldStatus != "" {
+		w.Header().Set("X-Amz-Object-Lock-Legal-Hold", out.ObjectLockLegalHoldStatus)
+	}
+
+	if out.ObjectLockRetainUntilDate != nil {
+		w.Header().Set("X-Amz-Object-Lock-Retain-Until-Date", out.ObjectLockRetainUntilDate.UTC().Format(time.RFC3339))
+	}
 }
 
 func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDetails) {
@@ -244,6 +271,44 @@ func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) 
 	default:
 		return "", ""
 	}
+}
+
+// parseExpiresHeader parses the request's Expires header (PutObject/CopyObject/
+// CreateMultipartUpload) as an HTTP-date -- the same grammar
+// smithytime.FormatHTTPDate writes it in (s3@v1.111.0 serializers.go:461,
+// 1032, 8598) and http.TimeFormat parses back. A missing or malformed header
+// returns nil (unset), never a zero time.Time, so a round trip through
+// buildGetObjectOutput/buildHeadObjectOutput correctly omits the response
+// header rather than emitting the Unix epoch.
+func parseExpiresHeader(r *http.Request) *time.Time {
+	return parseHTTPDateOrNil(r.Header.Get("Expires"))
+}
+
+// parseExpiresString is parseExpiresHeader's counterpart for a source
+// object's already-stored ExpiresString (CopyObject's COPY metadata
+// directive re-uses the source's Expires rather than re-parsing a request
+// header). Returns nil when s is nil or empty.
+func parseExpiresString(s *string) *time.Time {
+	if s == nil {
+		return nil
+	}
+
+	return parseHTTPDateOrNil(*s)
+}
+
+// parseHTTPDateOrNil parses an HTTP-date string, returning nil (not a zero
+// time.Time) for an empty or malformed value.
+func parseHTTPDateOrNil(v string) *time.Time {
+	if v == "" {
+		return nil
+	}
+
+	t, err := http.ParseTime(v)
+	if err != nil {
+		return nil
+	}
+
+	return &t
 }
 
 // setExpirationHeader evaluates lifecycle rules and sets the X-Amz-Expiration header.

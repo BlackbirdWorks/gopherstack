@@ -76,9 +76,14 @@ type StoredObject struct {
 
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
-	RetainUntil             time.Time                    `json:"retainUntil"`
-	RestoreExpiry           time.Time                    `json:"restoreExpiry,omitzero"`
-	LastModified            time.Time                    `json:"lastModified"`
+	RetainUntil   time.Time `json:"retainUntil"`
+	RestoreExpiry time.Time `json:"restoreExpiry,omitzero"`
+	LastModified  time.Time `json:"lastModified"`
+	// Expires is the object's Expires header (PutObject/CopyObject/
+	// CreateMultipartUpload, s3@v1.111.0 serializers.go:461,1032,8598), sent as
+	// HTTP-date and echoed verbatim by GetObject/HeadObject
+	// (deserializers.go:6936,8899). Zero means unset (header omitted).
+	Expires                 time.Time                    `json:"expires,omitzero"`
 	ChecksumSHA1            *string                      `json:"checksumSHA1,omitempty"`
 	Metadata                map[string]string            `json:"metadata,omitempty"`
 	Annotations             map[string]*StoredAnnotation `json:"annotations,omitempty"`
@@ -149,33 +154,17 @@ type StorageClassTransition struct {
 
 // StoredMultipartUpload represents an ongoing multipart upload session.
 type StoredMultipartUpload struct {
-	Initiated time.Time             `json:"initiated"`
-	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
-	mu        *lockmetrics.RWMutex  `json:"-"`
-	UploadID  string                `json:"uploadID"`
-	Bucket    string                `json:"bucket"`
-	Key       string                `json:"key"`
-	// Tagging holds the URL-encoded tag string from the X-Amz-Tagging header
-	// supplied at CreateMultipartUpload time. It is applied to the resulting
-	// object version when CompleteMultipartUpload succeeds.
-	Tagging string `json:"tagging,omitempty"`
-	// SSE captures the encryption headers from CreateMultipartUpload so the
-	// completed object's assembled body can be sealed with the same envelope
-	// (matching real S3 — SSE is fixed at session-init). Persisted so that an
-	// in-flight upload that survives a snapshot/restore still completes with
-	// the caller's chosen encryption rather than silently landing unencrypted.
-	// (The SSE-C customer key inside sseInfo stays request-scoped — see
-	// sseInfo.SSECKeyB64 — so SSE-C uploads still require the key on Complete.)
-	SSE sseInfo `json:"sse"`
-	// StorageClass is the x-amz-storage-class header from CreateMultipartUpload
-	// (real S3 fixes storage class at session-init, same as SSE above). Applied
-	// to the resulting object version on CompleteMultipartUpload and reported
-	// back verbatim by ListMultipartUploads.
-	StorageClass string `json:"storageClass,omitempty"`
-	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
-	// before the upload is removed from the index, so that concurrent UploadPart
-	// calls that already hold a pointer to this struct can detect the invalidation.
-	closed bool `json:"-"`
+	Initiated    time.Time             `json:"initiated"`
+	Expires      time.Time             `json:"expires,omitzero"`
+	Parts        map[int32]*StoredPart `json:"parts,omitempty"`
+	mu           *lockmetrics.RWMutex  `json:"-"`
+	SSE          sseInfo               `json:"sse"`
+	UploadID     string                `json:"uploadID"`
+	Bucket       string                `json:"bucket"`
+	Key          string                `json:"key"`
+	Tagging      string                `json:"tagging,omitempty"`
+	StorageClass string                `json:"storageClass,omitempty"`
+	closed       bool                  `json:"-"`
 }
 
 // StoredPart represents a single part of a multipart upload.

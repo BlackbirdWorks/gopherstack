@@ -34,6 +34,10 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		)
 	}
 
+	if !validStandardUnit(alarm.Unit) {
+		return fmt.Errorf("%w: Unit %q is not a valid StandardUnit", ErrValidation, alarm.Unit)
+	}
+
 	b.mu.Lock("PutMetricAlarm")
 	defer b.mu.Unlock()
 
@@ -540,4 +544,43 @@ func (b *InMemoryBackend) GetAlarmARNs(names []string) []string {
 	}
 
 	return arns
+}
+
+// standardUnitValues is the StandardUnit enum (cloudwatch@v1.66.3 types/enums.go:263-289).
+//
+//nolint:gochecknoglobals // read-only lookup table, mirrors a fixed AWS enum
+var standardUnitValues = map[string]bool{
+	"Seconds":          true,
+	"Microseconds":     true,
+	"Milliseconds":     true,
+	"Bytes":            true,
+	"Kilobytes":        true,
+	"Megabytes":        true,
+	"Gigabytes":        true,
+	"Terabytes":        true,
+	"Bits":             true,
+	"Kilobits":         true,
+	"Megabits":         true,
+	"Gigabits":         true,
+	"Terabits":         true,
+	"Percent":          true,
+	"Count":            true,
+	"Bytes/Second":     true,
+	"Kilobytes/Second": true,
+	"Megabytes/Second": true,
+	"Gigabytes/Second": true,
+	"Terabytes/Second": true,
+	"Bits/Second":      true,
+	"Kilobits/Second":  true,
+	"Megabits/Second":  true,
+	"Gigabits/Second":  true,
+	"Terabits/Second":  true,
+	"Count/Second":     true,
+	"None":             true,
+}
+
+// validStandardUnit reports whether unit is a valid StandardUnit value, or empty
+// (Unit is optional on PutMetricAlarm).
+func validStandardUnit(unit string) bool {
+	return unit == "" || standardUnitValues[unit]
 }

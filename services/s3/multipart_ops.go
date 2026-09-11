@@ -50,6 +50,7 @@ func (h *S3Handler) createMultipartUpload(
 		Bucket:               aws.String(bucketName),
 		Key:                  aws.String(key),
 		Tagging:              aws.String(tagging),
+		Expires:              parseExpiresHeader(r),
 		StorageClass:         types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
 		SSEKMSKeyId:          ptrconv.NilIfEmpty(sse.KMSKeyID),
@@ -63,6 +64,8 @@ func (h *S3Handler) createMultipartUpload(
 		return
 	}
 
+	setAbortIncompleteHeaders(w, out.AbortDate, out.AbortRuleId)
+
 	resp := InitiateMultipartUploadResult{
 		Bucket:   bucketName,
 		Key:      key,
@@ -70,6 +73,21 @@ func (h *S3Handler) createMultipartUpload(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+}
+
+// setAbortIncompleteHeaders writes x-amz-abort-date/x-amz-abort-rule-id when
+// abortDate is non-nil, matching real S3's CreateMultipartUpload/ListParts
+// behaviour of omitting both headers entirely when no
+// AbortIncompleteMultipartUpload lifecycle rule applies to the key.
+func setAbortIncompleteHeaders(w http.ResponseWriter, abortDate *time.Time, abortRuleID *string) {
+	if abortDate == nil {
+		return
+	}
+
+	w.Header().Set("X-Amz-Abort-Date", abortDate.UTC().Format(http.TimeFormat))
+	if abortRuleID != nil {
+		w.Header().Set("X-Amz-Abort-Rule-Id", *abortRuleID)
+	}
 }
 
 func (h *S3Handler) uploadPart(
@@ -446,6 +464,8 @@ func (h *S3Handler) listParts(
 
 		return
 	}
+
+	setAbortIncompleteHeaders(w, out.AbortDate, out.AbortRuleId)
 
 	result := ListPartsResult{
 		Xmlns:            xmlNamespaceS3,

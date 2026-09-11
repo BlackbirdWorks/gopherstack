@@ -16,6 +16,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// copyDirectiveReplace is the REPLACE value for X-Amz-Metadata-Directive and
+// X-Amz-Tagging-Directive (COPY, the default, is the only other valid value).
+const copyDirectiveReplace = "REPLACE"
+
 // copySourceData reads source object metadata for CopyObject/UploadPartCopy.
 // When the source object is SSE-C encrypted, the caller must supply the
 // x-amz-copy-source-server-side-encryption-customer-* headers so the backend
@@ -152,6 +156,7 @@ func (h *S3Handler) copyObject(
 
 	userMeta, contentType := buildCopyMetadata(r, srcVer.Metadata, srcVer.ContentType)
 	tagging, taggingReplace := buildCopyTagging(r)
+	expires := buildCopyExpires(r, srcVer.ExpiresString)
 
 	logger.Load(ctx).DebugContext(ctx, "CopyObject source info",
 		"srcContentType", aws.ToString(contentType),
@@ -164,6 +169,7 @@ func (h *S3Handler) copyObject(
 		Body:              srcVer.Body,
 		Metadata:          userMeta,
 		ContentType:       contentType,
+		Expires:           expires,
 		StorageClass:      types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ChecksumAlgorithm: copyChecksumAlgorithm(r, srcVer),
 	}
@@ -302,7 +308,7 @@ func buildCopyMetadata(
 	srcMetadata map[string]string,
 	srcContentType *string,
 ) (map[string]string, *string) {
-	if r.Header.Get("X-Amz-Metadata-Directive") != "REPLACE" {
+	if r.Header.Get("X-Amz-Metadata-Directive") != copyDirectiveReplace {
 		return maps.Clone(srcMetadata), srcContentType
 	}
 
@@ -317,12 +323,24 @@ func buildCopyMetadata(
 	return parseUserMetadata(r.Header), destContentType
 }
 
+// buildCopyExpires returns the Expires value for the destination object,
+// applying the same x-amz-metadata-directive logic as buildCopyMetadata: on
+// REPLACE, the request's own Expires header (nil if absent, i.e. the copy
+// clears it); on COPY (default), the source object's Expires is preserved.
+func buildCopyExpires(r *http.Request, srcExpiresString *string) *time.Time {
+	if r.Header.Get("X-Amz-Metadata-Directive") != copyDirectiveReplace {
+		return parseExpiresString(srcExpiresString)
+	}
+
+	return parseExpiresHeader(r)
+}
+
 // buildCopyTagging returns the tagging string to apply to the destination.
 // On REPLACE: use the x-amz-tagging header from the request.
 // On COPY (default): return empty string so the source tags are preserved by caller.
 func buildCopyTagging(r *http.Request) (string, bool) {
 	directive := r.Header.Get("X-Amz-Tagging-Directive")
-	if directive == "REPLACE" {
+	if directive == copyDirectiveReplace {
 		return r.Header.Get("X-Amz-Tagging"), true
 	}
 
@@ -333,10 +351,10 @@ func buildCopyTagging(r *http.Request) (string, bool) {
 // attribute. AWS only permits a self-copy (identical source and destination) when
 // at least one attribute changes; otherwise it returns InvalidRequest.
 func copyChangesAttributes(r *http.Request) bool {
-	if strings.EqualFold(r.Header.Get("X-Amz-Metadata-Directive"), "REPLACE") {
+	if strings.EqualFold(r.Header.Get("X-Amz-Metadata-Directive"), copyDirectiveReplace) {
 		return true
 	}
-	if strings.EqualFold(r.Header.Get("X-Amz-Tagging-Directive"), "REPLACE") {
+	if strings.EqualFold(r.Header.Get("X-Amz-Tagging-Directive"), copyDirectiveReplace) {
 		return true
 	}
 

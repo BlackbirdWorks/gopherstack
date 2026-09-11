@@ -39,6 +39,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		TreatMissingData:        form.Get("TreatMissingData"),
 		AlarmDescription:        form.Get("AlarmDescription"),
 		ThresholdMetricID:       form.Get("ThresholdMetricId"),
+		Unit:                    form.Get("Unit"),
 		Threshold:               threshold,
 		EvaluationPeriods:       int32(evalPeriods),
 		DatapointsToAlarm:       int32(datapointsToAlarm),
@@ -82,6 +83,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		ExtendedStatistic:       a.ExtendedStatistic,
 		TreatMissingData:        a.TreatMissingData,
 		ThresholdMetricID:       a.ThresholdMetricID,
+		Unit:                    a.Unit,
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
@@ -125,6 +127,7 @@ type metricAlarmXML struct {
 	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
 	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
 	ThresholdMetricID                  string   `xml:"ThresholdMetricId,omitempty"`
+	Unit                               string   `xml:"Unit,omitempty"`
 	AlarmArn                           string   `xml:"AlarmArn"`
 	StateValue                         string   `xml:"StateValue"`
 	AlarmName                          string   `xml:"AlarmName"`

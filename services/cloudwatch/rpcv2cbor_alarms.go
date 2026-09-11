@@ -35,6 +35,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		ExtendedStatistic:       cborStr(input, "ExtendedStatistic"),
 		TreatMissingData:        cborStr(input, "TreatMissingData"),
 		AlarmDescription:        cborStr(input, "AlarmDescription"),
+		Unit:                    cborStr(input, "Unit"),
 		Threshold:               cborFloat(input, "Threshold"),
 		EvaluationPeriods:       cborInt32(input, "EvaluationPeriods"),
 		DatapointsToAlarm:       cborInt32(input, "DatapointsToAlarm"),
@@ -163,6 +164,16 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		),
 		keyActionsEnabled: cbor.Bool(a.ActionsEnabled),
 	}
+
+	addMetricAlarmTimestampsCBOR(m, a)
+	addMetricAlarmOptionalScalarsCBOR(m, a)
+	addMetricAlarmListsCBOR(m, a)
+
+	return m
+}
+
+// addMetricAlarmTimestampsCBOR sets the optional timestamp members of a MetricAlarm CBOR map.
+func addMetricAlarmTimestampsCBOR(m cbor.Map, a *MetricAlarm) {
 	if !a.StateTransitionedTimestamp.IsZero() {
 		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
 	}
@@ -175,6 +186,10 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	if !a.CreatedAt.IsZero() {
 		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
 	}
+}
+
+// addMetricAlarmOptionalScalarsCBOR sets the optional scalar members of a MetricAlarm CBOR map.
+func addMetricAlarmOptionalScalarsCBOR(m cbor.Map, a *MetricAlarm) {
 	if a.StateReasonData != "" {
 		m["StateReasonData"] = cbor.String(a.StateReasonData)
 	}
@@ -187,6 +202,13 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	if a.ExtendedStatistic != "" {
 		m["ExtendedStatistic"] = cbor.String(a.ExtendedStatistic)
 	}
+	if a.Unit != "" {
+		m["Unit"] = cbor.String(a.Unit)
+	}
+}
+
+// addMetricAlarmListsCBOR sets the optional list members of a MetricAlarm CBOR map.
+func addMetricAlarmListsCBOR(m cbor.Map, a *MetricAlarm) {
 	if len(a.Dimensions) > 0 {
 		dims := make(cbor.List, 0, len(a.Dimensions))
 		for _, d := range a.Dimensions {
@@ -209,8 +231,6 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	if len(a.Metrics) > 0 {
 		m["Metrics"] = buildMetricDataQueriesCBOR(a.Metrics)
 	}
-
-	return m
 }
 
 // buildMetricDataQueriesCBOR converts a MetricDataQuery list to the wire

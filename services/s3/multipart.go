@@ -85,6 +85,9 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		}
 	}
 
+	initiated := time.Now().UTC()
+	abortDate, abortRuleID, hasAbortRule := abortIncompleteInfoForUpload(bucket, key, initiated)
+
 	b.mu.Lock("CreateMultipartUpload")
 	defer b.mu.Unlock()
 
@@ -93,18 +96,25 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Bucket:       bucketName,
 		Key:          key,
 		Parts:        make(map[int32]*StoredPart),
-		Initiated:    time.Now().UTC(),
+		Initiated:    initiated,
 		Tagging:      tagging,
 		SSE:          sse,
 		StorageClass: string(input.StorageClass),
+		Expires:      aws.ToTime(input.Expires),
 		mu:           lockmetrics.New("s3.upload"),
 	})
 
-	return &s3.CreateMultipartUploadOutput{
+	out := &s3.CreateMultipartUploadOutput{
 		Bucket:   input.Bucket,
 		Key:      input.Key,
 		UploadId: aws.String(uploadID),
-	}, nil
+	}
+	if hasAbortRule {
+		out.AbortDate = aws.Time(abortDate)
+		out.AbortRuleId = aws.String(abortRuleID)
+	}
+
+	return out, nil
 }
 
 func (b *InMemoryBackend) UploadPart(
@@ -215,6 +225,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	var tagging string
 	var sse sseInfo
 	var storageClass string
+	var expires time.Time
 	func() {
 		upload.mu.RLock("CompleteMultipartUpload.tagging")
 		defer upload.mu.RUnlock()
@@ -222,6 +233,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		tagging = upload.Tagging
 		sse = upload.SSE
 		storageClass = upload.StorageClass
+		expires = upload.Expires
 	}()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
@@ -250,7 +262,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse, storageClass)
+	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse, storageClass, expires)
 	if err != nil {
 		return nil, err
 	}
@@ -464,6 +476,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	tagging string,
 	sse sseInfo,
 	storageClass string,
+	expires time.Time,
 ) (string, error) {
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
@@ -527,6 +540,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			EncryptionDEK:   dek,
 			EncryptionNonce: nonce,
 			StorageClass:    storageClass,
+			Expires:         expires,
 		}
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases
@@ -826,6 +840,28 @@ func truncateUploads(entries []uploadListEntry, maxUploads int32) (
 	return uploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIDMarker
 }
 
+// abortIncompleteInfoForUpload reads bucket's lifecycle config and computes
+// the AbortIncompleteMultipartUpload date/rule for key + initiated, if any
+// enabled rule's prefix applies. bucket may be nil (bucket deleted concurrently
+// with an in-flight upload lookup), in which case no rule applies.
+func abortIncompleteInfoForUpload(
+	bucket *StoredBucket, key string, initiated time.Time,
+) (time.Time, string, bool) {
+	if bucket == nil {
+		return time.Time{}, "", false
+	}
+
+	var lcXML string
+	func() {
+		bucket.mu.RLock("abortIncompleteInfoForUpload")
+		defer bucket.mu.RUnlock()
+
+		lcXML = bucket.LifecycleConfig
+	}()
+
+	return computeAbortIncompleteMultipartUpload(lcXML, key, initiated)
+}
+
 // ListParts returns the parts that have been uploaded for a specific multipart upload.
 const listPartsDefaultMax = int32(1000)
 
@@ -837,16 +873,22 @@ func (b *InMemoryBackend) ListParts(
 	bucketName := aws.ToString(input.Bucket)
 
 	var upload *StoredMultipartUpload
+	var bucket *StoredBucket
 	func() {
 		b.mu.RLock("ListParts")
 		defer b.mu.RUnlock()
 
 		upload = b.getUpload(bucketName, uploadID)
+		bucket, _ = b.getBucket(bucketName)
 	}()
 
 	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
+
+	abortDate, abortRuleID, hasAbortRule := abortIncompleteInfoForUpload(
+		bucket, aws.ToString(input.Key), upload.Initiated,
+	)
 
 	maxParts := listPartsDefaultMax
 	if input.MaxParts != nil && *input.MaxParts > 0 && *input.MaxParts < listPartsDefaultMax {
@@ -906,7 +948,7 @@ func (b *InMemoryBackend) ListParts(
 		nextPartNumberMarker = aws.String(strconv.Itoa(int(aws.ToInt32(last.PartNumber))))
 	}
 
-	return &s3.ListPartsOutput{
+	out := &s3.ListPartsOutput{
 		Bucket:               input.Bucket,
 		Key:                  input.Key,
 		UploadId:             input.UploadId,
@@ -915,7 +957,13 @@ func (b *InMemoryBackend) ListParts(
 		MaxParts:             aws.Int32(maxParts),
 		PartNumberMarker:     input.PartNumberMarker,
 		NextPartNumberMarker: nextPartNumberMarker,
-	}, nil
+	}
+	if hasAbortRule {
+		out.AbortDate = aws.Time(abortDate)
+		out.AbortRuleId = aws.String(abortRuleID)
+	}
+
+	return out, nil
 }
 
 // storePart saves a multipart upload part under the per-upload lock.
