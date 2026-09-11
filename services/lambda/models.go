@@ -155,6 +155,37 @@ type FunctionConfiguration struct {
 	CodeSize          int64               `json:"CodeSize"`
 }
 
+// wireFunctionConfiguration is FunctionConfiguration's wire twin for
+// CreateFunction, UpdateFunctionCode, UpdateFunctionConfiguration,
+// GetFunctionConfiguration and ListFunctions, none of which declare Tags on
+// the real response (lambda v1.107.0 api_op_*.go) -- Tags lives only on
+// GetFunctionOutput as a sibling of Configuration. Tags MUST stay persisted
+// on FunctionConfiguration (do not retag it json:"-"); the nil *struct{}
+// here shadows the embedded field and, with omitempty, drops the key.
+type wireFunctionConfiguration struct {
+	*FunctionConfiguration
+	Tags *struct{} `json:"Tags,omitempty"`
+}
+
+// toWireFunctionConfiguration strips Tags for wire paths where it doesn't belong.
+func toWireFunctionConfiguration(fn *FunctionConfiguration) *wireFunctionConfiguration {
+	if fn == nil {
+		return nil
+	}
+
+	return &wireFunctionConfiguration{FunctionConfiguration: fn}
+}
+
+// toWireFunctionConfigurations converts a slice for ListFunctions.
+func toWireFunctionConfigurations(fns []*FunctionConfiguration) []*wireFunctionConfiguration {
+	out := make([]*wireFunctionConfiguration, len(fns))
+	for i, fn := range fns {
+		out[i] = toWireFunctionConfiguration(fn)
+	}
+
+	return out
+}
+
 // EnvironmentConfig holds Lambda function environment variables.
 type EnvironmentConfig struct {
 	Variables map[string]string `json:"Variables"`
@@ -269,6 +300,13 @@ type FunctionCodeLocation struct {
 type ListFunctionsOutput struct {
 	NextMarker string                   `json:"NextMarker,omitempty"`
 	Functions  []*FunctionConfiguration `json:"Functions"`
+}
+
+// listFunctionsWireOutput is ListFunctionsOutput's wire shape, with each
+// Function stripped of Tags (see wireFunctionConfiguration).
+type listFunctionsWireOutput struct {
+	NextMarker string                       `json:"NextMarker,omitempty"`
+	Functions  []*wireFunctionConfiguration `json:"Functions"`
 }
 
 // Error represents an error response from Lambda.

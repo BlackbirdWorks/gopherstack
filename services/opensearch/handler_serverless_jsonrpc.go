@@ -164,7 +164,7 @@ func (h *Handler) jrBatchGetCollection(input map[string]any) (map[string]any, er
 		colls = []*ServerlessCollection{}
 	}
 
-	return map[string]any{"collectionDetails": colls}, nil
+	return map[string]any{"collectionDetails": toWireServerlessCollections(colls)}, nil
 }
 
 func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, error) {
@@ -183,7 +183,7 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 		return nil, err
 	}
 
-	return map[string]any{"createCollectionDetail": coll}, nil
+	return map[string]any{"createCollectionDetail": toWireServerlessCollection(coll)}, nil
 }
 
 func (h *Handler) jrDeleteCollection(input map[string]any) (map[string]any, error) {
@@ -194,7 +194,7 @@ func (h *Handler) jrDeleteCollection(input map[string]any) (map[string]any, erro
 		return nil, err
 	}
 
-	return map[string]any{"deleteCollectionDetail": coll}, nil
+	return map[string]any{"deleteCollectionDetail": toWireServerlessCollection(coll)}, nil
 }
 
 func (h *Handler) jrListCollections(_ map[string]any) (map[string]any, error) {
@@ -203,7 +203,7 @@ func (h *Handler) jrListCollections(_ map[string]any) (map[string]any, error) {
 		colls = []*ServerlessCollection{}
 	}
 
-	return map[string]any{"collectionSummaries": colls}, nil
+	return map[string]any{"collectionSummaries": toWireServerlessCollections(colls)}, nil
 }
 
 // --- Access policies ---

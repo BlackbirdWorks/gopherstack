@@ -329,11 +329,11 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 			resp := *fn
 			resp.Version = publishedVersion
 
-			return c.JSON(http.StatusCreated, &resp)
+			return c.JSON(http.StatusCreated, toWireFunctionConfiguration(&resp))
 		}
 	}
 
-	return c.JSON(http.StatusCreated, fn)
+	return c.JSON(http.StatusCreated, toWireFunctionConfiguration(fn))
 }
 
 func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
@@ -403,8 +403,8 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 		if bk, ok := h.Backend.(*InMemoryBackend); ok {
 			p := bk.ListFunctionsAll(marker, maxItems)
 
-			return c.JSON(http.StatusOK, &ListFunctionsOutput{
-				Functions:  p.Data,
+			return c.JSON(http.StatusOK, &listFunctionsWireOutput{
+				Functions:  toWireFunctionConfigurations(p.Data),
 				NextMarker: p.Next,
 			})
 		}
@@ -412,8 +412,8 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 
 	p := h.Backend.ListFunctions(marker, maxItems)
 
-	return c.JSON(http.StatusOK, &ListFunctionsOutput{
-		Functions:  p.Data,
+	return c.JSON(http.StatusOK, &listFunctionsWireOutput{
+		Functions:  toWireFunctionConfigurations(p.Data),
 		NextMarker: p.Next,
 	})
 }
@@ -504,11 +504,11 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 			resp := *fn
 			resp.Version = publishedVersion
 
-			return c.JSON(http.StatusOK, &resp)
+			return c.JSON(http.StatusOK, toWireFunctionConfiguration(&resp))
 		}
 	}
 
-	return c.JSON(http.StatusOK, fn)
+	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
 }
 
 // maybePublishVersion publishes a new numbered version for fn when the InMemoryBackend is
@@ -666,7 +666,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
 	}
 
-	return c.JSON(http.StatusOK, fn)
+	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
 }
 
 // applySnapStart sets the SnapStart field on fn based on the input.
@@ -838,5 +838,5 @@ func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) e
 	}
 
 	// GetFunctionConfiguration returns the configuration only (no code location).
-	return c.JSON(http.StatusOK, fn)
+	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
 }

@@ -638,11 +638,19 @@ func TestCreateFunction_Tags(t *testing.T) {
 			rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
-			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+			// CreateFunctionOutput carries no Tags member on real AWS
+			// (gopherstack-5dslv); Tags is persisted and read back only
+			// via GetFunction's sibling field.
+			assert.NotContains(t, rec.Body.String(), `"Tags"`)
+
+			getRec := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/functions/tag-create-fn", "")
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var out lambda.GetFunctionOutput
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
 
 			for k, v := range tt.wantTags {
-				assert.Equal(t, v, fn.Tags[k],
+				assert.Equal(t, v, out.Tags[k],
 					"tag %q must be present with value %q", k, v)
 			}
 		})

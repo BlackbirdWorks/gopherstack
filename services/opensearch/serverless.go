@@ -35,6 +35,40 @@ type ServerlessCollection struct {
 	LastModifiedDate   float64           `json:"lastModifiedDate"`
 }
 
+// wireServerlessCollection is ServerlessCollection's wire twin for every AOSS
+// response that marshals a collection directly: CreateCollection,
+// DeleteCollection, and BatchGetCollection's detail and summary forms, on
+// both the fabricated REST path (handler_serverless.go) and the real
+// JSON-RPC path (handler_serverless_jsonrpc.go). Real CollectionDetail,
+// CollectionSummary, CreateCollectionDetail and DeleteCollectionDetail
+// (opensearchserverless v1.34.4 types.go:115-173,349-390,480-495) have
+// neither tags nor statusUntil. StatusUntil is the emulator's internal
+// lifecycle deadline and MUST stay persisted on ServerlessCollection (do not
+// retag it json:"-"); the nil *struct{} fields here shadow the embedded ones
+// and, with omitempty, drop both keys from the wire.
+type wireServerlessCollection struct {
+	*ServerlessCollection
+	Tags        *struct{} `json:"tags,omitempty"`
+	StatusUntil *struct{} `json:"statusUntil,omitempty"`
+}
+
+func toWireServerlessCollection(coll *ServerlessCollection) *wireServerlessCollection {
+	if coll == nil {
+		return nil
+	}
+
+	return &wireServerlessCollection{ServerlessCollection: coll}
+}
+
+func toWireServerlessCollections(colls []*ServerlessCollection) []*wireServerlessCollection {
+	out := make([]*wireServerlessCollection, len(colls))
+	for i, c := range colls {
+		out[i] = toWireServerlessCollection(c)
+	}
+
+	return out
+}
+
 // ServerlessAccessPolicy represents an OpenSearch Serverless access policy.
 type ServerlessAccessPolicy struct {
 	Description      string  `json:"description,omitempty"`
