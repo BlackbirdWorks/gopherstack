@@ -1008,3 +1008,47 @@ restored; see commit history).
 Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/bedrock/...` and
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/bedrock/...` -- 0 issues,
 both clean.
+
+## gopherstack-okok: Delete* invented-"status"-member sweep (2026-09-11)
+
+Verified at HEAD: the specific claim (DeletePromptVersion/DeleteFlow/
+DeleteFlowVersion emitting a fabricated `status: "Deleting"` member) was
+**already fixed** by c78177958 (2026-09-02), which predates this issue
+being filed (2026-08-29) but landed after. Confirmed by reading the current
+handlers plus `bedrockagent@v1.58.4` deserializers.go's
+`awsRestjson1_deserializeOpDocumentDelete{Prompt,Flow,FlowVersion,FlowAlias}Output`
+-- none declare a status member, and none of gopherstack's current outputs
+emit one.
+
+Full sweep of every `Delete*` op in `services/bedrock` and
+`services/bedrockagent` (AgentsHandler/Handler's Agent, AgentAlias,
+AgentVersion, AgentActionGroup, Flow, FlowVersion, FlowAlias,
+KnowledgeBase, DataSource, KnowledgeBaseDocuments, Prompt, PromptVersion,
+plus the core-bedrock control-plane Delete ops, all of which have empty
+SDK outputs) found one real bug, not the status-fabrication class:
+
+**Bug found and fixed**: `services/bedrock/handler_agents.go`'s
+`handleDeleteAgentVersion` emitted the deleted version under the wire key
+`"version"` instead of the real `DeleteAgentVersionOutput` member
+`"agentVersion"` (confirmed: `bedrockagent@v1.58.4` deserializers.go's
+`awsRestjson1_deserializeOpDocumentDeleteAgentVersionOutput`, case
+`"agentVersion"`). A typed client's `AgentVersion` field was always nil.
+Fixed by using the existing `respAgentVersion` constant. The sibling
+`bedrockagent` package's own `handleDeleteAgentVersion` already used the
+correct key.
+
+Every other swept op's emitted key set matches its SDK deserializer's
+declared member set exactly (including the legitimate `status`/
+`agentStatus`/`agentAliasStatus`/`dataSourceId`+`knowledgeBaseId`+`status`
+members on `DeleteAgent`/`DeleteAgentAlias`/`DeleteAgentVersion`/
+`DeleteDataSource`/`DeleteKnowledgeBase`, which really do exist on those
+outputs -- only Delete{Prompt,PromptVersion,Flow,FlowVersion,FlowAlias,
+AgentActionGroup} and the empty-output core-bedrock ops have no status-like
+member).
+
+Locked by `TestDeleteOps_ExactWireKeySet` in both
+`services/bedrock/delete_output_shape_test.go` and
+`services/bedrockagent/delete_output_shape_test.go`: table-driven,
+raw-body (`map[string]any`) exact-key-set assertions per op (a typed client
+can't observe either a missing real key or an extra fabricated one, so the
+raw body is the only way to prove the set is exact).

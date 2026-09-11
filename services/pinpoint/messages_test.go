@@ -529,98 +529,135 @@ func TestSendMessages_ResponseFlat(t *testing.T) {
 	assert.NotEmpty(t, entry["MessageId"])
 }
 
+// createTestInAppCampaign creates an in-app template plus a campaign that
+// targets it via TemplateConfiguration.InAppTemplate.Name -- the real way
+// AWS associates a campaign with an in-app template (pinpoint@v1.42.4
+// types/types.go's TemplateConfiguration.InAppTemplate). Both requests are
+// sent in their real FLAT wire shape (no "InAppTemplateRequest"/
+// "WriteCampaignRequest" wrapper key -- those types ARE the request body
+// directly; see messages_wrapper_fix_test.go's package doc comment).
+// Returns the created campaign's id.
+func createTestInAppCampaign(
+	t *testing.T, h *pinpoint.Handler, appID, templateName string, priority int, paused bool,
+) string {
+	t.Helper()
+
+	tmplRec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/"+templateName+"/inapp", map[string]any{
+		"Layout": "BOTTOM_BANNER",
+		"Content": []map[string]any{
+			{"BackgroundColor": "#FFFFFF"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, tmplRec.Code, tmplRec.Body.String())
+
+	campRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns", map[string]any{
+		"Name":      templateName + "-campaign",
+		"SegmentId": "seg-001",
+		"Priority":  priority,
+		"IsPaused":  paused,
+		"TemplateConfiguration": map[string]any{
+			"InAppTemplate": map[string]any{"Name": templateName},
+		},
+	})
+	require.Equal(t, http.StatusCreated, campRec.Code, campRec.Body.String())
+
+	var camp map[string]any
+	require.NoError(t, json.Unmarshal(campRec.Body.Bytes(), &camp))
+	campaignID, _ := camp["Id"].(string)
+	require.NotEmpty(t, campaignID)
+
+	return campaignID
+}
+
 // TestGetInAppMessages tests retrieval of in-app messages for an endpoint.
+// gopherstack has no segment/dimension matching engine, so every non-paused
+// campaign in the app that targets an in-app template is returned
+// regardless of endpointID (see in_app_messages.go's package doc comment) --
+// these cases exercise what IS implemented rather than asserting a specific
+// endpoint is excluded.
 func TestGetInAppMessages(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		setup func(t *testing.T, h *pinpoint.Handler) (string, string)
-	}
+	t.Run("no_campaigns_returns_empty_not_null_list", func(t *testing.T) {
+		t.Parallel()
 
-	type want struct {
-		wantStatus int
-		wantCount  int
-	}
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "inapp-empty-app")
 
-	tests := []struct {
-		args args
-		name string
-		want want
-	}{
-		{
-			name: "app_with_no_templates",
-			args: args{
-				setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
-					t.Helper()
-					appID := createTestApp(t, h, "inapp-empty-app")
+		rec := doPinpointRequest(t, h, http.MethodGet,
+			"/v1/apps/"+appID+"/endpoints/ep-1/inappmessages", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-					return appID, "ep-1"
-				},
-			},
-			want: want{
-				wantStatus: http.StatusOK,
-				wantCount:  0,
-			},
-		},
-		{
-			name: "app_with_inapp_templates",
-			args: args{
-				setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
-					t.Helper()
-					appID := createTestApp(t, h, "inapp-with-tmpl-app")
-					rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/tmpl-banner/inapp", map[string]any{
-						"InAppTemplateRequest": map[string]any{
-							"TemplateDescription": "Banner Template",
-						},
-					})
-					require.Equal(t, http.StatusCreated, rec.Code)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
+		require.True(t, ok, "InAppMessageCampaigns must be present and be an array")
+		assert.Empty(t, campaigns)
+	})
 
-					return appID, "ep-2"
-				},
-			},
-			want: want{
-				wantStatus: http.StatusOK,
-				wantCount:  1,
-			},
-		},
-		{
-			name: "app_not_found",
-			args: args{
-				setup: func(t *testing.T, _ *pinpoint.Handler) (string, string) {
-					t.Helper()
+	t.Run("matching_in_app_campaign_returns_template_content", func(t *testing.T) {
+		t.Parallel()
 
-					return "non-existent-app-id", "ep-3"
-				},
-			},
-			want: want{
-				wantStatus: http.StatusNotFound,
-			},
-		},
-	}
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "inapp-with-campaign-app")
+		campaignID := createTestInAppCampaign(t, h, appID, "gim-template", 5, false)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		rec := doPinpointRequest(t, h, http.MethodGet,
+			"/v1/apps/"+appID+"/endpoints/ep-2/inappmessages", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-			h := newHandlerForTest(t)
-			appID, endpointID := tt.args.setup(t, h)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
+		require.True(t, ok)
+		require.Len(t, campaigns, 1)
 
-			rec := doPinpointRequest(
-				t,
-				h,
-				http.MethodGet,
-				"/v1/apps/"+appID+"/endpoints/"+endpointID+"/inappmessages",
-				nil,
-			)
-			require.Equal(t, tt.want.wantStatus, rec.Code)
+		got, ok := campaigns[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, campaignID, got["CampaignId"])
+		assert.InDelta(t, 5, got["Priority"], 0)
 
-			if tt.want.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				campaigns, ok := resp["InAppMessageCampaigns"].([]any)
-				require.True(t, ok)
-				assert.Len(t, campaigns, tt.want.wantCount)
-			}
-		})
-	}
+		msg, ok := got["InAppMessage"].(map[string]any)
+		require.True(t, ok, "InAppMessage must carry the template's real content, not be absent")
+		assert.Equal(t, "BOTTOM_BANNER", msg["Layout"])
+
+		content, ok := msg["Content"].([]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+		first, ok := content[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "#FFFFFF", first["BackgroundColor"])
+	})
+
+	t.Run("paused_campaign_excluded", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandlerForTest(t)
+		appID := createTestApp(t, h, "inapp-paused-app")
+		createTestInAppCampaign(t, h, appID, "paused-template", 1, true)
+
+		rec := doPinpointRequest(t, h, http.MethodGet,
+			"/v1/apps/"+appID+"/endpoints/ep-3/inappmessages", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
+		require.True(t, ok)
+		assert.Empty(t, campaigns, "a paused campaign doesn't run, per real AWS's IsPaused semantics")
+	})
+
+	t.Run("app_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandlerForTest(t)
+
+		rec := doPinpointRequest(t, h, http.MethodGet,
+			"/v1/apps/non-existent-app-id/endpoints/ep-4/inappmessages", nil)
+		require.Equal(t, http.StatusNotFound, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "NotFoundException", resp["__type"])
+	})
 }
