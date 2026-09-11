@@ -52,6 +52,94 @@ func (b *InMemoryBackend) SetEC2Launcher(l EC2Launcher) {
 	b.ec2Launcher = l
 }
 
+// InstanceTypeResolver resolves an attribute-based InstanceRequirements to
+// the real EC2 instance types that satisfy it, so a MixedInstancesPolicy
+// override using InstanceRequirements (instead of a fixed InstanceType)
+// draws from a real instance-type catalog engine (services/ec2's
+// GetInstanceTypesFromInstanceRequirements, via its exported
+// MatchInstanceTypes wrapper) rather than an in-package approximation --
+// gopherstack-jgrn6. architectures/virtualizationTypes are supplied by the
+// caller because InstanceRequirements itself carries neither
+// (aws-sdk-go-v2/service/autoscaling/types/types.go:1267): real EC2 Auto
+// Scaling derives them from the launch template's AMI, which this package
+// does not inspect -- see instanceTypeForOverride.
+type InstanceTypeResolver interface {
+	ResolveInstanceTypes(req InstanceRequirements, architectures, virtualizationTypes []string) []string
+}
+
+// SetInstanceTypeResolver wires r so subsequent launches resolve
+// MixedInstancesPolicy overrides' InstanceRequirements against a real
+// instance-type catalog. Passing nil restores the fallback in
+// instanceTypeForOverride. Intended to be called once during service wiring,
+// before the backend serves traffic (mirrors SetEC2Launcher).
+func (b *InMemoryBackend) SetInstanceTypeResolver(r InstanceTypeResolver) {
+	b.mu.Lock("SetInstanceTypeResolver")
+	defer b.mu.Unlock()
+	b.instanceTypeResolver = r
+}
+
+// instanceRequirementsArchitectures/instanceRequirementsVirtTypes are the
+// architecture/virtualization filters passed to the resolver. AWS's own
+// InstanceRequirements carries neither field (see InstanceTypeResolver's doc
+// comment), and this package has no AMI-architecture lookup of its own, so
+// the broadest set ec2's catalog models is used instead of guessing one
+// architecture: x86_64 and arm64 cover every cataloged family, and "hvm" is
+// the only virtualization type any catalog entry carries (ec2's
+// instanceRequirementsQuery doc comment).
+func instanceRequirementsArchitectures() []string {
+	return []string{"x86_64", "arm64"}
+}
+
+func instanceRequirementsVirtTypes() []string {
+	return []string{"hvm"}
+}
+
+// instanceTypeForOverride resolves the instance type ov's launch should use:
+// its own explicit InstanceType when set (unchanged behavior); otherwise,
+// when InstanceRequirements is set and a resolver is wired, the first real
+// catalog match (see selectInstanceType); otherwise "", letting the caller
+// fall through to the launch template's own resolved InstanceType. A nil
+// resolver or an empty match list never fabricates a candidate -- "" is the
+// honest answer, not a guess.
+func (b *InMemoryBackend) instanceTypeForOverride(ov LaunchTemplateOverride) string {
+	if ov.InstanceType != "" {
+		return ov.InstanceType
+	}
+
+	if ov.InstanceRequirements == nil || b.instanceTypeResolver == nil {
+		return ""
+	}
+
+	matches := b.instanceTypeResolver.ResolveInstanceTypes(
+		*ov.InstanceRequirements,
+		instanceRequirementsArchitectures(),
+		instanceRequirementsVirtTypes(),
+	)
+
+	return selectInstanceType(matches)
+}
+
+// selectInstanceType picks one instance type from matches -- ec2's real
+// catalog match for one override's InstanceRequirements. Real ASG picks
+// according to the group's allocation strategy
+// (InstancesDistribution.SpotAllocationStrategy: lowest-price |
+// capacity-optimized | capacity-optimized-prioritized |
+// price-capacity-optimized (default); OnDemandAllocationStrategy:
+// lowest-price (default) | prioritized -- AWS CreateAutoScalingGroup API
+// reference, InstancesDistribution). This package models none of the price
+// or spare-capacity data those strategies need, so -- regardless of
+// strategy -- selection degenerates to the first entry of ec2's match list,
+// which is ec2's own deterministic catalog order (sortedCatalogTypes,
+// effectively alphabetical), not a price- or capacity-accurate ranking. This
+// is a disclosed simplification, not a hidden one: see PARITY.md.
+func selectInstanceType(matches []string) string {
+	if len(matches) == 0 {
+		return ""
+	}
+
+	return matches[0]
+}
+
 // makeInstances creates count new Instance records belonging to g: real (mock)
 // EC2 instances launched via b.ec2Launcher when one is configured and g's
 // launch configuration resolves to a usable spec, or synthetic fabricated
@@ -282,7 +370,7 @@ func (b *InMemoryBackend) launchSpecsForOverrides(g *AutoScalingGroup, az string
 			ltSpec = ov.LaunchTemplateSpecification
 		}
 
-		spec, ok := b.resolveLaunchTemplateSpec(g, az, ltSpec, ov.InstanceType)
+		spec, ok := b.resolveLaunchTemplateSpec(g, az, ltSpec, b.instanceTypeForOverride(ov))
 		if !ok {
 			continue
 		}

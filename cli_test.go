@@ -1706,7 +1706,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				aBk := appstreambackend.NewInMemoryBackend(accountID, region)
-				s, err := aBk.CreateStack("wiring-test-stack", "", "", nil)
+				s, err := aBk.CreateStack("wiring-test-stack", appstreambackend.CreateStackOptions{})
 				require.NoError(t, err)
 				require.NoError(t, aBk.TagResource(s.Arn, map[string]string{wantTagKey: wantTagValue}))
 

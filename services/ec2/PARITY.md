@@ -4617,3 +4617,28 @@ named constants; the catalog's `var instanceTypeCatalog` keeps a
 `//nolint:mnd,gochecknoglobals` for its literal data table, the same
 established pattern as `awsRegions`/`errCodeLookup` above). Did NOT commit,
 push, or run any `bd` write command.
+
+## 2026-09-11 -- autoscaling/ec2 seam closed: MixedInstancesPolicy InstanceRequirements now calls this catalog engine (gopherstack-jgrn6)
+
+Follow-up to the "cli.go/autoscaling seam, not implemented this pass" note directly above.
+`services/ec2/instance_requirements_export.go` (new file) exports `InstanceRequirementsQuery`
+(mirrors the unexported `instanceRequirementsQuery` field-for-field, minus
+`NetworkBandwidthGbps`/`BaselineEbsBandwidthMbps`, which this engine's matching predicates
+never filter on -- see `instanceTypeMatchesNetworkRequirements`'s doc comment) and
+`(*InMemoryBackend) MatchInstanceTypes(q InstanceRequirementsQuery) []string`, a thin wrapper
+around `GetInstanceTypesFromInstanceRequirements` for callers outside this package that don't
+go through the wire-form HTTP parser. `cli.go`'s `wireAutoScalingEC2` now wires it to
+`services/autoscaling` via a new `ec2AutoScalingInstanceTypeResolverAdapter` (next to the
+existing `ec2AutoScalingLauncherAdapter`/`SetEC2Launcher` wiring) -- see
+`services/autoscaling/PARITY.md`'s matching 2026-09-11 entry for the full seam shape and
+selection-semantics disclosure.
+
+Nothing in this package's own matching/catalog logic changed; only a new exported entry point
+was added, in a new file, to avoid touching any file a concurrent ec2 pass might also be
+editing. `services/ec2` was git-clean when this file was added.
+
+**Gates**: `go build ./...` clean. `go vet ./services/ec2/...` clean. `go test -race -count=1
+./services/ec2/... ./pkgs/persistence/...` `ok`. `golangci-lint run --new-from-rev=HEAD
+./services/ec2/...` 0 issues after `--fix` resolved a `fieldalignment` finding on the new
+`InstanceRequirementsQuery` struct. No persisted struct changed; snapshot inventory not
+touched.

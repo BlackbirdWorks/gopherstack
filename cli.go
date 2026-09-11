@@ -5838,6 +5838,7 @@ func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
 	}
 
 	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+	asgBk.SetInstanceTypeResolver(&ec2AutoScalingInstanceTypeResolverAdapter{backend: ec2Bk})
 }
 
 // elbv2TargetRegistrarAdapter holds the ELBv2 backend and target-port
@@ -6105,6 +6106,120 @@ func (a *ec2AutoScalingLauncherAdapter) ResolveLaunchTemplate(
 	}
 
 	return lt.ImageID, lt.InstanceType, nil
+}
+
+// ec2AutoScalingInstanceTypeResolverAdapter adapts ec2's real instance-type
+// catalog engine (InstanceRequirementsQuery/MatchInstanceTypes,
+// services/ec2/instance_requirements_export.go) to the autoscaling.
+// InstanceTypeResolver interface, so a MixedInstancesPolicy override's
+// InstanceRequirements resolves against ec2's actual catalog
+// (services/ec2/instance_type_catalog.go) instead of being ignored --
+// gopherstack-jgrn6.
+type ec2AutoScalingInstanceTypeResolverAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *ec2AutoScalingInstanceTypeResolverAdapter) ResolveInstanceTypes(
+	req autoscalingbackend.InstanceRequirements, architectures, virtualizationTypes []string,
+) []string {
+	return a.backend.MatchInstanceTypes(toEC2InstanceRequirementsQuery(req, architectures, virtualizationTypes))
+}
+
+// toEC2InstanceRequirementsQuery converts an autoscaling InstanceRequirements
+// (types per aws-sdk-go-v2/service/autoscaling@v1.70.4 types.go
+// InstanceRequirements, types.go:1267) into ec2's InstanceRequirementsQuery.
+// SpotMaxPricePercentageOverLowestPrice,
+// OnDemandMaxPricePercentageOverLowestPrice,
+// MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, NetworkBandwidthGbps, and
+// BaselinePerformanceFactors have no counterpart in ec2's matching engine (no
+// price catalog is modeled, and instanceTypeMatchesRequirements never
+// filters on network bandwidth -- see InstanceRequirementsQuery's doc
+// comment), so they are intentionally dropped here rather than silently
+// ignored deeper in ec2.
+func toEC2InstanceRequirementsQuery(
+	req autoscalingbackend.InstanceRequirements, architectures, virtualizationTypes []string,
+) ec2backend.InstanceRequirementsQuery {
+	q := ec2backend.InstanceRequirementsQuery{
+		ArchTypes:                architectures,
+		VirtTypes:                virtualizationTypes,
+		BareMetal:                req.BareMetal,
+		LocalStorage:             req.LocalStorage,
+		BurstablePerformance:     req.BurstablePerformance,
+		AcceleratorTypes:         req.AcceleratorTypes,
+		LocalStorageTypes:        req.LocalStorageTypes,
+		AcceleratorNames:         req.AcceleratorNames,
+		AcceleratorManufacturers: req.AcceleratorManufacturers,
+		InstanceGenerations:      req.InstanceGenerations,
+		AllowedInstanceTypes:     req.AllowedInstanceTypes,
+		ExcludedInstanceTypes:    req.ExcludedInstanceTypes,
+		CPUManufacturers:         req.CPUManufacturers,
+		RequireHibernateSupport:  req.RequireHibernateSupport != nil && *req.RequireHibernateSupport,
+	}
+
+	applyEC2IntRange(&q.VCpuMin, &q.VCpuMax, &q.VCpuMaxSet, req.VCpuCount)
+	applyEC2IntRange(&q.MemMin, &q.MemMax, &q.MemMaxSet, req.MemoryMiB)
+	applyEC2IntRange(&q.AcceleratorCountMin, &q.AcceleratorCountMax, &q.AcceleratorCountMaxSet, req.AcceleratorCount)
+	applyEC2IntRange(
+		&q.AcceleratorTotalMemoryMiBMin, &q.AcceleratorTotalMemoryMiBMax,
+		&q.AcceleratorTotalMemoryMiBMaxSet, req.AcceleratorTotalMemoryMiB,
+	)
+	applyEC2IntRange(
+		&q.NetworkInterfaceCountMin, &q.NetworkInterfaceCountMax,
+		&q.NetworkInterfaceCountMaxSet, req.NetworkInterfaceCount,
+	)
+
+	applyEC2FloatRange(
+		&q.MemGiBPerVCpuMin, &q.MemGiBPerVCpuMax,
+		&q.MemGiBPerVCpuMinSet, &q.MemGiBPerVCpuMaxSet, req.MemoryGiBPerVCpu,
+	)
+	applyEC2FloatRange(
+		&q.TotalLocalStorageGBMin, &q.TotalLocalStorageGBMax,
+		&q.TotalLocalStorageGBMinSet, &q.TotalLocalStorageGBMaxSet, req.TotalLocalStorageGB,
+	)
+
+	return q
+}
+
+// applyEC2IntRange copies r's Min/Max (autoscaling's IntRangeRequest, *int32)
+// into minOut/maxOut (int64, matching ec2's instanceRequirementsQuery), only
+// setting maxSetOut when Max is present -- mirroring ec2's own
+// parseInt64RangeForm, which tracks "max was given" but not "min was given"
+// (an absent Min is a legitimate "no minimum", not "unset").
+func applyEC2IntRange(minOut, maxOut *int64, maxSetOut *bool, r *autoscalingbackend.IntRangeRequest) {
+	if r == nil {
+		return
+	}
+
+	if r.Min != nil {
+		*minOut = int64(*r.Min)
+	}
+
+	if r.Max != nil {
+		*maxOut = int64(*r.Max)
+		*maxSetOut = true
+	}
+}
+
+// applyEC2FloatRange copies r's Min/Max (autoscaling's FloatRangeRequest)
+// into minOut/maxOut plus their "*Set" flags, matching ec2's
+// instanceRequirementsQuery fields for MemoryGiBPerVCpu/TotalLocalStorageGB,
+// which (unlike the int ranges above) track both bounds' presence.
+func applyEC2FloatRange(
+	minOut, maxOut *float64, minSetOut, maxSetOut *bool, r *autoscalingbackend.FloatRangeRequest,
+) {
+	if r == nil {
+		return
+	}
+
+	if r.Min != nil {
+		*minOut = *r.Min
+		*minSetOut = true
+	}
+
+	if r.Max != nil {
+		*maxOut = *r.Max
+		*maxSetOut = true
+	}
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.

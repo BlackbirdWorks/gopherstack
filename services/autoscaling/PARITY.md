@@ -999,3 +999,108 @@ matches. **Zero new bugs found; nothing changed in this service.** `go build`, `
 (repo-wide, clean), `go test -race ./services/autoscaling/...` all pass on the unmodified
 tree. No AWS documentation was fetched this pass (all facts came from the pinned module
 cache and existing repo source).
+
+## 2026-09-11 -- MixedInstancesPolicy InstanceRequirements now resolves via ec2's real catalog engine (gopherstack-jgrn6)
+
+Prior state (recorded in `services/ec2/PARITY.md`'s 2026-09-11 catalog-engine entry): ec2
+gained a real instance-type catalog and `GetInstanceTypesFromInstanceRequirements` matching
+engine, but `services/autoscaling`'s attribute-based instance selection for
+`MixedInstancesPolicy` overrides never called into it -- `InstanceRequirements` was parsed,
+stored, and echoed by `DescribeAutoScalingGroups`, but had **no effect on which instance type
+an override actually launched** (`launchSpecsForOverrides`/`resolveLaunchTemplateSpec` only
+ever consulted `override.InstanceType`). This closes that gap with a new cross-service seam,
+mirroring `SetEC2Launcher`'s existing shape.
+
+**Seam**: `InstanceTypeResolver` interface (`ec2_launch.go`):
+`ResolveInstanceTypes(req InstanceRequirements, architectures, virtualizationTypes []string) []string`,
+wired via `(*InMemoryBackend).SetInstanceTypeResolver`. `instanceTypeForOverride` consults it
+only when an override has no explicit `InstanceType` and `InstanceRequirements` is set;
+`launchSpecsForOverrides` now calls `instanceTypeForOverride(ov)` instead of using
+`ov.InstanceType` directly.
+
+**Fallback (no resolver wired)**: unchanged from pre-existing behavior -- an
+`InstanceRequirements`-only override resolves to `""`, so the caller falls through to the
+launch template's own resolved `InstanceType`. This was already honest: there never was a
+self-contained fabrication path to replace (grepped for one; found none -- the "self-contained
+logic" language in the bd issue predates a closer read of the actual pre-existing code, which
+simply ignored `InstanceRequirements` at launch time). A resolver that returns zero matches
+gets the same fallback, never a fabricated candidate.
+
+**Selection semantics**: real ASG picks from the matched set per the group's
+`InstancesDistribution.SpotAllocationStrategy` (`lowest-price` | `capacity-optimized` |
+`capacity-optimized-prioritized` | `price-capacity-optimized`, default) /
+`OnDemandAllocationStrategy` (`lowest-price` default | `prioritized`) -- AWS
+`CreateAutoScalingGroup` API reference. This package models no price or spare-capacity data,
+so every strategy degenerates identically to `matches[0]` -- ec2's own deterministic catalog
+order (`sortedCatalogTypes`, effectively alphabetical), not a price- or capacity-accurate
+ranking. Disclosed in `selectInstanceType`'s doc comment, not hidden behind a plausible-looking
+strategy switch.
+
+**Architecture/virtualization defaults**: AWS's `InstanceRequirements` type carries neither
+field -- real EC2 Auto Scaling derives them from the launch template's AMI, which this package
+does not inspect. The resolver is called with `["x86_64", "arm64"]` /
+`["hvm"]` (every ec2 catalog entry's `arch` is one of the two, and its matching engine treats
+every entry as `hvm` regardless of its actual `hypervisor` field -- see
+`instanceTypeMatchesCoreRequirements`), so this can under-constrain (never over-exclude) vs.
+real AWS's AMI-aware filtering. A follow-up would need an AMI-architecture lookup this package
+doesn't have.
+
+**ec2 seam**: `services/ec2/instance_requirements_export.go` (new file; `services/ec2` was
+clean at the time of writing, but a new file was chosen anyway to minimize collision risk with
+concurrent ec2 work) exports `InstanceRequirementsQuery` (mirrors the unexported
+`instanceRequirementsQuery` field-for-field, minus `NetworkBandwidthGbps`/
+`BaselineEbsBandwidthMbps`, which ec2's own matching engine never filters on) and
+`(*InMemoryBackend) MatchInstanceTypes(q InstanceRequirementsQuery) []string`.
+`GetInstanceTypesFromInstanceRequirements` reads only the package-level static
+`instanceTypeCatalog`, not any backend map, so it takes no lock -- calling it from inside
+autoscaling's write lock (the same nesting `ec2Launcher.LaunchInstances`/`ResolveLaunchTemplate`
+already use from `resolveLaunchTemplateSpec`) crosses no second mutex, so there is no
+lock-order-inversion risk to guard against with a capture/release/re-lock dance.
+
+**cli.go**: `wireAutoScalingEC2` now also calls
+`asgBk.SetInstanceTypeResolver(&ec2AutoScalingInstanceTypeResolverAdapter{backend: ec2Bk})`.
+The adapter's `toEC2InstanceRequirementsQuery` converts every autoscaling
+`InstanceRequirements` field that has an ec2 counterpart (`VCpuCount`, `MemoryMiB`,
+`MemoryGiBPerVCpu`, `CpuManufacturers`, `MemoryGiBPerVCpu`, `AcceleratorCount`/
+`AcceleratorTotalMemoryMiB`/`AcceleratorTypes`/`AcceleratorNames`/`AcceleratorManufacturers`,
+`BareMetal`, `BurstablePerformance`, `RequireHibernateSupport`, `NetworkInterfaceCount`,
+`LocalStorage`/`LocalStorageTypes`/`TotalLocalStorageGB`, `AllowedInstanceTypes`/
+`ExcludedInstanceTypes`, `InstanceGenerations`); `SpotMaxPricePercentageOverLowestPrice`,
+`OnDemandMaxPricePercentageOverLowestPrice`, `MaxSpotPriceAsPercentageOfOptimalOnDemandPrice`,
+`NetworkBandwidthGbps`, and `BaselinePerformanceFactors` are intentionally dropped -- no price
+catalog exists, and ec2's engine never filters on network bandwidth.
+
+`DescribeAutoScalingGroups` keeps echoing `InstanceRequirements` exactly as given (unchanged;
+this path was never touched).
+
+**Tests**: `services/autoscaling/instance_type_resolver_test.go` (new, `autoscaling_test`
+package, table-driven, fake resolver) -- no-resolver and empty-match fallback, resolver picks
+`matches[0]`, resolver receives the documented architecture/virtualization defaults and the
+requirements verbatim; a second test proves an override's explicit `InstanceType` wins and the
+resolver is never even consulted. Root-level
+`cli_asg_instance_requirements_wiring_test.go` (new, mirrors
+`cli_asg_ec2_launch_template_wiring_test.go`'s composition-root harness exactly): a
+`MixedInstancesPolicy` override with `InstanceRequirements{VCpuCount:{2,2},
+MemoryMiB:{8192,8192}, AllowedInstanceTypes:["m5.*"]}` launches `m5.large` (the only m5-family
+member with vCPU=2/memory=8192MiB in ec2's catalog) through the real wired ec2 engine, proven
+via both `DescribeAutoScalingGroups` and EC2's own `DescribeInstances`; also asserts
+`InstanceRequirements` still round-trips on `DescribeAutoScalingGroups`.
+
+**Snapshot**: no persisted struct changed (`InstanceRequirements`/`LaunchTemplateOverride`
+shapes are unchanged; the new resolver is wiring-only state, not persisted) --
+`pkgs/persistence/testdata/snapshot_inventory.json` not touched, no snapshot-version bump.
+
+**Gates**: `go build ./...` (whole module) clean. `go vet ./services/autoscaling/...
+./services/ec2/...` clean (the root package `.` does not currently vet/build-test at all: a
+pre-existing, unrelated break in `cli_test.go`'s `appstream_stack` subtest -- calling
+`aBk.CreateStack("wiring-test-stack", "", "", nil)` against the committed
+`CreateStack(name string, opts CreateStackOptions)` signature -- confirmed present at HEAD in
+an isolated worktree with none of this change's files applied; not this ticket's scope
+(`services/appstream`/`cli_test.go`), not touched here; noted for a follow-up). `go test -race
+-count=1 ./services/autoscaling/... ./services/ec2/... ./pkgs/persistence/...` all `ok`. `go
+test -count=1 -run 'ASG|AutoScaling' .` and the new wiring test both verified passing in an
+isolated worktree with only the appstream call site patched for compilation (not committed
+anywhere) -- `golangci-lint run ./services/autoscaling/...` and `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/... .` (root verified the same way) both 0 issues after
+`--fix` resolved fieldalignment (both new structs) and a `modernize` `int32Ptr` rewrite in the
+autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `make docs`.
