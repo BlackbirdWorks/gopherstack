@@ -247,9 +247,16 @@ func (h *Handler) handleCreateEgressOnlyInternetGateway(
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "egress-only-internet-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{igw.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createEgressOnlyInternetGatewayResponse{
 		RequestID:                 reqID,
-		EgressOnlyInternetGateway: toEgressOnlyIGWItem(igw, nil),
+		EgressOnlyInternetGateway: toEgressOnlyIGWItem(igw, tags),
 	}, nil
 }
 

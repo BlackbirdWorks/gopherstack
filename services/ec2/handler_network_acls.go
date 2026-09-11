@@ -12,10 +12,20 @@ func (h *Handler) handleCreateNetworkACL(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "network-acl")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{acl.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createNetworkACLResponse{
-		Xmlns:      ec2XMLNS,
-		RequestID:  reqID,
-		NetworkACL: networkACLDetailItem{ID: acl.ID, VPCID: acl.VPCID, IsDefault: acl.IsDefault},
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		NetworkACL: toNetworkACLItem(&NetworkACL{
+			ID: acl.ID, VPCID: acl.VPCID, AssociationIDs: acl.AssociationIDs,
+			Entries: acl.Entries, IsDefault: acl.IsDefault,
+		}, tags),
 	}, nil
 }
 
@@ -59,16 +69,10 @@ func (h *Handler) handleDeleteNetworkACLEntry(vals url.Values, _ string) (any, e
 // ---- Security group rule handlers ----
 
 type createNetworkACLResponse struct {
-	XMLName    xml.Name             `xml:"CreateNetworkAclResponse"`
-	Xmlns      string               `xml:"xmlns,attr"`
-	RequestID  string               `xml:"requestId"`
-	NetworkACL networkACLDetailItem `xml:"networkAcl"`
-}
-
-type networkACLDetailItem struct {
-	ID        string `xml:"networkAclId"`
-	VPCID     string `xml:"vpcId"`
-	IsDefault bool   `xml:"default"`
+	XMLName    xml.Name       `xml:"CreateNetworkAclResponse"`
+	Xmlns      string         `xml:"xmlns,attr"`
+	RequestID  string         `xml:"requestId"`
+	NetworkACL networkACLItem `xml:"networkAcl"`
 }
 
 type sgRuleDetailItem struct {

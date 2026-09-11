@@ -155,10 +155,17 @@ func (h *Handler) handleCreateRouteTable(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "route-table")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{rt.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRouteTableResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		RouteTable: toRouteTableItem(rt, nil),
+		RouteTable: toRouteTableItem(rt, tags),
 	}, nil
 }
 

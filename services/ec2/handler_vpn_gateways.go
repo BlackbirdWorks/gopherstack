@@ -12,13 +12,20 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "vpn-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{vgw.VpnGatewayID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	item := vpnGatewayItem{
 		VpnGatewayID:    vgw.VpnGatewayID,
 		State:           vgw.State,
 		Type:            vgw.Type,
 		AttachedVPCID:   vgw.AttachedVPCID,
 		AttachmentState: vgw.AttachmentState,
-		TagSet:          tagItemsFromMap(h.Backend.TagsForResource(vgw.VpnGatewayID)),
+		TagSet:          tagItemsFromMap(tags),
 	}
 
 	return &createVpnGatewayResponse{
@@ -97,6 +104,13 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "customer-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{cgw.CustomerGatewayID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createCustomerGatewayResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -106,7 +120,7 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 			Type:              cgw.Type,
 			BgpAsn:            cgw.BgpAsn,
 			IPAddress:         cgw.IPAddress,
-			TagSet:            tagItemsFromMap(h.Backend.TagsForResource(cgw.CustomerGatewayID)),
+			TagSet:            tagItemsFromMap(tags),
 		},
 	}, nil
 }

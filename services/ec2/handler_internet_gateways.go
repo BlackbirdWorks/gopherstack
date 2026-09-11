@@ -69,16 +69,23 @@ func toIGWItem(igw *InternetGateway, tags map[string]string) igwItem {
 	}
 }
 
-func (h *Handler) handleCreateInternetGateway(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateInternetGateway(vals url.Values, reqID string) (any, error) {
 	igw, err := h.Backend.CreateInternetGateway()
 	if err != nil {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "internet-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{igw.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInternetGatewayResponse{
 		Xmlns:           ec2XMLNS,
 		RequestID:       reqID,
-		InternetGateway: toIGWItem(igw, nil),
+		InternetGateway: toIGWItem(igw, tags),
 	}, nil
 }
 
