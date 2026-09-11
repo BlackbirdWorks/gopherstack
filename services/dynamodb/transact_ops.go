@@ -61,12 +61,12 @@ func (db *InMemoryDB) TransactWriteItems(
 	tableNames := db.transactTableNames(input.TransactItems)
 	region := getRegionFromContext(ctx, db)
 
-	payloads, itemMetrics, applyErr := db.executeTransactWrite(ctx, tableNames, token, region, input)
+	execResult, applyErr := db.executeTransactWrite(ctx, tableNames, token, region, input)
 	if applyErr != nil {
 		return nil, applyErr
 	}
 
-	for _, p := range payloads {
+	for _, p := range execResult.payloads {
 		db.replicateItemMutation(p.tableName, p.globalTableName, p.region, p.item, p.op)
 	}
 
@@ -74,11 +74,23 @@ func (db *InMemoryDB) TransactWriteItems(
 		ConsumedCapacity: transactWriteConsumedCapacity(
 			input.ReturnConsumedCapacity,
 			input.TransactItems,
+			execResult.gsiWCUByTable,
+			execResult.lsiWCUByTable,
 		),
-		ItemCollectionMetrics: itemMetrics,
+		ItemCollectionMetrics: execResult.itemMetrics,
 	}
 
 	return out, nil
+}
+
+// transactWriteExecResult is executeTransactWrite's return: the committed
+// writes' replication payloads, per-table ItemCollectionMetrics, and (when
+// INDEXES was requested) each table's per-GSI/per-LSI WCU.
+type transactWriteExecResult struct {
+	itemMetrics   map[string][]types.ItemCollectionMetrics
+	gsiWCUByTable map[string]map[string]float64
+	lsiWCUByTable map[string]map[string]float64
+	payloads      []transactReplicationPayload
 }
 
 // executeTransactWrite locks tables, validates conditions, applies writes, records the
@@ -90,10 +102,10 @@ func (db *InMemoryDB) executeTransactWrite(
 	token string,
 	region string,
 	input *dynamodb.TransactWriteItemsInput,
-) ([]transactReplicationPayload, map[string][]types.ItemCollectionMetrics, error) {
+) (transactWriteExecResult, error) {
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
-		return nil, nil, lockErr
+		return transactWriteExecResult{}, lockErr
 	}
 
 	// released guards against double-unlocking: table locks are released
@@ -116,13 +128,13 @@ func (db *InMemoryDB) executeTransactWrite(
 
 	// Pre-phase: validate duplicate keys and total size.
 	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
-		return nil, nil, dupErr
+		return transactWriteExecResult{}, dupErr
 	}
 
 	// Enforce throughput per table before any condition is checked or write applied.
 	// PAY_PER_REQUEST tables bypass throttling.
 	if thrErr := db.enforceTransactWriteThroughput(region, tables, input.TransactItems); thrErr != nil {
-		return nil, nil, thrErr
+		return transactWriteExecResult{}, thrErr
 	}
 
 	// Phase 1: Check conditions.
@@ -139,15 +151,16 @@ func (db *InMemoryDB) executeTransactWrite(
 	}
 
 	if canceled {
-		return nil, nil, NewTransactionCanceledException(txCancelPrefix, reasons)
+		return transactWriteExecResult{}, NewTransactionCanceledException(txCancelPrefix, reasons)
 	}
 
 	// Phase 2: Apply writes with rollback on failure.
-	itemMetrics, writeErr := db.applyTransactItems(
-		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics,
+	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
+	applyResult, writeErr := db.applyTransactItems(
+		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics, wantIndexes,
 	)
 	if writeErr != nil {
-		return nil, nil, writeErr
+		return transactWriteExecResult{}, writeErr
 	}
 
 	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems)
@@ -161,7 +174,12 @@ func (db *InMemoryDB) executeTransactWrite(
 		commitTransactTokenLocked(db, token, hashTransactWriteItems(input.TransactItems))
 	}
 
-	return payloads, itemMetrics, nil
+	return transactWriteExecResult{
+		payloads:      payloads,
+		itemMetrics:   applyResult.itemMetrics,
+		gsiWCUByTable: applyResult.gsiWCUByTable,
+		lsiWCUByTable: applyResult.lsiWCUByTable,
+	}, nil
 }
 
 // commitTransactTokenLocked records token as committed (with its TTL expiry
@@ -345,20 +363,33 @@ type transactItemMetric struct {
 	metric    types.ItemCollectionMetrics
 }
 
+// transactApplyResult is applyTransactItems' return: per-table
+// ItemCollectionMetrics for the items actually written (when rim requests
+// them), plus (when wantIndexes) each table's per-GSI/per-LSI WCU summed
+// across every write action that targeted it.
+type transactApplyResult struct {
+	itemMetrics   map[string][]types.ItemCollectionMetrics
+	gsiWCUByTable map[string]map[string]float64
+	lsiWCUByTable map[string]map[string]float64
+}
+
 // applyTransactItems applies write items atomically, rolling back on any failure.
-// Returns per-table ItemCollectionMetrics for the items actually written, when rim
-// requests them.
 func (db *InMemoryDB) applyTransactItems(
 	ctx context.Context,
 	tables map[string]*Table,
 	items []types.TransactWriteItem,
 	rim types.ReturnItemCollectionMetrics,
-) (map[string][]types.ItemCollectionMetrics, error) {
+	wantIndexes bool,
+) (transactApplyResult, error) {
 	snapshots := db.snapshotTables(tables)
-	metrics := make(map[string][]types.ItemCollectionMetrics)
+	result := transactApplyResult{
+		itemMetrics:   make(map[string][]types.ItemCollectionMetrics),
+		gsiWCUByTable: make(map[string]map[string]float64),
+		lsiWCUByTable: make(map[string]map[string]float64),
+	}
 
 	for i, ti := range items {
-		m, err := db.applyTransactWrite(ctx, tables, ti, rim)
+		w, err := db.applyTransactWrite(ctx, tables, ti, rim, wantIndexes)
 		if err != nil {
 			logger.Load(ctx).
 				ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
@@ -366,14 +397,19 @@ func (db *InMemoryDB) applyTransactItems(
 					"itemIndex", i)
 			db.rollbackTables(tables, snapshots)
 
-			return nil, err
+			return transactApplyResult{}, err
 		}
-		if m != nil {
-			metrics[m.tableName] = append(metrics[m.tableName], m.metric)
+		if w.metric != nil {
+			result.itemMetrics[w.metric.tableName] = append(result.itemMetrics[w.metric.tableName], w.metric.metric)
+		}
+		if wantIndexes {
+			tableName := transactWriteItemTableName(ti)
+			result.gsiWCUByTable[tableName] = mergeWCUMap(result.gsiWCUByTable[tableName], w.gsiWCU)
+			result.lsiWCUByTable[tableName] = mergeWCUMap(result.lsiWCUByTable[tableName], w.lsiWCU)
 		}
 	}
 
-	return metrics, nil
+	return result, nil
 }
 
 // enforceTransactWriteThroughput charges each involved table's WCU bucket, one unit
@@ -416,9 +452,16 @@ func (db *InMemoryDB) enforceTransactWriteThroughput(
 	return nil
 }
 
+// transactWriteConsumedCapacity builds per-table ConsumedCapacity for
+// TransactWriteItems. Like BatchWriteItem, its Put/Update/Delete actions write
+// to every GSI/LSI whose key attributes they populate, so INDEXES populates
+// .GlobalSecondaryIndexes/.LocalSecondaryIndexes (dynamodb SDK
+// api_op_TransactWriteItems.go:112-120, which -- unlike TransactGetItems --
+// lists no base-table-only carve-out).
 func transactWriteConsumedCapacity(
 	req types.ReturnConsumedCapacity,
 	items []types.TransactWriteItem,
+	gsiWCUByTable, lsiWCUByTable map[string]map[string]float64,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
@@ -427,26 +470,22 @@ func transactWriteConsumedCapacity(
 	// Count write operations per table for accurate WCU reporting.
 	perTable := make(map[string]int)
 	for _, ti := range items {
-		switch {
-		case ti.Put != nil:
-			perTable[aws.ToString(ti.Put.TableName)]++
-		case ti.Delete != nil:
-			perTable[aws.ToString(ti.Delete.TableName)]++
-		case ti.Update != nil:
-			perTable[aws.ToString(ti.Update.TableName)]++
-		case ti.ConditionCheck != nil:
-			perTable[aws.ToString(ti.ConditionCheck.TableName)]++
+		if name := transactWriteItemTableName(ti); name != "" {
+			perTable[name]++
 		}
 	}
 
-	caps := make([]types.ConsumedCapacity, 0, len(perTable))
-	for name, n := range perTable {
-		cu := float64(n)
-		caps = append(caps, types.ConsumedCapacity{
-			TableName:          aws.String(name),
-			CapacityUnits:      aws.Float64(cu),
-			WriteCapacityUnits: aws.Float64(cu),
-		})
+	tableNames := collections.SortedKeys(perTable)
+	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+
+	for _, name := range tableNames {
+		cu := float64(perTable[name])
+		caps = append(caps, *buildConsumedCapacityWithIndexes(
+			name, req,
+			0, cu,
+			nil, gsiWCUByTable[name],
+			nil, lsiWCUByTable[name],
+		))
 	}
 
 	return caps
@@ -883,15 +922,31 @@ func lsiCollectionMetricFor(
 	return &transactItemMetric{tableName: tableName, metric: *m}
 }
 
+// transactWriteActionWCU is the WCU a single Put/Delete/Update transact-write
+// action charges, matching enforceTransactWriteThroughput/
+// transactWriteConsumedCapacity's existing "one unit per write action" model
+// (the mock doesn't size-cost individual transact writes).
+const transactWriteActionWCU = 1.0
+
+// transactSingleWriteResult is one apply*'s return: the ItemCollectionMetrics
+// entry when rim requested it, plus (when wantIndexes) the per-GSI/per-LSI WCU
+// that single write action consumed.
+type transactSingleWriteResult struct {
+	metric *transactItemMetric
+	gsiWCU map[string]float64
+	lsiWCU map[string]float64
+}
+
 func (db *InMemoryDB) applyTransactPut(
 	table *Table,
 	tableName string,
 	put *types.Put,
 	rim types.ReturnItemCollectionMetrics,
-) (*transactItemMetric, error) {
+	wantIndexes bool,
+) (transactSingleWriteResult, error) {
 	wireItem := models.FromSDKItem(put.Item)
 	if err := db.validateItem(wireItem, table); err != nil {
-		return nil, err
+		return transactSingleWriteResult{}, err
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
@@ -912,7 +967,12 @@ func (db *InMemoryDB) applyTransactPut(
 		table.appendStreamRecord(streamEventInsert, nil, wireItem, "", "")
 	}
 
-	return metric, nil
+	result := transactSingleWriteResult{metric: metric}
+	if wantIndexes {
+		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, wireItem)
+	}
+
+	return result, nil
 }
 
 func (db *InMemoryDB) applyTransactDelete(
@@ -920,11 +980,12 @@ func (db *InMemoryDB) applyTransactDelete(
 	tableName string,
 	del *types.Delete,
 	rim types.ReturnItemCollectionMetrics,
-) (*transactItemMetric, error) {
+	wantIndexes bool,
+) (transactSingleWriteResult, error) {
 	wireKey := models.FromSDKItem(del.Key)
 	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 	if matchIndex == -1 {
-		return nil, nil //nolint:nilnil // no matching item: nothing to delete, nothing to report
+		return transactSingleWriteResult{}, nil
 	}
 
 	var metric *transactItemMetric
@@ -939,7 +1000,12 @@ func (db *InMemoryDB) applyTransactDelete(
 	table.appendStreamRecord(streamEventRemove, oldItem, nil, "", "")
 	db.deleteItemAtIndex(table, matchIndex)
 
-	return metric, nil
+	result := transactSingleWriteResult{metric: metric}
+	if wantIndexes {
+		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, oldItem)
+	}
+
+	return result, nil
 }
 
 func (db *InMemoryDB) applyTransactUpdate(
@@ -948,7 +1014,8 @@ func (db *InMemoryDB) applyTransactUpdate(
 	tableName string,
 	upd *types.Update,
 	rim types.ReturnItemCollectionMetrics,
-) (*transactItemMetric, error) {
+	wantIndexes bool,
+) (transactSingleWriteResult, error) {
 	wireKey := models.FromSDKItem(upd.Key)
 	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 
@@ -962,7 +1029,7 @@ func (db *InMemoryDB) applyTransactUpdate(
 
 	updated, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
 	if err != nil {
-		return nil, err
+		return transactSingleWriteResult{}, err
 	}
 
 	// The item's post-write state is already committed to table.Items by doUpdate,
@@ -983,7 +1050,32 @@ func (db *InMemoryDB) applyTransactUpdate(
 		table.appendStreamRecord(streamEventInsert, nil, updated, "", "")
 	}
 
-	return metric, nil
+	result := transactSingleWriteResult{metric: metric}
+	if wantIndexes {
+		// oldItem and updated are OR-alternatives (like UpdateItem's own
+		// breakdown): an index write is charged once even if the item was a
+		// member both before and after.
+		result.gsiWCU, result.lsiWCU = calculateWriteIndexBreakdowns(table, transactWriteActionWCU, oldItem, updated)
+	}
+
+	return result, nil
+}
+
+// transactWriteItemTableName returns the table name a TransactWriteItem
+// targets, across all four action kinds (Put/Delete/Update/ConditionCheck).
+func transactWriteItemTableName(ti types.TransactWriteItem) string {
+	switch {
+	case ti.Put != nil:
+		return aws.ToString(ti.Put.TableName)
+	case ti.Delete != nil:
+		return aws.ToString(ti.Delete.TableName)
+	case ti.Update != nil:
+		return aws.ToString(ti.Update.TableName)
+	case ti.ConditionCheck != nil:
+		return aws.ToString(ti.ConditionCheck.TableName)
+	}
+
+	return ""
 }
 
 func (db *InMemoryDB) applyTransactWrite(
@@ -991,25 +1083,27 @@ func (db *InMemoryDB) applyTransactWrite(
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
 	rim types.ReturnItemCollectionMetrics,
-) (*transactItemMetric, error) {
+	wantIndexes bool,
+) (transactSingleWriteResult, error) {
 	switch {
 	case ti.Put != nil:
 		tableName := aws.ToString(ti.Put.TableName)
 
-		return db.applyTransactPut(tables[tableName], tableName, ti.Put, rim)
+		return db.applyTransactPut(tables[tableName], tableName, ti.Put, rim, wantIndexes)
 
 	case ti.Delete != nil:
 		tableName := aws.ToString(ti.Delete.TableName)
 
-		return db.applyTransactDelete(tables[tableName], tableName, ti.Delete, rim)
+		return db.applyTransactDelete(tables[tableName], tableName, ti.Delete, rim, wantIndexes)
 
 	case ti.Update != nil:
 		tableName := aws.ToString(ti.Update.TableName)
 
-		return db.applyTransactUpdate(ctx, tables[tableName], tableName, ti.Update, rim)
+		return db.applyTransactUpdate(ctx, tables[tableName], tableName, ti.Update, rim, wantIndexes)
 	}
 
-	return nil, nil //nolint:nilnil // ConditionCheck-only item: no write applied, nothing to report
+	// ConditionCheck-only item: no write applied, nothing to report.
+	return transactSingleWriteResult{}, nil
 }
 
 func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableStateSnapshot {

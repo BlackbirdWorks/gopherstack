@@ -324,6 +324,12 @@ func (db *InMemoryDB) batchGetTableRefs(
 	return tableRefs, nil
 }
 
+// batchGetConsumedCapacity builds per-table ConsumedCapacity for BatchGetItem.
+// BatchGetItem's KeysAndAttributes carries no IndexName -- it only ever reads
+// the base table by primary key -- so per dynamodb SDK api_op_BatchGetItem.go:163-165
+// ("some operations, such as GetItem and BatchGetItem, do not access any indexes
+// at all... specifying INDEXES will only return ConsumedCapacity information for
+// table(s)"), INDEXES populates only .Table, never .GlobalSecondaryIndexes/.LocalSecondaryIndexes.
 func batchGetConsumedCapacity(
 	req types.ReturnConsumedCapacity,
 	requestItems map[string]types.KeysAndAttributes,
@@ -334,8 +340,11 @@ func batchGetConsumedCapacity(
 
 	// Capacity is charged per requested key, not per returned item (missing items still consume RCU).
 	// Strongly-consistent reads (ConsistentRead=true) cost 2× the eventually-consistent rate.
-	caps := make([]types.ConsumedCapacity, 0, len(requestItems))
-	for tableName, keysAndAttrs := range requestItems {
+	tableNames := collections.SortedKeys(requestItems)
+	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+
+	for _, tableName := range tableNames {
+		keysAndAttrs := requestItems[tableName]
 		rcuPerKey := eventuallyConsistentRCU
 		if aws.ToBool(keysAndAttrs.ConsistentRead) {
 			rcuPerKey = 1.0
@@ -344,11 +353,7 @@ func batchGetConsumedCapacity(
 		if cu < rcuPerKey {
 			cu = rcuPerKey
 		}
-		caps = append(caps, types.ConsumedCapacity{
-			TableName:         aws.String(tableName),
-			CapacityUnits:     aws.Float64(cu),
-			ReadCapacityUnits: aws.Float64(cu),
-		})
+		caps = append(caps, *buildConsumedCapacityWithIndexes(tableName, req, cu, 0, nil, nil, nil, nil))
 	}
 
 	return caps
@@ -498,27 +503,34 @@ func (db *InMemoryDB) BatchWriteItem(
 
 	// Process tables in sorted order (deadlock prevention)
 	tableNames := collections.SortedKeys(tables)
+	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
 
 	// Sequential processing for simplicity and deadlock prevention
 	itemCollectionMetrics := make(map[string][]types.ItemCollectionMetrics)
+	gsiWCUByTable := make(map[string]map[string]float64, len(tableNames))
+	lsiWCUByTable := make(map[string]map[string]float64, len(tableNames))
 
 	for _, tableName := range tableNames {
-		metrics, procErr := db.processTableWriteRequests(
-			tables[tableName], toProcess[tableName], input.ReturnItemCollectionMetrics,
+		result, procErr := db.processTableWriteRequests(
+			tables[tableName], toProcess[tableName], input.ReturnItemCollectionMetrics, wantIndexes,
 		)
 		if procErr != nil {
 			return nil, procErr
 		}
-		if len(metrics) > 0 {
-			itemCollectionMetrics[tableName] = metrics
+		if len(result.metrics) > 0 {
+			itemCollectionMetrics[tableName] = result.metrics
 		}
+		gsiWCUByTable[tableName] = result.gsiWCU
+		lsiWCUByTable[tableName] = result.lsiWCU
 	}
 
 	db.replicateBatchWrites(tableNames, tables, toProcess, region)
 
 	return &dynamodb.BatchWriteItemOutput{
-		UnprocessedItems:      unprocessedItems,
-		ConsumedCapacity:      batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
+		UnprocessedItems: unprocessedItems,
+		ConsumedCapacity: batchWriteConsumedCapacity(
+			input.ReturnConsumedCapacity, tableNames, toProcess, gsiWCUByTable, lsiWCUByTable,
+		),
 		ItemCollectionMetrics: itemCollectionMetrics,
 	}, nil
 }
@@ -554,43 +566,60 @@ func (db *InMemoryDB) enforceBatchWriteThroughput(
 	return nil
 }
 
+// batchWriteConsumedCapacity builds per-table ConsumedCapacity for BatchWriteItem.
+// Unlike BatchGetItem, a batch write's PutRequest/DeleteRequest items are written
+// to the base table AND to every GSI/LSI whose key attributes they populate, so
+// INDEXES populates .GlobalSecondaryIndexes/.LocalSecondaryIndexes too (dynamodb
+// SDK api_op_BatchWriteItem.go:149-151 lists no base-table-only carve-out, unlike
+// BatchGetItem's).
 func batchWriteConsumedCapacity(
 	req types.ReturnConsumedCapacity,
+	tableNames []string,
 	processed map[string][]types.WriteRequest,
+	gsiWCUByTable, lsiWCUByTable map[string]map[string]float64,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
 
-	caps := make([]types.ConsumedCapacity, 0, len(processed))
-	for tableName, reqs := range processed {
-		cu := computeBatchWriteWCU(reqs)
-		caps = append(caps, types.ConsumedCapacity{
-			TableName:          aws.String(tableName),
-			CapacityUnits:      aws.Float64(cu),
-			WriteCapacityUnits: aws.Float64(cu),
-		})
+	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+	for _, tableName := range tableNames {
+		cu := computeBatchWriteWCU(processed[tableName])
+		caps = append(caps, *buildConsumedCapacityWithIndexes(
+			tableName, req,
+			0, cu,
+			nil, gsiWCUByTable[tableName],
+			nil, lsiWCUByTable[tableName],
+		))
 	}
 
 	return caps
 }
 
+// putRequestWCU returns the WCU a single PutRequest item charges:
+// ceil(itemSize/1KB), or 1 WCU minimum when size can't be determined.
+func putRequestWCU(wireItem map[string]any) float64 {
+	itemSize, err := CalculateItemSize(wireItem)
+	if err != nil || itemSize <= 0 {
+		return 1.0
+	}
+
+	return WriteCapacityUnitsFromSize(itemSize)
+}
+
+// deleteRequestWCU is the WCU a single DeleteRequest charges -- the exact cost
+// depends on the stored item size, which the mock does not track, so a flat
+// 1 WCU minimum is charged (matches PutItem/DeleteItem's own minimum).
+const deleteRequestWCU = 1.0
+
 // computeBatchWriteWCU sums the write capacity consumed by a slice of WriteRequests.
-// PutRequests charge ceil(itemSize/1KB) WCU; DeleteRequests charge 1 WCU minimum
-// (the exact cost depends on the stored item size, which the mock does not track).
 func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
 	cu := 0.0
 	for _, req := range reqs {
 		if req.PutRequest != nil {
-			wireItem := models.FromSDKItem(req.PutRequest.Item)
-			itemSize, err := CalculateItemSize(wireItem)
-			if err != nil || itemSize <= 0 {
-				cu += 1.0
-			} else {
-				cu += WriteCapacityUnitsFromSize(itemSize)
-			}
+			cu += putRequestWCU(models.FromSDKItem(req.PutRequest.Item))
 		} else {
-			cu += 1.0
+			cu += deleteRequestWCU
 		}
 	}
 
@@ -665,16 +694,26 @@ func (db *InMemoryDB) getRequestTablesRLocked(
 	return db.getRequestTables(region, requestItems)
 }
 
+// tableWriteResult is processTableWriteRequests' return: the item collection
+// metrics for the writes applied, plus (when wantIndexes was set) the per-GSI
+// and per-LSI WCU those writes consumed, for ReturnConsumedCapacity=INDEXES.
+type tableWriteResult struct {
+	gsiWCU  map[string]float64
+	lsiWCU  map[string]float64
+	metrics []types.ItemCollectionMetrics
+}
+
 func (db *InMemoryDB) processTableWriteRequests(
 	table *Table,
 	requests []types.WriteRequest,
 	rim types.ReturnItemCollectionMetrics,
-) ([]types.ItemCollectionMetrics, error) {
+	wantIndexes bool,
+) (tableWriteResult, error) {
 	table.mu.Lock("BatchWriteItem")
 	defer table.mu.Unlock()
 
-	modifiedIndices, putMetrics := db.processBatchPutRequests(table, requests, rim)
-	deletedIndices, deleteMetrics := db.processBatchDeleteRequests(table, requests, rim)
+	modifiedIndices, putItems, putMetrics := db.processBatchPutRequests(table, requests, rim)
+	deletedIndices, deletedItems, deleteMetrics := db.processBatchDeleteRequests(table, requests, rim)
 
 	if len(deletedIndices) > 0 {
 		indices := make([]int, 0, len(deletedIndices))
@@ -686,18 +725,51 @@ func (db *InMemoryDB) processTableWriteRequests(
 		db.updateBatchIndexes(table, modifiedIndices)
 	}
 
-	return append(putMetrics, deleteMetrics...), nil
+	result := tableWriteResult{metrics: append(putMetrics, deleteMetrics...)}
+	if wantIndexes {
+		result.gsiWCU, result.lsiWCU = batchWriteIndexWCU(table, putItems, deletedItems)
+	}
+
+	return result, nil
+}
+
+// batchWriteIndexWCU accumulates per-GSI and per-LSI WCU across a table's
+// committed PutRequest/DeleteRequest writes -- each write independently
+// consumes capacity on every GSI/LSI whose key attributes it populates
+// (Put) or removes (Delete), so the per-request costs are summed rather
+// than deduplicated (unlike a single PutItem/UpdateItem/DeleteItem call).
+func batchWriteIndexWCU(
+	table *Table,
+	putItems, deletedItems []map[string]any,
+) (map[string]float64, map[string]float64) {
+	var gsiWCU, lsiWCU map[string]float64
+
+	for _, item := range putItems {
+		g, l := calculateWriteIndexBreakdowns(table, putRequestWCU(item), item)
+		gsiWCU = mergeWCUMap(gsiWCU, g)
+		lsiWCU = mergeWCUMap(lsiWCU, l)
+	}
+
+	for _, item := range deletedItems {
+		g, l := calculateWriteIndexBreakdowns(table, deleteRequestWCU, item)
+		gsiWCU = mergeWCUMap(gsiWCU, g)
+		lsiWCU = mergeWCUMap(lsiWCU, l)
+	}
+
+	return gsiWCU, lsiWCU
 }
 
 // processBatchPutRequests applies every PutRequest in requests, returning the
-// modified item indices and (when the table has an LSI and rim requests it) the
-// per-item ItemCollectionMetrics -- same SizeEstimateRangeGB formula PutItem uses,
-// computed just before each put is applied so it reflects the post-write state.
+// modified item indices, the wire-format items put (for INDEXES WCU
+// attribution), and (when the table has an LSI and rim requests it) the
+// per-item ItemCollectionMetrics -- same SizeEstimateRangeGB formula PutItem
+// uses, computed just before each put is applied so it reflects the
+// post-write state.
 func (db *InMemoryDB) processBatchPutRequests(
 	table *Table,
 	requests []types.WriteRequest,
 	rim types.ReturnItemCollectionMetrics,
-) (map[int]map[string]any, []types.ItemCollectionMetrics) {
+) (map[int]map[string]any, []map[string]any, []types.ItemCollectionMetrics) {
 	// modifiedIndices maps each put's final item offset to its pre-write value
 	// (nil for a fresh insert); updateBatchIndexes needs the pre-write value to
 	// correctly retire stale GSI/LSI membership when a put changes a key
@@ -706,6 +778,7 @@ func (db *InMemoryDB) processBatchPutRequests(
 	trackMetrics := rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0
 
 	var metrics []types.ItemCollectionMetrics
+	var putItems []map[string]any
 
 	pkDef, _ := getPKAndSK(table.KeySchema)
 
@@ -715,6 +788,7 @@ func (db *InMemoryDB) processBatchPutRequests(
 		}
 
 		wireItem := models.FromSDKItem(req.PutRequest.Item)
+		putItems = append(putItems, wireItem)
 
 		if trackMetrics {
 			_, matchIndex := db.findMatchForPut(table, wireItem)
@@ -733,11 +807,12 @@ func (db *InMemoryDB) processBatchPutRequests(
 		}
 	}
 
-	return modifiedIndices, metrics
+	return modifiedIndices, putItems, metrics
 }
 
 // processBatchDeleteRequests identifies which items each DeleteRequest removes,
-// returning their indices and (when the table has an LSI and rim requests it) the
+// returning their indices, the pre-delete items removed (for INDEXES WCU
+// attribution), and (when the table has an LSI and rim requests it) the
 // per-item ItemCollectionMetrics reflecting the collection remaining after each
 // delete -- mirrors buildDeleteItemOutput's single-item formula. Metrics are
 // computed here, before applyBatchDeletes actually removes anything.
@@ -745,11 +820,12 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 	table *Table,
 	requests []types.WriteRequest,
 	rim types.ReturnItemCollectionMetrics,
-) (map[int]bool, []types.ItemCollectionMetrics) {
+) (map[int]bool, []map[string]any, []types.ItemCollectionMetrics) {
 	deletedIndices := make(map[int]bool)
 	trackMetrics := rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0
 
 	var metrics []types.ItemCollectionMetrics
+	var deletedItems []map[string]any
 
 	pkDef, _ := getPKAndSK(table.KeySchema)
 
@@ -759,11 +835,12 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 		}
 
 		wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-		_, matchIndex := db.findMatchForPut(table, wireKey)
+		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex == -1 {
 			continue
 		}
 		deletedIndices[matchIndex] = true
+		deletedItems = append(deletedItems, oldItem)
 
 		if trackMetrics {
 			pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
@@ -776,7 +853,7 @@ func (db *InMemoryDB) processBatchDeleteRequests(
 		}
 	}
 
-	return deletedIndices, metrics
+	return deletedIndices, deletedItems, metrics
 }
 
 func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
