@@ -183,15 +183,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ris, 1)
 	assert.Equal(t, ids["replicationInstanceArn"], ris[0].ReplicationInstanceArn)
-	// Tags is `json:"-"` -- backend-owned live state, deliberately excluded
-	// from the snapshot both before and after Phase 3.3 (see the doc comment
-	// on ReplicationInstance.Tags and reinitTagsLocked) -- so tag VALUES set
-	// before the snapshot are expected to be lost. What must hold is that
-	// Tags itself is re-initialised to a fresh, usable (non-nil) registry
-	// rather than left nil, matching the pre-Phase-3.3 rebuildRI behavior.
+	// Tags is `json:"-"` -- backend-owned live state -- but reinitTagsLocked
+	// merges the resourceTagsSnapshot side table back in, so tag VALUES set
+	// before the snapshot must survive (gopherstack-3aw8x).
 	require.NotNil(t, ris[0].Tags, "Tags must be re-initialised after restore")
-	_, ok := ris[0].Tags.Get("owner")
-	assert.False(t, ok, "tag values are not expected to survive restore (Tags is json:\"-\")")
+	v, ok := ris[0].Tags.Get("owner")
+	assert.True(t, ok, "tag values must survive restore")
+	assert.Equal(t, "phase-3.3", v)
 
 	// Lookup by ARN (byARN index) must also work post-restore.
 	byARN, err := fresh.DescribeReplicationInstances(ctx, ids["replicationInstanceArn"])
