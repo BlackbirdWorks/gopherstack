@@ -180,6 +180,15 @@ func (b *InMemoryBackend) StartMonitorDeployment(identifier string) (*SignalMap,
 	}
 	sm.MonitorDeploymentStatus = "DEPLOYMENT_COMPLETE"
 	sm.ModifiedAt = time.Now().UTC()
+	// LastSuccessfulMonitorDeployment records the latest successful
+	// deployment and, unlike MonitorDeployment (the current status),
+	// survives a later teardown -- real GetSignalMapOutput keeps reporting
+	// it after StartDeleteMonitorDeployment (medialive@v1.101.4
+	// api_op_GetSignalMap.go:75-76's doc comment: "latest successful").
+	sm.LastSuccessfulMonitorDeployment = &SuccessfulMonitorDeployment{
+		DetailsURI: b.monitorDeploymentDetailsURI(sm.ID),
+		Status:     sm.MonitorDeploymentStatus,
+	}
 
 	return sm.toSignalMap(), nil
 }

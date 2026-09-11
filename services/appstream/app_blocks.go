@@ -43,14 +43,16 @@ func (a *storedAppBlock) toAppBlock() *AppBlock {
 }
 
 type storedAppBlockBuilder struct {
-	CreatedTime  time.Time         `json:"createdTime"`
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	Description  string            `json:"description"`
-	Platform     string            `json:"platform"`
-	InstanceType string            `json:"instanceType"`
-	State        string            `json:"state"`
+	CreatedTime      time.Time         `json:"createdTime"`
+	Tags             map[string]string `json:"tags"`
+	Name             string            `json:"name"`
+	Arn              string            `json:"arn"`
+	Description      string            `json:"description"`
+	Platform         string            `json:"platform"`
+	InstanceType     string            `json:"instanceType"`
+	State            string            `json:"state"`
+	SecurityGroupIDs []string          `json:"securityGroupIds"`
+	SubnetIDs        []string          `json:"subnetIds"`
 }
 
 func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
@@ -66,6 +68,10 @@ func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
 		Platform:     b.Platform,
 		InstanceType: b.InstanceType,
 		State:        b.State,
+		VpcConfig: VpcConfig{
+			SecurityGroupIDs: append([]string(nil), b.SecurityGroupIDs...),
+			SubnetIDs:        append([]string(nil), b.SubnetIDs...),
+		},
 	}
 }
 
@@ -177,9 +183,14 @@ func (b *InMemoryBackend) DescribeAppBlocks(arns []string) ([]*AppBlock, error) 
 	return result, nil
 }
 
-// CreateAppBlockBuilder creates an app block builder.
+// CreateAppBlockBuilder creates an app block builder. vpcConfig is required
+// on the real wire (appstream@v1.64.5 api_op_CreateAppBlockBuilder.go:64,
+// types.AppBlockBuilder.VpcConfig also "This member is required" at
+// types/types.go:248); the handler rejects a request with no VpcConfig
+// before reaching here.
 func (b *InMemoryBackend) CreateAppBlockBuilder(
 	name, description, platform, instanceType string,
+	vpcConfig VpcConfig,
 	tags map[string]string,
 ) (*AppBlockBuilder, error) {
 	if instanceType == "" {
@@ -198,14 +209,16 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	maps.Copy(storedTags, tags)
 
 	bb := &storedAppBlockBuilder{
-		CreatedTime:  time.Now().UTC(),
-		Tags:         storedTags,
-		Name:         name,
-		Arn:          arn,
-		Description:  description,
-		Platform:     platform,
-		InstanceType: instanceType,
-		State:        builderStateStopped,
+		CreatedTime:      time.Now().UTC(),
+		Tags:             storedTags,
+		Name:             name,
+		Arn:              arn,
+		Description:      description,
+		Platform:         platform,
+		InstanceType:     instanceType,
+		State:            builderStateStopped,
+		SecurityGroupIDs: append([]string(nil), vpcConfig.SecurityGroupIDs...),
+		SubnetIDs:        append([]string(nil), vpcConfig.SubnetIDs...),
 	}
 	b.appBlockBuilders.Put(bb)
 	b.tags[arn] = storedTags
@@ -299,8 +312,13 @@ func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 	return nil
 }
 
-// UpdateAppBlockBuilder updates mutable builder fields.
-func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error) {
+// UpdateAppBlockBuilder updates mutable builder fields. A nil vpcConfig
+// leaves the existing VPC configuration unchanged (matches real
+// UpdateAppBlockBuilderInput.VpcConfig, which is optional).
+func (b *InMemoryBackend) UpdateAppBlockBuilder(
+	name, description, instanceType string,
+	vpcConfig *VpcConfig,
+) (*AppBlockBuilder, error) {
 	b.mu.Lock("UpdateAppBlockBuilder")
 	defer b.mu.Unlock()
 
@@ -315,6 +333,11 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType 
 
 	if instanceType != "" {
 		bb.InstanceType = instanceType
+	}
+
+	if vpcConfig != nil {
+		bb.SecurityGroupIDs = append([]string(nil), vpcConfig.SecurityGroupIDs...)
+		bb.SubnetIDs = append([]string(nil), vpcConfig.SubnetIDs...)
 	}
 
 	return bb.toAppBlockBuilder(), nil

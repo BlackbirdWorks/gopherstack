@@ -44,13 +44,14 @@ type StorageBackend interface {
 	// AppBlockBuilders
 	CreateAppBlockBuilder(
 		name, description, platform, instanceType string,
+		vpcConfig VpcConfig,
 		tags map[string]string,
 	) (*AppBlockBuilder, error)
 	DeleteAppBlockBuilder(name string) error
 	DescribeAppBlockBuilders(names []string) ([]*AppBlockBuilder, error)
 	StartAppBlockBuilder(name string) error
 	StopAppBlockBuilder(name string) error
-	UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error)
+	UpdateAppBlockBuilder(name, description, instanceType string, vpcConfig *VpcConfig) (*AppBlockBuilder, error)
 	CreateAppBlockBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
@@ -227,6 +228,14 @@ type AppBlockBuilder struct {
 	Platform     string
 	InstanceType string
 	State        string
+	VpcConfig    VpcConfig
+}
+
+// VpcConfig mirrors appstream@v1.64.5 types.VpcConfig: the VPC subnets and
+// security groups an app block builder (or fleet/image builder) runs in.
+type VpcConfig struct {
+	SecurityGroupIDs []string
+	SubnetIDs        []string
 }
 
 // AppBlockBuilderAppBlockAssociation represents an AppBlockBuilder-AppBlock link.

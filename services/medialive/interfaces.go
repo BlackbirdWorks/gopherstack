@@ -2793,19 +2793,31 @@ type NodeSummary struct {
 }
 
 // SignalMap represents a MediaLive signal map resource.
+// LastSuccessfulMonitorDeployment is nil until a monitor deployment has
+// actually succeeded at least once (matches real GetSignalMapOutput, where
+// the member is absent for a signal map that has never deployed).
 type SignalMap struct {
 	CreatedAt                       time.Time
 	ModifiedAt                      time.Time
 	Tags                            map[string]string
-	Arn                             string
-	ID                              string
-	Name                            string
+	LastSuccessfulMonitorDeployment *SuccessfulMonitorDeployment
 	Description                     string
+	Name                            string
+	ID                              string
 	DiscoveryEntryPointArn          string
 	Status                          string
 	MonitorDeploymentStatus         string
+	Arn                             string
 	CloudWatchAlarmTemplateGroupIDs []string
 	EventBridgeRuleTemplateGroupIDs []string
+}
+
+// SuccessfulMonitorDeployment mirrors medialive@v1.101.4
+// types.SuccessfulMonitorDeployment: DetailsUri and Status are both "This
+// member is required" (types/types.go:8320, 8325).
+type SuccessfulMonitorDeployment struct {
+	DetailsURI string
+	Status     string
 }
 
 // CloudWatchAlarmTemplateGroup is a named group for CloudWatch alarm templates.
@@ -2990,9 +3002,18 @@ type BatchResult struct {
 }
 
 // ScheduleAction represents a single schedule action for BatchUpdateSchedule.
+// ScheduleActionSettings and ScheduleActionStartSettings are both "This
+// member is required" on the real wire (medialive@v1.101.4 types/types.go:
+// 7282, 7287); they're huge union types (dozens of variants apiece), so this
+// backend stores them opaquely -- whatever JSON object the caller sent under
+// "scheduleActionSettings"/"scheduleActionStartSettings" -- and echoes it
+// back byte-for-byte rather than modeling every variant, matching real
+// caller-supplied state instead of fabricating a shape.
 type ScheduleAction struct {
-	ActionName string
-	ActionType string
+	ScheduleActionSettings      map[string]any
+	ScheduleActionStartSettings map[string]any
+	ActionName                  string
+	ActionType                  string
 }
 
 // BatchUpdateScheduleResult holds the result of BatchUpdateSchedule.

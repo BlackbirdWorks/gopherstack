@@ -3,6 +3,7 @@ package appstream
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -74,12 +75,18 @@ func (h *Handler) opDescribeAppBlocks(_ context.Context, body []byte) (any, erro
 
 // --- AppBlockBuilder handlers ---
 
+type appBlockBuilderVpcConfigInput struct {
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
 type createAppBlockBuilderInput struct {
-	Tags         map[string]string `json:"Tags"`
-	Name         string            `json:"Name"`
-	Description  string            `json:"Description"`
-	Platform     string            `json:"Platform"`
-	InstanceType string            `json:"InstanceType"`
+	Tags         map[string]string              `json:"Tags"`
+	VpcConfig    *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
+	Name         string                         `json:"Name"`
+	Description  string                         `json:"Description"`
+	Platform     string                         `json:"Platform"`
+	InstanceType string                         `json:"InstanceType"`
 }
 
 func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -88,7 +95,15 @@ func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	bb, err := h.Backend.CreateAppBlockBuilder(req.Name, req.Description, req.Platform, req.InstanceType, req.Tags)
+	if req.VpcConfig == nil {
+		return nil, fmt.Errorf("%w: VpcConfig is required", awserr.ErrInvalidParameter)
+	}
+
+	vpcConfig := VpcConfig{SecurityGroupIDs: req.VpcConfig.SecurityGroupIDs, SubnetIDs: req.VpcConfig.SubnetIDs}
+
+	bb, err := h.Backend.CreateAppBlockBuilder(
+		req.Name, req.Description, req.Platform, req.InstanceType, vpcConfig, req.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +194,10 @@ func (h *Handler) opStopAppBlockBuilder(_ context.Context, body []byte) (any, er
 }
 
 type updateAppBlockBuilderInput struct {
-	Name         string `json:"Name"`
-	Description  string `json:"Description"`
-	InstanceType string `json:"InstanceType"`
+	VpcConfig    *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
+	Name         string                         `json:"Name"`
+	Description  string                         `json:"Description"`
+	InstanceType string                         `json:"InstanceType"`
 }
 
 func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -190,7 +206,12 @@ func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	bb, err := h.Backend.UpdateAppBlockBuilder(req.Name, req.Description, req.InstanceType)
+	var vpcConfig *VpcConfig
+	if req.VpcConfig != nil {
+		vpcConfig = &VpcConfig{SecurityGroupIDs: req.VpcConfig.SecurityGroupIDs, SubnetIDs: req.VpcConfig.SubnetIDs}
+	}
+
+	bb, err := h.Backend.UpdateAppBlockBuilder(req.Name, req.Description, req.InstanceType, vpcConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -310,5 +331,9 @@ func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
 		"State":        bb.State,
 		"CreatedTime":  awstime.Epoch(bb.CreatedTime),
 		keyTags:        bb.Tags,
+		"VpcConfig": map[string]any{
+			"SecurityGroupIds": bb.VpcConfig.SecurityGroupIDs,
+			"SubnetIds":        bb.VpcConfig.SubnetIDs,
+		},
 	}
 }

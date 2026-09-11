@@ -105,6 +105,7 @@ func createAppBlockBuilder(t *testing.T, h *appstream.Handler, name string) {
 	rec := doRequest(t, h, "CreateAppBlockBuilder", map[string]any{
 		"Name":         name,
 		"InstanceType": "stream.standard.medium",
+		"VpcConfig":    map[string]any{"SubnetIds": []string{"subnet-1", "subnet-2"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }

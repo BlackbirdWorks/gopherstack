@@ -15,18 +15,26 @@ package outposts
 // typo in this file.
 
 // addressWire mirrors types.Address.
+// AddressLine1/City/ContactName/ContactPhoneNumber/CountryCode/PostalCode/
+// StateOrRegion have no omitempty: all seven are "This member is required"
+// on the real wire (outposts@v1.66.1 types/types.go:11-47), but as *string
+// there the client-side required check (validators.go:877-899) only
+// rejects nil, not an empty string -- a conformant client's UpdateSiteAddress
+// call can legitimately send an empty value for one of them and expect it
+// to round-trip, not vanish. AddressLine2/AddressLine3/DistrictOrCounty/
+// Municipality stay optional (genuinely not required).
 type addressWire struct {
-	AddressLine1       string `json:"AddressLine1,omitempty"`
+	AddressLine1       string `json:"AddressLine1"`
 	AddressLine2       string `json:"AddressLine2,omitempty"`
 	AddressLine3       string `json:"AddressLine3,omitempty"`
-	City               string `json:"City,omitempty"`
-	ContactName        string `json:"ContactName,omitempty"`
-	ContactPhoneNumber string `json:"ContactPhoneNumber,omitempty"`
-	CountryCode        string `json:"CountryCode,omitempty"`
+	City               string `json:"City"`
+	ContactName        string `json:"ContactName"`
+	ContactPhoneNumber string `json:"ContactPhoneNumber"`
+	CountryCode        string `json:"CountryCode"`
 	DistrictOrCounty   string `json:"DistrictOrCounty,omitempty"`
 	Municipality       string `json:"Municipality,omitempty"`
-	PostalCode         string `json:"PostalCode,omitempty"`
-	StateOrRegion      string `json:"StateOrRegion,omitempty"`
+	PostalCode         string `json:"PostalCode"`
+	StateOrRegion      string `json:"StateOrRegion"`
 }
 
 // rackPhysicalPropertiesWire mirrors types.RackPhysicalProperties.
@@ -321,9 +329,15 @@ type listQuotesResponse struct {
 
 // instanceTypeCapacityWire mirrors both types.InstanceTypeCapacity and
 // types.AssetInstanceTypeCapacity (identically shaped).
+// InstanceType/Count have no omitempty: both are "This member is required"
+// on the real wire (outposts@v1.66.1 types/types.go:373-382). InstanceType
+// is *string, so the client-side required check (validators.go:915-916)
+// only rejects nil, not an empty string; Count is a bare (non-pointer)
+// int32 that Smithy client-side validation cannot check for "unset" at
+// all, so 0 is a value a conformant client can legitimately send.
 type instanceTypeCapacityWire struct {
-	InstanceType string `json:"InstanceType,omitempty"`
-	Count        int32  `json:"Count,omitempty"`
+	InstanceType string `json:"InstanceType"`
+	Count        int32  `json:"Count"`
 }
 
 // instancesToExcludeWire mirrors types.InstancesToExclude.

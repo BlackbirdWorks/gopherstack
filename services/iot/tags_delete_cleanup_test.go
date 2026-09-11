@@ -77,7 +77,7 @@ func tagCleanupCases() []tagCleanupCase {
 		{
 			name: "command",
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
-				out, err := b.CreateCommand(key, "display", "desc", "namespace", nil, nil)
+				out, err := b.CreateCommand(key, "display", "desc", "namespace", nil, nil, nil)
 
 				return arnOrErr(out, err, func(o *iot.IoTCommand) string { return o.CommandARN })
 			},

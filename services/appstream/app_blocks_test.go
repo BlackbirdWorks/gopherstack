@@ -116,6 +116,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 				"Name":         "my-builder",
 				"InstanceType": "stream.standard.medium",
 				"Platform":     "WINDOWS_SERVER_2019",
+				"VpcConfig":    map[string]any{"SubnetIds": []string{"subnet-1", "subnet-2"}},
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
@@ -128,9 +129,12 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			},
 		},
 		{
-			name:     "CreateAppBlockBuilder missing InstanceType returns error",
-			action:   "CreateAppBlockBuilder",
-			body:     map[string]any{"Name": "no-instance"},
+			name:   "CreateAppBlockBuilder missing InstanceType returns error",
+			action: "CreateAppBlockBuilder",
+			body: map[string]any{
+				"Name":      "no-instance",
+				"VpcConfig": map[string]any{"SubnetIds": []string{"subnet-1"}},
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -300,6 +304,7 @@ func TestAppStream_AppBlockBuilderStreamingURL(t *testing.T) {
 	doRequest(t, h, "CreateAppBlockBuilder", map[string]any{
 		"Name":         "url-builder",
 		"InstanceType": "stream.standard.medium",
+		"VpcConfig":    map[string]any{"SubnetIds": []string{"subnet-1", "subnet-2"}},
 	})
 
 	rec := doRequest(t, h, "CreateAppBlockBuilderStreamingURL", map[string]any{

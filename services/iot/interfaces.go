@@ -356,6 +356,7 @@ type StorageBackend interface {
 	CreateCommand(
 		id, displayName, description, namespace string,
 		payload map[string]any,
+		mandatoryParameters []map[string]any,
 		tags map[string]string,
 	) (*IoTCommand, error)
 	GetCommand(id string) (*IoTCommand, error)

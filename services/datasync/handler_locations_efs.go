@@ -64,9 +64,14 @@ type describeLocationEfsInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
+// SecurityGroupArns has no omitempty: it's "This member is required" on the
+// real wire (datasync@v1.61.4 types/types.go:115), but as a []string the
+// client-side required check (validators.go:1260-1261) only rejects nil,
+// not an empty slice -- a legitimate empty value must round-trip, not
+// vanish.
 type ec2ConfigOutput struct {
 	SubnetArn         string   `json:"SubnetArn"`
-	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns"`
 }
 
 // describeLocationEfsOutput intentionally has no EfsFilesystemArn or

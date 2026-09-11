@@ -478,8 +478,18 @@ families:
       orphaned row. Fixed via cascadeDeleteChannelPlacementGroups, called
       from DeleteCluster.
   SignalMap:
-    status: ok
+    status: fixed
     note: >
+      FIXED 2026-09-11 (gopherstack-mven required-output sweep):
+      LastSuccessfulMonitorDeployment (optional, but its DetailsUri/Status
+      members are both required whenever present -- types/types.go:8315-8328)
+      wasn't modeled at all, so it was always absent even after a
+      successful StartMonitorDeployment. Now populated (Status +
+      a deterministic console-link DetailsUri) whenever
+      MonitorDeploymentStatus reaches DEPLOYMENT_COMPLETE, and preserved
+      across a later StartDeleteMonitorDeployment (real semantics: it
+      records the *latest successful* deployment, independent of current
+      status).
       FIXED this pass. toSignalMapOutput's PascalCase keys fixed to
       lowerCamel ("discoveryEntryPointArn"/"status"/
       "monitorDeploymentStatus"/"cloudWatchAlarmTemplateGroupIds"/
@@ -673,13 +683,24 @@ families:
       `batchDeleteInputSecurityGroups` helper. New test
       TestBatch_DeleteInputSecurityGroups proves the fix end-to-end.
   Schedule:
-    status: ok
+    status: fixed
     note: >
       FIXED this pass. DescribeSchedule's wrapper (keyScheduleActions:
       "ScheduleActions" -> "scheduleActions") and item key (keyActionName:
       "ActionName" -> "actionName") fixed via the shared constants (safe:
       grepped all call sites, all Batch/Schedule family, all in scope this
       pass).
+      FIXED 2026-09-11 (gopherstack-mven required-output sweep):
+      ScheduleActionSettings and ScheduleActionStartSettings -- both "This
+      member is required" on every ScheduleAction (types/types.go:7277-7287)
+      -- were never read off BatchUpdateSchedule's request or stored,
+      leaving DescribeSchedule/BatchUpdateSchedule responses with only
+      ActionName. Now stored opaquely per-action and echoed back on
+      Describe and both Creates/Deletes. Also fixed:
+      BatchScheduleActionDeleteResult must echo the FULL deleted
+      ScheduleAction objects (confirmed against the real
+      deserializer), not just their names -- the backend previously
+      synthesized Deletes from the requested actionNames alone.
   Alerts:
     status: ok
     note: >

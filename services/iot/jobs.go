@@ -103,17 +103,26 @@ const (
 	JobExecRemoved    JobExecutionStatus = "REMOVED"
 )
 
-// AbortConfig holds abort criteria for a job.
+// AbortConfig holds abort criteria for a job. CriteriaList has no omitempty:
+// it's "This member is required" whenever AbortConfig is present
+// (iot@v1.83.0 validators.go:5106-5107), and the real SDK's client-side
+// required-field check only rejects a nil slice, not an empty one -- a
+// conformant client can legitimately send an empty (but non-nil)
+// criteriaList, which omitempty would otherwise silently drop.
 type AbortConfig struct {
-	CriteriaList []AbortCriteria `json:"criteriaList,omitempty"`
+	CriteriaList []AbortCriteria `json:"criteriaList"`
 }
 
-// AbortCriteria is a single abort criterion.
+// AbortCriteria is a single abort criterion. MinNumberOfExecutedThings/
+// ThresholdPercentage have no omitempty for the same reason as
+// AbortConfig.CriteriaList above: both are *int32/*float64 on the real
+// wire, so the client-side required check only rejects nil, not zero
+// (validators.go:5131-5136).
 type AbortCriteria struct {
 	Action                    string  `json:"action,omitempty"`
 	FailureType               string  `json:"failureType,omitempty"`
-	MinNumberOfExecutedThings int     `json:"minNumberOfExecutedThings,omitempty"`
-	ThresholdPercentage       float64 `json:"thresholdPercentage,omitempty"`
+	MinNumberOfExecutedThings int     `json:"minNumberOfExecutedThings"`
+	ThresholdPercentage       float64 `json:"thresholdPercentage"`
 }
 
 // JobExecutionsRolloutConfig holds rollout config for a job.
@@ -127,16 +136,21 @@ type TimeoutConfig struct {
 }
 
 // RetryCriteria is a single retry criterion for a job
-// (aws-sdk-go-v2/service/iot/types.RetryCriteria).
+// (aws-sdk-go-v2/service/iot/types.RetryCriteria). NumberOfRetries has no
+// omitempty: it's *int32 on the real wire, so 0 retries is a legitimate
+// client-supplied value the required check (nil-only) lets through
+// (validators.go:6702-6704).
 type RetryCriteria struct {
 	FailureType     string `json:"failureType,omitempty"`
-	NumberOfRetries int32  `json:"numberOfRetries,omitempty"`
+	NumberOfRetries int32  `json:"numberOfRetries"`
 }
 
 // JobExecutionsRetryConfig determines how many retries are allowed for each
-// failure type for a job (types.JobExecutionsRetryConfig).
+// failure type for a job (types.JobExecutionsRetryConfig). CriteriaList has
+// no omitempty -- same required-but-nil-only-checked reasoning as
+// AbortConfig.CriteriaList above (validators.go:6152-6153).
 type JobExecutionsRetryConfig struct {
-	CriteriaList []RetryCriteria `json:"criteriaList,omitempty"`
+	CriteriaList []RetryCriteria `json:"criteriaList"`
 }
 
 func cloneJobExecutionsRetryConfig(c *JobExecutionsRetryConfig) *JobExecutionsRetryConfig {
@@ -157,10 +171,13 @@ type PresignedURLConfig struct {
 }
 
 // MaintenanceWindow is a single recurring maintenance window within a job's
-// SchedulingConfig (types.MaintenanceWindow).
+// SchedulingConfig (types.MaintenanceWindow). StartTime/DurationInMinutes
+// have no omitempty: both are required pointer members on the real wire
+// (*string/*int32), so the client-side check only rejects nil, not an empty
+// string or a zero duration (validators.go:6406-6411).
 type MaintenanceWindow struct {
-	StartTime         string `json:"startTime,omitempty"`
-	DurationInMinutes int32  `json:"durationInMinutes,omitempty"`
+	StartTime         string `json:"startTime"`
+	DurationInMinutes int32  `json:"durationInMinutes"`
 }
 
 // SchedulingConfig schedules a job for a future date/time and configures the

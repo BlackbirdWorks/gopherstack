@@ -67,17 +67,19 @@ func resolveCommandSubPathOps(parts []string, method string) string {
 func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
 	var req struct {
-		Payload     map[string]any `json:"payload"`
-		DisplayName string         `json:"displayName"`
-		Description string         `json:"description"`
-		Namespace   string         `json:"namespace"`
-		Tags        []tags.KV      `json:"tags"`
+		Payload             map[string]any   `json:"payload"`
+		DisplayName         string           `json:"displayName"`
+		Description         string           `json:"description"`
+		Namespace           string           `json:"namespace"`
+		Tags                []tags.KV        `json:"tags"`
+		MandatoryParameters []map[string]any `json:"mandatoryParameters"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 	cmd, err := h.Backend.CreateCommand(
-		id, req.DisplayName, req.Description, req.Namespace, req.Payload, tags.MapFromKV(req.Tags),
+		id, req.DisplayName, req.Description, req.Namespace, req.Payload,
+		req.MandatoryParameters, tags.MapFromKV(req.Tags),
 	)
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")

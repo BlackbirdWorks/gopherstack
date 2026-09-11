@@ -36,7 +36,11 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateAppBlock("appblock1", "an app block", map[string]string{"a": "b"})
 	require.NoError(t, err)
 
-	_, err = b.CreateAppBlockBuilder("builder1", "a builder", "WINDOWS", "stream.standard.medium", nil)
+	_, err = b.CreateAppBlockBuilder(
+		"builder1", "a builder", "WINDOWS", "stream.standard.medium",
+		appstream.VpcConfig{SecurityGroupIDs: []string{"sg-1"}, SubnetIDs: []string{"subnet-1", "subnet-2"}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1")
@@ -148,6 +152,8 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	builders, err := fresh.DescribeAppBlockBuilders([]string{"builder1"})
 	require.NoError(t, err)
 	require.Len(t, builders, 1)
+	assert.Equal(t, []string{"sg-1"}, builders[0].VpcConfig.SecurityGroupIDs)
+	assert.Equal(t, []string{"subnet-1", "subnet-2"}, builders[0].VpcConfig.SubnetIDs)
 
 	apps, err := fresh.DescribeApplications([]string{"app1"})
 	require.NoError(t, err)
