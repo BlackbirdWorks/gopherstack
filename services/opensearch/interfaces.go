@@ -213,6 +213,12 @@ type StorageBackend interface {
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
 
+	// Serverless resource tagging (collections only; see serverless.go's
+	// findServerlessCollectionByARNLocked)
+	ListServerlessResourceTags(resourceArn string) (map[string]string, error)
+	TagServerlessResource(resourceArn string, tagMap map[string]string) error
+	UntagServerlessResource(resourceArn string, tagKeys []string) error
+
 	// Serverless access policy operations
 	CreateServerlessAccessPolicy(policyType, name, description, policy string) (*ServerlessAccessPolicy, error)
 	GetServerlessAccessPolicy(policyType, name string) (*ServerlessAccessPolicy, error)

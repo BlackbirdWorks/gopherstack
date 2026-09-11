@@ -45,6 +45,9 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListCollections":      true,
 		"ListSecurityConfigs":  true,
 		"ListSecurityPolicies": true,
+		"ListTagsForResource":  true,
+		"TagResource":          true,
+		"UntagResource":        true,
 		"UpdateAccessPolicy":   true,
 		"UpdateSecurityConfig": true,
 		"UpdateSecurityPolicy": true,
@@ -61,9 +64,9 @@ func TestSDKCompleteness(t *testing.T) {
 
 	sdkcheck.CheckCompleteness(t, &opensearchsdk.Client{}, domainOps, []string{})
 	// This Handler only implements the collection/access-policy/security-
-	// config/security-policy slice of AOSS. The rest of opensearchserverless.Client
-	// (collection groups, indices, lifecycle policies, VPC endpoints, account
-	// settings, tagging) is not implemented.
+	// config/security-policy/tagging slice of AOSS. The rest of
+	// opensearchserverless.Client (collection groups, indices, lifecycle
+	// policies, VPC endpoints, account settings) is not implemented.
 	sdkcheck.CheckCompleteness(t, &opensearchserverlesssdk.Client{}, slOps, []string{
 		"BatchGetCollectionGroup",
 		"BatchGetEffectiveLifecyclePolicy",
@@ -82,10 +85,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"GetPoliciesStats",
 		"ListCollectionGroups",
 		"ListLifecyclePolicies",
-		"ListTagsForResource",
 		"ListVpcEndpoints",
-		"TagResource",
-		"UntagResource",
 		"UpdateAccountSettings",
 		"UpdateCollection",
 		"UpdateCollectionGroup",

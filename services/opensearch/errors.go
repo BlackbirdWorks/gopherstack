@@ -29,4 +29,10 @@ var (
 	// comment, "The package can't be associated with any OpenSearch Service
 	// domain".
 	ErrPackageAssociated = errors.New("ConflictException")
+	// ErrServerlessTagLimitExceeded is returned by TagResource when applying
+	// new tags would push a collection's tag count past the documented
+	// 50-tag-per-resource cap. TagResource is the only serverless op
+	// declaring ServiceQuotaExceededException (opensearchserverless
+	// v1.34.4 deserializers.go awsAwsjson10_deserializeOpErrorTagResource).
+	ErrServerlessTagLimitExceeded = errors.New("ServiceQuotaExceededException")
 )

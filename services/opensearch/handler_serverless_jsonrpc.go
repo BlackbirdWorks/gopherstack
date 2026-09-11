@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/labstack/echo/v5"
 
@@ -124,6 +125,10 @@ func serverlessErrorTable() map[error]awserr.APIError {
 		// serverlessInternalError() (500 InternalServerException) instead of
 		// the real AOSS 404 ResourceNotFoundException.
 		ErrDomainNotFound: {Code: "ResourceNotFoundException", HTTPStatus: http.StatusNotFound},
+		// TagResource's own 50-tag-per-resource cap (deserializers.go
+		// awsAwsjson10_deserializeOpErrorTagResource declares
+		// ServiceQuotaExceededException; List/UntagResource do not).
+		ErrServerlessTagLimitExceeded: {Code: "ServiceQuotaExceededException", HTTPStatus: http.StatusPaymentRequired},
 	}
 }
 
@@ -147,6 +152,9 @@ func (h *Handler) serverlessJSONRPCOps() map[string]serverlessJSONRPCOpFunc {
 		"ListCollections":      h.jrListCollections,
 		"ListSecurityConfigs":  h.jrListSecurityConfigs,
 		"ListSecurityPolicies": h.jrListSecurityPolicies,
+		"ListTagsForResource":  h.jrListTagsForResource,
+		"TagResource":          h.jrTagResource,
+		"UntagResource":        h.jrUntagResource,
 		"UpdateAccessPolicy":   h.jrUpdateAccessPolicy,
 		"UpdateSecurityConfig": h.jrUpdateSecurityConfig,
 		"UpdateSecurityPolicy": h.jrUpdateSecurityPolicy,
@@ -204,6 +212,46 @@ func (h *Handler) jrListCollections(_ map[string]any) (map[string]any, error) {
 	}
 
 	return map[string]any{"collectionSummaries": toWireServerlessCollections(colls)}, nil
+}
+
+// --- Tagging ---
+//
+// Only collections carry an ARN this backend can resolve (gopherstack-3cijh);
+// the rest of AOSS's taggable surface (collection groups, VPC endpoints,
+// lifecycle policies) is unmodeled, per sdk_completeness_test.go's
+// notImplemented list.
+
+func (h *Handler) jrListTagsForResource(input map[string]any) (map[string]any, error) {
+	resourceArn, _ := input["resourceArn"].(string)
+
+	tagMap, err := h.Backend.ListServerlessResourceTags(resourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"tags": tagMapToListJR(tagMap)}, nil
+}
+
+func (h *Handler) jrTagResource(input map[string]any) (map[string]any, error) {
+	resourceArn, _ := input["resourceArn"].(string)
+	tagMap := tagListToMapJR(input["tags"])
+
+	if err := h.Backend.TagServerlessResource(resourceArn, tagMap); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) jrUntagResource(input map[string]any) (map[string]any, error) {
+	resourceArn, _ := input["resourceArn"].(string)
+	tagKeys := strSliceJR(input, "tagKeys")
+
+	if err := h.Backend.UntagServerlessResource(resourceArn, tagKeys); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
 }
 
 // --- Access policies ---
@@ -455,6 +503,25 @@ func strSliceJR(input map[string]any, key string) []string {
 		if s, isStr := v.(string); isStr {
 			out = append(out, s)
 		}
+	}
+
+	return out
+}
+
+// tagMapToListJR converts a tag map to the real AOSS wire list shape
+// (ListTagsForResourceOutput.Tags: []{"key","value"}), sorted by key so
+// ListTagsForResource output is deterministic.
+func tagMapToListJR(tagMap map[string]string) []map[string]string {
+	keys := make([]string, 0, len(tagMap))
+	for k := range tagMap {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	out := make([]map[string]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, map[string]string{"key": k, "value": tagMap[k]})
 	}
 
 	return out

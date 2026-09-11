@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -689,6 +690,98 @@ func (b *InMemoryBackend) DeleteServerlessNetworkPolicy(policyType, name string)
 	}
 
 	b.slNetworkPolicies.Delete(key)
+
+	return nil
+}
+
+// maxServerlessTagsPerResource is AOSS's documented per-resource tag cap
+// (TagResource doc: "You can associate up to 50 tags with an OpenSearch
+// Serverless resource").
+const maxServerlessTagsPerResource = 50
+
+// findServerlessCollectionByARNLocked returns the collection whose ARN
+// matches resourceArn, or nil. Collections have no ARN index, only the
+// name-keyed slCollections table, so this scans -- same approach as
+// resolveDataSourceRefLocked in data_source_attachments.go. Caller must
+// hold at least a read lock.
+func (b *InMemoryBackend) findServerlessCollectionByARNLocked(resourceArn string) *ServerlessCollection {
+	for _, c := range b.slCollections.All() {
+		if c.Arn == resourceArn {
+			return c
+		}
+	}
+
+	return nil
+}
+
+// ListServerlessResourceTags returns the tags on the collection identified
+// by resourceArn. Only collections are taggable here: the real
+// ListTagsForResource/TagResource/UntagResource also cover collection
+// groups, VPC endpoints and lifecycle policies, none of which this package
+// models (see sdk_completeness_test.go's notImplemented list).
+func (b *InMemoryBackend) ListServerlessResourceTags(resourceArn string) (map[string]string, error) {
+	b.mu.RLock("ListServerlessResourceTags")
+	defer b.mu.RUnlock()
+
+	c := b.findServerlessCollectionByARNLocked(resourceArn)
+	if c == nil {
+		return nil, fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceArn)
+	}
+
+	out := make(map[string]string, len(c.Tags))
+	maps.Copy(out, c.Tags)
+
+	return out, nil
+}
+
+// TagServerlessResource adds or overwrites tags on the collection identified
+// by resourceArn.
+func (b *InMemoryBackend) TagServerlessResource(resourceArn string, tagMap map[string]string) error {
+	b.mu.Lock("TagServerlessResource")
+	defer b.mu.Unlock()
+
+	c := b.findServerlessCollectionByARNLocked(resourceArn)
+	if c == nil {
+		return fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceArn)
+	}
+
+	newKeys := 0
+	for k := range tagMap {
+		if _, ok := c.Tags[k]; !ok {
+			newKeys++
+		}
+	}
+
+	if total := len(c.Tags) + newKeys; total > maxServerlessTagsPerResource {
+		return fmt.Errorf(
+			"%w: %d tag(s) would exceed the %d-tag limit",
+			ErrServerlessTagLimitExceeded, total, maxServerlessTagsPerResource,
+		)
+	}
+
+	if c.Tags == nil {
+		c.Tags = make(map[string]string, len(tagMap))
+	}
+
+	maps.Copy(c.Tags, tagMap)
+
+	return nil
+}
+
+// UntagServerlessResource removes the given tag keys from the collection
+// identified by resourceArn.
+func (b *InMemoryBackend) UntagServerlessResource(resourceArn string, tagKeys []string) error {
+	b.mu.Lock("UntagServerlessResource")
+	defer b.mu.Unlock()
+
+	c := b.findServerlessCollectionByARNLocked(resourceArn)
+	if c == nil {
+		return fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceArn)
+	}
+
+	for _, k := range tagKeys {
+		delete(c.Tags, k)
+	}
 
 	return nil
 }
