@@ -224,7 +224,9 @@ type TaskTokenCallbackInvoker interface {
 type HistoryRecorder interface {
 	RecordStateEntered(executionARN, stateName, stateType string, input any)
 	RecordStateExited(executionARN, stateName, stateType string, output any)
-	RecordTaskScheduled(executionARN, stateName, resource string, parameters any)
+	RecordTaskScheduled(
+		executionARN, stateName, resource string, parameters any, timeoutSeconds, heartbeatSeconds int,
+	)
 	RecordTaskSucceeded(executionARN, stateName, resource string, output any)
 	RecordTaskFailed(executionARN, stateName, resource, errCode, cause string)
 }
@@ -870,7 +872,9 @@ func (e *Executor) executeTask(
 	}
 
 	if e.history != nil {
-		e.history.RecordTaskScheduled(executionARN, stateName, state.Resource, input)
+		e.history.RecordTaskScheduled(
+			executionARN, stateName, state.Resource, input, timeoutSeconds, heartbeatSeconds,
+		)
 	}
 
 	// retryAttempts tracks how many times each retrier entry has been used.

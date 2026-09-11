@@ -15,6 +15,11 @@ type historyRecorder struct {
 	backend *InMemoryBackend
 }
 
+// resourceSegmentActivity is the ARN resource-type segment
+// ("arn:aws:states:region:account:activity:name") both
+// resourceTypeFromResource and historyResourceValue check for.
+const resourceSegmentActivity = "activity"
+
 // stateEnteredEventType returns the AWS event type name for the state-entered event
 // for each state type.
 func stateEnteredEventType(stateType string) string {
@@ -117,15 +122,19 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 	})
 }
 
-func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, resource string, parameters any) {
+func (r *historyRecorder) RecordTaskScheduled(
+	execARN, _ /* stateName */, resource string, parameters any, timeoutSeconds, heartbeatSeconds int,
+) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskScheduled",
 		TaskScheduledEventDetails: &TaskScheduledEventDetails{
-			Resource:     resource,
-			ResourceType: resourceTypeFromResource(resource),
-			Region:       regionFromARN(resource, r.backend.region),
-			Parameters:   historyValueToJSON(parameters),
+			Resource:           historyResourceValue(resource),
+			ResourceType:       resourceTypeFromResource(resource),
+			Region:             regionFromARN(resource, r.backend.region),
+			Parameters:         historyValueToJSON(parameters),
+			TimeoutInSeconds:   optionalHistorySeconds(timeoutSeconds),
+			HeartbeatInSeconds: optionalHistorySeconds(heartbeatSeconds),
 		},
 	})
 }
@@ -135,7 +144,7 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */, resour
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskSucceeded",
 		TaskSucceededEventDetails: &TaskSucceededEventDetails{
-			Resource:      resource,
+			Resource:      historyResourceValue(resource),
 			ResourceType:  resourceTypeFromResource(resource),
 			Output:        historyValueToJSON(output),
 			OutputDetails: &HistoryEventExecutionDataDetails{Truncated: false},
@@ -150,12 +159,54 @@ func (r *historyRecorder) RecordTaskFailed(
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskFailed",
 		TaskFailedEventDetails: &TaskFailedEventDetails{
-			Resource:     resource,
+			Resource:     historyResourceValue(resource),
 			ResourceType: resourceTypeFromResource(resource),
 			Error:        errCode,
 			Cause:        cause,
 		},
 	})
+}
+
+// optionalHistorySeconds converts a resolved TimeoutSeconds/HeartbeatSeconds
+// value to TaskScheduledEventDetails.TimeoutInSeconds/HeartbeatInSeconds's
+// *int64 shape (sfn@v1.49.0 types.go:1311-1339): 0 means the Task state
+// never set the field (resolveTaskTimeoutSeconds/resolveTaskHeartbeatSeconds
+// return the ASL zero value when unset, since neither AWS nor this ASL
+// parser accept 0 as a real timeout/heartbeat), so it stays nil rather than
+// emitting a fabricated 0.
+func optionalHistorySeconds(seconds int) *int64 {
+	if seconds <= 0 {
+		return nil
+	}
+
+	v := int64(seconds)
+
+	return &v
+}
+
+// historyResourceValue derives TaskScheduled/TaskSucceeded/TaskFailed's
+// Resource ("The action of the resource called by a task state.",
+// sfn@v1.49.0 types.go:1325-1328) from a Task state's Resource ARN. For a
+// States service-integration ARN ("arn:aws:states:::lambda:invoke",
+// optionally "arn:aws:states:::aws-sdk:sqs:sendMessage", optionally with a
+// ".sync"/".waitForTaskToken" suffix), AWS's own documented example gives
+// resource "invoke" -- just the action, stripped of any pattern suffix. A
+// direct service ARN (e.g. a Lambda function ARN used as Resource directly)
+// or an activity ARN names the resource itself, so the whole ARN is
+// returned unchanged -- matches ResourceType's own branching in
+// resourceTypeFromResource.
+func historyResourceValue(resource string) string {
+	parts := strings.Split(resource, ":")
+	if len(parts) < 6 || parts[0] != "arn" || parts[2] != awsServiceStates || parts[5] == resourceSegmentActivity {
+		return resource
+	}
+
+	action := parts[len(parts)-1]
+	if i := strings.IndexByte(action, '.'); i >= 0 {
+		action = action[:i]
+	}
+
+	return action
 }
 
 // resourceTypeFromResource derives AWS's TaskScheduled/TaskSucceeded/TaskFailed
@@ -171,12 +222,12 @@ func resourceTypeFromResource(resource string) string {
 	}
 
 	service := parts[2]
-	if service != "states" {
+	if service != awsServiceStates {
 		return service
 	}
 
-	if parts[5] == "activity" {
-		return "activity"
+	if parts[5] == resourceSegmentActivity {
+		return resourceSegmentActivity
 	}
 
 	if parts[5] == "aws-sdk" && len(parts) > 6 {

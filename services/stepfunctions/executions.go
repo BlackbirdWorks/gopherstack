@@ -234,7 +234,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 		Name:                   name,
 		Status:                 statusRunning,
 		Input:                  input,
-		InputDetails:           &CloudWatchEventsExecutionDataDetails{Truncated: false},
+		InputDetails:           &CloudWatchEventsExecutionDataDetails{Included: true},
 		RedriveStatus:          redriveStatusNotRedrivable,
 		RedriveStatusReason:    redriveStatusReasonRunning,
 		history: []*HistoryEvent{
@@ -261,6 +261,12 @@ type startedExecution struct {
 	exec            *Execution
 	parsedSM        *asl.StateMachine
 	execArn         string
+	// reused is true when exec is an existing RUNNING execution returned
+	// under StartExecution's STANDARD idempotency rule, not a freshly
+	// created one -- the caller must not spawn another interpreter
+	// goroutine or otherwise treat this as a new execution. See
+	// startExecutionLocked.
+	reused bool
 }
 
 // startExecutionLocked validates the state machine, registers the new execution
@@ -303,8 +309,27 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
 	execArn := b.execARN(baseSMArn, sm.Name, name)
-	if sm.Type != "EXPRESS" && b.executions.Has(execArn) {
-		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+
+	// StartExecution is idempotent for STANDARD workflows: calling it again
+	// with the same name and input against a still-RUNNING execution
+	// returns that same execution rather than erroring (api_op_
+	// StartExecution.go doc on Name: "StartExecution is idempotent for
+	// STANDARD workflows... if you call it with the same name and input as
+	// a running execution, the call succeeds and return[s] the same
+	// response as the original request. If the execution is closed or if
+	// the input is different, it returns a 400 ExecutionAlreadyExists
+	// error."). EXPRESS names may be reused immediately (same doc) -- no
+	// uniqueness check runs for them at all.
+	if sm.Type != "EXPRESS" {
+		if existing, ok := b.executions.Get(execArn); ok {
+			if existing.Status == statusRunning && existing.Input == input {
+				cp := *existing
+
+				return &startedExecution{exec: &cp, execArn: execArn, reused: true}, nil
+			}
+
+			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+		}
 	}
 
 	// Parse the definition before inserting any state, so a bad definition never
@@ -366,6 +391,13 @@ func (b *InMemoryBackend) StartExecutionWithTrace(
 	started, err := b.startExecutionLocked(stateMachineArn, name, input)
 	if err != nil {
 		return nil, err
+	}
+
+	// Idempotent STANDARD replay: return the original running execution's
+	// response unchanged, including its original TraceHeader -- no new
+	// execution, goroutine, or state mutation.
+	if started.reused {
+		return started.exec, nil
 	}
 
 	if traceHeader != "" {
@@ -508,7 +540,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	outputBytes, _ := json.Marshal(result.Output)
 	exec.Status = statusSucceeded
 	exec.Output = string(outputBytes)
-	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Truncated: false}
+	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Included: true}
 	exec.RedriveStatus = redriveStatusNotRedrivable
 	exec.RedriveStatusReason = redriveStatusReasonSucceeded
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)

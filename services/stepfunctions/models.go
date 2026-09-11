@@ -53,9 +53,15 @@ type CloudWatchLogsLogGroup struct {
 	LogGroupArn string `json:"logGroupArn,omitempty"`
 }
 
-// CloudWatchEventsExecutionDataDetails contains details about execution data.
+// CloudWatchEventsExecutionDataDetails contains details about
+// DescribeExecutionOutput's InputDetails/OutputDetails (sfn@v1.49.0
+// types.go:159-165). The member is Included, not Truncated -- "Indicates
+// whether input or output was included in the response. Always true for
+// API calls." -- distinct from HistoryEventExecutionDataDetails's Truncated
+// (types.go:557-565), which is the *history-event* detail type and stays
+// correctly named/valued as-is.
 type CloudWatchEventsExecutionDataDetails struct {
-	Truncated bool `json:"truncated"`
+	Included bool `json:"included"`
 }
 
 // Execution represents a state machine execution.
