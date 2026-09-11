@@ -14,6 +14,26 @@ func (b *InMemoryBackend) resolveApplicationLocked(id string) (*Application, boo
 	return b.applications.Get(id)
 }
 
+// resolveApplicationByNameLocked finds the Application whose Name matches,
+// or false if none does. Backs StartImport's mgn:app:name alternate
+// identification (AWS MGN User Guide, Inventory Import parameters,
+// Additional considerations #4) -- s3import.go's own natural key for
+// create-vs-update, mirroring resolveSourceServerByUserProvidedIDLocked for
+// SourceServer. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveApplicationByNameLocked(name string) (*Application, bool) {
+	if name == "" {
+		return nil, false
+	}
+
+	for _, a := range b.applications.Snapshot() {
+		if a.Name == name {
+			return a, true
+		}
+	}
+
+	return nil, false
+}
+
 // CreateApplication creates a new Application.
 func (b *InMemoryBackend) CreateApplication(name, description string, appTags map[string]string) (*Application, error) {
 	b.mu.Lock("CreateApplication")
@@ -27,6 +47,14 @@ func (b *InMemoryBackend) CreateApplication(name, description string, appTags ma
 		return nil, validationError("name is required")
 	}
 
+	return b.createApplicationLocked(name, description, appTags).clone(), nil
+}
+
+// createApplicationLocked is Application creation's single construction
+// path, called by both CreateApplication and StartImport's mgn:app:name row
+// handling (s3import.go's resolveOrCreateApplicationLocked). Callers must
+// hold b.mu.
+func (b *InMemoryBackend) createApplicationLocked(name, description string, appTags map[string]string) *Application {
 	id := newApplicationID()
 	now := nowRFC3339()
 	t := tags.New("mgn.application." + id + ".tags")
@@ -48,7 +76,7 @@ func (b *InMemoryBackend) CreateApplication(name, description string, appTags ma
 	}
 	b.applications.Put(app)
 
-	return app.clone(), nil
+	return app
 }
 
 // UpdateApplication applies a partial update to an Application.

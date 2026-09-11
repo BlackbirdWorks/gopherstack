@@ -905,13 +905,17 @@ type importIDRequest struct {
 	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
-// importErrorDataWire mirrors types.ImportErrorData. AccountID/ApplicationID/
-// Ec2LaunchTemplateID are never populated by this backend (see models.go's
-// ImportErrorData doc comment), so they are omitted entirely rather than
-// wire-coded as empty strings.
+// importErrorDataWire mirrors types.ImportErrorData (wire keys confirmed
+// against deserializers.go's awsRestjson1_deserializeDocumentImportErrorData).
+// AccountID/Ec2LaunchTemplateID are never populated by this backend (see
+// models.go's ImportErrorData doc comment), so they are omitted entirely
+// rather than wire-coded as empty strings.
 type importErrorDataWire struct {
-	RawError  string `json:"rawError,omitempty"`
-	RowNumber int64  `json:"rowNumber,omitempty"`
+	SourceServerID string `json:"sourceServerID,omitempty"`
+	ApplicationID  string `json:"applicationID,omitempty"`
+	WaveID         string `json:"waveID,omitempty"`
+	RawError       string `json:"rawError,omitempty"`
+	RowNumber      int64  `json:"rowNumber,omitempty"`
 }
 
 // importTaskErrorWire mirrors types.ImportTaskError.

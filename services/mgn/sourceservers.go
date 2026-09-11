@@ -65,19 +65,26 @@ func (b *InMemoryBackend) resolveSourceServerByUserProvidedIDLocked(userProvided
 }
 
 // applyImportRowLocked overwrites an existing SourceServer's
-// SourceProperties/FqdnForActionFramework/tags with a re-imported row's
-// values -- the "update" half of StartImport's dedup-by-UserProvidedID
-// convention (see resolveSourceServerByUserProvidedIDLocked). Callers must
-// hold b.mu.
+// SourceProperties/FqdnForActionFramework/ApplicationID/tags with a
+// re-imported row's values -- the "update" half of StartImport's
+// dedup-by-UserProvidedID/mgn:server:id convention (see
+// resolveSourceServerByUserProvidedIDLocked). A nil seed.SourceProperties
+// (a row with no IdentificationHints columns set) leaves the existing value
+// untouched rather than wiping it, since s3import.go only ever sets
+// SourceProperties when a row actually carries at least one hint. Callers
+// must hold b.mu.
 func (b *InMemoryBackend) applyImportRowLocked(s *SourceServer, seed sourceServerSeed) {
-	s.SourceProperties = seed.SourceProperties
+	if seed.SourceProperties != nil {
+		s.SourceProperties = seed.SourceProperties
+		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	}
 
 	if seed.FqdnForActionFramework != "" {
 		s.FqdnForActionFramework = seed.FqdnForActionFramework
 	}
 
-	if s.SourceProperties != nil {
-		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	if seed.ApplicationID != "" {
+		s.ApplicationID = seed.ApplicationID
 	}
 
 	if s.Tags != nil {
@@ -97,6 +104,7 @@ type sourceServerSeed struct {
 	SourceServerID         string
 	UserProvidedID         string
 	FqdnForActionFramework string
+	ApplicationID          string
 	ReplicationType        string
 	DiskDeviceName         string
 	TotalStorageBytes      int64
@@ -138,6 +146,7 @@ func (b *InMemoryBackend) createSourceServerLocked(seed sourceServerSeed) *Sourc
 		Arn:                    b.sourceServerARN(id),
 		UserProvidedID:         seed.UserProvidedID,
 		FqdnForActionFramework: seed.FqdnForActionFramework,
+		ApplicationID:          seed.ApplicationID,
 		ReplicationType:        replicationType,
 		SourceProperties:       seed.SourceProperties,
 		Tags:                   t,

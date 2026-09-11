@@ -185,7 +185,7 @@ ops:
   StartExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "Summary is a real live count of the account's Applications/Waves/SourceServers, never fabricated"}
   ListExports: {wire: ok, errors: ok, state: ok, persist: ok}
   ListExportErrors: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: CSV schema replaced -- the prior column set (hostname/fqdn/cpuCores/ramBytes/...) was fully invented with zero AWS provenance. Now uses AWS's own documented \"mgn:server:*\" namespaced parameters (MGN User Guide's Import parameters table: mgn:server:user-provided-id, mgn:server:fqdn-for-action-framework, mgn:server:tag:<key>), plus a same-convention extension onto the SDK's real IdentificationHints fields (hostname/fqdn/aws-instance-id/vmware-uuid/vmpath) for the identification requirement AWS's docs state in prose but don't formally tabulate. ModifiedCount is now real: a row whose mgn:server:user-provided-id matches an existing SourceServer updates it (documented AWS dedup behavior) instead of always creating a new one. Scoped to SourceServer-level columns only -- mgn:app:*/mgn:wave:*/mgn:launch:* (implicit Application/Wave creation, per-row LaunchConfiguration overrides) are real, doc-confirmed parameters this pass did not implement (see gaps) and s3import.go's doc comment."}
+  StartImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: CSV schema replaced -- the prior column set (hostname/fqdn/cpuCores/ramBytes/...) was fully invented with zero AWS provenance. Now uses AWS's own documented \"mgn:server:*\" namespaced parameters (MGN User Guide's Import parameters table: mgn:server:user-provided-id, mgn:server:fqdn-for-action-framework, mgn:server:tag:<key>), plus a same-convention extension onto the SDK's real IdentificationHints fields (hostname/fqdn/aws-instance-id/vmware-uuid/vmpath) for the identification requirement AWS's docs state in prose but don't formally tabulate. ModifiedCount is now real: a row whose mgn:server:user-provided-id matches an existing SourceServer updates it (documented AWS dedup behavior) instead of always creating a new one. 2026-09-11 (gopherstack-i6oz follow-up): added the real mgn:app:id/mgn:app:name/mgn:app:description/mgn:app:tag:<key> and mgn:wave:id/mgn:wave:name/mgn:wave:description/mgn:wave:tag:<key> columns (fetched import-parameters.html directly -- see s3import.go's doc comment) plus mgn:server:id, so a row now really creates/updates Applications and Waves (dedup by name, or explicit lookup-and-fail-the-row-if-missing by id, matching the doc's own 'Additional considerations' #3-6) and attaches them in the Wave -> Application -> SourceServer hierarchy. ImportTaskSummary.Applications/Waves -- always zero before this pass -- now carry real counts. mgn:launch:*/mgn:replication:*/mgn:account-id/mgn:region remain out of scope (see gaps); mgn:server:platform is a real column with no corresponding wire field on this SDK version's SourceServer/SourceProperties, so it is accepted and discarded, not stored."}
   ListImports: {wire: ok, errors: ok, state: ok, persist: ok}
   ListImportErrors: {wire: ok, errors: ok, state: ok, persist: ok}
   StartImportFileEnrichment: {wire: ok, errors: ok, state: partial, persist: ok, note: "PENDING->STARTED->SUCCEEDED bookkeeping only (exportimport.go:301-343) -- never reads or actually enriches the target S3 object with real network/segment metadata; no such discovery engine exists"}
@@ -240,14 +240,15 @@ families:
   waves: {status: ok, note: "8 ops, same real-CRUD + invented-aggregation-rollup pattern as applications."}
   connectors: {status: ok, note: "4 ops, real CRUD."}
   vcenter_clients: {status: ok, note: "2 ops: DescribeVcenterClients (the ONLY GET besides the tagging trio), DeleteVcenterClient -- both real. No CreateVcenterClient op exists in this SDK surface (see gaps); SeedVcenterClient is this package's own non-SDK, unrouted creation seam."}
-  export_import: {status: partial, note: "8 ops; StartExport/ListExports/ListExportErrors/ListImports/ListImportErrors/ListImportFileEnrichments are real. StartImport genuinely reads S3, uses AWS's own documented mgn:server:* CSV schema, and creates or updates real SourceServers with a real CreatedCount/ModifiedCount split (natural key: mgn:server:user-provided-id) as of 2026-08-06 -- see s3import.go's doc comment for the mgn:app:*/mgn:wave:*/mgn:launch:* columns still out of scope (gaps). StartImportFileEnrichment is PENDING->STARTED->SUCCEEDED bookkeeping only -- it never reads or actually enriches the target S3 object, since no network/segment discovery engine exists."}
+  export_import: {status: partial, note: "8 ops; StartExport/ListExports/ListExportErrors/ListImports/ListImportErrors/ListImportFileEnrichments are real. StartImport genuinely reads S3, uses AWS's own documented mgn:server:*/mgn:app:*/mgn:wave:* CSV schema, and creates or updates real SourceServers/Applications/Waves with real CreatedCount/ModifiedCount splits (natural keys: mgn:server:user-provided-id, mgn:app:name, mgn:wave:name, or an explicit mgn:*:id) as of 2026-09-11 -- see s3import.go's doc comment for the mgn:launch:*/mgn:replication:* columns still out of scope (gaps). StartImportFileEnrichment is PENDING->STARTED->SUCCEEDED bookkeeping only -- it never reads or actually enriches the target S3 object, since no network/segment discovery engine exists."}
   actions: {status: ok, note: "6 ops: PutSourceServerAction/ListSourceServerActions/RemoveSourceServerAction and the template-scoped PutTemplateAction/ListTemplateActions/RemoveTemplateAction -- real state-only bookkeeping (documents listed/ordered/active), matching real AWS's own API scope (SSM document execution happens at launch time, outside this API)."}
   service_init: {status: ok, note: "2 ops: InitializeService is real. ListManagedAccounts resolves real AWS Organizations member accounts as of 2026-08-06 when this account is the org's management account or a registered MGN delegated administrator, else returns just the caller's own account -- see its ops: entry."}
   tagging: {status: ok, note: "3 ops: TagResource/UntagResource/ListTagsForResource, the only ops sharing the /tags/{resourceArn} path and a distinct error set (AccessDenied/InternalServer/ResourceNotFound/Throttling/Validation) from every other op family in this service. Real ARN-keyed tag store."}
   network_migration_definitions: {status: partial, note: "13 ops under /network-migration/; CreateNetworkMigrationDefinition/Get/Update/Delete/List and ListNetworkMigrationMappings/ListNetworkMigrationMappingUpdates/StartNetworkMigrationMapping/StartNetworkMigrationMappingUpdate (9 ops) are real. The 4 mapper-segment ops (GetNetworkMigrationMapperSegmentConstruct, ListNetworkMigrationMapperSegmentConstructs, ListNetworkMigrationMapperSegments, UpdateNetworkMigrationMapperSegment) always return empty/404 -- no network-analysis engine ever produces a segment to report, a deliberate scope decision documented in 'Implementation summary' below (mapper segments left genuinely empty rather than given a second synthetic seeding seam)."}
   network_migration_analysis_deploy: {status: partial, note: "10 ops under /network-migration/; the 5 Start*/List*(non-Results/Segments/Stacks) ops (StartNetworkMigrationAnalysis, ListNetworkMigrationAnalyses, StartNetworkMigrationCodeGeneration, ListNetworkMigrationCodeGenerations, StartNetworkMigrationDeployment, ListNetworkMigrationDeployments, ListNetworkMigrationExecutions -- 7 ops) run a real PENDING->STARTED->SUCCEEDED job bookkeeping state machine with auto-vivified NetworkMigrationExecutionID (see gaps). ListNetworkMigrationAnalysisResults/ListNetworkMigrationCodeGenerationSegments/ListNetworkMigrationDeployedStacks (3 ops) always return an empty Items list -- no real analysis/codegen/deployment engine exists to produce content, honestly flagged rather than fabricated."}
 gaps:
-  - "StartImport's CSV schema (2026-08-06 fix, see StartImport's ops: entry) implements only the SourceServer-scoped subset of AWS's documented mgn:server:* parameters. AWS's MGN User Guide also documents mgn:app:*/mgn:wave:*/mgn:launch:* parameters for implicit Application/Wave creation and per-row LaunchConfiguration overrides during import -- real, doc-confirmed, and genuinely buildable (Applications/Waves already have real backends), but acting on the mgn:launch:* sub-fields (instance profile, per-NIC subnet/security-group/private-IP, placement, licensing, volume type) would require adding a dozen fields this backend's LaunchConfiguration type doesn't have at all -- a materially larger feature than the schema fix this pass scoped in. Left as an explicit, proportionate scope decision (s3import.go's doc comment), the same class of remaining gap other A-grade services in this repo carry (e.g. services/grafana/PARITY.md's DisassociateLicense limitation). (bd: gopherstack-xd34)"
+  - "StartImport's CSV schema (2026-09-11, see StartImport's ops: entry) now implements the SourceServer/Application/Wave-scoped subset of AWS's documented parameters (import-parameters.html). mgn:launch:*/mgn:replication:* (per-row LaunchConfiguration/ReplicationConfiguration overrides) remain out of scope: acting on them would require adding roughly two dozen fields (instance profile, per-NIC subnet/security-group/private-IP, placement, licensing, volume type, staging area routing/encryption/storage-type) this backend's LaunchConfiguration/ReplicationConfiguration types don't have at all -- a materially larger feature than a column-schema fix. mgn:account-id (delegated member-account import) and mgn:region (single-region backend, nothing to select) are also unimplemented -- neither has a cross-account/multi-region concept anywhere else in this backend to hook into. Left as an explicit, proportionate scope decision (s3import.go's doc comment), the same class of remaining gap other A-grade services in this repo carry (e.g. services/grafana/PARITY.md's DisassociateLicense limitation). (bd: gopherstack-i6oz)"
+  - "mgn:server:hostname/mgn:server:fqdn/mgn:server:aws-instance-id/mgn:server:vmware-uuid/mgn:server:vmpath (server identification columns, pre-dating this pass) are NOT in AWS's published Inventory Import parameters table (confirmed by this pass's own fetch of import-parameters.html: the table's only server identification columns are mgn:server:fqdn-for-action-framework, mgn:server:id, and mgn:server:user-provided-id) -- they remain this package's own best-effort extension of the mgn:server:* naming convention onto the SDK's real IdentificationHints fields, already disclosed as such in s3import.go's doc comment. Left unchanged this pass: ~20 existing test call sites (seedSourceServerViaImport and its callers, across sdk_roundtrip_test.go/sdk_roundtrip_nested_test.go/sourceserver_lifecycle_precondition_test.go/list_filter_params_test.go/and others) depend on this exact schema, and correcting it was out of this pass's scope (mgn:app:*/mgn:wave:* creation). A follow-up narrowing this schema to only the real published columns, updating every dependent test, would need its own pass."
 structural_gaps:
   - "No CreateSourceServer op exists anywhere in this SDK's 95 operations. In real AWS, a SourceServer record is created only by the MGN Replication Agent (installed on the actual on-prem/cloud source machine) calling an internal, non-public control-plane API to register itself -- that registration call is NOT part of this public SDK surface at all. StartImport's bulk CSV import is the ONLY public-API path that creates SourceServer records in this implementation (createSourceServerLocked, sourceservers.go), and is now wire-reachable with a real, doc-derived CSV schema (2026-08-06) -- there is no further public-API creation path to add."
   - "No CreateVcenterClient op exists either, for the same reason: VcenterClient records are created by the MGN vCenter connector appliance registering itself, not via any public API in this surface, and StartImport's schema has no VcenterClient-creating columns (real AWS's own ImportTaskSummary has no VcenterClients count field, confirming this). DescribeVcenterClients/DeleteVcenterClient are read/delete only; SeedVcenterClient (vcenterclients.go) remains this emulator's only way to get a VcenterClient into the backend at all -- there is no public-API path to replace it with."
@@ -1588,3 +1589,93 @@ on the new map field's struct tag -- long field/type name, not a suppressed
 bug), `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard`
 (additive-only field on `NetworkMigrationJob`, no version bump required;
 golden refreshed with `-update` and re-run clean).
+
+## 2026-09-11 pass (gopherstack-i6oz revisit): Application/Wave import, real mgn:*:id update
+
+Re-opened as `gopherstack-i6oz`, still `OPEN` in `bd` despite the original gap it names
+("no AWS-wire path creates a SourceServer") having already been fully closed by the
+2026-08-01 follow-up pass documented above (`SetS3Backend`/`wireMGNS3`, verified end to end)
+and the 2026-08-06 pass (`gopherstack-xd34`, closed) that replaced the invented CSV schema
+with AWS's real `mgn:server:*` columns. What that history left open, and what this pass
+closes: `mgn:app:*`/`mgn:wave:*` (implicit Application/Wave creation during import) and
+`mgn:server:id`/`mgn:app:id`/`mgn:wave:id` (explicit update-by-id) were real, doc-confirmed
+parameters carried in `gaps:` as an explicit, un-actioned scope decision. This pass
+implements them.
+
+### Doc fetch
+
+Direct fetch of `docs.aws.amazon.com/mgn/latest/ug/import-parameters.html` (the previous
+pass could only reach `import-main.html`'s prose, which links to this table but was itself
+JS-shelled to automated fetches at the time) returned the full "Inventory Import parameters"
+table plus its "Additional considerations" list — the actual identification/update rules a
+resource follows during import: an explicit `mgn:*:id` looks the resource up and fails that
+row if not found; otherwise the alternate identification (`mgn:app:name`/`mgn:wave:name`/
+`mgn:server:user-provided-id`) is looked up, updating a match or creating a new resource
+when none exists.
+
+### What changed
+
+- **`mgn:app:id`/`mgn:app:name`/`mgn:app:description`/`mgn:app:tag:<key>` and
+  `mgn:wave:id`/`mgn:wave:name`/`mgn:wave:description`/`mgn:wave:tag:<key>`** (`s3import.go`)
+  are now parsed and really create or update `Application`/`Wave` records
+  (`createApplicationLocked`/`createWaveLocked`, factored out of `CreateApplication`/
+  `CreateWave` so both the SDK op and the import path share one construction path — the
+  same pattern `createSourceServerLocked` already established), attached in the documented
+  Wave -> Application -> SourceServer hierarchy (a row naming both a wave and an application
+  sets `Application.WaveID`; a row naming both an application and a server sets
+  `SourceServer.ApplicationID`).
+- **`mgn:server:id`** added alongside the existing `mgn:server:user-provided-id` dedup key,
+  matching the doc's own two-tier lookup rule (explicit id first, alternate identification
+  second) — applied uniformly to server/application/wave resolution
+  (`resolveOrCreateServerLocked`/`resolveOrCreateApplicationLocked`/`resolveOrCreateWaveLocked`).
+- **`ImportTaskSummary.Applications`/`.Waves`** — always zero before this pass — now carry
+  real `CreatedCount`/`ModifiedCount`, summed across every row's independent
+  server/application/wave outcome (`processImportRowLocked`).
+- **`ImportErrorData.SourceServerID`/`.ApplicationID`/`.WaveID`** (real SDK fields, confirmed
+  against `deserializers.go`'s `awsRestjson1_deserializeDocumentImportErrorData`) were always
+  empty before this pass; now populated with the `mgn:*:id` value a row referenced when that
+  resource's explicit-id lookup fails (an id that names no existing resource), surfacing the
+  value that caused the problem — the same convention this package's own `notFoundError`
+  already uses for every other resource. Still empty for a whole-row parse failure (nothing
+  resolved yet to report an id for) and for `AccountID`/`Ec2LaunchTemplateID` (no
+  delegated-account import path, no per-server EC2 launch template modeled at import time).
+- **A resource property given without identifying that resource** (e.g. `mgn:wave:description`
+  on a row with no `mgn:wave:name`/`mgn:wave:id`) is silently dropped rather than failing the
+  row — AWS's own docs say a row "should" also identify any resource whose property it sets,
+  not that it must, and invalidating an otherwise-valid server/application/wave reference over
+  one orphaned property would be harsher than the doc's own wording supports.
+- **Not changed, and why**: `mgn:server:hostname`/`fqdn`/`aws-instance-id`/`vmware-uuid`/
+  `vmpath` (pre-existing, disclosed in `s3import.go`'s doc comment as this package's own
+  best-effort extension of the `mgn:server:*` naming convention) turn out NOT to be in AWS's
+  real published parameter table at all — confirmed by this pass's own fetch, the table's only
+  server identification columns being `mgn:server:fqdn-for-action-framework`,
+  `mgn:server:id`, and `mgn:server:user-provided-id`. Left unchanged this pass: ~20 existing
+  test call sites across this package (`seedSourceServerViaImport` and its callers) depend on
+  exactly this schema, and correcting it was a larger, separate scope than the Application/Wave
+  gap this pass targeted — recorded as its own `gaps:` entry rather than silently left
+  undisclosed. `mgn:launch:*`/`mgn:replication:*`/`mgn:account-id`/`mgn:region` remain
+  out of scope for the reasons already given in `gaps:`.
+- **VcenterClient**: unchanged, and not part of this issue's scope. No public creation op
+  exists anywhere in this 95-op surface, and real AWS's own `ImportTaskSummary` has no
+  `VcenterClients` count field either (already recorded in `structural_gaps:`, re-confirmed
+  this pass, not re-litigated).
+
+### Persistence
+
+No new `store.Table` needed — `Application`/`Wave`/`ImportTask` were already registered,
+persisted tables (`store_setup.go`, unchanged this pass). `ImportErrorData`'s 3 new fields
+are a purely additive change to an already-persisted nested type: `TestSnapshotVersionGuard`
+confirmed a same-version additive diff (not a version-bump case), golden refreshed with
+`-update`, `mgnSnapshotVersion` left at `1`.
+
+### Gate results (this pass)
+
+`go build ./...` clean. `go vet ./services/mgn/... .` clean. `go test -race -count=1
+./services/mgn/... ./pkgs/persistence/...` clean. `go test -count=1 -run 'MGN|Mgn' .`
+(new root-level `cli_mgn_s3_import_wiring_test.go`, proving `wireMGNS3` is connected through
+the real `initializeServices` composition root, not just the helper function) clean.
+`golangci-lint run ./services/mgn/...` and `golangci-lint run --new-from-rev=HEAD .` both 0
+issues. New tests: `services/mgn/s3import_app_wave_test.go` (Application/Wave creation +
+dedup-by-name, explicit-id update, explicit-id-not-found as a row error carrying the
+referenced id, orphaned-property silent drop) plus the existing `TestStartImport_CSVSchema`/
+`TestStartImport_ModifiedCount` suite, all passing unchanged.
