@@ -23,7 +23,7 @@ type getDatabaseInput struct {
 }
 
 type getDatabaseOutput struct {
-	Database *Database `json:"Database"`
+	Database *databaseWire `json:"Database"`
 }
 
 func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*getDatabaseOutput, error) {
@@ -32,7 +32,7 @@ func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*g
 		return nil, err
 	}
 
-	return &getDatabaseOutput{Database: db}, nil
+	return &getDatabaseOutput{Database: toDatabaseWire(db)}, nil
 }
 
 // maxGetDatabasesResults is the AWS-enforced upper bound for GetDatabases MaxResults.
@@ -44,8 +44,8 @@ type getDatabasesInput struct {
 }
 
 type getDatabasesOutput struct {
-	NextToken    string      `json:"NextToken,omitempty"`
-	DatabaseList []*Database `json:"DatabaseList"`
+	NextToken    string          `json:"NextToken,omitempty"`
+	DatabaseList []*databaseWire `json:"DatabaseList"`
 }
 
 func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (*getDatabasesOutput, error) {
@@ -62,7 +62,7 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 
 	page, next := paginateSlice(dbs, in.NextToken, limit)
 
-	return &getDatabasesOutput{DatabaseList: page, NextToken: next}, nil
+	return &getDatabasesOutput{DatabaseList: toDatabaseWireList(page), NextToken: next}, nil
 }
 
 type updateDatabaseInput struct {

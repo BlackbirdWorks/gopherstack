@@ -12,8 +12,8 @@ type batchGetWorkflowsInput struct {
 
 // batchGetWorkflowsOutput holds the result for BatchGetWorkflows.
 type batchGetWorkflowsOutput struct {
-	Workflows        []*Workflow `json:"Workflows"`
-	MissingWorkflows []string    `json:"MissingWorkflows"`
+	Workflows        []*workflowWire `json:"Workflows"`
+	MissingWorkflows []string        `json:"MissingWorkflows"`
 }
 
 func (h *Handler) handleBatchGetWorkflows(
@@ -22,7 +22,7 @@ func (h *Handler) handleBatchGetWorkflows(
 ) (*batchGetWorkflowsOutput, error) {
 	found, missing := h.Backend.BatchGetWorkflows(in.Names, in.IncludeGraph)
 
-	return &batchGetWorkflowsOutput{Workflows: found, MissingWorkflows: missing}, nil
+	return &batchGetWorkflowsOutput{Workflows: toWorkflowWireList(found), MissingWorkflows: missing}, nil
 }
 
 // createWorkflowInput holds input for CreateWorkflow.
@@ -87,7 +87,7 @@ type getWorkflowInput struct {
 
 // getWorkflowOutput holds the result for GetWorkflow.
 type getWorkflowOutput struct {
-	Workflow *Workflow `json:"Workflow"`
+	Workflow *workflowWire `json:"Workflow"`
 }
 
 func (h *Handler) handleGetWorkflow(
@@ -99,7 +99,7 @@ func (h *Handler) handleGetWorkflow(
 		return nil, err
 	}
 
-	return &getWorkflowOutput{Workflow: w}, nil
+	return &getWorkflowOutput{Workflow: toWorkflowWire(w)}, nil
 }
 
 // getWorkflowRunInput holds input for GetWorkflowRun.

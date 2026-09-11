@@ -69,7 +69,7 @@ type getConnectionInput struct {
 }
 
 type getConnectionOutput struct {
-	Connection *Connection `json:"Connection"`
+	Connection *connectionWire `json:"Connection"`
 }
 
 func (h *Handler) handleGetConnection(
@@ -81,7 +81,7 @@ func (h *Handler) handleGetConnection(
 		return nil, err
 	}
 
-	return &getConnectionOutput{Connection: c}, nil
+	return &getConnectionOutput{Connection: toConnectionWire(c)}, nil
 }
 
 // defaultGetConnectionsLimit is used when GetConnectionsInput.MaxResults is unset.
@@ -112,8 +112,8 @@ type getConnectionsInput struct {
 }
 
 type getConnectionsOutput struct {
-	NextToken      string        `json:"NextToken,omitempty"`
-	ConnectionList []*Connection `json:"ConnectionList"`
+	NextToken      string            `json:"NextToken,omitempty"`
+	ConnectionList []*connectionWire `json:"ConnectionList"`
 }
 
 func (h *Handler) handleGetConnections(
@@ -160,7 +160,7 @@ func (h *Handler) handleGetConnections(
 		}
 	}
 
-	return &getConnectionsOutput{ConnectionList: page, NextToken: next}, nil
+	return &getConnectionsOutput{ConnectionList: toConnectionWireList(page), NextToken: next}, nil
 }
 
 // matchesAllCriteria reports whether every entry in want is present in have,

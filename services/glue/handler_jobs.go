@@ -57,7 +57,7 @@ type getJobInput struct {
 }
 
 type getJobOutput struct {
-	Job *Job `json:"Job"`
+	Job *jobWire `json:"Job"`
 }
 
 func (h *Handler) handleGetJob(_ context.Context, in *getJobInput) (*getJobOutput, error) {
@@ -66,7 +66,7 @@ func (h *Handler) handleGetJob(_ context.Context, in *getJobInput) (*getJobOutpu
 		return nil, err
 	}
 
-	return &getJobOutput{Job: j}, nil
+	return &getJobOutput{Job: toJobWire(j)}, nil
 }
 
 // defaultGetJobsLimit is used when GetJobsInput.MaxResults is unset.
@@ -78,8 +78,8 @@ type getJobsInput struct {
 }
 
 type getJobsOutput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Jobs      []*Job `json:"Jobs"`
+	NextToken string     `json:"NextToken,omitempty"`
+	Jobs      []*jobWire `json:"Jobs"`
 }
 
 func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOutput, error) {
@@ -92,7 +92,7 @@ func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOu
 
 	page, next := paginateSlice(jobs, in.NextToken, limit)
 
-	return &getJobsOutput{Jobs: page, NextToken: next}, nil
+	return &getJobsOutput{Jobs: toJobWireList(page), NextToken: next}, nil
 }
 
 // jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
@@ -286,8 +286,8 @@ type batchGetJobsInput struct {
 
 // batchGetJobsOutput holds the result for BatchGetJobs.
 type batchGetJobsOutput struct {
-	Jobs         []*Job   `json:"Jobs"`
-	JobsNotFound []string `json:"JobsNotFound"`
+	Jobs         []*jobWire `json:"Jobs"`
+	JobsNotFound []string   `json:"JobsNotFound"`
 }
 
 func (h *Handler) handleBatchGetJobs(
@@ -306,7 +306,7 @@ func (h *Handler) handleBatchGetJobs(
 		}
 	}
 
-	return &batchGetJobsOutput{Jobs: found, JobsNotFound: missing}, nil
+	return &batchGetJobsOutput{Jobs: toJobWireList(found), JobsNotFound: missing}, nil
 }
 
 // defaultListJobsLimit is used when ListJobsInput.MaxResults is unset.

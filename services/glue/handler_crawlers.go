@@ -48,7 +48,7 @@ type getCrawlerInput struct {
 }
 
 type getCrawlerOutput struct {
-	Crawler *Crawler `json:"Crawler"`
+	Crawler *crawlerWire `json:"Crawler"`
 }
 
 func (h *Handler) handleGetCrawler(_ context.Context, in *getCrawlerInput) (*getCrawlerOutput, error) {
@@ -57,7 +57,7 @@ func (h *Handler) handleGetCrawler(_ context.Context, in *getCrawlerInput) (*get
 		return nil, err
 	}
 
-	return &getCrawlerOutput{Crawler: c}, nil
+	return &getCrawlerOutput{Crawler: toCrawlerWire(c)}, nil
 }
 
 // defaultGetCrawlersLimit is used when GetCrawlersInput.MaxResults is unset.
@@ -69,8 +69,8 @@ type getCrawlersInput struct {
 }
 
 type getCrawlersOutput struct {
-	NextToken string     `json:"NextToken,omitempty"`
-	Crawlers  []*Crawler `json:"Crawlers"`
+	NextToken string         `json:"NextToken,omitempty"`
+	Crawlers  []*crawlerWire `json:"Crawlers"`
 }
 
 func (h *Handler) handleGetCrawlers(_ context.Context, in *getCrawlersInput) (*getCrawlersOutput, error) {
@@ -83,7 +83,7 @@ func (h *Handler) handleGetCrawlers(_ context.Context, in *getCrawlersInput) (*g
 
 	page, next := paginateSlice(crawlers, in.NextToken, limit)
 
-	return &getCrawlersOutput{Crawlers: page, NextToken: next}, nil
+	return &getCrawlersOutput{Crawlers: toCrawlerWireList(page), NextToken: next}, nil
 }
 
 type updateCrawlerInput struct {
@@ -140,8 +140,8 @@ type batchGetCrawlersInput struct {
 }
 
 type batchGetCrawlersOutput struct {
-	Crawlers         []*Crawler `json:"Crawlers"`
-	CrawlersNotFound []string   `json:"CrawlersNotFound"`
+	Crawlers         []*crawlerWire `json:"Crawlers"`
+	CrawlersNotFound []string       `json:"CrawlersNotFound"`
 }
 
 func (h *Handler) handleBatchGetCrawlers(
@@ -150,7 +150,7 @@ func (h *Handler) handleBatchGetCrawlers(
 ) (*batchGetCrawlersOutput, error) {
 	found, missing := h.Backend.BatchGetCrawlers(in.CrawlerNames)
 
-	return &batchGetCrawlersOutput{Crawlers: found, CrawlersNotFound: missing}, nil
+	return &batchGetCrawlersOutput{Crawlers: toCrawlerWireList(found), CrawlersNotFound: missing}, nil
 }
 
 // defaultListCrawlersLimit is used when ListCrawlersInput.MaxResults is unset.
