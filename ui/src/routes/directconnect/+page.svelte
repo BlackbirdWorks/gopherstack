@@ -23,10 +23,18 @@
 		CreateInterconnectCommand,
 		DeleteInterconnectCommand,
 		DescribeInterconnectLoaCommand,
+		AllocateConnectionOnInterconnectCommand,
+		AllocateHostedConnectionCommand,
+		AssociateHostedConnectionCommand,
+		DescribeHostedConnectionsCommand,
+		DescribeConnectionsOnInterconnectCommand,
 		DescribeVirtualInterfacesCommand,
 		CreatePrivateVirtualInterfaceCommand,
 		CreatePublicVirtualInterfaceCommand,
 		CreateTransitVirtualInterfaceCommand,
+		AllocatePrivateVirtualInterfaceCommand,
+		AllocatePublicVirtualInterfaceCommand,
+		AllocateTransitVirtualInterfaceCommand,
 		UpdateVirtualInterfaceAttributesCommand,
 		DeleteVirtualInterfaceCommand,
 		CreateBGPPeerCommand,
@@ -190,6 +198,7 @@
 
 	type TabId =
 		| 'connections'
+		| 'hostedConnections'
 		| 'lags'
 		| 'interconnects'
 		| 'virtualInterfaces'
@@ -203,6 +212,7 @@
 
 	const tabs: TabDef[] = [
 		{ id: 'connections', label: 'Connections' },
+		{ id: 'hostedConnections', label: 'Hosted Connections' },
 		{ id: 'lags', label: 'LAGs' },
 		{ id: 'interconnects', label: 'Interconnects' },
 		{ id: 'virtualInterfaces', label: 'Virtual Interfaces' },
@@ -380,6 +390,10 @@
 
 	const tabLoader = createTabLoader<TabId>({
 		connections: () => fetchConnections(true).catch(rethrowDescribed),
+		// Both DescribeHostedConnections and DescribeConnectionsOnInterconnect
+		// require a caller-supplied connectionId/interconnectId -- nothing to
+		// auto-load on tab switch, the lists below load on demand.
+		hostedConnections: () => Promise.resolve(),
 		lags: () => fetchLags(true).catch(rethrowDescribed),
 		interconnects: () => fetchInterconnects(true).catch(rethrowDescribed),
 		virtualInterfaces: () => fetchVifs(true).catch(rethrowDescribed),
@@ -1276,6 +1290,225 @@
 		}
 	}
 
+	// ========================= Hosted Connections ==============================
+	// Partner/reseller flow: allocating sub-resources to a different
+	// OwnerAccount. DescribeConnectionsOnInterconnect's Input has no
+	// nextToken field on the wire even though its Output carries one
+	// (PARITY.md wire-trap) -- always a single full page for that op.
+
+	let hostedConnQueryId = $state('');
+	let hostedConnections = $state<Connection[]>([]);
+	let hostedConnectionsNextToken = $state<string | undefined>();
+	let loadingHostedConnections = $state(false);
+	let loadingMoreHostedConnections = $state(false);
+	let hostedConnectionsError = $state<string | null>(null);
+
+	async function loadHostedConnections(reset: boolean): Promise<void> {
+		if (!hostedConnQueryId.trim()) return;
+		if (reset) {
+			loadingHostedConnections = true;
+			hostedConnectionsError = null;
+		} else {
+			loadingMoreHostedConnections = true;
+		}
+		try {
+			const resp = await client().send(
+				new DescribeHostedConnectionsCommand({
+					connectionId: hostedConnQueryId.trim(),
+					nextToken: reset ? undefined : hostedConnectionsNextToken
+				})
+			);
+			hostedConnections = reset
+				? (resp.connections ?? [])
+				: [...hostedConnections, ...(resp.connections ?? [])];
+			hostedConnectionsNextToken = resp.nextToken;
+		} catch (e) {
+			if (reset) {
+				hostedConnectionsError = describeError(e);
+			} else {
+				toast.error(describeError(e));
+			}
+		} finally {
+			loadingHostedConnections = false;
+			loadingMoreHostedConnections = false;
+		}
+	}
+
+	let interconnectConnQueryId = $state('');
+	let connectionsOnInterconnect = $state<Connection[]>([]);
+	let loadingConnectionsOnInterconnect = $state(false);
+	let connectionsOnInterconnectError = $state<string | null>(null);
+
+	const filteredHostedConnections = $derived(
+		hostedConnections.filter((c) => {
+			const q = searchQuery.toLowerCase();
+			return (
+				(c.connectionId ?? '').toLowerCase().includes(q) ||
+				(c.connectionName ?? '').toLowerCase().includes(q) ||
+				(c.connectionState ?? '').toLowerCase().includes(q) ||
+				(c.location ?? '').toLowerCase().includes(q)
+			);
+		})
+	);
+	const filteredConnectionsOnInterconnect = $derived(
+		connectionsOnInterconnect.filter((c) => {
+			const q = searchQuery.toLowerCase();
+			return (
+				(c.connectionId ?? '').toLowerCase().includes(q) ||
+				(c.connectionName ?? '').toLowerCase().includes(q) ||
+				(c.connectionState ?? '').toLowerCase().includes(q) ||
+				(c.location ?? '').toLowerCase().includes(q)
+			);
+		})
+	);
+
+	async function loadConnectionsOnInterconnect(): Promise<void> {
+		if (!interconnectConnQueryId.trim()) return;
+		loadingConnectionsOnInterconnect = true;
+		connectionsOnInterconnectError = null;
+		try {
+			const resp = await client().send(
+				new DescribeConnectionsOnInterconnectCommand({
+					interconnectId: interconnectConnQueryId.trim()
+				})
+			);
+			connectionsOnInterconnect = resp.connections ?? [];
+		} catch (e) {
+			connectionsOnInterconnectError = describeError(e);
+		} finally {
+			loadingConnectionsOnInterconnect = false;
+		}
+	}
+
+	let allocateOnInterconnectModal = $state<Modal | null>(null);
+	let allocatingOnInterconnect = $state(false);
+	let allocateOnInterconnectError = $state<string | null>(null);
+	let allocIcInterconnectId = $state('');
+	let allocIcOwnerAccount = $state('');
+	let allocIcConnName = $state('');
+	let allocIcBandwidth = $state('1Gbps');
+	let allocIcVlan = $state(100);
+
+	function openAllocateOnInterconnectModal(): void {
+		allocateOnInterconnectError = null;
+		allocIcInterconnectId = '';
+		allocIcOwnerAccount = '';
+		allocIcConnName = '';
+		allocIcBandwidth = '1Gbps';
+		allocIcVlan = 100;
+		allocateOnInterconnectModal?.open();
+	}
+
+	async function submitAllocateOnInterconnect(): Promise<void> {
+		if (!allocIcInterconnectId.trim() || !allocIcOwnerAccount.trim() || !allocIcConnName.trim()) {
+			allocateOnInterconnectError =
+				'Interconnect ID, owner account, and connection name are required.';
+			return;
+		}
+		allocatingOnInterconnect = true;
+		allocateOnInterconnectError = null;
+		try {
+			await client().send(
+				new AllocateConnectionOnInterconnectCommand({
+					interconnectId: allocIcInterconnectId.trim(),
+					ownerAccount: allocIcOwnerAccount.trim(),
+					connectionName: allocIcConnName.trim(),
+					bandwidth: allocIcBandwidth.trim(),
+					vlan: allocIcVlan
+				})
+			);
+			toast.success('Connection allocated on interconnect');
+			allocateOnInterconnectModal?.close();
+			// Allocating ON AN INTERCONNECT sets InterconnectID, not
+			// ParentConnectionID/LagID -- it shows up under
+			// DescribeConnectionsOnInterconnect, not DescribeHostedConnections.
+			interconnectConnQueryId = allocIcInterconnectId.trim();
+			await loadConnectionsOnInterconnect();
+		} catch (e) {
+			const msg = describeError(e);
+			allocateOnInterconnectError = msg;
+			toast.error(msg);
+		} finally {
+			allocatingOnInterconnect = false;
+		}
+	}
+
+	let allocateHostedConnModal = $state<Modal | null>(null);
+	let allocatingHostedConn = $state(false);
+	let allocateHostedConnError = $state<string | null>(null);
+	let allocHcParentId = $state('');
+	let allocHcOwnerAccount = $state('');
+	let allocHcConnName = $state('');
+	let allocHcBandwidth = $state('1Gbps');
+	let allocHcVlan = $state(100);
+
+	function openAllocateHostedConnModal(): void {
+		allocateHostedConnError = null;
+		allocHcParentId = '';
+		allocHcOwnerAccount = '';
+		allocHcConnName = '';
+		allocHcBandwidth = '1Gbps';
+		allocHcVlan = 100;
+		allocateHostedConnModal?.open();
+	}
+
+	async function submitAllocateHostedConn(): Promise<void> {
+		if (!allocHcParentId.trim() || !allocHcOwnerAccount.trim() || !allocHcConnName.trim()) {
+			allocateHostedConnError = 'Interconnect/LAG ID, owner account, and connection name are required.';
+			return;
+		}
+		allocatingHostedConn = true;
+		allocateHostedConnError = null;
+		try {
+			await client().send(
+				new AllocateHostedConnectionCommand({
+					connectionId: allocHcParentId.trim(),
+					ownerAccount: allocHcOwnerAccount.trim(),
+					connectionName: allocHcConnName.trim(),
+					bandwidth: allocHcBandwidth.trim(),
+					vlan: allocHcVlan
+				})
+			);
+			toast.success('Hosted connection allocated');
+			allocateHostedConnModal?.close();
+			hostedConnQueryId = allocHcParentId.trim();
+			await loadHostedConnections(true);
+		} catch (e) {
+			const msg = describeError(e);
+			allocateHostedConnError = msg;
+			toast.error(msg);
+		} finally {
+			allocatingHostedConn = false;
+		}
+	}
+
+	let associateHostedConnId = $state('');
+	let associateHostedConnParentId = $state('');
+	let associatingHostedConn = $state(false);
+
+	async function submitAssociateHostedConnection(): Promise<void> {
+		if (!associateHostedConnId.trim() || !associateHostedConnParentId.trim()) return;
+		associatingHostedConn = true;
+		try {
+			await client().send(
+				new AssociateHostedConnectionCommand({
+					connectionId: associateHostedConnId.trim(),
+					parentConnectionId: associateHostedConnParentId.trim()
+				})
+			);
+			toast.success('Hosted connection associated');
+			associateHostedConnId = '';
+			associateHostedConnParentId = '';
+			if (hostedConnQueryId.trim()) {
+				await loadHostedConnections(true);
+			}
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			associatingHostedConn = false;
+		}
+	}
+
 	// ========================= Virtual Interfaces =============================
 
 	let createVifModal = $state<Modal | null>(null);
@@ -1401,6 +1634,125 @@
 			toast.error(msg);
 		} finally {
 			creatingVif = false;
+		}
+	}
+
+	// Partner/reseller counterpart of the Create*VirtualInterface flow above:
+	// same three virtual-interface types, but provisioned onto a different
+	// OwnerAccount via Allocate*VirtualInterface.
+
+	let allocateVifModal = $state<Modal | null>(null);
+	let allocatingVif = $state(false);
+	let allocateVifError = $state<string | null>(null);
+	let allocVifType = $state<'private' | 'public' | 'transit'>('private');
+	let allocVifConnectionId = $state('');
+	let allocVifOwnerAccount = $state('');
+	let allocVifName = $state('');
+	let allocVifVlan = $state(100);
+	let allocVifAsn = $state<number | ''>('');
+	let allocVifAddressFamily = $state<'' | 'ipv4' | 'ipv6'>('');
+	let allocVifAmazonAddress = $state('');
+	let allocVifCustomerAddress = $state('');
+	let allocVifAuthKey = $state('');
+	let allocVifMtu = $state(1500);
+	let allocVifRouteFilterPrefixes = $state('');
+
+	function openAllocateVifModal(): void {
+		allocateVifError = null;
+		allocVifType = 'private';
+		allocVifConnectionId = '';
+		allocVifOwnerAccount = '';
+		allocVifName = '';
+		allocVifVlan = 100;
+		allocVifAsn = '';
+		allocVifAddressFamily = '';
+		allocVifAmazonAddress = '';
+		allocVifCustomerAddress = '';
+		allocVifAuthKey = '';
+		allocVifMtu = 1500;
+		allocVifRouteFilterPrefixes = '';
+		allocateVifModal?.open();
+	}
+
+	function buildAllocCommonVifFields() {
+		return {
+			virtualInterfaceName: allocVifName.trim(),
+			vlan: allocVifVlan,
+			asn: allocVifAsn === '' ? undefined : Number(allocVifAsn),
+			addressFamily: allocVifAddressFamily || undefined,
+			amazonAddress: allocVifAmazonAddress.trim() || undefined,
+			customerAddress: allocVifCustomerAddress.trim() || undefined,
+			authKey: allocVifAuthKey.trim() || undefined
+		};
+	}
+
+	// Unlike Create*VirtualInterface, none of the three New*VirtualInterfaceAllocation
+	// wire shapes carry a directConnectGatewayId/virtualGatewayId or enableSiteLink
+	// field -- the gateway is attached later, by the account that OWNS the
+	// allocated VIF, via Confirm*VirtualInterface.
+	async function allocatePrivateVif(): Promise<void> {
+		await client().send(
+			new AllocatePrivateVirtualInterfaceCommand({
+				connectionId: allocVifConnectionId.trim(),
+				ownerAccount: allocVifOwnerAccount.trim(),
+				newPrivateVirtualInterfaceAllocation: {
+					...buildAllocCommonVifFields(),
+					mtu: allocVifMtu
+				}
+			})
+		);
+	}
+
+	async function allocatePublicVif(): Promise<void> {
+		await client().send(
+			new AllocatePublicVirtualInterfaceCommand({
+				connectionId: allocVifConnectionId.trim(),
+				ownerAccount: allocVifOwnerAccount.trim(),
+				newPublicVirtualInterfaceAllocation: {
+					...buildAllocCommonVifFields(),
+					routeFilterPrefixes: parseCidrList(allocVifRouteFilterPrefixes)
+				}
+			})
+		);
+	}
+
+	async function allocateTransitVif(): Promise<void> {
+		await client().send(
+			new AllocateTransitVirtualInterfaceCommand({
+				connectionId: allocVifConnectionId.trim(),
+				ownerAccount: allocVifOwnerAccount.trim(),
+				newTransitVirtualInterfaceAllocation: {
+					...buildAllocCommonVifFields(),
+					mtu: allocVifMtu
+				}
+			})
+		);
+	}
+
+	async function submitAllocateVif(): Promise<void> {
+		if (!allocVifConnectionId.trim() || !allocVifOwnerAccount.trim() || !allocVifName.trim()) {
+			allocateVifError = 'Connection ID, owner account, and virtual interface name are required.';
+			return;
+		}
+		allocatingVif = true;
+		allocateVifError = null;
+		try {
+			if (allocVifType === 'private') {
+				await allocatePrivateVif();
+			} else if (allocVifType === 'public') {
+				await allocatePublicVif();
+			} else {
+				await allocateTransitVif();
+			}
+			toast.success('Virtual interface allocated to account');
+			allocateVifModal?.close();
+			await tabLoader.refresh('virtualInterfaces');
+		} catch (e) {
+			const msg = describeError(e);
+			allocateVifError = msg;
+			toast.error(msg);
+		} finally {
+			allocatingVif = false;
 		}
 	}
 
@@ -2132,6 +2484,19 @@
 				>
 					<Plus class="w-4 h-4" /> Create Connection
 				</button>
+			{:else if activeTab === 'hostedConnections'}
+				<button
+					onclick={openAllocateOnInterconnectModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Allocate on Interconnect
+				</button>
+				<button
+					onclick={openAllocateHostedConnModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Allocate Hosted Connection
+				</button>
 			{:else if activeTab === 'lags'}
 				<button
 					onclick={openCreateLagModal}
@@ -2152,6 +2517,12 @@
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
 				>
 					<Plus class="w-4 h-4" /> Create Virtual Interface
+				</button>
+				<button
+					onclick={openAllocateVifModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Allocate VIF to Account
 				</button>
 			{:else if activeTab === 'gateways'}
 				<button
@@ -2187,7 +2558,16 @@
 		</div>
 
 		<div class="p-4 space-y-4">
-			{#if activeTab === 'interconnects'}
+			{#if activeTab === 'hostedConnections'}
+				<div
+					role="note"
+					class="text-xs rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-amber-800 dark:text-amber-300"
+				>
+					Partner/reseller flow: allocates connections and virtual interfaces onto a different
+					OwnerAccount. DescribeConnectionsOnInterconnect has no nextToken on its input even
+					though its output carries one -- it always returns a single full page.
+				</div>
+			{:else if activeTab === 'interconnects'}
 				<div
 					role="note"
 					class="text-xs rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-amber-800 dark:text-amber-300"
@@ -2281,6 +2661,119 @@
 					loading={loadingMoreConnections}
 					onLoadMore={loadMoreConnections}
 				/>
+			{:else if activeTab === 'hostedConnections'}
+				{#snippet hostedConnStateCell(c: Connection)}
+					<span class="text-xs px-2 py-1 rounded-full {stateBadgeClass(c.connectionState)}"
+						>{c.connectionState ?? '—'}</span
+					>
+				{/snippet}
+				{#snippet hostedConnActionsCell(c: Connection)}
+					<button
+						onclick={() => openConnectionDetail(c)}
+						title="View"
+						aria-label="View connection {c.connectionName}"
+						class="text-gray-400 hover:text-sky-500"><Eye class="w-4 h-4" /></button
+					>
+				{/snippet}
+				{@const hostedConnColumns = defineColumns<Connection>([
+					{ key: 'connectionId', label: 'ID' },
+					{ key: 'connectionName', label: 'Name' },
+					{ key: 'connectionState', label: 'State', render: hostedConnStateCell },
+					{ key: 'bandwidth', label: 'Bandwidth' },
+					{ key: 'ownerAccount', label: 'Owner Account' },
+					{ key: 'actions', label: '', render: hostedConnActionsCell }
+				])}
+
+				<div class="space-y-4">
+					<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+						<h3 class="text-sm font-semibold">Hosted connections on an interconnect or LAG</h3>
+						<div class="flex items-center gap-2">
+							<label class="sr-only" for="hosted-conn-query-id">Interconnect or LAG ID</label>
+							<input
+								id="hosted-conn-query-id"
+								bind:value={hostedConnQueryId}
+								placeholder="Interconnect or LAG ID"
+								class="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<button
+								onclick={() => loadHostedConnections(true)}
+								disabled={loadingHostedConnections}
+								class="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm disabled:opacity-50"
+								>{loadingHostedConnections ? 'Loading...' : 'Load'}</button
+							>
+						</div>
+						{#if hostedConnectionsError}
+							<p class="text-sm text-red-600 dark:text-red-400">{hostedConnectionsError}</p>
+						{/if}
+						<DataTable
+							rows={filteredHostedConnections}
+							rowKey={(c) => c.connectionId ?? ''}
+							columns={hostedConnColumns}
+							loading={loadingHostedConnections}
+							emptyMessage="No hosted connections loaded -- enter an interconnect or LAG ID and Load"
+						/>
+						<LoadMore
+							hasMore={!!hostedConnectionsNextToken}
+							loading={loadingMoreHostedConnections}
+							onLoadMore={() => loadHostedConnections(false)}
+						/>
+					</div>
+
+					<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+						<h3 class="text-sm font-semibold">Associate hosted connection</h3>
+						<div class="flex items-center gap-2 flex-wrap">
+							<label class="sr-only" for="assoc-hc-conn-id">Hosted connection ID</label>
+							<input
+								id="assoc-hc-conn-id"
+								bind:value={associateHostedConnId}
+								placeholder="Hosted connection ID"
+								class="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700"
+							/>
+							<label class="sr-only" for="assoc-hc-parent-id">New interconnect or LAG ID</label>
+							<input
+								id="assoc-hc-parent-id"
+								bind:value={associateHostedConnParentId}
+								placeholder="New interconnect or LAG ID"
+								class="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700"
+							/>
+							<button
+								onclick={submitAssociateHostedConnection}
+								disabled={associatingHostedConn}
+								class="text-xs px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+								>Associate</button
+							>
+						</div>
+					</div>
+
+					<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+						<h3 class="text-sm font-semibold">Connections on an interconnect</h3>
+						<div class="flex items-center gap-2">
+							<label class="sr-only" for="ic-conn-query-id">Interconnect ID</label>
+							<input
+								id="ic-conn-query-id"
+								bind:value={interconnectConnQueryId}
+								placeholder="Interconnect ID"
+								class="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<button
+								onclick={loadConnectionsOnInterconnect}
+								disabled={loadingConnectionsOnInterconnect}
+								class="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm disabled:opacity-50"
+								>{loadingConnectionsOnInterconnect ? 'Loading...' : 'Load'}</button
+							>
+						</div>
+						{#if connectionsOnInterconnectError}
+							<p class="text-sm text-red-600 dark:text-red-400">{connectionsOnInterconnectError}</p>
+						{/if}
+						<DataTable
+							rows={filteredConnectionsOnInterconnect}
+							rowKey={(c) => c.connectionId ?? ''}
+							columns={hostedConnColumns}
+							loading={loadingConnectionsOnInterconnect}
+							emptyMessage="No connections loaded -- enter an interconnect ID and Load"
+						/>
+					</div>
+				</div>
 			{:else if activeTab === 'lags'}
 				{#snippet lagStateCell(l: Lag)}
 					<span class="text-xs px-2 py-1 rounded-full {stateBadgeClass(l.lagState)}"
@@ -2997,6 +3490,164 @@
 	{/snippet}
 </Modal>
 
+<!-- ========================= Hosted Connections ============================= -->
+
+<Modal bind:this={allocateOnInterconnectModal} title="Allocate Connection on Interconnect">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="alloc-ic-interconnect-id" class="text-sm text-slate-600 dark:text-slate-300"
+					>Interconnect ID</label
+				>
+				<input
+					id="alloc-ic-interconnect-id"
+					bind:value={allocIcInterconnectId}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-ic-owner" class="text-sm text-slate-600 dark:text-slate-300"
+					>Owner Account</label
+				>
+				<input
+					id="alloc-ic-owner"
+					bind:value={allocIcOwnerAccount}
+					placeholder="e.g. 222222222222"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-ic-name" class="text-sm text-slate-600 dark:text-slate-300"
+					>Connection Name</label
+				>
+				<input
+					id="alloc-ic-name"
+					bind:value={allocIcConnName}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for="alloc-ic-bandwidth" class="text-sm text-slate-600 dark:text-slate-300"
+						>Bandwidth</label
+					>
+					<input
+						id="alloc-ic-bandwidth"
+						bind:value={allocIcBandwidth}
+						placeholder="e.g. 1Gbps"
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for="alloc-ic-vlan" class="text-sm text-slate-600 dark:text-slate-300">VLAN</label>
+					<input
+						id="alloc-ic-vlan"
+						type="number"
+						bind:value={allocIcVlan}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+			</div>
+			{#if allocateOnInterconnectError}
+				<p class="text-sm text-red-600 dark:text-red-400">{allocateOnInterconnectError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => allocateOnInterconnectModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitAllocateOnInterconnect}
+			disabled={allocatingOnInterconnect}
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+			>{allocatingOnInterconnect ? 'Allocating...' : 'Allocate'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={allocateHostedConnModal} title="Allocate Hosted Connection">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="alloc-hc-parent-id" class="text-sm text-slate-600 dark:text-slate-300"
+					>Interconnect or LAG ID</label
+				>
+				<input
+					id="alloc-hc-parent-id"
+					bind:value={allocHcParentId}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-hc-owner" class="text-sm text-slate-600 dark:text-slate-300"
+					>Owner Account</label
+				>
+				<input
+					id="alloc-hc-owner"
+					bind:value={allocHcOwnerAccount}
+					placeholder="e.g. 222222222222"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-hc-name" class="text-sm text-slate-600 dark:text-slate-300"
+					>Connection Name</label
+				>
+				<input
+					id="alloc-hc-name"
+					bind:value={allocHcConnName}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for="alloc-hc-bandwidth" class="text-sm text-slate-600 dark:text-slate-300"
+						>Bandwidth</label
+					>
+					<input
+						id="alloc-hc-bandwidth"
+						bind:value={allocHcBandwidth}
+						placeholder="e.g. 1Gbps"
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for="alloc-hc-vlan" class="text-sm text-slate-600 dark:text-slate-300">VLAN</label>
+					<input
+						id="alloc-hc-vlan"
+						type="number"
+						bind:value={allocHcVlan}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+			</div>
+			{#if allocateHostedConnError}
+				<p class="text-sm text-red-600 dark:text-red-400">{allocateHostedConnError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => allocateHostedConnModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitAllocateHostedConn}
+			disabled={allocatingHostedConn}
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+			>{allocatingHostedConn ? 'Allocating...' : 'Allocate'}</button
+		>
+	{/snippet}
+</Modal>
+
 <!-- =================================== LAGs ================================ -->
 
 <Modal bind:this={createLagModal} title="Create LAG">
@@ -3607,6 +4258,167 @@
 			disabled={creatingVif}
 			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
 			>{creatingVif ? 'Creating...' : 'Create'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={allocateVifModal} title="Allocate Virtual Interface to Account">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="alloc-vif-type" class="text-sm text-slate-600 dark:text-slate-300">Type</label>
+				<select
+					id="alloc-vif-type"
+					bind:value={allocVifType}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				>
+					<option value="private">Private</option>
+					<option value="public">Public</option>
+					<option value="transit">Transit</option>
+				</select>
+			</div>
+			<div>
+				<label for="alloc-vif-connid" class="text-sm text-slate-600 dark:text-slate-300"
+					>Connection ID</label
+				>
+				<input
+					id="alloc-vif-connid"
+					bind:value={allocVifConnectionId}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-vif-owner" class="text-sm text-slate-600 dark:text-slate-300"
+					>Owner Account</label
+				>
+				<input
+					id="alloc-vif-owner"
+					bind:value={allocVifOwnerAccount}
+					placeholder="e.g. 222222222222"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="alloc-vif-name" class="text-sm text-slate-600 dark:text-slate-300">Name</label>
+				<input
+					id="alloc-vif-name"
+					bind:value={allocVifName}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for="alloc-vif-vlan" class="text-sm text-slate-600 dark:text-slate-300">VLAN</label>
+					<input
+						id="alloc-vif-vlan"
+						type="number"
+						bind:value={allocVifVlan}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for="alloc-vif-asn" class="text-sm text-slate-600 dark:text-slate-300"
+						>ASN (optional)</label
+					>
+					<input
+						id="alloc-vif-asn"
+						type="number"
+						bind:value={allocVifAsn}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+			</div>
+			<div>
+				<label for="alloc-vif-addrfam" class="text-sm text-slate-600 dark:text-slate-300"
+					>Address Family (optional)</label
+				>
+				<select
+					id="alloc-vif-addrfam"
+					bind:value={allocVifAddressFamily}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				>
+					<option value="">Unspecified</option>
+					<option value="ipv4">ipv4</option>
+					<option value="ipv6">ipv6</option>
+				</select>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for="alloc-vif-amzaddr" class="text-sm text-slate-600 dark:text-slate-300"
+						>Amazon Address (optional)</label
+					>
+					<input
+						id="alloc-vif-amzaddr"
+						bind:value={allocVifAmazonAddress}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for="alloc-vif-custaddr" class="text-sm text-slate-600 dark:text-slate-300"
+						>Customer Address (optional)</label
+					>
+					<input
+						id="alloc-vif-custaddr"
+						bind:value={allocVifCustomerAddress}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+			</div>
+			<div>
+				<label for="alloc-vif-authkey" class="text-sm text-slate-600 dark:text-slate-300"
+					>BGP Auth Key (optional)</label
+				>
+				<input
+					id="alloc-vif-authkey"
+					bind:value={allocVifAuthKey}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			{#if allocVifType === 'public'}
+				<div>
+					<label for="alloc-vif-prefixes" class="text-sm text-slate-600 dark:text-slate-300"
+						>Route Filter Prefixes (comma or newline separated CIDRs)</label
+					>
+					<textarea
+						id="alloc-vif-prefixes"
+						bind:value={allocVifRouteFilterPrefixes}
+						rows="2"
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					></textarea>
+				</div>
+			{:else}
+				<div>
+					<label for="alloc-vif-mtu" class="text-sm text-slate-600 dark:text-slate-300">MTU</label>
+					<input
+						id="alloc-vif-mtu"
+						type="number"
+						bind:value={allocVifMtu}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<p class="text-xs text-slate-500 dark:text-slate-400">
+					Unlike Create*VirtualInterface, an allocation cannot attach a gateway or enable
+					SiteLink -- the owning account does that when it confirms the virtual interface.
+				</p>
+			{/if}
+			{#if allocateVifError}
+				<p class="text-sm text-red-600 dark:text-red-400">{allocateVifError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => allocateVifModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitAllocateVif}
+			disabled={allocatingVif}
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+			>{allocatingVif ? 'Allocating...' : 'Allocate'}</button
 		>
 	{/snippet}
 </Modal>

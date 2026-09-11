@@ -284,6 +284,183 @@ describe("Direct Connect Page", () => {
     expect(screen.getByText(/NNI partner type: nonPartner/)).toBeInTheDocument();
   });
 
+  it("allocates a connection on an interconnect and lists it under hosted connections", async () => {
+    mockSend.mockResolvedValueOnce({ connections: [] });
+    render(DirectConnectPage);
+    await waitFor(() => screen.getByText("No connections found"));
+
+    await fireEvent.click(screen.getByText("Hosted Connections"));
+    await fireEvent.click(screen.getByRole("button", { name: "Allocate on Interconnect" }));
+    const dialog = within(openDialog());
+    await fireEvent.input(dialog.getByLabelText("Interconnect ID"), {
+      target: { value: "dxcon-ic000001" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Owner Account"), {
+      target: { value: "222222222222" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Connection Name"), {
+      target: { value: "hosted-conn-1" },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      connectionId: "dxcon-hosted01",
+      connectionName: "hosted-conn-1",
+      ownerAccount: "222222222222",
+    });
+    mockSend.mockResolvedValueOnce({
+      connections: [
+        {
+          connectionId: "dxcon-hosted01",
+          connectionName: "hosted-conn-1",
+          connectionState: "pending",
+          bandwidth: "1Gbps",
+          ownerAccount: "222222222222",
+        },
+      ],
+    });
+    await fireEvent.click(dialog.getByRole("button", { name: "Allocate" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "hosted-conn-1" })).toBeInTheDocument();
+    });
+  });
+
+  it("allocates a hosted connection on an interconnect or LAG and lists it", async () => {
+    mockSend.mockResolvedValueOnce({ connections: [] });
+    render(DirectConnectPage);
+    await waitFor(() => screen.getByText("No connections found"));
+
+    await fireEvent.click(screen.getByText("Hosted Connections"));
+    await fireEvent.click(screen.getByRole("button", { name: "Allocate Hosted Connection" }));
+    const dialog = within(openDialog());
+    await fireEvent.input(dialog.getByLabelText("Interconnect or LAG ID"), {
+      target: { value: "dxlag-abcd1234" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Owner Account"), {
+      target: { value: "222222222222" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Connection Name"), {
+      target: { value: "hosted-conn-2" },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      connectionId: "dxcon-hosted02",
+      connectionName: "hosted-conn-2",
+      ownerAccount: "222222222222",
+    });
+    mockSend.mockResolvedValueOnce({
+      connections: [
+        {
+          connectionId: "dxcon-hosted02",
+          connectionName: "hosted-conn-2",
+          connectionState: "pending",
+          bandwidth: "1Gbps",
+          ownerAccount: "222222222222",
+        },
+      ],
+    });
+    await fireEvent.click(dialog.getByRole("button", { name: "Allocate" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "hosted-conn-2" })).toBeInTheDocument();
+    });
+  });
+
+  it("associates a hosted connection with a new interconnect or LAG", async () => {
+    mockSend.mockResolvedValueOnce({ connections: [] });
+    render(DirectConnectPage);
+    await waitFor(() => screen.getByText("No connections found"));
+
+    await fireEvent.click(screen.getByText("Hosted Connections"));
+    await fireEvent.input(screen.getByPlaceholderText("Hosted connection ID"), {
+      target: { value: "dxcon-hosted01" },
+    });
+    await fireEvent.input(screen.getByPlaceholderText("New interconnect or LAG ID"), {
+      target: { value: "dxlag-newparent" },
+    });
+
+    mockSend.mockResolvedValueOnce({ connectionId: "dxcon-hosted01" });
+    await fireEvent.click(screen.getByRole("button", { name: "Associate" }));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalled();
+    });
+  });
+
+  it("loads connections on an interconnect as a single page", async () => {
+    mockSend.mockResolvedValueOnce({ connections: [] });
+    render(DirectConnectPage);
+    await waitFor(() => screen.getByText("No connections found"));
+
+    await fireEvent.click(screen.getByText("Hosted Connections"));
+    expect(screen.getByText(/single full page/)).toBeInTheDocument();
+
+    await fireEvent.input(screen.getByPlaceholderText("Interconnect ID"), {
+      target: { value: "dxcon-ic000001" },
+    });
+    mockSend.mockResolvedValueOnce({
+      connections: [
+        {
+          connectionId: "dxcon-onic0001",
+          connectionName: "on-interconnect-conn",
+          connectionState: "available",
+          bandwidth: "1Gbps",
+        },
+      ],
+    });
+    const loadButtons = screen.getAllByRole("button", { name: "Load" });
+    await fireEvent.click(loadButtons[loadButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "on-interconnect-conn" })).toBeInTheDocument();
+    });
+  });
+
+  it("allocates a private virtual interface to another account", async () => {
+    mockSend.mockResolvedValueOnce({ connections: [] });
+    render(DirectConnectPage);
+    await waitFor(() => screen.getByText("No connections found"));
+
+    mockSend.mockResolvedValueOnce({ virtualInterfaces: [] });
+    await fireEvent.click(screen.getByText("Virtual Interfaces"));
+    await waitFor(() => screen.getByText("No virtual interfaces found"));
+
+    await fireEvent.click(screen.getByRole("button", { name: "Allocate VIF to Account" }));
+    const dialog = within(openDialog());
+    await fireEvent.input(dialog.getByLabelText("Connection ID"), {
+      target: { value: "dxcon-abcd1234" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Owner Account"), {
+      target: { value: "222222222222" },
+    });
+    await fireEvent.input(dialog.getByLabelText("Name"), {
+      target: { value: "allocated-vif" },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      virtualInterfaceId: "dxvif-alloc001",
+      virtualInterfaceName: "allocated-vif",
+      virtualInterfaceType: "private",
+      ownerAccount: "222222222222",
+    });
+    mockSend.mockResolvedValueOnce({
+      virtualInterfaces: [
+        {
+          virtualInterfaceId: "dxvif-alloc001",
+          virtualInterfaceName: "allocated-vif",
+          virtualInterfaceType: "private",
+          virtualInterfaceState: "confirming",
+          ownerAccount: "222222222222",
+        },
+      ],
+    });
+    await fireEvent.click(dialog.getByRole("button", { name: "Allocate" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "allocated-vif" })).toBeInTheDocument();
+    });
+  });
+
   it("filters connections by search query", async () => {
     const other = {
       ...exampleConnection,
